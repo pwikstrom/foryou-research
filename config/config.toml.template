@@ -1,0 +1,58 @@
+##########################################################################################
+# Gemini settings (TEMPLATE)
+##########################################################################################
+[gemini]
+
+# Your Gemini API Key (do NOT store real keys in the repo)
+key = "<REDACTED_GEMINI_KEY>"
+
+# The model to use for Gemini
+model = "gemini-2.5-flash"
+
+# the prompt files (relative to repo root)
+new_prompt = "new_prompt_002.txt"
+
+
+##########################################################################################
+# paths
+##########################################################################################
+[paths]
+
+# Path for all project data except for media files
+# Change this to an absolute path on your machine or use an env var.
+main = "./data/main"
+main_not_gdrive_synced = "./data/temp"
+
+# Path to your Firefox Downloads folder (used by baseline ingestion)
+firefox_downloads = "~/Downloads"
+
+
+##########################################################################################
+# misc settings
+##########################################################################################
+[misc]
+
+# label added to zeeschuimer ndjson files
+label = "no_label"
+
+# set offline=true for local development / CI to avoid network calls
+offline = true
+
+max_video_duration_for_download = 300
+
+
+##########################################################################################
+# settings for the media storage
+##########################################################################################
+[media_storage]
+
+# Use local storage by default in the template
+storage_type = "local"
+local_storage_dir = "./media"
+GCP_bucket = "<REDACTED_GCP_BUCKET>"
+
+
+# NOTES:
+# - Copy this file to `config/config.toml` and fill in real values locally.
+# - Never commit `config/config.toml` with real API keys or secrets.
+# - Prefer using environment variables for secrets when possible.

@@ -31,7 +31,7 @@
 ## Configuration
 - Edit `config/config.toml` for paths, Gemini model/prompt, GCP bucket, and offline toggle; pick active config via `config/core.toml`.
 - Study presets (date ranges, sampling, inclusion flags) live in `config/studies.toml`; `init_config` injects selected study into runtime config.
-- Sensitive values (API keys, bucket names) are plain text—avoid committing modified secrets.
+- Set `GEMINI_API_KEY` in your environment; the config file leaves the key blank to avoid committing secrets.
 
 ## Typical workflows
 - **Ingest (donations/baseline)**: notebooks in `ddp_ingest/` and `baseline_ingest/` pull raw logs/metadata; `fyp/donations.py` can scan/download recent donations via AWS CLI.

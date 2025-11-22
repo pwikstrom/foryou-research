@@ -1,0 +1,116 @@
+# ====================================================================================
+# This is where you define parameters for different studies
+# ====================================================================================
+
+# MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
+# MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
+
+# START_DATE & END_DATE: Only keep events between these date - parameters exist for DDPs and for Baseline
+
+# the data donations contains a rather large number of events, so we can sample them to make 
+# the subsequent processing faster and cheaper
+# NOTE that this is a systematic sampling of the DDP events to ensure reproducibility. It is not a random sampling.
+# DDP_SAMPLING_FRACTION = 0 # set to zero to not sample anything, set to 1.0 to include all events
+
+# sometimes we want to focus on certain donations. This allows you to do this
+# It's a list of special donation IDs that are included in addition to the sampled events
+# SPECIAL_DONATIONS = []
+
+# Is Zeeschuimer data be included in the study
+# if this is set to True ONLY zeeschuimer data will be included in the log export since log export 
+# can only contain either DDP events or Zeeschuimer data, not both.
+# the export of unique video stats though, can contain both DDP events and Zeeschuimer data
+# INCLUDE_ZEESCHUIMER_DATA = True
+
+# some variables from the data enrichment is only found for a very small number of logged events
+# these are note useful int he exports and might as well be dropped. This parameter controls the threshold for dropping these columns
+# if the fraction of missing data in a column is above this threshold, the column is dropped
+# COL_MISSING_DATA_THRES = 0.5
+
+# timestamps in the data donation logs are reported in local timezones without information about 
+# which timezone it is. This parameter sets the assumed timezone for these.
+# TODO: If we go international, this needs to be adjusted so that it can handle multiple timezones.
+# TIME_ZONE = "Australia/Brisbane"
+
+
+[baseline_only]
+MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
+MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
+DDP_START_DATE = "2024-05-15" # only keep events after this date
+DDP_END_DATE = "2024-07-15" # only keep events before this date
+BASELINE_START_DATE = "2024-05-15" # only keep events after this date
+BASELINE_END_DATE = "2024-07-15" # only keep events before this date
+DDP_SAMPLING_FRACTION = 0.0 # set to zero to not sample anything, set to 1.0 to include all events
+DDP_STRATIFICATION_VARIABLE = "" # parameter for stratified random sampling with disproportionate allocation
+DDP_STRATUM_SIZE = -1 # parameter for stratified random sampling with disproportionate allocation
+SPECIAL_DONATIONS = []
+INCLUDE_ZEESCHUIMER_DATA = true
+COL_MISSING_DATA_THRES = 0.5
+TIME_ZONE = "Australia/Brisbane"
+
+
+[everything]
+MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
+MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
+DDP_START_DATE = "2023-01-01" # only keep events after this date
+DDP_END_DATE = "2025-12-31" # only keep events before this date
+BASELINE_START_DATE = "2024-05-15" # only keep events after this date
+BASELINE_END_DATE = "2024-07-15" # only keep events before this date
+DDP_SAMPLING_FRACTION = 0.1 # set to zero to not sample anything, set to 1.0 to include all events
+DDP_STRATIFICATION_VARIABLE = "donation_id" # parameter for stratified random sampling with disproportionate allocation
+DDP_STRATUM_SIZE = 100 # parameter for stratified random sampling with disproportionate allocation
+SPECIAL_DONATIONS = []
+INCLUDE_ZEESCHUIMER_DATA = true
+COL_MISSING_DATA_THRES = 0.5
+TIME_ZONE = "Australia/Brisbane"
+
+
+[compare_dd_w_baseline]
+MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
+MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
+DDP_START_DATE = "2024-05-15" # only keep events after this date
+DDP_END_DATE = "2024-07-15" # only keep events before this date
+BASELINE_START_DATE = "2024-05-15" # only keep events after this date
+BASELINE_END_DATE = "2024-07-15" # only keep events before this date
+DDP_SAMPLING_FRACTION = 0.1 # set to zero to not sample anything, set to 1.0 to include all events
+DDP_STRATIFICATION_VARIABLE = "donation_id" # parameter for stratified random sampling with disproportionate allocation
+DDP_STRATUM_SIZE = 100 # parameter for stratified random sampling with disproportionate allocation
+SPECIAL_DONATIONS = []
+INCLUDE_ZEESCHUIMER_DATA = true
+COL_MISSING_DATA_THRES = 0.5
+TIME_ZONE = "Australia/Brisbane"
+
+
+[chenglong]
+MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
+MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
+DDP_START_DATE = "2025-04-15" # only keep events after this date
+DDP_END_DATE = "2025-04-22" # only keep events before this date
+BASELINE_START_DATE = "2024-05-15" # only keep events after this date
+BASELINE_END_DATE = "2024-07-15" # only keep events before this date
+DDP_SAMPLING_FRACTION = 1.0 # set to zero to not sample anything, set to 1.0 to include all events
+DDP_STRATIFICATION_VARIABLE = "" # parameter for stratified random sampling with disproportionate allocation
+DDP_STRATUM_SIZE = -1 # parameter for stratified random sampling with disproportionate allocation
+SPECIAL_DONATIONS = [
+    'c7902493-838e-4602-a0c7-16b5ba8fba72',
+    '84987fbf-b3d5-4f1d-9957-6ebad5ec6d18',
+    'ae283f03-d5f7-40a4-beb3-b70e9c95aac2']
+INCLUDE_ZEESCHUIMER_DATA = false
+COL_MISSING_DATA_THRES = 0.5
+TIME_ZONE = "Australia/Brisbane"
+
+
+[ica2026]
+MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
+MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
+DDP_START_DATE = "2024-07-01" # only keep events after this date
+DDP_END_DATE = "2024-12-31" # only keep events before this date
+BASELINE_START_DATE = "2024-05-15" # only keep events after this date
+BASELINE_END_DATE = "2024-07-15" # only keep events before this date
+DDP_SAMPLING_FRACTION = 1.0 # set to zero to not sample anything, set to 1.0 to include all events
+DDP_STRATIFICATION_VARIABLE = "" # parameter for stratified random sampling with disproportionate allocation
+DDP_STRATUM_SIZE = -1 # parameter for stratified random sampling with disproportionate allocation
+SPECIAL_DONATIONS = []
+INCLUDE_ZEESCHUIMER_DATA = false
+COL_MISSING_DATA_THRES = 0.5
+TIME_ZONE = "Australia/Brisbane"

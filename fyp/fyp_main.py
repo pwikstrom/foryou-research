@@ -30,6 +30,7 @@ def create_dirs(this_cf: dict, clear_temp_dir: bool = False) -> None:
 
 
 def init_config(verbose=False, abs_project_root_path=None) -> dict:
+    from os import environ
     from os.path import join, abspath
     import toml
 
@@ -58,6 +59,15 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
     
 
     cf = toml.load(config_path)
+    # Prefer env var for secrets; fall back to file if present (avoid committing real keys)
+    gcp_bucket_name = environ.get("FYP_GCP_BUCKET_NAME")
+    if gcp_bucket_name:
+        cf["media_storage"]["GCP_bucket"] = gcp_bucket_name
+
+    # Prefer env var for secrets; fall back to file if present (avoid committing real keys)
+    gemini_env_key = environ.get("GEMINI_API_KEY")
+    if gemini_env_key:
+        cf["gemini"]["key"] = gemini_env_key
 
     study_defs = toml.load(study_defs_path)
     for study_name in study_defs.keys():
@@ -748,4 +758,3 @@ def DONT_USE_load_blob_from_storage(storage_location, filename, prefix="", dest_
 
 if __name__ == "__main__":
     print("Module is being run directly.")
-
