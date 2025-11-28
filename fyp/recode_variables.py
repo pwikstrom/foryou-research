@@ -1,4 +1,6 @@
 
+import fyp.fyp_main as fyp
+
 
 
 NOT_CODED = "not coded"
@@ -92,8 +94,9 @@ def _is_emoji(s: str) -> bool:
 
 def get_factors_from_var_scheme(some_events_df):
     import pandas as pd
+    from os.path import join
 
-    var_scheme = pd.read_csv("/Users/<user>/GitHub_main/fyp_main/analysis_notebooks/var_scheme.csv").set_index("variable_name")#.T.to_dict()
+    var_scheme = pd.read_csv(join(fyp.cf['paths']['project_root'],"config","var_scheme.csv")).set_index("variable_name")#.T.to_dict()
     return list(set(var_scheme[var_scheme["scale"]=='factor'].index) & set(some_events_df.columns))
 
 
@@ -537,8 +540,10 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 def recode_events_df(cool_events_in):
 
     import pandas as pd
+    from os.path import join
 
-    var_scheme = pd.read_csv("/Users/<user>/GitHub_main/fyp_main/analysis_notebooks/var_scheme.csv").set_index("variable_name")#.T.to_dict()
+
+    var_scheme = pd.read_csv(join(fyp.cf['paths']['project_root'],"config","var_scheme.csv")).set_index("variable_name")#.T.to_dict()
 
     var_scheme[['mapper','ignore_strings','recode_func']] = var_scheme[['mapper','ignore_strings','recode_func']].map(_try_eval)
 

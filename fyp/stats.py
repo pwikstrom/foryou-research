@@ -183,4 +183,6 @@ def run_many_permanova(
     significant_associations = permanova_on_fyp_features[permanova_on_fyp_features["p-value"]<0.01]
     significant_fyp_features = list(significant_associations.index.map(lambda x:x.split("-->")[-1]))
 
+    return permanova_on_fyp_features
+
     #significant_fyp_features

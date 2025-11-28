@@ -402,7 +402,11 @@ def transform_categories_to_components_and_diversity(
 def calculate_scaled_pca_scores(
     some_events_df,
     selected_factors = ["D_donation_id","T_local_date"],
-    minimum_group_size = 10
+    minimum_group_size = 10,
+    target_explained_variance = 0.8,
+    drop_rare_globally_below = 0.01,
+    scale_it = True
+
 ):
 
     from pandas import NamedAgg, MultiIndex, DataFrame, concat
@@ -454,8 +458,8 @@ def calculate_scaled_pca_scores(
                 metric="hellinger",#"jensen-shannon",
                 gamma=0.8,
                 max_components=15,
-                target_explained_variance=0.85,
-                drop_rare_globally_below=0.01,
+                target_explained_variance=target_explained_variance,
+                drop_rare_globally_below=drop_rare_globally_below,
                 verbose=False)
             wer.drop("top1", axis=1, inplace=True, errors="ignore")
             wer.columns = [c+"_"+col for col in wer.columns]
@@ -477,6 +481,8 @@ def calculate_scaled_pca_scores(
     print()
     print(f"Rows: {len(events_pca_scores):,} -- Cols: {len(events_pca_scores.columns):,}")
 
+    if not scale_it:
+        return events_pca_scores
 
     print()
     print(f"Step 3: Scaling pca scores and concatenating factors into the scaled table")
