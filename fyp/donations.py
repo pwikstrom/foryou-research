@@ -1,13 +1,12 @@
 
 
-from os import rename as os_rename
-import pandas as pd
-import numpy as np
-from shlex import quote as shlex_quote
-from pathlib import Path
-from typing import Any, Dict, List
-import re
-import requests
+#import pandas as pd
+
+#from pathlib import Path
+
+
+
+
 
 
 
@@ -21,7 +20,7 @@ def download_recent_metadata(hours_back: int,
                              "donationtablesmetadatatable1526CA1C-J3HP8RPY7RRW"
                          ),
                          campaign_name: str = "qut",
-                         use_local_time: bool = False) -> Path:
+                         use_local_time: bool = False):
 
 
     """
@@ -37,7 +36,7 @@ def download_recent_metadata(hours_back: int,
     import datetime as _dt
     from pathlib import Path
     import subprocess
-
+    from shlex import quote as shlex_quote
 
 
     # ---------------------------------------------------------------
@@ -46,8 +45,6 @@ def download_recent_metadata(hours_back: int,
     now = (_dt.datetime.now(_dt.timezone.utc)
            if not use_local_time
            else _dt.datetime.now().astimezone())          # Brisbane local
-    # cutoff = now - _dt.timedelta(hours=hours_back)
-    # share_date = cutoff.replace(microsecond=0).isoformat()
 
     file_stamp = now.strftime("%Y%m%d%H%M%S") 
 
@@ -69,15 +66,6 @@ def download_recent_metadata(hours_back: int,
         "--select ALL_ATTRIBUTES "
         "--page-size 500 "
         "--max-items 100000 "
-        #"--filter-expression "
-        #"\"campaign = :campaignName and consentProvided = :consent "
-        #"and #d >= :shareDate\" "
-        #"--expression-attribute-names "
-        #"'{\"#d\": \"date\"}' "
-        #"--expression-attribute-values "
-        #f"'{{\":campaignName\": {{\"S\": \"{campaign_name}\"}}, "
-        #f"\":consent\": {{\"BOOL\": true}}, "
-        #f"\":shareDate\": {{\"S\": \"{share_date}\"}}}}' "
         "--output json"
     )
 
@@ -151,20 +139,6 @@ def download_recent_donations(hours_back: int,
     # ------------------------------------------------------------------
     # 3) Build the shell command (quote everything that may contain spaces)
     # ------------------------------------------------------------------
-    #scan_cmd = (
-    #    "aws dynamodb scan "
-    #    f"--table-name {shlex_quote(table_name)} "
-    #    "--filter-expression "
-    #    "\"campaign = :campaignName and consentProvided = :consent and #d >= :shareDate\" "
-    #    "--expression-attribute-names "
-    #    "'{\"#d\": \"date\"}' "
-    #    "--expression-attribute-values "
-    #    f"'{{\":campaignName\": {{\"S\": \"{campaign_name}\"}}, "
-    #    f"\":consent\": {{\"BOOL\": true}}, "
-    #    f"\":shareDate\": {{\"S\": \"{share_date}\"}}}}' "
-    #    "--query 'Items[*].id.S'"
-    #)
-
     scan_cmd = (
         "aws dynamodb scan "
         f"--table-name {shlex_quote(table_name)} "
@@ -177,12 +151,8 @@ def download_recent_donations(hours_back: int,
         f"'{{\":consent\": {{\"BOOL\": true}}, "
         f"\":shareDate\": {{\"S\": \"{share_date}\"}}}}' "
 
-#        f"\":consent\": {{\"BOOL\": true}}, "
-#        f"'{{\":shareDate\": {{\"S\": \"{share_date}\"}}}}' "
         "--query 'Items[*].id.S'"
     )
-
-
 
 
     # We pipe the result through jq and xargs, then copy each object
@@ -200,8 +170,6 @@ def download_recent_donations(hours_back: int,
 
 
 
-# check for similarities in the donations by looking for the same timestamps in the donations. 
-# The assumption is that if two donations have a lot of the same timestamps, they are likely to be duplicates
 
 
 def identify_similar_donations(
@@ -209,6 +177,35 @@ def identify_similar_donations(
     old_events=None,
     dont_check_these_cols=[],
     overlap_threshold=0.5):
+    """
+    Identify similar donations based on timestamp overlap.
+
+    check for similarities in the donations by looking for the same timestamps in the donations. 
+    The assumption is that if two donations have a lot of the same timestamps, they are likely to be duplicates
+
+
+    This function compares the timestamps of events in new donations against old donations (or within new donations themselves)
+    to identify potential duplicates or highly similar donations.
+
+    Parameters
+    ----------
+    new_events : pandas.DataFrame
+        DataFrame containing the new donation events. Must contain 'donation_id', 'feature_name', and 'timestamp' columns.
+    old_events : pandas.DataFrame, optional
+        DataFrame containing existing donation events to compare against. If None, compares new_events against itself.
+    dont_check_these_cols : list, optional
+        List of feature names to exclude from the comparison.
+    overlap_threshold : float, default 0.5
+        The threshold for timestamp overlap ratio to consider donations as similar.
+
+    Returns
+    -------
+    dict
+        A dictionary containing sets of donation IDs:
+        - "new_drops": IDs of new donations to be dropped.
+        - "old_drops": IDs of old donations to be dropped.
+        - "keepers": IDs of donations to keep.
+    """
 
     if new_events is None:
         raise ValueError("new_events cannot be None")
@@ -262,30 +259,26 @@ def identify_similar_donations(
 
 
 
-def move_files(filenames_to_move, from_dir, to_dir):
-
-    from os.path import join, exists
-
-    my_little_counter = 0
-    for filename in filenames_to_move:
-        if exists(join(from_dir, filename)):
-
-            # move the file to the archive folder
-            os_rename(join(from_dir, filename), join(to_dir, filename))
-            
-            my_little_counter += 1
-    if my_little_counter == 0:
-        print("No files to move")
-    else:
-        print(f"Moved {my_little_counter} files from {from_dir} to {to_dir}")
-
-
-
 
 # identify exact duplicates among the donated JSONs and remove these
 # the filtered JSONs go inte the new variable 'no_duplicate_donations'
 
 def drop_duplicates_donations(donation_data, no_duplicate_donations = {}):
+    """
+    Identify and remove exact duplicate donations from the raw data.
+
+    Parameters
+    ----------
+    donation_data : dict
+        Dictionary of raw donation data where keys are donation IDs and values are donation content.
+    no_duplicate_donations : dict, optional
+        Dictionary to store unique donations. If provided, checks against these as well.
+
+    Returns
+    -------
+    dict
+        A dictionary containing only the unique donations.
+    """
     # iterate over all donation IDs
     print(f"Number of donations before dropping duplicates: {len(donation_data)}")
     for donation_id in donation_data.keys():
@@ -306,126 +299,32 @@ def drop_duplicates_donations(donation_data, no_duplicate_donations = {}):
 
 
 
-OEURL   = "https://www.tiktok.com/oembed"
-HEADERS = {"User-Agent": "Mozilla/5.0"}      # stops the occasional 403
-
-def get_tiktok_meta(url: str, timeout: int = 10) -> dict:
-    """
-    Return {'title': ..., 'thumbnail': ...} for a TikTok video link.
-    
-    Works with full   https://www.tiktok.com/@user/video/<id>
-            short    https://vm.tiktok.com/ZSe.../
-            share    https://www.tiktokv.com/share/video/<id>/
-    """
-    url = _canonicalise(url)                          # ① make it oEmbed‑friendly
-    if url is None:
-        return None
-    try:
-        r   = requests.get(OEURL, params={"url": url},
-                       headers=HEADERS, timeout=timeout)
-        #r.raise_for_status()                              # raises on 4xx/5xx
-        data = r.json()
-        return data
-    except Exception:
-        return None
-
-# ---------------------------------------------------------
-
-def _canonicalise(link: str) -> str:
-    """
-    Convert any TikTok link to something the oEmbed API likes.
-    Strategy:
-      • If it's already a normal TikTok URL, keep it.
-      • Else, pull the 19‑digit video ID and build
-        https://m.tiktok.com/v/<id>.html   (accepted by oEmbed).
-    """
-    if "tiktok.com" in link and not link.startswith("https://www.tiktokv.com"):
-        return link                                           # already fine
-    
-    # extract the numeric ID from /video/<id>/ or /v/<id>...
-    m = re.search(r"/video/(\d{10,20})|/v/(\d{10,20})", link)
-    if not m:
-        return None   #   raise ValueError("Can’t find a video ID in that URL.")
-    vid = next(group for group in m.groups() if group)        # first non‑None
-    return f"https://m.tiktok.com/v/{vid}.html"               # oEmbed‑friendly
-
-
-
-
-
-
-
-
-
-def calc_donated_items_stats(edf, sort_by=None):
-    
-    import pandas as pd
-
-    if not isinstance(edf, pd.DataFrame):
-        raise ValueError("edf must be a pandas DataFrame")
-    if 'donation_id' not in edf.columns:
-        print("Shape of the donation stats DF: (0,0)")
-        return pd.DataFrame()
-        
-    df1 = edf.groupby('donation_id').feature_name.value_counts().unstack().fillna(0).astype(int)
-    df1['total'] = df1.sum(axis=1)
-    if sort_by is None:
-        df1 = df1.sort_values("total").copy()
-    else:
-        df1 = df1.sort_values(sort_by).copy()
-    print(f"Shape of the donation stats DF: {df1.shape}")
-
-    df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
-
-    these_donation_dates = edf[["donation_id","donation_date"]].set_index("donation_id", inplace=False).to_dict()["donation_date"]
-
-    df1["other","donation_date"] = df1.index.map(lambda x: these_donation_dates[x])
-
-    return df1
-
-
-
-
-
-def calc_persona_distrib(my_df):
-    some_result = {}
-    for c in my_df.columns:
-        some_result[c] = {}
-        if isinstance(my_df[c].iloc[0], list):
-            lists_df = pd.DataFrame(my_df[c].tolist())
-
-            some_result[c]['mean'] = lists_df.mean(axis=0).tolist()
-            some_result[c]['q25'] = lists_df.quantile(0.25, axis=0).tolist()
-            some_result[c]['q75'] = lists_df.quantile(0.75, axis=0).tolist()
-            some_result[c]['median'] = lists_df.median(axis=0).tolist()
-            some_result[c]['min'] = lists_df.min(axis=0).tolist()
-            some_result[c]['max'] = lists_df.max(axis=0).tolist()
-        else:
-            try:
-                some_result[c]['mean'] = my_df[c].mean()
-                some_result[c]['q25'] = my_df[c].quantile(0.25)
-                some_result[c]['q75'] = my_df[c].quantile(0.75)
-                some_result[c]['median'] = my_df[c].median()
-                some_result[c]['min'] = my_df[c].min()
-                some_result[c]['max'] = my_df[c].max()
-            except Exception:
-                pass
-                #print(f"{c} is not a number of a list of numbers")
-    return pd.DataFrame(some_result).T
-
-
-
-
-
-
-
 
 def transform_data_to_df(data_input, donation_item_id=0):
+    """
+    Transform raw donation dictionary into a structured pandas DataFrame.
+
+    This function flattens the nested dictionary structure of donations, extracts relevant events,
+    and performs initial cleaning and feature engineering.
+
+    Parameters
+    ----------
+    data_input : dict
+        Dictionary of raw donation data.
+    donation_item_id : int, default 0
+        Starting ID for donation items.
+
+    Returns
+    -------
+    tuple
+        - pandas.DataFrame: DataFrame containing the processed events.
+        - dict: Unchanged donated variables (currently empty).
+    """
 
 
     from collections import deque
     import pandas as pd
-
+    import numpy as np
 
 
     donation_items = []
@@ -518,11 +417,182 @@ def transform_data_to_df(data_input, donation_item_id=0):
 
 
 
-def load_metadata_directory(
-    dir_path: str | Path,
+
+
+
+
+
+def calc_donated_items_stats(edf, sort_by=None):
+    """
+    Calculate statistics for donated items, specifically counting feature occurrences per donation.
+
+    Parameters
+    ----------
+    edf : pandas.DataFrame
+        Events DataFrame containing 'donation_id' and 'feature_name' columns.
+    sort_by : str, optional
+        Column name to sort the resulting DataFrame by. If None, sorts by 'total'.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame with donation IDs as index and counts of each feature as columns.
+        Includes a 'total' column and 'donation_date' (if available).
+    """
+    
+    import pandas as pd
+
+    if not isinstance(edf, pd.DataFrame):
+        raise ValueError("edf must be a pandas DataFrame")
+    if 'donation_id' not in edf.columns:
+        print("Shape of the donation stats DF: (0,0)")
+        return pd.DataFrame()
+        
+    df1 = edf.groupby('donation_id').feature_name.value_counts().unstack().fillna(0).astype(int)
+    df1['total'] = df1.sum(axis=1)
+    if sort_by is None:
+        df1 = df1.sort_values("total").copy()
+    else:
+        df1 = df1.sort_values(sort_by).copy()
+    print(f"Shape of the donation stats DF: {df1.shape}")
+
+    df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
+
+    these_donation_dates = edf[["donation_id","donation_date"]].set_index("donation_id", inplace=False).to_dict()["donation_date"]
+
+    df1["other","donation_date"] = df1.index.map(lambda x: these_donation_dates[x])
+
+    return df1
+
+
+
+
+
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+
+
+
+
+
+OEURL   = "https://www.tiktok.com/oembed"
+HEADERS = {"User-Agent": "Mozilla/5.0"}      # stops the occasional 403
+
+def OLDOLD_get_tiktok_meta(url: str, timeout: int = 10) -> dict:
+    """
+    Return {'title': ..., 'thumbnail': ...} for a TikTok video link.
+    
+    Works with full   https://www.tiktok.com/@user/video/<id>
+            short    https://vm.tiktok.com/ZSe.../
+            share    https://www.tiktokv.com/share/video/<id>/
+    """
+
+    import requests
+
+
+
+    url = OLDOLD_canonicalise(url)                          # ① make it oEmbed‑friendly
+    if url is None:
+        return None
+    try:
+        r   = requests.get(OEURL, params={"url": url},
+                       headers=HEADERS, timeout=timeout)
+        #r.raise_for_status()                              # raises on 4xx/5xx
+        data = r.json()
+        return data
+    except Exception:
+        return None
+
+# ---------------------------------------------------------
+
+
+
+
+
+def OLDOLD_canonicalise(link: str) -> str:
+    """
+    Convert any TikTok link to something the oEmbed API likes.
+    Strategy:
+      • If it's already a normal TikTok URL, keep it.
+      • Else, pull the 19‑digit video ID and build
+        https://m.tiktok.com/v/<id>.html   (accepted by oEmbed).
+    """
+
+    import re
+
+
+    if "tiktok.com" in link and not link.startswith("https://www.tiktokv.com"):
+        return link                                           # already fine
+    
+    # extract the numeric ID from /video/<id>/ or /v/<id>...
+    m = re.search(r"/video/(\d{10,20})|/v/(\d{10,20})", link)
+    if not m:
+        return None   #   raise ValueError("Can’t find a video ID in that URL.")
+    vid = next(group for group in m.groups() if group)        # first non‑None
+    return f"https://m.tiktok.com/v/{vid}.html"               # oEmbed‑friendly
+
+
+
+
+
+
+
+def OLDOLD_calc_persona_distrib(my_df):
+    """
+    Calculate distribution statistics (mean, quantiles, min, max) for columns in a DataFrame.
+
+    Parameters
+    ----------
+    my_df : pandas.DataFrame
+        Input DataFrame containing numerical data or lists of numbers.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame where rows are the columns of the input DataFrame and columns are the statistics
+        ('mean', 'q25', 'q75', 'median', 'min', 'max').
+    """
+    import pandas as pd
+
+    some_result = {}
+    for c in my_df.columns:
+        some_result[c] = {}
+        if isinstance(my_df[c].iloc[0], list):
+            lists_df = pd.DataFrame(my_df[c].tolist())
+
+            some_result[c]['mean'] = lists_df.mean(axis=0).tolist()
+            some_result[c]['q25'] = lists_df.quantile(0.25, axis=0).tolist()
+            some_result[c]['q75'] = lists_df.quantile(0.75, axis=0).tolist()
+            some_result[c]['median'] = lists_df.median(axis=0).tolist()
+            some_result[c]['min'] = lists_df.min(axis=0).tolist()
+            some_result[c]['max'] = lists_df.max(axis=0).tolist()
+        else:
+            try:
+                some_result[c]['mean'] = my_df[c].mean()
+                some_result[c]['q25'] = my_df[c].quantile(0.25)
+                some_result[c]['q75'] = my_df[c].quantile(0.75)
+                some_result[c]['median'] = my_df[c].median()
+                some_result[c]['min'] = my_df[c].min()
+                some_result[c]['max'] = my_df[c].max()
+            except Exception:
+                pass
+                #print(f"{c} is not a number of a list of numbers")
+    return pd.DataFrame(some_result).T
+
+
+
+
+
+
+
+def OLDOLD_load_metadata_directory(
+    dir_path,
     *,
     include_filename: bool = True,
-) -> pd.DataFrame:
+):
     """
     Read every *.json file in *dir_path* and concatenate the DynamoDB
     `Items` sections into one pandas DataFrame.
@@ -546,7 +616,7 @@ def load_metadata_directory(
     from pathlib import Path
     import pandas as pd
     import json
-
+    from typing import Any, Dict, List
 
     dir_path = Path(dir_path).expanduser().resolve()
     if not dir_path.is_dir():
@@ -594,14 +664,14 @@ def load_metadata_directory(
 
 
 
-def update_metadata_store(
-    json_dir: str | Path,
-    store_path: str | Path,
+def OLDOLD_update_metadata_store(
+    json_dir,
+    store_path,
     *,
     dedupe_on: str = "id",
     output_format: str = "pickle",     # "parquet", "csv", or "pickle"
     **load_kwargs,                     # forwarded to load_metadata_directory
-) -> pd.DataFrame:
+):
     """
     Ingest new JSON files, merge with an existing on‑disk DataFrame,
     save the result, and return it.
@@ -667,5 +737,44 @@ def update_metadata_store(
         combined.to_pickle(store_path)
 
     return len(combined)
+
+
+
+
+
+def OLDOLD_move_files(filenames_to_move, from_dir, to_dir):
+    """
+    Move a list of files from one directory to another.
+
+    Parameters
+    ----------
+    filenames_to_move : list
+        List of filenames to move.
+    from_dir : str
+        Source directory path.
+    to_dir : str
+        Destination directory path.
+
+    Returns
+    -------
+    None
+    """
+
+    from os.path import join, exists
+    from os import rename as os_rename
+
+    my_little_counter = 0
+    for filename in filenames_to_move:
+        if exists(join(from_dir, filename)):
+
+            # move the file to the archive folder
+            os_rename(join(from_dir, filename), join(to_dir, filename))
+            
+            my_little_counter += 1
+    if my_little_counter == 0:
+        print("No files to move")
+    else:
+        print(f"Moved {my_little_counter} files from {from_dir} to {to_dir}")
+
 
 
