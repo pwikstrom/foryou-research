@@ -1,17 +1,13 @@
 
 
-from os import listdir
 from os import rename as os_rename
-import json
 import pandas as pd
-from copy import deepcopy
-import math
 import numpy as np
 from shlex import quote as shlex_quote
 from pathlib import Path
 from typing import Any, Dict, List
-
-
+import re
+import requests
 
 
 
@@ -50,8 +46,8 @@ def download_recent_metadata(hours_back: int,
     now = (_dt.datetime.now(_dt.timezone.utc)
            if not use_local_time
            else _dt.datetime.now().astimezone())          # Brisbane local
-    cutoff = now - _dt.timedelta(hours=hours_back)
-    share_date = cutoff.replace(microsecond=0).isoformat()
+    # cutoff = now - _dt.timedelta(hours=hours_back)
+    # share_date = cutoff.replace(microsecond=0).isoformat()
 
     file_stamp = now.strftime("%Y%m%d%H%M%S") 
 
@@ -268,7 +264,7 @@ def identify_similar_donations(
 
 def move_files(filenames_to_move, from_dir, to_dir):
 
-    from os.path import join, getmtime, exists, isfile
+    from os.path import join, exists
 
     my_little_counter = 0
     for filename in filenames_to_move:
@@ -279,7 +275,7 @@ def move_files(filenames_to_move, from_dir, to_dir):
             
             my_little_counter += 1
     if my_little_counter == 0:
-        print(f"No files to move")
+        print("No files to move")
     else:
         print(f"Moved {my_little_counter} files from {from_dir} to {to_dir}")
 
@@ -309,62 +305,6 @@ def drop_duplicates_donations(donation_data, no_duplicate_donations = {}):
 
 
 
-def save_image(the_video_link, folder: str = "images", verbose: bool = False) -> Path:
-
-    # Make sure the target folder exists
-    Path(folder).mkdir(parents=True, exist_ok=True)
-
-    if xx[the_video_link] is None:
-        print("1",end="", flush=True)
-        if verbose:
-            print(f"No thumbnail URL found for {the_video_link}. Skipping download.")
-        return None
-
-    filename = "thumb_" + the_video_link.split("/")[-2] + ".jpeg"
-    url = xx[the_video_link].get("thumbnail_url",None)
-
-    if url is None:
-        print("2",end="", flush=True)
-        if verbose:
-            print(f"No thumbnail URL found for {the_video_link}. Skipping download.")
-        return None
-
-
-    if exists(Path(folder) / filename):
-        print("3",end="", flush=True)
-        if verbose:
-            print(f"File {filename} already exists in {folder}. Skipping download.")
-        return Path(folder) / filename
-
-    # Derive a filename from the URL (last path segment)
-    #filename = Path(urlsplit(url).path).name or "downloaded_image"
-    dest     = Path(folder) / filename
-
-    #print("***",url,"***")
-
-    try:
-        # Stream the image to disk
-        with requests.get(url, stream=True, timeout=10) as r:
-            #r.raise_for_status()          # raises on 4xx / 5xx
-            with open(dest, "wb") as f:
-                for chunk in r.iter_content(8192):
-                    f.write(chunk)
-    except Exception as e:
-        if 'No scheme supplied' in str(e):
-            # Handle the case where the URL is malformed
-            print("M",end="", flush=True)
-        else:
-            print(f"\nAn error occurred: {e}")
-        return None
-
-    print("o",end="", flush=True)
-    return dest
-
-
-
-
-
-
 
 OEURL   = "https://www.tiktok.com/oembed"
 HEADERS = {"User-Agent": "Mozilla/5.0"}      # stops the occasional 403
@@ -386,7 +326,7 @@ def get_tiktok_meta(url: str, timeout: int = 10) -> dict:
         #r.raise_for_status()                              # raises on 4xx/5xx
         data = r.json()
         return data
-    except:
+    except Exception:
         return None
 
 # ---------------------------------------------------------
@@ -424,7 +364,7 @@ def calc_donated_items_stats(edf, sort_by=None):
     if not isinstance(edf, pd.DataFrame):
         raise ValueError("edf must be a pandas DataFrame")
     if 'donation_id' not in edf.columns:
-        print(f"Shape of the donation stats DF: (0,0)")
+        print("Shape of the donation stats DF: (0,0)")
         return pd.DataFrame()
         
     df1 = edf.groupby('donation_id').feature_name.value_counts().unstack().fillna(0).astype(int)
@@ -468,7 +408,7 @@ def calc_persona_distrib(my_df):
                 some_result[c]['median'] = my_df[c].median()
                 some_result[c]['min'] = my_df[c].min()
                 some_result[c]['max'] = my_df[c].max()
-            except Exception as e:
+            except Exception:
                 pass
                 #print(f"{c} is not a number of a list of numbers")
     return pd.DataFrame(some_result).T
