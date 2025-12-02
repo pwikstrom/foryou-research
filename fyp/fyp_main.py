@@ -167,7 +167,7 @@ def init_project(clear_temp_dir=False, verbose=False, offline=False) -> dict:
                 response_mime_type="application/json",
                 presence_penalty=0.6,
                 frequency_penalty=1.2,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                thinking_config=types.ThinkingConfig(thinking_budget=-1),
             )
 
             print("Gemini API, model and prompts initiated successfully")
