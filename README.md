@@ -26,10 +26,10 @@
 - Python: create/activate a virtualenv; install `pip install -r requirements.txt` (or the slim `requirements_1.txt` set).
 - Node (dashboard): from `ddp_dashboard/frontend`, run `npm install`.
 - AWS CLI + credentials required for `fyp/donations.py` download helpers.
-- GCP auth required for media bucket access if `offline` is false.
+- GCP auth required for media bucket access if `local_mode` is false.
 
 ## Configuration
-- Edit `config/config.toml` for paths, Gemini model/prompt, GCP bucket, and offline toggle; pick active config via `config/core.toml`.
+- Edit `config/config.toml` for paths, Gemini model/prompt, GCP bucket, and local_mode toggle; pick active config via `config/core.toml`.
 - Study presets (date ranges, sampling, inclusion flags) live in `config/studies.toml`; `init_config` injects selected study into runtime config.
 - Set `GEMINI_API_KEY` in your environment; the config file leaves the key blank to avoid committing secrets.
 
@@ -68,6 +68,6 @@
   ```
 
 ## Notes and cautions
-- `fyp_main.py` will print project root and attach it to `sys.path`; it also tries to init Gemini and GCP unless `offline=true`.
+- `fyp_main.py` will print project root and attach it to `sys.path`; it also tries to init Gemini and GCP unless `local_mode=true`.
 - Data paths in `config.toml` point to local Google Drive/temp locations—adjust to your environment before running ingestion/enrichment notebooks.
 - Parquet/CSV artifacts under `ddp_dashboard/backend/data/` are sample data; replace with your exports as needed.

@@ -34,7 +34,6 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
     from os.path import join, abspath
     import toml
 
-
     if abs_project_root_path is None:
 
         from os import getcwd
@@ -75,7 +74,7 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
     cf["study_defs"] = study_defs
 
     cf["paths"]["project_root"] = abs_project_root_path
-    if cf["misc"]["offline"]:
+    if cf["misc"]["local_mode"]:
         cf["gemini"]["client"] = None
         cf['gemini']['model'] = None
         cf["gemini"]["global_generation_config"] = None
@@ -112,7 +111,7 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
 
 
 
-def init_project(clear_temp_dir=False, verbose=False, offline=False) -> dict:
+def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
 
     from os import getcwd
     from os.path import join, exists
@@ -122,6 +121,24 @@ def init_project(clear_temp_dir=False, verbose=False, offline=False) -> dict:
     from google.genai import types
     from google.api_core.exceptions import Forbidden
     from google.cloud import storage
+    import http.client as httplib
+
+
+    # function to check internet connectivity
+    def _checkInternetHttplib(url="www.qut.edu.au",
+                            timeout=3):
+        connection = httplib.HTTPConnection(url,
+                                            timeout=timeout)
+        try:
+            # only header requested for fast operation
+            connection.request("HEAD", "/")
+            connection.close()  # connection closed
+            print("Internet On")
+            return True
+        except Exception as exep:
+            print(exep)
+            return False
+
 
 
     here = getcwd().split("/")
@@ -137,12 +154,18 @@ def init_project(clear_temp_dir=False, verbose=False, offline=False) -> dict:
 
     cf = init_config(verbose=verbose, abs_project_root_path=abs_project_root_path)
 
-    offline = cf["misc"]["offline"]
+    local_mode = cf["misc"]["local_mode"]
+    if not _checkInternetHttplib():
+        local_mode = True
+        cf["gemini"]["client"] = None
+        cf['gemini']['model'] = None
+        cf["gemini"]["global_generation_config"] = None
+
 
     create_dirs(cf, clear_temp_dir)
 
-    if offline:
-        print("Offline mode - no access to GCP bucket and not initializing Gemini")
+    if local_mode:
+        print("Local mode - no access to GCP bucket and not initializing Gemini")
         
     else:
 
@@ -151,23 +174,23 @@ def init_project(clear_temp_dir=False, verbose=False, offline=False) -> dict:
                 gemini_new_prompt = file.read()
 
             cf["gemini"]["client"] = genai.Client(
-                vertexai=True,
-                project="<gcp-project>",
-                location="global",
+                vertexai=cf["gemini"]["vertexai"],
+                project=cf["gemini"]["project"],
+                location=cf["gemini"]["location"],
                 http_options=types.HttpOptions(
-                    api_version="v1",
-                    timeout=180_000
+                    api_version=cf["gemini"]["http_options_api_version"],
+                    timeout=cf["gemini"]["http_options_timeout"]
                 )
             )
 
             cf["gemini"]["global_generation_config"] = types.GenerateContentConfig(
                 system_instruction=gemini_new_prompt,
-                temperature=0.0,
-                max_output_tokens=65536,
-                response_mime_type="application/json",
-                presence_penalty=0.6,
-                frequency_penalty=1.2,
-                thinking_config=types.ThinkingConfig(thinking_budget=-1),
+                temperature=cf["gemini"]["temperature"],
+                max_output_tokens=cf["gemini"]["max_output_tokens"],
+                response_mime_type=cf["gemini"]["response_mime_type"],
+                presence_penalty=cf["gemini"]["presence_penalty"],
+                frequency_penalty=cf["gemini"]["frequency_penalty"],
+                thinking_config=types.ThinkingConfig(thinking_budget=cf["gemini"]["thinking_budget"]),
             )
 
             print("Gemini API, model and prompts initiated successfully")
