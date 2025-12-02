@@ -12,7 +12,7 @@ import fyp.fyp_main as fyp
 
 
 
-def flatten_new_gemini_output(some_response):
+def flatten_new_machine_output(some_response):
     from copy import deepcopy
     from collections import Counter
 
@@ -121,7 +121,7 @@ def flatten_new_gemini_output(some_response):
 
 
 
-def save_new_gemini_results(json_list: list, the_path:str):
+def save_machine_annotations(json_list: list, the_path:str):
     from pandas import DataFrame
     from os.path import join
     from json import dump
@@ -129,9 +129,9 @@ def save_new_gemini_results(json_list: list, the_path:str):
 
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
 
-    with open(join(the_path,f"gemini_results_{fine_ts}.json"),'w') as f:
+    with open(join(the_path,f"machine_annotations_{fine_ts}.json"),'w') as f:
         dump(json_list,f)
-    print(f"saved results as 'gemini_results_{fine_ts}.json'")
+    print(f"saved results as 'machine_annotations_{fine_ts}.json'")
 
 
 
@@ -203,8 +203,8 @@ def prettify_string(a_string):
 
 
 
-def load_gemini_results(
-        the_path:str = fyp.cf['paths']['gemini'],
+def load_machine_annotations(
+        the_path:str = fyp.cf['paths']['machine_annotations'],
         include_failed_calls:bool = False,
         verbose = True
     ):
@@ -213,15 +213,15 @@ def load_gemini_results(
     from os.path import join
 
 
-    gemini_file_names = [fn for fn in listdir(the_path) if fn.endswith(".pkl") and fn.startswith("new_gemini_results")]
+    machine_file_names = [fn for fn in listdir(the_path) if fn.endswith(".pkl") and fn.startswith("machine_annotations")]
 
-    all_results = concat([read_pickle(join(the_path,fn)) for fn in gemini_file_names])
+    all_results = concat([read_pickle(join(the_path,fn)) for fn in machine_file_names])
 
     all_results.reset_index(drop=True, inplace=True)
     all_results['error'] = all_results['error'].map(lambda x:"-" if x=={} else x)
 
     if verbose:
-        print(f"Loaded {len(all_results):,} rows from {len(gemini_file_names)} Gemini result files")
+        print(f"Loaded {len(all_results):,} rows from {len(machine_file_names)} machine annotation files")
 
     all_results = all_results.sort_values("inference_ts").copy()
     all_results.drop_duplicates(inplace=True, keep='last')
@@ -231,12 +231,12 @@ def load_gemini_results(
 
     if include_failed_calls:
         if verbose:
-            print(f"Including failed Gemini calls")
+            print(f"Including failed machine annotation calls")
     else:
         # assuming the 'scenes' variable is not na if things have gone well
         all_results = all_results[~all_results["scenes"].isna()].copy()
         if verbose:
-            print(f"Excluding failed Gemini calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
+            print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
 
     return all_results
 
@@ -244,14 +244,14 @@ def load_gemini_results(
 
 
 
-def call_gemini(
+def call_machine(
         video_id: int, 
         testing: bool = False,
         use_local_video_file = False,
         local_path: str = '/Users/<user>/Downloads/',
-        the_gemini_client = fyp.cf["gemini"]["client"],
-        the_gemini_model = fyp.cf['gemini']['model'],
-        the_gemini_config = fyp.cf["gemini"]["global_generation_config"]
+        the_machine_client = fyp.cf["machine"]["client"],
+        the_machine_model = fyp.cf['machine']['model'],
+        the_machine_config = fyp.cf["machine"]["global_generation_config"]
     ) -> dict:
 
     from datetime import datetime
@@ -263,7 +263,7 @@ def call_gemini(
     from copy import copy
 
     if not testing:
-        # Gemini doesn't like too many requests at once
+        # The AI annotator doesn't like too many requests at once
         sleep(randint(1,100)/50)
 
     times = [datetime.now()]
@@ -271,14 +271,14 @@ def call_gemini(
         "item_id" : video_id,
         "inference_ts" : int(times[-1].timestamp()),
         "inference_duration" : -1,
-        "model" : fyp.cf['gemini']['model'],
-        "prompt_fn" : basename(fyp.cf['gemini']['new_prompt']),
+        "model" : fyp.cf['machine']['model'],
+        "prompt_fn" : basename(fyp.cf['machine']['new_prompt']),
         "error" : "-",
         "finish_reason":"did not even start",
         "response" : "",
     }
 
-    temp_fn = join(fyp.temp_path(f"temp_gemini_results_{output['item_id']}_{output['inference_ts']}.json"))
+    temp_fn = join(fyp.temp_path(f"temp_machine_annotations_{output['item_id']}_{output['inference_ts']}.json"))
 
 
     # initialise the contents for the model
@@ -312,9 +312,9 @@ def call_gemini(
     # run the model
     try:
         start_ts = datetime.now()
-        resp = the_gemini_client.models.generate_content(
-            model=the_gemini_model,
-            config=the_gemini_config,
+        resp = the_machine_client.models.generate_content(
+            model=the_machine_model,
+            config=the_machine_config,
             contents=contents,
         )
     except Exception as e:
@@ -345,7 +345,7 @@ def call_gemini(
     times += [datetime.now()]
 
     try:
-        gemini_results = copy(resp.text)
+        machine_annotations = copy(resp.text)
     except Exception as e:
         output["error"] = str(e)
         output["inference_duration"] = (times[-1] - times[-2]).total_seconds()
@@ -358,7 +358,7 @@ def call_gemini(
 
     output["inference_duration"] = (times[-1] - times[-2]).total_seconds()
     output["finish_reason"] = the_finish_reason
-    output["response"] = gemini_results
+    output["response"] = machine_annotations
 
     # save the json just in case everything crashes
     with open(temp_fn, 'w') as file:
@@ -465,12 +465,12 @@ def start_monitor(futures, submit_times, interval=5, label="monitor", bar_width=
 
 
 
-def call_gemini_threads(
+def call_machine_threads(
         interesting_videos,
         max_workers=32,
-        the_gemini_client = fyp.cf["gemini"]["client"],
-        the_gemini_model = fyp.cf['gemini']['model'],
-        the_gemini_config = fyp.cf["gemini"]["global_generation_config"]
+        the_machine_client = fyp.cf["machine"]["client"],
+        the_machine_model = fyp.cf['machine']['model'],
+        the_machine_config = fyp.cf["machine"]["global_generation_config"]
     ):
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -489,12 +489,12 @@ def call_gemini_threads(
             sleep(3+random()*max_workers/2)
 
         t1 = datetime.now()
-        rr = call_gemini(
+        rr = call_machine(
             video,
             testing = False,
-            the_gemini_client = the_gemini_client,
-            the_gemini_model = the_gemini_model,
-            the_gemini_config = the_gemini_config
+            the_machine_client = the_machine_client,
+            the_machine_model = the_machine_model,
+            the_machine_config = the_machine_config
         )
         inference_duration = (datetime.now()-t1).total_seconds()
         if False and isinstance(rr,dict):
@@ -506,7 +506,7 @@ def call_gemini_threads(
         return idx, rr
 
 
-    print(f"Calling {fyp.cf['gemini']['model']} to code {len(interesting_videos)} videos with {max_workers} threads.")
+    print(f"Calling {fyp.cf['machine']['model']} to code {len(interesting_videos)} videos with {max_workers} threads.")
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
 
@@ -518,7 +518,7 @@ def call_gemini_threads(
             submit_times[fut] = time()
         #futures = [ex.submit(worker, iv) for iv in enumerate(interesting_videos)]
 
-        monitor_thread = start_monitor(futures, submit_times, interval=5, label="gemini", bar_width=32)
+        monitor_thread = start_monitor(futures, submit_times, interval=5, label="machine", bar_width=32)
 
         for fut in as_completed(futures):
             #try:
@@ -535,9 +535,9 @@ def call_gemini_threads(
     print(f"items processed: {len(results_by_index)}")
 
     if len(results_by_index)>0:
-        save_new_gemini_results(
+        save_machine_annotations(
             results_by_index,
-            fyp.cf['paths']['gemini']
+            fyp.cf['paths']['machine_annotations']
         )
 
     # this function returns the results but the pipeline is using the json

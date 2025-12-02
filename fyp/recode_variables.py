@@ -743,13 +743,13 @@ def _replace_in_structure(L, filter_list, replacement):
     return out
 
 
-def clean_up_gemini_annotations(some_events):
+def clean_up_machine_annotations(some_events):
 
     from collections import Counter
 
     some_cleaned_up_events = some_events.copy()
 
-    # iterate over all object type columns in the events DF that starts w G_, i.e. are gemini annotations
+    # iterate over all object type columns in the events DF that starts w G_, i.e. are machine annotations
     for c in [k for k in some_events.select_dtypes(object).columns if k.startswith("G_")]:
 
         # Step 1 of 3: Flatten and filter the column

@@ -22,7 +22,7 @@ def download_single_video(video_id: int):
     #tiktok_url = f"https://www.tiktokv.com/share/video/{video_id}/"
     tiktok_url = f"https://www.tiktok.com/@/video/{video_id}/"
 
-    pyk_metadata = pyk.save_tiktok(
+    scrape_metadata = pyk.save_tiktok(
         tiktok_url,
         save_video=True,
         max_duration_to_save=fyp.cf['misc']['max_video_duration_for_download'],
@@ -34,16 +34,16 @@ def download_single_video(video_id: int):
 
 
     try:
-        col_count = len(pyk_metadata.columns)
-        if col_count > 1 and pyk_metadata.iloc[0]['video_downloaded']==True:
-            if len(pyk_metadata.loc[0,'image_list'])>0:
+        col_count = len(scrape_metadata.columns)
+        if col_count > 1 and scrape_metadata.iloc[0]['video_downloaded']==True:
+            if len(scrape_metadata.loc[0,'image_list'])>0:
                 pass#print(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
             else:
                 pass#print(f"OK   - Video downloaded '{video_id}' - {col_count} metadata fields")
-            return pyk_metadata
-        elif col_count > 1 and pyk_metadata.iloc[0]['video_downloaded']==False:
+            return scrape_metadata
+        elif col_count > 1 and scrape_metadata.iloc[0]['video_downloaded']==False:
             pass#print(f"Accessed {col_count} metadata fields for {video_id} but did not download media object(s)")
-            return pyk_metadata
+            return scrape_metadata
         else:
             pass#print(f"Insufficient metadata columns ({col_count}) - Download of {video_id} - failed")
     except Exception as e:
@@ -247,12 +247,12 @@ def download_video_threads(interesting_videos, max_workers=4):
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
     if len(results)>0:
-        results.to_pickle(join(fyp.cf['paths']['pyk'],f"pyk_metadata_{fine_ts}.pkl"))
-        print(f"Saved {len(results):,} rows to 'pyk_metadata_{fine_ts}.pkl'")
+        results.to_pickle(join(fyp.cf['paths']['scrape'],f"scrape_metadata_{fine_ts}.pkl"))
+        print(f"Saved {len(results):,} rows to 'scrape_metadata_{fine_ts}.pkl'")
         print(f"and saved media objects to the bucket for {len(results[results['video_downloaded']]):,} of these.")
 
     if len(failed_items)>0:
-        with open(join(fyp.cf['paths']['pyk'],f"pyk_failed_items_{fine_ts}.json"), "w") as jf:
+        with open(join(fyp.cf['paths']['scrape'],f"scrape_failed_items_{fine_ts}.json"), "w") as jf:
             json.dump(failed_items, jf)
         print(f"Saved {len(failed_items)} failed items")
 

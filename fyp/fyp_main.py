@@ -18,7 +18,7 @@ def create_dirs(this_cf: dict, clear_temp_dir: bool = False) -> None:
     from os import listdir, remove
 
 
-    for k in ["main", "zeeschuimer_raw", "zeeschuimer_refined", "ddp", "temp", "backup", "pyk", "exports"]:
+    for k in ["main", "zeeschuimer_raw", "zeeschuimer_refined", "ddp", "temp", "backup", "scrape", "exports"]:
         makedirs(this_cf["paths"][k], exist_ok=True)
 
     if clear_temp_dir:
@@ -66,7 +66,7 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
     # Prefer env var for secrets; fall back to file if present (avoid committing real keys)
     gemini_env_key = environ.get("GEMINI_API_KEY")
     if gemini_env_key:
-        cf["gemini"]["key"] = gemini_env_key
+        cf["machine"]["key"] = gemini_env_key
 
     study_defs = toml.load(study_defs_path)
     for study_name in study_defs.keys():
@@ -75,16 +75,16 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
 
     cf["paths"]["project_root"] = abs_project_root_path
     if cf["misc"]["local_mode"]:
-        cf["gemini"]["client"] = None
-        cf['gemini']['model'] = None
-        cf["gemini"]["global_generation_config"] = None
+        cf["machine"]["client"] = None
+        cf['machine']['model'] = None
+        cf["machine"]["global_generation_config"] = None
 
     cf["paths"]["main"] = abspath(join(abs_project_root_path, cf["paths"]["main"]))
     cf["paths"]["main_no_sync"] = abspath(join(abs_project_root_path, cf["paths"]["main_not_gdrive_synced"]))
 
-    for p in cf["gemini"].keys():
+    for p in cf["machine"].keys():
         if "prompt" in p:
-            cf["gemini"][p] = join(cf["paths"]["project_root"],"prompts",cf["gemini"][p])
+            cf["machine"][p] = join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
 
 
     if verbose:
@@ -96,12 +96,12 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
     cf["paths"]["ddp"] = join(cf["paths"]["main"],"activity_data", "participant_logs")
     cf["paths"]["zeeschuimer_raw"] = join(cf["paths"]["main"],"activity_data", "zeeschuimer_raw")
     cf["paths"]["zeeschuimer_refined"] = join(cf["paths"]["main"],"activity_data", "zeeschuimer_refined")
-    cf["paths"]["pyk"] = join(cf["paths"]["main"], "pyk")
+    cf["paths"]["scrape"] = join(cf["paths"]["main"], "scrape")
     cf["paths"]["ddp_raw"] = join(cf["paths"]["ddp"], "raw")
     cf["paths"]["ddp_processed"] = join(cf["paths"]["ddp"], "processed")
     cf["paths"]["ddp_main"] = join(cf["paths"]["ddp"], "main")
     cf["paths"]["ddp_participants"] = join(cf["paths"]["ddp"], "main", "participants_raw")
-    cf["paths"]["gemini"] = join(cf["paths"]["main"], "gemini", "new_gen")
+    cf["paths"]["machine_annotations"] = join(cf["paths"]["main"], "machine_annotations", "new_gen")
     cf["paths"]["exports"] = join(cf["paths"]["main"], "exports")
 
 
@@ -157,9 +157,9 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
     local_mode = cf["misc"]["local_mode"]
     if not _checkInternetHttplib():
         local_mode = True
-        cf["gemini"]["client"] = None
-        cf['gemini']['model'] = None
-        cf["gemini"]["global_generation_config"] = None
+        cf["machine"]["client"] = None
+        cf['machine']['model'] = None
+        cf["machine"]["global_generation_config"] = None
 
 
     create_dirs(cf, clear_temp_dir)
@@ -170,27 +170,27 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
     else:
 
         try:
-            with open(cf['gemini']['new_prompt'], 'r') as file:
-                gemini_new_prompt = file.read()
+            with open(cf['machine']['new_prompt'], 'r') as file:
+                machine_new_prompt = file.read()
 
-            cf["gemini"]["client"] = genai.Client(
-                vertexai=cf["gemini"]["vertexai"],
-                project=cf["gemini"]["project"],
-                location=cf["gemini"]["location"],
+            cf["machine"]["client"] = genai.Client(
+                vertexai=cf["machine"]["vertexai"],
+                project=cf["machine"]["project"],
+                location=cf["machine"]["location"],
                 http_options=types.HttpOptions(
-                    api_version=cf["gemini"]["http_options_api_version"],
-                    timeout=cf["gemini"]["http_options_timeout"]
+                    api_version=cf["machine"]["http_options_api_version"],
+                    timeout=cf["machine"]["http_options_timeout"]
                 )
             )
 
-            cf["gemini"]["global_generation_config"] = types.GenerateContentConfig(
-                system_instruction=gemini_new_prompt,
-                temperature=cf["gemini"]["temperature"],
-                max_output_tokens=cf["gemini"]["max_output_tokens"],
-                response_mime_type=cf["gemini"]["response_mime_type"],
-                presence_penalty=cf["gemini"]["presence_penalty"],
-                frequency_penalty=cf["gemini"]["frequency_penalty"],
-                thinking_config=types.ThinkingConfig(thinking_budget=cf["gemini"]["thinking_budget"]),
+            cf["machine"]["global_generation_config"] = types.GenerateContentConfig(
+                system_instruction=machine_new_prompt,
+                temperature=cf["machine"]["temperature"],
+                max_output_tokens=cf["machine"]["max_output_tokens"],
+                response_mime_type=cf["machine"]["response_mime_type"],
+                presence_penalty=cf["machine"]["presence_penalty"],
+                frequency_penalty=cf["machine"]["frequency_penalty"],
+                thinking_config=types.ThinkingConfig(thinking_budget=cf["machine"]["thinking_budget"]),
             )
 
             print("Gemini API, model and prompts initiated successfully")
@@ -261,7 +261,7 @@ def temp_path(filename: str = "") -> str:
     from os.path import join
 
     #cf = toml.load(CONFIG_PATH)
-    temp_dir = join(cf["paths"]["main"], "temp")
+    temp_dir = join(cf["paths"]["main_not_gdrive_synced"],"temp")
     return join(temp_dir, filename)
 
 
