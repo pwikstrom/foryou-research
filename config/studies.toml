@@ -61,6 +61,7 @@ INCLUDE_ZEESCHUIMER_DATA = true
 COL_MISSING_DATA_THRES = 0.5
 TIME_ZONE = "Australia/Brisbane"
 DONATION_DATE_GROUP_VARIABLES = ["D_donation_id","T_local_date"]
+USE_HALF_BAKED_FILES = true
 
 # I want donations where there are a considerable number of dates within this range.
 MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20

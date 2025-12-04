@@ -2,6 +2,7 @@
 from zoneinfo import ZoneInfo
 import fyp.fyp_main as fyp
 from numpy import int64 as np_int64
+import pandas as pd
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 
@@ -24,52 +25,14 @@ def _get_day_segment_from_hour_of_day(the_hour):
 
 
 
-def extract_local_time_features(study_name, some_events_df_in, kind_of_log = None):
-
-    from pandas import NA as pd_NA, isna as pd_isna
-    from datetime import datetime, UTC
-
-
-    TIME_ZONE = fyp.cf["study_defs"][study_name]["TIME_ZONE"]
-
-    some_events_df = some_events_df_in.fillna(pd_NA).copy()
-
-    print(f"Processing timestamps in dataset to extract local time features (Timezone:{TIME_ZONE})")
-
-
-    if kind_of_log == "baseline":
-        new_times = []
-        for i,row in some_events_df[["timestamp_collected","source_url.tz_name"]].iterrows():
-            new_times += [row["timestamp_collected"].replace(tzinfo=ZoneInfo(row["source_url.tz_name"]))]
-        some_events_df["local_timestamp"] = new_times
-        del some_events_df["timestamp_collected"]
-    elif kind_of_log == "ddp":
-        
-        if not "item_id" in some_events_df:
-            some_events_df["item_id"] = [int(some_events_df.loc[q,"primary_value"].split("/")[-2]) if (some_events_df.loc[q,"primary_label"]=='link' and not pd_isna(some_events_df.loc[q,"feature_name"])) else pd_NA for q in some_events_df.index]
-
-        some_events_df = some_events_df.rename(columns={"timestamp":"utc_timestamp"})
-
-        some_events_df["local_timestamp"] = some_events_df["utc_timestamp"].map(lambda x: datetime.fromtimestamp(x, tz=UTC).astimezone(ZoneInfo(TIME_ZONE)))
-    else:
-        raise ValueError("kind_of_log can only be 'baseline' or 'ddp'")
-
-    some_events_df["local_weekday"] = some_events_df["local_timestamp"].map(lambda x:WEEKDAY_MAPPER.get(x.isocalendar()[2]))
-    some_events_df["local_week"] = some_events_df["local_timestamp"].map(lambda x:f"{x.isocalendar()[0]}-{x.isocalendar()[1]}")
-    some_events_df["local_hour"] = some_events_df["local_timestamp"].map(lambda x:x.hour)
-    some_events_df["local_day_segment"] = some_events_df["local_hour"].map(lambda x:_get_day_segment_from_hour_of_day(x))
-    some_events_df["local_date"] = some_events_df["local_timestamp"].map(lambda x:x.date())
-    some_events_df["local_date_str"] = some_events_df["local_date"].astype(str)
-
-    return some_events_df
-
-
-
-
-
-def extract_local_time_features_really(study_name, some_events_df_in, kind_of_log=None):
-
-    from pandas import concat, read_pickle, to_datetime, Categorical
+def extract_local_time_features(study_name, some_events_df_in, kind_of_log=None):
+    """
+    Optimized version - extracts local time features from timestamps using vectorized operations.
+    
+    This function was previously slow due to iterrows() and map(lambda) calls.
+    Now uses vectorized pandas operations for much better performance.
+    """
+    from pandas import concat, to_datetime, Categorical
     from numpy import select as np_select
 
     TIME_ZONE = fyp.cf["study_defs"][study_name]["TIME_ZONE"]
@@ -147,12 +110,28 @@ def extract_local_time_features_really(study_name, some_events_df_in, kind_of_lo
     # 2. Derive local time features (fully vectorised)
     # ---------------------------------------------------------------------
     ts = df["local_timestamp"]
+    
+    # If stored as object dtype, reconstruct as proper datetime series
+    if ts.dtype == 'object':
+        # Get the first non-null value to determine timezone
+        sample = ts.dropna().iloc[0] if len(ts.dropna()) > 0 else None
+        if sample is not None and hasattr(sample, 'tz') and sample.tz is not None:
+            # Extract timezone from sample
+            tz = sample.tz
+            # Convert each datetime to UTC timestamp, then reconstruct with timezone
+            # This avoids the "tz-aware cannot be converted" error
+            utc_timestamps = ts.apply(lambda x: x.timestamp() if pd.notna(x) and hasattr(x, 'timestamp') else pd.NaT)
+            df["local_timestamp"] = pd.to_datetime(utc_timestamps, unit='s', utc=True).dt.tz_convert(tz)
+        else:
+            # No timezone info, simple conversion
+            df["local_timestamp"] = pd.to_datetime(ts)
+        ts = df["local_timestamp"]
 
     iso = ts.dt.isocalendar()  # DataFrame: year, week, day
 
     df["local_weekday"] = iso["day"].map(WEEKDAY_MAPPER).astype("category")
 
-    # If you don’t actually need the string, you can keep (year, week) numeric.
+    # If you don't actually need the string, you can keep (year, week) numeric.
     df["local_week"] = (
         iso["year"].astype("uint16").astype("string")
         + "-"
@@ -186,20 +165,31 @@ def extract_local_time_features_really(study_name, some_events_df_in, kind_of_lo
 
     # use normalized datetime instead of Python date objects (cheaper at 5M rows)
     df["local_date"] = ts.map(lambda x:x.date())
+    df["local_date_str"] = df["local_date"].astype(str)
 
     return df
 
 
 
 
-def remove_link_events_with_corrupt_links(some_events_df):
 
+
+
+
+
+
+def remove_link_events_with_corrupt_links(some_events_df):
+    """Optimized: uses vectorized string length calculation instead of map(lambda)"""
     from pandas import concat
 
     non_video_ddp_events_df = some_events_df[some_events_df["primary_label"] != "link"].copy()
     video_ddp_events_df = some_events_df[some_events_df["primary_label"] == "link"].copy()
-    most_common_url_length = int(video_ddp_events_df.primary_value.map(lambda x:len(x)).value_counts().index[0])
-    video_ddp_events_df = video_ddp_events_df[video_ddp_events_df.primary_value.map(lambda x:len(x)==most_common_url_length)].copy()
+    
+    # Vectorized string length calculation
+    url_lengths = video_ddp_events_df.primary_value.str.len()
+    most_common_url_length = int(url_lengths.value_counts().index[0])
+    
+    video_ddp_events_df = video_ddp_events_df[url_lengths == most_common_url_length].copy()
     some_events_df = concat([video_ddp_events_df, non_video_ddp_events_df])
 
     return some_events_df
@@ -273,62 +263,79 @@ def load_failed_scrapes(verbose = False):
 def load_zeeschuimer_data(study_name):
     # load items from baseline logs
 
-    BASELINE_START_DATE = fyp.cf["study_defs"][study_name]["BASELINE_START_DATE"]
-    BASELINE_END_DATE = fyp.cf["study_defs"][study_name]["BASELINE_END_DATE"]
-
-    print("Loading baseline logs...")
-
-    from os import listdir
-    from os.path import join
-    from json import load as json_load
     from pandas import concat, read_pickle
-    from zoneinfo import ZoneInfo
+    from os.path import exists, join
+
+    USE_HALF_BAKED_FILES = fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
+
+    half_baked_baseline_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_BASELINE.pkl")
+
+    if USE_HALF_BAKED_FILES and exists(half_baked_baseline_path):
+        print("Loading half-baked baseline events from pickle...", end=" ", flush=True)
+        baseline_log = read_pickle(half_baked_baseline_path)
+        print(f"Shape: {baseline_log.shape}")
+    else:
+
+        BASELINE_START_DATE = fyp.cf["study_defs"][study_name]["BASELINE_START_DATE"]
+        BASELINE_END_DATE = fyp.cf["study_defs"][study_name]["BASELINE_END_DATE"]
+
+        print("Loading baseline logs...")
+
+        from os import listdir
+        from json import load as json_load
+        from zoneinfo import ZoneInfo
 
 
-    list_of_zeeschuimer_logs = []
-    okay_test_cases = []
-    for fn in listdir(fyp.cf["paths"]["zeeschuimer_refined"]):
-        if fn.endswith(".pkl"):
-            zeeschuimer_candidate = read_pickle(join(fyp.cf["paths"]["zeeschuimer_refined"],fn))
-            test_cols = zeeschuimer_candidate[["item_id","timestamp_collected"]].reset_index(drop=True).sort_values("timestamp_collected").copy()
-            duplicate_found = False
-            for zl in okay_test_cases:
-                if zl.shape == test_cols.shape:
-                    if (zl.index == test_cols.index).all() and (zl.columns == test_cols.columns).all():
-                        if (test_cols == zl).all().all():
-                            duplicate_found = True
-                            print("   !! Found a duplicate zeeschuimer file. I'm not adding it to the collection...")
-                            wow = test_cols.copy()
-            if not duplicate_found:
-                zeeschuimer_candidate = zeeschuimer_candidate.reset_index(drop=True).reset_index().rename(columns={"index":"event_order_in_session"})
-                zeeschuimer_candidate["event_pos_in_session"] = zeeschuimer_candidate["event_order_in_session"] / max(1,len(zeeschuimer_candidate)-1)
+        list_of_zeeschuimer_logs = []
+        okay_test_cases = []
+        for fn in listdir(fyp.cf["paths"]["zeeschuimer_refined"]):
+            if fn.endswith(".pkl"):
+                zeeschuimer_candidate = read_pickle(join(fyp.cf["paths"]["zeeschuimer_refined"],fn))
+                test_cols = zeeschuimer_candidate[["item_id","timestamp_collected"]].reset_index(drop=True).sort_values("timestamp_collected").copy()
+                duplicate_found = False
+                for zl in okay_test_cases:
+                    if zl.shape == test_cols.shape:
+                        if (zl.index == test_cols.index).all() and (zl.columns == test_cols.columns).all():
+                            if (test_cols == zl).all().all():
+                                duplicate_found = True
+                                print("   !! Found a duplicate zeeschuimer file. I'm not adding it to the collection...")
+                                wow = test_cols.copy()
+                if not duplicate_found:
+                    zeeschuimer_candidate = zeeschuimer_candidate.reset_index(drop=True).reset_index().rename(columns={"index":"event_order_in_session"})
+                    zeeschuimer_candidate["event_pos_in_session"] = zeeschuimer_candidate["event_order_in_session"] / max(1,len(zeeschuimer_candidate)-1)
 
-                list_of_zeeschuimer_logs += [zeeschuimer_candidate]
-                okay_test_cases += [test_cols]
-
-
-    list_of_zeeschuimer_logs = sorted(list_of_zeeschuimer_logs,key=lambda x:x["timestamp_collected"].min())
-
-    for i,zl in enumerate(list_of_zeeschuimer_logs):
-        zl["session_id"] = i
-
-    if len(list_of_zeeschuimer_logs)>0:
-        baseline_log = concat(list_of_zeeschuimer_logs)
-
-    print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.timestamp_collected.min()} -- {baseline_log.timestamp_collected.max()}")
-    
-    baseline_log = baseline_log.drop_duplicates(subset=["item_id","timestamp_collected","source_url.tz_name"]).copy()
-    print(f"Dropped duplicates based on item_id, timestamp and location, yielding {baseline_log.shape[0]:,} rows")
+                    list_of_zeeschuimer_logs += [zeeschuimer_candidate]
+                    okay_test_cases += [test_cols]
 
 
-    # only keeping videos from the FYP page not the explore page
-    baseline_log = baseline_log[baseline_log.source_platform_url.isin(['https://www.tiktok.com/en','https://www.tiktok.com/','https://www.tiktok.com/foryou'])].copy()
-    print(f"Keeping baseline logs from TikTok's ForYou page, yielding {baseline_log.shape[0]:,} rows.")
+        list_of_zeeschuimer_logs = sorted(list_of_zeeschuimer_logs,key=lambda x:x["timestamp_collected"].min())
 
-    baseline_log = baseline_log[(baseline_log.timestamp_collected>=BASELINE_START_DATE) & (baseline_log.timestamp_collected<=BASELINE_END_DATE)].copy()
-    print("Baseline log date range:",baseline_log.timestamp_collected.min(), " ---- ", baseline_log.timestamp_collected.max())
-    
-    baseline_log = extract_local_time_features(study_name, baseline_log, kind_of_log='baseline')
+        for i,zl in enumerate(list_of_zeeschuimer_logs):
+            zl["session_id"] = i
+
+        if len(list_of_zeeschuimer_logs)>0:
+            baseline_log = concat(list_of_zeeschuimer_logs)
+
+        print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.timestamp_collected.min()} -- {baseline_log.timestamp_collected.max()}")
+        
+        baseline_log = baseline_log.drop_duplicates(subset=["item_id","timestamp_collected","source_url.tz_name"]).copy()
+        print(f"Dropped duplicates based on item_id, timestamp and location, yielding {baseline_log.shape[0]:,} rows")
+
+
+        # only keeping videos from the FYP page not the explore page
+        baseline_log = baseline_log[baseline_log.source_platform_url.isin(['https://www.tiktok.com/en','https://www.tiktok.com/','https://www.tiktok.com/foryou'])].copy()
+        print(f"Keeping baseline logs from TikTok's ForYou page, yielding {baseline_log.shape[0]:,} rows.")
+
+        baseline_log = baseline_log[(baseline_log.timestamp_collected>=BASELINE_START_DATE) & (baseline_log.timestamp_collected<=BASELINE_END_DATE)].copy()
+        print("Baseline log date range:",baseline_log.timestamp_collected.min(), " ---- ", baseline_log.timestamp_collected.max())
+        
+        baseline_log.reset_index(drop=True, inplace=True)
+
+        baseline_log = extract_local_time_features(study_name, baseline_log, kind_of_log='baseline')
+
+        if USE_HALF_BAKED_FILES:
+            print("Saving half-baked baseline events to pickle...")    
+            baseline_log.to_pickle(half_baked_baseline_path)
 
     print("------------------------------------------------------------------------------------------------------------------")
     return {"data_baseline_log":baseline_log}
@@ -368,7 +375,9 @@ def sample_ddp_events(study_name, all_ddp_events_df):
 
     # this is transforming the donation-date group percentile limits to actual values
     donation_date_group_size_limits = donation_date_groups.describe(percentiles=DONATION_DATE_GROUP_PERCENTILE_LIMITS).loc[[f"{k:.0%}" for k in DONATION_DATE_GROUP_PERCENTILE_LIMITS]].values
-    print(f"Percentile limits {"-".join([f"{k:.0%}" for k in DONATION_DATE_GROUP_PERCENTILE_LIMITS])} translate to {"-".join([f"{k:,.0f}" for k in donation_date_group_size_limits])} in actual event counts")
+    percentile_str = "-".join([f"{k:.0%}" for k in DONATION_DATE_GROUP_PERCENTILE_LIMITS])
+    limits_str = "-".join([f"{k:,.0f}" for k in donation_date_group_size_limits])
+    print(f"Percentile limits {percentile_str} translate to {limits_str} in actual event counts")
 
 
     # apply the size limits to the donation-date groups to get those that fit the criteria
@@ -450,41 +459,73 @@ def load_ddp_events(study_name):
 
     from os import listdir
     from os.path import join
+    from os.path import exists
     from json import load as json_load
     from pandas import concat, read_pickle
 
-    DDP_START_DATE = fyp.cf["study_defs"][study_name]["DDP_START_DATE"]
-    DDP_END_DATE = fyp.cf["study_defs"][study_name]["DDP_END_DATE"]
 
-    print("Loading all DDP events...", end=" ", flush=True)
+    USE_HALF_BAKED_FILES = fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
 
-    all_ddp_events_df = read_pickle(join(fyp.cf["paths"]["ddp_main"], "all_participant_events.pkl"))
 
-    # drop two columns
-    all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
+    half_baked_ddp_events_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_ALL_DDP.pkl")
+    half_baked_sampled_ddp_events_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_SAMPLED_DDP.pkl")
 
-    all_ddp_events_df['simple_date'] = all_ddp_events_df['date'].map(lambda x:x.date())
-    all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.map(lambda x:int(str(x)[-4:]))
-    print(f"...DDP events dataframe loaded")
-    print(f"The DF contains {all_ddp_events_df.donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
 
-    print(f"The DDP events range from {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()}")
-    mask = (all_ddp_events_df["date"] >= DDP_START_DATE) & (all_ddp_events_df["date"] <= DDP_END_DATE)
-    all_ddp_events_df = all_ddp_events_df.loc[mask].copy()
-    print(f"Keeping DDP events within date range {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()} yielding {len(all_ddp_events_df):,} events")
+    if USE_HALF_BAKED_FILES and exists(half_baked_ddp_events_path):
+        print("Loading half-baked DDP events from pickle...", end=" ", flush=True)
+        all_ddp_events_df = read_pickle(half_baked_ddp_events_path)
+        print(f"New shape: {all_ddp_events_df.shape}")
+    else:
 
-    # dropping some corrupt URLs simply by calculating the most common length of the URLs and dropping those that doesn't match
-    all_ddp_events_df = remove_link_events_with_corrupt_links(all_ddp_events_df)
-    print(f"Dropping DDP events with corrupt TikTok URLs. New shape: {all_ddp_events_df.shape}")
+        DDP_START_DATE = fyp.cf["study_defs"][study_name]["DDP_START_DATE"]
+        DDP_END_DATE = fyp.cf["study_defs"][study_name]["DDP_END_DATE"]
 
-    all_ddp_events_df = extract_local_time_features_really(study_name, all_ddp_events_df, kind_of_log='ddp')
-    
+        print("Loading all DDP events...", end=" ", flush=True)
+
+        all_ddp_events_df = read_pickle(join(fyp.cf["paths"]["ddp_main"], "all_participant_events.pkl"))
+
+        # drop two columns
+        all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
+
+        # Vectorized date extraction
+        all_ddp_events_df['simple_date'] = all_ddp_events_df['date'].dt.date
+        
+        # Vectorized sample_id extraction using string operations
+        all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype(int)
+        
+        print(f"...DDP events dataframe loaded")
+        print(f"The DF contains {all_ddp_events_df.donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
+
+        print(f"The DDP events range from {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()}")
+        mask = (all_ddp_events_df["date"] >= DDP_START_DATE) & (all_ddp_events_df["date"] <= DDP_END_DATE)
+        all_ddp_events_df = all_ddp_events_df.loc[mask].copy()
+        print(f"Keeping DDP events within date range {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()} yielding {len(all_ddp_events_df):,} events")
+
+        # dropping some corrupt URLs simply by calculating the most common length of the URLs and dropping those that doesn't match
+        all_ddp_events_df = remove_link_events_with_corrupt_links(all_ddp_events_df)
+        print(f"Dropping DDP events with corrupt TikTok URLs. New shape: {all_ddp_events_df.shape}")
+
+        all_ddp_events_df = extract_local_time_features(study_name, all_ddp_events_df, kind_of_log='ddp')
+
+        if USE_HALF_BAKED_FILES:
+            print("Saving half-baked DDP events to pickle...")    
+            all_ddp_events_df.to_pickle(half_baked_ddp_events_path)
+
+        
+    if USE_HALF_BAKED_FILES and exists(half_baked_sampled_ddp_events_path):
+        print("Loading half-baked sampled DDP events from pickle...", end=" ", flush=True)
+        sampled_data_ddp_events = read_pickle(half_baked_sampled_ddp_events_path)
+        print(f"New shape: {sampled_data_ddp_events.shape}")
+    else:
+        sampled_data_ddp_events = sample_ddp_events(study_name, all_ddp_events_df)
+
+        if USE_HALF_BAKED_FILES:
+            print("Saving half-baked sampled DDP events to pickle...")    
+            sampled_data_ddp_events.to_pickle(half_baked_sampled_ddp_events_path)
+
+
     print("------------------------------------------------------------------------------------------------------------------")
-
-    return {
-                "sampled_data_ddp_events":sample_ddp_events(study_name, all_ddp_events_df),
-                "all_data_ddp_events":all_ddp_events_df
-            }
+    return {"sampled_data_ddp_events":sampled_data_ddp_events, "all_data_ddp_events":all_ddp_events_df }
 
 
 
@@ -495,6 +536,7 @@ def load_special_donations(study_name):
     # sometimes it is useful to select events in a specific donation.
 
     from pandas import concat, read_pickle, DataFrame
+    from os.path import join
 
     DDP_START_DATE = fyp.cf["study_defs"][study_name]["DDP_START_DATE"]
     DDP_END_DATE = fyp.cf["study_defs"][study_name]["DDP_END_DATE"]
@@ -504,7 +546,8 @@ def load_special_donations(study_name):
         print("Skipping special DDP events loading as the number of SPECIAL_DONATIONS is zero.")
         return {"data_special_ddps":DataFrame()}
     
-    print(f"Loading special DDP events from {'\n - '.join(the_special_donations)}")
+    donations_str = '\n - '.join(the_special_donations)
+    print(f"Loading special DDP events from {donations_str}")
 
     # Loading all DDP events...
     all_ddp_events_df = read_pickle(join(fyp.cf["paths"]["ddp_main"], "all_participant_events.pkl"))
@@ -512,8 +555,9 @@ def load_special_donations(study_name):
     # drop two columns
     all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
 
-    all_ddp_events_df['simple_date'] = all_ddp_events_df['date'].map(lambda x:x.date())
-    all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.map(lambda x:int(str(x)[-4:]))
+    # Vectorized date and sample_id extraction
+    all_ddp_events_df['simple_date'] = all_ddp_events_df['date'].dt.date
+    all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype(int)
 
     special_ddp_events_df = all_ddp_events_df[all_ddp_events_df["donation_id"].isin(the_special_donations)].copy()
     print(f"Special DDP events dataframe loaded: {special_ddp_events_df.donation_id.nunique()} unique donations. Shape: {special_ddp_events_df.shape}")
@@ -529,13 +573,10 @@ def load_special_donations(study_name):
     print(f"Dropping special DDP events with corrupt TikTok URLs. New shape: {special_ddp_events_df.shape}")
 
     print("Processing DDP events to extract local time features...")
-    special_ddp_events_df = extract_local_time_features_really(study_name, special_ddp_events_df, kind_of_log='ddp')
+    special_ddp_events_df = extract_local_time_features(study_name, special_ddp_events_df, kind_of_log='ddp')
 
     print("------------------------------------------------------------------------------------------------------------------")
     return {"data_special_ddps":special_ddp_events_df}
-
-
-
 
 
 
@@ -548,28 +589,23 @@ def load_datasets(study_name):
 
 
     print("------------------------------------------------------------------------------------------------------------------")
-    print("Loading all datasets (not optimized):")
+    print("Loading all datasets:")
     print("------------------------------------------------------------------------------------------------------------------")
-    tutti = load_scrape_metadata()
-
-    tutti["data_annotated"] = load_machine_annotations(include_failed_calls=False, verbose = True)
+    tutti = {}
 
     tutti.update(load_zeeschuimer_data(study_name))
     tutti.update(load_ddp_events(study_name))
     tutti.update(load_special_donations(study_name))
-    print("------------------------------------------------------------------------------------------------------------------")
 
-    for k in sorted(list(tutti.keys())):
-        print(k , type(tutti[k]), len(tutti[k]))
+    tutti.update(load_scrape_metadata())
+    tutti["data_annotated"] = load_machine_annotations(include_failed_calls=False, verbose = True)
+
+    #print("------------------------------------------------------------------------------------------------------------------")
+
+    #for k in sorted(list(tutti.keys())):
+    #    print(k , type(tutti[k]), len(tutti[k]))
 
     return tutti
-
-
-
-
-
-
-
 
 
 
@@ -619,8 +655,8 @@ def identify_unique_videos(study_name, stuff):
         unique_ddp_videos = ddp_video_stats[ddp_video_stats.nunique_users >= MIN_NUNIQUE_USERS].copy()
         print(f"Keeping unique DDP videos that have been watched/liked/etc by at least {MIN_NUNIQUE_USERS} unique users. Shape: {unique_ddp_videos.shape}")
 
-        # extracting item ids from the URLs (in the index)
-        unique_ddp_videos["item_id"] = unique_ddp_videos.index.map(lambda x:int(x.split("/")[-2]))
+        # extracting item ids from the URLs (in the index) - vectorized
+        unique_ddp_videos["item_id"] = unique_ddp_videos.index.str.split("/").str[-2].astype(int)
     else:
         print("No events in the combined DDP dataframe")
 
@@ -636,7 +672,8 @@ def identify_unique_videos(study_name, stuff):
         unique_baseline_videos['item_id'] = unique_item_id_list
         unique_baseline_videos['nunique_users'] = NA
         unique_baseline_videos['total_views'] = NA
-        unique_baseline_videos['primary_value'] = unique_baseline_videos['item_id'].map(lambda x: f"https://www.tiktokv.com/share/video/{x}/")
+        # Vectorized URL construction
+        unique_baseline_videos['primary_value'] = "https://www.tiktokv.com/share/video/" + unique_baseline_videos['item_id'].astype(str) + "/"
 
     unique_baseline_videos.set_index('primary_value', inplace=True)
 
@@ -856,22 +893,22 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0)):
 
     # attach session stats to baseline log
 
-    list_of_groups = []
-
+    # VECTORIZED: No loop needed, use groupby operations directly
     if len(baseline_log_simple) and ("item_id" in baseline_log_simple.columns):
-
-        for script_code,session_data in baseline_log_simple.groupby("B_log_script"):
-            session_id_counter += 1
-            this_group = session_data.copy()
-            this_group["event_order_in_session"] = list(session_data.sort_values("B_local_timestamp").reset_index(drop=True).index)
-            #this_group["event_order_in_session"] = this_group["event_order_in_session"] + 1
-            this_group["session_id"] = session_id_counter
-            n_videos_in_session = len(this_group)
-            this_group["event_pos_in_session"] = this_group["event_order_in_session"] / max(1,(n_videos_in_session-1))
-
-            list_of_groups += [this_group.copy()]
-
-        baseline_log_simple = concat(list_of_groups)
+        # Sort by script and timestamp
+        baseline_log_simple = baseline_log_simple.sort_values(["B_log_script", "B_local_timestamp"]).copy()
+        
+        # Assign session IDs: each script gets a unique session ID
+        baseline_log_simple["session_id"] = session_id_counter + baseline_log_simple.groupby("B_log_script").ngroup() + 1
+        session_id_counter = baseline_log_simple["session_id"].max() + 1
+        
+        # Event order within each session (vectorized)
+        baseline_log_simple["event_order_in_session"] = baseline_log_simple.groupby("session_id").cumcount()
+        
+        # Event position (vectorized)
+        n_videos_per_session = baseline_log_simple.groupby("session_id")["event_order_in_session"].transform("max")
+        baseline_log_simple["event_pos_in_session"] = baseline_log_simple["event_order_in_session"] / n_videos_per_session.replace(0, 1)
+        
         print("Adding session stats to baseline data",baseline_log_simple.shape)
     else:
         print("no baseline data")
@@ -897,8 +934,14 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0)):
 
     baseline_log_simple = _rename_columns(baseline_log_simple)
     baseline_log_simple = baseline_log_simple[relevant_baseline_cols].copy()
+    
+    # Convert categorical columns to string to avoid fillna errors with categoricals
+    for col in baseline_log_simple.select_dtypes(include=['category']).columns:
+        baseline_log_simple[col] = baseline_log_simple[col].astype(str)
+    
     baseline_log_simple = baseline_log_simple.fillna("").copy()
     baseline_log_simple = _check_for_null_values_in_df(baseline_log_simple)
+
 
 
     return baseline_log_simple, session_id_counter
@@ -912,6 +955,7 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0)):
     # attach session stats to donation events
     ddp_log = ddp_log_in.copy()
     from pandas import isna as pd_isna
+    import numpy as np
 
 
     all_sessions = []
@@ -919,32 +963,34 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0)):
         ddp_log['session_id'] = -1
         ddp_log['event_order_in_session'] = -1
         ddp_log['event_pos_in_session'] = -1.0
+        
+        # OPTIMIZATION: Collect all updates, then apply in bulk at the end
+        updates_list = []
 
         for one_donation_id,one_donation in ddp_log.groupby("D_donation_id"):
 
             watch = (one_donation.sort_values(['D_ts_jiggled'])).copy()
 
             watch['delta'] = watch['D_local_timestamp'].shift(-1) - watch['D_local_timestamp']
-            watch['delta'] = watch['delta'].map(lambda x:x.total_seconds())
+            # Vectorized timedelta conversion to seconds
+            watch['delta'] = watch['delta'].dt.total_seconds()
 
-            session_ids = []
-            event_order_in_session = []
-            event_order_in_session_counter = np_int64(0)
+            # VECTORIZED SESSION ID ASSIGNMENT (replaces slow for loop)
+            # A new session starts when delta is >15 minutes or is NaN
+            session_breaks = (watch['delta'].isna()) | (watch['delta'] > 15*60)
+            # Cumsum creates incrementing session IDs at each break
+            session_nums = session_breaks.cumsum()
+            # Add the counter offset and assign
+            watch['session_id'] = session_id_counter + session_nums
             
-            for d in watch['delta']:
-                if pd_isna(d) or d>15*60:
-                    session_id_counter += 1
-                    event_order_in_session_counter = -1
-                    session_ids.append(-1)
-                else:
-                    session_ids.append(session_id_counter)
-                
-                event_order_in_session.append(event_order_in_session_counter)
-                event_order_in_session_counter += 1
-
-
-            watch['session_id'] = session_ids
-            watch['event_order_in_session'] = event_order_in_session
+            # Update counter for next donation
+            session_id_counter = watch['session_id'].max() + 1
+            
+            # VECTORIZED EVENT ORDER (replaces loop)
+            # groupby().cumcount() gives sequential numbering within each session
+            watch['event_order_in_session'] = watch.groupby('session_id').cumcount()
+            # Adjust: events at session breaks get -1, others keep their count
+            watch.loc[session_breaks, 'event_order_in_session'] = -1
 
             session_stats = watch.groupby('session_id').agg(
                 session_duration=('delta', 'sum'),
@@ -962,18 +1008,24 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0)):
 
             session_stats["n_videos_in_session"] = session_stats["n_videos_in_session"]+1
 
-
             short = watch.loc[watch['delta'].between(0, 15*60), ['delta', 'session_id', 'event_order_in_session', 'event_pos_in_session']]
 
-
-            ddp_log.loc[short.index, 'session_id'] = short['session_id']
-            ddp_log.loc[short.index, 'event_order_in_session'] = short['event_order_in_session']
-            ddp_log.loc[short.index, 'event_pos_in_session'] = short['event_pos_in_session'].astype(float)
-
-            ddp_log.loc[short.index, 'D_secondary_value'] = short['delta'] # overwrite the old watch_duration calculation
-            ddp_log.loc[ddp_log[ddp_log["event_order_in_session"]==0].index, "D_secondary_value"] = -1 
+            # OPTIMIZATION: Store updates instead of applying immediately
+            if len(short) > 0:
+                updates_list.append(short)
 
             all_sessions += [session_stats]
+
+        # OPTIMIZATION: Apply all updates at once instead of in the loop
+        if updates_list:
+            all_updates = pd.concat(updates_list)
+            ddp_log.loc[all_updates.index, 'session_id'] = all_updates['session_id']
+            ddp_log.loc[all_updates.index, 'event_order_in_session'] = all_updates['event_order_in_session']
+            ddp_log.loc[all_updates.index, 'event_pos_in_session'] = all_updates['event_pos_in_session'].astype(float)
+            ddp_log.loc[all_updates.index, 'D_secondary_value'] = all_updates['delta']
+        
+        # Set first event in each session to -1
+        ddp_log.loc[ddp_log[ddp_log["event_order_in_session"]==0].index, "D_secondary_value"] = -1
 
         print("Adding session stats to DDP data",ddp_log.shape)
         
@@ -1071,9 +1123,18 @@ def process_scrape_metadata_for_log_export(stuff, combined_log):
     print("Processing scraped metadata for log export...")
     scrape_metadata_log = stuff["data_scraped"][stuff["data_scraped"].item_id.isin(combined_log.item_id.unique())].copy()
 
-    scrape_metadata_log = scrape_metadata_log.map(lambda x:"" if x=='nan' else x).copy()
+    # VECTORIZED: Replace 'nan' string with empty string (faster than map)
+    # Only apply to object columns to avoid FutureWarning
+    object_cols = scrape_metadata_log.select_dtypes(include=['object']).columns
+    scrape_metadata_log[object_cols] = scrape_metadata_log[object_cols].replace('nan', '').infer_objects(copy=False)
 
-    scrape_metadata_log["createTime"] = scrape_metadata_log["createTime"].map(lambda x:datetime.fromtimestamp(x.timestamp()).replace(tzinfo=ZoneInfo("UTC")) if not pd_isna(x) else Timestamp(year=2100,month=1,day=1))
+    # VECTORIZED: Convert createTime without lambda
+    # Use pd.to_datetime for the conversion instead of map(lambda)
+    scrape_metadata_log["createTime"] = pd.to_datetime(
+        scrape_metadata_log["createTime"], 
+        errors='coerce',
+        utc=True
+    ).fillna(pd.Timestamp(year=2100, month=1, day=1, tz='UTC'))
 
 
     scrape_metadata_log.drop(columns=[
@@ -1127,25 +1188,47 @@ def process_machine_annotations_for_log_export(stuff, combined_log):
 
 
 
-def process_and_combine_logs_for_log_export(stuff):
+def process_and_combine_logs_for_log_export(study_name, stuff=None):
     
-    baseline_log_simple, sesh_counter = process_baseline_for_log_export(stuff, 100)
-    ddp_log, sesh_counter = process_ddp_log_for_log_export(stuff, session_id_counter = sesh_counter)
 
-    from pandas import concat
-
-
-    combined_log = concat([ddp_log,baseline_log_simple])
-    print(f"Combined log length: {len(combined_log)}")
-
-    ddp_cols = [c for c in combined_log.columns if c.startswith("D_")]
-    baseline_cols = [c for c in combined_log.columns if c.startswith("B_")]
+    from pandas import concat, read_pickle
+    from os.path import exists, join
 
 
-    combined_log[ddp_cols] = combined_log[ddp_cols].fillna("BASELINE")
-    combined_log[baseline_cols] = combined_log[baseline_cols].fillna("DDP")
 
-    combined_log = _check_for_null_values_in_df(combined_log)
+    USE_HALF_BAKED_FILES = fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
+    half_baked_combined_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_COMBINED.pkl")
+
+
+    if USE_HALF_BAKED_FILES and exists(half_baked_combined_path):
+        print("Loading half-baked combined log from pickle...", end=" ", flush=True)
+        combined_log = read_pickle(half_baked_combined_path)
+        print(f"Shape: {combined_log.shape}")
+    else:
+
+        baseline_log_simple, sesh_counter = process_baseline_for_log_export(stuff, 100)
+        ddp_log, sesh_counter = process_ddp_log_for_log_export(stuff, session_id_counter = sesh_counter)
+
+
+        combined_log = concat([ddp_log,baseline_log_simple])
+        print(f"Combined log length: {len(combined_log)}")
+
+        ddp_cols = [c for c in combined_log.columns if c.startswith("D_")]
+        baseline_cols = [c for c in combined_log.columns if c.startswith("B_")]
+
+        # Convert categorical columns to string to avoid fillna errors
+        for col in combined_log.select_dtypes(include=['category']).columns:
+            combined_log[col] = combined_log[col].astype(str)
+
+        combined_log[ddp_cols] = combined_log[ddp_cols].fillna("BASELINE")
+        combined_log[baseline_cols] = combined_log[baseline_cols].fillna("DDP")
+
+        combined_log = _check_for_null_values_in_df(combined_log)
+
+        if USE_HALF_BAKED_FILES:
+            print("Saving half-baked combined log to pickle...")    
+            combined_log.to_pickle(half_baked_combined_path)
+
 
     return combined_log
 
@@ -1179,12 +1262,20 @@ def process_enrichment_data_and_merge_with_logs(
     outdata = merge(left=outdata, right=_rename_columns(machine_annotations_for_log), on='item_id',how=the_how)
 
 
-    # Create a new column  by calculating the difference between 'T_local_timestamp' and 'S_createTime'.
-
-    aa = []
-    for i in outdata.index:
-        aa += [(outdata.loc[i,"T_local_timestamp"] - outdata.loc[i,"S_createTime"]).days]
-    outdata["T_days_since_created"] = aa
+    # Create a new column by calculating the difference between 'T_local_timestamp' and 'S_createTime'.
+    # Vectorized date difference calculation
+    # Ensure both are proper datetime types (not object) before subtraction
+    t_timestamp = outdata["T_local_timestamp"]
+    s_createtime = outdata["S_createTime"]
+    
+    # Convert to datetime if they're object dtype
+    if t_timestamp.dtype == 'object':
+        t_timestamp = pd.to_datetime(t_timestamp, utc=True)
+    if s_createtime.dtype == 'object':
+        s_createtime = pd.to_datetime(s_createtime, utc=True)
+    
+    # Now we can subtract them
+    outdata["T_days_since_created"] = (t_timestamp - s_createtime).dt.days
 
     print(f"Adding 'days_since_created' column. Resulting output log DF shape {outdata.shape}")
     print("------------------------------------------------------------------------------------------------------------------")
@@ -1223,6 +1314,7 @@ def filter_log_against_sampled_donation_groups(
         left_index=True, right_index=True, how="inner")
     outdata_filtered = outdata_filtered.reset_index().drop("local_date",axis=1).copy()
 
+
     print(
         f"After matching the export ddp events against the sampled donation-date groups, we have {len(outdata_filtered):,} ddp events in the export log")
 
@@ -1241,9 +1333,10 @@ def filter_log_against_sampled_donation_groups(
     # use the okay dates to get rid of dates with too much missing data
     outdata_filtered = outdata_filtered.set_index(["D_donation_id","T_local_date"]).loc[okay_dates_index,:].reset_index().copy()
 
+    sampled_ddp_count = len(stuff["sampled_data_ddp_events"])
     print(
         f"After dropping dates with too high missing data ratio, we have {len(outdata_filtered):,} ddp events in the export log,\n"
-        f"which should be compared to {len(stuff["sampled_data_ddp_events"]):,} ddp events in the sampled donation-date groups")
+        f"which should be compared to {sampled_ddp_count:,} ddp events in the sampled donation-date groups")
 
 
     print("Putting back the baseline data...")
@@ -1341,33 +1434,44 @@ def save_logs_as_csv(
         log_as_csv_filename = study_name + "_" + "_LOG.csv"
         outdata_for_csv_export = outdata_filtered.copy()
 
-        # polish the strings
-        outdata_for_csv_export = outdata_for_csv_export.map(lambda x:x.replace("\n", " ") if isinstance(x,str) else x).copy()
-        outdata_for_csv_export = outdata_for_csv_export.map(lambda x:x.replace(";", " ") if isinstance(x,str) else x).copy()
-        outdata_for_csv_export = outdata_for_csv_export.map(lambda x:x.replace(", ", " ") if isinstance(x,str) else x).copy()
-        outdata_for_csv_export = outdata_for_csv_export.map(lambda x:x.replace(" ,", " ") if isinstance(x,str) else x).copy()
-        outdata_for_csv_export = outdata_for_csv_export.map(lambda x:x.replace("\t", " ") if isinstance(x,str) else x).copy()
-        outdata_for_csv_export = outdata_for_csv_export.map(lambda x:x.replace("|  ", " ") if isinstance(x,str) else x).copy()
-        outdata_for_csv_export = outdata_for_csv_export.map(lambda x:x.replace("،", " ") if isinstance(x,str) else x).copy() # arabic comma
+        # Vectorized string cleaning - chain multiple replacements
+        print("Cleaning string data...")
+        string_cols = outdata_for_csv_export.select_dtypes(include=['object']).columns
+        for col in string_cols:
+            outdata_for_csv_export[col] = (
+                outdata_for_csv_export[col]
+                .astype(str)
+                .str.replace("\n", " ", regex=False)
+                .str.replace(";", " ", regex=False)
+                .str.replace(", ", " ", regex=False)
+                .str.replace(" ,", " ", regex=False)
+                .str.replace("\t", " ", regex=False)
+                .str.replace("|  ", " ", regex=False)
+                .str.replace("،", " ", regex=False)  # arabic comma
+            )
 
         # Clean surrogate characters from all string columns to prevent Unicode encoding errors
+        # VECTORIZED: Only apply to string columns, not entire DataFrame
         print("Cleaning surrogate characters from string data...")
-        outdata_for_csv_export = outdata_for_csv_export.map(_clean_surrogates).copy()
+        string_cols = outdata_for_csv_export.select_dtypes(include=['object']).columns
+        for col in string_cols:
+            outdata_for_csv_export[col] = outdata_for_csv_export[col].apply(_clean_surrogates)
 
         # all numbers except for those related to session stats can be integers, so let's retype those
         some_float_cols = [c for c in outdata_for_csv_export.select_dtypes(include=[float]).columns if not "session" in c]
         outdata_for_csv_export[some_float_cols] = outdata_for_csv_export[some_float_cols].fillna(value=-1).astype(int)
 
 
-        # convert some long numbers to string for so that Excel can deal with them.
-        # Feels like there is a better way to solve this, but that I'm unaware of
+        # VECTORIZED: Convert long numbers to strings for Excel
+        # Use string operations instead of map
         for c in ["B_data_author_id","item_id","S_music_id","S_author_id","D_ts_jiggled"]:
             if c in outdata_for_csv_export.columns:
-                outdata_for_csv_export[c] = outdata_for_csv_export[c].map(_convert_num_to_string_and_then_some)  # convert item_id to string for export
+                # Faster: use str accessor to add quotes
+                outdata_for_csv_export[c] = "'" + outdata_for_csv_export[c].astype(str) + "'"
             
 
-        # add the full TIkTok url to this video for convenience
-        outdata_for_csv_export["tiktok_url"] = outdata_for_csv_export["item_id"].map(lambda x: f"https://www.tiktok.com/@/video/{x}/")
+        # VECTORIZED: Build TikTok URLs using string concatenation
+        outdata_for_csv_export["tiktok_url"] = "https://www.tiktok.com/@/video/" + outdata_for_csv_export["item_id"] + "/"
 
 
         export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")

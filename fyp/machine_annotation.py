@@ -232,11 +232,13 @@ def load_machine_annotations(
     if include_failed_calls:
         if verbose:
             print(f"Including failed machine annotation calls")
+            print("------------------------------------------------------------------------------------------------------------------")
     else:
         # assuming the 'scenes' variable is not na if things have gone well
         all_results = all_results[~all_results["scenes"].isna()].copy()
         if verbose:
             print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
+            print("------------------------------------------------------------------------------------------------------------------")
 
     return all_results
 
