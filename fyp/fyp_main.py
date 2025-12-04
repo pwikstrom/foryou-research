@@ -270,7 +270,7 @@ def temp_path(filename: str = "") -> str:
 
 
 
-def back_this_up(the_file: str, move_the_file: bool = False) -> None:
+def OLDOLD_back_this_up(the_file: str, move_the_file: bool = False) -> None:
     from os.path import join, exists, basename
     from datetime import datetime
     from shutil import copy, move
@@ -369,7 +369,7 @@ def pretty_str_seconds(proc_time_seconds: float) -> str:
 
 
 
-def get_item_id_from_video_uri(video_uri):
+def OLDOLD_get_item_id_from_video_uri(video_uri):
     if video_uri[-1] == "/":
         video_uri = video_uri[:-1]
     return video_uri.split("/")[-1]
@@ -441,7 +441,7 @@ def clean_url(the_url: str) -> dict:
 
 
 
-def get_video_id_from_link(link):
+def OLDOLD_get_video_id_from_link(link):
     if isinstance(link, str):
         if link.endswith("/"):
             link = link[:-1]
@@ -458,7 +458,7 @@ def get_video_id_from_link(link):
 
 
 
-def boxplots_w_max_range(persona_distribution_stats, m_min, m_max):
+def OLDOLD_boxplots_w_max_range(persona_distribution_stats, m_min, m_max):
     import pandas as pd
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
@@ -499,7 +499,7 @@ def boxplots_w_max_range(persona_distribution_stats, m_min, m_max):
 
 
 
-def str_range_mean(ss):
+def OLDOLD_str_range_mean(ss):
     if " - " in ss:
         numb = ss.split(" - ")
         return (float(numb[0]) + float(numb[1])) / 2
@@ -512,7 +512,7 @@ def str_range_mean(ss):
 
 
 
-def boost(x, a):
+def OLDOLD_boost(x, a):
     from math import log
     if not (0 <= x <= 1):
         raise ValueError("x must be between 0 and 1 (inclusive).")
@@ -527,7 +527,7 @@ def boost(x, a):
 
 
 
-def most_frequent_cooccurring(texts, keyword, *, max_ngram: int = 3):
+def OLDOLD_most_frequent_cooccurring(texts, keyword, *, max_ngram: int = 3):
     """
     texts       : list[str]   documents to search
     keyword     : str         word *or phrase* that must appear in a document
@@ -606,7 +606,7 @@ def flatten_list(nested_list):
 
 
 
-def calc_focus_words_ratio_by_date(focus_word_list, analyse_these_events, analyse_these_videos, first_date):
+def OLDOLD_calc_focus_words_ratio_by_date(focus_word_list, analyse_these_events, analyse_these_videos, first_date):
     import pandas as pd
 
     analyse_these_videos['has_focus_words'] = analyse_these_videos.title.map(lambda x: 1*these_are_in_string(x, [c for c in focus_word_list]))
@@ -629,7 +629,7 @@ def calc_focus_words_ratio_by_date(focus_word_list, analyse_these_events, analys
 
 
 
-def calc_focus_words_in_donations(focus_word_list, analyse_these_events, analyse_these_videos):
+def OLDOLD_calc_focus_words_in_donations(focus_word_list, analyse_these_events, analyse_these_videos):
     analyse_these_videos['has_focus_words'] = analyse_these_videos.title.map(lambda x: 1*these_are_in_string(x, [c for c in focus_word_list]))
 
     ext_events_df = pd.merge(left=analyse_these_events, right=analyse_these_videos, how='left', left_on='primary_value', right_on='video_url')
@@ -650,7 +650,7 @@ def calc_focus_words_in_donations(focus_word_list, analyse_these_events, analyse
 
 
 
-def these_are_in_string_return_list(string, these):
+def OLDOLD_these_are_in_string_return_list(string, these):
     """
     Check if any of the strings in 'these' are in 'string'.
     """
@@ -665,7 +665,7 @@ def these_are_in_string_return_list(string, these):
 
 
 
-def these_are_in_string(string, these):
+def OLDOLD_these_are_in_string(string, these):
     """
     Check if any of the strings in 'these' are in 'string'.
     """

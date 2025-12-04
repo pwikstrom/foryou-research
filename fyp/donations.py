@@ -1,9 +1,11 @@
-
-
-#import pandas as pd
-
-#from pathlib import Path
-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Script Name: 
+Description: 
+Author: Patrik
+Date: 
+"""
 
 
 
@@ -119,6 +121,7 @@ def download_recent_donations(hours_back: int,
     import datetime as _dt
     from pathlib import Path
     import subprocess
+    from shlex import quote as shlex_quote
 
 
     # ------------------------------------------------------------------

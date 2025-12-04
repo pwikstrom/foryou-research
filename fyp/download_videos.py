@@ -32,7 +32,6 @@ def download_single_video(video_id: int):
         verbose=True
     )
 
-
     try:
         col_count = len(scrape_metadata.columns)
         if col_count > 1 and scrape_metadata.iloc[0]['video_downloaded']==True:
@@ -53,7 +52,11 @@ def download_single_video(video_id: int):
     return video_id
 
 
-def start_monitor(futures, interval=5):
+
+
+
+
+"""def start_monitor(futures, interval=5):
 
     import threading
     import time
@@ -82,6 +85,7 @@ def start_monitor(futures, interval=5):
     t = threading.Thread(target=_run, daemon=True)
     t.start()
     return t
+"""
 
 
 
@@ -217,10 +221,6 @@ def download_video_threads(interesting_videos, max_workers=4):
             submit_times[fut] = time.time()
 
 
-
-        #futures = [ex.submit(worker, iv) for iv in enumerate(interesting_videos)]
-
-        #monitor_thread = start_monitor(futures, interval=60)
         monitor_thread = start_monitor(futures, submit_times, interval=5, label="dl", bar_width=32)
 
 

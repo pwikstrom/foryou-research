@@ -56,13 +56,25 @@ DDP_START_DATE = "2023-01-01" # only keep events after this date
 DDP_END_DATE = "2025-12-31" # only keep events before this date
 BASELINE_START_DATE = "2024-05-15" # only keep events after this date
 BASELINE_END_DATE = "2024-07-15" # only keep events before this date
-DDP_SAMPLING_FRACTION = 0.1 # set to zero to not sample anything, set to 1.0 to include all events
-DDP_STRATIFICATION_VARIABLE = "donation_id" # parameter for stratified random sampling with disproportionate allocation
-DDP_STRATUM_SIZE = 100 # parameter for stratified random sampling with disproportionate allocation
 SPECIAL_DONATIONS = []
 INCLUDE_ZEESCHUIMER_DATA = true
 COL_MISSING_DATA_THRES = 0.5
 TIME_ZONE = "Australia/Brisbane"
+DONATION_DATE_GROUP_VARIABLES = ["D_donation_id","T_local_date"]
+
+# I want donations where there are a considerable number of dates within this range.
+MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
+
+# percentile limits for the number of events in donation-dates groups, based on the median of all donation groups
+# the reasoning here is that I want 'average' TikTok dates. I want to avoid dates
+# when the user has only watched very few videos or dates when they have watched thousands. 
+DONATION_DATE_GROUP_PERCENTILE_LIMITS = [0.25,0.75]
+
+# how many dates to pick from each donation
+N_SAMPLED_DATES_FROM_EACH_DONATION = 30
+
+# how many events to pick from each donation-date group
+N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = 35
 
 
 [compare_dd_w_baseline]
