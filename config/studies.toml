@@ -61,7 +61,7 @@ INCLUDE_ZEESCHUIMER_DATA = true
 COL_MISSING_DATA_THRES = 0.5
 TIME_ZONE = "Australia/Brisbane"
 DONATION_DATE_GROUP_VARIABLES = ["D_donation_id","T_local_date"]
-USE_HALF_BAKED_FILES = true
+#USE_HALF_BAKED_FILES = true
 
 # I want donations where there are a considerable number of dates within this range.
 MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
@@ -72,7 +72,7 @@ MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
 DONATION_DATE_GROUP_PERCENTILE_LIMITS = [0.25,0.75]
 
 # how many dates to pick from each donation
-N_SAMPLED_DATES_FROM_EACH_DONATION = 30
+N_SAMPLED_DATES_FROM_EACH_DONATION = 33
 
 # how many events to pick from each donation-date group
 N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = 35

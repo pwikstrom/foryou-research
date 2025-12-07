@@ -301,36 +301,22 @@ def OLDOLD_back_this_up(the_file: str, move_the_file: bool = False) -> None:
 ###                     Utilities
 ############################################################################################################
 
-def check_repetitive_patterns(text: str, min_pattern_length: int = 5, min_repetitions: int = 5, max_text_length: int = 1000) -> str:
-    from collections import defaultdict
 
-    if not isinstance(text,str):
-        return "Not a string"
+from typing import Iterable, List
 
-    if len(text) > max_text_length:
-        return "String too long"
+def sort_by_similarity(reference: str, candidates: Iterable[str]) -> List[str]:
+    """
+    Return the candidates sorted from most to least similar to the reference string.
+    Similarity is measured via difflib.SequenceMatcher ratio (0.0–1.0).
+    """
+    from difflib import SequenceMatcher
 
-    words = text.split()
-    n = len(words)
-    
-    pattern_counts = defaultdict(int)
-    
-    # Check for all possible pattern lengths from min_pattern_length to half of the total number of words
-    for length in range(min_pattern_length, n // 2 + 1):
-        for i in range(n - length + 1):
-            pattern = tuple(words[i:i + length])
-            pattern_counts[pattern] += 1
-    
-    repetitive_patterns = []
-    
-    for pattern, count in pattern_counts.items():
-        if count >= min_repetitions:
-            repetitive_patterns.append((pattern, count))
+    return sorted(
+        candidates,
+        key=lambda candidate: SequenceMatcher(None, reference, candidate).ratio(),
+        reverse=True,
+    )
 
-    if repetitive_patterns:
-        return ("Found repetitive patterns", repetitive_patterns)
-    else:
-        return ("Good string", repetitive_patterns)
 
 
 

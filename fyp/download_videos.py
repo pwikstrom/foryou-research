@@ -10,18 +10,177 @@ Date:
 
 import fyp.fyp_main as fyp
 
+from typing import List, Tuple, Union, Sequence
 
 
 
-def download_single_video(video_id: int):
+def make_slideshow(
+    files: List[str],
+    output: str = "slideshow.mp4",
+    duration: float = 3.0,
+    transition: float = 0.6,
+    swipe: bool = True,
+    canvas_size: Tuple[int, int] = None,  # auto if None
+    bg_color: Union[str, Tuple[int, int, int]] = "#000000",
+    fps: int = 1,
+    codec: str = "libx264",
+    crf: int = 18,
+    preset: str = "medium",
+    verbose=False
+):
+    # Creates a slideshow video from a list of image files.
+
+
+
+    from moviepy import (
+        ImageClip,
+        ColorClip,
+        CompositeVideoClip,
+        concatenate_videoclips
+    )
+    from PIL import Image, ImageColor
+
+
+
+    def _normalize_color(color): 
+        if isinstance(color, str):
+            try:
+                rgb = ImageColor.getrgb(color)
+            except ValueError as exc:
+                raise ValueError(f"Invalid bg_color {color!r}") from exc
+            return tuple(int(c) for c in rgb)
+        if isinstance(color, Sequence) and len(color) == 3:
+            try:
+                return tuple(int(c) for c in color)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("bg_color tuple must contain numeric values") from exc
+        raise TypeError("bg_color must be a color string or an RGB tuple of length 3")
+
+
+
+    def _fit_letterbox(img_clip, canvas_size):
+        W, H = canvas_size
+        iw, ih = img_clip.w, img_clip.h
+        if iw / ih >= W / H:
+            scaled = img_clip.resized(width=W)
+        else:
+            scaled = img_clip.resized(height=H)
+        return scaled
+
+
+
+    def _make_swipe_pos(width, transition):
+        def pos(t):
+            if transition <= 0:
+                return (0, "center")
+            if t <= transition:
+                x = width * (1 - t / transition)
+            else:
+                x = 0
+            return (x, "center")
+        return pos
+
+
+
+    def _build_slide(
+        image_path: str,
+        duration: float,
+        canvas_size: Tuple[int, int],
+        bg_color,
+        swipe: bool,
+        transition: float,
+    ):
+        bg = ColorClip(size=canvas_size, color=bg_color, duration=duration)
+        img = ImageClip(image_path, duration=duration)
+        boxed = _fit_letterbox(img, canvas_size)
+
+        if swipe and transition > 0:
+            pos = _make_swipe_pos(canvas_size[0], transition)
+            animated = boxed.with_position(pos)
+        else:
+            animated = boxed.with_position(("center", "center"))
+
+        slide = CompositeVideoClip([bg, animated]).with_duration(duration)
+        return slide
+
+
+
+    def _infer_canvas_size(files: List[str]) -> Tuple[int, int]:
+        widths = []
+        heights = []
+        for f in files:
+            try:
+                with Image.open(f) as im:
+                    w, h = im.size
+                    widths.append(w)
+                    heights.append(h)
+            except Exception:
+                pass
+
+        if not widths or not heights:
+            return (1920, 1080)
+
+        return (max(widths), max(heights))
+
+
+
+    # Main function logic starts here
+    if not files:
+        raise ValueError("No input files provided")
+
+    bg_color = _normalize_color(bg_color)
+
+    if canvas_size is None:
+        canvas_size = _infer_canvas_size(files)
+
+    transition = max(0.0, min(transition, duration))
+
+    slides = []
+    for f in files:
+        slide = _build_slide(
+            f,
+            duration,
+            canvas_size,
+            bg_color,
+            swipe,
+            transition
+        )
+        slides.append(slide)
+
+    final = concatenate_videoclips(slides, method="compose")
+
+    final.write_videofile(
+        output,
+        fps=fps,
+        codec=codec,
+        audio=False,
+        preset=preset,
+        threads=0,
+        ffmpeg_params=["-crf", str(crf)],
+        logger=None
+    )
+
+    for s in slides:
+        s.close()
+    final.close()
+
+
+
+
+
+
+def download_single_video(video_id: int, verbose = True):
 
     import fyp.mypyktok as pyk
+
+    from os.path import join, exists, getsize
 
     pyk.specify_browser('chrome')
 
     #tiktok_url = f"https://www.tiktokv.com/share/video/{video_id}/"
     tiktok_url = f"https://www.tiktok.com/@/video/{video_id}/"
 
+    # try to scrape metadata and download video
     scrape_metadata = pyk.save_tiktok(
         tiktok_url,
         save_video=True,
@@ -29,24 +188,94 @@ def download_single_video(video_id: int):
         browser_name='chrome',
         save_path="",
         stream_to_bucket=fyp.cf["media_storage"]["bucket"],
-        verbose=True
+        verbose=verbose
     )
-
+    #import pandas as pd
+    #scrape_metadata = pd.DataFrame([[True,""]],columns=["video_downloaded","image_list"])
     try:
+        # if there are columns in the result and a something has been downloaded
         col_count = len(scrape_metadata.columns)
-        if col_count > 1 and scrape_metadata.iloc[0]['video_downloaded']==True:
+        if col_count > 1 and scrape_metadata.loc[0,'video_downloaded']==True:
+
+            # if this is an image post
             if len(scrape_metadata.loc[0,'image_list'])>0:
-                pass#print(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
+                if verbose:
+                    print(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
+
+                # if there isn't a video already associated to this post...
+                blob = fyp.cf["media_storage"]["bucket"].blob(f"{video_id}.mp4")
+                if blob.exists():
+                    if verbose:
+                        print(f"Photo slideshow already in bucket")
+                    scrape_metadata.loc[0,'video_downloaded'] = True
+                else:
+                    if verbose:
+                        print(f"Converting photos to video slideshow")
+
+                    # look for image files and download those that are found
+                    ccc = 1
+                    image_files = []
+                    blob = fyp.cf["media_storage"]["bucket"].blob(f"{video_id}_{ccc:02}.jpeg")
+                    while blob.exists():
+                        blob.download_to_filename(join(fyp.cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
+                        image_files.append(join(fyp.cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
+                        ccc += 1
+                        blob = fyp.cf["media_storage"]["bucket"].blob(f"{video_id}_{ccc:02}.jpeg")
+
+                    # use the images to build a slideshow
+                    make_slideshow(
+                        image_files,
+                        output=join(fyp.cf["paths"]["temp"],f"{video_id}.mp4"),
+                        duration=2,
+                        swipe=False,
+                        verbose=verbose
+                    )
+
+                    # upload the video slideshow to the storage bucket if it is large enough
+                    if getsize(join(fyp.cf["paths"]["temp"],f"{video_id}.mp4")) > 8000:
+                        if verbose:
+                            print(f"Uploading video file to storage bucket...")
+                        blob = fyp.cf["media_storage"]["bucket"].blob(f"{video_id}.mp4")
+                        blob.upload_from_filename(join(fyp.cf["paths"]["temp"],f"{video_id}.mp4"))
+                        scrape_metadata.loc[0,'video_downloaded'] = True
+                    else:
+                        if verbose:
+                            print(f"Generated video file is too small, not uploading.")
+                        scrape_metadata.loc[0,'video_downloaded'] = False
+
+            # if this is a video...
             else:
-                pass#print(f"OK   - Video downloaded '{video_id}' - {col_count} metadata fields")
+                if verbose:
+                    print(f"OK   - Video downloaded '{video_id}' - {col_count} metadata fields")
+
+                # check if it truly is stored and is big enough
+                if fyp.cf["media_storage"]["bucket"].blob(f"{video_id}.mp4").exists():
+                    blob = fyp.cf["media_storage"]["bucket"].get_blob(f"{video_id}.mp4")
+                    if verbose:
+                        print(f"Video file found in bucket")
+                    if blob.size < 8_000:
+                        if verbose:
+                            print(f"\nDeleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
+                        blob.delete()
+                        scrape_metadata.loc[0,'video_downloaded'] = False
+                else:
+                    if verbose:
+                        print("file not in bucket")
+                    scrape_metadata.loc[0,'video_downloaded'] = False
+
             return scrape_metadata
-        elif col_count > 1 and scrape_metadata.iloc[0]['video_downloaded']==False:
-            pass#print(f"Accessed {col_count} metadata fields for {video_id} but did not download media object(s)")
+        
+        # if metadata is downloaded but no video is downloaded
+        elif col_count > 1 and scrape_metadata.loc[0,'video_downloaded']==False:
+            if verbose:
+                print(f"Accessed {col_count} metadata fields for {video_id} but did not download media object(s)")
             return scrape_metadata
         else:
-            pass#print(f"Insufficient metadata columns ({col_count}) - Download of {video_id} - failed")
+            if verbose:
+                print(f"Insufficient metadata columns ({col_count}) - Download of {video_id} - failed")
+
     except Exception as e:
-        print(e.message, e.args)
+        print(e)
     
 
     return video_id
@@ -54,38 +283,6 @@ def download_single_video(video_id: int):
 
 
 
-
-
-"""def start_monitor(futures, interval=5):
-
-    import threading
-    import time
-    import sys
-    import shutil
-
-    def _run():
-        total = len(futures)
-        start = time.time()
-        while True:
-            done = sum(f.done() for f in futures)
-            running = sum(f.running() for f in futures)
-            pending = total - done - running
-            elapsed = time.time() - start
-
-            print(
-                f"[monitor] done: {done}/{total}, "
-                f"running: {running}, pending: {pending}, "
-                f"elapsed: {elapsed:.1f}s"
-            )
-
-            if done == total:
-                break
-            time.sleep(interval)
-
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    return t
-"""
 
 
 
@@ -197,6 +394,7 @@ def download_video_threads(interesting_videos, max_workers=4):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from pandas import concat, DataFrame
     from datetime import datetime
+    from os import rename
     from os.path import join
     import json
     import time
@@ -205,7 +403,7 @@ def download_video_threads(interesting_videos, max_workers=4):
 
     def worker(idx_video):
         idx, video = idx_video
-        return idx, download_single_video(video)
+        return idx, download_single_video(video, verbose=False)
 
     print(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
 
@@ -247,7 +445,11 @@ def download_video_threads(interesting_videos, max_workers=4):
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
     if len(results)>0:
-        results.to_pickle(join(fyp.cf['paths']['scrape'],f"scrape_metadata_{fine_ts}.pkl"))
+        
+        final_path = join(fyp.cf['paths']['scrape'], f"scrape_metadata_{fine_ts}.pkl")
+        temp_path = final_path + ".tmp"
+        results.to_pickle(temp_path)
+        rename(temp_path, final_path)
         print(f"Saved {len(results):,} rows to 'scrape_metadata_{fine_ts}.pkl'")
         print(f"and saved media objects to the bucket for {len(results[results['video_downloaded']]):,} of these.")
 

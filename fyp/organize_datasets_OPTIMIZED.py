@@ -25,7 +25,7 @@ def _get_day_segment_from_hour_of_day(the_hour):
 
 
 
-def extract_local_time_features(study_name, some_events_df_in, kind_of_log=None):
+def extract_local_time_features(study_name, some_events_df_in, kind_of_log=None, verbose=False):
     """
     Optimized version - extracts local time features from timestamps using vectorized operations.
     
@@ -39,7 +39,8 @@ def extract_local_time_features(study_name, some_events_df_in, kind_of_log=None)
 
     df = some_events_df_in.copy()
 
-    print(f"Processing timestamps in dataset to extract local time features (Timezone:{TIME_ZONE})")
+    if verbose:
+        print(f"Processing timestamps in dataset to extract local time features (Timezone:{TIME_ZONE})")
 
     # ---------------------------------------------------------------------
     # 1. Build local_timestamp depending on log type
@@ -202,25 +203,113 @@ def remove_link_events_with_corrupt_links(some_events_df):
 
 
 
-def load_scrape_metadata():
+def load_scrape_metadata(consolidate=False, verbose=False):
     # load the scraped metadata dataframe
 
+    import shutil
     from os import listdir
-    from os.path import join
+    from os.path import join, basename
     from pandas import concat, read_pickle
 
-    print("Loading scraped metadata table")
 
-    if len([gg for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata")]) > 1:
-        raise Exception("\nYou have more than a single 'scrape_metadata' file.\nMake sure to run the 'clean_sync_bucket_and_scrapeDF'\nscript before you continue")
+    # load the scrape_metadata dataframe
+    if verbose:
+        print("Loading scraped metadata table")
 
-    scrape_metadata = concat([read_pickle(join(fyp.cf["paths"]["scrape"],gg)) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata")])
+    scrape_metadata_filenames = [join(fyp.cf["paths"]["scrape"],gg) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata")]
+
+    scrape_metadata = pd.concat([pd.read_pickle(fn) for fn in scrape_metadata_filenames])
+    if verbose:
+        print(f"Shape of the scrape DF: {scrape_metadata.shape}")
+
+    # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both
+    scrape_metadata = scrape_metadata.drop_duplicates(subset=["item_id","video_downloaded"]).copy()
+    if verbose:
+        print(f"Dropping duplicates based on items and whether the video is downloaded or not: {scrape_metadata.shape}")
+
+    # identify items with inconsistent video_downloaded status
+    items_w_inconsistent_video_download_status = scrape_metadata["item_id"].value_counts()
+    items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status>1].index.tolist()
+
+    # use the list generated above to separate items with consistent vs inconsistent video download status
+    items_w_consistent_video_download_status = scrape_metadata[~scrape_metadata['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
+    items_w_inconsistent_video_download_status = scrape_metadata[scrape_metadata['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
+    if verbose:
+        print(f"Identifying conflicting items in the dataset listed twice - once as video_downloaded and once as not")
+        print(
+            f"There are {len(items_w_inconsistent_video_download_status):,} items with such inconsistencies, "
+            f"and {len(items_w_consistent_video_download_status):,} that look alright.")
+
+    if len(items_w_inconsistent_video_download_status)>0:
+        # for items with inconsistent video download status, only keep the ones where video_downloaded is True
+        items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status['video_downloaded']].copy()
+        if verbose:
+            print(f"\nFixed the inconsistencies by keeping the one of the pairs with video_download=True")
+            print(f"This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}")
+
+        # recombine the two dataframes
+        scrape_metadata = pd.concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
+        if verbose:
+            print(f"After this procedure, the shape of the scrape DF is: {scrape_metadata.shape}")
+
+    if verbose:
+        print(
+            f"{scrape_metadata['video_downloaded'].value_counts().loc[True]:,} items have downloaded videos and "
+            f"{scrape_metadata['video_downloaded'].value_counts().loc[False]:,} don't")
+        print("--"*60)
+
+
+    # fixing up some minor issues with the columns
+
+    # set item_id as index
+    scrape_metadata.set_index('item_id', inplace=True)
+
+    # remove do_not_modify column if it exists
+    scrape_metadata.drop(["do_not_modify"], axis=1, errors='ignore', inplace=True)
+
+    # fill NaN values in image_list with empty strings
+    scrape_metadata['image_list'] = scrape_metadata['image_list'].fillna("")
+
+    # for items with non-empty image_list, set video_duration based on number of images * 2 seconds
+    scrape_metadata.loc[scrape_metadata[scrape_metadata['image_list']!=""].index,'video_duration'] = scrape_metadata.loc[scrape_metadata[scrape_metadata['image_list']!=""].index,'image_list'].map(lambda x: len(x.split(' | ')) * 2)
+
+    # video duration is never zero - set zero durations to -1
+    scrape_metadata.loc[scrape_metadata[(scrape_metadata['video_duration']==0)].index,'video_duration'] = -1
+
+    # move the item_id back from the index to a column
+    scrape_metadata.reset_index(inplace=True)
+
+
+    if consolidate:
+        fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+        if verbose:
+            print(f"The scrape_metadata files will be consolidated into a single file: scrape_metadata_{fine_ts}.pkl.")
+
+        scrape_metadata.to_pickle(join(fyp.cf['paths']['scrape'],f"scrape_metadata_{fine_ts}.pkl"))
+
+        for fn in scrape_metadata_files:
+            shutil.move(fn,join(fyp.cf['paths']['scrape'],'archive',fn))
+            if verbose:
+                print(f"Moved {basename(fn)} to archive")
+        if verbose:
+            print("--"*60)
+
+
+
+
+
+    #print("Loading scraped metadata table")
+
+    #if len([gg for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata")]) > 1:
+    #    raise Exception("\nYou have more than a single 'scrape_metadata' file.\nMake sure to run the 'clean_sync_bucket_and_scrapeDF'\nscript before you continue")
+
+    #scrape_metadata = concat([read_pickle(join(fyp.cf["paths"]["scrape"],gg)) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata")])
 
     #completed_downloads = set([int(k) for k in scrape_metadata[scrape_metadata.video_downloaded].item_id.to_list()])
     #missing_downloads = set([int(k) for k in scrape_metadata[~scrape_metadata.video_downloaded].item_id.to_list()])
 
-    print(f"Loaded scraped metadata table - shape {scrape_metadata.shape}")
-    print("------------------------------------------------------------------------------------------------------------------")
+    #print(f"Loaded scraped metadata table - shape {scrape_metadata.shape}")
+    
     return {"data_scraped":scrape_metadata}
 
 
@@ -229,26 +318,43 @@ def load_scrape_metadata():
 
 
 
-def load_failed_scrapes(verbose = False):
+def load_failed_scrapes(verbose = False, consolidate = False):
     # Load list of failed scraped attempts.
 
     from os import listdir
-    from os.path import join
+    from os.path import join, basename
     from json import load as json_load
+    import shutil
 
-    if len([gg for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_failed_items")]) > 1:
-        raise Exception("\nYou have more than a single 'scrape_failed_items' file.\nMake sure to run the 'clean_sync_bucket_and_scrapeDF'\nscript before you continue")
+    failed_scrape_fn_core = "scrape_failed_items"
 
-    scrape_failed_items_files = [join(fyp.cf["paths"]["scrape"],gg) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_failed_items")]
+    failed_scrape_files = [join(fyp.cf["paths"]["scrape"],gg) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith(failed_scrape_fn_core)]
+
     failed_scrapes = []
-    for fn in scrape_failed_items_files:
+    for fn in failed_scrape_files:
             with open(fn, 'r') as file:
                 failed_scrapes += json_load(file)
     failed_scrapes = set(map(lambda x:int(x), failed_scrapes))
 
+    if consolidate:
+        fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+        if verbose:
+            print(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {failed_scrape_fn_core}_{fine_ts}.json.")
+
+        with open(join(fyp.cf['paths']['scrape'],f"{failed_scrape_fn_core}_{fine_ts}.json"), "w") as jf:
+            json.dump(failed_scrapes, jf)
+
+        for fn in failed_scrape_files:
+            shutil.move(fn,join(fyp.cf['paths']['scrape'],'archive',fn))
+            if verbose:
+                print(f"Moved {basename(fn)} to archive")
+        if verbose:
+            print("--"*60)
+
+
     if verbose:
         print(f"Loaded list of ALL failed scrapes: {len(failed_scrapes):,}")
-        print("------------------------------------------------------------------------------------------------------------------")
+        print("--"*60)
 
     return failed_scrapes
 
@@ -260,26 +366,36 @@ def load_failed_scrapes(verbose = False):
 
 
 
-def load_zeeschuimer_data(study_name):
+def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
     # load items from baseline logs
 
     from pandas import concat, read_pickle
     from os.path import exists, join
+    from os import remove
 
-    USE_HALF_BAKED_FILES = fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
+    USE_HALF_BAKED_FILES = use_half_baked#fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
 
     half_baked_baseline_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_BASELINE.pkl")
 
+    if not USE_HALF_BAKED_FILES and exists(half_baked_baseline_path):
+        remove(half_baked_baseline_path)
+        if verbose:
+            print("Deleted half-baked baseline events file.")
+
+
     if USE_HALF_BAKED_FILES and exists(half_baked_baseline_path):
-        print("Loading half-baked baseline events from pickle...", end=" ", flush=True)
+        if verbose:
+            print("Loading half-baked baseline events from pickle...", end=" ", flush=True)
         baseline_log = read_pickle(half_baked_baseline_path)
-        print(f"Shape: {baseline_log.shape}")
+        if verbose:
+            print(f"Shape: {baseline_log.shape}")
     else:
 
         BASELINE_START_DATE = fyp.cf["study_defs"][study_name]["BASELINE_START_DATE"]
         BASELINE_END_DATE = fyp.cf["study_defs"][study_name]["BASELINE_END_DATE"]
 
-        print("Loading baseline logs...")
+        if verbose:
+            print("Loading baseline logs...")
 
         from os import listdir
         from json import load as json_load
@@ -298,7 +414,8 @@ def load_zeeschuimer_data(study_name):
                         if (zl.index == test_cols.index).all() and (zl.columns == test_cols.columns).all():
                             if (test_cols == zl).all().all():
                                 duplicate_found = True
-                                print("   !! Found a duplicate zeeschuimer file. I'm not adding it to the collection...")
+                                if verbose:
+                                    print("   !! Found a duplicate zeeschuimer file. I'm not adding it to the collection...")
                                 wow = test_cols.copy()
                 if not duplicate_found:
                     zeeschuimer_candidate = zeeschuimer_candidate.reset_index(drop=True).reset_index().rename(columns={"index":"event_order_in_session"})
@@ -316,28 +433,34 @@ def load_zeeschuimer_data(study_name):
         if len(list_of_zeeschuimer_logs)>0:
             baseline_log = concat(list_of_zeeschuimer_logs)
 
-        print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.timestamp_collected.min()} -- {baseline_log.timestamp_collected.max()}")
+        if verbose:
+            print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.timestamp_collected.min()} -- {baseline_log.timestamp_collected.max()}")
         
         baseline_log = baseline_log.drop_duplicates(subset=["item_id","timestamp_collected","source_url.tz_name"]).copy()
-        print(f"Dropped duplicates based on item_id, timestamp and location, yielding {baseline_log.shape[0]:,} rows")
+        if verbose:
+            print(f"Dropped duplicates based on item_id, timestamp and location, yielding {baseline_log.shape[0]:,} rows")
 
 
         # only keeping videos from the FYP page not the explore page
         baseline_log = baseline_log[baseline_log.source_platform_url.isin(['https://www.tiktok.com/en','https://www.tiktok.com/','https://www.tiktok.com/foryou'])].copy()
-        print(f"Keeping baseline logs from TikTok's ForYou page, yielding {baseline_log.shape[0]:,} rows.")
+        if verbose:
+            print(f"Keeping baseline logs from TikTok's ForYou page, yielding {baseline_log.shape[0]:,} rows.")
 
         baseline_log = baseline_log[(baseline_log.timestamp_collected>=BASELINE_START_DATE) & (baseline_log.timestamp_collected<=BASELINE_END_DATE)].copy()
-        print("Baseline log date range:",baseline_log.timestamp_collected.min(), " ---- ", baseline_log.timestamp_collected.max())
+        if verbose:
+            print("Baseline log date range:",baseline_log.timestamp_collected.min(), " ---- ", baseline_log.timestamp_collected.max())
         
         baseline_log.reset_index(drop=True, inplace=True)
 
-        baseline_log = extract_local_time_features(study_name, baseline_log, kind_of_log='baseline')
+        baseline_log = extract_local_time_features(study_name, baseline_log, kind_of_log='baseline', verbose=verbose)
 
         if USE_HALF_BAKED_FILES:
-            print("Saving half-baked baseline events to pickle...")    
+            if verbose:
+                print("Saving half-baked baseline events to pickle...")    
             baseline_log.to_pickle(half_baked_baseline_path)
 
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print("--"*60)
     return {"data_baseline_log":baseline_log}
 
 
@@ -348,7 +471,7 @@ def load_zeeschuimer_data(study_name):
 
 
 
-def sample_ddp_events(study_name, all_ddp_events_df):
+def sample_ddp_events(study_name, all_ddp_events_df, verbose=False):
 
 
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
@@ -367,7 +490,8 @@ def sample_ddp_events(study_name, all_ddp_events_df):
     N_SAMPLED_DATES_FROM_EACH_DONATION = fyp.cf["study_defs"][study_name]["N_SAMPLED_DATES_FROM_EACH_DONATION"]
     N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = fyp.cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP"]
 
-    print("Defining and sampling events based on donation-date groups, which is the unit of analysis for the study")
+    if verbose:
+        print("Defining and sampling events based on donation-date groups, which is the unit of analysis for the study")
 
     # count the number of events in the donation-date groups
     donation_date_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"].groupby(DONATION_DATE_GROUP_VARIABLES)["sample_id"].count()
@@ -377,12 +501,14 @@ def sample_ddp_events(study_name, all_ddp_events_df):
     donation_date_group_size_limits = donation_date_groups.describe(percentiles=DONATION_DATE_GROUP_PERCENTILE_LIMITS).loc[[f"{k:.0%}" for k in DONATION_DATE_GROUP_PERCENTILE_LIMITS]].values
     percentile_str = "-".join([f"{k:.0%}" for k in DONATION_DATE_GROUP_PERCENTILE_LIMITS])
     limits_str = "-".join([f"{k:,.0f}" for k in donation_date_group_size_limits])
-    print(f"Percentile limits {percentile_str} translate to {limits_str} in actual event counts")
+    if verbose:
+        print(f"Percentile limits {percentile_str} translate to {limits_str} in actual event counts")
 
 
     # apply the size limits to the donation-date groups to get those that fit the criteria
     donation_date_groups_within_size_limits = donation_date_groups[(donation_date_groups>=donation_date_group_size_limits[0]) & (donation_date_groups<donation_date_group_size_limits[1])]
-    print(f"There are {len(donation_date_groups_within_size_limits):,} donation-date groups with event counts within the limits")
+    if verbose:
+        print(f"There are {len(donation_date_groups_within_size_limits):,} donation-date groups with event counts within the limits")
 
 
     # for each donation, count how many dates have event counts within the limits
@@ -390,12 +516,14 @@ def sample_ddp_events(study_name, all_ddp_events_df):
 
     # I want donations who have a considerable number of dates within this range.
     donations_with_many_dates_within_limits = n_tiktok_dates_within_limits_per_donation[n_tiktok_dates_within_limits_per_donation>=MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION]
-    print(f"There are {len(donations_with_many_dates_within_limits):,} donations with at least {MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION} dates where the number of events is within the limits")
+    if verbose:
+        print(f"There are {len(donations_with_many_dates_within_limits):,} donations with at least {MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION} dates where the number of events is within the limits")
 
 
     # use these identified donations to identify the donation-date groups that meet the events per date criteria
     donation_date_groups_by_regulars = donation_date_groups_within_size_limits.unstack(1).loc[donations_with_many_dates_within_limits.index,:].stack()
-    print(f"These donations yield {len(donation_date_groups_by_regulars):,} donation-date groups meeting the criteria")
+    if verbose:
+        print(f"These donations yield {len(donation_date_groups_by_regulars):,} donation-date groups meeting the criteria")
 
 
     # Sample step 1: sample a certain number of dates from each donation
@@ -414,11 +542,13 @@ def sample_ddp_events(study_name, all_ddp_events_df):
     sampled_donation_date_groups_by_regulars = ordered_groups.groupby(level=0).head(N_SAMPLED_DATES_FROM_EACH_DONATION)
     del ordered_groups # clean up
 
-    print(f"Sample step 1: Sampled {N_SAMPLED_DATES_FROM_EACH_DONATION} dates from each donation, giving {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
+    if verbose:
+        print(f"Sample step 1: Sampled {N_SAMPLED_DATES_FROM_EACH_DONATION} dates from each donation, giving {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
 
     # get the watch events in these sampled donation-date groups (nonb-watch events are just cream on top)
     ddp_events_in_sampled_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"].set_index(DONATION_DATE_GROUP_VARIABLES).loc[sampled_donation_date_groups_by_regulars.index].reset_index()
-    print(f"There are {len(ddp_events_in_sampled_groups):,} events in these {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
+    if verbose:
+        print(f"There are {len(ddp_events_in_sampled_groups):,} events in these {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
 
 
     # Sample step 2: sample a certain number of events from each donation-date group
@@ -441,7 +571,8 @@ def sample_ddp_events(study_name, all_ddp_events_df):
     # push the grouping variables back from index into columns
     sampled_ddp_events_in_sampled_donation_date_groups.reset_index(level=[0,1], inplace=True)
 
-    print(f"Sample step 2: Sampled {N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
+    if verbose:
+        print(f"Sample step 2: Sampled {N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
 
 
     # check some stats of the sampling procedure
@@ -454,33 +585,43 @@ def sample_ddp_events(study_name, all_ddp_events_df):
 
 
 
-def load_ddp_events(study_name):
+def load_ddp_events(study_name, use_half_baked = False, verbose=False):
     # load DF with all donations previously ingested
 
-    from os import listdir
+    from os import listdir, remove
     from os.path import join
     from os.path import exists
     from json import load as json_load
     from pandas import concat, read_pickle
 
 
-    USE_HALF_BAKED_FILES = fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
-
+    USE_HALF_BAKED_FILES = use_half_baked#fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
+    
 
     half_baked_ddp_events_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_ALL_DDP.pkl")
     half_baked_sampled_ddp_events_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_SAMPLED_DDP.pkl")
 
 
+    if not USE_HALF_BAKED_FILES and exists(half_baked_ddp_events_path):
+        remove(half_baked_ddp_events_path)
+        remove(half_baked_sampled_ddp_events_path)
+        if verbose:
+            print("Deleted half-baked DDP events file and sampled DDP events file.")
+
+
     if USE_HALF_BAKED_FILES and exists(half_baked_ddp_events_path):
-        print("Loading half-baked DDP events from pickle...", end=" ", flush=True)
+        if verbose:
+            print("Loading half-baked DDP events from pickle...", end=" ", flush=True)
         all_ddp_events_df = read_pickle(half_baked_ddp_events_path)
-        print(f"New shape: {all_ddp_events_df.shape}")
+        if verbose:
+            print(f"New shape: {all_ddp_events_df.shape}")
     else:
 
         DDP_START_DATE = fyp.cf["study_defs"][study_name]["DDP_START_DATE"]
         DDP_END_DATE = fyp.cf["study_defs"][study_name]["DDP_END_DATE"]
 
-        print("Loading all DDP events...", end=" ", flush=True)
+        if verbose:
+            print("Loading all DDP events...", end=" ", flush=True)
 
         all_ddp_events_df = read_pickle(join(fyp.cf["paths"]["ddp_main"], "all_participant_events.pkl"))
 
@@ -493,38 +634,46 @@ def load_ddp_events(study_name):
         # Vectorized sample_id extraction using string operations
         all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype(int)
         
-        print(f"...DDP events dataframe loaded")
-        print(f"The DF contains {all_ddp_events_df.donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
+        if verbose:
+            print(f"...DDP events dataframe loaded")
+            print(f"The DF contains {all_ddp_events_df.donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
 
-        print(f"The DDP events range from {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()}")
+            print(f"The DDP events range from {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()}")
         mask = (all_ddp_events_df["date"] >= DDP_START_DATE) & (all_ddp_events_df["date"] <= DDP_END_DATE)
         all_ddp_events_df = all_ddp_events_df.loc[mask].copy()
-        print(f"Keeping DDP events within date range {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()} yielding {len(all_ddp_events_df):,} events")
+        if verbose:
+            print(f"Keeping DDP events within date range {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()} yielding {len(all_ddp_events_df):,} events")
 
         # dropping some corrupt URLs simply by calculating the most common length of the URLs and dropping those that doesn't match
         all_ddp_events_df = remove_link_events_with_corrupt_links(all_ddp_events_df)
-        print(f"Dropping DDP events with corrupt TikTok URLs. New shape: {all_ddp_events_df.shape}")
+        if verbose:
+            print(f"Dropping DDP events with corrupt TikTok URLs. New shape: {all_ddp_events_df.shape}")
 
-        all_ddp_events_df = extract_local_time_features(study_name, all_ddp_events_df, kind_of_log='ddp')
+        all_ddp_events_df = extract_local_time_features(study_name, all_ddp_events_df, kind_of_log='ddp', verbose=verbose)
 
         if USE_HALF_BAKED_FILES:
-            print("Saving half-baked DDP events to pickle...")    
+            if verbose:
+                print("Saving half-baked DDP events to pickle...")    
             all_ddp_events_df.to_pickle(half_baked_ddp_events_path)
 
         
     if USE_HALF_BAKED_FILES and exists(half_baked_sampled_ddp_events_path):
-        print("Loading half-baked sampled DDP events from pickle...", end=" ", flush=True)
+        if verbose:
+            print("Loading half-baked sampled DDP events from pickle...", end=" ", flush=True)
         sampled_data_ddp_events = read_pickle(half_baked_sampled_ddp_events_path)
-        print(f"New shape: {sampled_data_ddp_events.shape}")
+        if verbose:
+            print(f"Shape: {sampled_data_ddp_events.shape}")
     else:
-        sampled_data_ddp_events = sample_ddp_events(study_name, all_ddp_events_df)
+        sampled_data_ddp_events = sample_ddp_events(study_name, all_ddp_events_df, verbose=verbose)
 
         if USE_HALF_BAKED_FILES:
-            print("Saving half-baked sampled DDP events to pickle...")    
+            if verbose:
+                print("Saving half-baked sampled DDP events to pickle...")    
             sampled_data_ddp_events.to_pickle(half_baked_sampled_ddp_events_path)
 
 
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print("--"*60)
     return {"sampled_data_ddp_events":sampled_data_ddp_events, "all_data_ddp_events":all_ddp_events_df }
 
 
@@ -532,7 +681,7 @@ def load_ddp_events(study_name):
 
 
 
-def load_special_donations(study_name):
+def load_special_donations(study_name, verbose=False):
     # sometimes it is useful to select events in a specific donation.
 
     from pandas import concat, read_pickle, DataFrame
@@ -543,11 +692,13 @@ def load_special_donations(study_name):
     the_special_donations = fyp.cf["study_defs"][study_name]["SPECIAL_DONATIONS"]
 
     if len(the_special_donations) == 0:
-        print("Skipping special DDP events loading as the number of SPECIAL_DONATIONS is zero.")
+        if verbose:
+            print("Skipping special DDP events loading as the number of SPECIAL_DONATIONS is zero.")
         return {"data_special_ddps":DataFrame()}
     
     donations_str = '\n - '.join(the_special_donations)
-    print(f"Loading special DDP events from {donations_str}")
+    if verbose:
+        print(f"Loading special DDP events from {donations_str}")
 
     # Loading all DDP events...
     all_ddp_events_df = read_pickle(join(fyp.cf["paths"]["ddp_main"], "all_participant_events.pkl"))
@@ -560,22 +711,27 @@ def load_special_donations(study_name):
     all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype(int)
 
     special_ddp_events_df = all_ddp_events_df[all_ddp_events_df["donation_id"].isin(the_special_donations)].copy()
-    print(f"Special DDP events dataframe loaded: {special_ddp_events_df.donation_id.nunique()} unique donations. Shape: {special_ddp_events_df.shape}")
-    print(f"The special DDP events range from {special_ddp_events_df.date.min()} -- {special_ddp_events_df.date.max()}")
+    if verbose:
+        print(f"Special DDP events dataframe loaded: {special_ddp_events_df.donation_id.nunique()} unique donations. Shape: {special_ddp_events_df.shape}")
+        print(f"The special DDP events range from {special_ddp_events_df.date.min()} -- {special_ddp_events_df.date.max()}")
 
     mask = (special_ddp_events_df["date"] >= DDP_START_DATE) & (special_ddp_events_df["date"] <= DDP_END_DATE)
     special_ddp_events_df = special_ddp_events_df.loc[mask].copy()
-    print(f"Keeping special DDP events within date range {special_ddp_events_df.date.min()} -- {special_ddp_events_df.date.max()}: {special_ddp_events_df.shape}")
+    if verbose:
+        print(f"Keeping special DDP events within date range {special_ddp_events_df.date.min()} -- {special_ddp_events_df.date.max()}: {special_ddp_events_df.shape}")
 
 
     # dropping some corrupt URLs simply by calculating the most common length of the URLs and dropping those that doesn't match
     special_ddp_events_df = remove_link_events_with_corrupt_links(special_ddp_events_df)
-    print(f"Dropping special DDP events with corrupt TikTok URLs. New shape: {special_ddp_events_df.shape}")
+    if verbose:
+        print(f"Dropping special DDP events with corrupt TikTok URLs. New shape: {special_ddp_events_df.shape}")
 
-    print("Processing DDP events to extract local time features...")
-    special_ddp_events_df = extract_local_time_features(study_name, special_ddp_events_df, kind_of_log='ddp')
+    if verbose:
+        print("Processing DDP events to extract local time features...")
+    special_ddp_events_df = extract_local_time_features(study_name, special_ddp_events_df, kind_of_log='ddp', verbose=verbose)
 
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print("--"*60)
     return {"data_special_ddps":special_ddp_events_df}
 
 
@@ -583,24 +739,35 @@ def load_special_donations(study_name):
 
 
 
-def load_datasets(study_name):
+def load_datasets(study_name, use_half_baked = False, delete_all_half_baked_files = False, verbose=False):
 
     from fyp.machine_annotation import load_machine_annotations
 
+    from os import remove, listdir
+    from os.path import join
 
-    print("------------------------------------------------------------------------------------------------------------------")
-    print("Loading all datasets:")
-    print("------------------------------------------------------------------------------------------------------------------")
+    if delete_all_half_baked_files:
+        for half_baked_file in [ff for ff in listdir(fyp.cf["paths"]["exports"]) if "HALF_BAKED" in ff]:
+            path_to_it = join(fyp.cf["paths"]["exports"], half_baked_file)
+            remove(path_to_it)
+            if verbose:
+                print(f"Deleted half-baked file: .../{'/'.join(path_to_it.split('/')[-3:])}")
+
+
+
+    if verbose:
+        print("--"*60)
+        print("Loading all datasets:")
+        print("--"*60)
     tutti = {}
 
-    tutti.update(load_zeeschuimer_data(study_name))
-    tutti.update(load_ddp_events(study_name))
-    tutti.update(load_special_donations(study_name))
+    tutti.update(load_zeeschuimer_data(study_name, use_half_baked = use_half_baked, verbose=verbose))
+    tutti.update(load_ddp_events(study_name, use_half_baked = use_half_baked, verbose=verbose))
+    tutti.update(load_special_donations(study_name, verbose=verbose))
 
-    tutti.update(load_scrape_metadata())
-    tutti["data_annotated"] = load_machine_annotations(include_failed_calls=False, verbose = True)
+    tutti.update(load_scrape_metadata(verbose=verbose))
+    tutti["data_annotated"] = load_machine_annotations(include_failed_calls=False, verbose = verbose)
 
-    #print("------------------------------------------------------------------------------------------------------------------")
 
     #for k in sorted(list(tutti.keys())):
     #    print(k , type(tutti[k]), len(tutti[k]))
@@ -611,7 +778,7 @@ def load_datasets(study_name):
 
 
 
-def identify_unique_videos(study_name, stuff):
+def identify_unique_videos(study_name, stuff, verbose = False):
 
 
     # combine the special DDP events with the sampled DDP events
@@ -626,12 +793,15 @@ def identify_unique_videos(study_name, stuff):
 
         dataframes_to_combine = [k for k in [stuff["sampled_data_ddp_events"], stuff["data_special_ddps"]] if len(k) > 0]
         ddp_events_for_unique_videos_df = concat(dataframes_to_combine, ignore_index=True).drop_duplicates()
-        print(f"Shape of the combined (sampled + special) DDP events DF for exporting list of unique videos: {ddp_events_for_unique_videos_df.shape}")
-        print(f"The combined DDP events range from {ddp_events_for_unique_videos_df.date.min()} -- {ddp_events_for_unique_videos_df.date.max()}")
+        if verbose:
+            print(f"Shape of the combined (sampled + special) DDP events DF for exporting list of unique videos: {ddp_events_for_unique_videos_df.shape}")
+            print(f"The combined DDP events range from {ddp_events_for_unique_videos_df.date.min()} -- {ddp_events_for_unique_videos_df.date.max()}")
     else:
-        print("No DDP events to combine, creating an empty dataframe.")
+        if verbose:
+            print("No DDP events to combine, creating an empty dataframe.")
 
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print("--"*60)
 
     ### Generate a DF w unique videos from DDPs
     unique_ddp_videos = DataFrame()
@@ -641,26 +811,31 @@ def identify_unique_videos(study_name, stuff):
 
         video_ddp_events_df = ddp_events_for_unique_videos_df[ddp_events_for_unique_videos_df["primary_label"] == "link"].copy()
 
-        print(
-            f"Selecting events that involves a video, dropping other event types. {video_ddp_events_df.donation_id.nunique()} "
-            f"unique donations. Shape: {video_ddp_events_df.shape}"
-        )
+        if verbose:
+            print(
+                f"Selecting events that involves a video, dropping other event types. {video_ddp_events_df.donation_id.nunique()} "
+                f"unique donations. Shape: {video_ddp_events_df.shape}"
+            )
 
         # group by video URL and count the number of unique users
         ddp_video_stats = video_ddp_events_df.groupby('primary_value').agg(
             nunique_users = NamedAgg(column="donation_id", aggfunc="nunique"),
             total_views = NamedAgg(column="primary_value", aggfunc="count"),).sort_values("nunique_users", ascending=False)
-        print(f"Unique videos in the DDP logs: {len(ddp_video_stats):,}")
+        if verbose:
+            print(f"Unique videos in the DDP logs: {len(ddp_video_stats):,}")
 
         unique_ddp_videos = ddp_video_stats[ddp_video_stats.nunique_users >= MIN_NUNIQUE_USERS].copy()
-        print(f"Keeping unique DDP videos that have been watched/liked/etc by at least {MIN_NUNIQUE_USERS} unique users. Shape: {unique_ddp_videos.shape}")
+        if verbose:
+            print(f"Keeping unique DDP videos that have been watched/liked/etc by at least {MIN_NUNIQUE_USERS} unique users. Shape: {unique_ddp_videos.shape}")
 
         # extracting item ids from the URLs (in the index) - vectorized
         unique_ddp_videos["item_id"] = unique_ddp_videos.index.str.split("/").str[-2].astype(int)
     else:
-        print("No events in the combined DDP dataframe")
+        if verbose:
+            print("No events in the combined DDP dataframe")
 
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print("--"*60)
 
     ### identify unique videos in baseline logs
     unique_baseline_videos = DataFrame(columns=["item_id", "nunique_users", "total_views", "primary_value"])
@@ -677,15 +852,17 @@ def identify_unique_videos(study_name, stuff):
 
     unique_baseline_videos.set_index('primary_value', inplace=True)
 
-    print(f"Unique videos identified in the baseline logs: {len(list(set(unique_baseline_videos.index.tolist()))):,}")
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print(f"Unique videos identified in the baseline logs: {len(list(set(unique_baseline_videos.index.tolist()))):,}")
+        print("--"*60)
 
 
     ### combine unique donation videos with unique baseline videos
     dataframes_to_combine = [k for k in [unique_baseline_videos, unique_ddp_videos] if len(k) > 0]
     video_observation_stats = concat(dataframes_to_combine, ignore_index=True).drop_duplicates(subset='item_id', keep='last')
-    print(f"Combining unique videos from data donation events with videos from baseline data into a DF with the shape: {video_observation_stats.shape}")
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print(f"Combining unique videos from data donation events with videos from baseline data into a DF with the shape: {video_observation_stats.shape}")
+        print("--"*60)
 
     return video_observation_stats
 
@@ -694,14 +871,14 @@ def identify_unique_videos(study_name, stuff):
 
 
 
-def calculate_all_unique_video_subsets(study_name, stuff):
+def calculate_all_unique_video_subsets(study_name, stuff, verbose=False):
     ### Check the unique videos against scraped metadata, machine results and such things
 
     from fyp.machine_annotation import load_machine_annotations
 
 
     # load failed_scrapes as a set
-    failed_scrapes = load_failed_scrapes()
+    failed_scrapes = load_failed_scrapes(verbose=verbose)
 
     # load 
     machine_annotated_videos = set([int(k) for k in stuff["data_annotated"].item_id.tolist()])
@@ -713,7 +890,7 @@ def calculate_all_unique_video_subsets(study_name, stuff):
     completed_downloads = set([int(k) for k in stuff["data_scraped"][stuff["data_scraped"]["video_downloaded"]].item_id.to_list()])
     missing_downloads = set([int(k) for k in stuff["data_scraped"][~stuff["data_scraped"]["video_downloaded"]].item_id.to_list()])
 
-    unique_videos_with_stats = identify_unique_videos(study_name, stuff)
+    unique_videos_with_stats = identify_unique_videos(study_name, stuff, verbose=verbose)
     all_unique_videos = set([int(k) for k in unique_videos_with_stats.item_id.to_list()])
 
     failed_annotations = failed_annotations & all_unique_videos
@@ -727,15 +904,16 @@ def calculate_all_unique_video_subsets(study_name, stuff):
     failed_scrapes = all_unique_videos & failed_scrapes - completed_downloads - missing_downloads
 
 
-    print(f"Videos in the selected logs: {len(all_unique_videos):,} videos")
-    print(f"    Downloaded and annotated: {len(downloaded_and_annotated):,} videos")
-    print(f"    Downloaded but not annotated: {len(downloaded_not_annotated):,} videos")
-    print(f"    Failed annotations: {len(failed_annotations):,} videos")
-    print(f"    Metadata found but not downloaded: {len(missing_downloads):,} videos")
-    print(f"    Failed scrapes: {len(failed_scrapes):,} videos")
-    print(f"    Unseen videos: {len(unseen_videos):,} videos")
-    print(f"Sum of the set sizes: {len(unseen_videos) + len(downloaded_and_annotated) + len(downloaded_not_annotated) + len(missing_downloads) + len(failed_annotations) + len(failed_scrapes):,}")
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print(f"Videos in the selected logs: {len(all_unique_videos):,} videos")
+        print(f"    Downloaded and annotated: {len(downloaded_and_annotated):,} videos")
+        print(f"    Downloaded but not annotated: {len(downloaded_not_annotated):,} videos")
+        print(f"    Failed annotations: {len(failed_annotations):,} videos")
+        print(f"    Metadata found but not downloaded: {len(missing_downloads):,} videos")
+        print(f"    Failed scrapes: {len(failed_scrapes):,} videos")
+        print(f"    Unseen videos: {len(unseen_videos):,} videos")
+        print(f"Sum of the set sizes: {len(unseen_videos) + len(downloaded_and_annotated) + len(downloaded_not_annotated) + len(missing_downloads) + len(failed_annotations) + len(failed_scrapes):,}")
+        print("--"*60)
 
     return {
         'downloaded_and_annotated': downloaded_and_annotated,
@@ -759,68 +937,94 @@ def save_selected_unique_video_subsets(
     study_name,
     stuff,
     subsets,
+    file_label = "",
     INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
     INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
     INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
     INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
     INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
     INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = True,
-    INCLUDE_LONG_VIDEOS_IN_EXPORT = False
+    INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
+    verbose=False
 ):
 
     from os.path import join
     from datetime import datetime
 
-    print("The user's selection of available subsets of the videos gives the following total set:")
+    if verbose:
+        print("The user's selection of available subsets of the videos gives the following total set:")
     work_with_these_videos = set()
     if INCLUDE_UNSEEN_VIDEOS_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["unseen_videos"]
-        print(f"- UNSEEN_VIDEOS selected -->                 added {len(work_with_these_videos):,} videos")
+        if verbose:
+            print(f"- UNSEEN_VIDEOS selected --> added {len(work_with_these_videos):,} videos")
     if INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["downloaded_and_annotated"]
-        print(f"- DOWNLOADED_AND_ANNOTATED selected -->     added {len(work_with_these_videos):,} videos")
+        if verbose:
+            print(f"- DOWNLOADED_AND_ANNOTATED selected --> added {len(work_with_these_videos):,} videos")
     if INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["downloaded_not_annotated"]
-        print(f"- DOWNLOADED_BUT_NOT_ANNOTATED selected --> added {len(work_with_these_videos):,} videos")
+        if verbose:
+            print(f"- DOWNLOADED_BUT_NOT_ANNOTATED selected --> added {len(work_with_these_videos):,} videos")
     if INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["missing_downloads"]
-        print(f"- SCRAPED_BUT_NOT_DOWNLOADED selected -->   added {len(work_with_these_videos):,} videos")
+        if verbose:
+            print(f"- SCRAPED_BUT_NOT_DOWNLOADED selected --> added {len(work_with_these_videos):,} videos")
     if INCLUDE_FAILED_SCRAPES_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["failed_scrapes"]
-        print(f"- FAILED_SCRAPES selected -->               added {len(work_with_these_videos):,} videos")
+        if verbose:
+            print(f"- FAILED_SCRAPES selected --> added {len(work_with_these_videos):,} videos")
     if INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["failed_annotations"]
-        print(f"- FAILED_ANNOTATIONS selected -->           added {len(work_with_these_videos):,} videos")
+        if verbose:
+            print(f"- FAILED_ANNOTATIONS selected --> added {len(work_with_these_videos):,} videos")
+    if verbose:
+        print("- "*40)
 
-    print()
+    if len(work_with_these_videos) == 0:
+        if verbose:
+            print("No videos selected for export")
+            print("--"*60)
+        return None
+
+    if verbose:
+        print(f"Unique videos selected (regardless of their duration): {len(work_with_these_videos):,}")
 
     if INCLUDE_LONG_VIDEOS_IN_EXPORT:
-        print("Keeping videos regardless of video duration")
+        if verbose:
+            print("Keeping videos regardless of their duration")
     else:
-        print(f"Unique videos selected (regardless of the video duration): {len(work_with_these_videos):,}")
-        print("Only keeping videos that are shorter than 5 minutes (300 s)")
+        if verbose:
+            print("Only keeping videos that are shorter than 5 minutes (300 s)")
         short_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]<300].item_id.tolist())
         work_with_these_videos = work_with_these_videos & short_videos
         
-    print(f"\nThis data selection policy yielded {len(work_with_these_videos):,} unique videos")
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print(f"This data selection policy yielded {len(work_with_these_videos):,} unique videos")
+        print("--"*60)
 
 
     ### save the unique item_ids (videos) w basic stats to a file
     if len(work_with_these_videos) > 0:
-        unique_videos_filename = study_name + "_" + "_UNIQUE.pkl"
+        if len(file_label)>0 and file_label[-1] != "_":
+            file_label += "_"
+        unique_videos_filename = f"{study_name}_{file_label}UNIQUE.pkl"
 
-        unique_videos_with_stats = identify_unique_videos(study_name, stuff)
+        unique_videos_with_stats = identify_unique_videos(study_name, stuff, verbose=False)
         all_unique_videos_to_save = unique_videos_with_stats[unique_videos_with_stats.item_id.isin(work_with_these_videos)].copy()
 
         export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
 
         all_unique_videos_to_save.to_pickle(join(fyp.cf['paths']['exports'],unique_videos_filename))
-        print(f"Exported {len(all_unique_videos_to_save):,} unique videos to {join(export_sub_folder_name,unique_videos_filename)}")
-        print(f"Now: {datetime.now()}")
-        print("------------------------------------------------------------------------------------------------------------------")
+        if verbose:
+            print(f"Exported {len(all_unique_videos_to_save):,} unique videos to {join(export_sub_folder_name,unique_videos_filename)}")
+            print(f"Now: {datetime.now()}")
+            print("--"*60)
+        return all_unique_videos_to_save
     else:
-        print("Not exporting unique videos as no videos were selected.")
+        if verbose:
+            print("Not exporting unique videos as no videos were selected.")
+        return None
 
 
 
@@ -859,18 +1063,21 @@ def _rename_columns(some_events):
 
 
 
-def _check_for_null_values_in_df(some_df_C):
+def _check_for_null_values_in_df(some_df_C, verbose=False):
     some_df = some_df_C.copy()
     nullis = some_df.isna().sum()
     allok = True
     for n in nullis.index:
         if nullis[n] != 0:
             if allok:
-                print("Making sure that there are no null values anywhere in the DF")
-            print(n, some_df[n].dtype)
+                if verbose:
+                    print("Making sure that there are no null values anywhere in the DF")
+            if verbose:
+                print(n, some_df[n].dtype)
             allok = False
     if not allok:
-        print("------------------------------------------------------------------------------------------------------------------")
+        if verbose:
+            print("--"*60)
     
     return some_df
 
@@ -878,7 +1085,7 @@ def _check_for_null_values_in_df(some_df_C):
 
 
 
-def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0)):
+def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0), verbose=False):
 
     from pandas import concat
 
@@ -886,10 +1093,13 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0)):
     
     if len(baseline_log) > 0:
         baseline_log_simple = baseline_log.rename(columns={c:"B_"+c if not c=="item_id" else c for c in baseline_log.columns}).copy()
-        print(f"The baseline log has shape: {baseline_log_simple.shape}")
+        if verbose:
+            print(f"The baseline log has shape: {baseline_log_simple.shape}")
     else:
-        print("No baseline log data available or log type is not 'baseline' --> skipping baseline log processing.")
-    print("------------------------------------------------------------------------------------------------------------------")
+        if verbose:
+            print("No baseline log data available or log type is not 'baseline' --> skipping baseline log processing.")
+    if verbose:
+        print("--"*60)
 
     # attach session stats to baseline log
 
@@ -909,11 +1119,14 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0)):
         n_videos_per_session = baseline_log_simple.groupby("session_id")["event_order_in_session"].transform("max")
         baseline_log_simple["event_pos_in_session"] = baseline_log_simple["event_order_in_session"] / n_videos_per_session.replace(0, 1)
         
-        print("Adding session stats to baseline data",baseline_log_simple.shape)
+        if verbose:
+            print("Adding session stats to baseline data",baseline_log_simple.shape)
     else:
-        print("no baseline data")
+        if verbose:
+            print("no baseline data")
 
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print("--"*60)
 
 
     relevant_baseline_cols = [
@@ -940,7 +1153,7 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0)):
         baseline_log_simple[col] = baseline_log_simple[col].astype(str)
     
     baseline_log_simple = baseline_log_simple.fillna("").copy()
-    baseline_log_simple = _check_for_null_values_in_df(baseline_log_simple)
+    baseline_log_simple = _check_for_null_values_in_df(baseline_log_simple, verbose=verbose)
 
 
 
@@ -951,7 +1164,7 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0)):
 
 
 
-def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0)):
+def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0), verbose=False):
     # attach session stats to donation events
     ddp_log = ddp_log_in.copy()
     from pandas import isna as pd_isna
@@ -1027,13 +1240,16 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0)):
         # Set first event in each session to -1
         ddp_log.loc[ddp_log[ddp_log["event_order_in_session"]==0].index, "D_secondary_value"] = -1
 
-        print("Adding session stats to DDP data",ddp_log.shape)
+        if verbose:
+            print("Adding session stats to DDP data",ddp_log.shape)
         
 
     else:
-        print("no ddp data")
+        if verbose:
+            print("no ddp data")
 
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print("--"*60)
     return ddp_log, session_id_counter
 
 
@@ -1042,7 +1258,7 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0)):
 
 
 
-def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0)):
+def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0), verbose=False):
     # combine the special DDP events with the all DDP events
 
     from pandas import DataFrame, concat
@@ -1069,14 +1285,16 @@ def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0)):
 
         ddp_log = ddp_log.rename(columns={c:"D_"+c if not c in ["item_id"] else c for c in ddp_log.columns}).copy()
 
-        print(f"Shape of all DDP events DF for exporting full logs: {ddp_log.shape}")
-        print(f"The combined DDP events range from {ddp_log.D_date.min()} -- {ddp_log.D_date.max()}")
-        print("------------------------------------------------------------------------------------------------------------------")
+        if verbose:
+            print(f"Shape of all DDP events DF for exporting full logs: {ddp_log.shape}")
+            print(f"The combined DDP events range from {ddp_log.D_date.min()} -- {ddp_log.D_date.max()}")
+            print("--"*60)
 
 
     else:
-        print("No DDP events to combine, creating an empty dataframe.")
-        print("------------------------------------------------------------------------------------------------------------------")
+        if verbose:
+            print("No DDP events to combine, creating an empty dataframe.")
+            print("--"*60)
         return ddp_log, session_id_counter
 
 
@@ -1096,11 +1314,11 @@ def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0)):
         ]
 
 
-    ddp_log, session_id_counter = add_session_stats_to_ddp_log(ddp_log, session_id_counter)
+    ddp_log, session_id_counter = add_session_stats_to_ddp_log(ddp_log, session_id_counter, verbose=verbose)
     ddp_log = _rename_columns(ddp_log)
     ddp_log = ddp_log[relevant_ddp_cols].copy()
 
-    ddp_log = _check_for_null_values_in_df(ddp_log)
+    ddp_log = _check_for_null_values_in_df(ddp_log, verbose=verbose)
 
     
     return ddp_log, session_id_counter
@@ -1110,7 +1328,7 @@ def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0)):
 
 
 
-def process_scrape_metadata_for_log_export(stuff, combined_log):
+def process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
 
     from pandas import isna as pd_isna, Timestamp
     from datetime import datetime
@@ -1120,7 +1338,8 @@ def process_scrape_metadata_for_log_export(stuff, combined_log):
         return None
 
     # polishing the scraped metadata dataset for merging with the log
-    print("Processing scraped metadata for log export...")
+    if verbose:
+        print("Processing scraped metadata for log export...")
     scrape_metadata_log = stuff["data_scraped"][stuff["data_scraped"].item_id.isin(combined_log.item_id.unique())].copy()
 
     # VECTORIZED: Replace 'nan' string with empty string (faster than map)
@@ -1145,11 +1364,13 @@ def process_scrape_metadata_for_log_export(stuff, combined_log):
 
 
     scrape_metadata_log = scrape_metadata_log.rename(columns={c:"S_"+c if not c=="item_id" else c for c in scrape_metadata_log.columns}).copy()
-    print(f"Resulting scraped metadata shape {scrape_metadata_log.shape}")
+    if verbose:
+        print(f"Resulting scraped metadata shape {scrape_metadata_log.shape}")
 
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print("--"*60)
 
-    scrape_metadata_log = _check_for_null_values_in_df(scrape_metadata_log)
+    scrape_metadata_log = _check_for_null_values_in_df(scrape_metadata_log, verbose=verbose)
 
     
     return scrape_metadata_log
@@ -1158,13 +1379,14 @@ def process_scrape_metadata_for_log_export(stuff, combined_log):
 
 
 
-def process_machine_annotations_for_log_export(stuff, combined_log):
+def process_machine_annotations_for_log_export(stuff, combined_log, verbose=False):
 
     if len(combined_log) == 0:
         return None
 
     # polishig the machine results data for merging with the log
-    print("Processing machine annotations for the log export...")
+    if verbose:
+        print("Processing machine annotations for the log export...")
     machine_annotations_for_log = stuff["data_annotated"][stuff["data_annotated"].item_id.isin(combined_log.item_id.unique())].copy()
 
     machine_annotations_for_log.drop(columns=[
@@ -1175,11 +1397,13 @@ def process_machine_annotations_for_log_export(stuff, combined_log):
 
     machine_annotations_for_log = machine_annotations_for_log.rename(columns={c:"G_"+c if not c=="item_id" else c for c in machine_annotations_for_log.columns}).copy()
 
-    print(f"Resulting machine_annotations_for_log shape {machine_annotations_for_log.shape}")
+    if verbose:
+        print(f"Resulting machine_annotations_for_log shape {machine_annotations_for_log.shape}")
 
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print("--"*60)
 
-    machine_annotations_for_log = _check_for_null_values_in_df(machine_annotations_for_log)
+    machine_annotations_for_log = _check_for_null_values_in_df(machine_annotations_for_log, verbose=verbose)
 
 
     return machine_annotations_for_log
@@ -1188,7 +1412,7 @@ def process_machine_annotations_for_log_export(stuff, combined_log):
 
 
 
-def process_and_combine_logs_for_log_export(study_name, stuff=None):
+def process_and_combine_logs_for_log_export(study_name, stuff=None, verbose=False):
     
 
     from pandas import concat, read_pickle
@@ -1201,17 +1425,20 @@ def process_and_combine_logs_for_log_export(study_name, stuff=None):
 
 
     if USE_HALF_BAKED_FILES and exists(half_baked_combined_path):
-        print("Loading half-baked combined log from pickle...", end=" ", flush=True)
+        if verbose:
+            print("Loading half-baked combined log from pickle...", end=" ", flush=True)
         combined_log = read_pickle(half_baked_combined_path)
-        print(f"Shape: {combined_log.shape}")
+        if verbose:
+            print(f"Shape: {combined_log.shape}")
     else:
 
-        baseline_log_simple, sesh_counter = process_baseline_for_log_export(stuff, 100)
-        ddp_log, sesh_counter = process_ddp_log_for_log_export(stuff, session_id_counter = sesh_counter)
+        baseline_log_simple, sesh_counter = process_baseline_for_log_export(stuff, 100, verbose=verbose)
+        ddp_log, sesh_counter = process_ddp_log_for_log_export(stuff, session_id_counter = sesh_counter, verbose=verbose)
 
 
         combined_log = concat([ddp_log,baseline_log_simple])
-        print(f"Combined log length: {len(combined_log)}")
+        if verbose:
+            print(f"Combined log length: {len(combined_log)}")
 
         ddp_cols = [c for c in combined_log.columns if c.startswith("D_")]
         baseline_cols = [c for c in combined_log.columns if c.startswith("B_")]
@@ -1223,10 +1450,11 @@ def process_and_combine_logs_for_log_export(study_name, stuff=None):
         combined_log[ddp_cols] = combined_log[ddp_cols].fillna("BASELINE")
         combined_log[baseline_cols] = combined_log[baseline_cols].fillna("DDP")
 
-        combined_log = _check_for_null_values_in_df(combined_log)
+        combined_log = _check_for_null_values_in_df(combined_log, verbose=verbose)
 
         if USE_HALF_BAKED_FILES:
-            print("Saving half-baked combined log to pickle...")    
+            if verbose:
+                print("Saving half-baked combined log to pickle...")    
             combined_log.to_pickle(half_baked_combined_path)
 
 
@@ -1239,23 +1467,27 @@ def process_and_combine_logs_for_log_export(study_name, stuff=None):
 def process_enrichment_data_and_merge_with_logs(
     stuff,
     combined_log,
-    ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True
+    ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
+    verbose=False
 ):
 
     from pandas import merge
 
-    scrape_metadata_log = process_scrape_metadata_for_log_export(stuff, combined_log)
-    machine_annotations_for_log = process_machine_annotations_for_log_export(stuff, combined_log)
+    scrape_metadata_log = process_scrape_metadata_for_log_export(stuff, combined_log, verbose=verbose)
+    machine_annotations_for_log = process_machine_annotations_for_log_export(stuff, combined_log, verbose=verbose)
 
     ### merge log with enriched video metadata and annotations
 
-    print("Merging combined log with enriched metadata (scraped & annotated)")
+    if verbose:
+        print("Merging combined log with enriched metadata (scraped & annotated)")
 
     if ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED:
-        print("Only keeping events in the merged log that have been both scraped and annotated")
+        if verbose:
+            print("Only keeping events in the merged log that have been both scraped and annotated")
         the_how = 'inner'
     else:
-        print("Adding enriched data and keeping log events even if enriched data is missing")
+        if verbose:
+            print("Adding enriched data and keeping log events even if enriched data is missing")
         the_how = 'left'
 
     outdata = merge(left=combined_log, right=_rename_columns(scrape_metadata_log), on='item_id',how=the_how)
@@ -1277,8 +1509,9 @@ def process_enrichment_data_and_merge_with_logs(
     # Now we can subtract them
     outdata["T_days_since_created"] = (t_timestamp - s_createtime).dt.days
 
-    print(f"Adding 'days_since_created' column. Resulting output log DF shape {outdata.shape}")
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print(f"Adding 'days_since_created' column. Resulting output log DF shape {outdata.shape}")
+        print("--"*60)
 
 
     return outdata
@@ -1292,13 +1525,15 @@ def process_enrichment_data_and_merge_with_logs(
 def filter_log_against_sampled_donation_groups(
     stuff,
     outdata,
-    MAX_DAILY_MISSING_DATA_RATIO = 0.3
+    MAX_DAILY_MISSING_DATA_RATIO = 0.3,
+    verbose=False
 ):
 
     from pandas import merge, concat
 
     outdata_filtered = outdata.copy()
-    print(f"Rows at this stage: {len(outdata_filtered):,}")
+    if verbose:
+        print(f"Rows at this stage: {len(outdata_filtered):,}")
 
     # set up a filter to filter out only the DDP events that were in the DDP sample earlier in this notebook
     fine_filter = stuff["sampled_data_ddp_events"].copy()
@@ -1315,8 +1550,9 @@ def filter_log_against_sampled_donation_groups(
     outdata_filtered = outdata_filtered.reset_index().drop("local_date",axis=1).copy()
 
 
-    print(
-        f"After matching the export ddp events against the sampled donation-date groups, we have {len(outdata_filtered):,} ddp events in the export log")
+    if verbose:
+        print(
+            f"After matching the export ddp events against the sampled donation-date groups, we have {len(outdata_filtered):,} ddp events in the export log")
 
 
     # group the filter and the filtered_outdata to compare how many items were in the sample and how many
@@ -1334,16 +1570,19 @@ def filter_log_against_sampled_donation_groups(
     outdata_filtered = outdata_filtered.set_index(["D_donation_id","T_local_date"]).loc[okay_dates_index,:].reset_index().copy()
 
     sampled_ddp_count = len(stuff["sampled_data_ddp_events"])
-    print(
-        f"After dropping dates with too high missing data ratio, we have {len(outdata_filtered):,} ddp events in the export log,\n"
-        f"which should be compared to {sampled_ddp_count:,} ddp events in the sampled donation-date groups")
+    if verbose:
+        print(
+            f"After dropping dates with too high missing data ratio, we have {len(outdata_filtered):,} ddp events in the export log,\n"
+            f"which should be compared to {sampled_ddp_count:,} ddp events in the sampled donation-date groups")
 
 
-    print("Putting back the baseline data...")
+    if verbose:
+        print("Putting back the baseline data...")
     outdata_filtered = concat([outdata_filtered,outdata[outdata['D_donation_id']=='BASELINE']])
 
-    print(f"...making the total number of events (BASELINE and DDP) in the export data log to {len(outdata_filtered):,} events.")
-    print("------------------------------------------------------------------------------------------------------------------")
+    if verbose:
+        print(f"...making the total number of events (BASELINE and DDP) in the export data log to {len(outdata_filtered):,} events.")
+        print("--"*60)
     
     return outdata_filtered
 
@@ -1354,7 +1593,9 @@ def filter_log_against_sampled_donation_groups(
 
 def save_logs_as_pkl(
     study_name,
-    outdata_filtered):
+    outdata_filtered,
+    file_label = "",
+    verbose=False):
 
     from datetime import datetime
     from os.path import join
@@ -1364,9 +1605,11 @@ def save_logs_as_pkl(
     for n in nullis.index:
         if nullis[n] != 0:
             if allok:
-                print("Making sure that there are no null values anywhere in the DF")
+                if verbose:
+                    print("Making sure that there are no null values anywhere in the DF")
             allok = False
-            print(f"Found null values in {n} (Type: {outdata_filtered[n].dtype}). Fixing this ")
+            if verbose:
+                print(f"Found null values in {n} (Type: {outdata_filtered[n].dtype}). Fixing this ")
             if outdata_filtered[n].dtype==object:
                 if n.startswith("S_"):
                     outdata_filtered[n] = outdata_filtered[n].fillna("not scraped")
@@ -1377,18 +1620,20 @@ def save_logs_as_pkl(
             elif is_datetime64_any_dtype(outdata_filtered[n]):
                 outdata_filtered["S_createTime"] = outdata_filtered["S_createTime"].fillna(pd.Timestamp(year=2100,month=1,day=1))
     if not allok:
-        print("------------------------------------------------------------------------------------------------------------------")
+        if verbose:
+            print("--"*60)
 
-
-
-    log_filename = study_name + "_" + "_LOG.pkl"
+    if len(file_label)>0 and file_label[-1] != "_":
+        file_label += "_"
+    log_filename = f"{study_name}_{file_label}LOG.pkl"
     export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
 
     outdata_filtered.to_pickle(join(fyp.cf['paths']['exports'],log_filename))
-    print(f"Exported {len(outdata_filtered):,} observations in {join(export_sub_folder_name,log_filename)}.")
-    print(f"The date of the observations in the log range from {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
-    print(f"Now: {datetime.now()}")
-    print("================================================================================================================")
+    if verbose:
+        print(f"Exported {len(outdata_filtered):,} observations in {join(export_sub_folder_name,log_filename)}.")
+        print(f"The date of the observations in the log range from {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
+        print(f"Now: {datetime.now()}")
+        print("=="*60)
 
 
 
@@ -1396,7 +1641,8 @@ def save_logs_as_pkl(
 
 def save_logs_as_csv(
     study_name,
-    outdata_filtered):
+    outdata_filtered,
+    verbose=False):
 
     from datetime import datetime
     from os.path import join
@@ -1428,14 +1674,17 @@ def save_logs_as_csv(
 
 
     if len(outdata_filtered) == 0:
-        print("A log file has not been generated so a CSV cannot be saved")
+        if verbose:
+            print("A log file has not been generated so a CSV cannot be saved")
     else:
-        print("\n\n====================================   SAVING LOGS AS A CSV =======================================")
+        if verbose:
+            print("=="*60)
         log_as_csv_filename = study_name + "_" + "_LOG.csv"
         outdata_for_csv_export = outdata_filtered.copy()
 
         # Vectorized string cleaning - chain multiple replacements
-        print("Cleaning string data...")
+        if verbose:
+            print("Cleaning string data...")
         string_cols = outdata_for_csv_export.select_dtypes(include=['object']).columns
         for col in string_cols:
             outdata_for_csv_export[col] = (
@@ -1452,7 +1701,8 @@ def save_logs_as_csv(
 
         # Clean surrogate characters from all string columns to prevent Unicode encoding errors
         # VECTORIZED: Only apply to string columns, not entire DataFrame
-        print("Cleaning surrogate characters from string data...")
+        if verbose:
+            print("Cleaning surrogate characters from string data...")
         string_cols = outdata_for_csv_export.select_dtypes(include=['object']).columns
         for col in string_cols:
             outdata_for_csv_export[col] = outdata_for_csv_export[col].apply(_clean_surrogates)
@@ -1478,11 +1728,10 @@ def save_logs_as_csv(
 
         # Export with error handling for any remaining encoding issues
         outdata_for_csv_export.to_csv(join(fyp.cf['paths']['exports'],log_as_csv_filename), errors='replace')
-        print(f"Exported {len(outdata_for_csv_export):,} observations in {join(export_sub_folder_name,log_as_csv_filename)}.")
-        print(f"The date of the observations in the log range from {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
-        print(f"Now: {datetime.now()}")
+        if verbose:
+            print(f"Exported {len(outdata_for_csv_export):,} observations in {join(export_sub_folder_name,log_as_csv_filename)}.")
+            print(f"The date of the observations in the log range from {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
+            print(f"Now: {datetime.now()}")
 
-        print("================================================================================================================")
-        print("====================================   SAVED COMPLETE LOGS AS A CSV FILE =======================================")
-        print("================================================================================================================")
-        
+        if verbose:
+            print("=="*60)        
