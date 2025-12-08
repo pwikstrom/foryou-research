@@ -275,6 +275,8 @@ def _start_monitor(futures, submit_times, interval=5, label="monitor", bar_width
     import sys
     import shutil
     from pandas import DataFrame
+    from os import environ
+    import json
 
 
     def _fmt_secs(s):
@@ -341,8 +343,17 @@ def _start_monitor(futures, submit_times, interval=5, label="monitor", bar_width
                 line = line[:max(0, term_width - 1)]
 
             # single-line update
-            sys.stdout.write("\r" + line)
-            sys.stdout.flush()
+            if "WEB_INTERFACE" in environ:
+                 progress_data = {
+                     "done": done,
+                     "total": total,
+                     "rate": throughput,
+                     "eta": eta if eta is not None else 0
+                 }
+                 print(f"::PROGRESS::{json.dumps(progress_data)}", flush=True)
+            else:
+                 sys.stdout.write("\r" + line)
+                 sys.stdout.flush()
 
             if done == total:
                 break

@@ -193,7 +193,7 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
                 thinking_config=types.ThinkingConfig(thinking_budget=cf["machine"]["thinking_budget"]),
             )
 
-            print("Gemini API, model and prompts initiated successfully")
+            print("Gemini setup completed successfully")
 
         except:
             print("Error Gemini API key. Gemini won't be available.")
@@ -210,11 +210,11 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
             # Try to access the GCP bucket's metadata
             bucket.reload()
             cf["media_storage"]["bucket"] = bucket
-            print(f"Access to the GCP bucket '{bucket.name}' is authorized.")
+            print(f"Access to the project Google Cloud Storage bucket is authorized.")
         except Forbidden:
-            print(f"You don't have access to the GCP bucket '{bucket_name}'.")
+            print(f"You don't have access to the project Google Cloud Storage bucket.")
         except Exception as e:
-            print(f"A GCP error occurred: {e}")
+            print(f"A Google Cloud Storage error occurred: {e}")
 
     return cf
         

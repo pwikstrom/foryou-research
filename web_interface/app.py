@@ -20,14 +20,24 @@ PYTHON_EXEC = sys.executable
 # --- Global State ---
 # Store process handles and logs
 processes = {
-    "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped"},
-    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped"}
+    "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}},
+    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}}
 }
 
-def enqueue_output(out, queue):
+import json
+
+def enqueue_output(out, queue, progress_state):
     for line in iter(out.readline, b''):
         line_str = line.decode('utf-8')
-        queue.append(line_str)
+        if "::PROGRESS::" in line_str:
+            try:
+                _, json_str = line_str.split("::PROGRESS::", 1)
+                data = json.loads(json_str.strip())
+                progress_state.update(data)
+            except Exception:
+                queue.append(line_str)
+        else:
+            queue.append(line_str)
     out.close()
 
 def start_process(name, script_path, args=[]):
@@ -47,13 +57,14 @@ def start_process(name, script_path, args=[]):
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, # Merge stderr into stdout
-            cwd=str(PROJECT_ROOT) # Run from project root
+            cwd=str(PROJECT_ROOT), # Run from project root
+            env={"WEB_INTERFACE": "true", **os.environ.copy()}
         )
         processes[name]["proc"] = proc
         processes[name]["status"] = "running"
         
         # Start logging thread
-        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"]))
+        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]["progress"]))
         t.daemon = True
         t.start()
         
@@ -121,7 +132,10 @@ def api_status():
                      p_data["status"] = "stopped"
                      p_data["proc"] = None
         
-        status_data[name] = state
+        status_data[name] = {
+            "state": state,
+            "progress": p_data["progress"]
+        }
     return jsonify(status_data)
 
 @app.route('/api/logs/<name>', methods=['GET'])
