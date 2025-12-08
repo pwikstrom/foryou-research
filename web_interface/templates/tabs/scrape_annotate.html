@@ -1,0 +1,76 @@
+<div id="scrape_annotate" class="tab-pane active">
+    <!-- Global Control Bar -->
+    <div class="panel"
+        style="margin-bottom: 20px; display: flex; flex-direction: row; align-items: center; gap: 20px; padding: 5px 15px; width: auto;">
+        <input type="text" id="global-study-name" placeholder="Study Name" value="test_study"
+            style="width: 25ch; border: 1px solid #3e3e42; background: #3c3c3c; color: #d4d4d4; padding: 5px;">
+        <label style="font-size: 0.9em; display: flex; align-items: center; cursor: pointer; white-space: nowrap;">
+
+            <input type="checkbox" id="global-test-mode" style="margin-right: 5px;"> Test Mode
+        </label>
+    </div>
+
+    <div class="container" style="flex-direction: row; gap: 20px;">
+
+        <!-- Left Column -->
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 20px;">
+            <!-- Downloader Panel -->
+            <div class="panel" style="flex: 1;">
+                <div class="header">
+                    <h2>Downloader Loop</h2>
+                    <div class="controls">
+                        <span id="downloader-status" class="status-indicator status-stopped"></span>
+                        <button class="btn-start" onclick="startProcess('downloader')">Start</button>
+                        <button class="btn-stop" onclick="stopProcess('downloader')">Stop</button>
+                        <button class="btn-save" style="background: #555; font-size: 0.8em;"
+                            onclick="clearLogs('downloader')">Clear</button>
+                    </div>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-bar" id="downloader-bar"></div>
+                    <div class="progress-text" id="downloader-text">Idle</div>
+                </div>
+                <div class="log-window" id="downloader-logs">Logs will appear here...</div>
+            </div>
+
+            <!-- Monitor Panel -->
+            <div class="panel" style="flex: 1;">
+                <div class="header">
+                    <h2>Monitor & Annotate</h2>
+                    <div class="controls">
+                        <span id="monitor-status" class="status-indicator status-stopped"></span>
+                        <button class="btn-start" onclick="startProcess('monitor')">Start</button>
+                        <button class="btn-stop" onclick="stopProcess('monitor')">Stop</button>
+                        <button class="btn-save" style="background: #555; font-size: 0.8em;"
+                            onclick="clearLogs('monitor')">Clear</button>
+                    </div>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-bar" id="monitor-bar"></div>
+                    <div class="progress-text" id="monitor-text">Idle</div>
+                </div>
+                <div class="log-window" id="monitor-logs">Logs will appear here...</div>
+            </div>
+        </div>
+
+        <!-- Right Column: Annotator Panel -->
+        <div class="panel" style="flex: 1; height: auto;">
+            <div class="header">
+                <h2>Annotator Loop</h2>
+                <div class="controls">
+                    <span id="annotator-status" class="status-indicator status-stopped"></span>
+                    <button class="btn-start" onclick="startProcess('annotator')">Start</button>
+                    <button class="btn-stop" onclick="stopProcess('annotator')">Stop</button>
+                    <button class="btn-save" style="background: #555; font-size: 0.8em;"
+                        onclick="clearLogs('annotator')">Clear</button>
+                </div>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar" id="annotator-bar"></div>
+                <div class="progress-text" id="annotator-text">Idle</div>
+            </div>
+            <div class="log-window" id="annotator-logs">Logs will appear here...</div>
+        </div>
+
+    </div>
+</div> <!-- End of Scrape & Annotate Tab -->
