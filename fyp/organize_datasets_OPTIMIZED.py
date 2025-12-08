@@ -216,7 +216,7 @@ def load_scrape_metadata(consolidate=False, verbose=False):
     # load the scrape_metadata dataframe
     print("Loading scraped metadata")
 
-    scrape_metadata_filenames = [join(fyp.cf["paths"]["scrape"],gg) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata")]
+    scrape_metadata_filenames = [join(fyp.cf["paths"]["scrape"],gg) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata") and not "_TEST_" in gg]
 
     scrape_metadata = pd.concat([pd.read_pickle(fn) for fn in scrape_metadata_filenames])
     if verbose:
@@ -736,6 +736,16 @@ def load_datasets(
 
     from os import remove, listdir
     from os.path import join
+
+
+    for fn in listdir(fyp.cf['paths']['scrape']):
+        if "_TEST_" in fn:
+            remove(join(fyp.cf['paths']['scrape'],fn))
+    for fn in listdir(fyp.cf['paths']['machine_annotations']):
+        if "_TEST_" in fn:
+            remove(join(fyp.cf['paths']['machine_annotations'],fn))
+
+
 
     print("Loading all datasets:")
     tutti = {}

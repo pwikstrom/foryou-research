@@ -487,10 +487,62 @@ def download_videos_loop(study_name, batch_size = 800):
 
     from datetime import datetime
     from fyp.organize_datasets_OPTIMIZED import load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
+    from os import environ
+    from os.path import join
+    import json
 
     print(f"Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}")
     print(f"Now: {datetime.now()}")
     print("##"*60)
+
+    # --- TEST MODE ---
+    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+        print("!!! TEST MODE ENABLED - SIMULATING DOWNLOADS !!!")
+        import time
+        import random
+        import pandas as pd
+        
+        while True:
+            print(f"Simulating batch of {batch_size} videos...")
+            
+            # Simulate work
+            total_items = 100
+            for i in range(total_items):
+                time.sleep(0.05) # fast simulation
+                pct = (i+1)/total_items
+                
+                # Check cancellation? (Actually standard interrupt handles this)
+                
+                # Emit progress
+                if "WEB_INTERFACE" in environ:
+                     progress_data = {
+                         "done": i+1,
+                         "total": total_items,
+                         "rate": 20.0,
+                         "eta": (total_items - i) * 0.05
+                     }
+                     print(f"::PROGRESS::{json.dumps(progress_data)}", flush=True)
+
+            # Create dummy metadata file for monitor to pick up
+            fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+            final_path = join(fyp.cf['paths']['scrape'], f"scrape_metadata_TEST_{fine_ts}.pkl")
+            
+            # Create dummy DF with necessary columns for annotate_from_scrape_metadata_file
+            # It needs: video_downloaded (bool), video_duration (int < max_duration), item_id (int)
+            dummy_df = pd.DataFrame({
+                "video_downloaded": [True] * 5,
+                "video_duration": [10] * 5, # < max_duration (usually 600 or so)
+                "item_id": [random.randint(1000000000000000000, 9999999999999999999) for _ in range(5)]
+            })
+            
+            dummy_df.to_pickle(final_path)
+            print(f"Saved dummy metadata to {final_path}")
+            
+            print("Batch done. Sleeping...")
+            time.sleep(5)
+            
+        return # Never reached
+    # -----------------
 
     print("Building datasets to initiate loop. Might take a minute...\n")
     tutti = load_datasets(

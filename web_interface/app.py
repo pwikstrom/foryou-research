@@ -45,11 +45,13 @@ def start_process(name, script_path, args=[]):
         if processes[name]["proc"].poll() is None:
             return False, "Process already running"
     
-    cmd = [PYTHON_EXEC, str(script_path)] + args
+    env_vars = os.environ.copy()
+    env_vars["WEB_INTERFACE"] = "true"
     
-    # Needs to run in unbuffered mode for real-time logging or we flush explicitly
-    # But usually python -u is enough, or we rely on the script flushing.
-    # Let's try adding -u
+    if args and isinstance(args[-1], dict) and args[-1].get("testing"):
+        env_vars["FYP_TESTING"] = "true"
+        args.pop() # Remove the config dict from args if passed
+
     cmd = [PYTHON_EXEC, "-u", str(script_path)] + args
 
     try:
@@ -58,7 +60,7 @@ def start_process(name, script_path, args=[]):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, # Merge stderr into stdout
             cwd=str(PROJECT_ROOT), # Run from project root
-            env={"WEB_INTERFACE": "true", **os.environ.copy()}
+            env=env_vars
         )
         processes[name]["proc"] = proc
         processes[name]["status"] = "running"
@@ -102,6 +104,10 @@ def api_start(name):
     
     if name == "downloader" and "study_name" in data:
         args.append(data["study_name"])
+    
+    # Pass testing configuration as a dict to start_process
+    if data.get("testing"):
+        args.append({"testing": True})
         
     success, msg = start_process(name, DOWNLOADER_SCRIPT if name == "downloader" else MONITOR_SCRIPT, args)
     if success:

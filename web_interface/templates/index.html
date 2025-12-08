@@ -167,6 +167,8 @@
                     <input type="text" id="study-name" placeholder="Study Name" value="test_study">
                     <button class="btn-start" onclick="startProcess('downloader')">Start</button>
                     <button class="btn-stop" onclick="stopProcess('downloader')">Stop</button>
+                    <label style="font-size: 0.8em; display: flex; align-items: center;"><input type="checkbox"
+                            id="test-mode"> Test Mode</label>
                 </div>
             </div>
             <div class="progress-container">
@@ -218,15 +220,18 @@
 
         async function startProcess(name) {
             let body = {};
+            const isTest = document.getElementById('test-mode') ? document.getElementById('test-mode').checked : false;
+
             if (name === 'downloader') {
                 const studyName = document.getElementById('study-name').value;
                 if (!studyName) {
                     alert("Please enter a study name");
                     return;
                 }
-                body = { study_name: studyName };
+                body = { study_name: studyName, testing: isTest };
+            } else {
+                body = { testing: isTest };
             }
-
             try {
                 const res = await fetch(`/api/start/${name}`, {
                     method: 'POST',

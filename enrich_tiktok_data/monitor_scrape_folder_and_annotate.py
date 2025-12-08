@@ -24,7 +24,7 @@ WATCH_DIR = Path(fyp.cf['paths']['scrape'])                  # folder with the f
 PATTERN_SUFFIX = ".pkl"                                      # final suffix to react to
 PATTERN_PREFIX = "scrape_metadata_"                          # prefix to react to
 LOG_FILE = Path(fyp.cf['paths']['scrape'] + "/watcher.log")  # log file
-POLL_INTERVAL = 30.0                                         # seconds between scans
+POLL_INTERVAL = 10.0                                         # seconds between scans
 PROCESS_STARTUP_BACKLOG = False                               # should the watcher process files that are already in the folder?
 
 
@@ -109,6 +109,10 @@ def main() -> None:
     PATTERN_PREFIX, 
     PATTERN_SUFFIX,
     PROCESS_STARTUP_BACKLOG)
+
+    from os import environ
+    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+        logging.info("Test mode enabled")   
 
     # 1) Load already processed files from the log
     processed = load_processed_files()

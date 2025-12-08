@@ -148,6 +148,7 @@ def call_machine(
 
     from datetime import datetime
     from json import dump
+    import json
     from os.path import join, basename
     from google.genai import types
     from time import sleep
@@ -387,6 +388,26 @@ def call_machine_threads(
     from datetime import datetime
     from time import sleep, time
     from random import random
+    from os import environ
+
+
+    # --- TEST MODE ---
+    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+        import time
+        import random
+        print("!!! TEST MODE ENABLED - SKIPPING API CALL !!!")
+        time.sleep(2) # Simulate network delay
+        
+        mock_response = {}
+        for idx, vid in enumerate(interesting_videos):
+            mock_response[idx] = {
+                "response": {"description": "Test description", "transcript": "Test transcript | Test"},
+                "finish_reason": "TEST"
+            }
+        return mock_response
+    # -----------------
+
+
 
     results_by_index = {}
 
@@ -416,8 +437,11 @@ def call_machine_threads(
         return idx, rr
 
 
+
+
     if verbose:
         print(f"Calling {fyp.cf['machine']['model']} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
+
 
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -1044,6 +1068,7 @@ def remove_repetitions_from_transcripts(
 def _post_process_raw_annotations(raw_outputs_from_machine, verbose = False):
     from datetime import datetime
     from os.path import join
+    from os import environ
 
     if verbose:
         print("Flattening raw machine annotations")
@@ -1059,9 +1084,14 @@ def _post_process_raw_annotations(raw_outputs_from_machine, verbose = False):
         print("Ready to save processed results")
 
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-    outputs_from_machine_df.to_pickle(join(fyp.cf["paths"]["machine_annotations"],f"machine_annotations_{fine_ts}.pkl"))
+    
+    file_prefix = "machine_annotations"
+    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+        file_prefix = "machine_annotations_TEST"
+        
+    outputs_from_machine_df.to_pickle(join(fyp.cf["paths"]["machine_annotations"],f"{file_prefix}_{fine_ts}.pkl"))
     if verbose:
-        print(f"Saved processed results to 'machine_annotations_{fine_ts}.pkl'")
+        print(f"Saved processed results to '{file_prefix}_{fine_ts}.pkl'")
 
 
 
@@ -1073,29 +1103,34 @@ def annotate_from_list(fine_list, verbose = False):
     It also performs the necessary post processing of the raw outputs from the machine.
     """
 
-    if isinstance(fine_list, list) and len(fine_list) > 0:
-        if not all(map(lambda video_id:type(video_id)==int and len(str(video_id))==19, fine_list)):
-            if verbose:
-                print("Some videoIDs in the list were corrupt. Cannot process this list.")
-            return None
-
-        if verbose:
-            print("Annotating videos:")
-
-        raw_outputs_from_machine = call_machine_threads(
-                fine_list,
-                max_workers=32,
-                the_machine_client = fyp.cf["machine"]["client"],
-                the_machine_model = fyp.cf['machine']['model'],
-                the_machine_config = fyp.cf["machine"]["global_generation_config"],
-                verbose = verbose
-            )
-
-        _post_process_raw_annotations(raw_outputs_from_machine, verbose=verbose)
-
+    from os import environ
+    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+        print("This is a test - just pretending")
     else:
-        if verbose:
-            print(f"No videos to process")
+
+        if isinstance(fine_list, list) and len(fine_list) > 0:
+            if not all(map(lambda video_id:type(video_id)==int and len(str(video_id))==19, fine_list)):
+                if verbose:
+                    print("Some videoIDs in the list were corrupt. Cannot process this list.")
+                return None
+
+            if verbose:
+                print("Annotating videos:")
+
+            raw_outputs_from_machine = call_machine_threads(
+                    fine_list,
+                    max_workers=32,
+                    the_machine_client = fyp.cf["machine"]["client"],
+                    the_machine_model = fyp.cf['machine']['model'],
+                    the_machine_config = fyp.cf["machine"]["global_generation_config"],
+                    verbose = verbose
+                )
+
+            _post_process_raw_annotations(raw_outputs_from_machine, verbose=verbose)
+
+        else:
+            if verbose:
+                print(f"No videos to process")
 
 
 
@@ -1109,6 +1144,8 @@ def annotate_from_scrape_metadata_file(scrape_metadata_filename, verbose = False
     from pandas import read_pickle
     from os.path import exists
 
+
+
     if not exists(scrape_metadata_filename):
         if verbose:
             print(f"File {scrape_metadata_filename} does not exist. Cannot process this file.")
@@ -1120,6 +1157,8 @@ def annotate_from_scrape_metadata_file(scrape_metadata_filename, verbose = False
     work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"]<fyp.cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()
 
     annotate_from_list(work_with_these_videos_list, verbose = verbose)
+
+
 
 
 
