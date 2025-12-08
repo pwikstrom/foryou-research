@@ -38,6 +38,10 @@ def setup_logger() -> None:
             logging.StreamHandler(),
         ],
     )
+    logging.getLogger("google").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("grpc").setLevel(logging.WARNING)
+    logging.getLogger("absl").setLevel(logging.WARNING)
 
 
 def load_processed_files() -> Set[Path]:

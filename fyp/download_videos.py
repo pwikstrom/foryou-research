@@ -215,12 +215,14 @@ def download_single_video(video_id: int, verbose = True):
                     # look for image files and download those that are found
                     ccc = 1
                     image_files = []
-                    blob = fyp.cf["media_storage"]["bucket"].blob(f"{video_id}_{ccc:02}.jpeg")
-                    while blob.exists():
+                    blob = fyp.cf["media_storage"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
+
+                    while blob and blob.exists():
                         blob.download_to_filename(join(fyp.cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
-                        image_files.append(join(fyp.cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
+                        if blob.size >= fyp.cf["misc"]["min_media_object_size"]:
+                            image_files.append(join(fyp.cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
                         ccc += 1
-                        blob = fyp.cf["media_storage"]["bucket"].blob(f"{video_id}_{ccc:02}.jpeg")
+                        blob = fyp.cf["media_storage"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
 
                     # use the images to build a slideshow
                     make_slideshow(
@@ -232,7 +234,7 @@ def download_single_video(video_id: int, verbose = True):
                     )
 
                     # upload the video slideshow to the storage bucket if it is large enough
-                    if getsize(join(fyp.cf["paths"]["temp"],f"{video_id}.mp4")) > 8000:
+                    if getsize(join(fyp.cf["paths"]["temp"],f"{video_id}.mp4")) > fyp.cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"Uploading video file to storage bucket...")
                         blob = fyp.cf["media_storage"]["bucket"].blob(f"{video_id}.mp4")
@@ -253,7 +255,7 @@ def download_single_video(video_id: int, verbose = True):
                     blob = fyp.cf["media_storage"]["bucket"].get_blob(f"{video_id}.mp4")
                     if verbose:
                         print(f"Video file found in bucket")
-                    if blob.size < 8_000:
+                    if blob.size < fyp.cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"\nDeleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
                         blob.delete()

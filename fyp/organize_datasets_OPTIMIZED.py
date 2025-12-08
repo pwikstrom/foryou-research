@@ -207,7 +207,7 @@ def load_scrape_metadata(consolidate=False, verbose=False):
     # load the scraped metadata dataframe
 
     import shutil
-    from os import listdir
+    from os import listdir, rename
     from os.path import join, basename
     from pandas import concat, read_pickle
     from datetime import datetime
@@ -281,16 +281,24 @@ def load_scrape_metadata(consolidate=False, verbose=False):
 
 
     if consolidate and len(scrape_metadata_filenames) > 1:
-        fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-        if verbose:
-            print(f"The scrape_metadata files will be consolidated into a single file: scrape_metadata_{fine_ts}.pkl.")
 
-        scrape_metadata.to_pickle(join(fyp.cf['paths']['scrape'],f"scrape_metadata_{fine_ts}.pkl"))
+        # consolidating the files to a single file using the latest file name
+        # the reason for this is to not kick off potential secondary processes that are monitoring the scrape folder
+        # for new files. I want such processes to ignore files that are consolidations of other files
+
+        latest_filename = sorted(scrape_metadata_filenames)[-1]
+        #fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+        if verbose:
+            print(f"The scrape_metadata files will be consolidated into a single file: {basename(latest_filename)}.")
+
+        scrape_metadata.to_pickle(latest_filename+".temp")
 
         for fn in scrape_metadata_filenames:
             shutil.move(fn,join(fyp.cf['paths']['scrape'],'archive',basename(fn)))
             if verbose:
                 print(f"Moved {basename(fn)} to archive")
+        
+        rename(latest_filename+".temp",latest_filename)
 
 
 

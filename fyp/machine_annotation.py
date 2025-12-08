@@ -34,7 +34,7 @@ def load_machine_annotations(
         completely_quiet:bool = False
     ):
     from pandas import DataFrame, concat, read_pickle
-    from os import listdir
+    from os import listdir, rename
     from os.path import join, basename
     from shutil import move
     from datetime import datetime
@@ -59,26 +59,34 @@ def load_machine_annotations(
     if include_failed_calls:
         if verbose:
             print(f"Including failed machine annotation calls")
-            #print("--"*60)
     else:
         # assuming the 'scenes' variable is not na if things have gone well
         all_results = all_results[~all_results["scenes"].isna()].copy()
         if verbose:
             print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
-            #print("--"*60)
 
-    if consolidate:
-        fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+
+    if consolidate and len(machine_file_names) > 1:
+
+        # consolidating the files to a single file using the latest file name
+        # the reason for this is to not kick off potential secondary processes that are monitoring the folder
+        # for new files. I want such processes to ignore files that are consolidations of other files
+
+        latest_filename = sorted(machine_file_names)[-1]
+        #fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
-            print(f"The machine annotation pkl files will be consolidated into a single file: 'machine_annotations_{fine_ts}.pkl'")
+            print(f"The machine annotation pkl files will be consolidated into a single file: '{basename(latest_filename)}'")
             print(f"The raw json files will remain untouched")
 
-        all_results.to_pickle(join(fyp.cf['paths']['machine_annotations'], f"machine_annotations_{fine_ts}.pkl"))
+        all_results.to_pickle(latest_filename+".temp")
 
         for fn in machine_file_names:
             move(fn,join(fyp.cf['paths']['machine_annotations'], 'archive',basename(fn)))
             if verbose:
                 print(f"Moved {basename(fn)} to archive")
+
+        rename(latest_filename+".temp", latest_filename)
+
 
     if verbose or not completely_quiet:
         print("--"*60)
@@ -411,16 +419,16 @@ def call_machine_threads(
             submit_times[fut] = time()
         #futures = [ex.submit(worker, iv) for iv in enumerate(interesting_videos)]
 
-        if verbose:
-            monitor_thread = _start_monitor(futures, submit_times, interval=5, label="machine", bar_width=32)
+        #if verbose:
+        monitor_thread = _start_monitor(futures, submit_times, interval=5, label="machine", bar_width=32)
 
 
         for fut in as_completed(futures):
             idx, res = fut.result()
             results_by_index[idx] = res
 
-        if verbose:
-            monitor_thread.join()
+        #if verbose:
+        monitor_thread.join()
 
 
 
