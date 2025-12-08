@@ -39,7 +39,12 @@ def setup_logger() -> None:
         ],
     )
     logging.getLogger("google").setLevel(logging.WARNING)
+    logging.getLogger("google.api_core").setLevel(logging.WARNING)
+    logging.getLogger("google.auth").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("grpc").setLevel(logging.WARNING)
     logging.getLogger("absl").setLevel(logging.WARNING)
 

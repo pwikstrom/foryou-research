@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FYP Pipeline Control</title>
+    <style>
+        body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 20px; }
+        .container { display: flex; gap: 20px; height: 95vh; }
+        .panel { flex: 1; display: flex; flex-direction: column; background: #252526; border: 1px solid #3e3e42; padding: 10px; border-radius: 5px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        h2 { margin: 0; font-size: 1.2em; color: #9cdcfe; }
+        .controls { display: flex; gap: 10px; align-items: center; }
+        input[type="text"] { background: #3c3c3c; border: 1px solid #3e3e42; color: #d4d4d4; padding: 5px; border-radius: 3px; }
+        button { cursor: pointer; padding: 5px 15px; border: none; border-radius: 3px; font-weight: bold; }
+        .btn-start { background: #4ec9b0; color: #1e1e1e; }
+        .btn-stop { background: #f48771; color: #1e1e1e; }
+        .btn-save { background: #ce9178; color: #1e1e1e; }
+        .log-window { flex: 1; background: #1e1e1e; border: 1px solid #3e3e42; padding: 10px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; font-size: 0.9em; }
+        textarea { flex: 1; background: #1e1e1e; border: 1px solid #3e3e42; color: #d4d4d4; font-family: monospace; padding: 10px; resize: none; }
+        .status-indicator { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #555; margin-right: 5px; }
+        .status-running { background: #4ec9b0; box-shadow: 0 0 5px #4ec9b0; }
+        .status-stopped { background: #f48771; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Downloader Panel -->
+    <div class="panel">
+        <div class="header">
+            <h2>Downloader Loop</h2>
+            <div class="controls">
+                <span id="downloader-status" class="status-indicator status-stopped"></span>
+                <input type="text" id="study-name" placeholder="Study Name" value="test_study">
+                <button class="btn-start" onclick="startProcess('downloader')">Start</button>
+                <button class="btn-stop" onclick="stopProcess('downloader')">Stop</button>
+            </div>
+        </div>
+        <div class="log-window" id="downloader-logs">Logs will appear here...</div>
+    </div>
+
+    <!-- Monitor Panel -->
+    <div class="panel">
+        <div class="header">
+            <h2>Monitor & Annotate</h2>
+            <div class="controls">
+                <span id="monitor-status" class="status-indicator status-stopped"></span>
+                <button class="btn-start" onclick="startProcess('monitor')">Start</button>
+                <button class="btn-stop" onclick="stopProcess('monitor')">Stop</button>
+            </div>
+        </div>
+        <div class="log-window" id="monitor-logs">Logs will appear here...</div>
+    </div>
+
+    <!-- Config Editor Panel -->
+    <div class="panel">
+        <div class="header">
+            <h2>studies.toml</h2>
+            <div class="controls">
+                <button class="btn-save" onclick="saveConfig()">Save Config</button>
+            </div>
+        </div>
+        <textarea id="config-editor"></textarea>
+    </div>
+</div>
+
+<script>
+    // Poll intervals
+    setInterval(updateStatus, 2000);
+    setInterval(updateLogs, 1000);
+
+    // Initial load
+    window.onload = function() {
+        loadConfig();
+        updateStatus();
+    };
+
+    async function startProcess(name) {
+        let body = {};
+        if (name === 'downloader') {
+            const studyName = document.getElementById('study-name').value;
+            if (!studyName) {
+                alert("Please enter a study name");
+                return;
+            }
+            body = { study_name: studyName };
+        }
+
+        try {
+            const res = await fetch(`/api/start/${name}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.status !== 'success') {
+                alert("Error: " + data.message);
+            }
+            updateStatus();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function stopProcess(name) {
+        try {
+            const res = await fetch(`/api/stop/${name}`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status !== 'success') {
+                alert("Error: " + data.message);
+            }
+            updateStatus();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function updateStatus() {
+        try {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            
+            setStatus('downloader', data.downloader);
+            setStatus('monitor', data.monitor);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    function setStatus(name, status) {
+        const el = document.getElementById(`${name}-status`);
+        el.className = `status-indicator status-${status}`;
+    }
+
+    async function updateLogs() {
+        await fetchLogs('downloader');
+        await fetchLogs('monitor');
+    }
+
+    async function fetchLogs(name) {
+        try {
+            const res = await fetch(`/api/logs/${name}`);
+            const data = await res.json();
+            const el = document.getElementById(`${name}-logs`);
+            
+            // Basic check to see if we should scroll (simple autoscroll)
+            const atBottom = el.scrollHeight - el.scrollTop === el.clientHeight;
+            
+            el.textContent = data.logs;
+            
+            if (atBottom || el.scrollTop === 0) { // Keep autoscrolling if already at bottom or just started
+                el.scrollTop = el.scrollHeight;
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function loadConfig() {
+        try {
+            const res = await fetch('/api/config');
+            const data = await res.json();
+            document.getElementById('config-editor').value = data.content;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function saveConfig() {
+        const content = document.getElementById('config-editor').value;
+        try {
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: content })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                alert("Configuration saved!");
+            } else {
+                alert("Error saving config: " + data.message);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error saving config");
+        }
+    }
+</script>
+
+</body>
+</html>
