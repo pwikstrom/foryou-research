@@ -28,25 +28,26 @@ import fyp.fyp_main as fyp
 
 
 def load_machine_annotations(
-        the_path:str = fyp.cf['paths']['machine_annotations'],
         include_failed_calls:bool = False,
         consolidate:bool = False,
-        verbose:bool = False
+        verbose:bool = False,
+        completely_quiet:bool = False
     ):
     from pandas import DataFrame, concat, read_pickle
     from os import listdir
-    from os.path import join
+    from os.path import join, basename
     from shutil import move
+    from datetime import datetime
 
 
-    machine_file_names = [fn for fn in listdir(the_path) if fn.endswith(".pkl") and fn.startswith("machine_annotations")]
+    machine_file_names = [join(fyp.cf['paths']['machine_annotations'], fn) for fn in listdir(fyp.cf['paths']['machine_annotations']) if fn.endswith(".pkl") and fn.startswith("machine_annotations")]
 
-    all_results = concat([read_pickle(join(the_path,fn)) for fn in machine_file_names])
+    all_results = concat([read_pickle(fn) for fn in machine_file_names])
 
     all_results.reset_index(drop=True, inplace=True)
     all_results['error'] = all_results['error'].map(lambda x:"-" if x=={} else x)
 
-    if verbose:
+    if verbose or not completely_quiet:
         print(f"Loaded {len(all_results):,} rows from {len(machine_file_names)} machine annotation files")
 
     all_results = all_results.sort_values("inference_ts").copy()
@@ -58,28 +59,29 @@ def load_machine_annotations(
     if include_failed_calls:
         if verbose:
             print(f"Including failed machine annotation calls")
-            print("--"*60)
+            #print("--"*60)
     else:
         # assuming the 'scenes' variable is not na if things have gone well
         all_results = all_results[~all_results["scenes"].isna()].copy()
         if verbose:
             print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
-            print("--"*60)
+            #print("--"*60)
 
     if consolidate:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
-            print(f"The machine annotation pkl files will be consolidated into a single file: machine_annotations_{fine_ts}.pkl.")
+            print(f"The machine annotation pkl files will be consolidated into a single file: 'machine_annotations_{fine_ts}.pkl'")
             print(f"The raw json files will remain untouched")
 
-        all_results.to_pickle(join(the_path,f"machine_annotations_{fine_ts}.pkl"))
+        all_results.to_pickle(join(fyp.cf['paths']['machine_annotations'], f"machine_annotations_{fine_ts}.pkl"))
 
         for fn in machine_file_names:
-            move(fn,join(the_path,'archive',fn))
+            move(fn,join(fyp.cf['paths']['machine_annotations'], 'archive',basename(fn)))
             if verbose:
                 print(f"Moved {basename(fn)} to archive")
-        if verbose:
-            print("--"*60)
+
+    if verbose or not completely_quiet:
+        print("--"*60)
 
 
 
@@ -251,6 +253,9 @@ def call_machine(
 
 
 
+
+
+
 def _start_monitor(futures, submit_times, interval=5, label="monitor", bar_width=30):
     """
     futures: list[Future]
@@ -347,12 +352,16 @@ def _start_monitor(futures, submit_times, interval=5, label="monitor", bar_width
 
 
 
+
+
+
 def call_machine_threads(
         interesting_videos,
         max_workers=32,
         the_machine_client = fyp.cf["machine"]["client"],
         the_machine_model = fyp.cf['machine']['model'],
-        the_machine_config = fyp.cf["machine"]["global_generation_config"]
+        the_machine_config = fyp.cf["machine"]["global_generation_config"],
+        verbose: bool = False
     ):
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -388,7 +397,9 @@ def call_machine_threads(
         return idx, rr
 
 
-    print(f"Calling {fyp.cf['machine']['model']} to annotate {len(interesting_videos)} videos with {max_workers} threads.")
+    if verbose:
+        print(f"Calling {fyp.cf['machine']['model']} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
+
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
 
@@ -400,16 +411,22 @@ def call_machine_threads(
             submit_times[fut] = time()
         #futures = [ex.submit(worker, iv) for iv in enumerate(interesting_videos)]
 
-        monitor_thread = _start_monitor(futures, submit_times, interval=5, label="machine", bar_width=32)
+        if verbose:
+            monitor_thread = _start_monitor(futures, submit_times, interval=5, label="machine", bar_width=32)
+
 
         for fut in as_completed(futures):
             idx, res = fut.result()
             results_by_index[idx] = res
 
-        monitor_thread.join()
+        if verbose:
+            monitor_thread.join()
 
 
-    print(f"Items processed: {len(results_by_index)}")
+
+    if verbose:
+        print(f"Items processed: {len(results_by_index)}")
+
 
     if len(results_by_index)>0:
         save_machine_annotations_json(
@@ -441,7 +458,7 @@ def call_machine_threads(
 
 def consolidate_rare_columns_from_gemini_output(
         outputs_from_machine_df_in,
-        verbose=False
+        verbose = False
     ):
     """
     Clean up Gemini’s loosely structured output:
@@ -471,9 +488,13 @@ def consolidate_rare_columns_from_gemini_output(
 
     nonnull_ratio = (len(outputs_from_machine_df) - outputs_from_machine_df.isna().sum()) / len(outputs_from_machine_df)
 
-    while(len(nonnull_ratio[nonnull_ratio<0.1]))>0:
+    little_counter = 0
+
+    while(len(nonnull_ratio[nonnull_ratio<0.1]))>0 and little_counter<5:
         if verbose:
+            print(little_counter)
             print(len(nonnull_ratio[nonnull_ratio<0.1]))
+
 
         for unusual_col_name in nonnull_ratio[nonnull_ratio<0.1].index:
             try:
@@ -483,9 +504,6 @@ def consolidate_rare_columns_from_gemini_output(
                 
                 rows_w_nonnull_value_in_unusual_col = outputs_from_machine_df[~outputs_from_machine_df[unusual_col_name].isna()].loc[:,[dominant_col_name,unusual_col_name]]
                 
-                #print(rows_w_nonnull_value_in_unusual_col.index, dominant_col_name, outputs_from_machine_df.loc[rows_w_nonnull_value_in_unusual_col.index[0],dominant_col_name])
-                #print(rows_w_nonnull_value_in_unusual_col.index, unusual_col_name, outputs_from_machine_df.loc[rows_w_nonnull_value_in_unusual_col.index[0],unusual_col_name])
-
                 for ii in rows_w_nonnull_value_in_unusual_col.index:
                     if outputs_from_machine_df.loc[ii,dominant_col_name] is np.nan:
                         if verbose:
@@ -494,7 +512,11 @@ def consolidate_rare_columns_from_gemini_output(
                     else:
                         outputs_from_machine_df.loc[ii,unusual_col_name] = np.nan
             except:
-                print(f"ERROR: {unusual_col_name} doesn't seem to be among the columns")
+                if verbose:
+                    print(f"ERROR: {unusual_col_name} doesn't seem to be among the columns")
+
+
+            little_counter += 1
 
 
         nonnull_ratio = (len(outputs_from_machine_df) - outputs_from_machine_df.isna().sum()) / len(outputs_from_machine_df)
@@ -502,6 +524,7 @@ def consolidate_rare_columns_from_gemini_output(
         if verbose:
             print(outputs_from_machine_df.shape)
             print("------------------------------------------------------")
+        
         
     return outputs_from_machine_df
 
@@ -780,7 +803,11 @@ def flatten_and_fix_machine_outputs(
             if verbose:
                 print(raw_outputs_from_machine[h]['finish_reason'])
         else:
+            if verbose:
+                print("fuzzy loading response into json")
             json_response = _fuzzy_load_of_json_from_string(raw_outputs_from_machine[h]['response'])
+            if verbose:
+                print("flattening json")
             flattened_response = _flatten_one_machine_response(json_response, verbose=verbose)
             if type(flattened_response)==dict:
                 for rk in flattened_response:
@@ -999,17 +1026,24 @@ def _post_process_raw_annotations(raw_outputs_from_machine, verbose = False):
     from datetime import datetime
     from os.path import join
 
-    print("Flattening raw machine annotations")
+    if verbose:
+        print("Flattening raw machine annotations")
     outputs_from_machine_df = flatten_and_fix_machine_outputs(raw_outputs_from_machine, verbose=verbose)
-    print("Consolidating rare columns from machine annotations")
+    if verbose:
+        print("Consolidating rare columns from machine annotations")
     outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose=verbose)
-    print("Removing repetitions from machine annotations")
+    if verbose:
+        print("Removing repetitions from machine annotation transcripts")
+
     outputs_from_machine_df = remove_repetitions_from_transcripts(outputs_from_machine_df, verbose=verbose)
+    if verbose:
+        print("Ready to save processed results")
 
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     outputs_from_machine_df.to_pickle(join(fyp.cf["paths"]["machine_annotations"],f"machine_annotations_{fine_ts}.pkl"))
     if verbose:
         print(f"Saved processed results to 'machine_annotations_{fine_ts}.pkl'")
+
 
 
 
@@ -1026,13 +1060,16 @@ def annotate_from_list(fine_list, verbose = False):
                 print("Some videoIDs in the list were corrupt. Cannot process this list.")
             return None
 
-        print("Annotating videos:")
+        if verbose:
+            print("Annotating videos:")
+
         raw_outputs_from_machine = call_machine_threads(
                 fine_list,
                 max_workers=32,
                 the_machine_client = fyp.cf["machine"]["client"],
                 the_machine_model = fyp.cf['machine']['model'],
-                the_machine_config = fyp.cf["machine"]["global_generation_config"]
+                the_machine_config = fyp.cf["machine"]["global_generation_config"],
+                verbose = verbose
             )
 
         _post_process_raw_annotations(raw_outputs_from_machine, verbose=verbose)
@@ -1059,7 +1096,9 @@ def annotate_from_scrape_metadata_file(scrape_metadata_filename, verbose = False
         return None
 
     df = read_pickle(scrape_metadata_filename)
-    work_with_these_videos_list = df[df["video_downloaded"]]["item_id"].tolist()
+
+    # we're only annotating the videos that are downloaded and shorter than a certain max duration
+    work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"]<fyp.cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()
 
     annotate_from_list(work_with_these_videos_list, verbose = verbose)
 

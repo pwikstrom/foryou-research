@@ -209,7 +209,7 @@ def alt_get_tiktok_json(video_url,
 
 def save_tiktok(video_url,
                 save_video=True,
-                max_duration_to_save=300,
+                max_duration_to_save=9000, # we're not going to download videos that are longer than 15 minutes. Prob still waaaay too long
                 browser_name=None,
                 save_path="",
                 stream_to_bucket=None,

@@ -210,11 +210,11 @@ def load_scrape_metadata(consolidate=False, verbose=False):
     from os import listdir
     from os.path import join, basename
     from pandas import concat, read_pickle
+    from datetime import datetime
 
 
     # load the scrape_metadata dataframe
-    if verbose:
-        print("Loading scraped metadata table")
+    print("Loading scraped metadata")
 
     scrape_metadata_filenames = [join(fyp.cf["paths"]["scrape"],gg) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata")]
 
@@ -280,35 +280,22 @@ def load_scrape_metadata(consolidate=False, verbose=False):
     scrape_metadata.reset_index(inplace=True)
 
 
-    if consolidate:
+    if consolidate and len(scrape_metadata_filenames) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
             print(f"The scrape_metadata files will be consolidated into a single file: scrape_metadata_{fine_ts}.pkl.")
 
         scrape_metadata.to_pickle(join(fyp.cf['paths']['scrape'],f"scrape_metadata_{fine_ts}.pkl"))
 
-        for fn in scrape_metadata_files:
-            shutil.move(fn,join(fyp.cf['paths']['scrape'],'archive',fn))
+        for fn in scrape_metadata_filenames:
+            shutil.move(fn,join(fyp.cf['paths']['scrape'],'archive',basename(fn)))
             if verbose:
                 print(f"Moved {basename(fn)} to archive")
-        if verbose:
-            print("--"*60)
 
 
 
-
-
-    #print("Loading scraped metadata table")
-
-    #if len([gg for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata")]) > 1:
-    #    raise Exception("\nYou have more than a single 'scrape_metadata' file.\nMake sure to run the 'clean_sync_bucket_and_scrapeDF'\nscript before you continue")
-
-    #scrape_metadata = concat([read_pickle(join(fyp.cf["paths"]["scrape"],gg)) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata")])
-
-    #completed_downloads = set([int(k) for k in scrape_metadata[scrape_metadata.video_downloaded].item_id.to_list()])
-    #missing_downloads = set([int(k) for k in scrape_metadata[~scrape_metadata.video_downloaded].item_id.to_list()])
-
-    #print(f"Loaded scraped metadata table - shape {scrape_metadata.shape}")
+    print(f"Loaded scraped metadata - shape {scrape_metadata.shape}")
+    print("--"*60)
     
     return {"data_scraped":scrape_metadata}
 
@@ -318,13 +305,14 @@ def load_scrape_metadata(consolidate=False, verbose=False):
 
 
 
-def load_failed_scrapes(verbose = False, consolidate = False):
+def load_failed_scrapes(consolidate = False, verbose = False, super_verbose = False):
     # Load list of failed scraped attempts.
 
     from os import listdir
     from os.path import join, basename
-    from json import load as json_load
-    import shutil
+    from json import load as json_load, dump
+    from datetime import datetime
+    from shutil import move
 
     failed_scrape_fn_core = "scrape_failed_items"
 
@@ -332,20 +320,22 @@ def load_failed_scrapes(verbose = False, consolidate = False):
 
     failed_scrapes = []
     for fn in failed_scrape_files:
-            with open(fn, 'r') as file:
-                failed_scrapes += json_load(file)
+        if super_verbose:
+            print(fn)
+        with open(fn, 'r') as file:
+            failed_scrapes += json_load(file)
     failed_scrapes = set(map(lambda x:int(x), failed_scrapes))
 
-    if consolidate:
+    if consolidate and len(failed_scrape_files) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
             print(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {failed_scrape_fn_core}_{fine_ts}.json.")
 
         with open(join(fyp.cf['paths']['scrape'],f"{failed_scrape_fn_core}_{fine_ts}.json"), "w") as jf:
-            json.dump(failed_scrapes, jf)
+            dump(list(failed_scrapes), jf)
 
         for fn in failed_scrape_files:
-            shutil.move(fn,join(fyp.cf['paths']['scrape'],'archive',fn))
+            move(fn,join(fyp.cf['paths']['scrape'],'archive',basename(fn)))
             if verbose:
                 print(f"Moved {basename(fn)} to archive")
         if verbose:
@@ -384,18 +374,15 @@ def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
 
 
     if USE_HALF_BAKED_FILES and exists(half_baked_baseline_path):
-        if verbose:
-            print("Loading half-baked baseline events from pickle...", end=" ", flush=True)
+        print("Loading half-baked baseline events from pickle...", end=" ", flush=True)
         baseline_log = read_pickle(half_baked_baseline_path)
-        if verbose:
-            print(f"Shape: {baseline_log.shape}")
+        print(f"Shape: {baseline_log.shape}")
     else:
 
         BASELINE_START_DATE = fyp.cf["study_defs"][study_name]["BASELINE_START_DATE"]
         BASELINE_END_DATE = fyp.cf["study_defs"][study_name]["BASELINE_END_DATE"]
 
-        if verbose:
-            print("Loading baseline logs...")
+        print("Loading baseline logs...")
 
         from os import listdir
         from json import load as json_load
@@ -459,8 +446,8 @@ def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
                 print("Saving half-baked baseline events to pickle...")    
             baseline_log.to_pickle(half_baked_baseline_path)
 
-    if verbose:
-        print("--"*60)
+    print(f"Baseline data contains {baseline_log.shape[0]:,} rows")
+    print("--"*60)
     return {"data_baseline_log":baseline_log}
 
 
@@ -491,7 +478,7 @@ def sample_ddp_events(study_name, all_ddp_events_df, verbose=False):
     N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = fyp.cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP"]
 
     if verbose:
-        print("Defining and sampling events based on donation-date groups, which is the unit of analysis for the study")
+        print("Sampling events based on donation-date groups, which is the unit of analysis for the study")
 
     # count the number of events in the donation-date groups
     donation_date_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"].groupby(DONATION_DATE_GROUP_VARIABLES)["sample_id"].count()
@@ -571,8 +558,7 @@ def sample_ddp_events(study_name, all_ddp_events_df, verbose=False):
     # push the grouping variables back from index into columns
     sampled_ddp_events_in_sampled_donation_date_groups.reset_index(level=[0,1], inplace=True)
 
-    if verbose:
-        print(f"Sample step 2: Sampled {N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
+    print(f"Sampled {N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
 
 
     # check some stats of the sampling procedure
@@ -610,19 +596,15 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
 
 
     if USE_HALF_BAKED_FILES and exists(half_baked_ddp_events_path):
-        if verbose:
-            print("Loading half-baked DDP events from pickle...", end=" ", flush=True)
+        print("Loading half-baked DDP events from pickle...", end=" ", flush=True)
         all_ddp_events_df = read_pickle(half_baked_ddp_events_path)
-        if verbose:
-            print(f"New shape: {all_ddp_events_df.shape}")
+        print(f"New shape: {all_ddp_events_df.shape}")
     else:
 
         DDP_START_DATE = fyp.cf["study_defs"][study_name]["DDP_START_DATE"]
         DDP_END_DATE = fyp.cf["study_defs"][study_name]["DDP_END_DATE"]
 
-        if verbose:
-            print("Loading all DDP events...", end=" ", flush=True)
-
+        print("Loading all DDP events...", end=" ", flush=True)
         all_ddp_events_df = read_pickle(join(fyp.cf["paths"]["ddp_main"], "all_participant_events.pkl"))
 
         # drop two columns
@@ -634,10 +616,10 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
         # Vectorized sample_id extraction using string operations
         all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype(int)
         
-        if verbose:
-            print(f"...DDP events dataframe loaded")
-            print(f"The DF contains {all_ddp_events_df.donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
+        print(f"...DDP events dataframe loaded")
+        print(f"The DF contains {all_ddp_events_df.donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
 
+        if verbose:
             print(f"The DDP events range from {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()}")
         mask = (all_ddp_events_df["date"] >= DDP_START_DATE) & (all_ddp_events_df["date"] <= DDP_END_DATE)
         all_ddp_events_df = all_ddp_events_df.loc[mask].copy()
@@ -658,11 +640,9 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
 
         
     if USE_HALF_BAKED_FILES and exists(half_baked_sampled_ddp_events_path):
-        if verbose:
-            print("Loading half-baked sampled DDP events from pickle...", end=" ", flush=True)
+        print("Loading half-baked sampled DDP events from pickle...", end=" ", flush=True)
         sampled_data_ddp_events = read_pickle(half_baked_sampled_ddp_events_path)
-        if verbose:
-            print(f"Shape: {sampled_data_ddp_events.shape}")
+        print(f"Shape: {sampled_data_ddp_events.shape}")
     else:
         sampled_data_ddp_events = sample_ddp_events(study_name, all_ddp_events_df, verbose=verbose)
 
@@ -672,8 +652,7 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
             sampled_data_ddp_events.to_pickle(half_baked_sampled_ddp_events_path)
 
 
-    if verbose:
-        print("--"*60)
+    print("--"*60)
     return {"sampled_data_ddp_events":sampled_data_ddp_events, "all_data_ddp_events":all_ddp_events_df }
 
 
@@ -697,8 +676,7 @@ def load_special_donations(study_name, verbose=False):
         return {"data_special_ddps":DataFrame()}
     
     donations_str = '\n - '.join(the_special_donations)
-    if verbose:
-        print(f"Loading special DDP events from {donations_str}")
+    print(f"Loading special DDP events from {donations_str}")
 
     # Loading all DDP events...
     all_ddp_events_df = read_pickle(join(fyp.cf["paths"]["ddp_main"], "all_participant_events.pkl"))
@@ -739,34 +717,46 @@ def load_special_donations(study_name, verbose=False):
 
 
 
-def load_datasets(study_name, use_half_baked = False, delete_all_half_baked_files = False, verbose=False):
+def load_datasets(
+    study_name,
+    use_half_baked = False,
+    delete_all_half_baked_files = False,
+    consolidate = False,
+    verbose=False):
 
     from fyp.machine_annotation import load_machine_annotations
 
     from os import remove, listdir
     from os.path import join
 
-    if delete_all_half_baked_files:
-        for half_baked_file in [ff for ff in listdir(fyp.cf["paths"]["exports"]) if "HALF_BAKED" in ff]:
-            path_to_it = join(fyp.cf["paths"]["exports"], half_baked_file)
-            remove(path_to_it)
-            if verbose:
-                print(f"Deleted half-baked file: .../{'/'.join(path_to_it.split('/')[-3:])}")
-
-
-
-    if verbose:
-        print("--"*60)
-        print("Loading all datasets:")
-        print("--"*60)
+    print("Loading all datasets:")
     tutti = {}
+
+    if delete_all_half_baked_files:
+        print(" - Deleting half-baked files")
+        export_path = fyp.cf["paths"]["exports"]
+        for half_baked_file in listdir(export_path):
+            if "HALF_BAKED" in half_baked_file:
+                path_to_it = join(export_path, half_baked_file)
+                remove(path_to_it)
+                if verbose:
+                    print(f"   - Deleted half-baked file: .../{'/'.join(path_to_it.split('/')[-3:])}")
+
+    if not use_half_baked:
+        print(" - Generating fresh datasets - won't be saving half-baked files")
+    elif delete_all_half_baked_files:
+        print(" - Saving new half-baked files")
+    else:
+        print(" - Loading existing half-baked files")
+    print("=="*60)
+
 
     tutti.update(load_zeeschuimer_data(study_name, use_half_baked = use_half_baked, verbose=verbose))
     tutti.update(load_ddp_events(study_name, use_half_baked = use_half_baked, verbose=verbose))
     tutti.update(load_special_donations(study_name, verbose=verbose))
 
-    tutti.update(load_scrape_metadata(verbose=verbose))
-    tutti["data_annotated"] = load_machine_annotations(include_failed_calls=False, verbose = verbose)
+    tutti.update(load_scrape_metadata(consolidate=consolidate, verbose=verbose))
+    tutti["data_annotated"] = load_machine_annotations(include_failed_calls=False, consolidate=consolidate, verbose = verbose)
 
 
     #for k in sorted(list(tutti.keys())):
@@ -878,12 +868,16 @@ def calculate_all_unique_video_subsets(study_name, stuff, verbose=False):
 
 
     # load failed_scrapes as a set
-    failed_scrapes = load_failed_scrapes(verbose=verbose)
+    failed_scrapes = load_failed_scrapes(verbose=verbose, consolidate = True)
 
     # load 
     machine_annotated_videos = set([int(k) for k in stuff["data_annotated"].item_id.tolist()])
 
-    failed_annotations = set(load_machine_annotations(include_failed_calls=True, verbose = False).item_id.tolist())
+    failed_annotations = set(load_machine_annotations(
+        include_failed_calls=True,
+        verbose = verbose,
+        completely_quiet=True
+        ).item_id.tolist())
     failed_annotations = failed_annotations - machine_annotated_videos
 
 
@@ -904,16 +898,15 @@ def calculate_all_unique_video_subsets(study_name, stuff, verbose=False):
     failed_scrapes = all_unique_videos & failed_scrapes - completed_downloads - missing_downloads
 
 
-    if verbose:
-        print(f"Videos in the selected logs: {len(all_unique_videos):,} videos")
-        print(f"    Downloaded and annotated: {len(downloaded_and_annotated):,} videos")
-        print(f"    Downloaded but not annotated: {len(downloaded_not_annotated):,} videos")
-        print(f"    Failed annotations: {len(failed_annotations):,} videos")
-        print(f"    Metadata found but not downloaded: {len(missing_downloads):,} videos")
-        print(f"    Failed scrapes: {len(failed_scrapes):,} videos")
-        print(f"    Unseen videos: {len(unseen_videos):,} videos")
-        print(f"Sum of the set sizes: {len(unseen_videos) + len(downloaded_and_annotated) + len(downloaded_not_annotated) + len(missing_downloads) + len(failed_annotations) + len(failed_scrapes):,}")
-        print("--"*60)
+    print(f"Videos in the selected logs: {len(all_unique_videos):,} videos")
+    print(f"    Downloaded and annotated: {len(downloaded_and_annotated):,} videos")
+    print(f"    Downloaded but not annotated: {len(downloaded_not_annotated):,} videos")
+    print(f"    Failed annotations: {len(failed_annotations):,} videos")
+    print(f"    Metadata found but not downloaded: {len(missing_downloads):,} videos")
+    print(f"    Failed scrapes: {len(failed_scrapes):,} videos")
+    print(f"    Unseen videos: {len(unseen_videos):,} videos")
+    print(f"Sum of the set sizes: {len(unseen_videos) + len(downloaded_and_annotated) + len(downloaded_not_annotated) + len(missing_downloads) + len(failed_annotations) + len(failed_scrapes):,}")
+    print("--"*60)
 
     return {
         'downloaded_and_annotated': downloaded_and_annotated,
@@ -943,13 +936,14 @@ def save_selected_unique_video_subsets(
     INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
     INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
     INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
-    INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = True,
+    INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
     INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
     verbose=False
 ):
 
     from os.path import join
     from datetime import datetime
+    from pandas import DataFrame
 
     if verbose:
         print("The user's selection of available subsets of the videos gives the following total set:")
@@ -985,7 +979,7 @@ def save_selected_unique_video_subsets(
         if verbose:
             print("No videos selected for export")
             print("--"*60)
-        return None
+        return work_with_these_videos
 
     if verbose:
         print(f"Unique videos selected (regardless of their duration): {len(work_with_these_videos):,}")
@@ -995,8 +989,8 @@ def save_selected_unique_video_subsets(
             print("Keeping videos regardless of their duration")
     else:
         if verbose:
-            print("Only keeping videos that are shorter than 5 minutes (300 s)")
-        short_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]<300].item_id.tolist())
+            print(f"Only keeping videos that are shorter than {fyp.cf['machine']['max_duration_for_annotation']} seconds")
+        short_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]<fyp.cf["machine"]["max_duration_for_annotation"]].item_id.tolist())
         work_with_these_videos = work_with_these_videos & short_videos
         
     if verbose:
@@ -1024,7 +1018,7 @@ def save_selected_unique_video_subsets(
     else:
         if verbose:
             print("Not exporting unique videos as no videos were selected.")
-        return None
+        return DataFrame()
 
 
 
@@ -1330,12 +1324,12 @@ def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0), verb
 
 def process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
 
-    from pandas import isna as pd_isna, Timestamp
+    from pandas import isna as pd_isna, Timestamp, DataFrame
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     if len(combined_log) == 0:
-        return None
+        return DataFrame()
 
     # polishing the scraped metadata dataset for merging with the log
     if verbose:
@@ -1381,8 +1375,10 @@ def process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
 
 def process_machine_annotations_for_log_export(stuff, combined_log, verbose=False):
 
+    from pandas import DataFrame
+
     if len(combined_log) == 0:
-        return None
+        return DataFrame()
 
     # polishig the machine results data for merging with the log
     if verbose:

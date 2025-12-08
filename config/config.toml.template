@@ -25,6 +25,10 @@ presence_penalty = 0.6
 frequency_penalty = 1.2
 thinking_budget = -1
 
+max_duration_for_annotation = 300
+
+
+
 ##########################################################################################
 # paths
 ##########################################################################################
@@ -50,7 +54,6 @@ label = "no_label"
 # set local_mode=true for local development / CI to avoid network calls
 local_mode = true
 
-max_video_duration_for_download = 300
 
 
 ##########################################################################################
