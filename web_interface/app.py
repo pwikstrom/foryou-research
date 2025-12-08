@@ -13,15 +13,18 @@ app = Flask(__name__)
 # --- Config ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
+ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_annotator.py"
 MONITOR_SCRIPT = PROJECT_ROOT / "enrich_tiktok_data" / "monitor_scrape_folder_and_annotate.py"
-CONFIG_FILE = PROJECT_ROOT / "config" / "studies.toml"
+CONFIG_FILE_STUDIES = PROJECT_ROOT / "config" / "studies.toml"
+CONFIG_FILE_CORE = PROJECT_ROOT / "config" / "config.toml"
 PYTHON_EXEC = sys.executable
 
 # --- Global State ---
 # Store process handles and logs
 processes = {
     "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}},
-    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}}
+    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}},
+    "annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}}
 }
 
 import json
@@ -105,11 +108,20 @@ def api_start(name):
     if name == "downloader" and "study_name" in data:
         args.append(data["study_name"])
     
+    if name == "annotator" and "study_name" in data:
+        args.append(data["study_name"])
+
     # Pass testing configuration as a dict to start_process
     if data.get("testing"):
         args.append({"testing": True})
         
-    success, msg = start_process(name, DOWNLOADER_SCRIPT if name == "downloader" else MONITOR_SCRIPT, args)
+    script_map = {
+        "downloader": DOWNLOADER_SCRIPT,
+        "monitor": MONITOR_SCRIPT,
+        "annotator": ANNOTATOR_SCRIPT
+    }
+    
+    success, msg = start_process(name, script_map[name], args)
     if success:
         return jsonify({"status": "success", "message": msg})
     else:
@@ -155,9 +167,12 @@ def api_logs(name):
 
 @app.route('/api/config', methods=['GET', 'POST'])
 def api_config():
+    filename = request.args.get('file', 'studies.toml')
+    target_file = CONFIG_FILE_STUDIES if filename == 'studies.toml' else CONFIG_FILE_CORE
+    
     if request.method == 'GET':
-        if CONFIG_FILE.exists():
-            with open(CONFIG_FILE, 'r') as f:
+        if target_file.exists():
+            with open(target_file, 'r') as f:
                 content = f.read()
             return jsonify({"content": content})
         return jsonify({"content": ""})
@@ -168,7 +183,7 @@ def api_config():
             return jsonify({"error": "No content provided"}), 400
         
         try:
-            with open(CONFIG_FILE, 'w') as f:
+            with open(target_file, 'w') as f:
                 f.write(content)
             return jsonify({"status": "success"})
         except Exception as e:

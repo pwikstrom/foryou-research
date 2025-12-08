@@ -152,60 +152,170 @@
             line-height: 20px;
             text-shadow: 0 0 2px black;
         }
+
+        /* Tab Styles */
+        .tab-nav {
+            display: flex;
+            background: #252526;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #3e3e42;
+        }
+
+        .tab-button {
+            background: inherit;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 10px 20px;
+            color: #d4d4d4;
+            transition: 0.3s;
+            font-size: 1rem;
+            border-right: 1px solid #3e3e42;
+        }
+
+        .tab-button:hover {
+            background: #3e3e42;
+        }
+
+        .tab-button.active {
+            background: #1e1e1e;
+            border-bottom: 2px solid #4ec9b0;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .tab-content {
+            height: calc(95vh - 60px);
+            /* Adjust height for tabs */
+        }
+
+        .tab-pane {
+            display: none;
+            height: 100%;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
     </style>
 </head>
 
 <body>
 
-    <div class="container">
-        <!-- Downloader Panel -->
-        <div class="panel">
-            <div class="header">
-                <h2>Downloader Loop</h2>
-                <div class="controls">
-                    <span id="downloader-status" class="status-indicator status-stopped"></span>
-                    <input type="text" id="study-name" placeholder="Study Name" value="test_study">
-                    <button class="btn-start" onclick="startProcess('downloader')">Start</button>
-                    <button class="btn-stop" onclick="stopProcess('downloader')">Stop</button>
-                    <label style="font-size: 0.8em; display: flex; align-items: center;"><input type="checkbox"
-                            id="test-mode"> Test Mode</label>
-                </div>
-            </div>
-            <div class="progress-container">
-                <div class="progress-bar" id="downloader-bar"></div>
-                <div class="progress-text" id="downloader-text">Idle</div>
-            </div>
-            <div class="log-window" id="downloader-logs">Logs will appear here...</div>
-        </div>
-
-        <!-- Monitor Panel -->
-        <div class="panel">
-            <div class="header">
-                <h2>Monitor & Annotate</h2>
-                <div class="controls">
-                    <span id="monitor-status" class="status-indicator status-stopped"></span>
-                    <button class="btn-start" onclick="startProcess('monitor')">Start</button>
-                    <button class="btn-stop" onclick="stopProcess('monitor')">Stop</button>
-                </div>
-            </div>
-            <div class="progress-container">
-                <div class="progress-bar" id="monitor-bar"></div>
-                <div class="progress-text" id="monitor-text">Idle</div>
-            </div>
-            <div class="log-window" id="monitor-logs">Logs will appear here...</div>
-        </div>
-
-        <!-- Config Editor Panel -->
-        <div class="panel">
-            <div class="header">
-                <h2>studies.toml</h2>
-                <div class="controls">
-                    <button class="btn-save" onclick="saveConfig()">Save Config</button>
-                </div>
-            </div>
-            <textarea id="config-editor"></textarea>
-        </div>
+    <!-- Tab Navigation -->
+    <div class="tab-nav">
+        <button class="tab-button active" onclick="openTab(event, 'dashboard')">Pipeline Control</button>
+        <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
     </div>
+
+    <div class="tab-content">
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-pane active">
+            <!-- Global Control Bar -->
+            <div class="panel"
+                style="margin-bottom: 20px; display: flex; flex-direction: row; align-items: center; gap: 20px; padding: 5px 15px; width: auto;">
+                <input type="text" id="global-study-name" placeholder="Study Name" value="test_study"
+                    style="width: 25ch; border: 1px solid #3e3e42; background: #3c3c3c; color: #d4d4d4; padding: 5px;">
+                <label
+                    style="font-size: 0.9em; display: flex; align-items: center; cursor: pointer; white-space: nowrap;">
+
+                    <input type="checkbox" id="global-test-mode" style="margin-right: 5px;"> Test Mode
+                </label>
+            </div>
+
+            <div class="container" style="flex-direction: row; gap: 20px;">
+
+                <!-- Left Column -->
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 20px;">
+                    <!-- Downloader Panel -->
+                    <div class="panel" style="flex: 1;">
+                        <div class="header">
+                            <h2>Downloader Loop</h2>
+                            <div class="controls">
+                                <span id="downloader-status" class="status-indicator status-stopped"></span>
+                                <button class="btn-start" onclick="startProcess('downloader')">Start</button>
+                                <button class="btn-stop" onclick="stopProcess('downloader')">Stop</button>
+                                <button class="btn-save" style="background: #555; font-size: 0.8em;"
+                                    onclick="clearLogs('downloader')">Clear</button>
+                            </div>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-bar" id="downloader-bar"></div>
+                            <div class="progress-text" id="downloader-text">Idle</div>
+                        </div>
+                        <div class="log-window" id="downloader-logs">Logs will appear here...</div>
+                    </div>
+
+                    <!-- Monitor Panel -->
+                    <div class="panel" style="flex: 1;">
+                        <div class="header">
+                            <h2>Monitor & Annotate</h2>
+                            <div class="controls">
+                                <span id="monitor-status" class="status-indicator status-stopped"></span>
+                                <button class="btn-start" onclick="startProcess('monitor')">Start</button>
+                                <button class="btn-stop" onclick="stopProcess('monitor')">Stop</button>
+                                <button class="btn-save" style="background: #555; font-size: 0.8em;"
+                                    onclick="clearLogs('monitor')">Clear</button>
+                            </div>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-bar" id="monitor-bar"></div>
+                            <div class="progress-text" id="monitor-text">Idle</div>
+                        </div>
+                        <div class="log-window" id="monitor-logs">Logs will appear here...</div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Annotator Panel -->
+                <div class="panel" style="flex: 1; height: auto;">
+                    <div class="header">
+                        <h2>Annotator Loop</h2>
+                        <div class="controls">
+                            <span id="annotator-status" class="status-indicator status-stopped"></span>
+                            <button class="btn-start" onclick="startProcess('annotator')">Start</button>
+                            <button class="btn-stop" onclick="stopProcess('annotator')">Stop</button>
+                            <button class="btn-save" style="background: #555; font-size: 0.8em;"
+                                onclick="clearLogs('annotator')">Clear</button>
+                        </div>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar" id="annotator-bar"></div>
+                        <div class="progress-text" id="annotator-text">Idle</div>
+                    </div>
+                    <div class="log-window" id="annotator-logs">Logs will appear here...</div>
+                </div>
+
+            </div>
+        </div> <!-- End of Dashboard Tab -->
+
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-pane">
+            <div class="container">
+                <!-- Config Editor Panel 1 -->
+                <div class="panel">
+                    <div class="header">
+                        <h2>studies.toml</h2>
+                        <div class="controls">
+                            <button class="btn-save" onclick="saveConfig('studies.toml')">Save</button>
+                        </div>
+                    </div>
+                    <textarea id="config-editor-studies"></textarea>
+                </div>
+
+                <!-- Config Editor Panel 2 -->
+                <div class="panel">
+                    <div class="header">
+                        <h2>config.toml</h2>
+                        <div class="controls">
+                            <button class="btn-save" onclick="saveConfig('config.toml')">Save</button>
+                        </div>
+                    </div>
+                    <textarea id="config-editor-core"></textarea>
+                </div>
+            </div>
+        </div> <!-- End of Settings Tab -->
+
+    </div> <!-- End of Tab Content -->
 
     <script>
         // Poll intervals
@@ -214,18 +324,25 @@
 
         // Initial load
         window.onload = function () {
-            loadConfig();
+            loadConfig('studies.toml');
+            loadConfig('config.toml');
             updateStatus();
         };
 
         async function startProcess(name) {
             let body = {};
-            const isTest = document.getElementById('test-mode') ? document.getElementById('test-mode').checked : false;
+            const isTest = document.getElementById('global-test-mode') ? document.getElementById('global-test-mode').checked : false;
+            const studyName = document.getElementById('global-study-name').value;
 
             if (name === 'downloader') {
-                const studyName = document.getElementById('study-name').value;
                 if (!studyName) {
-                    alert("Please enter a study name");
+                    alert("Please enter a study name in the Global Controls");
+                    return;
+                }
+                body = { study_name: studyName, testing: isTest };
+            } else if (name === 'annotator') {
+                if (!studyName) {
+                    alert("Please enter a study name in the Global Controls");
                     return;
                 }
                 body = { study_name: studyName, testing: isTest };
@@ -268,6 +385,7 @@
 
                 setStatus('downloader', data.downloader);
                 setStatus('monitor', data.monitor);
+                setStatus('annotator', data.annotator);
             } catch (e) {
                 console.error(e);
             }
@@ -307,6 +425,7 @@
         async function updateLogs() {
             await fetchLogs('downloader');
             await fetchLogs('monitor');
+            await fetchLogs('annotator');
         }
 
         async function fetchLogs(name) {
@@ -328,27 +447,30 @@
             }
         }
 
-        async function loadConfig() {
+        async function loadConfig(filename) {
             try {
-                const res = await fetch('/api/config');
+                const res = await fetch(`/api/config?file=${filename}`);
                 const data = await res.json();
-                document.getElementById('config-editor').value = data.content;
+
+                const targetId = filename === 'studies.toml' ? 'config-editor-studies' : 'config-editor-core';
+                document.getElementById(targetId).value = data.content;
             } catch (e) {
                 console.error(e);
             }
         }
 
-        async function saveConfig() {
-            const content = document.getElementById('config-editor').value;
+        async function saveConfig(filename) {
+            const targetId = filename === 'studies.toml' ? 'config-editor-studies' : 'config-editor-core';
+            const content = document.getElementById(targetId).value;
             try {
-                const res = await fetch('/api/config', {
+                const res = await fetch(`/api/config?file=${filename}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ content: content })
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
-                    alert("Configuration saved!");
+                    alert(`${filename} saved!`);
                 } else {
                     alert("Error saving config: " + data.message);
                 }
@@ -356,6 +478,31 @@
                 console.error(e);
                 alert("Error saving config");
             }
+        }
+
+        function clearLogs(name) {
+            const el = document.getElementById(`${name}-logs`);
+            if (el) {
+                el.textContent = "";
+            }
+        }
+
+        function openTab(evt, tabName) {
+            // Hide all tab panes
+            const tabPanes = document.getElementsByClassName("tab-pane");
+            for (let i = 0; i < tabPanes.length; i++) {
+                tabPanes[i].className = tabPanes[i].className.replace(" active", "");
+            }
+
+            // Remove active class from all buttons
+            const tabButtons = document.getElementsByClassName("tab-button");
+            for (let i = 0; i < tabButtons.length; i++) {
+                tabButtons[i].className = tabButtons[i].className.replace(" active", "");
+            }
+
+            // Show current tab and activate button
+            document.getElementById(tabName).className += " active";
+            evt.currentTarget.className += " active";
         }
     </script>
 

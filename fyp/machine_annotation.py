@@ -1189,6 +1189,90 @@ def post_process_raw_annotations_from_json_file(json_file, verbose = False):
 
 
 
+
+def create_a_new_dataset_just_for_annotating_downloaded_videos(study_name, batch_size = 500):
+
+    from datetime import datetime
+    from fyp.organize_datasets_OPTIMIZED import load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
+    from os import environ
+    from os.path import join
+    import json
+
+    print(f"Annotating downloaded videos, study '{study_name}', batch size: {batch_size}")
+    print(f"Now: {datetime.now()}")
+    print("##"*60)
+
+    # --- TEST MODE ---
+    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+        print("this thing doesn't run in test mode")
+        return
+    # -----------------
+
+    print("Building datasets to initiate loop. Might take a minute...\n")
+    tutti = load_datasets(
+        study_name,
+        use_half_baked = True,
+        delete_all_half_baked_files = True,
+        consolidate = True,
+        verbose = False
+        )
+    first_iteration = True
+
+    print("##"*60)
+    print()
+
+
+    selected_videos = [0] # just a list that contains anything and that is longer than zero elements to get things started
+
+    print("Starting loop...")
+    while len(selected_videos)>0:
+        if not first_iteration:
+            print("##"*60)
+            print()
+
+            tutti = load_datasets(
+                study_name,
+                use_half_baked = True,
+                delete_all_half_baked_files = False,
+                verbose = False)
+        else:
+            first_iteration = False
+
+        print("Calculating video subsets...")
+        video_subsets = calculate_all_unique_video_subsets(study_name, tutti, verbose = False)
+
+        selected_videos = save_selected_unique_video_subsets(
+            study_name,
+            tutti,
+            video_subsets,
+            file_label = "ANNOTATE",
+            INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
+            INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
+            INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
+            INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
+            INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
+            INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
+            INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
+            verbose = True
+        )
+
+        if len(selected_videos) > 0:
+            work_with_these_videos_list_raw = [int(k) for k in selected_videos.item_id.to_list()]
+            work_with_these_videos_list = work_with_these_videos_list_raw.copy()
+
+            print(f"{len(work_with_these_videos_list):,} videos to process for study '{study_name}'")
+
+            _ = annotate_from_list(work_with_these_videos_list[:batch_size], verbose = True)
+        
+        if selected_videos is None:
+            selected_videos = []
+
+    print(f"Loop ended: {datetime.now()}")
+
+
+
+
+
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
