@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
 ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_annotator.py"
 MONITOR_SCRIPT = PROJECT_ROOT / "enrich_tiktok_data" / "monitor_scrape_folder_and_annotate.py"
+CREATE_SUBSETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_subsets.py"
 CONFIG_FILE_STUDIES = PROJECT_ROOT / "config" / "studies.toml"
 CONFIG_FILE_CORE = PROJECT_ROOT / "config" / "config.toml"
 PYTHON_EXEC = sys.executable
@@ -22,14 +23,15 @@ PYTHON_EXEC = sys.executable
 # --- Global State ---
 # Store process handles and logs
 processes = {
-    "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}},
-    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}},
-    "annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}}
+    "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}},
+    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}},
+    "annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}},
+    "create_subsets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}}
 }
 
 import json
 
-def enqueue_output(out, queue, progress_state):
+def enqueue_output(out, queue, progress_state, data_state):
     for line in iter(out.readline, b''):
         line_str = line.decode('utf-8')
         if "::PROGRESS::" in line_str:
@@ -37,6 +39,13 @@ def enqueue_output(out, queue, progress_state):
                 _, json_str = line_str.split("::PROGRESS::", 1)
                 data = json.loads(json_str.strip())
                 progress_state.update(data)
+            except Exception:
+                queue.append(line_str)
+        elif "::DATA::" in line_str:
+            try:
+                _, json_str = line_str.split("::DATA::", 1)
+                data = json.loads(json_str.strip())
+                data_state.update(data)
             except Exception:
                 queue.append(line_str)
         else:
@@ -69,7 +78,7 @@ def start_process(name, script_path, args=[]):
         processes[name]["status"] = "running"
         
         # Start logging thread
-        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]["progress"]))
+        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]["progress"], processes[name]["data"]))
         t.daemon = True
         t.start()
         
@@ -111,6 +120,9 @@ def api_start(name):
     if name == "annotator" and "study_name" in data:
         args.append(data["study_name"])
 
+    if name == "create_subsets" and "study_name" in data:
+        args.append(data["study_name"])
+
     # Pass testing configuration as a dict to start_process
     if data.get("testing"):
         args.append({"testing": True})
@@ -118,7 +130,8 @@ def api_start(name):
     script_map = {
         "downloader": DOWNLOADER_SCRIPT,
         "monitor": MONITOR_SCRIPT,
-        "annotator": ANNOTATOR_SCRIPT
+        "annotator": ANNOTATOR_SCRIPT,
+        "create_subsets": CREATE_SUBSETS_SCRIPT
     }
     
     success, msg = start_process(name, script_map[name], args)
@@ -152,7 +165,8 @@ def api_status():
         
         status_data[name] = {
             "state": state,
-            "progress": p_data["progress"]
+            "progress": p_data["progress"],
+            "data": p_data["data"]
         }
     return jsonify(status_data)
 

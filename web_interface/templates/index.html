@@ -4,11 +4,13 @@
 <!-- Tab Navigation -->
 <div class="tab-nav">
     <button class="tab-button active" onclick="openTab(event, 'scrape_annotate')">Scrape & Annotate</button>
+    <button class="tab-button" onclick="openTab(event, 'data_overview')">Data Overview</button>
     <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
 </div>
 
 <div class="tab-content">
     {% include 'tabs/scrape_annotate.html' %}
+    {% include 'tabs/data_overview.html' %}
     {% include 'tabs/settings.html' %}
 </div>
 {% endblock %}

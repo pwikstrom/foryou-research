@@ -12,7 +12,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         study_name = sys.argv[1]
     else:
-        study_name = "test_study" # Default or raise error
+        study_name = "everything" # Default or raise error
     
     print(f"Starting annotator for study: {study_name}")
     try:

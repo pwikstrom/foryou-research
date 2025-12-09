@@ -11,18 +11,18 @@ window.onload = function () {
 
 async function startProcess(name) {
     let body = {};
-    const isTest = document.getElementById('global-test-mode') ? document.getElementById('global-test-mode').checked : false;
-    const studyName = document.getElementById('global-study-name').value;
+    // Determine context (tab) for study name input
+    let studyNameInputId = 'global-study-name'; // default for scrape/annotate
+    if (name === 'create_subsets') {
+        studyNameInputId = 'overview-study-name';
+    }
 
-    if (name === 'downloader') {
+    const isTest = document.getElementById('global-test-mode') ? document.getElementById('global-test-mode').checked : false;
+    const studyName = document.getElementById(studyNameInputId).value;
+
+    if (name === 'downloader' || name === 'annotator' || name === 'create_subsets') {
         if (!studyName) {
-            alert("Please enter a study name in the Global Controls");
-            return;
-        }
-        body = { study_name: studyName, testing: isTest };
-    } else if (name === 'annotator') {
-        if (!studyName) {
-            alert("Please enter a study name in the Global Controls");
+            alert("Please enter a study name.");
             return;
         }
         body = { study_name: studyName, testing: isTest };
@@ -66,6 +66,7 @@ async function updateStatus() {
         setStatus('downloader', data.downloader);
         setStatus('monitor', data.monitor);
         setStatus('annotator', data.annotator);
+        setStatus('create_subsets', data.create_subsets);
     } catch (e) {
         console.error(e);
     }
@@ -100,12 +101,40 @@ function setStatus(name, data) {
             }
         }
     }
+
+    if (name === 'create_subsets' && data.data && Object.keys(data.data).length > 0) {
+        renderSubsetChart(data.data);
+    }
+}
+
+function renderSubsetChart(data) {
+    const labels = Object.keys(data);
+    const values = Object.values(data);
+
+    const plotData = [{
+        values: values,
+        labels: labels,
+        type: 'pie'
+    }];
+
+    const layout = {
+        height: 400,
+        width: 500,
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        legend: {
+            font: { color: '#d4d4d4' }
+        }
+    };
+
+    Plotly.react('subsets-pie-chart', plotData, layout, { displayModeBar: false });
 }
 
 async function updateLogs() {
     await fetchLogs('downloader');
     await fetchLogs('monitor');
     await fetchLogs('annotator');
+    await fetchLogs('create_subsets');
 }
 
 async function fetchLogs(name) {

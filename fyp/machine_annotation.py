@@ -51,6 +51,8 @@ def load_machine_annotations(
         print(f"Loaded {len(all_results):,} rows from {len(machine_file_names)} machine annotation files")
 
     all_results = all_results.sort_values("inference_ts").copy()
+    quick_check = 1 - all_results.isna().sum()/len(all_results)
+    all_results = all_results.loc[:,quick_check[quick_check>=0.1].index].copy()
     all_results.drop_duplicates(inplace=True, keep='last')
 
     if verbose:
