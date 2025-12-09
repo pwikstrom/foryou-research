@@ -483,22 +483,21 @@ def download_video_threads(interesting_videos, max_workers=4):
 
 
 
-def download_videos_loop(study_name, batch_size = 800):
+def download_videos_loop(study_name, batch_size = 500):
 
     from datetime import datetime
-    from fyp.organize_datasets_OPTIMIZED import load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
+    from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked, load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
     from os import environ
     from os.path import join
     import json
 
-    print(f"Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}")
-    print(f"Now: {datetime.now()}")
-    print("##"*60)
 
     # --- TEST MODE ---
     if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
-        print("!!! TEST MODE ENABLED - SIMULATING DOWNLOADS !!!")
-        import time
+        print("!!! TEST MODE ENABLED - Doing a mini batch once!!!")
+        batch_size = 10
+
+        """import time
         import random
         import pandas as pd
         
@@ -541,28 +540,46 @@ def download_videos_loop(study_name, batch_size = 800):
             print("Batch done. Sleeping...")
             time.sleep(5)
             
-        return # Never reached
+        return # Never reached"""
     # -----------------
 
-    print("Building datasets to initiate loop. Might take a minute...\n")
-    tutti = load_datasets(
+    print(f"Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}")
+    print(f"Now: {datetime.now()}")
+    print("##"*60)
+
+
+
+    """print("Building datasets to initiate loop. Might take a minute...\n")
+    _ = load_datasets(
         study_name,
         use_half_baked = True,
         delete_all_half_baked_files = True,
         consolidate = True,
         verbose = False
         )
-    first_iteration = True
+    #first_iteration = True
 
     print("##"*60)
-    print()
+    print()"""
 
 
-    selected_videos = [0] # just a list that contains anything and that is longer than zero elements to get things started
+    selected_videos = [0] # just a non-empty list to get things started
 
     print("Starting loop...")
     while len(selected_videos)>0:
-        if not first_iteration:
+        selected_videos = select_videos_from_half_baked(
+            study_name,
+            file_label = "SCRAPE",
+            INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = True,
+            INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
+            INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
+            INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
+            INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
+            INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
+            #INCLUDE_LONG_VIDEOS_IN_EXPORT = True,
+            verbose = True
+        )
+        """if not first_iteration:
             print("##"*60)
             print()
 
@@ -570,6 +587,7 @@ def download_videos_loop(study_name, batch_size = 800):
                 study_name,
                 use_half_baked = True,
                 delete_all_half_baked_files = False,
+                consolidate = False,
                 verbose = False)
         else:
             first_iteration = False
@@ -590,7 +608,7 @@ def download_videos_loop(study_name, batch_size = 800):
             INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
             INCLUDE_LONG_VIDEOS_IN_EXPORT = True,
             verbose = True
-        )
+        )"""
 
         if len(selected_videos) > 0:
             work_with_these_videos_list_raw = [int(k) for k in selected_videos.item_id.to_list()]
@@ -602,5 +620,10 @@ def download_videos_loop(study_name, batch_size = 800):
         
         if selected_videos is None:
             selected_videos = []
+
+        if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+            print("!!! TEST MODE ENABLED - Breaking after a single iteration!!!")
+            break
+
 
     print(f"Loop ended: {datetime.now()}")

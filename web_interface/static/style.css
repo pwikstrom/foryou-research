@@ -1,17 +1,63 @@
+* {
+    box-sizing: border-box;
+}
+
 body {
     font-family: monospace;
     background: #1e1e1e;
     color: #d4d4d4;
     margin: 0;
     padding: 20px;
+    height: 100vh;
+    /* Fill full viewport */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* Prevent body scroll, handle inside panels */
 }
 
+/* Tab Navigation - Fixed Height */
+.tab-nav {
+    display: flex;
+    flex: 0 0 auto;
+    background: #252526;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #3e3e42;
+}
+
+/* Tab Content - Fills remaining space */
+.tab-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* Critical for flex shrinking */
+    overflow: hidden;
+}
+
+.tab-pane {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    /* Critical */
+}
+
+.tab-pane.active {
+    display: flex;
+    /* Activate flex column layout */
+}
+
+/* Panels Area - Fills remaining space in tab-pane */
 .container {
     display: flex;
     gap: 20px;
-    height: 95vh;
+    flex: 1;
+    min-height: 0;
+    /* Critical */
 }
 
+/* Individual Panel */
 .panel {
     flex: 1;
     display: flex;
@@ -20,6 +66,10 @@ body {
     border: 1px solid #3e3e42;
     padding: 10px;
     border-radius: 5px;
+    min-height: 0;
+    /* Critical so internal scroll works */
+
+    /* If this panel is a control bar, it should override this with flex: 0 0 auto inline or via class */
 }
 
 .header {
@@ -27,18 +77,36 @@ body {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 10px;
-}
-
-h2 {
-    margin: 0;
-    font-size: 1.2em;
-    color: #9cdcfe;
+    flex: 0 0 auto;
+    /* Don't shrink header */
 }
 
 .controls {
     display: flex;
     gap: 10px;
     align-items: center;
+}
+
+/* Log Window - The part that should scroll */
+.log-window {
+    flex: 1;
+    background: #1e1e1e;
+    border: 1px solid #3e3e42;
+    padding: 10px;
+    overflow-y: auto;
+    font-family: monospace;
+    white-space: pre-wrap;
+    font-size: 0.9em;
+    min-height: 0;
+    /* Critical */
+}
+
+/* ... Other Standard Styles ... */
+
+h2 {
+    margin: 0;
+    font-size: 1.2em;
+    color: #9cdcfe;
 }
 
 input[type="text"] {
@@ -72,17 +140,6 @@ button {
     color: #1e1e1e;
 }
 
-.log-window {
-    flex: 1;
-    background: #1e1e1e;
-    border: 1px solid #3e3e42;
-    padding: 10px;
-    overflow-y: auto;
-    font-family: monospace;
-    white-space: pre-wrap;
-    font-size: 0.9em;
-}
-
 textarea {
     flex: 1;
     background: #1e1e1e;
@@ -108,8 +165,6 @@ textarea {
     box-shadow: 0 0 5px #4ec9b0;
 }
 
-/* Duplicate rule removed safely */
-
 .status-stopped {
     background: #f48771;
 }
@@ -121,6 +176,7 @@ textarea {
     margin: 10px 0;
     overflow: hidden;
     position: relative;
+    flex: 0 0 auto;
 }
 
 .progress-bar {
@@ -141,14 +197,6 @@ textarea {
     font-size: 0.8em;
     line-height: 20px;
     text-shadow: 0 0 2px black;
-}
-
-/* Tab Styles */
-.tab-nav {
-    display: flex;
-    background: #252526;
-    margin-bottom: 20px;
-    border-bottom: 1px solid #3e3e42;
 }
 
 .tab-button {
@@ -174,16 +222,56 @@ textarea {
     font-weight: bold;
 }
 
-.tab-content {
-    height: calc(95vh - 60px);
-    /* Adjust height for tabs */
+/* Discreet Control Styles */
+.discreet-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-left: 1px solid #3e3e42;
+    padding-left: 15px;
+    margin-left: 15px;
 }
 
-.tab-pane {
-    display: none;
-    height: 100%;
+.btn-discreet {
+    background: #3e3e42;
+    color: #d4d4d4;
+    padding: 5px 10px;
+    font-size: 0.9em;
+    border: 1px solid #555;
+    transition: background 0.2s;
 }
 
-.tab-pane.active {
-    display: block;
+.btn-discreet:hover {
+    background: #4e4e52;
+}
+
+.btn-discreet:active {
+    background: #2d2d30;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #555;
+    display: inline-block;
+}
+
+.status-dot.running {
+    background: #4ec9b0;
+    box-shadow: 0 0 4px #4ec9b0;
+}
+
+.status-dot.stopped {
+    background: #555;
+}
+
+.status-dot.error {
+    background: #f48771;
+}
+
+.tiny-text {
+    font-size: 0.75em;
+    color: #888;
+    white-space: nowrap;
 }

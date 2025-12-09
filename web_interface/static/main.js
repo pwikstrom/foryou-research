@@ -20,7 +20,7 @@ async function startProcess(name) {
     const isTest = document.getElementById('global-test-mode') ? document.getElementById('global-test-mode').checked : false;
     const studyName = document.getElementById(studyNameInputId).value;
 
-    if (name === 'downloader' || name === 'annotator' || name === 'create_subsets') {
+    if (name === 'downloader' || name === 'annotator' || name === 'create_subsets' || name === 'regenerate_datasets') {
         if (!studyName) {
             alert("Please enter a study name.");
             return;
@@ -58,6 +58,28 @@ async function stopProcess(name) {
     }
 }
 
+async function toggleProcess(name, label) {
+    // Check current state inferred from UI or wait for status update
+    // But better to just check the status from the status object if we had it global.
+    // Use the API to check status is safer, but simpler is: just try to start, if 409 (already running) -> stop.
+    // However, the button logic is: "button that is both starting and stopping".
+
+    // Let's fetch status first to be sure
+    try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        const pData = data[name];
+
+        if (pData && pData.state === 'running') {
+            await stopProcess(name);
+        } else {
+            await startProcess(name);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function updateStatus() {
     try {
         const res = await fetch('/api/status');
@@ -67,6 +89,10 @@ async function updateStatus() {
         setStatus('monitor', data.monitor);
         setStatus('annotator', data.annotator);
         setStatus('create_subsets', data.create_subsets);
+
+        // Discreet controls
+        setDiscreetStatus('regenerate_datasets', data.regenerate_datasets);
+
     } catch (e) {
         console.error(e);
     }
@@ -77,7 +103,7 @@ function setStatus(name, data) {
     const info = data.progress || {};
 
     const el = document.getElementById(`${name}-status`);
-    el.className = `status-indicator status-${status}`;
+    if (el) el.className = `status-indicator status-${status}`;
 
     const bar = document.getElementById(`${name}-bar`);
     const text = document.getElementById(`${name}-text`);
@@ -107,6 +133,44 @@ function setStatus(name, data) {
     }
 }
 
+function setDiscreetStatus(name, data) {
+    const dot = document.getElementById(`dot-${name}`);
+    const text = document.getElementById(`text-${name}`);
+    if (!dot || !text) return;
+
+    const state = data.state;
+
+    // Update Dot
+    dot.className = 'status-dot'; // reset
+    if (state === 'running') {
+        dot.classList.add('running');
+    } else {
+        dot.classList.add('stopped');
+    }
+
+    // Update Text
+    if (state === 'running') {
+        if (data.start_time) {
+            const start = new Date(data.start_time);
+            const now = new Date();
+            const diff = now - start;
+            // Format duration HH:MM:SS
+            const duration = new Date(diff).toISOString().substr(11, 8);
+            text.innerText = duration;
+        } else {
+            text.innerText = "Running...";
+        }
+    } else {
+        if (data.last_success) {
+            const successTime = new Date(data.last_success);
+            text.innerText = "Last success: " + successTime.toLocaleString();
+        } else {
+            text.innerText = "Last success: Never"; // Or empty
+        }
+    }
+}
+
+
 function renderSubsetChart(data) {
     const labels = Object.keys(data);
     const values = Object.values(data);
@@ -135,13 +199,17 @@ async function updateLogs() {
     await fetchLogs('monitor');
     await fetchLogs('annotator');
     await fetchLogs('create_subsets');
+    // await fetchLogs('regenerate_datasets'); // Optional if we want logs visible somewhere
 }
 
 async function fetchLogs(name) {
     try {
+        const el = document.getElementById(`${name}-logs`);
+        if (!el) return;
+
         const res = await fetch(`/api/logs/${name}`);
         const data = await res.json();
-        const el = document.getElementById(`${name}-logs`);
+
 
         // Basic check to see if we should scroll (simple autoscroll)
         const atBottom = el.scrollHeight - el.scrollTop === el.clientHeight;
@@ -190,9 +258,6 @@ async function saveConfig(filename) {
 }
 
 async function clearLogs(name) {
-    if (!confirm(`Are you sure you want to clear the logs for ${name}?`)) {
-        return;
-    }
     try {
         await fetch(`/api/logs/clear/${name}`, { method: 'POST' });
         const el = document.getElementById(`${name}-logs`);

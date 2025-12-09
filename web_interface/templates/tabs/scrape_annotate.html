@@ -1,13 +1,22 @@
 <div id="scrape_annotate" class="tab-pane">
     <!-- Global Control Bar -->
     <div class="panel"
-        style="margin-bottom: 20px; display: flex; flex-direction: row; align-items: center; gap: 20px; padding: 5px 15px; width: auto;">
+        style="margin-bottom: 20px; display: flex; flex-direction: row; align-items: center; gap: 20px; padding: 5px 15px; width: auto; flex: 0 0 auto;">
         <input type="text" id="global-study-name" placeholder="Study Name" value="everything"
             style="width: 25ch; border: 1px solid #3e3e42; background: #3c3c3c; color: #d4d4d4; padding: 5px;">
         <label style="font-size: 0.9em; display: flex; align-items: center; cursor: pointer; white-space: nowrap;">
 
             <input type="checkbox" id="global-test-mode" style="margin-right: 5px;"> Test Mode
         </label>
+
+        <!-- Discreet Process Control -->
+        <div class="discreet-control" id="control-regenerate_datasets">
+            <button class="btn-discreet"
+                onclick="toggleProcess('regenerate_datasets', 'Regenerate half-baked datasets')">Regenerate half-baked
+                datasets</button>
+            <span class="status-dot" id="dot-regenerate_datasets"></span>
+            <span class="status-text tiny-text" id="text-regenerate_datasets"></span>
+        </div>
     </div>
 
     <div class="container" style="flex-direction: row; gap: 20px;">

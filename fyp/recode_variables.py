@@ -92,12 +92,24 @@ def _is_emoji(s: str) -> bool:
 
 
 
-def get_factors_from_var_scheme(some_events_df):
+def get_factors_and_features_from_var_scheme(some_events_df):
     import pandas as pd
     from os.path import join
 
     var_scheme = pd.read_csv(join(fyp.cf['paths']['project_root'],"config","var_scheme.csv")).set_index("variable_name")#.T.to_dict()
-    return list(set(var_scheme[var_scheme["scale"]=='factor'].index) & set(some_events_df.columns))
+
+    the_factors = list(set(var_scheme[var_scheme["scale"]=='factor'].index) & set(some_events_df.columns))
+    the_features = sorted(list(set(some_events_df.columns) - set(the_factors)))
+
+    print("Factors:",", ".join(the_factors))
+    print("Features:",", ".join(the_features))
+
+    return the_factors, the_features
+
+
+
+
+
 
 
 def recode_descriptions(
@@ -537,17 +549,34 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 
 
-def recode_events_df(cool_events_in):
+def recode_events_df(
+    study_name,
+    cool_events_in):
 
     import pandas as pd
     from os.path import join
+
+    expected_columns = ['T_local_weekday', 'T_local_week', 'item_id',
+        'T_local_day_segment', 'T_local_date', 'session_id', 'D_donation_id',
+        'B_source_tz_name', 'S_video_duration',
+        'S_stats_diggCount', 'S_stats_commentCount', 'S_stats_playCount',
+        'S_stats_collectCount', 'S_stats_shareCount',
+        'G_main_activity', 'G_type_of_story', 'G_content_category',
+        'G_australian_relevance', 'G_tiktok_native', 'G_trend', 'G_advertising',
+        'G_aigc', 'G_main_gender', 'G_main_ethnicity', 'G_political_score',
+        'G_sensitivity_score', 'G_scene_sentiments','G_speech_vs_music', 
+        'G_faces_gender', 'G_faces_age_estimate', 'G_faces_ethnicity',
+        'T_days_since_created']
+
+    print("Recoding variables, implementing missing data policy and a whole range of other things")
+    print(f"Expecting {len(expected_columns)} columns, found {len(list(set(expected_columns) & set(cool_events_in.columns)))}")
+
+    cool_events = cool_events_in[list(set(expected_columns) & set(cool_events_in.columns))].copy()
 
 
     var_scheme = pd.read_csv(join(fyp.cf['paths']['project_root'],"config","var_scheme.csv")).set_index("variable_name")#.T.to_dict()
 
     var_scheme[['mapper','ignore_strings','recode_func']] = var_scheme[['mapper','ignore_strings','recode_func']].map(_try_eval)
-
-    cool_events = cool_events_in.copy()
 
     FYP_FACTORS = list(set(var_scheme[var_scheme["scale"]=='factor'].index) & set(cool_events.columns))
     cool_events[FYP_FACTORS] = cool_events[FYP_FACTORS].astype(str)
@@ -647,9 +676,36 @@ def recode_events_df(cool_events_in):
             print(f"not found in the variable scheme, so no change")
 
 
+    cool_events['plays_per_day'] = cool_events['S_stats_playCount'] / cool_events['T_days_since_created'].map(lambda x:max(1,x))
+
+
+    # Clean the recoded dataset - drop rows with NaN values and constant columns
+    print(cool_events.shape, "shape of recoded dataset before cleaning")
+    cool_events = cool_events.loc[~cool_events.isna().any(axis=1)]                      # drop rows with NaN values
+    print(cool_events.shape, "shape of recoded dataset after dropping rows with NaN values")
+    print("----------------------------------------------")
+
+
+    print("Cleaning up Gemini annotations - replacing categories/labels that are very rare")
+    print(f"Shape of the events DF: {cool_events.shape}")
+    cool_events = clean_up_machine_annotations(cool_events)
+    print(f"Shape of the events DF: {cool_events.shape}")
+
     print(cool_events.shape)
 
-    return cool_events[sorted(cool_events.columns)]
+    cool_events = cool_events[sorted(cool_events.columns)]
+
+    log_filename = f"{study_name}_RECODED.pkl"
+    export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
+
+    cool_events.to_pickle(join(fyp.cf['paths']['exports'],log_filename))
+    if verbose:
+        print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,log_filename)}.")
+        print(f"Now: {datetime.now()}")
+        print("=="*60)
+
+
+    return 
 
 
 

@@ -16,7 +16,7 @@ if __name__ == "__main__":
     
     print(f"Starting annotator for study: {study_name}")
     try:
-        ma.create_a_new_dataset_just_for_annotating_downloaded_videos(study_name)
+        ma.annotate_videos_loop(study_name)
     except KeyboardInterrupt:
         print("\nAnnotator stopped by user.")
     except Exception as e:

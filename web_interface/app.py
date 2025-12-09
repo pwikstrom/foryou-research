@@ -5,6 +5,8 @@ import time
 import os
 import signal
 import sys
+import json
+from datetime import datetime
 from collections import deque
 from pathlib import Path
 
@@ -16,20 +18,45 @@ DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
 ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_annotator.py"
 MONITOR_SCRIPT = PROJECT_ROOT / "enrich_tiktok_data" / "monitor_scrape_folder_and_annotate.py"
 CREATE_SUBSETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_subsets.py"
+REGENERATE_DATASETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_regenerate_datasets.py"
 CONFIG_FILE_STUDIES = PROJECT_ROOT / "config" / "studies.toml"
 CONFIG_FILE_CORE = PROJECT_ROOT / "config" / "config.toml"
+PROCESS_STATS_FILE = PROJECT_ROOT / "web_interface" / "process_stats.json"
 PYTHON_EXEC = sys.executable
 
 # --- Global State ---
 # Store process handles and logs
 processes = {
-    "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}},
-    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}},
-    "annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}},
-    "create_subsets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}}
+    "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
+    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
+    "annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
+    "create_subsets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
+    "regenerate_datasets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None}
 }
 
-import json
+process_stats = {}
+
+def load_process_stats():
+    global process_stats
+    if PROCESS_STATS_FILE.exists():
+        try:
+            with open(PROCESS_STATS_FILE, 'r') as f:
+                process_stats = json.load(f)
+        except Exception as e:
+            print(f"Failed to load process stats: {e}")
+            process_stats = {}
+    else:
+        process_stats = {}
+
+def save_process_stats():
+    try:
+        with open(PROCESS_STATS_FILE, 'w') as f:
+            json.dump(process_stats, f)
+    except Exception as e:
+        print(f"Failed to save process stats: {e}")
+
+# Load stats on startup
+load_process_stats()
 
 def enqueue_output(out, queue, progress_state, data_state):
     for line in iter(out.readline, b''):
@@ -51,6 +78,24 @@ def enqueue_output(out, queue, progress_state, data_state):
         else:
             queue.append(line_str)
     out.close()
+
+
+def monitor_process_completion(name, proc):
+    """Waits for process to finish and updates stats."""
+    proc.wait()
+    # Process finished
+    if proc.returncode == 0:
+        # Success
+        process_stats[name] = {
+            "last_success": datetime.now().isoformat()
+        }
+        save_process_stats()
+    
+    # Update global state to stopped
+    processes[name]["status"] = "stopped"
+    processes[name]["proc"] = None
+    processes[name]["start_time"] = None
+
 
 def start_process(name, script_path, args=[]):
     if processes[name]["proc"] is not None:
@@ -76,15 +121,23 @@ def start_process(name, script_path, args=[]):
         )
         processes[name]["proc"] = proc
         processes[name]["status"] = "running"
+        processes[name]["start_time"] = datetime.now().isoformat()
+        processes[name]["progress"] = {} # Reset progress
         
         # Start logging thread
         t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]["progress"], processes[name]["data"]))
         t.daemon = True
         t.start()
+
+        # Start monitoring thread
+        t_mon = threading.Thread(target=monitor_process_completion, args=(name, proc))
+        t_mon.daemon = True
+        t_mon.start()
         
         return True, "Started"
     except Exception as e:
         return False, str(e)
+
 
 def stop_process(name):
     proc = processes[name]["proc"]
@@ -97,14 +150,18 @@ def stop_process(name):
                 proc.kill()
         processes[name]["proc"] = None
         processes[name]["status"] = "stopped"
+        processes[name]["start_time"] = None
         return True, "Stopped"
     return False, "Not running"
+
 
 # --- Routes ---
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
 
 @app.route('/api/start/<name>', methods=['POST'])
 def api_start(name):
@@ -122,6 +179,9 @@ def api_start(name):
 
     if name == "create_subsets" and "study_name" in data:
         args.append(data["study_name"])
+        
+    if name == "regenerate_datasets" and "study_name" in data:
+        args.append(data["study_name"])
 
     # Pass testing configuration as a dict to start_process
     if data.get("testing"):
@@ -131,7 +191,8 @@ def api_start(name):
         "downloader": DOWNLOADER_SCRIPT,
         "monitor": MONITOR_SCRIPT,
         "annotator": ANNOTATOR_SCRIPT,
-        "create_subsets": CREATE_SUBSETS_SCRIPT
+        "create_subsets": CREATE_SUBSETS_SCRIPT,
+        "regenerate_datasets": REGENERATE_DATASETS_SCRIPT
     }
     
     success, msg = start_process(name, script_map[name], args)
@@ -139,6 +200,8 @@ def api_start(name):
         return jsonify({"status": "success", "message": msg})
     else:
         return jsonify({"status": "error", "message": msg}), 409
+
+
 
 @app.route('/api/stop/<name>', methods=['POST'])
 def api_stop(name):
@@ -148,27 +211,29 @@ def api_stop(name):
     success, msg = stop_process(name)
     return jsonify({"status": "success" if success else "error", "message": msg})
 
+
+
 @app.route('/api/status', methods=['GET'])
 def api_status():
     status_data = {}
     for name, p_data in processes.items():
-        state = "stopped"
+        state = p_data["status"]
         if p_data["proc"]:
-            if p_data["proc"].poll() is None:
-                state = "running"
-            else:
-                state = "stopped" # terminated recently
-                # Clean up if it died on its own
-                if p_data["status"] == "running": 
-                     p_data["status"] = "stopped"
-                     p_data["proc"] = None
+            if p_data["proc"].poll() is not None:
+                # This should be handled by monitor_process_completion, but just in case
+                if state == "running":
+                    state = "stopped"
         
         status_data[name] = {
             "state": state,
             "progress": p_data["progress"],
-            "data": p_data["data"]
+            "data": p_data["data"],
+            "start_time": p_data["start_time"],
+            "last_success": process_stats.get(name, {}).get("last_success")
         }
     return jsonify(status_data)
+
+
 
 @app.route('/api/logs/clear/<name>', methods=['POST'])
 def api_clear_logs(name):
@@ -178,6 +243,8 @@ def api_clear_logs(name):
     processes[name]["logs"].clear()
     return jsonify({"status": "success"})
 
+
+
 @app.route('/api/logs/<name>', methods=['GET'])
 def api_logs(name):
     if name not in processes:
@@ -186,6 +253,8 @@ def api_logs(name):
     # Return last N lines
     logs = list(processes[name]["logs"])
     return jsonify({"logs": "".join(logs)})
+
+
 
 @app.route('/api/config', methods=['GET', 'POST'])
 def api_config():
@@ -210,6 +279,9 @@ def api_config():
             return jsonify({"status": "success"})
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5002)

@@ -9,6 +9,10 @@ Date:
 
 import fyp.fyp_main as fyp
 
+REQUIRED_KEYS = [
+    'transcript', 'objects', 'content_category', 'symbols_and_brands',
+    'text_overlays', 'faces', 'scenes', 'audio_summary',
+]
 
 
 
@@ -58,14 +62,6 @@ def load_machine_annotations(
     if verbose:
         print(f"After full-row-dedup there are {len(all_results):,} rows, {len(all_results.columns)} cols, and {all_results.item_id.nunique():,} unique videos")
 
-    if include_failed_calls:
-        if verbose:
-            print(f"Including failed machine annotation calls")
-    else:
-        # assuming the 'scenes' variable is not na if things have gone well
-        all_results = all_results[~all_results["scenes"].isna()].copy()
-        if verbose:
-            print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
 
 
     if consolidate and len(machine_file_names) > 1:
@@ -73,6 +69,8 @@ def load_machine_annotations(
         # consolidating the files to a single file using the latest file name
         # the reason for this is to not kick off potential secondary processes that are monitoring the folder
         # for new files. I want such processes to ignore files that are consolidations of other files
+        # this has to happen before we potentially drop all failed annotations. We want to keep them in the
+        # consolidated file  
 
         latest_filename = sorted(machine_file_names)[-1]
         #fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
@@ -88,6 +86,19 @@ def load_machine_annotations(
                 print(f"Moved {basename(fn)} to archive")
 
         rename(latest_filename+".temp", latest_filename)
+
+
+
+
+
+    if include_failed_calls:
+        if verbose:
+            print(f"Including failed machine annotation calls")
+    else:
+        # assuming the 'scenes' variable is not na if things have gone well
+        all_results = all_results[~all_results["scenes"].isna()].copy()
+        if verbose:
+            print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
 
 
     if verbose or not completely_quiet:
@@ -394,19 +405,19 @@ def call_machine_threads(
 
 
     # --- TEST MODE ---
-    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
-        import time
-        import random
-        print("!!! TEST MODE ENABLED - SKIPPING API CALL !!!")
-        time.sleep(2) # Simulate network delay
+    #if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+    #    import time
+    #    import random
+    #    print("!!! TEST MODE ENABLED - SKIPPING API CALL !!!")
+    #    time.sleep(2) # Simulate network delay
         
-        mock_response = {}
-        for idx, vid in enumerate(interesting_videos):
-            mock_response[idx] = {
-                "response": {"description": "Test description", "transcript": "Test transcript | Test"},
-                "finish_reason": "TEST"
-            }
-        return mock_response
+    #    mock_response = {}
+    #    for idx, vid in enumerate(interesting_videos):
+    #        mock_response[idx] = {
+    #            "response": {"description": "Test description", "transcript": "Test transcript | Test"},
+    #            "finish_reason": "TEST"
+    #        }
+    #    return mock_response
     # -----------------
 
 
@@ -612,14 +623,10 @@ def _flatten_one_machine_response(some_response, verbose=False):
     flat_response = deepcopy(some_response)
 
     # check if required keys are present
-    required_things = [
-        'transcript', 'objects', 'content_category', 'symbols_and_brands',
-        'text_overlays', 'faces', 'scenes', 'audio_summary',
-    ]
-    for rt in required_things:
-        if not rt in flat_response.keys():
+    for rk in REQUIRED_KEYS:
+        if not rk in flat_response.keys():
             if verbose:
-                print(f"required key '{rt}' is missing in response. Returning None")
+                print(f"WARNING: Required key '{rk}' is missing in response. Returning None")
             return None
 
     # it is expected that there is a sentiment value for each scene. This can be a string or a list of strings
@@ -824,7 +831,7 @@ def _fuzzy_load_of_json_from_string(resp_text_in: str, testing = False):
 
 
 def flatten_and_fix_machine_outputs(
-        raw_outputs_from_machine, verbose=False
+        raw_outputs_from_machine, verbose=False, super_verbose = False
     ):
     """
     Transform the output dicts from the video analysis process to fix errors in the response
@@ -840,29 +847,37 @@ def flatten_and_fix_machine_outputs(
     from pandas import DataFrame
     from copy import copy
 
-    outputs_from_machine_step_1 = {}
+    bad_count = 0
+    good_count = 0
+
+    flattened_outputs_from_machine = {}
     for h in raw_outputs_from_machine:
         flattened_response = None
-        outputs_from_machine_step_1[h] = copy(raw_outputs_from_machine[h])
+        flattened_outputs_from_machine[h] = copy(raw_outputs_from_machine[h])
         if raw_outputs_from_machine[h]['response'] is None or raw_outputs_from_machine[h]['response']=='':
             if verbose:
                 print(raw_outputs_from_machine[h]['finish_reason'])
+            bad_count += 1
         else:
-            if verbose:
-                print("fuzzy loading response into json")
+            good_count += 1
+            if super_verbose:
+                print("Fuzzy-loading response into json")
             json_response = _fuzzy_load_of_json_from_string(raw_outputs_from_machine[h]['response'])
-            if verbose:
-                print("flattening json")
+            if super_verbose:
+                print("Flattening json")
             flattened_response = _flatten_one_machine_response(json_response, verbose=verbose)
             if type(flattened_response)==dict:
                 for rk in flattened_response:
-                    outputs_from_machine_step_1[h][rk] = copy(flattened_response[rk])
+                    flattened_outputs_from_machine[h][rk] = copy(flattened_response[rk])
+    
+    print(f"Flattened and fixed {good_count} good responses, {bad_count} bad responses")
 
 
     # convert the dict to a DF, reset the index and drop the old response structure 
-    outputs_from_machine_df = DataFrame(outputs_from_machine_step_1).T
+    outputs_from_machine_df = DataFrame(flattened_outputs_from_machine).T
     outputs_from_machine_df.reset_index(drop=True, inplace=True)
     outputs_from_machine_df.drop("response", axis=1, inplace=True)
+
 
     return outputs_from_machine_df
 
@@ -1070,30 +1085,41 @@ def remove_repetitions_from_transcripts(
 def _post_process_raw_annotations(raw_outputs_from_machine, verbose = False):
     from datetime import datetime
     from os.path import join
-    from os import environ
+    #from os import environ
 
     if verbose:
         print("Flattening raw machine annotations")
     outputs_from_machine_df = flatten_and_fix_machine_outputs(raw_outputs_from_machine, verbose=verbose)
-    if verbose:
-        print("Consolidating rare columns from machine annotations")
-    outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose=verbose)
-    if verbose:
-        print("Removing repetitions from machine annotation transcripts")
 
-    outputs_from_machine_df = remove_repetitions_from_transcripts(outputs_from_machine_df, verbose=verbose)
+
+    # check if required keys are present
+    found_all_required_keys = True
+    for rk in REQUIRED_KEYS:
+        if not rk in outputs_from_machine_df.columns:
+            print(f"WARNING: Required key '{rk}' is missing in machine output DF. Returning None")
+            found_all_required_keys = False
+
+    if found_all_required_keys:
+
+        if verbose:
+            print("Consolidating rare columns from machine annotations")
+        outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose=verbose)
+
+        if verbose:
+            print("Removing repetitions from machine annotation transcripts")
+        outputs_from_machine_df = remove_repetitions_from_transcripts(outputs_from_machine_df, verbose=verbose)
+
+    else:
+        print("Not consolidating rare columns or removing repetitions from transcript since some required keys are missing from machine output")
+
     if verbose:
         print("Ready to save processed results")
-
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-    
     file_prefix = "machine_annotations"
-    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
-        file_prefix = "machine_annotations_TEST"
-        
     outputs_from_machine_df.to_pickle(join(fyp.cf["paths"]["machine_annotations"],f"{file_prefix}_{fine_ts}.pkl"))
     if verbose:
         print(f"Saved processed results to '{file_prefix}_{fine_ts}.pkl'")
+    
 
 
 
@@ -1106,9 +1132,10 @@ def annotate_from_list(fine_list, verbose = False):
     """
 
     from os import environ
-    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
-        print("This is a test - just pretending")
-    else:
+    #if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+    #    print("This is a test - just pretending")
+    #else:
+    if True:
 
         if isinstance(fine_list, list) and len(fine_list) > 0:
             if not all(map(lambda video_id:type(video_id)==int and len(str(video_id))==19, fine_list)):
@@ -1192,10 +1219,10 @@ def post_process_raw_annotations_from_json_file(json_file, verbose = False):
 
 
 
-def create_a_new_dataset_just_for_annotating_downloaded_videos(study_name, batch_size = 500):
+def annotate_videos_loop(study_name, batch_size = 500):
 
     from datetime import datetime
-    from fyp.organize_datasets_OPTIMIZED import load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
+    from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked, load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
     from os import environ
     from os.path import join
     import json
@@ -1206,29 +1233,41 @@ def create_a_new_dataset_just_for_annotating_downloaded_videos(study_name, batch
 
     # --- TEST MODE ---
     if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
-        print("this thing doesn't run in test mode")
-        return
+        print("!!! TEST MODE ENABLED - Doing a mini batch once!!!")
+        batch_size = 10
     # -----------------
 
-    print("Building datasets to initiate loop. Might take a minute...\n")
-    tutti = load_datasets(
+    """print("Building datasets to initiate loop. Might take a minute...\n")
+    _ = load_datasets(
         study_name,
         use_half_baked = True,
         delete_all_half_baked_files = True,
         consolidate = True,
         verbose = False
         )
-    first_iteration = True
+    #first_iteration = True
 
     print("##"*60)
-    print()
+    print()"""
 
 
     selected_videos = [0] # just a list that contains anything and that is longer than zero elements to get things started
 
     print("Starting loop...")
     while len(selected_videos)>0:
-        if not first_iteration:
+        selected_videos = select_videos_from_half_baked(
+            study_name,
+            file_label = "ANNOTATE",
+            INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
+            INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
+            INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
+            INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
+            INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
+            INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
+            #INCLUDE_LONG_VIDEOS_IN_EXPORT = True,
+            verbose = True
+        )
+        """if not first_iteration:
             print("##"*60)
             print()
 
@@ -1254,9 +1293,9 @@ def create_a_new_dataset_just_for_annotating_downloaded_videos(study_name, batch
             INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
             INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
             INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
+            #INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
             verbose = True
-        )
+        )"""
 
         if len(selected_videos) > 0:
             work_with_these_videos_list_raw = [int(k) for k in selected_videos.item_id.to_list()]
@@ -1268,6 +1307,13 @@ def create_a_new_dataset_just_for_annotating_downloaded_videos(study_name, batch
         
         if selected_videos is None:
             selected_videos = []
+
+        if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
+            print("!!! TEST MODE ENABLED - Breaking after a single iteration!!!")
+            break
+
+
+
 
     print(f"Loop ended: {datetime.now()}")
 

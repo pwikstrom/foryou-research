@@ -738,12 +738,12 @@ def load_datasets(
     from os.path import join
 
 
-    for fn in listdir(fyp.cf['paths']['scrape']):
-        if "_TEST_" in fn:
-            remove(join(fyp.cf['paths']['scrape'],fn))
-    for fn in listdir(fyp.cf['paths']['machine_annotations']):
-        if "_TEST_" in fn:
-            remove(join(fyp.cf['paths']['machine_annotations'],fn))
+    #for fn in listdir(fyp.cf['paths']['scrape']):
+    #    if "_TEST_" in fn:
+    #        remove(join(fyp.cf['paths']['scrape'],fn))
+    #for fn in listdir(fyp.cf['paths']['machine_annotations']):
+    #    if "_TEST_" in fn:
+    #        remove(join(fyp.cf['paths']['machine_annotations'],fn))
 
 
 
@@ -761,9 +761,9 @@ def load_datasets(
                     print(f"   - Deleted half-baked file: .../{'/'.join(path_to_it.split('/')[-3:])}")
 
     if not use_half_baked:
-        print(" - Generating fresh datasets - won't be saving half-baked files")
+        print(" - Generating fresh datasets - WON'T be saving half-baked files")
     elif delete_all_half_baked_files:
-        print(" - Saving new half-baked files")
+        print(" - Generating fresh datasets - WILL SAVE new half-baked files")
     else:
         print(" - Loading existing half-baked files")
     print("=="*60)
@@ -872,6 +872,8 @@ def identify_unique_videos(study_name, stuff, verbose = False):
         print(f"Combining unique videos from data donation events with videos from baseline data into a DF with the shape: {video_observation_stats.shape}")
         print("--"*60)
 
+
+    
     return video_observation_stats
 
 
@@ -898,9 +900,11 @@ def calculate_all_unique_video_subsets(study_name, stuff, verbose=False):
         ).item_id.tolist())
     failed_annotations = failed_annotations - machine_annotated_videos
 
+    too_long_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]>fyp.cf["machine"]["max_duration_for_annotation"]].item_id.to_list())
+    print(f"Too long videos: {len(too_long_videos):,} of {len(stuff['data_scraped']):,}")
 
-    completed_downloads = set([int(k) for k in stuff["data_scraped"][stuff["data_scraped"]["video_downloaded"]].item_id.to_list()])
-    missing_downloads = set([int(k) for k in stuff["data_scraped"][~stuff["data_scraped"]["video_downloaded"]].item_id.to_list()])
+    completed_downloads = set([int(k) for k in stuff["data_scraped"][stuff["data_scraped"]["video_downloaded"]].item_id.to_list()]) - too_long_videos
+    missing_downloads = set([int(k) for k in stuff["data_scraped"][~stuff["data_scraped"]["video_downloaded"]].item_id.to_list()]) | too_long_videos
 
     unique_videos_with_stats = identify_unique_videos(study_name, stuff, verbose=verbose)
     all_unique_videos = set([int(k) for k in unique_videos_with_stats.item_id.to_list()])
@@ -920,7 +924,7 @@ def calculate_all_unique_video_subsets(study_name, stuff, verbose=False):
     print(f"    Downloaded and annotated: {len(downloaded_and_annotated):,} videos")
     print(f"    Downloaded but not annotated: {len(downloaded_not_annotated):,} videos")
     print(f"    Failed annotations: {len(failed_annotations):,} videos")
-    print(f"    Metadata found but not downloaded: {len(missing_downloads):,} videos")
+    print(f"    Metadata found but not downloaded: {len(missing_downloads):,} videos (including videos too long to process)")
     print(f"    Failed scrapes: {len(failed_scrapes):,} videos")
     print(f"    Unseen videos: {len(unseen_videos):,} videos")
     print(f"Sum of the set sizes: {len(unseen_videos) + len(downloaded_and_annotated) + len(downloaded_not_annotated) + len(missing_downloads) + len(failed_annotations) + len(failed_scrapes):,}")
@@ -955,7 +959,7 @@ def save_selected_unique_video_subsets(
     INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
     INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
     INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-    INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
+    #INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
     verbose=False
 ):
 
@@ -969,29 +973,29 @@ def save_selected_unique_video_subsets(
     if INCLUDE_UNSEEN_VIDEOS_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["unseen_videos"]
         if verbose:
-            print(f"- UNSEEN_VIDEOS selected --> added {len(work_with_these_videos):,} videos")
+            print(f"- UNSEEN_VIDEOS selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["downloaded_and_annotated"]
         if verbose:
-            print(f"- DOWNLOADED_AND_ANNOTATED selected --> added {len(work_with_these_videos):,} videos")
+            print(f"- DOWNLOADED_AND_ANNOTATED selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["downloaded_not_annotated"]
         if verbose:
-            print(f"- DOWNLOADED_BUT_NOT_ANNOTATED selected --> added {len(work_with_these_videos):,} videos")
+            print(f"- DOWNLOADED_BUT_NOT_ANNOTATED selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["missing_downloads"]
         if verbose:
-            print(f"- SCRAPED_BUT_NOT_DOWNLOADED selected --> added {len(work_with_these_videos):,} videos")
+            print(f"- SCRAPED_BUT_NOT_DOWNLOADED selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_FAILED_SCRAPES_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["failed_scrapes"]
         if verbose:
-            print(f"- FAILED_SCRAPES selected --> added {len(work_with_these_videos):,} videos")
+            print(f"- FAILED_SCRAPES selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["failed_annotations"]
         if verbose:
-            print(f"- FAILED_ANNOTATIONS selected --> added {len(work_with_these_videos):,} videos")
-    if verbose:
-        print("- "*40)
+            print(f"- FAILED_ANNOTATIONS selected --> gives {len(work_with_these_videos):,} videos")
+    #if verbose:
+    #    print("- "*40)
 
     if len(work_with_these_videos) == 0:
         if verbose:
@@ -999,10 +1003,10 @@ def save_selected_unique_video_subsets(
             print("--"*60)
         return work_with_these_videos
 
-    if verbose:
-        print(f"Unique videos selected (regardless of their duration): {len(work_with_these_videos):,}")
+    #if verbose:
+    #    print(f"Unique videos selected (regardless of their duration): {len(work_with_these_videos):,}")
 
-    if INCLUDE_LONG_VIDEOS_IN_EXPORT:
+    """if INCLUDE_LONG_VIDEOS_IN_EXPORT:
         if verbose:
             print("Keeping videos regardless of their duration")
     else:
@@ -1010,7 +1014,7 @@ def save_selected_unique_video_subsets(
             print(f"Only keeping videos that are shorter than {fyp.cf['machine']['max_duration_for_annotation']} seconds")
         short_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]<fyp.cf["machine"]["max_duration_for_annotation"]].item_id.tolist())
         work_with_these_videos = work_with_these_videos & short_videos
-        
+    """    
     if verbose:
         print(f"This data selection policy yielded {len(work_with_these_videos):,} unique videos")
         print("--"*60)
@@ -1038,6 +1042,48 @@ def save_selected_unique_video_subsets(
             print("Not exporting unique videos as no videos were selected.")
         return DataFrame()
 
+
+
+
+
+
+def select_videos_from_half_baked(
+    study_name,
+    file_label = "",
+    INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
+    INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
+    INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
+    INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
+    INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
+    INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
+    #INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
+    verbose = True):
+
+    tutti = load_datasets(
+        study_name,
+        use_half_baked = True,
+        delete_all_half_baked_files = False,
+        consolidate = False,
+        verbose = False)
+
+    video_subsets = calculate_all_unique_video_subsets(study_name, tutti, verbose = False)
+
+    selected_videos = save_selected_unique_video_subsets(
+        study_name,
+        tutti,
+        video_subsets,
+        file_label = file_label,
+        INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = INCLUDE_UNSEEN_VIDEOS_IN_EXPORT,
+        INCLUDE_FAILED_SCRAPES_IN_EXPORT = INCLUDE_FAILED_SCRAPES_IN_EXPORT,
+        INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT,
+        INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT,
+        INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT,
+        INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT,
+        #INCLUDE_LONG_VIDEOS_IN_EXPORT = INCLUDE_LONG_VIDEOS_IN_EXPORT,
+        verbose = verbose
+    )
+
+    return selected_videos
 
 
 
@@ -1426,7 +1472,11 @@ def process_machine_annotations_for_log_export(stuff, combined_log, verbose=Fals
 
 
 
-def process_and_combine_logs_for_log_export(study_name, stuff=None, verbose=False):
+def process_and_combine_logs_for_log_export(
+    study_name,
+    stuff=None,
+    use_half_baked=False,
+    verbose=False):
     
 
     from pandas import concat, read_pickle
@@ -1434,7 +1484,7 @@ def process_and_combine_logs_for_log_export(study_name, stuff=None, verbose=Fals
 
 
 
-    USE_HALF_BAKED_FILES = fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
+    USE_HALF_BAKED_FILES = use_half_baked#fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
     half_baked_combined_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_COMBINED.pkl")
 
 
@@ -1748,4 +1798,45 @@ def save_logs_as_csv(
             print(f"Now: {datetime.now()}")
 
         if verbose:
-            print("=="*60)        
+            print("=="*60)
+
+
+
+
+
+
+
+def export_logs(study_name):
+    print("**"*60)
+
+    tutti = load_datasets(study_name, verbose=True)
+
+    print("**"*60)
+    combined_log = process_and_combine_logs_for_log_export(
+        study_name, 
+        tutti,
+        use_half_baked = False,
+        verbose=True
+        )
+    print("**"*60)
+
+    outdata = process_enrichment_data_and_merge_with_logs(
+        tutti,
+        combined_log,
+        ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
+        verbose=True
+    )
+    print("**"*60)
+
+    outdata_filtered = filter_log_against_sampled_donation_groups(
+        tutti,
+        outdata,
+        MAX_DAILY_MISSING_DATA_RATIO = 0.3,
+        verbose=True
+        )
+    print("**"*60)
+
+    save_logs_as_pkl(study_name, outdata_filtered, verbose=True)
+    print("**"*60)
+
+    #save_logs_as_csv(STUDY_NAME, outdata_filtered)
