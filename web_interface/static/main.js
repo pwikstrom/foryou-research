@@ -189,10 +189,18 @@ async function saveConfig(filename) {
     }
 }
 
-function clearLogs(name) {
-    const el = document.getElementById(`${name}-logs`);
-    if (el) {
-        el.textContent = "";
+async function clearLogs(name) {
+    if (!confirm(`Are you sure you want to clear the logs for ${name}?`)) {
+        return;
+    }
+    try {
+        await fetch(`/api/logs/clear/${name}`, { method: 'POST' });
+        const el = document.getElementById(`${name}-logs`);
+        if (el) {
+            el.textContent = "";
+        }
+    } catch (e) {
+        console.error(e);
     }
 }
 

@@ -170,6 +170,14 @@ def api_status():
         }
     return jsonify(status_data)
 
+@app.route('/api/logs/clear/<name>', methods=['POST'])
+def api_clear_logs(name):
+    if name not in processes:
+        return jsonify({"error": "Unknown process"}), 400
+    
+    processes[name]["logs"].clear()
+    return jsonify({"status": "success"})
+
 @app.route('/api/logs/<name>', methods=['GET'])
 def api_logs(name):
     if name not in processes:

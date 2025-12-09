@@ -90,6 +90,7 @@ textarea {
     color: #d4d4d4;
     font-family: monospace;
     padding: 10px;
+    font-size: 0.9em;
     resize: none;
 }
 
