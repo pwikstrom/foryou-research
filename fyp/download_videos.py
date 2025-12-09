@@ -486,10 +486,8 @@ def download_video_threads(interesting_videos, max_workers=4):
 def download_videos_loop(study_name, batch_size = 500):
 
     from datetime import datetime
-    from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked, load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
+    from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked
     from os import environ
-    from os.path import join
-    import json
 
 
     # --- TEST MODE ---
@@ -497,70 +495,10 @@ def download_videos_loop(study_name, batch_size = 500):
         print("!!! TEST MODE ENABLED - Doing a mini batch once!!!")
         batch_size = 10
 
-        """import time
-        import random
-        import pandas as pd
-        
-        while True:
-            print(f"Simulating batch of {batch_size} videos...")
-            
-            # Simulate work
-            total_items = 100
-            for i in range(total_items):
-                time.sleep(0.05) # fast simulation
-                pct = (i+1)/total_items
-                
-                # Check cancellation? (Actually standard interrupt handles this)
-                
-                # Emit progress
-                if "WEB_INTERFACE" in environ:
-                     progress_data = {
-                         "done": i+1,
-                         "total": total_items,
-                         "rate": 20.0,
-                         "eta": (total_items - i) * 0.05
-                     }
-                     print(f"::PROGRESS::{json.dumps(progress_data)}", flush=True)
-
-            # Create dummy metadata file for monitor to pick up
-            fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-            final_path = join(fyp.cf['paths']['scrape'], f"scrape_metadata_TEST_{fine_ts}.pkl")
-            
-            # Create dummy DF with necessary columns for annotate_from_scrape_metadata_file
-            # It needs: video_downloaded (bool), video_duration (int < max_duration), item_id (int)
-            dummy_df = pd.DataFrame({
-                "video_downloaded": [True] * 5,
-                "video_duration": [10] * 5, # < max_duration (usually 600 or so)
-                "item_id": [random.randint(1000000000000000000, 9999999999999999999) for _ in range(5)]
-            })
-            
-            dummy_df.to_pickle(final_path)
-            print(f"Saved dummy metadata to {final_path}")
-            
-            print("Batch done. Sleeping...")
-            time.sleep(5)
-            
-        return # Never reached"""
-    # -----------------
 
     print(f"Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}")
     print(f"Now: {datetime.now()}")
     print("##"*60)
-
-
-
-    """print("Building datasets to initiate loop. Might take a minute...\n")
-    _ = load_datasets(
-        study_name,
-        use_half_baked = True,
-        delete_all_half_baked_files = True,
-        consolidate = True,
-        verbose = False
-        )
-    #first_iteration = True
-
-    print("##"*60)
-    print()"""
 
 
     selected_videos = [0] # just a non-empty list to get things started
@@ -576,39 +514,9 @@ def download_videos_loop(study_name, batch_size = 500):
             INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
             INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
             INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            #INCLUDE_LONG_VIDEOS_IN_EXPORT = True,
             verbose = True
         )
-        """if not first_iteration:
-            print("##"*60)
-            print()
 
-            tutti = load_datasets(
-                study_name,
-                use_half_baked = True,
-                delete_all_half_baked_files = False,
-                consolidate = False,
-                verbose = False)
-        else:
-            first_iteration = False
-
-        print("Calculating video subsets...")
-        video_subsets = calculate_all_unique_video_subsets(study_name, tutti, verbose = False)
-
-        selected_videos = save_selected_unique_video_subsets(
-            study_name,
-            tutti,
-            video_subsets,
-            file_label = "SCRAPE",
-            INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = True,
-            INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
-            INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
-            INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
-            INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
-            INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            INCLUDE_LONG_VIDEOS_IN_EXPORT = True,
-            verbose = True
-        )"""
 
         if len(selected_videos) > 0:
             work_with_these_videos_list_raw = [int(k) for k in selected_videos.item_id.to_list()]

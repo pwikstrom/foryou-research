@@ -214,13 +214,13 @@ def load_scrape_metadata(consolidate=False, verbose=False):
 
 
     # load the scrape_metadata dataframe
-    print("Loading scraped metadata")
+    print("Loading scraped metadata... ", end="", flush = True)
 
     scrape_metadata_filenames = [join(fyp.cf["paths"]["scrape"],gg) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata") and not "_TEST_" in gg]
 
     scrape_metadata = pd.concat([pd.read_pickle(fn) for fn in scrape_metadata_filenames])
     if verbose:
-        print(f"Shape of the scrape DF: {scrape_metadata.shape}")
+        print(f"Shape: {scrape_metadata.shape}")
 
     # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both
     scrape_metadata = scrape_metadata.drop_duplicates(subset=["item_id","video_downloaded"]).copy()
@@ -368,8 +368,9 @@ def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
     # load items from baseline logs
 
     from pandas import concat, read_pickle
-    from os.path import exists, join
+    from os.path import exists, join, getctime
     from os import remove
+    from datetime import datetime
 
     USE_HALF_BAKED_FILES = use_half_baked#fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
 
@@ -382,7 +383,8 @@ def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
 
 
     if USE_HALF_BAKED_FILES and exists(half_baked_baseline_path):
-        print("Loading half-baked baseline events from pickle...", end=" ", flush=True)
+        nice_time = datetime.fromtimestamp(getctime(half_baked_baseline_path)).strftime('%Y-%m-%d %H:%M:%S')
+        print(f"Loading half-baked baseline events file created at: {nice_time}", end=" ", flush=True)
         baseline_log = read_pickle(half_baked_baseline_path)
         print(f"Shape: {baseline_log.shape}")
     else:
@@ -454,7 +456,7 @@ def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
                 print("Saving half-baked baseline events to pickle...")    
             baseline_log.to_pickle(half_baked_baseline_path)
 
-    print(f"Baseline data contains {baseline_log.shape[0]:,} rows")
+    #print(f"Baseline data contains {baseline_log.shape[0]:,} rows")
     print("--"*60)
     return {"data_baseline_log":baseline_log}
 
@@ -583,10 +585,10 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
     # load DF with all donations previously ingested
 
     from os import listdir, remove
-    from os.path import join
-    from os.path import exists
+    from os.path import join, exists, getctime
     from json import load as json_load
     from pandas import concat, read_pickle
+    from datetime import datetime
 
 
     USE_HALF_BAKED_FILES = use_half_baked#fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
@@ -604,9 +606,10 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
 
 
     if USE_HALF_BAKED_FILES and exists(half_baked_ddp_events_path):
-        print("Loading half-baked DDP events from pickle...", end=" ", flush=True)
+        nice_time = datetime.fromtimestamp(getctime(half_baked_ddp_events_path)).strftime('%Y-%m-%d %H:%M:%S')
+        print(f"Loading half-baked DDP events file created at: {nice_time}", end=" ", flush=True)
         all_ddp_events_df = read_pickle(half_baked_ddp_events_path)
-        print(f"New shape: {all_ddp_events_df.shape}")
+        print(f"Shape: {all_ddp_events_df.shape}")
     else:
 
         DDP_START_DATE = fyp.cf["study_defs"][study_name]["DDP_START_DATE"]
@@ -648,7 +651,8 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
 
         
     if USE_HALF_BAKED_FILES and exists(half_baked_sampled_ddp_events_path):
-        print("Loading half-baked sampled DDP events from pickle...", end=" ", flush=True)
+        nice_time = datetime.fromtimestamp(getctime(half_baked_sampled_ddp_events_path)).strftime('%Y-%m-%d %H:%M:%S')
+        print(f"Loading half-baked sampled DDP events file created at: {nice_time}", end=" ", flush=True)
         sampled_data_ddp_events = read_pickle(half_baked_sampled_ddp_events_path)
         print(f"Shape: {sampled_data_ddp_events.shape}")
     else:
@@ -738,13 +742,6 @@ def load_datasets(
     from os.path import join
 
 
-    #for fn in listdir(fyp.cf['paths']['scrape']):
-    #    if "_TEST_" in fn:
-    #        remove(join(fyp.cf['paths']['scrape'],fn))
-    #for fn in listdir(fyp.cf['paths']['machine_annotations']):
-    #    if "_TEST_" in fn:
-    #        remove(join(fyp.cf['paths']['machine_annotations'],fn))
-
 
 
     print("Loading all datasets:")
@@ -776,6 +773,8 @@ def load_datasets(
     tutti.update(load_scrape_metadata(consolidate=consolidate, verbose=verbose))
     tutti["data_annotated"] = load_machine_annotations(include_failed_calls=False, consolidate=consolidate, verbose = verbose)
 
+    print("Loading datasets successfully completed")
+    print("=="*60)
 
     #for k in sorted(list(tutti.keys())):
     #    print(k , type(tutti[k]), len(tutti[k]))
@@ -895,13 +894,13 @@ def calculate_all_unique_video_subsets(study_name, stuff, verbose=False):
 
     failed_annotations = set(load_machine_annotations(
         include_failed_calls=True,
-        verbose = verbose,
-        completely_quiet=True
+        verbose = False,
         ).item_id.tolist())
     failed_annotations = failed_annotations - machine_annotated_videos
 
     too_long_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]>fyp.cf["machine"]["max_duration_for_annotation"]].item_id.to_list())
-    print(f"Too long videos: {len(too_long_videos):,} of {len(stuff['data_scraped']):,}")
+    if verbose:
+        print(f"Too long videos: {len(too_long_videos):,} of {len(stuff['data_scraped']):,}")
 
     completed_downloads = set([int(k) for k in stuff["data_scraped"][stuff["data_scraped"]["video_downloaded"]].item_id.to_list()]) - too_long_videos
     missing_downloads = set([int(k) for k in stuff["data_scraped"][~stuff["data_scraped"]["video_downloaded"]].item_id.to_list()]) | too_long_videos
@@ -972,30 +971,23 @@ def save_selected_unique_video_subsets(
     work_with_these_videos = set()
     if INCLUDE_UNSEEN_VIDEOS_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["unseen_videos"]
-        if verbose:
-            print(f"- UNSEEN_VIDEOS selected --> gives {len(work_with_these_videos):,} videos")
+        print(f"- UNSEEN_VIDEOS selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["downloaded_and_annotated"]
-        if verbose:
-            print(f"- DOWNLOADED_AND_ANNOTATED selected --> gives {len(work_with_these_videos):,} videos")
+        print(f"- DOWNLOADED_AND_ANNOTATED selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["downloaded_not_annotated"]
-        if verbose:
-            print(f"- DOWNLOADED_BUT_NOT_ANNOTATED selected --> gives {len(work_with_these_videos):,} videos")
+        print(f"- DOWNLOADED_BUT_NOT_ANNOTATED selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["missing_downloads"]
-        if verbose:
-            print(f"- SCRAPED_BUT_NOT_DOWNLOADED selected --> gives {len(work_with_these_videos):,} videos")
+        print(f"- SCRAPED_BUT_NOT_DOWNLOADED selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_FAILED_SCRAPES_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["failed_scrapes"]
-        if verbose:
-            print(f"- FAILED_SCRAPES selected --> gives {len(work_with_these_videos):,} videos")
+        print(f"- FAILED_SCRAPES selected --> gives {len(work_with_these_videos):,} videos")
     if INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT:
         work_with_these_videos = work_with_these_videos | subsets["failed_annotations"]
-        if verbose:
-            print(f"- FAILED_ANNOTATIONS selected --> gives {len(work_with_these_videos):,} videos")
-    #if verbose:
-    #    print("- "*40)
+        print(f"- FAILED_ANNOTATIONS selected --> gives {len(work_with_these_videos):,} videos")
+
 
     if len(work_with_these_videos) == 0:
         if verbose:
@@ -1006,15 +998,7 @@ def save_selected_unique_video_subsets(
     #if verbose:
     #    print(f"Unique videos selected (regardless of their duration): {len(work_with_these_videos):,}")
 
-    """if INCLUDE_LONG_VIDEOS_IN_EXPORT:
-        if verbose:
-            print("Keeping videos regardless of their duration")
-    else:
-        if verbose:
-            print(f"Only keeping videos that are shorter than {fyp.cf['machine']['max_duration_for_annotation']} seconds")
-        short_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]<fyp.cf["machine"]["max_duration_for_annotation"]].item_id.tolist())
-        work_with_these_videos = work_with_these_videos & short_videos
-    """    
+ 
     if verbose:
         print(f"This data selection policy yielded {len(work_with_these_videos):,} unique videos")
         print("--"*60)
@@ -1056,17 +1040,16 @@ def select_videos_from_half_baked(
     INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
     INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
     INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-    #INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
-    verbose = True):
+    verbose = False):
 
     tutti = load_datasets(
         study_name,
         use_half_baked = True,
         delete_all_half_baked_files = False,
         consolidate = False,
-        verbose = False)
+        verbose = verbose)
 
-    video_subsets = calculate_all_unique_video_subsets(study_name, tutti, verbose = False)
+    video_subsets = calculate_all_unique_video_subsets(study_name, tutti, verbose = verbose)
 
     selected_videos = save_selected_unique_video_subsets(
         study_name,

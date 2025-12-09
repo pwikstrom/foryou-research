@@ -46,7 +46,8 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
 
         # this is the root folder for the project structure
         abs_project_root_path = join("/".join(here))
-        print("Project root:",abs_project_root_path)
+        if verbose:
+            print("Project root:",abs_project_root_path)
 
         # add project root path to PATH since the modules are located in the project structure
         sys_path.append(abs_project_root_path)
@@ -140,6 +141,7 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
             return False
 
 
+    print("\n\nInitializing...\n\n")
 
     here = getcwd().split("/")
     while not exists(join("/".join(here),"__proj__.py")):
@@ -147,7 +149,8 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
 
     # this is the root folder for the project structure
     abs_project_root_path = join("/".join(here))
-    print("Project root:",abs_project_root_path)
+    if verbose:
+        print("Project root:",abs_project_root_path)
 
     # add project root path to PATH since the modules are located in the project structure
     sys_path.append(abs_project_root_path)
@@ -193,7 +196,7 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
                 thinking_config=types.ThinkingConfig(thinking_budget=cf["machine"]["thinking_budget"]),
             )
 
-            print("Gemini setup completed successfully")
+            print("Gemini initialized successfully")
 
         except:
             print("Error Gemini API key. Gemini won't be available.")
@@ -215,6 +218,8 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
             print(f"You don't have access to the project Google Cloud Storage bucket.")
         except Exception as e:
             print(f"A Google Cloud Storage error occurred: {e}")
+        
+        print()
 
     return cf
         
@@ -231,7 +236,7 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
 ############################################################################################################
 ############################################################################################################
 
-cf = init_project(verbose = True)
+cf = init_project(verbose = False)
 
 ############################################################################################################
 ############################################################################################################

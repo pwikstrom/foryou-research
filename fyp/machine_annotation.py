@@ -35,7 +35,6 @@ def load_machine_annotations(
         include_failed_calls:bool = False,
         consolidate:bool = False,
         verbose:bool = False,
-        completely_quiet:bool = False
     ):
     from pandas import DataFrame, concat, read_pickle
     from os import listdir, rename
@@ -51,7 +50,7 @@ def load_machine_annotations(
     all_results.reset_index(drop=True, inplace=True)
     all_results['error'] = all_results['error'].map(lambda x:"-" if x=={} else x)
 
-    if verbose or not completely_quiet:
+    if verbose:
         print(f"Loaded {len(all_results):,} rows from {len(machine_file_names)} machine annotation files")
 
     all_results = all_results.sort_values("inference_ts").copy()
@@ -88,9 +87,6 @@ def load_machine_annotations(
         rename(latest_filename+".temp", latest_filename)
 
 
-
-
-
     if include_failed_calls:
         if verbose:
             print(f"Including failed machine annotation calls")
@@ -101,7 +97,7 @@ def load_machine_annotations(
             print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
 
 
-    if verbose or not completely_quiet:
+    if verbose:
         print("--"*60)
 
 
@@ -1087,6 +1083,7 @@ def _post_process_raw_annotations(raw_outputs_from_machine, verbose = False):
     from os.path import join
     #from os import environ
 
+    print("Starting post-processing of raw annotations...")
     if verbose:
         print("Flattening raw machine annotations")
     outputs_from_machine_df = flatten_and_fix_machine_outputs(raw_outputs_from_machine, verbose=verbose)
@@ -1143,8 +1140,7 @@ def annotate_from_list(fine_list, verbose = False):
                     print("Some videoIDs in the list were corrupt. Cannot process this list.")
                 return None
 
-            if verbose:
-                print("Annotating videos:")
+            print("Annotating videos...")
 
             raw_outputs_from_machine = call_machine_threads(
                     fine_list,
@@ -1154,6 +1150,8 @@ def annotate_from_list(fine_list, verbose = False):
                     the_machine_config = fyp.cf["machine"]["global_generation_config"],
                     verbose = verbose
                 )
+
+            print("...video annotation completed.")
 
             _post_process_raw_annotations(raw_outputs_from_machine, verbose=verbose)
 
@@ -1237,18 +1235,7 @@ def annotate_videos_loop(study_name, batch_size = 500):
         batch_size = 10
     # -----------------
 
-    """print("Building datasets to initiate loop. Might take a minute...\n")
-    _ = load_datasets(
-        study_name,
-        use_half_baked = True,
-        delete_all_half_baked_files = True,
-        consolidate = True,
-        verbose = False
-        )
-    #first_iteration = True
 
-    print("##"*60)
-    print()"""
 
 
     selected_videos = [0] # just a list that contains anything and that is longer than zero elements to get things started
@@ -1264,46 +1251,17 @@ def annotate_videos_loop(study_name, batch_size = 500):
             INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
             INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
             INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            #INCLUDE_LONG_VIDEOS_IN_EXPORT = True,
-            verbose = True
+            verbose = False
         )
-        """if not first_iteration:
-            print("##"*60)
-            print()
 
-            tutti = load_datasets(
-                study_name,
-                use_half_baked = True,
-                delete_all_half_baked_files = False,
-                verbose = False)
-        else:
-            first_iteration = False
-
-        print("Calculating video subsets...")
-        video_subsets = calculate_all_unique_video_subsets(study_name, tutti, verbose = False)
-
-        selected_videos = save_selected_unique_video_subsets(
-            study_name,
-            tutti,
-            video_subsets,
-            file_label = "ANNOTATE",
-            INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
-            INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
-            INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
-            INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
-            INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
-            INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            #INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
-            verbose = True
-        )"""
 
         if len(selected_videos) > 0:
             work_with_these_videos_list_raw = [int(k) for k in selected_videos.item_id.to_list()]
             work_with_these_videos_list = work_with_these_videos_list_raw.copy()
 
-            print(f"{len(work_with_these_videos_list):,} videos to process for study '{study_name}'")
+            print(f"{len(work_with_these_videos_list):,} videos selected")
 
-            _ = annotate_from_list(work_with_these_videos_list[:batch_size], verbose = True)
+            _ = annotate_from_list(work_with_these_videos_list[:batch_size], verbose = False)
         
         if selected_videos is None:
             selected_videos = []
