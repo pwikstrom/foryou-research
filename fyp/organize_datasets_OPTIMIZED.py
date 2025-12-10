@@ -685,6 +685,7 @@ def load_special_donations(study_name, verbose=False):
     if len(the_special_donations) == 0:
         if verbose:
             print("Skipping special DDP events loading as the number of SPECIAL_DONATIONS is zero.")
+            print("--"*60)
         return {"data_special_ddps":DataFrame()}
     
     donations_str = '\n - '.join(the_special_donations)
@@ -773,7 +774,7 @@ def load_datasets(
     tutti.update(load_scrape_metadata(consolidate=consolidate, verbose=verbose))
     tutti["data_annotated"] = load_machine_annotations(include_failed_calls=False, consolidate=consolidate, verbose = verbose)
 
-    print("Loading datasets successfully completed")
+    print("Datasets loaded")
     print("=="*60)
 
     #for k in sorted(list(tutti.keys())):
@@ -1092,6 +1093,9 @@ def _rename_columns(some_events):
         ("ideological_analysis_","IA_"),
 
         ]
+
+    from pandas import set_option
+    set_option('future.no_silent_downcasting', True)
 
     for fu in fixer_upper:
         mapper = {c:c.replace(fu[0],fu[1]) for c in some_eventsC.columns if (c != c.replace(fu[0],fu[1])) and (not c.replace(fu[0],fu[1]) in some_eventsC.columns)}
@@ -1677,10 +1681,10 @@ def save_logs_as_pkl(
 
     outdata_filtered.to_pickle(join(fyp.cf['paths']['exports'],log_filename))
     if verbose:
-        print(f"Exported {len(outdata_filtered):,} observations in {join(export_sub_folder_name,log_filename)}.")
-        print(f"The date of the observations in the log range from {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
+        print(f"Exported {len(outdata_filtered):,} events to {join(export_sub_folder_name,log_filename)}.")
+        print(f"Date range: {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
         print(f"Now: {datetime.now()}")
-        print("=="*60)
+        print("--"*60)
 
 
 
@@ -1789,37 +1793,46 @@ def save_logs_as_csv(
 
 
 
-def export_logs(study_name):
-    print("**"*60)
+def export_logs(
+    study_name,
+    verbose = False
+    ):
 
-    tutti = load_datasets(study_name, verbose=True)
+    print("=="*60)
+    print(f"Exporting logs for study '{study_name}'")
+    print("=="*60)
 
-    print("**"*60)
+
+    tutti = load_datasets(
+        study_name,
+        use_half_baked = True,
+        delete_all_half_baked_files = False,
+        consolidate = False,
+        verbose = verbose)
+
+
     combined_log = process_and_combine_logs_for_log_export(
         study_name, 
         tutti,
         use_half_baked = False,
-        verbose=True
+        verbose=verbose
         )
-    print("**"*60)
 
     outdata = process_enrichment_data_and_merge_with_logs(
         tutti,
         combined_log,
         ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
-        verbose=True
+        verbose=verbose
     )
-    print("**"*60)
 
     outdata_filtered = filter_log_against_sampled_donation_groups(
         tutti,
         outdata,
         MAX_DAILY_MISSING_DATA_RATIO = 0.3,
-        verbose=True
+        verbose=verbose
         )
-    print("**"*60)
 
     save_logs_as_pkl(study_name, outdata_filtered, verbose=True)
-    print("**"*60)
+
 
     #save_logs_as_csv(STUDY_NAME, outdata_filtered)

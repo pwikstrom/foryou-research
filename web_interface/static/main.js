@@ -15,12 +15,14 @@ async function startProcess(name) {
     let studyNameInputId = 'global-study-name'; // default for scrape/annotate
     if (name === 'create_subsets') {
         studyNameInputId = 'overview-study-name';
+    } else if (['create_event_log', 'recode_event_log', 'calculate_pca'].includes(name)) {
+        studyNameInputId = 'build-study-name';
     }
 
     const isTest = document.getElementById('global-test-mode') ? document.getElementById('global-test-mode').checked : false;
     const studyName = document.getElementById(studyNameInputId).value;
 
-    if (name === 'downloader' || name === 'annotator' || name === 'create_subsets' || name === 'regenerate_datasets') {
+    if (['downloader', 'annotator', 'create_subsets', 'regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'].includes(name)) {
         if (!studyName) {
             alert("Please enter a study name.");
             return;
@@ -90,9 +92,11 @@ async function updateStatus() {
         setStatus('annotator', data.annotator);
         setStatus('create_subsets', data.create_subsets);
 
-        // Discreet controls
+        // Discreet processes
         setDiscreetStatus('regenerate_datasets', data.regenerate_datasets);
-
+        setDiscreetStatus('create_event_log', data.create_event_log);
+        setDiscreetStatus('recode_event_log', data.recode_event_log);
+        setDiscreetStatus('calculate_pca', data.calculate_pca);
     } catch (e) {
         console.error(e);
     }

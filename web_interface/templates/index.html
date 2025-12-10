@@ -6,6 +6,7 @@
     <button class="tab-button active" onclick="openTab(event, 'home')">Home</button>
     <button class="tab-button" onclick="openTab(event, 'scrape_annotate')">Scrape & Annotate</button>
     <button class="tab-button" onclick="openTab(event, 'data_overview')">Data Overview</button>
+    <button class="tab-button" onclick="openTab(event, 'build_datasets')">Build Datasets</button>
     <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
 </div>
 
@@ -13,6 +14,7 @@
     {% include 'tabs/home.html' %}
     {% include 'tabs/scrape_annotate.html' %}
     {% include 'tabs/data_overview.html' %}
+    {% include 'tabs/build_datasets.html' %}
     {% include 'tabs/settings.html' %}
 </div>
 {% endblock %}

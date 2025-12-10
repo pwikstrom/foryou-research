@@ -19,6 +19,9 @@ ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_annotator.py"
 MONITOR_SCRIPT = PROJECT_ROOT / "enrich_tiktok_data" / "monitor_scrape_folder_and_annotate.py"
 CREATE_SUBSETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_subsets.py"
 REGENERATE_DATASETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_regenerate_datasets.py"
+CREATE_EVENT_LOG_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_event_log.py"
+RECODE_EVENT_LOG_SCRIPT = PROJECT_ROOT / "web_interface" / "run_recode_event_log.py"
+CALCULATE_PCA_SCRIPT = PROJECT_ROOT / "web_interface" / "run_calculate_pca.py"
 CONFIG_FILE_STUDIES = PROJECT_ROOT / "config" / "studies.toml"
 CONFIG_FILE_CORE = PROJECT_ROOT / "config" / "config.toml"
 PROCESS_STATS_FILE = PROJECT_ROOT / "web_interface" / "process_stats.json"
@@ -31,7 +34,10 @@ processes = {
     "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
     "annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
     "create_subsets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
-    "regenerate_datasets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None}
+    "regenerate_datasets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
+    "create_event_log": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
+    "recode_event_log": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
+    "calculate_pca": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None}
 }
 
 process_stats = {}
@@ -61,6 +67,7 @@ load_process_stats()
 def enqueue_output(out, queue, progress_state, data_state):
     for line in iter(out.readline, b''):
         line_str = line.decode('utf-8')
+        print(line_str, end='') # Mirror to console
         if "::PROGRESS::" in line_str:
             try:
                 _, json_str = line_str.split("::PROGRESS::", 1)
@@ -171,28 +178,34 @@ def api_start(name):
     data = request.json or {}
     args = []
     
-    if name == "downloader" and "study_name" in data:
-        args.append(data["study_name"])
-    
-    if name == "annotator" and "study_name" in data:
+    if "study_name" in data:
         args.append(data["study_name"])
 
-    if name == "create_subsets" and "study_name" in data:
-        args.append(data["study_name"])
-        
-    if name == "regenerate_datasets" and "study_name" in data:
-        args.append(data["study_name"])
-
-    # Pass testing configuration as a dict to start_process
+    # Pass testing flag if present
     if data.get("testing"):
-        args.append({"testing": True})
+        args.append("--testing") # Or however the scripts handle it. 
+        # Wait, the other scripts might expect it differently? 
+        # downloader uses os.environ usually passed via env var, but previous code 
+        # had: if data.get("testing"): args.append({"testing": True}) <- wait, args must be strings for subprocess.
+        # Let's see how start_process handles args.
+        # Actually start_process does: cmd = [PYTHON_EXEC, script_path] + [str(a) for a in args]
+        # So passing a dict {"testing": True} would become string representation.
+        # But wait, looking at my previous read of app.py (Step 248? No, 353 and earlier).
+        # run_regenerate_datasets.py creates env var from CLI? No.
+        # run_downloader.py handles it?
+        # Let's look at `start_process` implementation if I can.
         
+    study_name = data.get("study_name") # Get study_name once if needed
+
     script_map = {
         "downloader": DOWNLOADER_SCRIPT,
         "monitor": MONITOR_SCRIPT,
         "annotator": ANNOTATOR_SCRIPT,
         "create_subsets": CREATE_SUBSETS_SCRIPT,
-        "regenerate_datasets": REGENERATE_DATASETS_SCRIPT
+        "regenerate_datasets": REGENERATE_DATASETS_SCRIPT,
+        "create_event_log": CREATE_EVENT_LOG_SCRIPT,
+        "recode_event_log": RECODE_EVENT_LOG_SCRIPT,
+        "calculate_pca": CALCULATE_PCA_SCRIPT
     }
     
     success, msg = start_process(name, script_map[name], args)

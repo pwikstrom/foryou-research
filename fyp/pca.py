@@ -1,6 +1,8 @@
 
 
 from typing import Iterable, Hashable, Tuple, Dict, List, Sequence, Union, Literal, Optional
+import fyp.fyp_main as fyp
+
 
 Group = Union[Dict[str, int], Sequence[str]]
 Metric = Literal["jensen-shannon", "hellinger", "total-variation", "bray-curtis", "chi2"]
@@ -364,11 +366,11 @@ def transform_categories_to_components_and_diversity(
         print(f"Explained variance per component: {', '.join([f'{p:.3f}' for p in explained])}")
         print(f"Cumulative explained variance: {', '.join([f'{p:.3f}' for p in explained.cumsum()])}")
 
-    print(f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance", end="", flush=True)
+    if verbose: print(f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance", end="", flush=True)
     if required_components != n_components:
-        print(f"  |  {required_components} required to be able to explain {target_explained_variance:.0%} of the variance")
+        if verbose: print(f"  |  {required_components} required to be able to explain {target_explained_variance:.0%} of the variance")
     else:
-        print()
+        if verbose: print()
 
     pc_df = DataFrame(pca_coords, index=counts_df.index).iloc[:,:n_components]
 
@@ -400,26 +402,39 @@ def transform_categories_to_components_and_diversity(
 
 
 def calculate_scaled_pca_scores(
-    some_events_df,
+    study_name,
+    some_events_df = None,
     selected_factors = ["D_donation_id","T_local_date"],
     minimum_group_size = 10,
     target_explained_variance = 0.8,
     drop_rare_globally_below = 0.01,
-    scale_it = True
+    scale_it = True,
+    verbose = False
 
 ):
-
-    from pandas import NamedAgg, MultiIndex, DataFrame, concat
-
+    from pandas import NamedAgg, MultiIndex, DataFrame, concat, read_pickle
+    from os.path import join, getctime
+    from datetime import datetime
     from sklearn.preprocessing import StandardScaler
-    from fyp.recode_variables import get_factors_from_var_scheme
-
-    fyp_features = sorted(list(set(some_events_df.columns) - set(get_factors_from_var_scheme(some_events_df))))
+    from fyp.recode_variables import get_factors_and_features_from_var_scheme
 
 
+    print(f"Performing Principal Component Analysis based on {" | ".join(selected_factors)}. Study: '{study_name}'")
+    print(f"Now: {datetime.now()}")
 
-    print(f"Performing Principal Component Analysis based on {" | ".join(selected_factors)}")
-    print(f"Step 1: Dropping {"-".join(selected_factors)}-groups that are smaller than {minimum_group_size} rows")
+    recoded_path = join(fyp.cf['paths']['exports'],f"{study_name}_RECODED.pkl")
+
+    if some_events_df is None:
+        nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
+        print(f"Loading recoded events file in export folder, created at: {nice_time}", end=" ", flush=True)
+        some_events_df = read_pickle(recoded_path)
+        print(f"  |  Shape: {some_events_df.shape}")
+
+
+    fyp_factors, fyp_features = get_factors_and_features_from_var_scheme(some_events_df, verbose=verbose)
+
+    if verbose:
+        print(f"Step 1: Dropping {"-".join(selected_factors)}-groups that are smaller than {minimum_group_size} rows")
 
     group_sizes = some_events_df[selected_factors].groupby(selected_factors).agg(group_size = NamedAgg(column=selected_factors[0], aggfunc="count"))
 
@@ -430,29 +445,33 @@ def calculate_scaled_pca_scores(
     if len(too_small_groups) > 0:
 
         n_groups = len(group_sizes)
-        print(
-            f"{len(too_small_groups):,} groups of {n_groups:,} have fewer than {minimum_group_size}"
-            f" elements and will be excluded from the analysis. {len(good_sized_groups):,} groups remain."
-        )
-        print(f"This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.\n")
+        if verbose:
+            print(
+                f"{len(too_small_groups):,} groups of {n_groups:,} have fewer than {minimum_group_size}"
+                f" elements and will be excluded from the analysis. {len(good_sized_groups):,} groups remain."
+            )
+            print(f"This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.\n")
 
         some_events_df = some_events_df.set_index(selected_factors).loc[good_sized_groups.index].reset_index().copy()
 
-        print(f"  --  Confirming new length of DF: {len(some_events_df):,}")
+        if verbose:
+            print(f"  --  Confirming new length of DF: {len(some_events_df):,}")
     else:
-        print("no groups were below the threshold")
+        if verbose:
+            print("no groups were below the threshold")
 
 
-
-    print()
-    print("Step 2: consolidating events into groups and performing PCA transformation on categorical variables")
+    if verbose:
+        print()
+        print("Step 2: consolidating events into groups and performing PCA transformation on categorical variables")
 
     events_pca_scores = []
     for c in some_events_df[fyp_features].columns:
         if c in some_events_df.select_dtypes(object).columns:
             counts_df = transform_category_column_to_counts_df(some_events_df, the_column=c, the_selected_factors=selected_factors)
 
-            print(c,counts_df.shape, end=": ", flush=True)
+            if verbose:
+                print(c,counts_df.shape, end=": ", flush=True)
             wer, the_pc_df = transform_categories_to_components_and_diversity(
                 counts_df,
                 metric="hellinger",#"jensen-shannon",
@@ -478,14 +497,25 @@ def calculate_scaled_pca_scores(
         events_pca_scores += [wer.copy()]
 
     events_pca_scores = concat(events_pca_scores, axis=1)
-    print()
-    print(f"Rows: {len(events_pca_scores):,} -- Cols: {len(events_pca_scores.columns):,}")
+    if verbose:
+        print()
+        print(f"Rows: {len(events_pca_scores):,} -- Cols: {len(events_pca_scores.columns):,}")
+
+    pca_filename = f"{study_name}_PCA.pkl"
+    export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
+
 
     if not scale_it:
+        events_pca_scores.to_pickle(join(fyp.cf['paths']['exports'],pca_filename))
+        if verbose:
+            print(f"Exported {len(events_pca_scores):,} PCA scores (NOT SCALED) in {join(export_sub_folder_name,pca_filename)}.")
+            print(f"Now: {datetime.now()}")
+            print("=="*60)
         return events_pca_scores
 
-    print()
-    print(f"Step 3: Scaling pca scores and concatenating factors into the scaled table")
+    if verbose:
+        print()
+        print(f"Step 3: Scaling pca scores and concatenating factors into the scaled table")
     events_pca_scores_scaled = DataFrame(
         StandardScaler().fit_transform(events_pca_scores), 
         index=events_pca_scores.index, 
@@ -497,7 +527,15 @@ def calculate_scaled_pca_scores(
 
     events_pca_scores_scaled["T_local_month"] = events_pca_scores_scaled["T_local_date"].map(lambda x:x[:7])
 
-    print(f"Rows: {len(events_pca_scores_scaled):,} -- Cols: {len(events_pca_scores_scaled.columns):,}")
+    if verbose:
+        print(f"Rows: {len(events_pca_scores_scaled):,} -- Cols: {len(events_pca_scores_scaled.columns):,}")
+
+    events_pca_scores_scaled.to_pickle(join(fyp.cf['paths']['exports'],pca_filename))
+    print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")
+    print(f"Now: {datetime.now()}")
+    print("--"*60)
+
+
 
     return events_pca_scores_scaled
 

@@ -1,0 +1,41 @@
+<div id="build_datasets" class="tab-pane">
+    <!-- Global Control Bar -->
+    <div class="panel"
+        style="margin-bottom: 20px; display: flex; flex-direction: row; align-items: center; gap: 20px; padding: 5px 15px; width: auto; flex: 0 0 auto;">
+        <input type="text" id="build-study-name" placeholder="Study Name" value="everything"
+            style="width: 25ch; border: 1px solid #3e3e42; background: #3c3c3c; color: #d4d4d4; padding: 5px;">
+    </div>
+
+    <!-- Main Content -->
+    <div class="container" style="flex-direction: row; gap: 20px;">
+        <div class="panel" style="flex: 1; align-items: flex-start; gap: 15px;">
+            <div class="header">
+                <h2>Pipeline Steps</h2>
+            </div>
+
+            <div class="discreet-control" id="control-create_event_log"
+                style="margin-left: 0; padding-left: 0; border-left: none;">
+                <button class="btn-discreet" onclick="toggleProcess('create_event_log', 'Create event log')">Create
+                    event log</button>
+                <span class="status-dot" id="dot-create_event_log"></span>
+                <span class="status-text tiny-text" id="text-create_event_log"></span>
+            </div>
+
+            <div class="discreet-control" id="control-recode_event_log"
+                style="margin-left: 0; padding-left: 0; border-left: none;">
+                <button class="btn-discreet" onclick="toggleProcess('recode_event_log', 'Recode event log')">Recode
+                    event log</button>
+                <span class="status-dot" id="dot-recode_event_log"></span>
+                <span class="status-text tiny-text" id="text-recode_event_log"></span>
+            </div>
+
+            <div class="discreet-control" id="control-calculate_pca"
+                style="margin-left: 0; padding-left: 0; border-left: none;">
+                <button class="btn-discreet" onclick="toggleProcess('calculate_pca', 'Calculate PCA scores')">Calculate
+                    PCA scores</button>
+                <span class="status-dot" id="dot-calculate_pca"></span>
+                <span class="status-text tiny-text" id="text-calculate_pca"></span>
+            </div>
+        </div>
+    </div>
+</div>

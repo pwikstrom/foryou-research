@@ -92,7 +92,7 @@ def _is_emoji(s: str) -> bool:
 
 
 
-def get_factors_and_features_from_var_scheme(some_events_df):
+def get_factors_and_features_from_var_scheme(some_events_df, verbose = False):
     import pandas as pd
     from os.path import join
 
@@ -101,8 +101,9 @@ def get_factors_and_features_from_var_scheme(some_events_df):
     the_factors = list(set(var_scheme[var_scheme["scale"]=='factor'].index) & set(some_events_df.columns))
     the_features = sorted(list(set(some_events_df.columns) - set(the_factors)))
 
-    print("Factors:",", ".join(the_factors))
-    print("Features:",", ".join(the_features))
+    if verbose:
+        print("Factors:",", ".join(the_factors))
+        print("Features:",", ".join(the_features))
 
     return the_factors, the_features
 
@@ -551,10 +552,22 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 def recode_events_df(
     study_name,
-    cool_events_in):
+    cool_events_in = None,
+    verbose = False):
 
     import pandas as pd
-    from os.path import join
+    from os.path import join, getctime
+    from datetime import datetime
+
+    print(f"Recoding variables, implementing missing data policy and a whole range of other things: Study:{study_name}")
+
+    log_path = join(fyp.cf['paths']['exports'],f"{study_name}_LOG.pkl")
+
+    if cool_events_in is None:
+        nice_time = datetime.fromtimestamp(getctime(log_path)).strftime('%Y-%m-%d %H:%M:%S')
+        print(f"Loading events file in export folder, created at: {nice_time}", end=" ", flush=True)
+        cool_events_in = pd.read_pickle(log_path)
+        print(f"Shape: {cool_events_in.shape}")
 
     expected_columns = ['T_local_weekday', 'T_local_week', 'item_id',
         'T_local_day_segment', 'T_local_date', 'session_id', 'D_donation_id',
@@ -568,8 +581,8 @@ def recode_events_df(
         'G_faces_gender', 'G_faces_age_estimate', 'G_faces_ethnicity',
         'T_days_since_created']
 
-    print("Recoding variables, implementing missing data policy and a whole range of other things")
-    print(f"Expecting {len(expected_columns)} columns, found {len(list(set(expected_columns) & set(cool_events_in.columns)))}")
+    if verbose:
+        print(f"Expecting {len(expected_columns)} columns, found {len(list(set(expected_columns) & set(cool_events_in.columns)))}")
 
     cool_events = cool_events_in[list(set(expected_columns) & set(cool_events_in.columns))].copy()
 
@@ -583,20 +596,26 @@ def recode_events_df(
     cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int(x):05}")
 
     variables_not_found_in_var_scheme = list(set(cool_events.columns) - set(var_scheme.index))
-    print(f"Dropping {len(variables_not_found_in_var_scheme)} columns not found in the variable scheme:\n - {"\n - ".join(variables_not_found_in_var_scheme)}")
+    if verbose:
+        print(f"Dropping {len(variables_not_found_in_var_scheme)} columns not found in the variable scheme:\n - {"\n - ".join(variables_not_found_in_var_scheme)}")
 
     cool_events = cool_events.drop(columns=variables_not_found_in_var_scheme).copy()
-    print(cool_events.shape)
+    if verbose:
+        print(cool_events.shape)
 
     single_value_columns = [c for c in cool_events.columns if cool_events[c].nunique()==1]
-    print(f"Dropping {len(single_value_columns)} single value columns:\n - {"\n - ".join(single_value_columns)}")
+    if verbose:
+        print(f"Dropping {len(single_value_columns)} single value columns:\n - {"\n - ".join(single_value_columns)}")
 
     cool_events = cool_events.drop(columns=single_value_columns).copy()
-    print(cool_events.shape)
+    if verbose:
+        print(cool_events.shape)
 
-
+    if verbose:
+        print("Recoding variables")
     for c in cool_events.columns:
-        print(c, end=f"{' '*(40-len(c))}")
+        if verbose:
+            print(c, end=f"{' '*(40-len(c))}")
         if c in var_scheme.index:
             this_var_scheme = var_scheme.loc[c].to_dict() 
 
@@ -617,9 +636,9 @@ def recode_events_df(
 
             if not pd.isna(this_var_scheme.get("recode_func", None)):
                 cool_events[c] = cool_events[c].map(lambda x:this_var_scheme["recode_func"](x,this_var_scheme))
-                print(f"recoded successfully ({this_var_scheme.get('scale', 'unknown scale')})")
+                if verbose: print(f"recoded successfully ({this_var_scheme.get('scale', 'unknown scale')})")
             else:
-                print(f"has no recode func, so no change ({this_var_scheme.get('scale', 'unknown scale')})")
+                if verbose: print(f"has no recode func, so no change ({this_var_scheme.get('scale', 'unknown scale')})")
 
 
 
@@ -666,32 +685,37 @@ def recode_events_df(
 
             # for raw variables, I unpack the dicts into separate columns and drop the original column
             if top_type == dict:
-                print("dict recoded to new variables")
+                if verbose:
+                    print("dict recoded to new variables")
                 new_thing = pd.json_normalize(cool_events[c])
                 new_thing = new_thing.add_prefix(f"{c}_")
                 new_thing.index = cool_events.index
                 cool_events = pd.concat([cool_events.drop(columns=[c]), new_thing], axis=1)
 
         else:
-            print(f"not found in the variable scheme, so no change")
+            if verbose:
+                print(f"not found in the variable scheme, so no change")
 
 
     cool_events['plays_per_day'] = cool_events['S_stats_playCount'] / cool_events['T_days_since_created'].map(lambda x:max(1,x))
 
 
     # Clean the recoded dataset - drop rows with NaN values and constant columns
-    print(cool_events.shape, "shape of recoded dataset before cleaning")
+    if verbose:
+        print(cool_events.shape, "shape of recoded dataset before cleaning")
     cool_events = cool_events.loc[~cool_events.isna().any(axis=1)]                      # drop rows with NaN values
-    print(cool_events.shape, "shape of recoded dataset after dropping rows with NaN values")
-    print("----------------------------------------------")
+    if verbose:
+        print(cool_events.shape, "shape of recoded dataset after dropping rows with NaN values")
+        print("----------------------------------------------")
 
 
-    print("Cleaning up Gemini annotations - replacing categories/labels that are very rare")
-    print(f"Shape of the events DF: {cool_events.shape}")
-    cool_events = clean_up_machine_annotations(cool_events)
-    print(f"Shape of the events DF: {cool_events.shape}")
-
-    print(cool_events.shape)
+    if verbose:
+        print("Cleaning up Gemini annotations - replacing categories/labels that are very rare")
+        print(f"Shape of the events DF: {cool_events.shape}")
+    cool_events = clean_up_machine_annotations(cool_events, verbose = verbose)
+    if verbose:
+        print(f"Shape of the events DF: {cool_events.shape}")
+        print(cool_events.shape)
 
     cool_events = cool_events[sorted(cool_events.columns)]
 
@@ -699,13 +723,11 @@ def recode_events_df(
     export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
 
     cool_events.to_pickle(join(fyp.cf['paths']['exports'],log_filename))
-    if verbose:
-        print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,log_filename)}.")
-        print(f"Now: {datetime.now()}")
-        print("=="*60)
+    print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,log_filename)}.")
+    print(f"Now: {datetime.now()}")
+    print("--"*60)
 
-
-    return 
+    return cool_events 
 
 
 
@@ -799,7 +821,7 @@ def _replace_in_structure(L, filter_list, replacement):
     return out
 
 
-def clean_up_machine_annotations(some_events):
+def clean_up_machine_annotations(some_events, verbose = False):
 
     from collections import Counter
 
@@ -822,9 +844,10 @@ def clean_up_machine_annotations(some_events):
             OTHER_THINGS
         )
 
-        print(
-            f"   {c}: Reduced {len(Counter(_flatten_and_filter(some_events[c])).most_common())} labels to"
-            f" {len(Counter(_flatten_and_filter(some_cleaned_up_events[c])).most_common())}"
-        )
+        if verbose:
+            print(
+                f"   {c}: Reduced {len(Counter(_flatten_and_filter(some_events[c])).most_common())} labels to"
+                f" {len(Counter(_flatten_and_filter(some_cleaned_up_events[c])).most_common())}"
+            )
 
     return some_cleaned_up_events
