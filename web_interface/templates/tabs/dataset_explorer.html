@@ -1,11 +1,23 @@
 <div id="dataset_explorer" class="tab-pane">
-    <div class="container" style="display: flex; flex-direction: row; height: calc(100vh - 120px); gap: 20px;">
+    <!-- Control Bar -->
+    <div class="control-bar"
+        style="display: flex; align-items: center; padding: 10px; background-color: #252526; margin-bottom: 20px; border-bottom: 1px solid #3e3e42;">
+        <label for="explorer-study-select" style="margin-right: 10px; font-weight: bold; color: #eee;">Select
+            Study:</label>
+        <select id="explorer-study-select" class="dropdown" onchange="changeExplorerStudy()"
+            style="width: 300px; padding: 5px; background: #3c3c3c; border: 1px solid #555; color: white;">
+            <option value="" disabled selected>Select a study...</option>
+        </select>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container" style="display: flex; flex-direction: row; height: calc(100vh - 180px); gap: 20px;">
 
         <!-- Filters Panel (Left) -->
         <div class="panel" style="flex: 0 0 350px; display: flex; flex-direction: column; overflow: hidden;">
             <div class="header" style="flex: 0 0 auto;">
                 <h2>Filters</h2>
-                <button class="btn-save" onclick="resetFilters()">Reset</button>
+                <button class="btn-save" onclick="resetFilters()">Reset Filters</button>
             </div>
             <div id="explorer-filters" style="flex: 1; overflow-y: auto; padding-right: 5px;">
                 <!-- Filter widgets injected here by JS -->

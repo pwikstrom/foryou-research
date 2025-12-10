@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 import subprocess
 import threading
 import time
@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 from collections import deque
 from pathlib import Path
+import numpy as np
 
 
 
@@ -18,6 +19,11 @@ app = Flask(__name__)
 
 # --- Config ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
+import fyp
+# Initialize configuration to access paths
+fyp_cf = fyp.init_project(verbose=False)
+
 DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
 ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_annotator.py"
 MONITOR_SCRIPT = PROJECT_ROOT / "enrich_tiktok_data" / "monitor_scrape_folder_and_annotate.py"
@@ -47,26 +53,37 @@ processes = {
 process_stats = {}
 
 # --- Explorer State ---
+# --- Explorer State ---
 import explorer_backend as explorer
-EXPLORER_CSV_PATH = PROJECT_ROOT / "events_df_recoded_sample_1000.csv"
+active_explorer_study = None # Store currently loaded study name
 explorer_df = None
 explorer_col_types = None
 explorer_total_stats = None
 
-def get_explorer_data():
-    global explorer_df, explorer_col_types, explorer_total_stats
-    if explorer_df is None:
-        if EXPLORER_CSV_PATH.exists():
-            print(f"Loading Explorer CSV from {EXPLORER_CSV_PATH}...")
-            explorer_df, explorer_col_types = explorer.load_data(str(EXPLORER_CSV_PATH))
-            print("Explorer CSV loaded. Computing total stats...")
-            res = explorer.get_current_stats(explorer_df, explorer_col_types)
-            explorer_total_stats = res['stats']
-            print("Total stats computed.")
-        else:
-            print(f"Explorer CSV not found at {EXPLORER_CSV_PATH}")
-            return None, None
-    return explorer_df, explorer_col_types
+def get_explorer_data(study):
+    global explorer_df, explorer_col_types, explorer_total_stats, active_explorer_study
+    
+    # If requesting same study and already loaded, return it
+    if study == active_explorer_study and explorer_df is not None:
+        return explorer_df, explorer_col_types
+
+    # Resolve path
+    exports_dir = Path(fyp_cf["paths"]["exports"])
+    pkl_path = exports_dir / f"{study}_RECODED.pkl"
+    
+    if pkl_path.exists():
+        print(f"Loading Explorer Study '{study}' from {pkl_path}...")
+        explorer_df, explorer_col_types = explorer.load_data(str(pkl_path))
+        print(f"Explorer Study '{study}' loaded. Computing total stats...")
+        res = explorer.get_current_stats(explorer_df, explorer_col_types)
+        explorer_total_stats = res['stats']
+        active_explorer_study = study
+        print("Total stats computed.")
+        return explorer_df, explorer_col_types
+    else:
+        print(f"Explorer Study pickle not found at {pkl_path}")
+        return None, None
+
 
 def load_process_stats():
     global process_stats
@@ -330,9 +347,29 @@ def api_config():
 
 
 
+@app.route('/api/explorer/studies', methods=['GET'])
+def api_explorer_studies():
+    exports_dir = Path(fyp_cf["paths"]["exports"])
+    if not exports_dir.exists():
+        return jsonify([])
+    
+    studies = []
+    for f in exports_dir.glob("*_RECODED.pkl"):
+        # Extract study name: filename is {study_name}_RECODED.pkl
+        study_name = f.name.replace("_RECODED.pkl", "")
+        studies.append(study_name)
+    
+    return jsonify(sorted(studies))
+
+
 @app.route('/api/explorer/metadata', methods=['GET'])
 def api_explorer_metadata():
-    df, col_types = get_explorer_data()
+    study = request.args.get('study')
+    if not study:
+        return jsonify({"error": "No study specified"}), 400
+
+    df, col_types = get_explorer_data(study)
+    
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
@@ -344,17 +381,104 @@ def api_explorer_metadata():
 
 @app.route('/api/explorer/filter', methods=['POST'])
 def api_explorer_filter():
-    df, col_types = get_explorer_data()
+    data = request.json or {}
+    study = data.get("study")
+    
+    if not study:
+         return jsonify({"error": "No study specified"}), 400
+
+    df, col_types = get_explorer_data(study)
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
-    data = request.json or {}
     filters = data.get("filters", {})
     
     filtered_df = explorer.filter_dataframe(df, col_types, filters)
     result = explorer.get_current_stats(filtered_df, col_types)
     
     return jsonify(result)
+
+
+
+@app.route('/api/viewer/ids', methods=['POST'])
+def api_viewer_ids():
+    data = request.json or {}
+    study = data.get("study")
+    
+    if not study:
+         return jsonify({"error": "No study specified"}), 400
+
+    df, col_types = get_explorer_data(study)
+    if df is None:
+        return jsonify({"error": "Dataset not found"}), 404
+    
+    filters = data.get("filters", {})
+    filtered_df = explorer.filter_dataframe(df, col_types, filters)
+    
+    # Return list of item_ids. Assume column is 'item_id' or 'video_id'
+    # Based on csv head: 'item_id'
+    id_col = 'item_id'
+    if id_col not in filtered_df.columns:
+        # Fallback mechanisms?
+        if 'video_id' in filtered_df.columns: id_col = 'video_id'
+        elif 'G_id' in filtered_df.columns: id_col = 'G_id'
+        else: return jsonify({"error": "No ID column found"}), 500
+    
+    # Convert to string to ensure consistency
+    ids = filtered_df[id_col].astype(str).tolist()
+    return jsonify({"ids": ids, "count": len(ids)})
+
+
+@app.route('/api/viewer/item/<study>/<item_id>', methods=['GET'])
+def api_viewer_item(study, item_id):
+    df, col_types = get_explorer_data(study)
+    if df is None:
+        return jsonify({"error": "Dataset not found"}), 404
+    
+    # Find row
+    # Assume 'item_id' column logic same as above
+    id_col = 'item_id'
+    if id_col not in df.columns:
+        if 'video_id' in df.columns: id_col = 'video_id'
+        else: return jsonify({"error": "ID column missing"}), 500
+
+    row = df[df[id_col].astype(str) == str(item_id)]
+    if row.empty:
+        return jsonify({"error": "Item not found"}), 404
+    
+    # Convert row to dict. Handle NaNs
+    record = row.iloc[0].replace({np.nan: None}).to_dict()
+    return jsonify(record)
+
+
+@app.route('/api/video/<study>/<item_id>', methods=['GET'])
+def api_video_stream(study, item_id):
+    # Get GCS bucket
+    bucket = fyp_cf.get("media_storage", {}).get("bucket")
+    if not bucket:
+        return "GCS Bucket not available", 503
+
+    # Attempt to find the file
+    # Candidates: item_id.mp4, maybe in subfolders?
+    # User said "bucket is initialized and ready to go". 
+    # Usually files are at root or study/video? 
+    # Let's assume root/{item_id}.mp4 based on "video associated with each row".
+    
+    blob_name = f"{item_id}.mp4"
+    blob = bucket.blob(blob_name)
+    
+    if not blob.exists():
+         # Try finding with list_blobs if needed? Too slow.
+         # Maybe user meant the `video_uri` column?
+         return f"Video {blob_name} not found", 404
+
+    # Stream the blob
+    def generate():
+        with blob.open("rb") as f:
+            while chunk := f.read(4096 * 16): # 64KB chunks
+                yield chunk
+
+    return Response(stream_with_context(generate()), mimetype="video/mp4")
 
 
 if __name__ == '__main__':

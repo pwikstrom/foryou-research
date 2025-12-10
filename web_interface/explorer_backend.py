@@ -2,38 +2,40 @@ import pandas as pd
 import ast
 import numpy as np
 
-def load_data(csv_path):
+def load_data(file_path):
     """
-    Loads the CSV and detects column types.
-    Parses stringified lists.
+    Loads the dataset (CSV or PKL) and detects column types.
+    Parses stringified lists if CSV, or identifies lists if PKL.
     """
     try:
-        df = pd.read_csv(csv_path)
+        if file_path.endswith('.pkl'):
+            df = pd.read_pickle(file_path)
+        else:
+            df = pd.read_csv(file_path)
     except Exception as e:
-        print(f"Error loading CSV {csv_path}: {e}")
+        print(f"Error loading data {file_path}: {e}")
         return None, {}
 
     column_types = {}
 
     for col in df.columns:
-        # Check first non-null value to guess type if pandas is ambiguous
+        # Check first non-null value
         first_valid_index = df[col].first_valid_index()
         if first_valid_index is None:
-            # All null, treat as category (text)
             column_types[col] = "category"
             continue
         
         val = df[col].loc[first_valid_index]
 
-        # 1. Check for List (string starting with '[')
-        if isinstance(val, str) and val.strip().startswith('[') and val.strip().endswith(']'):
+        # 1. Check for List (actual list or stringified)
+        if isinstance(val, list) or isinstance(val, np.ndarray):
+            column_types[col] = "list"
+        elif isinstance(val, str) and val.strip().startswith('[') and val.strip().endswith(']'):
             try:
                 # Attempt to parse entire column as list
-                # We use a safe converter
                 df[col] = df[col].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) and x.strip().startswith('[') else (x if isinstance(x, list) else []))
                 column_types[col] = "list"
             except (ValueError, SyntaxError):
-                # Fallback to category if parsing fails
                 column_types[col] = "category"
         
         # 2. Check for Number

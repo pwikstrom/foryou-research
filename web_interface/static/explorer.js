@@ -2,23 +2,77 @@
 
 let explorerData = {
     metadata: null,
-    filters: {}
+    filters: {},
+    activeStudy: null
 };
 
 // Initialization
 document.addEventListener('DOMContentLoaded', function () {
     // Only init if tab exists
     if (document.getElementById('dataset_explorer')) {
-        loadExplorerMetadata();
+        loadExplorerStudies(); // Start by loading studies
     }
 });
 
+async function loadExplorerStudies() {
+    const selector = document.getElementById('explorer-study-select');
+
+    try {
+        const res = await fetch('/api/explorer/studies');
+        const studies = await res.json();
+
+        selector.innerHTML = '<option value="" disabled selected>Select a study...</option>';
+
+        if (studies.length === 0) {
+            const opt = document.createElement('option');
+            opt.disabled = true;
+            opt.text = "No studies found";
+            selector.appendChild(opt);
+            return;
+        }
+
+        studies.forEach(study => {
+            const opt = document.createElement('option');
+            opt.value = study;
+            opt.text = study;
+            selector.appendChild(opt);
+        });
+
+        // Auto-select first if available
+        if (studies.length > 0) {
+            selector.value = studies[0];
+            changeExplorerStudy(studies[0]);
+        }
+
+    } catch (e) {
+        console.error("Failed to load studies", e);
+        selector.innerHTML = '<option disabled>Error loading studies</option>';
+    }
+}
+
+function changeExplorerStudy(val) {
+    const selector = document.getElementById('explorer-study-select');
+    const studyName = val || selector.value;
+
+    if (!studyName) return;
+
+    explorerData.activeStudy = studyName;
+    explorerData.filters = {}; // Reset filters on study change
+    loadExplorerMetadata();
+}
+
 async function loadExplorerMetadata() {
+    if (!explorerData.activeStudy) return;
+
     const filterContainer = document.getElementById('explorer-filters');
+    // Don't wipe filter container entirely, just the dynamic part?
+    // Actually our layout has the select INSIDE the header, and filters in 'explorer-filters' div below.
+    // So clearing 'explorer-filters' is safe.
+
     filterContainer.innerHTML = '<div style="text-align:center; margin-top:20px;">Loading metadata...</div>';
 
     try {
-        const res = await fetch('/api/explorer/metadata');
+        const res = await fetch(`/api/explorer/metadata?study=${encodeURIComponent(explorerData.activeStudy)}`);
         const data = await res.json();
 
         if (data.error) {
@@ -42,7 +96,10 @@ function renderFilters(metadata) {
 
     const sortedCols = Object.keys(metadata).sort();
 
-    sortedCols.forEach(col => {
+    // Skip 'total_stats' key if present in metadata (it's injected there)
+    const colsToRender = sortedCols.filter(c => c !== 'total_stats');
+
+    colsToRender.forEach(col => {
         const info = metadata[col];
         const wrapper = document.createElement('div');
         wrapper.className = 'filter-group';
@@ -154,12 +211,12 @@ function setFilter(col, type, subtype, value) {
 
 function resetFilters() {
     explorerData.filters = {};
-    // Re-render inputs to clear them
-    // Or just reload metadata which re-renders
-    loadExplorerMetadata();
+    loadExplorerMetadata(); // Reloads metadata and re-renders, effectively clearing inputs
 }
 
 async function updateExplorerStats() {
+    if (!explorerData.activeStudy) return;
+
     const statsContainer = document.getElementById('explorer-stats');
     const countEl = document.getElementById('explorer-count');
 
@@ -169,7 +226,10 @@ async function updateExplorerStats() {
         const res = await fetch('/api/explorer/filter', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filters: explorerData.filters })
+            body: JSON.stringify({
+                study: explorerData.activeStudy,
+                filters: explorerData.filters
+            })
         });
         const data = await res.json();
 
@@ -191,7 +251,7 @@ function renderStats(sliceStats) {
     container.innerHTML = '';
 
     const metadata = explorerData.metadata;
-    if (!metadata || !metadata.total_stats) return; // Wait for metadata
+    if (!metadata || !metadata.total_stats) return;
 
     const totalStats = metadata.total_stats;
     const sortedCols = Object.keys(sliceStats).sort();
@@ -290,7 +350,7 @@ function renderStats(sliceStats) {
             Plotly.newPlot(plotDiv, [traceTotalBox, traceSliceBox], layout, { displayModeBar: false });
 
         } else {
-            // Stacked Bar (Horizontal) normalized to %? 
+            // Stacked Bar (Horizontal) normalized to %?
             // Or just side-by-side distribution comparison?
             // User requested: "horisontal stacked bars, with each color representing a category"
             // Two bars: Total and Slice.

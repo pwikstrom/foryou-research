@@ -1,0 +1,106 @@
+<div id="video_viewer" class="tab-pane">
+
+    <!-- Control Bar: Study Selector (Shared logic or separate?) -->
+    <!-- We can reuse the same study selector logic if we give it a unique ID or class -->
+    <div class="control-bar"
+        style="display: flex; align-items: center; padding: 10px; background-color: #252526; margin-bottom: 20px; border-bottom: 1px solid #3e3e42;">
+        <label for="viewer-study-select" style="margin-right: 10px; font-weight: bold; color: #eee;">Select
+            Study:</label>
+        <select id="viewer-study-select" class="dropdown" onchange="changeViewerStudy()"
+            style="width: 300px; padding: 5px; background: #3c3c3c; border: 1px solid #555; color: white;">
+            <option value="" disabled selected>Select a study...</option>
+        </select>
+    </div>
+
+    <div class="container" style="display: flex; flex-direction: row; height: calc(100vh - 180px); gap: 20px;">
+
+        <!-- Filters Panel (Left) - Reusing similar layout logic -->
+        <div class="panel" style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="header" style="flex: 0 0 auto;">
+                <h2>Filters</h2>
+                <button class="btn-save" onclick="resetViewerFilters()">Reset Filters</button>
+            </div>
+            <div id="viewer-filters" style="flex: 1; overflow-y: auto; padding-right: 5px;">
+                <!-- Filter widgets injected here via JS -->
+            </div>
+            <div class="footer" style="padding: 10px; border-top: 1px solid #333; text-align: center;">
+                <button class="btn-primary" onclick="applyViewerFilters()" style="width:100%">Apply Filters</button>
+            </div>
+        </div>
+
+        <!-- Main Viewer Panel (Right) -->
+        <div class="panel" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0;">
+
+            <!-- Navigation Header -->
+            <div
+                style="padding: 15px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; background: #2d2d30;">
+                <div>
+                    <h2 style="margin: 0; font-size: 1.2em;">Video Viewer</h2>
+                    <span id="viewer-status" style="font-size: 0.9em; color: #888;">No data</span>
+                </div>
+                <div class="nav-controls" style="display: flex; gap: 10px; align-items: center;">
+                    <button class="btn-secondary" onclick="prevVideo()">&lt; Prev</button>
+                    <span id="viewer-index" style="font-family: monospace; font-size: 1.1em; padding: 0 10px;">0 /
+                        0</span>
+                    <button class="btn-secondary" onclick="nextVideo()">Next &gt;</button>
+                </div>
+            </div>
+
+            <!-- Content Area: Video + Metadata -->
+            <div style="display: flex; flex: 1; overflow: hidden;">
+
+                <!-- Video Player -->
+                <div
+                    style="flex: 1; background: #000; display: flex; align-items: center; justify-content: center; position: relative;">
+                    <video id="viewer-video" controls autoplay
+                        style="max-width: 100%; max-height: 100%; width: auto; height: auto;">
+                        <source src="" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                    <div id="viewer-video-msg" style="position: absolute; color: #888;">No video selected</div>
+                </div>
+
+                <!-- Metadata Sidebar -->
+                <div style="flex: 0 0 500px; background: #252526; border-left: 1px solid #333; overflow-y: auto;">
+                    <div style="padding: 10px; font-weight: bold; background: #333; position: sticky; top: 0;">Metadata
+                    </div>
+                    <table id="viewer-metadata" style="width: 100%; border-collapse: collapse; font-size: 0.85em;">
+                        <tbody>
+                            <!-- Rows injected here -->
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<style>
+    #viewer-metadata td {
+        padding: 5px 10px;
+        border-bottom: 1px solid #333;
+        color: #ddd;
+        vertical-align: top;
+    }
+
+    #viewer-metadata td:first-child {
+        font-weight: bold;
+        color: #aaa;
+        min-width: 180px;
+        /* Enforce minimum width */
+        word-break: break-word;
+        /* Prevent aggressive breaking */
+    }
+
+    #viewer-metadata td:last-child {
+        min-width: 200px;
+        /* Give value column space too */
+        word-break: break-word;
+    }
+
+    #viewer-metadata tr:hover {
+        background: #2a2a2d;
+    }
+</style>
