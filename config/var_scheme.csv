@@ -1,6 +1,6 @@
 variable_name,scale,mapper,ignore_strings,splitter,missing_data_policy,unable_to_detect_policy,recode_func,role
 B_anchors,string,{},[],,keep,keep,recode_long_strings,skip
-B_challenges,collection,{},[], | ,empty,,recode_challenges,dummy
+B_challenges,collection,{},[], | ,empty,,recode_challenges,skip
 B_effectStickers,string,{},[],,keep,keep,recode_long_strings,skip
 B_source_app_language,categorical,{},[],,keep,,,skip
 B_source_browser_language,categorical,{},[],,keep,,,skip
@@ -35,10 +35,11 @@ G_sensitivity_score,ratio,{},[],,median,median,recode_scores,outcome
 G_speech_vs_music,ratio,{},[],,median,median,recode_speech_vs_music,outcome
 G_symbols_and_brands,collection,{},"['tiktok', 'tiktok logo']", | ,empty,empty,recode_stringified_list,dummy
 G_tiktok_native,dichotomous,{},[], | ,drop,keep,recode_stringified_list,dummy
-G_transcript_no_repetitions,string,{},[],,keep,keep,recode_long_strings,skip
+G_transcript_no_repetitions,string,{},[],,keep,keep,recode_long_strings,standard
 G_trend,dichotomous,{},[], | ,drop,keep,recode_stringified_list,dummy
 G_type_of_story,categorical,{},[], | ,keep,keep,recode_stringified_list,dummy
-item_id,string,{},[],,drop,,,skip
+item_id,string,{},[],,drop,,,standard
+S_challenges,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,dummy
 S_anchors,string,{},[],,keep,keep,recode_long_strings,skip
 S_author_nickname,string,{},[],,keep,keep,recode_long_strings,skip
 S_author_signature,string,{},[],,keep,keep,recode_long_strings,skip
@@ -46,7 +47,7 @@ S_author_uniqueId,string,{},[],,keep,keep,recode_long_strings,skip
 S_createTime,datetime,{},[],,drop,,,skip
 S_desc,raw,{},[],,keep,,recode_descriptions,raw
 S_desc_hashtags,collection,{},[],,,,,dummy
-S_desc_mentions,collection,{},[],,,,,dummy
+S_desc_mentions,collection,{},[],,,,,skip
 S_desc_not_hashtags,collection,{},[],,,,,dummy
 S_isAd,dichotomous,{},[], | ,zero,,recode_stringified_list,dummy
 S_IsAigc,dichotomous,{},[], | ,zero,,recode_stringified_list,dummy
@@ -55,6 +56,9 @@ S_music_authorName,string,{},[],,keep,keep,recode_long_strings,skip
 S_music_title,string,{},[],,keep,keep,recode_long_strings,skip
 S_poi_address,string,{},[],,keep,keep,recode_long_strings,skip
 S_poi_name,string,{},[],,keep,keep,recode_long_strings,skip
+S_poi_city,string,{},[],,keep,keep,recode_long_strings,skip
+S_poi_province,string,{},[],,keep,keep,recode_long_strings,skip
+S_poi_country,string,{},[],,keep,keep,recode_long_strings,skip
 S_stats_collectCount,ratio,{},[],,median,,,outcome
 S_stats_commentCount,ratio,{},[],,median,,,outcome
 S_stats_diggCount,ratio,{},[],,median,,,outcome
@@ -69,3 +73,17 @@ T_local_hour,interval,{},[],,drop,,,skip
 T_local_timestamp,datetime,{},[],,drop,,,skip
 T_local_week,factor,{},[],,drop,,,factor
 T_local_weekday,factor,{},[],,drop,,,factor
+G_text_overlays,string,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,standard
+G_video_story,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_CRA_symbolism_and_imagery,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_CRA_inclusion_and_exclusion,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_CRA_key_groups,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_CRA_complexity_vs_stereotypes,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_FA_attribution_of_responsibility,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_IA_critique_or_reinforcement,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_IA_power_dynamics,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_IA_cultural_or_historical_context,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_IA_dominant_ideologies,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_FA_treatment_recommendation,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_FA_problem_definition,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard
+G_FA_moral_evaluation,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard

@@ -42,9 +42,25 @@ def load_data(file_path):
         elif pd.api.types.is_numeric_dtype(df[col]):
             column_types[col] = "number"
         
-        # 3. Default to Category
+        # 3. Check for Long Text (if category/string)
         else:
-            column_types[col] = "category"
+            # Check average length of non-null values
+            sample = df[col].dropna().head(100).astype(str)
+            if not sample.empty:
+                mean_len = sample.str.len().mean()
+                if mean_len > 60: 
+                    column_types[col] = "long_text"
+                else:
+                    # Check for High Cardinality (Identifier)
+                    # If unique count is very high (>90% of non-null rows) and count > 100
+                    n_unique = df[col].nunique()
+                    n_rows = len(df[col].dropna())
+                    if n_rows > 100 and n_unique > 0.9 * n_rows:
+                        column_types[col] = "identifier"
+                    else:
+                        column_types[col] = "category"
+            else:
+                column_types[col] = "category"
 
     return df, column_types
 
@@ -64,15 +80,10 @@ def get_metadata(df, column_types):
                 "max": float(df[col].max()) if not df[col].empty else 0
             }
         elif dtype == "category":
-            # Limit unique values sent to frontend to avoid massive payloads
-            # Let's say top 100 or just all if < 500
-            unique_vals = df[col].dropna().unique().tolist()
-            if len(unique_vals) > 500:
-                 # If too many, maybe don't send them all? 
-                 # Or send top 500? For now, let's just sort and send.
-                 unique_vals = sorted([str(x) for x in unique_vals])[:500] 
-            else:
-                 unique_vals = sorted([str(x) for x in unique_vals])
+            # Strict limit for UI filters
+            # Only send top 50 most frequent values for filtering to save DOM
+            unique_vals = df[col].value_counts().head(50).index.tolist()
+            unique_vals = sorted([str(x) for x in unique_vals])
             
             metadata[col] = {
                 "type": "category",
@@ -81,25 +92,29 @@ def get_metadata(df, column_types):
         elif dtype == "list":
             # Extract all unique items from lists
             # Flatten
-            all_items = set()
+            all_items = []
             for row in df[col].dropna():
                 if isinstance(row, list):
-                    all_items.update(row)
+                    all_items.extend(row)
             
-            items_list = sorted([str(x) for x in list(all_items)])
+            # Use Counter to find top 50 tags
+            from collections import Counter
+            c = Counter(all_items)
+            items_list = sorted([str(x) for x, _ in c.most_common(50)])
+
             metadata[col] = {
                 "type": "list",
                 "values": items_list
             }
+        
+        # Explicitly ignore long_text and identifier
+        elif dtype in ["long_text", "identifier"]:
+            continue
             
     return metadata
 
 
 def filter_dataframe(df, column_types, filters):
-    """
-    Filters dataframe based on criteria.
-    filters: { col_name: { type: '...', value: ... } }
-    """
     filtered_df = df.copy()
 
     for col, criteria in filters.items():
@@ -113,7 +128,6 @@ def filter_dataframe(df, column_types, filters):
         dtype = column_types.get(col)
 
         if dtype == "number":
-            # Expecting value to be { min: ..., max: ... }
             min_val = val.get("min")
             max_val = val.get("max")
             if min_val is not None:
@@ -122,21 +136,12 @@ def filter_dataframe(df, column_types, filters):
                 filtered_df = filtered_df[filtered_df[col] <= float(max_val)]
 
         elif dtype == "category":
-            # Expecting value to be list of selected categories [CHECKED]
-            # or single value? Let's assume list for 'One of'
             if isinstance(val, list) and len(val) > 0:
-                # Filter rows where col is in val
-                # Convert to string for safety if category is mixed
                 filtered_df = filtered_df[filtered_df[col].astype(str).isin(val)]
         
         elif dtype == "list":
-            # Expecting value to be list of selected tags
-            # Logic: Row must contain ANY of the selected tags? Or ALL?
-            # Let's go with ANY for now (standard 'filter by tag' behavior)
             if isinstance(val, list) and len(val) > 0:
-                # Make set for O(1)
                 search_set = set(val)
-                # Apply is slow but convenient for lists
                 filtered_df = filtered_df[filtered_df[col].apply(lambda x: bool(set(x) & search_set) if isinstance(x, list) else False)]
 
     return filtered_df
@@ -154,21 +159,21 @@ def get_current_stats(df, column_types):
 
     for col, dtype in column_types.items():
         if dtype == "number":
-             # Box plot metrics
              desc = df[col].describe(percentiles=[.25, .5, .75])
              stats[col] = {
                  "min": float(desc['min']),
                  "q1": float(desc['25%']),
                  "median": float(desc['50%']),
-                 "mean": float(desc['mean']), # Keep mean just in case
+                 "mean": float(desc['mean']), 
                  "q3": float(desc['75%']),
                  "max": float(desc['max'])
              }
         
         elif dtype == "category":
-            # Full value counts for stacked bar
-            # Normalized? Let's send raw counts, frontend can normalize
-            stats[col] = df[col].value_counts().to_dict()
+            # Cap value counts for charts to Top 20
+            # Sending thousands of bars crashes frontend
+            vc = df[col].value_counts().head(20).to_dict()
+            stats[col] = vc
 
         elif dtype == "list":
             # Flatten and count
@@ -178,6 +183,7 @@ def get_current_stats(df, column_types):
                         all_items.extend(row)
             
             from collections import Counter
-            stats[col] = dict(Counter(all_items))
+            # Cap list items to Top 20
+            stats[col] = dict(Counter(all_items).most_common(20))
 
     return {"count": count, "stats": stats}

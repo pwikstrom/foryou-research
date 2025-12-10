@@ -481,7 +481,7 @@ def calculate_scaled_pca_scores(
                 max_components=15,
                 target_explained_variance=target_explained_variance,
                 drop_rare_globally_below=drop_rare_globally_below,
-                verbose=False)
+                verbose=verbose)
             wer.drop("top1", axis=1, inplace=True, errors="ignore")
             wer.columns = [c+"_"+col for col in wer.columns]
 

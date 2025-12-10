@@ -276,8 +276,12 @@ def recode_scores(
 
 
 def recode_long_strings(
+    
     s: str | list, 
     recoding_policy):
+
+    from copy import copy
+
     if not isinstance(s,(str,list)):
         return NOT_CODED
     if isinstance(s,list):
@@ -558,6 +562,7 @@ def recode_events_df(
     import pandas as pd
     from os.path import join, getctime, exists
     from datetime import datetime
+    from copy import copy
 
     print(f"Recoding variables, implementing missing data policy and a whole range of other things: Study:{study_name}")
 
@@ -571,7 +576,7 @@ def recode_events_df(
         cool_events_in = pd.read_pickle(log_path)
         print(f"Shape: {cool_events_in.shape}")
 
-    expected_columns = ['T_local_weekday', 'T_local_week', 'item_id',
+    """expected_columns = ['T_local_weekday', 'T_local_week', 'item_id',
         'T_local_day_segment', 'T_local_date', 'session_id', 'D_donation_id',
         'B_source_tz_name', 'S_video_duration',
         'S_stats_diggCount', 'S_stats_commentCount', 'S_stats_playCount',
@@ -586,8 +591,8 @@ def recode_events_df(
     if verbose:
         print(f"Expecting {len(expected_columns)} columns, found {len(list(set(expected_columns) & set(cool_events_in.columns)))}")
 
-    cool_events = cool_events_in[list(set(expected_columns) & set(cool_events_in.columns))].copy()
-
+    cool_events = cool_events_in[list(set(expected_columns) & set(cool_events_in.columns))].copy()"""
+    cool_events = cool_events_in.copy()
 
     var_scheme = pd.read_csv(join(fyp.cf['paths']['project_root'],"config","var_scheme.csv")).set_index("variable_name")#.T.to_dict()
 
@@ -600,7 +605,6 @@ def recode_events_df(
     variables_not_found_in_var_scheme = list(set(cool_events.columns) - set(var_scheme.index))
     if verbose:
         print(f"Dropping {len(variables_not_found_in_var_scheme)} columns not found in the variable scheme:\n - {"\n - ".join(variables_not_found_in_var_scheme)}")
-
     cool_events = cool_events.drop(columns=variables_not_found_in_var_scheme).copy()
     if verbose:
         print(cool_events.shape)
@@ -608,95 +612,102 @@ def recode_events_df(
     single_value_columns = [c for c in cool_events.columns if cool_events[c].nunique()==1]
     if verbose:
         print(f"Dropping {len(single_value_columns)} single value columns:\n - {"\n - ".join(single_value_columns)}")
-
     cool_events = cool_events.drop(columns=single_value_columns).copy()
     if verbose:
         print(cool_events.shape)
 
     if verbose:
         print("Recoding variables")
-    for c in cool_events.columns:
+    
+
+    cool_columns = copy(cool_events.columns)
+    # iterate over the columns in the events df
+    for c in cool_columns:
         if verbose:
             print(c, end=f"{' '*(40-len(c))}")
+
+        # if this is in the var_scheme...
         if c in var_scheme.index:
             this_var_scheme = var_scheme.loc[c].to_dict() 
 
-            # check outcomes that should be single values and pop the value out of entries that happen to be single element lists, e.g. ["yes"] -> "yes"
-            cool_types = cool_events[c].dropna().map(lambda x:type(x)).value_counts()
-            top_type = cool_types.index[0]
-            n_types = len(cool_types)
+            if this_var_scheme.get("role", "undefined") != "skip":
 
-            if n_types > 1 and top_type == list:
-                cool_events[c].map(lambda x:x if isinstance(x,list) else [x])
-            elif n_types > 1 and top_type == str:
-                cool_events[c].map(lambda x:x if isinstance(x,str) else x[0])
-            if n_types > 1:
-                raise ValueError(f" has {n_types} multiple types of values. Only a single type is allowed. {cool_types.to_dict()}")
+                # check outcomes that should be single values and pop the value out of entries that happen to be single element lists, e.g. ["yes"] -> "yes"
+                cool_types = cool_events[c].dropna().map(lambda x:type(x)).value_counts()
+                top_type = cool_types.index[0]
+                n_types = len(cool_types)
+
+                if n_types > 1 and top_type == list:
+                    cool_events[c].map(lambda x:x if isinstance(x,list) else [x])
+                elif n_types > 1 and top_type == str:
+                    cool_events[c].map(lambda x:x if isinstance(x,str) else x[0])
+                if n_types > 1:
+                    raise ValueError(f" has {n_types} multiple types of values. Only a single type is allowed. {cool_types.to_dict()}")
+
+
+                if not pd.isna(this_var_scheme.get("recode_func", None)):
+                    cool_events[c] = cool_events[c].map(lambda x:this_var_scheme["recode_func"](x,this_var_scheme))
+                    if verbose: print(f"recoded successfully ({this_var_scheme.get('scale', 'unknown scale')})")
+                else:
+                    if verbose: print(f"has no recode func, so no change ({this_var_scheme.get('scale', 'unknown scale')})")
+
+
+                # implement missing data and unable to detect policies
+                if (this_var_scheme.get('unable_to_detect_policy', 'unknown') == "median") or (this_var_scheme.get('missing_data_policy', 'unknown') == "median"):
+                    a_fine_median = cool_events[c].median()
+                else:
+                    a_fine_median = None
+
+                cool_events[c] = cool_events[c].map(lambda x:implement_unable_to_detect_policy(
+                    x,
+                    this_var_scheme.get("unable_to_detect_policy","No policy"),
+                    a_fine_median))
+
+                cool_events[c] = cool_events[c].map(lambda x:implement_missing_data_policy(
+                    x,
+                    this_var_scheme.get("missing_data_policy","No policy"),
+                    a_fine_median))
+
+
+                cool_types = cool_events[c].dropna().map(lambda x:type(x)).value_counts()
+                top_type = cool_types.index[0]
+                n_types = len(cool_types)
 
 
 
+                if (this_var_scheme["scale"] in ["categorical","dichotomous","ordinal","ratio","interval"]) and top_type == list:
+                    these_rows_have_multiple_values = cool_events[c].map(lambda x: isinstance(x,list) and len(x)>1)
+                    if these_rows_have_multiple_values.sum() > 0:
+                        print(f"{c} has {these_rows_have_multiple_values.sum()} values with more than one entry.")
+                        raise ValueError(f"{c} has {these_rows_have_multiple_values.sum()} values with more than one entry. Only a single value is allowed for categorical, dichotomous, ordinal, ratio, and interval variables.")
 
-            if not pd.isna(this_var_scheme.get("recode_func", None)):
-                cool_events[c] = cool_events[c].map(lambda x:this_var_scheme["recode_func"](x,this_var_scheme))
-                if verbose: print(f"recoded successfully ({this_var_scheme.get('scale', 'unknown scale')})")
+                    cool_events.loc[(~these_rows_have_multiple_values).index, c] = cool_events.loc[(~these_rows_have_multiple_values).index, c].map(lambda x:x[0] if not pd.isna(x) else x)
+
+
+
+                # for dichotomous variables, I only accept "yes" and "no" as values 
+                if (this_var_scheme["scale"] in ["dichotomous"]):
+
+                    if not set(cool_events[c].dropna().unique()) | {'yes','no'} == {'yes','no'}:
+                        raise ValueError(f"{c} is a dichotomous variable. Only 'yes', 'no' are accepted values. {c} has {cool_events[c].dropna().unique()}")
+                    
+
+                # for raw variables, I unpack the dicts into separate columns and drop the original column
+                if top_type == dict:
+                    if verbose:
+                        print("dict recoded to new variables")
+                    new_thing = pd.json_normalize(cool_events[c])
+                    new_thing = new_thing.add_prefix(f"{c}_")
+                    new_thing.index = cool_events.index
+                    cool_events = pd.concat([cool_events.drop(columns=[c]), new_thing], axis=1)
             else:
-                if verbose: print(f"has no recode func, so no change ({this_var_scheme.get('scale', 'unknown scale')})")
-
-
-
-
-            # implement missing data and unable to detect policies
-            if (this_var_scheme.get('unable_to_detect_policy', 'unknown') == "median") or (this_var_scheme.get('missing_data_policy', 'unknown') == "median"):
-                a_fine_median = cool_events[c].median()
-            else:
-                a_fine_median = None
-
-            cool_events[c] = cool_events[c].map(lambda x:implement_unable_to_detect_policy(
-                x,
-                this_var_scheme.get("unable_to_detect_policy","No policy"),
-                a_fine_median))
-
-            cool_events[c] = cool_events[c].map(lambda x:implement_missing_data_policy(
-                x,
-                this_var_scheme.get("missing_data_policy","No policy"),
-                a_fine_median))
-
-
-            cool_types = cool_events[c].dropna().map(lambda x:type(x)).value_counts()
-            top_type = cool_types.index[0]
-            n_types = len(cool_types)
-
-
-
-            if (this_var_scheme["scale"] in ["categorical","dichotomous","ordinal","ratio","interval"]) and top_type == list:
-                these_rows_have_multiple_values = cool_events[c].map(lambda x: isinstance(x,list) and len(x)>1)
-                if these_rows_have_multiple_values.sum() > 0:
-                    print(f"{c} has {these_rows_have_multiple_values.sum()} values with more than one entry.")
-                    raise ValueError(f"{c} has {these_rows_have_multiple_values.sum()} values with more than one entry. Only a single value is allowed for categorical, dichotomous, ordinal, ratio, and interval variables.")
-
-                cool_events.loc[(~these_rows_have_multiple_values).index, c] = cool_events.loc[(~these_rows_have_multiple_values).index, c].map(lambda x:x[0] if not pd.isna(x) else x)
-
-
-
-            # for dichotomous variables, I only accept "yes" and "no" as values 
-            if (this_var_scheme["scale"] in ["dichotomous"]):
-
-                if not set(cool_events[c].dropna().unique()) | {'yes','no'} == {'yes','no'}:
-                    raise ValueError(f"{c} is a dichotomous variable. Only 'yes', 'no' are accepted values. {c} has {cool_events[c].dropna().unique()}")
-                
-
-            # for raw variables, I unpack the dicts into separate columns and drop the original column
-            if top_type == dict:
                 if verbose:
-                    print("dict recoded to new variables")
-                new_thing = pd.json_normalize(cool_events[c])
-                new_thing = new_thing.add_prefix(f"{c}_")
-                new_thing.index = cool_events.index
-                cool_events = pd.concat([cool_events.drop(columns=[c]), new_thing], axis=1)
-
+                    print(f"Skipping {c}")
+                cool_events = cool_events.drop(columns=[c])
         else:
             if verbose:
                 print(f"not found in the variable scheme, so no change")
+            cool_events = cool_events.drop(columns=[c])
 
 
     cool_events['plays_per_day'] = cool_events['S_stats_playCount'] / cool_events['T_days_since_created'].map(lambda x:max(1,x))
