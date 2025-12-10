@@ -10,6 +10,10 @@ from datetime import datetime
 from collections import deque
 from pathlib import Path
 
+
+
+
+
 app = Flask(__name__)
 
 # --- Config ---
@@ -41,6 +45,28 @@ processes = {
 }
 
 process_stats = {}
+
+# --- Explorer State ---
+import explorer_backend as explorer
+EXPLORER_CSV_PATH = PROJECT_ROOT / "events_df_recoded_sample_1000.csv"
+explorer_df = None
+explorer_col_types = None
+explorer_total_stats = None
+
+def get_explorer_data():
+    global explorer_df, explorer_col_types, explorer_total_stats
+    if explorer_df is None:
+        if EXPLORER_CSV_PATH.exists():
+            print(f"Loading Explorer CSV from {EXPLORER_CSV_PATH}...")
+            explorer_df, explorer_col_types = explorer.load_data(str(EXPLORER_CSV_PATH))
+            print("Explorer CSV loaded. Computing total stats...")
+            res = explorer.get_current_stats(explorer_df, explorer_col_types)
+            explorer_total_stats = res['stats']
+            print("Total stats computed.")
+        else:
+            print(f"Explorer CSV not found at {EXPLORER_CSV_PATH}")
+            return None, None
+    return explorer_df, explorer_col_types
 
 def load_process_stats():
     global process_stats
@@ -181,6 +207,13 @@ def api_start(name):
     if "study_name" in data:
         args.append(data["study_name"])
 
+    # Pass batch controls for downloader and annotator
+    if name in ["downloader", "annotator"]:
+        if data.get("batch_size") and data["batch_size"].strip():
+             args.extend(["--batch-size", str(data["batch_size"])])
+        if data.get("max_batches") and data["max_batches"].strip():
+             args.extend(["--max-batches", str(data["max_batches"])])
+
     # Pass testing flag if present
     if data.get("testing"):
         args.append("--testing") # Or however the scripts handle it. 
@@ -294,6 +327,34 @@ def api_config():
             return jsonify({"status": "error", "message": str(e)}), 500
 
 
+
+
+
+@app.route('/api/explorer/metadata', methods=['GET'])
+def api_explorer_metadata():
+    df, col_types = get_explorer_data()
+    if df is None:
+        return jsonify({"error": "Dataset not found"}), 404
+    
+    metadata = explorer.get_metadata(df, col_types)
+    # Inject total stats so frontend knows baseline
+    metadata['total_stats'] = explorer_total_stats
+    return jsonify(metadata)
+
+
+@app.route('/api/explorer/filter', methods=['POST'])
+def api_explorer_filter():
+    df, col_types = get_explorer_data()
+    if df is None:
+        return jsonify({"error": "Dataset not found"}), 404
+    
+    data = request.json or {}
+    filters = data.get("filters", {})
+    
+    filtered_df = explorer.filter_dataframe(df, col_types, filters)
+    result = explorer.get_current_stats(filtered_df, col_types)
+    
+    return jsonify(result)
 
 
 if __name__ == '__main__':

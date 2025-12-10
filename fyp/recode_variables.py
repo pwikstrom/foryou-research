@@ -556,14 +556,16 @@ def recode_events_df(
     verbose = False):
 
     import pandas as pd
-    from os.path import join, getctime
+    from os.path import join, getctime, exists
     from datetime import datetime
 
     print(f"Recoding variables, implementing missing data policy and a whole range of other things: Study:{study_name}")
 
-    log_path = join(fyp.cf['paths']['exports'],f"{study_name}_LOG.pkl")
 
     if cool_events_in is None:
+        log_path = join(fyp.cf['paths']['exports'],f"{study_name}_LOG.pkl")
+        if not exists(log_path):
+            raise FileNotFoundError(f"Log file not found at: {log_path}")
         nice_time = datetime.fromtimestamp(getctime(log_path)).strftime('%Y-%m-%d %H:%M:%S')
         print(f"Loading events file in export folder, created at: {nice_time}", end=" ", flush=True)
         cool_events_in = pd.read_pickle(log_path)
@@ -719,11 +721,11 @@ def recode_events_df(
 
     cool_events = cool_events[sorted(cool_events.columns)]
 
-    log_filename = f"{study_name}_RECODED.pkl"
+    recoded_filename = f"{study_name}_RECODED.pkl"
     export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
 
-    cool_events.to_pickle(join(fyp.cf['paths']['exports'],log_filename))
-    print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,log_filename)}.")
+    cool_events.to_pickle(join(fyp.cf['paths']['exports'],recoded_filename))
+    print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,recoded_filename)}.")
     print(f"Now: {datetime.now()}")
     print("--"*60)
 

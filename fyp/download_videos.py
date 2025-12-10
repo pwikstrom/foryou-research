@@ -403,7 +403,7 @@ def start_monitor(futures, submit_times, interval=5, label="monitor", bar_width=
 
 
 
-def download_video_threads(interesting_videos, max_workers=4):
+def download_video_threads(interesting_videos, max_workers=4, verbose=False):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from pandas import concat, DataFrame
     from datetime import datetime
@@ -419,9 +419,10 @@ def download_video_threads(interesting_videos, max_workers=4):
 
     def worker(idx_video):
         idx, video = idx_video
-        return idx, download_single_video(video, verbose=False)
+        return idx, download_single_video(video, verbose=verbose)
 
-    print(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
+    if verbose:
+        print(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
 
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -483,7 +484,7 @@ def download_video_threads(interesting_videos, max_workers=4):
 
 
 
-def download_videos_loop(study_name, batch_size = 500):
+def download_videos_loop(study_name, batch_size = 500, max_batches = None, verbose = False):
 
     from datetime import datetime
     from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked
@@ -494,14 +495,16 @@ def download_videos_loop(study_name, batch_size = 500):
     if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
         print("!!! TEST MODE ENABLED - Doing a mini batch once!!!")
         batch_size = 10
+        max_batches = 1
 
 
-    print(f"Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}")
+    print(f"Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
     print(f"Now: {datetime.now()}")
     print("##"*60)
 
 
     selected_videos = [0] # just a non-empty list to get things started
+    batch_number = 1
 
     print("Starting loop...")
     while len(selected_videos)>0:
@@ -514,7 +517,7 @@ def download_videos_loop(study_name, batch_size = 500):
             INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
             INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
             INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            verbose = True
+            verbose = verbose
         )
 
 
@@ -524,14 +527,15 @@ def download_videos_loop(study_name, batch_size = 500):
 
             print(f"{len(work_with_these_videos_list):,} videos to process for study '{study_name}'")
 
-            _ = download_video_threads(work_with_these_videos_list[:batch_size], max_workers=4)
+            _ = download_video_threads(work_with_these_videos_list[:batch_size], max_workers=4, verbose = verbose)
         
         if selected_videos is None:
             selected_videos = []
 
-        if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
-            print("!!! TEST MODE ENABLED - Breaking after a single iteration!!!")
+        if max_batches is not None and batch_number >= max_batches:
             break
+
+        batch_number += 1
 
 
     print(f"Loop ended: {datetime.now()}")

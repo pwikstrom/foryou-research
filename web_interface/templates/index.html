@@ -7,6 +7,7 @@
     <button class="tab-button" onclick="openTab(event, 'scrape_annotate')">Scrape & Annotate</button>
     <button class="tab-button" onclick="openTab(event, 'data_overview')">Data Overview</button>
     <button class="tab-button" onclick="openTab(event, 'build_datasets')">Build Datasets</button>
+    <button class="tab-button" onclick="openTab(event, 'dataset_explorer')">Dataset Explorer</button>
     <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
 </div>
 
@@ -15,6 +16,7 @@
     {% include 'tabs/scrape_annotate.html' %}
     {% include 'tabs/data_overview.html' %}
     {% include 'tabs/build_datasets.html' %}
+    {% include 'tabs/dataset_explorer.html' %}
     {% include 'tabs/settings.html' %}
 </div>
 {% endblock %}

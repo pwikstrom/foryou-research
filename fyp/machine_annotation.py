@@ -1093,21 +1093,17 @@ def _post_process_raw_annotations(raw_outputs_from_machine, verbose = False):
     found_all_required_keys = True
     for rk in REQUIRED_KEYS:
         if not rk in outputs_from_machine_df.columns:
-            print(f"WARNING: Required key '{rk}' is missing in machine output DF. Returning None")
+            print(f"WARNING: Essential column '{rk}' is missing in machine output DF. Returning None")
             found_all_required_keys = False
 
-    if found_all_required_keys:
+    if verbose:
+        print("Consolidating rare columns from machine annotations")
+    outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose=verbose)
 
-        if verbose:
-            print("Consolidating rare columns from machine annotations")
-        outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose=verbose)
-
+    if 'transcript' in outputs_from_machine_df.columns:
         if verbose:
             print("Removing repetitions from machine annotation transcripts")
         outputs_from_machine_df = remove_repetitions_from_transcripts(outputs_from_machine_df, verbose=verbose)
-
-    else:
-        print("Not consolidating rare columns or removing repetitions from transcript since some required keys are missing from machine output")
 
     if verbose:
         print("Ready to save processed results")
@@ -1217,7 +1213,7 @@ def post_process_raw_annotations_from_json_file(json_file, verbose = False):
 
 
 
-def annotate_videos_loop(study_name, batch_size = 500):
+def annotate_videos_loop(study_name, batch_size = 500, max_batches = None, verbose = False):
 
     from datetime import datetime
     from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked, load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
@@ -1225,7 +1221,7 @@ def annotate_videos_loop(study_name, batch_size = 500):
     from os.path import join
     import json
 
-    print(f"Annotating downloaded videos, study '{study_name}', batch size: {batch_size}")
+    print(f"Annotating downloaded videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
     print(f"Now: {datetime.now()}")
     print("##"*60)
 
@@ -1233,12 +1229,14 @@ def annotate_videos_loop(study_name, batch_size = 500):
     if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
         print("!!! TEST MODE ENABLED - Doing a mini batch once!!!")
         batch_size = 10
+        max_batches = 1
     # -----------------
 
 
 
 
     selected_videos = [0] # just a list that contains anything and that is longer than zero elements to get things started
+    batch_number = 1
 
     print("Starting loop...")
     while len(selected_videos)>0:
@@ -1251,7 +1249,7 @@ def annotate_videos_loop(study_name, batch_size = 500):
             INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
             INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
             INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            verbose = False
+            verbose = verbose
         )
 
 
@@ -1261,15 +1259,15 @@ def annotate_videos_loop(study_name, batch_size = 500):
 
             print(f"{len(work_with_these_videos_list):,} videos selected")
 
-            _ = annotate_from_list(work_with_these_videos_list[:batch_size], verbose = False)
+            _ = annotate_from_list(work_with_these_videos_list[:batch_size], verbose = verbose)
         
         if selected_videos is None:
             selected_videos = []
 
-        if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
-            print("!!! TEST MODE ENABLED - Breaking after a single iteration!!!")
+        if max_batches is not None and batch_number >= max_batches:
             break
 
+        batch_number += 1
 
 
 

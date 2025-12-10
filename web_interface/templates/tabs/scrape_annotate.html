@@ -4,10 +4,21 @@
         style="margin-bottom: 20px; display: flex; flex-direction: row; align-items: center; gap: 20px; padding: 5px 15px; width: auto; flex: 0 0 auto;">
         <input type="text" id="global-study-name" placeholder="Study Name" value="everything"
             style="width: 25ch; border: 1px solid #3e3e42; background: #3c3c3c; color: #d4d4d4; padding: 5px;">
-        <label style="font-size: 0.9em; display: flex; align-items: center; cursor: pointer; white-space: nowrap;">
 
-            <input type="checkbox" id="global-test-mode" style="margin-right: 5px;"> Test Mode
-        </label>
+
+        <div style="width: 1px; height: 20px; background: #3e3e42; margin: 0 10px;"></div>
+
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+            <label style="font-size: 0.8em; color: #a0a0a0;">Batch Size</label>
+            <input type="number" id="global-batch-size" value="500"
+                style="width: 80px; border: 1px solid #3e3e42; background: #3c3c3c; color: #d4d4d4; padding: 3px;">
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+            <label style="font-size: 0.8em; color: #a0a0a0;">Max Batches</label>
+            <input type="number" id="global-max-batches" placeholder="Inf"
+                style="width: 80px; border: 1px solid #3e3e42; background: #3c3c3c; color: #d4d4d4; padding: 3px;">
+        </div>
 
         <!-- Discreet Process Control -->
         <div class="discreet-control" id="control-regenerate_datasets">
@@ -45,7 +56,11 @@
             <!-- Monitor Panel -->
             <div class="panel" style="flex: 1;">
                 <div class="header">
-                    <h2>Monitor & Annotate</h2>
+                    <h2>Monitor Downloads & Auto Annotate</h2>
+                    <label
+                        style="font-size: 0.8em; display: flex; align-items: center; cursor: pointer; margin-left: auto; margin-right: 15px; color: #a0a0a0;">
+                        <input type="checkbox" id="monitor-auto-start" checked style="margin-right: 5px;"> Auto start
+                    </label>
                     <div class="controls">
                         <span id="monitor-status" class="status-indicator status-stopped"></span>
                         <button class="btn-start" onclick="startProcess('monitor')">Start</button>

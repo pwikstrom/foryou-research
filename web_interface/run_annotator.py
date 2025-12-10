@@ -9,15 +9,28 @@ sys.path.append(str(project_root))
 import fyp.machine_annotation as ma
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        study_name = sys.argv[1]
-    else:
-        study_name = "everything" # Default or raise error
+    import argparse
+    import traceback
     
-    print(f"Starting annotator for study: {study_name}")
+    parser = argparse.ArgumentParser(description="Run annotator")
+    parser.add_argument("study_name", help="Name of the study")
+    parser.add_argument("--batch-size", type=int, default=500, help="Batch size")
+    parser.add_argument("--max-batches", type=int, default=None, help="Max batches")
+    parser.add_argument("--testing", action="store_true", help="Enable test mode")
+    
+    args = parser.parse_args()
+
+    print(f"Starting annotator for study: {args.study_name}")
+    print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
+
     try:
-        ma.annotate_videos_loop(study_name)
-    except KeyboardInterrupt:
-        print("\nAnnotator stopped by user.")
+        ma.annotate_videos_loop(
+            study_name=args.study_name,
+            batch_size=args.batch_size,
+            max_batches=args.max_batches
+        )
+        print("Annotator process completed.")
     except Exception as e:
-        print(f"Annotator crashed: {e}")
+        print(f"Annotator failed: {e}")
+        traceback.print_exc()
+        sys.exit(1)

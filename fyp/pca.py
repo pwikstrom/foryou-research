@@ -413,7 +413,7 @@ def calculate_scaled_pca_scores(
 
 ):
     from pandas import NamedAgg, MultiIndex, DataFrame, concat, read_pickle
-    from os.path import join, getctime
+    from os.path import join, getctime, exists
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.recode_variables import get_factors_and_features_from_var_scheme
@@ -422,9 +422,11 @@ def calculate_scaled_pca_scores(
     print(f"Performing Principal Component Analysis based on {" | ".join(selected_factors)}. Study: '{study_name}'")
     print(f"Now: {datetime.now()}")
 
-    recoded_path = join(fyp.cf['paths']['exports'],f"{study_name}_RECODED.pkl")
 
     if some_events_df is None:
+        recoded_path = join(fyp.cf['paths']['exports'],f"{study_name}_RECODED.pkl")
+        if not exists(recoded_path):
+            raise FileNotFoundError(f"Recoded events file not found at: {recoded_path}")
         nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
         print(f"Loading recoded events file in export folder, created at: {nice_time}", end=" ", flush=True)
         some_events_df = read_pickle(recoded_path)
@@ -501,16 +503,9 @@ def calculate_scaled_pca_scores(
         print()
         print(f"Rows: {len(events_pca_scores):,} -- Cols: {len(events_pca_scores.columns):,}")
 
-    pca_filename = f"{study_name}_PCA.pkl"
-    export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
-
 
     if not scale_it:
-        events_pca_scores.to_pickle(join(fyp.cf['paths']['exports'],pca_filename))
-        if verbose:
-            print(f"Exported {len(events_pca_scores):,} PCA scores (NOT SCALED) in {join(export_sub_folder_name,pca_filename)}.")
-            print(f"Now: {datetime.now()}")
-            print("=="*60)
+        print("Not scaling the scores and not saving them either")
         return events_pca_scores
 
     if verbose:
@@ -529,6 +524,10 @@ def calculate_scaled_pca_scores(
 
     if verbose:
         print(f"Rows: {len(events_pca_scores_scaled):,} -- Cols: {len(events_pca_scores_scaled.columns):,}")
+
+
+    pca_filename = f"{study_name}_PCA.pkl"
+    export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
 
     events_pca_scores_scaled.to_pickle(join(fyp.cf['paths']['exports'],pca_filename))
     print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")

@@ -19,17 +19,26 @@ async function startProcess(name) {
         studyNameInputId = 'build-study-name';
     }
 
-    const isTest = document.getElementById('global-test-mode') ? document.getElementById('global-test-mode').checked : false;
+
     const studyName = document.getElementById(studyNameInputId).value;
+    const batchSize = document.getElementById('global-batch-size') ? document.getElementById('global-batch-size').value : null;
+    const maxBatches = document.getElementById('global-max-batches') ? document.getElementById('global-max-batches').value : null;
 
     if (['downloader', 'annotator', 'create_subsets', 'regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'].includes(name)) {
         if (!studyName) {
             alert("Please enter a study name.");
             return;
         }
-        body = { study_name: studyName, testing: isTest };
+        body = {
+            study_name: studyName,
+            batch_size: batchSize,
+            max_batches: maxBatches
+        };
     } else {
-        body = { testing: isTest };
+        body = {
+            batch_size: batchSize,
+            max_batches: maxBatches
+        };
     }
     try {
         const res = await fetch(`/api/start/${name}`, {
@@ -44,6 +53,16 @@ async function startProcess(name) {
         updateStatus();
     } catch (e) {
         console.error(e);
+    }
+
+    // Auto-start Monitor if Downloader is starting and checkbox is checked
+    if (name === 'downloader') {
+        const autoStart = document.getElementById('monitor-auto-start');
+        if (autoStart && autoStart.checked) {
+            setTimeout(() => {
+                startProcess('monitor');
+            }, 1000); // 1 second delay
+        }
     }
 }
 
@@ -115,7 +134,8 @@ function setStatus(name, data) {
         if (Object.keys(info).length > 0 && info.total > 0) {
             const pct = (info.done / info.total) * 100;
             bar.style.width = `${pct}%`;
-            text.innerText = `${info.done.toLocaleString()} / ${info.total.toLocaleString()} (${pct.toFixed(1)}%) - ${info.rate.toFixed(2)}/s - ETA ${info.eta}`;
+            const etaStr = formatETA(info.eta);
+            text.innerText = `${info.done.toLocaleString()} / ${info.total.toLocaleString()} (${pct.toFixed(1)}%) - ${info.rate.toFixed(2)}/s - ETA ${etaStr}`;
         } else {
             if (status === 'stopped') {
                 // bar.style.width = '0%';
@@ -196,6 +216,28 @@ function renderSubsetChart(data) {
     };
 
     Plotly.react('subsets-pie-chart', plotData, layout, { displayModeBar: false });
+}
+
+function formatETA(seconds) {
+    if (seconds === undefined || seconds === null) return "--";
+    let val = parseFloat(seconds);
+    if (isNaN(val)) return seconds;
+
+    // Use absolute value just in case, though ETA shouldn't be negative
+    val = Math.abs(val);
+
+    let h = Math.floor(val / 3600);
+    let rem = val % 3600;
+    let m = Math.floor(rem / 60);
+    let s = Math.floor(rem % 60);
+
+    let str = "";
+    if (h > 0) str += h + "h";
+    if (m > 0) str += m + "m";
+    if (s > 0) str += s + "s";
+
+    if (str === "") return "0s";
+    return str;
 }
 
 async function updateLogs() {

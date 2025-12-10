@@ -1,0 +1,28 @@
+<div id="dataset_explorer" class="tab-pane">
+    <div class="container" style="display: flex; flex-direction: row; height: calc(100vh - 120px); gap: 20px;">
+
+        <!-- Filters Panel (Left) -->
+        <div class="panel" style="flex: 0 0 350px; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="header" style="flex: 0 0 auto;">
+                <h2>Filters</h2>
+                <button class="btn-save" onclick="resetFilters()">Reset</button>
+            </div>
+            <div id="explorer-filters" style="flex: 1; overflow-y: auto; padding-right: 5px;">
+                <!-- Filter widgets injected here by JS -->
+                <div style="text-align: center; margin-top: 20px; color: #777;">Loading filters...</div>
+            </div>
+        </div>
+
+        <!-- Stats Panel (Right) -->
+        <div class="panel" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="header" style="flex: 0 0 auto;">
+                <h2>Statistics</h2>
+                <div id="explorer-count" style="font-size: 1.2em; color: #4CAF50;">Loading data...</div>
+            </div>
+            <div id="explorer-stats" style="flex: 1; overflow-y: auto; padding: 10px;">
+                <!-- Stats injected here by JS -->
+            </div>
+        </div>
+
+    </div>
+</div>
