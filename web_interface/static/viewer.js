@@ -347,29 +347,7 @@ function renderMetadata(item) {
     const tbody = document.getElementById('viewer-metadata').querySelector('tbody');
     tbody.innerHTML = '';
 
-    const priorityList = [
-        'item_id',
-        'G_video_story',
-        'S_desc_raw', 'S_desc_hashtags',
-        'S_author_signature',
-        'G_transcript_no_repetitions',
-        'G_type_of_story',
-        'G_main_activity',
-        'G_content_category',
-        'G_australian_relevance', 'G_trend',
-        'G_advertising', 'S_isAd',
-        'G_aigc', 'G_tiktok_native',
-        'G_symbols_and_brands',
-        'S_stats_collectCount', 'S_stats_commentCount', 'S_stats_diggCount',
-        'S_stats_playCount', 'S_stats_shareCount', 'plays_per_day',
-        'S_video_duration', 'T_days_since_created',
-        'T_local_date', 'T_local_day_segment',
-        'T_local_week', 'T_local_weekday', 'D_donation_id', 'B_source_tz_name',
-        'G_background_music', 'G_notable_sounds', 'G_speech_vs_music',
-        'G_text_overlays', 'G_objects',
-        'S_challenges', 'G_call_to_action_words',
-        'G_political_score', 'G_sensitivity_score',
-        'G_faces_age_estimate', 'G_main_ethnicity', 'G_main_gender'];
+    const priorityList = viewerData.metadata && viewerData.metadata.priority_list ? viewerData.metadata.priority_list : [];
 
 
 

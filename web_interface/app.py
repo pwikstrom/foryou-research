@@ -10,6 +10,7 @@ from datetime import datetime
 from collections import deque
 from pathlib import Path
 import numpy as np
+import pandas as pd
 
 
 
@@ -376,6 +377,23 @@ def api_explorer_metadata():
     metadata = explorer.get_metadata(df, col_types)
     # Inject total stats so frontend knows baseline
     metadata['total_stats'] = explorer_total_stats
+
+    # Inject priority list from var_scheme.csv
+    try:
+        var_scheme_path = PROJECT_ROOT / "config" / "var_scheme.csv"
+        if var_scheme_path.exists():
+            scheme_df = pd.read_csv(var_scheme_path)
+            # Filter rows with numeric web_display_prio
+            # Ensure it's numeric, drop NaNs
+            scheme_df['web_display_prio'] = pd.to_numeric(scheme_df['web_display_prio'], errors='coerce')
+            sorted_vars = scheme_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')['variable_name'].tolist()
+            metadata['priority_list'] = sorted_vars
+        else:
+            metadata['priority_list'] = []
+    except Exception as e:
+        print(f"Error loading priority list: {e}")
+        metadata['priority_list'] = []
+
     return jsonify(metadata)
 
 
