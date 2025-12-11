@@ -6,6 +6,8 @@ let viewerData = {
     activeStudy: null,
     filteredIds: [],
     itemCount: 0,
+    searchQuery: "",
+    sortBy: null,
     currentIndex: -1
 };
 
@@ -14,6 +16,25 @@ document.addEventListener('DOMContentLoaded', function () {
     // Only init if tab exists
     if (document.getElementById('video_viewer')) {
         loadViewerStudies();
+
+        // Search Input Listener
+        const searchInput = document.getElementById('viewer-search-input');
+        if (searchInput) {
+            // Note: Unlike explorer, we might not auto-apply on input change if it's too heavy?
+            // "applyViewerFilters" is manual. So we just update state.
+            // But user might expect search to be live?
+            // Explorer is live (debounced). Viewer requires "Apply". 
+            // Let's stick to "Apply" paradigm for Viewer to match existing UI flow, OR make it live?
+            // User did not specify. Explorer was live (auto updateStats).
+            // Viewer has explicit "Apply Filters" button (line 27 html).
+            // So we should just update the state, and let user click Apply.
+            // OR we can make it auto-apply.
+            // Given "Add it to the video viewer filter as well", and Viewer has explicit Apply, simply updating state is safest.
+
+            searchInput.addEventListener('input', (e) => {
+                viewerData.searchQuery = e.target.value;
+            });
+        }
     }
 });
 
@@ -104,6 +125,27 @@ function renderViewerFilters(metadata) {
 
     const sortedCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
 
+    // Populate Sort Dropdown
+    const sortSelect = document.getElementById('viewer-sort-select');
+    if (sortSelect) {
+        // Only repopulate if empty or changed? 
+        // Simpler to just repopulate on metadata load.
+        const currentVal = sortSelect.value || viewerData.sortBy;
+        sortSelect.innerHTML = '<option value="">Default (Unsorted)</option>';
+
+        sortedCols.forEach(col => {
+            const opt = document.createElement('option');
+            opt.value = col;
+            opt.text = col;
+            if (currentVal === col) opt.selected = true;
+            sortSelect.appendChild(opt);
+        });
+
+        sortSelect.onchange = (e) => {
+            viewerData.sortBy = e.target.value;
+        };
+    }
+
     sortedCols.forEach(col => {
         const info = metadata[col];
         const wrapper = document.createElement('div');
@@ -154,17 +196,36 @@ function renderViewerFilters(metadata) {
                 item.style.display = 'flex';
                 item.style.alignItems = 'center';
 
+                let actualValue = val;
+                let displayValue = val;
+
+                // Handle new object format {value: "v", count: 123}
+                if (typeof val === 'object' && val !== null && val.value !== undefined) {
+                    actualValue = val.value;
+                    displayValue = `${val.value} (${val.count.toLocaleString()})`;
+                }
+
                 const cb = document.createElement('input');
                 cb.type = 'checkbox';
-                cb.value = val;
+                cb.value = actualValue;
+                cb.dataset.rawValue = actualValue;
                 cb.style.marginRight = '5px';
+
+                // Restore checked state if filter exists
+                if (viewerData.filters[col] && Array.isArray(viewerData.filters[col].value)) {
+                    if (viewerData.filters[col].value.includes(actualValue)) {
+                        cb.checked = true;
+                    }
+                }
+
                 cb.onchange = () => {
-                    const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.value);
+                    const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
+                    console.log(`Viewer filtering ${col} with:`, checked);
                     setViewerFilter(col, info.type, 'list', checked);
                 };
 
                 const span = document.createElement('span');
-                span.innerText = val;
+                span.innerText = displayValue;
                 span.style.fontSize = '0.9em';
 
                 item.appendChild(cb);
@@ -196,6 +257,11 @@ function setViewerFilter(col, type, subtype, value) {
 
 function resetViewerFilters() {
     viewerData.filters = {};
+    viewerData.searchQuery = "";
+
+    const searchInput = document.getElementById('viewer-search-input');
+    if (searchInput) searchInput.value = "";
+
     loadViewerMetadata(); // Re-render to clear inputs
 }
 
@@ -208,7 +274,9 @@ async function applyViewerFilters() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 study: viewerData.activeStudy,
-                filters: viewerData.filters
+                filters: viewerData.filters,
+                search_query: viewerData.searchQuery,
+                sort_by: viewerData.sortBy
             })
         });
         const data = await res.json();
@@ -279,21 +347,85 @@ function renderMetadata(item) {
     const tbody = document.getElementById('viewer-metadata').querySelector('tbody');
     tbody.innerHTML = '';
 
-    Object.keys(item).sort().forEach(key => {
+    const priorityList = [
+        'item_id',
+        'G_video_story',
+        'S_desc_raw', 'S_desc_hashtags',
+        'S_author_signature',
+        'G_transcript_no_repetitions',
+        'G_type_of_story',
+        'G_main_activity',
+        'G_content_category',
+        'G_australian_relevance', 'G_trend',
+        'G_advertising', 'S_isAd',
+        'G_aigc', 'G_tiktok_native',
+        'G_symbols_and_brands',
+        'S_stats_collectCount', 'S_stats_commentCount', 'S_stats_diggCount',
+        'S_stats_playCount', 'S_stats_shareCount', 'plays_per_day',
+        'S_video_duration', 'T_days_since_created',
+        'T_local_date', 'T_local_day_segment',
+        'T_local_week', 'T_local_weekday', 'D_donation_id', 'B_source_tz_name',
+        'G_background_music', 'G_notable_sounds', 'G_speech_vs_music',
+        'G_text_overlays', 'G_objects',
+        'S_challenges', 'G_call_to_action_words',
+        'G_political_score', 'G_sensitivity_score',
+        'G_faces_age_estimate', 'G_main_ethnicity', 'G_main_gender'];
+
+
+
+
+    const keys = Object.keys(item).sort((a, b) => {
+        const idxA = priorityList.indexOf(a);
+        const idxB = priorityList.indexOf(b);
+
+        // If both in list, sort by index
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+
+        // If only A in list, A comes first
+        if (idxA !== -1) return -1;
+
+        // If only B in list, B comes first
+        if (idxB !== -1) return 1;
+
+        // Neither in list: alphabetical fallback
+        return a.localeCompare(b);
+    });
+
+    keys.forEach(key => {
         const tr = document.createElement('tr');
         const tdKey = document.createElement('td');
         tdKey.innerText = key;
         const tdVal = document.createElement('td');
 
         let val = item[key];
-        if (typeof val === 'object' && val !== null) val = JSON.stringify(val);
-        tdVal.innerText = val !== null ? val : '';
+        let displayVal = '';
+
+        if (val === null || val === undefined) {
+            displayVal = '';
+        } else if (Array.isArray(val)) {
+            displayVal = val.join(', ');
+        } else if (typeof val === 'number') {
+            // Check for ID columns to keep as raw string
+            // "interpret item_id as a string"
+            if (key === 'item_id' || key === 'video_id' || key === 'G_id') {
+                displayVal = String(val);
+            } else {
+                displayVal = val.toLocaleString();
+            }
+        } else if (typeof val === 'object') {
+            displayVal = JSON.stringify(val);
+        } else {
+            displayVal = String(val);
+        }
+
+        tdVal.innerText = displayVal;
 
         tr.appendChild(tdKey);
         tr.appendChild(tdVal);
         tbody.appendChild(tr);
     });
 }
+
 
 function nextVideo() {
     if (viewerData.currentIndex < viewerData.itemCount - 1) {

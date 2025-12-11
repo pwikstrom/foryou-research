@@ -10,6 +10,13 @@
             style="width: 300px; padding: 5px; background: #3c3c3c; border: 1px solid #555; color: white;">
             <option value="" disabled selected>Select a study...</option>
         </select>
+
+        <label for="viewer-sort-select"
+            style="margin-right: 10px; margin-left: 20px; font-weight: bold; color: #eee;">Sort By:</label>
+        <select id="viewer-sort-select" class="dropdown"
+            style="width: 200px; padding: 5px; background: #3c3c3c; border: 1px solid #555; color: white;">
+            <option value="" selected>Default (Unsorted)</option>
+        </select>
     </div>
 
     <div class="container" style="display: flex; flex-direction: row; height: calc(100vh - 180px); gap: 20px;">
@@ -19,6 +26,10 @@
             <div class="header" style="flex: 0 0 auto;">
                 <h2>Filters</h2>
                 <button class="btn-save" onclick="resetViewerFilters()">Reset Filters</button>
+            </div>
+            <div style="padding: 10px; border-bottom: 1px solid #3e3e42; flex: 0 0 auto;">
+                <input type="text" id="viewer-search-input" placeholder="Search... (comma separated)"
+                    style="width: 100%; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white; border-radius: 4px;">
             </div>
             <div id="viewer-filters" style="flex: 1; overflow-y: auto; padding-right: 5px;">
                 <!-- Filter widgets injected here via JS -->

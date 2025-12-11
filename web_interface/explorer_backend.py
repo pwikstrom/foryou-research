@@ -40,14 +40,30 @@ def load_data(file_path):
         
         # 2. Check for Number
         elif pd.api.types.is_numeric_dtype(df[col]):
-            column_types[col] = "number"
+            # Sanity Check: If numbers are huge (e.g. IDs), do not treat as continuous number for plotting
+            # 1e15 is a safe upper bound for "counts" or "durations". 
+            # Snowflake IDs are ~1e18.
+            # Timestamps (ms) are ~1.7e12 (now) to 1e13.
+            try:
+                # Use max of non-nulls
+                max_val = df[col].max()
+                if max_val > 1e15:
+                    column_types[col] = "identifier" # Or category
+                else:
+                    column_types[col] = "number"
+            except:
+                 column_types[col] = "number"
         
         # 3. Check for Long Text (if category/string)
         else:
             # Check average length of non-null values
-            sample = df[col].dropna().head(100).astype(str)
+            sample = df[col].dropna() # don't count null values
+            sample = sample[sample!="oThEr tHiNgS-+-"]
+            sample = sample.map(lambda x: len(str(x)))
+            sample = sample[sample > 0] # don't count empty strings
+            sample = sample.head(1000)
             if not sample.empty:
-                mean_len = sample.str.len().mean()
+                mean_len = sample.mean()
                 if mean_len > 60: 
                     column_types[col] = "long_text"
                 else:
@@ -65,6 +81,25 @@ def load_data(file_path):
     return df, column_types
 
 
+def get_robust_bounds(series):
+    """
+    Calculates 1st and 99th percentiles to exclude extreme outliers.
+    """
+    if series.empty:
+        return 0, 0
+    
+    # Drop NaNs
+    s = series.dropna()
+    if s.empty:
+        return 0, 0
+
+    # Calculate percentiles
+    low = np.percentile(s, 1)
+    high = np.percentile(s, 99)
+    
+    return float(low), float(high)
+
+
 def get_metadata(df, column_types):
     """
     Returns metadata for frontend:
@@ -74,16 +109,21 @@ def get_metadata(df, column_types):
     metadata = {}
     for col, dtype in column_types.items():
         if dtype == "number":
+            min_val, max_val = get_robust_bounds(df[col])
             metadata[col] = {
                 "type": "number",
-                "min": float(df[col].min()) if not df[col].empty else 0,
-                "max": float(df[col].max()) if not df[col].empty else 0
+                "min": min_val,
+                "max": max_val
             }
         elif dtype == "category":
             # Strict limit for UI filters
             # Only send top 50 most frequent values for filtering to save DOM
-            unique_vals = df[col].value_counts().head(50).index.tolist()
-            unique_vals = sorted([str(x) for x in unique_vals])
+            vc = df[col].value_counts().head(50)
+            
+            # Sort alphabetically for consistency
+            top_50_keys = sorted(vc.index.tolist(), key=lambda x: str(x))
+            
+            unique_vals = [{"value": str(x), "count": int(vc[x])} for x in top_50_keys]
             
             metadata[col] = {
                 "type": "category",
@@ -100,7 +140,12 @@ def get_metadata(df, column_types):
             # Use Counter to find top 50 tags
             from collections import Counter
             c = Counter(all_items)
-            items_list = sorted([str(x) for x, _ in c.most_common(50)])
+            top_50 = c.most_common(50)
+            
+            # Sort alphabetically
+            top_50.sort(key=lambda x: str(x[0]))
+            
+            items_list = [{"value": str(k), "count": v} for k, v in top_50]
 
             metadata[col] = {
                 "type": "list",
@@ -114,7 +159,7 @@ def get_metadata(df, column_types):
     return metadata
 
 
-def filter_dataframe(df, column_types, filters):
+def filter_dataframe(df, column_types, filters, search_query=None):
     filtered_df = df.copy()
 
     for col, criteria in filters.items():
@@ -144,6 +189,26 @@ def filter_dataframe(df, column_types, filters):
                 search_set = set(val)
                 filtered_df = filtered_df[filtered_df[col].apply(lambda x: bool(set(x) & search_set) if isinstance(x, list) else False)]
 
+    # Global Search Logic
+    if search_query and isinstance(search_query, str):
+        terms = [t.strip().lower() for t in search_query.split(",") if t.strip()]
+        if terms:
+            # We want rows where ALL terms appear ANYWHERE in the row
+            original_indices = filtered_df.index
+            final_mask = pd.Series(True, index=original_indices)
+            
+            for term in terms:
+                term_mask = pd.Series(False, index=original_indices)
+                for col in filtered_df.columns:
+                    try:
+                        mask = filtered_df[col].astype(str).str.contains(term, case=False, na=False)
+                        term_mask |= mask
+                    except:
+                        continue
+                final_mask &= term_mask
+            
+            filtered_df = filtered_df[final_mask]
+
     return filtered_df
 
 
@@ -159,15 +224,85 @@ def get_current_stats(df, column_types):
 
     for col, dtype in column_types.items():
         if dtype == "number":
-             desc = df[col].describe(percentiles=[.25, .5, .75])
-             stats[col] = {
-                 "min": float(desc['min']),
-                 "q1": float(desc['25%']),
-                 "median": float(desc['50%']),
-                 "mean": float(desc['mean']), 
-                 "q3": float(desc['75%']),
-                 "max": float(desc['max'])
-             }
+             # Check for Discrete Integer
+             # If integer type and distinct count is low
+             is_integer = pd.api.types.is_integer_dtype(df[col])
+             n_unique = df[col].nunique()
+             
+             if is_integer and n_unique < 20:
+                 # Treat as category for plotting (Bar Chart)
+                 vc = df[col].value_counts().sort_index().to_dict()
+                 # Convert keys to str for JSON consistency
+                 stats[col] = {str(k): v for k, v in vc.items()}
+                 continue
+
+             # Continuous Variable - Density Plot
+             # Use robust bounds to exclude outliers
+             min_val, max_val = get_robust_bounds(df[col])
+             
+             # Filter data to robust bounds for the histogram
+             # (We still want to know if there's data outside, but for density shape we focus on core)
+             # Actually, let's clamp the data for the histogram calculation
+             series = df[col].dropna()
+             if series.empty:
+                 stats[col] = {"type": "density", "x": [], "y": []}
+                 continue
+                 
+             # Check Skewness & Transform
+             transform = "linear"
+             skew = series.skew()
+             
+             # Use absolute skew check.
+             # Relax min_val check: log1p handles 0 safely (log(1)=0). 
+             # Negative values? min_val >= 0 ensures correct log1p usage.
+             if abs(skew) > 2 and min_val >= 0:
+                 transform = "log10"
+             
+             # Clamp data (original domain)
+             clamped_series = series.clip(lower=min_val, upper=max_val)
+             
+             # Calculate Histogram
+             try:
+                if min_val == max_val:
+                     # Constant value
+                     # For log10, we'd plot at log10(val+1)
+                     x_val = np.log10(min_val + 1) if transform == "log10" else min_val
+                     
+                     stats[col] = {
+                        "type": "density",
+                        "x": [float(x_val)],
+                        "y": [float(len(clamped_series))],
+                        "transform": transform,
+                        "min": min_val,
+                        "max": max_val
+                    }
+                     continue
+
+                if transform == "log10":
+                    # Transform data: log10(x + 1)
+                    log_data = np.log10(clamped_series + 1)
+                    
+                    # Histogram in log domain (linear bins in log space)
+                    counts, bin_edges = np.histogram(log_data, bins=50, density=True)
+                    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                    
+                    # x sent to frontend is LOGGED values
+                else:
+                    # Linear Bins in original domain
+                    counts, bin_edges = np.histogram(clamped_series, bins=50, range=(min_val, max_val), density=True)
+                    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                
+                stats[col] = {
+                    "type": "density",
+                    "x": bin_centers.tolist(), # Transformed if log
+                    "y": counts.tolist(),
+                    "transform": transform,
+                    "min": min_val, # Original units
+                    "max": max_val  # Original units
+                }
+             except Exception as e:
+                 print(f"Error calculating histogram for {col}: {e}")
+                 stats[col] = {}
         
         elif dtype == "category":
             # Cap value counts for charts to Top 20

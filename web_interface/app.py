@@ -392,8 +392,9 @@ def api_explorer_filter():
         return jsonify({"error": "Dataset not found"}), 404
     
     filters = data.get("filters", {})
+    search_query = data.get("search_query")
     
-    filtered_df = explorer.filter_dataframe(df, col_types, filters)
+    filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
     result = explorer.get_current_stats(filtered_df, col_types)
     
     return jsonify(result)
@@ -413,7 +414,22 @@ def api_viewer_ids():
         return jsonify({"error": "Dataset not found"}), 404
     
     filters = data.get("filters", {})
-    filtered_df = explorer.filter_dataframe(df, col_types, filters)
+    search_query = data.get("search_query")
+    sort_by = data.get("sort_by")
+    
+    filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
+    
+    # Sort if requested
+    if sort_by and sort_by in filtered_df.columns:
+        # Determine sort direction based on type
+        # numbers -> descending (highest first)
+        # others -> ascending (A-Z)
+        dtype = col_types.get(sort_by)
+        ascending = True
+        if dtype == 'number':
+            ascending = False
+            
+        filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending)
     
     # Return list of item_ids. Assume column is 'item_id' or 'video_id'
     # Based on csv head: 'item_id'

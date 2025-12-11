@@ -284,12 +284,15 @@ def recode_long_strings(
 
     if not isinstance(s,(str,list)):
         return NOT_CODED
-    if isinstance(s,list):
+    if isinstance(s,list) and len(s)>0:
         new_string = s[0]
+    elif isinstance(s,list) and len(s)==0:
+        new_string = ""
     else:
         new_string = copy(s)
     
-    new_string = new_string.replace("-",UNABLE_TO_DETECT)
+    if new_string == "-":
+        new_string = ""
 
     return new_string
 
@@ -424,6 +427,15 @@ def recode_main_activity(
             return [UNABLE_TO_DETECT]
     else:
         return [NOT_CODED]
+
+
+
+
+def recode_timestamp(
+    timestamp, 
+    recoding_policy : dict = {}):
+    return int(timestamp.timestamp())
+    
 
 
 def recode_stringified_list(
@@ -576,22 +588,7 @@ def recode_events_df(
         cool_events_in = pd.read_pickle(log_path)
         print(f"Shape: {cool_events_in.shape}")
 
-    """expected_columns = ['T_local_weekday', 'T_local_week', 'item_id',
-        'T_local_day_segment', 'T_local_date', 'session_id', 'D_donation_id',
-        'B_source_tz_name', 'S_video_duration',
-        'S_stats_diggCount', 'S_stats_commentCount', 'S_stats_playCount',
-        'S_stats_collectCount', 'S_stats_shareCount',
-        'G_main_activity', 'G_type_of_story', 'G_content_category',
-        'G_australian_relevance', 'G_tiktok_native', 'G_trend', 'G_advertising',
-        'G_aigc', 'G_main_gender', 'G_main_ethnicity', 'G_political_score',
-        'G_sensitivity_score', 'G_scene_sentiments','G_speech_vs_music', 
-        'G_faces_gender', 'G_faces_age_estimate', 'G_faces_ethnicity',
-        'T_days_since_created']
 
-    if verbose:
-        print(f"Expecting {len(expected_columns)} columns, found {len(list(set(expected_columns) & set(cool_events_in.columns)))}")
-
-    cool_events = cool_events_in[list(set(expected_columns) & set(cool_events_in.columns))].copy()"""
     cool_events = cool_events_in.copy()
 
     var_scheme = pd.read_csv(join(fyp.cf['paths']['project_root'],"config","var_scheme.csv")).set_index("variable_name")#.T.to_dict()
@@ -619,6 +616,7 @@ def recode_events_df(
     if verbose:
         print("Recoding variables")
     
+    
 
     cool_columns = copy(cool_events.columns)
     # iterate over the columns in the events df
@@ -631,6 +629,12 @@ def recode_events_df(
             this_var_scheme = var_scheme.loc[c].to_dict() 
 
             if this_var_scheme.get("role", "undefined") != "skip":
+
+                if this_var_scheme.get("scale", "undefined") == "raw":
+                    if c+"_raw" in var_scheme.index:
+                        if verbose:
+                            print(f"Copied raw variable: {c}")
+                        cool_events[c+"_raw"] = cool_events[c].copy()
 
                 # check outcomes that should be single values and pop the value out of entries that happen to be single element lists, e.g. ["yes"] -> "yes"
                 cool_types = cool_events[c].dropna().map(lambda x:type(x)).value_counts()
@@ -692,22 +696,34 @@ def recode_events_df(
                         raise ValueError(f"{c} is a dichotomous variable. Only 'yes', 'no' are accepted values. {c} has {cool_events[c].dropna().unique()}")
                     
 
-                # for raw variables, I unpack the dicts into separate columns and drop the original column
+                # for dict variables, I unpack the dicts into separate columns
                 if top_type == dict:
-                    if verbose:
-                        print("dict recoded to new variables")
                     new_thing = pd.json_normalize(cool_events[c])
                     new_thing = new_thing.add_prefix(f"{c}_")
                     new_thing.index = cool_events.index
-                    cool_events = pd.concat([cool_events.drop(columns=[c]), new_thing], axis=1)
+                    if verbose:
+                        print(f"   - {c} recoded to new variables {', '.join(new_thing.columns)}")
+
+                    new_thing_cols = copy(new_thing.columns)
+                    for new_thing_c in new_thing_cols:
+                        if not new_thing_c in var_scheme.index or var_scheme.loc[new_thing_c, "role"] == "skip":
+                            if verbose:
+                                print(f"   - Skipping {new_thing_c}")
+                            new_thing = new_thing.drop(columns=new_thing_c)
+
+                    # drop the original column or not
+                    if var_scheme.loc[c,"role"] == "raw":
+                        cool_events = pd.concat([cool_events.drop(columns=[c]), new_thing], axis=1)
+                    else:
+                        cool_events = pd.concat([cool_events, new_thing], axis=1)
             else:
                 if verbose:
                     print(f"Skipping {c}")
-                cool_events = cool_events.drop(columns=[c])
+                cool_events = cool_events.drop(columns=[c]).copy()
         else:
             if verbose:
-                print(f"not found in the variable scheme, so no change")
-            cool_events = cool_events.drop(columns=[c])
+                print(f"not found in the variable scheme, skipping")
+            cool_events = cool_events.drop(columns=[c]).copy()
 
 
     cool_events['plays_per_day'] = cool_events['S_stats_playCount'] / cool_events['T_days_since_created'].map(lambda x:max(1,x))
@@ -837,6 +853,7 @@ def _replace_in_structure(L, filter_list, replacement):
 def clean_up_machine_annotations(some_events, verbose = False):
 
     from collections import Counter
+    import numpy as np 
 
     some_cleaned_up_events = some_events.copy()
 
@@ -846,21 +863,30 @@ def clean_up_machine_annotations(some_events, verbose = False):
         # Step 1 of 3: Flatten and filter the column
         flattened_column = _flatten_and_filter(some_events[c], exclude=["DDP","BASELINE", "unable to detect", "", OTHER_THINGS])
 
-        # Step 2 of 3: Identify the smallest number of labels required to cover at least a certain share of the label space
-        label_counts = Counter(flattened_column).most_common() # a list of tuples (label, count), ordered desc based on count
-        okay_list = [i[0] for i in _cutoff_by_share(label_counts, 0.98, 3)]
+        mean_length = np.mean(list(map(lambda x:len(x), flattened_column)))
 
-        # replace the smallest labels with an OTHER_THINGS label
-        some_cleaned_up_events[c] = _replace_in_structure(
-            some_events[c],
-            ["DDP","BASELINE", "unable to detect", "", OTHER_THINGS] + okay_list,
-            OTHER_THINGS
-        )
+        print(c, mean_length)
 
-        if verbose:
-            print(
-                f"   {c}: Reduced {len(Counter(_flatten_and_filter(some_events[c])).most_common())} labels to"
-                f" {len(Counter(_flatten_and_filter(some_cleaned_up_events[c])).most_common())}"
+        if mean_length < 60:
+
+            # Step 2 of 3: Identify the smallest number of labels required to cover at least a certain share of the label space
+            label_counts = Counter(flattened_column).most_common() # a list of tuples (label, count), ordered desc based on count
+            okay_list = [i[0] for i in _cutoff_by_share(label_counts, 0.98, 3)]
+
+            # replace the smallest labels with an OTHER_THINGS label
+            some_cleaned_up_events[c] = _replace_in_structure(
+                some_events[c],
+                ["DDP","BASELINE", "unable to detect", "", OTHER_THINGS] + okay_list,
+                OTHER_THINGS
             )
+
+            if verbose:
+                print(
+                    f"   {c}: Reduced {len(Counter(_flatten_and_filter(some_events[c])).most_common())} labels to"
+                    f" {len(Counter(_flatten_and_filter(some_cleaned_up_events[c])).most_common())}"
+                )
+        else:
+            if verbose:
+                print(f"Avg string length > 60, not consolidating rare labels {c}")
 
     return some_cleaned_up_events

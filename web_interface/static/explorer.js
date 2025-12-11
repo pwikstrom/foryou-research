@@ -3,6 +3,7 @@
 let explorerData = {
     metadata: null,
     filters: {},
+    searchQuery: "",
     activeStudy: null
 };
 
@@ -11,6 +12,20 @@ document.addEventListener('DOMContentLoaded', function () {
     // Only init if tab exists
     if (document.getElementById('dataset_explorer')) {
         loadExplorerStudies(); // Start by loading studies
+
+        // Search Input Listener
+        const searchInput = document.getElementById('explorer-search-input');
+        if (searchInput) {
+            let debounceTimer;
+            searchInput.addEventListener('input', (e) => {
+                const val = e.target.value;
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    explorerData.searchQuery = val;
+                    updateExplorerStats();
+                }, 500); // 500ms debounce
+            });
+        }
     }
 });
 
@@ -158,18 +173,36 @@ function renderFilters(metadata) {
                 item.style.display = 'flex';
                 item.style.alignItems = 'center';
 
+                let actualValue = val;
+                let displayValue = val;
+
+                // Handle new object format {value: "v", count: 123}
+                if (typeof val === 'object' && val !== null && val.value !== undefined) {
+                    actualValue = val.value;
+                    displayValue = `${val.value} (${val.count.toLocaleString()})`;
+                }
+
                 const cb = document.createElement('input');
                 cb.type = 'checkbox';
-                cb.value = val;
+                cb.value = actualValue; // Keep for form submission if needed, but rely on dataset
+                cb.dataset.rawValue = actualValue;
                 cb.style.marginRight = '5px';
-                // Pass full list of checked values
+
+                // Restore checked state if filter exists
+                if (explorerData.filters[col] && Array.isArray(explorerData.filters[col].value)) {
+                    if (explorerData.filters[col].value.includes(actualValue)) {
+                        cb.checked = true;
+                    }
+                }
+
                 cb.onchange = () => {
-                    const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.value);
+                    const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
+                    console.log(`Filtering ${col} with:`, checked); // Debug log
                     setFilter(col, info.type, 'list', checked);
                 };
 
                 const span = document.createElement('span');
-                span.innerText = val;
+                span.innerText = displayValue;
                 span.style.fontSize = '0.9em';
 
                 item.appendChild(cb);
@@ -211,7 +244,21 @@ function setFilter(col, type, subtype, value) {
 
 function resetFilters() {
     explorerData.filters = {};
-    loadExplorerMetadata(); // Reloads metadata and re-renders, effectively clearing inputs
+    explorerData.searchQuery = "";
+
+    const searchInput = document.getElementById('explorer-search-input');
+    if (searchInput) searchInput.value = "";
+
+    // Clear UI widgets
+    const inputs = document.querySelectorAll('#explorer-filters input[type="text"], #explorer-filters input[type="number"]');
+    inputs.forEach(i => i.value = '');
+
+    // Uncheck categories? Actually renderFilters() rebuilds them from metadata usually?
+    // The current renderStats logic re-renders charts.
+    // The current logic doesn't seem to rebuild filter WIDGETS, it just clears data.
+    // Let's assume re-rendering or clearing logic is robust.
+
+    updateExplorerStats();
 }
 
 async function updateExplorerStats() {
@@ -228,7 +275,8 @@ async function updateExplorerStats() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 study: explorerData.activeStudy,
-                filters: explorerData.filters
+                filters: explorerData.filters,
+                search_query: explorerData.searchQuery
             })
         });
         const data = await res.json();
@@ -285,93 +333,77 @@ function renderStats(sliceStats) {
         card.appendChild(plotDiv);
         container.appendChild(card);
 
-        if (info.type === 'number') {
-            // Horizontal Box Plots
+        if (sTotal.type === 'density') {
+            // Density Plots (Area Charts)
             const traceTotal = {
-                x: [sTotal.min, sTotal.q1, sTotal.median, sTotal.median, sTotal.q3, sTotal.max],
-                type: 'box',
+                x: sTotal.x,
+                y: sTotal.y,
+                mode: 'lines',
+                fill: 'tozeroy',
+                type: 'scatter',
                 name: 'Total',
-                orientation: 'h',
-                marker: { color: '#555' },
                 line: { color: '#888', width: 1 },
-                fillcolor: 'rgba(85, 85, 85, 0.5)'
-            };
-
-            // Build box data structure manually if pre-computed stats?
-            // Plotly supports pre-computed q1/median/q3 etc.
-            // Let's rely on standard box trace inputs but we only have summary stats.
-            // Plotly accepts: q1, median, q3, lowerfence, upperfence.
-            // sTotal has: min, q1, median, q3, max.
-
-            const traceTotalBox = {
-                type: 'box',
-                name: 'Total',
-                y: ['Total'], // Explicit Y category
-                q1: [sTotal.q1],
-                median: [sTotal.median],
-                q3: [sTotal.q3],
-                lowerfence: [sTotal.min],
-                upperfence: [sTotal.max],
-                orientation: 'h',
-                marker: { color: '#777' },
                 fillcolor: 'rgba(120, 120, 120, 0.3)'
             };
 
-            const traceSliceBox = {
-                type: 'box',
+            const traceSlice = {
+                x: sSlice.x,
+                y: sSlice.y,
+                mode: 'lines',
+                fill: 'tozeroy',
+                type: 'scatter',
                 name: 'Slice',
-                y: ['Slice'], // Explicit Y category
-                q1: [sSlice.q1],
-                median: [sSlice.median],
-                q3: [sSlice.q3],
-                lowerfence: [sSlice.min],
-                upperfence: [sSlice.max],
-                orientation: 'h',
-                marker: { color: '#4CAF50' },
+                line: { color: '#4CAF50', width: 1 },
                 fillcolor: 'rgba(76, 175, 80, 0.5)'
             };
 
+            // Determine Range consistent for Total vs Slice
+            const isLog = sTotal.transform === 'log10';
+            const xMin = isLog ? Math.log10(sTotal.min + 1) : sTotal.min;
+            const xMax = isLog ? Math.log10(sTotal.max + 1) : sTotal.max;
+
             const layout = {
-                margin: { t: 0, b: 20, l: 50, r: 20 },
+                margin: { t: 0, b: 20, l: 30, r: 20 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 showlegend: false,
                 xaxis: {
-                    range: [Math.min(sTotal.min, sSlice.min), Math.max(sTotal.max, sSlice.max)],
+                    range: [xMin, xMax],
                     zeroline: false,
-                    gridcolor: '#444'
+                    gridcolor: '#444',
+                    type: 'linear', // Always linear now (we manually transformed)
+                    title: isLog ? 'Log10(x+1)' : ''
                 },
                 yaxis: {
                     showgrid: false,
-                    tickfont: { color: '#ccc' }
+                    showticklabels: false
                 }
             };
 
-            Plotly.newPlot(plotDiv, [traceTotalBox, traceSliceBox], layout, { displayModeBar: false });
+            // If log, ensure range is positive? 
+            // Backend ensures min_val > 0 for log.
+
+            Plotly.newPlot(plotDiv, [traceTotal, traceSlice], layout, { displayModeBar: false });
 
         } else {
-            // Stacked Bar (Horizontal) normalized to %?
-            // Or just side-by-side distribution comparison?
-            // User requested: "horisontal stacked bars, with each color representing a category"
-            // Two bars: Total and Slice.
+            // Stacked Bar (Horizontal) normalized to %
+            // (Used for Category types OR Discrete Integers)
 
             // Need to merge keys from total and slice to handle missing cats in slice
             const allCats = new Set([...Object.keys(sTotal), ...Object.keys(sSlice)]);
-            const cats = Array.from(allCats).sort();
+            // Sort: if they look like numbers, numeric sort, else string sort
+            const cats = Array.from(allCats).sort((a, b) => {
+                const na = parseFloat(a);
+                const nb = parseFloat(b);
+                if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                return a.localeCompare(b);
+            });
 
             // Total counts
             const totalCount = Object.values(sTotal).reduce((a, b) => a + b, 0);
             const sliceCount = Object.values(sSlice).reduce((a, b) => a + b, 0);
 
-            // Create a trace for EACH category? Yes, that's how stacked works.
-            // But plotting N traces for N categories is heavy if N is large.
-            // "Category labels should only be visible when hovering" -> satisfied by tooltip.
-
             const traces = [];
-
-            // Limit categories for performance if too many?
-            // Let's take top 20 prominent from Total, aggregate others?
-            // For now, render all (assuming backend limits unique values somewhat or dataset isn't huge).
 
             cats.forEach(cat => {
                 const valTotal = sTotal[cat] || 0;
@@ -389,9 +421,7 @@ function renderStats(sliceStats) {
                     orientation: 'h',
                     type: 'bar',
                     text: [cat, cat], // Label on hover
-                    hoverinfo: 'text+x+name', // Show Category Name + Value + Trace Name?
-                    // "category labels should only be visible when hovering"
-                    // default plotly hover shows name and value.
+                    hoverinfo: 'text+x+name',
                 });
             });
 
@@ -400,7 +430,7 @@ function renderStats(sliceStats) {
                 margin: { t: 0, b: 20, l: 50, r: 20 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
-                showlegend: false, // "too messy"
+                showlegend: false,
                 xaxis: {
                     range: [0, 100],
                     showgrid: false,

@@ -20,8 +20,8 @@ G_call_to_action,raw,{},"IRRELEVANT_WORDS + ['implicit', 'implicitly', 'encourag
 G_call_to_action_words,collection,{},[],,,,,dummy
 G_content_category,collection,{},[], | ,empty,empty,recode_stringified_list,dummy
 G_faces_age_estimate,ratio,{},[],,median,median,recode_faces_age_estimate,outcome
-G_faces_ethnicity,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,dummy
-G_faces_gender,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,dummy
+G_faces_ethnicity,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,skip
+G_faces_gender,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,skip
 G_main_activity,categorical,{},IRRELEVANT_WORDS + ['getting'], ,keep,keep,recode_main_activity,dummy
 G_main_ethnicity,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,dummy
 G_main_gender,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,dummy
@@ -42,13 +42,14 @@ item_id,string,{},[],,drop,,,standard
 S_challenges,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,dummy
 S_anchors,string,{},[],,keep,keep,recode_long_strings,skip
 S_author_nickname,string,{},[],,keep,keep,recode_long_strings,skip
-S_author_signature,string,{},[],,keep,keep,recode_long_strings,skip
+S_author_signature,string,{},[],,keep,keep,recode_long_strings,standard
 S_author_uniqueId,string,{},[],,keep,keep,recode_long_strings,skip
 S_createTime,datetime,{},[],,drop,,,skip
 S_desc,raw,{},[],,keep,,recode_descriptions,raw
+S_desc_raw,string,{},[],,keep,,,standard
 S_desc_hashtags,collection,{},[],,,,,dummy
 S_desc_mentions,collection,{},[],,,,,skip
-S_desc_not_hashtags,collection,{},[],,,,,dummy
+S_desc_not_hashtags,collection,{},[],,,,,skip
 S_isAd,dichotomous,{},[], | ,zero,,recode_stringified_list,dummy
 S_IsAigc,dichotomous,{},[], | ,zero,,recode_stringified_list,dummy
 S_music_album,string,{},[],,keep,keep,recode_long_strings,skip
@@ -70,7 +71,7 @@ T_days_since_created,ratio,{},[],,median,,,outcome
 T_local_date,factor,{},[],,drop,,,factor
 T_local_day_segment,factor,{},[],,drop,,,factor
 T_local_hour,interval,{},[],,drop,,,skip
-T_local_timestamp,datetime,{},[],,drop,,,skip
+T_local_timestamp,datetime,{},[],,drop,,recode_timestamp,standard
 T_local_week,factor,{},[],,drop,,,factor
 T_local_weekday,factor,{},[],,drop,,,factor
 G_text_overlays,string,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,standard
