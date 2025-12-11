@@ -55,6 +55,7 @@ def run_anova(
     anova_results = {}
     lots_of_anova_tables = []
 
+    # TODO: make this dynamic. There is a risk with startswith 'G_'
     component_cols = [col for col in events_pca_scores_scaled.columns if col.startswith("G_")]
 
 

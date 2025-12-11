@@ -473,30 +473,33 @@ def sample_ddp_events(study_name, all_ddp_events_df, verbose=False):
 
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
-    DONATION_DATE_GROUP_VARIABLES = fyp.cf["study_defs"][study_name]["DONATION_DATE_GROUP_VARIABLES"]
+
+    group_factors = fyp.cf["var_scheme"][fyp.cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
+
+    #group_factors = fyp.cf["study_defs"][study_name]["group_factors"]
     t1 = []
-    for c in DONATION_DATE_GROUP_VARIABLES:
+    for c in group_factors:
         if c[:2] in ["D_","T_","S_","B_"]:
             t1 += [c[2:]]
         else:
             t1 += [c]
-    DONATION_DATE_GROUP_VARIABLES = t1
+    group_factors = t1
 
-    DONATION_DATE_GROUP_PERCENTILE_LIMITS = fyp.cf["study_defs"][study_name]["DONATION_DATE_GROUP_PERCENTILE_LIMITS"]
+    AGG_GROUP_SIZE_PERCENTILE_LIMITS = fyp.cf["study_defs"][study_name]["AGG_GROUP_SIZE_PERCENTILE_LIMITS"]
     MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = fyp.cf["study_defs"][study_name]["MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION"]
     N_SAMPLED_DATES_FROM_EACH_DONATION = fyp.cf["study_defs"][study_name]["N_SAMPLED_DATES_FROM_EACH_DONATION"]
-    N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = fyp.cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP"]
+    N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = fyp.cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP"]
 
     if verbose:
         print("Sampling events based on donation-date groups, which is the unit of analysis for the study")
 
     # count the number of events in the donation-date groups
-    donation_date_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"].groupby(DONATION_DATE_GROUP_VARIABLES)["sample_id"].count()
+    donation_date_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"].groupby(group_factors)["sample_id"].count()
 
 
     # this is transforming the donation-date group percentile limits to actual values
-    donation_date_group_size_limits = donation_date_groups.describe(percentiles=DONATION_DATE_GROUP_PERCENTILE_LIMITS).loc[[f"{k:.0%}" for k in DONATION_DATE_GROUP_PERCENTILE_LIMITS]].values
-    percentile_str = "-".join([f"{k:.0%}" for k in DONATION_DATE_GROUP_PERCENTILE_LIMITS])
+    donation_date_group_size_limits = donation_date_groups.describe(percentiles=AGG_GROUP_SIZE_PERCENTILE_LIMITS).loc[[f"{k:.0%}" for k in AGG_GROUP_SIZE_PERCENTILE_LIMITS]].values
+    percentile_str = "-".join([f"{k:.0%}" for k in AGG_GROUP_SIZE_PERCENTILE_LIMITS])
     limits_str = "-".join([f"{k:,.0f}" for k in donation_date_group_size_limits])
     if verbose:
         print(f"Percentile limits {percentile_str} translate to {limits_str} in actual event counts")
@@ -543,7 +546,7 @@ def sample_ddp_events(study_name, all_ddp_events_df, verbose=False):
         print(f"Sample step 1: Sampled {N_SAMPLED_DATES_FROM_EACH_DONATION} dates from each donation, giving {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
 
     # get the watch events in these sampled donation-date groups (nonb-watch events are just cream on top)
-    ddp_events_in_sampled_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"].set_index(DONATION_DATE_GROUP_VARIABLES).loc[sampled_donation_date_groups_by_regulars.index].reset_index()
+    ddp_events_in_sampled_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"].set_index(group_factors).loc[sampled_donation_date_groups_by_regulars.index].reset_index()
     if verbose:
         print(f"There are {len(ddp_events_in_sampled_groups):,} events in these {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
 
@@ -552,27 +555,27 @@ def sample_ddp_events(study_name, all_ddp_events_df, verbose=False):
 
     # I'm first shuffling the events for each donation-date group pseudo-randomly
     ordered_events_in_groups = (
-        ddp_events_in_sampled_groups.groupby(DONATION_DATE_GROUP_VARIABLES)
+        ddp_events_in_sampled_groups.groupby(group_factors)
           .apply(lambda g: g.sample(frac=1, replace=False, random_state=42), include_groups=False)
     )
     del ddp_events_in_sampled_groups # clean up
 
-    # then I pick the top 'N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP' events from each donation-date group
-    # this ensures that I keep the elements selected when 'N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP' is small, 
-    # also when I pick a higher 'N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP' value
+    # then I pick the top 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' events from each donation-date group
+    # this ensures that I keep the elements selected when 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' is small, 
+    # also when I pick a higher 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' value
     # It's expensive to scrape and annotate videos, so I don't want to start from scratch
     # just because I increased the sample size
-    sampled_ddp_events_in_sampled_donation_date_groups = ordered_events_in_groups.groupby(DONATION_DATE_GROUP_VARIABLES).head(N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP)
+    sampled_ddp_events_in_sampled_donation_date_groups = ordered_events_in_groups.groupby(group_factors).head(N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP)
     del ordered_events_in_groups # clean up
 
     # push the grouping variables back from index into columns
     sampled_ddp_events_in_sampled_donation_date_groups.reset_index(level=[0,1], inplace=True)
 
-    print(f"Sampled {N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
+    print(f"Sampled {N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
 
 
     # check some stats of the sampling procedure
-    #print(sampled_ddp_events_in_sampled_donation_date_groups[sampled_ddp_events_in_sampled_donation_date_groups['feature_name']=="watch"].groupby(DONATION_DATE_GROUP_VARIABLES)["sample_id"].count().describe())
+    #print(sampled_ddp_events_in_sampled_donation_date_groups[sampled_ddp_events_in_sampled_donation_date_groups['feature_name']=="watch"].groupby(group_factors)["sample_id"].count().describe())
     
     return sampled_ddp_events_in_sampled_donation_date_groups
 
@@ -1174,7 +1177,33 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0), ver
         print("--"*60)
 
 
-    relevant_baseline_cols = [
+    if "var_scheme" in fyp.cf and not fyp.cf["var_scheme"].empty:
+        vs = fyp.cf["var_scheme"]
+        # Determine baseline vars: those with 'role'='standard' (like B_anchors) or starting with B_ ? 
+        # The original list had B_ challenges etc. In CSV they are defined.
+        # Original List: item_id, T_local_timestamp... T_local_date, session_id, event_order..., event_pos...
+        # AND B_challenges, B_anchors, ..., B_source_tz_name
+        
+        # We want: 
+        # 1. Standard structural cols (item_id, T_..., session_..., event_...)
+        # 2. All variables in scheme that start with B_
+        
+        structural_cols = [
+            'item_id',
+            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
+            'T_local_hour', 'T_local_day_segment', 'T_local_date',
+            'session_id', 'event_order_in_session',
+            'event_pos_in_session'
+        ]
+        
+        b_vars = vs[vs['variable_name'].str.startswith('B_', na=False)]['variable_name'].tolist()
+        relevant_baseline_cols = structural_cols + b_vars
+        
+        # Remove duplicates just in case
+        relevant_baseline_cols = list(dict.fromkeys(relevant_baseline_cols))
+    else:
+        # Fallback if scheme not loaded correctly (though we loaded it in fyp_main)
+        relevant_baseline_cols = [
             'item_id',
             'T_local_timestamp', 'T_local_weekday', 'T_local_week',
             'T_local_hour', 'T_local_day_segment', 'T_local_date',
@@ -1185,8 +1214,6 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0), ver
             'B_source_app_language', 'B_source_browser_language',
             'B_source_language', 'B_source_region',
             'B_source_tz_name', 
-
-
         ]
 
 
@@ -1343,7 +1370,32 @@ def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0), verb
         return ddp_log, session_id_counter
 
 
-    relevant_ddp_cols = [
+    if "var_scheme" in fyp.cf and not fyp.cf["var_scheme"].empty:
+        vs = fyp.cf["var_scheme"]
+        # Structural columns
+        structural_ddp_cols = [
+            'item_id',
+            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
+            'T_local_hour', 'T_local_day_segment', 'T_local_date',
+            'session_id', 'event_order_in_session',
+            'event_pos_in_session',
+            'D_donation_id',
+            'D_feature_name','D_primary_label',
+            'D_primary_value',
+            'D_secondary_label', 'D_secondary_value',
+        ]
+        
+        # Logic: Is there a specific set of D_ variables we want beyond the structural ones? 
+        # The original list basically included all the DDP structural stuff + D_donation_id. 
+        # It seems 'D_' prefix in var_scheme might include D_donation_id.
+        # Let's ensure we get all D_ vars from scheme too if they exist.
+        
+        d_vars = vs[vs['variable_name'].str.startswith('D_', na=False)]['variable_name'].tolist()
+        relevant_ddp_cols = structural_ddp_cols + d_vars
+        relevant_ddp_cols = list(dict.fromkeys(relevant_ddp_cols))
+    else:
+
+        relevant_ddp_cols = [
             'item_id',
             'T_local_timestamp', 'T_local_weekday', 'T_local_week',
             'T_local_hour', 'T_local_day_segment', 'T_local_date',

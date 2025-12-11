@@ -69,6 +69,22 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
     if gemini_env_key:
         cf["machine"]["key"] = gemini_env_key
 
+    # Load variable scheme
+    try:
+        import pandas as pd
+        from os.path import exists
+        var_scheme_path = join(abs_project_root_path, "config", "var_scheme.csv")
+        if exists(var_scheme_path):
+             # Need to ensure exists is imported or just try/except
+             cf["var_scheme"] = pd.read_csv(var_scheme_path)
+        else:
+             print(f"Warning: var_scheme.csv not found at {var_scheme_path}")
+             cf["var_scheme"] = pd.DataFrame()
+    except Exception as e:
+        if verbose:
+            print(f"Failed to load var_scheme.csv: {e}")
+        cf["var_scheme"] = pd.DataFrame()
+
     study_defs = toml.load(study_defs_path)
     for study_name in study_defs.keys():
         study_defs[study_name]["STUDY_NAME"] = study_name

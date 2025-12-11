@@ -8,11 +8,10 @@
 # SPECIAL_DONATIONS [List]: sometimes we want to focus on certain donations. This allows you to do this. It's a list of special donation IDs that are included in addition to the sampled events
 # COL_MISSING_DATA_THRES [float]: some variables from the data enrichment have a lot of null values which are not useful and might as well be dropped. This parameter controls the threshold for dropping these columns if the fraction of missing data in a column is above this threshold, the column is dropped
 # TIME_ZONE (e.g. "Australia/Brisbane"): timestamps in the data donation logs are reported in local timezones without information about which timezone it is. This parameter sets the assumed timezone for these. TODO: If we go international, this needs to be adjusted so that it can handle multiple timezones.
-# DONATION_DATE_GROUP_VARIABLES (default is ["D_donation_id","T_local_date"]): Documentation is TODO
-# DONATION_DATE_GROUP_PERCENTILE_LIMITS (e.g. [0.25,0.75]): percentile limits for the number of events in donation-dates groups, based on the median of all donation groups. The reasoning here is that I want 'average' TikTok dates. I want to avoid dates when the user has only watched very few videos or dates when they have watched thousands. 
-# MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION: I want donations where there are this many dates within the range defined by the previous parameter (DONATION_DATE_GROUP_PERCENTILE_LIMITS).
+# AGG_GROUP_SIZE_PERCENTILE_LIMITS (e.g. [0.25,0.75]): percentile limits for the number of events in donation-dates groups, based on the median of all donation groups. The reasoning here is that I want 'average' TikTok dates. I want to avoid dates when the user has only watched very few videos or dates when they have watched thousands. 
+# MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION: I want donations where there are this many dates within the range defined by the previous parameter (AGG_GROUP_SIZE_PERCENTILE_LIMITS).
 # N_SAMPLED_DATES_FROM_EACH_DONATION: how many dates to pick from each donation
-# N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP: how many events to pick from each donation-date group
+# N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP: how many events to pick from each donation-date group
 
 
 # ====================================================================================
@@ -31,11 +30,10 @@ SPECIAL_DONATIONS = []
 INCLUDE_ZEESCHUIMER_DATA = true
 COL_MISSING_DATA_THRES = 0.5
 TIME_ZONE = "Australia/Brisbane"
-DONATION_DATE_GROUP_VARIABLES = ["D_donation_id","T_local_date"]
 MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
-DONATION_DATE_GROUP_PERCENTILE_LIMITS = [0.25,0.75]
-N_SAMPLED_DATES_FROM_EACH_DONATION = 35
-N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = 38
+AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
+N_SAMPLED_DATES_FROM_EACH_DONATION = 35 #TODO: not really dynamic and flexible...
+N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
 
 
 [everything]
@@ -49,11 +47,10 @@ SPECIAL_DONATIONS = []
 INCLUDE_ZEESCHUIMER_DATA = true
 COL_MISSING_DATA_THRES = 0.5
 TIME_ZONE = "Australia/Brisbane"
-DONATION_DATE_GROUP_VARIABLES = ["D_donation_id","T_local_date"]
 MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
-DONATION_DATE_GROUP_PERCENTILE_LIMITS = [0.25,0.75]
+AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
 N_SAMPLED_DATES_FROM_EACH_DONATION = 35
-N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = 38
+N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
 
 
 [compare_dd_w_baseline]
@@ -67,11 +64,10 @@ SPECIAL_DONATIONS = []
 INCLUDE_ZEESCHUIMER_DATA = true
 COL_MISSING_DATA_THRES = 0.5
 TIME_ZONE = "Australia/Brisbane"
-DONATION_DATE_GROUP_VARIABLES = ["D_donation_id","T_local_date"]
 MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
-DONATION_DATE_GROUP_PERCENTILE_LIMITS = [0.25,0.75]
+AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
 N_SAMPLED_DATES_FROM_EACH_DONATION = 35
-N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = 38
+N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
 
 
 [chenglong]
@@ -88,11 +84,10 @@ SPECIAL_DONATIONS = [
 INCLUDE_ZEESCHUIMER_DATA = false
 COL_MISSING_DATA_THRES = 0.5
 TIME_ZONE = "Australia/Brisbane"
-DONATION_DATE_GROUP_VARIABLES = ["D_donation_id","T_local_date"]
 MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
-DONATION_DATE_GROUP_PERCENTILE_LIMITS = [0.25,0.75]
+AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
 N_SAMPLED_DATES_FROM_EACH_DONATION = 35
-N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = 38
+N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
 
 
 [ica2026]
@@ -106,9 +101,8 @@ SPECIAL_DONATIONS = []
 INCLUDE_ZEESCHUIMER_DATA = false
 COL_MISSING_DATA_THRES = 0.5
 TIME_ZONE = "Australia/Brisbane"
-DONATION_DATE_GROUP_VARIABLES = ["D_donation_id","T_local_date"]
 MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
-DONATION_DATE_GROUP_PERCENTILE_LIMITS = [0.25,0.75]
+AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
 N_SAMPLED_DATES_FROM_EACH_DONATION = 35
-N_SAMPLED_EVENTS_FROM_EACH_DONATION_DATE_GROUP = 38
+N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
 

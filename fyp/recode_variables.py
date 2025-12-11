@@ -96,10 +96,10 @@ def get_factors_and_features_from_var_scheme(some_events_df, verbose = False):
     import pandas as pd
     from os.path import join
 
-    var_scheme = pd.read_csv(join(fyp.cf['paths']['project_root'],"config","var_scheme.csv")).set_index("variable_name")#.T.to_dict()
-
-    the_factors = list(set(var_scheme[var_scheme["scale"]=='factor'].index) & set(some_events_df.columns))
-    the_features = sorted(list(set(some_events_df.columns) - set(the_factors)))
+    var_scheme = fyp.cf["var_scheme"]
+    
+    the_factors = list(set(var_scheme[var_scheme["role"].isin(['factor','group_factor'])].variable_name) & set(some_events_df.columns))
+    the_features = list(set(var_scheme[var_scheme["role"]=='feature'].variable_name) & set(some_events_df.columns))
 
     if verbose:
         print("Factors:",", ".join(the_factors))
@@ -591,11 +591,13 @@ def recode_events_df(
 
     cool_events = cool_events_in.copy()
 
-    var_scheme = pd.read_csv(join(fyp.cf['paths']['project_root'],"config","var_scheme.csv")).set_index("variable_name")#.T.to_dict()
+    var_scheme = fyp.cf["var_scheme"].copy()
+
+    var_scheme.set_index("variable_name", inplace=True)
 
     var_scheme[['mapper','ignore_strings','recode_func']] = var_scheme[['mapper','ignore_strings','recode_func']].map(_try_eval)
 
-    FYP_FACTORS = list(set(var_scheme[var_scheme["scale"]=='factor'].index) & set(cool_events.columns))
+    FYP_FACTORS = list(set(var_scheme[var_scheme["scale"].isin(['factor','group_factor'])].index) & set(cool_events.columns))
     cool_events[FYP_FACTORS] = cool_events[FYP_FACTORS].astype(str)
     cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int(x):05}")
 
@@ -616,8 +618,6 @@ def recode_events_df(
     if verbose:
         print("Recoding variables")
     
-    
-
     cool_columns = copy(cool_events.columns)
     # iterate over the columns in the events df
     for c in cool_columns:
@@ -851,7 +851,7 @@ def _replace_in_structure(L, filter_list, replacement):
 
 
 def clean_up_machine_annotations(some_events, verbose = False):
-
+    
     from collections import Counter
     import numpy as np 
 
@@ -864,8 +864,6 @@ def clean_up_machine_annotations(some_events, verbose = False):
         flattened_column = _flatten_and_filter(some_events[c], exclude=["DDP","BASELINE", "unable to detect", "", OTHER_THINGS])
 
         mean_length = np.mean(list(map(lambda x:len(x), flattened_column)))
-
-        print(c, mean_length)
 
         if mean_length < 60:
 
@@ -882,8 +880,8 @@ def clean_up_machine_annotations(some_events, verbose = False):
 
             if verbose:
                 print(
-                    f"   {c}: Reduced {len(Counter(_flatten_and_filter(some_events[c])).most_common())} labels to"
-                    f" {len(Counter(_flatten_and_filter(some_cleaned_up_events[c])).most_common())}"
+                    f"   {c}: Reduced {len(Counter(_flatten_and_filter(some_events[c])).most_common()):,} labels to"
+                    f" {len(Counter(_flatten_and_filter(some_cleaned_up_events[c])).most_common()):,}"
                 )
         else:
             if verbose:

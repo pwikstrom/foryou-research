@@ -230,9 +230,13 @@ def interpret_axes_with_categories(
 
 def transform_category_column_to_counts_df(
     some_events,
-    the_column = "G_content_category",
-    the_selected_factors: List = ["D_donation_id"],
+    the_column = None,
+    the_selected_factors: List = None,
 ):
+    if the_column is None:
+        raise ValueError("No column provided") 
+    if the_selected_factors is None:
+        raise ValueError("No selected factors provided")
 
     from pandas import Series, DataFrame, MultiIndex
     from collections import Counter
@@ -312,7 +316,7 @@ def transform_categories_to_components_and_diversity(
     drop_rare_globally_below=0.001,
     max_components=5,
     target_explained_variance=0.8,
-    verbose=True
+    verbose=False
 ):
 
     from sklearn.manifold import MDS
@@ -366,11 +370,11 @@ def transform_categories_to_components_and_diversity(
         print(f"Explained variance per component: {', '.join([f'{p:.3f}' for p in explained])}")
         print(f"Cumulative explained variance: {', '.join([f'{p:.3f}' for p in explained.cumsum()])}")
 
-    if verbose: print(f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance", end="", flush=True)
+    print(f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance", end="", flush=True)
     if required_components != n_components:
-        if verbose: print(f"  |  {required_components} required to be able to explain {target_explained_variance:.0%} of the variance")
+        print(f"  |  {required_components} required to be able to explain {target_explained_variance:.0%} of the variance")
     else:
-        if verbose: print()
+        print()
 
     pc_df = DataFrame(pca_coords, index=counts_df.index).iloc[:,:n_components]
 
@@ -404,7 +408,7 @@ def transform_categories_to_components_and_diversity(
 def calculate_scaled_pca_scores(
     study_name,
     some_events_df = None,
-    selected_factors = ["D_donation_id","T_local_date"],
+    selected_factors = None,
     minimum_group_size = 10,
     target_explained_variance = 0.8,
     drop_rare_globally_below = 0.01,
@@ -417,6 +421,9 @@ def calculate_scaled_pca_scores(
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.recode_variables import get_factors_and_features_from_var_scheme
+
+    selected_factors = fyp.cf["var_scheme"][fyp.cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
+
 
 
     print(f"Performing Principal Component Analysis based on {" | ".join(selected_factors)}. Study: '{study_name}'")
@@ -434,7 +441,7 @@ def calculate_scaled_pca_scores(
 
 
     fyp_factors, fyp_features = get_factors_and_features_from_var_scheme(some_events_df, verbose=verbose)
-
+    
     if verbose:
         print(f"Step 1: Dropping {"-".join(selected_factors)}-groups that are smaller than {minimum_group_size} rows")
 
@@ -468,8 +475,10 @@ def calculate_scaled_pca_scores(
         print("Step 2: consolidating events into groups and performing PCA transformation on categorical variables")
 
     events_pca_scores = []
+    
     for c in some_events_df[fyp_features].columns:
         if c in some_events_df.select_dtypes(object).columns:
+            
             counts_df = transform_category_column_to_counts_df(some_events_df, the_column=c, the_selected_factors=selected_factors)
 
             if verbose:
@@ -481,7 +490,7 @@ def calculate_scaled_pca_scores(
                 max_components=15,
                 target_explained_variance=target_explained_variance,
                 drop_rare_globally_below=drop_rare_globally_below,
-                verbose=verbose)
+                verbose=False)
             wer.drop("top1", axis=1, inplace=True, errors="ignore")
             wer.columns = [c+"_"+col for col in wer.columns]
 
