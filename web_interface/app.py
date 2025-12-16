@@ -26,6 +26,7 @@ import fyp
 fyp_cf = fyp.init_project(verbose=False)
 
 DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
+INGEST_SCRIPT = PROJECT_ROOT / "web_interface" / "run_ingest_ndjson.py"
 ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_annotator.py"
 MONITOR_SCRIPT = PROJECT_ROOT / "enrich_tiktok_data" / "monitor_scrape_folder_and_annotate.py"
 CREATE_SUBSETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_subsets.py"
@@ -515,5 +516,167 @@ def api_video_stream(study, item_id):
     return Response(stream_with_context(generate()), mimetype="video/mp4")
 
 
+@app.route('/api/find_ndjson', methods=['POST'])
+def api_find_ndjson():
+    data = request.json or {}
+    directory = data.get('directory')
+    
+    # Default to firefox downloads if not specified
+    if not directory or not directory.strip():
+        try:
+            directory = fyp_cf["paths"]["firefox_downloads"]
+        except KeyError:
+            return jsonify({"error": "Default downloads path not configured."}), 500
+            
+    dir_path = Path(directory)
+    if not dir_path.exists():
+         return jsonify({"error": f"Directory not found: {directory}"}), 404
+         
+    # Use fyp.get_recent_files logic or simple glob
+    # The user asked to use fyp.fyp_main.get_recent_files
+    # get_recent_files(directory, suffix=None, how_recent=10)
+    # We probably want ALL files, not just recent 10? 
+    # User said "find the ndjson files in that folder. Use fyp.fyp_main.get_recent_files"
+    # I will call it with a large how_recent or filter manually if needed. 
+    # Actually get_recent_files returns list of dicts: {'filename': ..., 'modified': ...}
+    
+    try:
+        files = fyp.get_recent_files(str(dir_path), suffix=".ndjson", how_recent=525600) # Get files from last year
+        
+        # Add full path to result
+        result_files = []
+        for f in files:
+            result_files.append({
+                "filename": f["filename"], # This is absolute path in get_recent_files return? No let's check.
+                # Looking at fyp_main.py, get_recent_files:
+                # files_path = os.path.join(directory, file)
+                # 'filename': files_path 
+                # So it returns absolute path in 'filename' key? 
+                # Wait, step 6 output:
+                # def get_recent_files(directory, suffix=None, how_recent=10):
+                # ...
+                # return [{'filename': os.path.join(directory, f), 'modified': ...}]
+                # Yes, it returns absolute path.
+                
+                "path": f["filename"],
+                "filename": Path(f["filename"]).name, # Just the name for display
+                "modified": f["mtime"].strftime('%Y-%m-%d %H:%M:%S')
+            })
+            
+        return jsonify({"directory": str(dir_path), "files": result_files})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/ingest_ndjson', methods=['POST'])
+def api_ingest_ndjson():
+    data = request.json or {}
+    files = data.get('files', [])
+    label = data.get('label')
+    
+    if not files:
+        return jsonify({"error": "No files specified"}), 400
+    if not label:
+        return jsonify({"error": "No label provided"}), 400
+
+    # Run the ingestion script as a subprocess to keep main process clean/safe
+    # and reuse the script I wrote.
+    
+    try:
+        # Pass input via stdin
+        cmd = [PYTHON_EXEC, str(INGEST_SCRIPT)]
+        
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=str(PROJECT_ROOT)
+        )
+        
+        input_str = json.dumps({"files": files, "label": label})
+        stdout, stderr = proc.communicate(input=input_str.encode('utf-8'))
+        
+        if proc.returncode != 0:
+             return jsonify({
+                 "status": "error", 
+                 "message": "Script failed", 
+                 "log": stderr.decode('utf-8') + "\n" + stdout.decode('utf-8')
+             })
+             
+        # Parse output
+        try:
+            output_json = json.loads(stdout.decode('utf-8'))
+            return jsonify(output_json)
+        except json.JSONDecodeError:
+             return jsonify({
+                 "status": "error", 
+                 "message": "Invalid script output", 
+                 "log": stdout.decode('utf-8')
+             })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/browse_folder', methods=['POST'])
+def api_browse_folder():
+    try:
+        # Use AppleScript to open a folder picker dialog
+        # 'POSIX path of (choose folder ...)' returns the slash-formatted path
+        result = subprocess.run(
+            ["osascript", "-e", 'POSIX path of (choose folder with prompt "Select Folder containing .ndjson files")'],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            path = result.stdout.strip()
+            return jsonify({"path": path})
+        else:
+            # User likely cancelled
+            return jsonify({"error": "Selection cancelled"}), 400
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/upload_ndjson', methods=['POST'])
+def api_upload_ndjson():
+    try:
+        from werkzeug.utils import secure_filename
+        import os
+        
+        if 'file' not in request.files:
+            return jsonify({"error": "No file part"}), 400
+            
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
+            
+        if file and file.filename.endswith('.ndjson'):
+            filename = secure_filename(file.filename)
+            # Use /tmp or a specific upload folder
+            upload_dir = Path("/tmp/fyp_uploads")
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            
+            save_path = upload_dir / filename
+            file.save(str(save_path))
+            
+            return jsonify({
+                "status": "success",
+                "path": str(save_path),
+                "filename": filename,
+                "modified": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            
+        else:
+            return jsonify({"error": "Invalid file type. Only .ndjson allowed."}), 400
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5002)
+    app.run(debug=False, host='0.0.0.0', port=5003)

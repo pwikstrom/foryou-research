@@ -107,7 +107,9 @@ def refine_zeeschuimer_log(item_list_or_ndjson_path: str | list[dict]):
     del zeeschuimer_logs_df["source_url"]
 
     # convert the 'data.createTime' and 'timestamp_collected' columns to datetime
+    zeeschuimer_logs_df["data.createTime"] = zeeschuimer_logs_df["data.createTime"].astype(int)
     zeeschuimer_logs_df["data.createTime"] = zeeschuimer_logs_df["data.createTime"].apply(lambda x:datetime.fromtimestamp(x))
+    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].astype(int)
     zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].apply(lambda x: datetime.fromtimestamp(int(x/1000)))
 
     # replace commas and newlines in object columns with spaces
@@ -199,6 +201,8 @@ def move_and_refine_recent_file(
     
     # print some info about what is in refined_zee_log
     print(get_baseline_info_as_string(refined_zee_log))
+
+
 
 
 

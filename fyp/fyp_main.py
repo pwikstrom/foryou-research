@@ -127,18 +127,17 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
 
 
 
+def connect_to_google(cf_in):
 
-def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
+    from copy import copy
 
-    from os import getcwd
-    from os.path import join, exists
-    from sys import path as sys_path
-    from sys import exit as sys_exit
     from google import genai
     from google.genai import types
     from google.api_core.exceptions import Forbidden
     from google.cloud import storage
     import http.client as httplib
+
+    cf = copy(cf_in)
 
 
     # function to check internet connectivity
@@ -157,7 +156,72 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
             return False
 
 
-    print("\n\nInitializing...\n\n")
+    if not _checkInternetHttplib():
+        print("No internet connection. Running local mode.")
+        return cf
+
+    try:
+        with open(cf['machine']['new_prompt'], 'r') as file:
+            machine_new_prompt = file.read()
+
+        cf["machine"]["client"] = genai.Client(
+            vertexai=cf["machine"]["vertexai"],
+            project=cf["machine"]["project"],
+            location=cf["machine"]["location"],
+            http_options=types.HttpOptions(
+                api_version=cf["machine"]["http_options_api_version"],
+                timeout=cf["machine"]["http_options_timeout"]
+            )
+        )
+
+        cf["machine"]["global_generation_config"] = types.GenerateContentConfig(
+            system_instruction=machine_new_prompt,
+            temperature=cf["machine"]["temperature"],
+            max_output_tokens=cf["machine"]["max_output_tokens"],
+            response_mime_type=cf["machine"]["response_mime_type"],
+            presence_penalty=cf["machine"]["presence_penalty"],
+            frequency_penalty=cf["machine"]["frequency_penalty"],
+            thinking_config=types.ThinkingConfig(thinking_budget=cf["machine"]["thinking_budget"]),
+        )
+
+        print("Gemini initialized successfully")
+
+    except:
+        print("Error Gemini API key. Gemini won't be available.")
+
+
+    # Initialize a GCP storage client
+    try:
+        bucket_client = storage.Client()
+
+        # Get the GCP bucket
+        bucket = bucket_client.get_bucket(cf["media_storage"]["GCP_bucket"])
+
+        # Try to access the GCP bucket's metadata
+        bucket.reload()
+        cf["media_storage"]["bucket"] = bucket
+        print(f"Access to the project Google Cloud Storage bucket is authorized.")
+    except Forbidden:
+        print(f"You don't have access to the project Google Cloud Storage bucket.")
+    except Exception as e:
+        print(f"A Google Cloud Storage error occurred: {e}")
+    
+    return cf
+
+
+
+
+
+
+
+def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
+
+    from os import getcwd
+    from os.path import join, exists
+    from sys import path as sys_path
+
+    if verbose:
+        print("\n\nInitializing...\n\n")
 
     here = getcwd().split("/")
     while not exists(join("/".join(here),"__proj__.py")):
@@ -173,69 +237,18 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
 
     cf = init_config(verbose=verbose, abs_project_root_path=abs_project_root_path)
 
-    local_mode = cf["misc"]["local_mode"]
-    if not _checkInternetHttplib():
-        local_mode = True
-        cf["machine"]["client"] = None
-        cf['machine']['model'] = None
-        cf["machine"]["global_generation_config"] = None
+    cf["machine"]["client"] = None
+    cf['machine']['model'] = None
+    cf["machine"]["global_generation_config"] = None
 
 
     create_dirs(cf, clear_temp_dir)
 
-    if local_mode:
+    """if local_mode:
         print("Local mode - no access to GCP bucket and not initializing Gemini")
         
     else:
-
-        try:
-            with open(cf['machine']['new_prompt'], 'r') as file:
-                machine_new_prompt = file.read()
-
-            cf["machine"]["client"] = genai.Client(
-                vertexai=cf["machine"]["vertexai"],
-                project=cf["machine"]["project"],
-                location=cf["machine"]["location"],
-                http_options=types.HttpOptions(
-                    api_version=cf["machine"]["http_options_api_version"],
-                    timeout=cf["machine"]["http_options_timeout"]
-                )
-            )
-
-            cf["machine"]["global_generation_config"] = types.GenerateContentConfig(
-                system_instruction=machine_new_prompt,
-                temperature=cf["machine"]["temperature"],
-                max_output_tokens=cf["machine"]["max_output_tokens"],
-                response_mime_type=cf["machine"]["response_mime_type"],
-                presence_penalty=cf["machine"]["presence_penalty"],
-                frequency_penalty=cf["machine"]["frequency_penalty"],
-                thinking_config=types.ThinkingConfig(thinking_budget=cf["machine"]["thinking_budget"]),
-            )
-
-            print("Gemini initialized successfully")
-
-        except:
-            print("Error Gemini API key. Gemini won't be available.")
-
-
-
-        # Initialize a GCP storage client
-        try:
-            bucket_client = storage.Client()
-
-            # Get the GCP bucket
-            bucket = bucket_client.get_bucket(cf["media_storage"]["GCP_bucket"])
-
-            # Try to access the GCP bucket's metadata
-            bucket.reload()
-            cf["media_storage"]["bucket"] = bucket
-            print(f"Access to the project Google Cloud Storage bucket is authorized.")
-        except Forbidden:
-            print(f"You don't have access to the project Google Cloud Storage bucket.")
-        except Exception as e:
-            print(f"A Google Cloud Storage error occurred: {e}")
-        
-        print()
+        cf = connect_to_google(cf)"""
 
     return cf
         
@@ -436,6 +449,8 @@ def extract_and_join_subkeys(data, sub_keys: list):
 def clean_url(the_url: str) -> dict:
     from urllib.parse import unquote
     outout = {}
+    if "?" not in the_url or "&" not in the_url:
+        return outout
     for u in the_url.split("?")[1].split("&"):
         v = u.split("=")
         v[1] = unquote(v[1]).replace(",","|")

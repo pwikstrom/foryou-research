@@ -9,6 +9,7 @@
     <button class="tab-button" onclick="openTab(event, 'build_datasets')">Build Datasets</button>
     <button class="tab-button" onclick="openTab(event, 'dataset_explorer')">Dataset Explorer</button>
     <button class="tab-button" onclick="openTab(event, 'video_viewer')">Video Viewer</button>
+    <button class="tab-button" onclick="openTab(event, 'ingest_ndjson')">Ingest Zeeschuimer</button>
     <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
 </div>
 
@@ -19,6 +20,7 @@
     {% include 'tabs/build_datasets.html' %}
     {% include 'tabs/dataset_explorer.html' %}
     {% include 'tabs/video_viewer.html' %}
+    {% include 'tabs/ingest_ndjson.html' %}
     {% include 'tabs/settings.html' %}
 </div>
 {% endblock %}
