@@ -17,19 +17,22 @@ def create_dirs(this_cf: dict, clear_temp_dir: bool = False) -> None:
     from os.path import join
     from os import listdir, remove
 
-
     for k in ["main", "zeeschuimer_raw", "zeeschuimer_refined", "ddp", "temp", "backup", "scrape", "exports"]:
         makedirs(this_cf["paths"][k], exist_ok=True)
 
     if clear_temp_dir:
-        for fn in listdir(temp_path()):
-            remove(join(temp_path(),fn))
+        for fn in listdir(temp_path(this_cf)):
+            remove(join(temp_path(this_cf),fn))
 
 
 
 
 
-def init_config(verbose=False, abs_project_root_path=None) -> dict:
+def init_config(
+    verbose=False,
+    abs_project_root_path=None
+    ) -> dict:
+
     from os import environ
     from os.path import join, abspath
     import toml
@@ -91,10 +94,11 @@ def init_config(verbose=False, abs_project_root_path=None) -> dict:
     cf["study_defs"] = study_defs
 
     cf["paths"]["project_root"] = abs_project_root_path
-    if cf["misc"]["local_mode"]:
-        cf["machine"]["client"] = None
-        cf['machine']['model'] = None
-        cf["machine"]["global_generation_config"] = None
+
+    cf["machine"]["client"] = None
+    cf["machine"]["global_generation_config"] = None
+    cf["media_storage"]["bucket"] = None
+
 
     cf["paths"]["main"] = abspath(join(abs_project_root_path, cf["paths"]["main"]))
     cf["paths"]["main_no_sync"] = abspath(join(abs_project_root_path, cf["paths"]["main_not_gdrive_synced"]))
@@ -214,41 +218,13 @@ def connect_to_google(cf_in):
 
 
 
-def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
-
-    from os import getcwd
-    from os.path import join, exists
-    from sys import path as sys_path
+def init_project(clear_temp_dir=False, verbose=False) -> dict:
 
     if verbose:
         print("\n\nInitializing...\n\n")
 
-    here = getcwd().split("/")
-    while not exists(join("/".join(here),"__proj__.py")):
-        here.pop()
-
-    # this is the root folder for the project structure
-    abs_project_root_path = join("/".join(here))
-    if verbose:
-        print("Project root:",abs_project_root_path)
-
-    # add project root path to PATH since the modules are located in the project structure
-    sys_path.append(abs_project_root_path)
-
-    cf = init_config(verbose=verbose, abs_project_root_path=abs_project_root_path)
-
-    cf["machine"]["client"] = None
-    cf['machine']['model'] = None
-    cf["machine"]["global_generation_config"] = None
-
-
+    cf = init_config(verbose=verbose, abs_project_root_path=None)
     create_dirs(cf, clear_temp_dir)
-
-    """if local_mode:
-        print("Local mode - no access to GCP bucket and not initializing Gemini")
-        
-    else:
-        cf = connect_to_google(cf)"""
 
     return cf
         
@@ -265,7 +241,7 @@ def init_project(clear_temp_dir=False, verbose=False, local_mode=False) -> dict:
 ############################################################################################################
 ############################################################################################################
 
-cf = init_project(verbose = False)
+#cf = init_project(verbose = False)
 
 ############################################################################################################
 ############################################################################################################
@@ -290,8 +266,8 @@ cf = init_project(verbose = False)
 
 
 
-def temp_path(filename: str = "") -> str:
-    import toml
+def temp_path(cf: dict, filename: str = "") -> str:
+    #import toml
     from os.path import join
 
     #cf = toml.load(CONFIG_PATH)

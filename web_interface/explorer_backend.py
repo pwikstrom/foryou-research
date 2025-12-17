@@ -11,7 +11,7 @@ def load_data(file_path):
         if file_path.endswith('.pkl'):
             df = pd.read_pickle(file_path)
         else:
-            df = pd.read_csv(file_path)
+            raise ValueError("Unsupported file format. Only .pkl is supported.")
     except Exception as e:
         print(f"Error loading data {file_path}: {e}")
         return None, {}
@@ -213,6 +213,8 @@ def filter_dataframe(df, column_types, filters, search_query=None):
 
 
 def get_current_stats(df, column_types):
+    from pandas import set_option
+    set_option('future.no_silent_downcasting', True)
     """
     Returns robust stats for the (filtered) dataframe.
     """
@@ -260,6 +262,7 @@ def get_current_stats(df, column_types):
              
              # Clamp data (original domain)
              clamped_series = series.clip(lower=min_val, upper=max_val)
+             
              
              # Calculate Histogram
              try:

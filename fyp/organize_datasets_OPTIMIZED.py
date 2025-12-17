@@ -1,8 +1,8 @@
 
 from zoneinfo import ZoneInfo
-import fyp.fyp_main as fyp
 from numpy import int64 as np_int64
-import pandas as pd
+
+
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 
@@ -25,17 +25,27 @@ def _get_day_segment_from_hour_of_day(the_hour):
 
 
 
-def extract_local_time_features(study_name, some_events_df_in, kind_of_log=None, verbose=False):
+def extract_local_time_features(
+    cf = None,
+    study_name = None,
+    some_events_df_in = None,
+    kind_of_log = None,
+    verbose = False):
     """
     Optimized version - extracts local time features from timestamps using vectorized operations.
     
     This function was previously slow due to iterrows() and map(lambda) calls.
     Now uses vectorized pandas operations for much better performance.
     """
-    from pandas import concat, to_datetime, Categorical
+    from pandas import concat, to_datetime, Categorical, notna as pd_notna, NaT as pd_NaT
     from numpy import select as np_select
+    from fyp.fyp_main import init_config
 
-    TIME_ZONE = fyp.cf["study_defs"][study_name]["TIME_ZONE"]
+    if cf is None:
+        cf = init_config()
+
+
+    TIME_ZONE = cf["study_defs"][study_name]["TIME_ZONE"]
 
     df = some_events_df_in.copy()
 
@@ -121,11 +131,11 @@ def extract_local_time_features(study_name, some_events_df_in, kind_of_log=None,
             tz = sample.tz
             # Convert each datetime to UTC timestamp, then reconstruct with timezone
             # This avoids the "tz-aware cannot be converted" error
-            utc_timestamps = ts.apply(lambda x: x.timestamp() if pd.notna(x) and hasattr(x, 'timestamp') else pd.NaT)
-            df["local_timestamp"] = pd.to_datetime(utc_timestamps, unit='s', utc=True).dt.tz_convert(tz)
+            utc_timestamps = ts.apply(lambda x: x.timestamp() if pd_notna(x) and hasattr(x, 'timestamp') else pd_NaT)
+            df["local_timestamp"] = to_datetime(utc_timestamps, unit='s', utc=True).dt.tz_convert(tz)
         else:
             # No timezone info, simple conversion
-            df["local_timestamp"] = pd.to_datetime(ts)
+            df["local_timestamp"] = to_datetime(ts)
         ts = df["local_timestamp"]
 
     iso = ts.dt.isocalendar()  # DataFrame: year, week, day
@@ -203,7 +213,10 @@ def remove_link_events_with_corrupt_links(some_events_df):
 
 
 
-def load_scrape_metadata(consolidate=False, verbose=False):
+def load_scrape_metadata(
+    cf = None,
+    consolidate=False,
+    verbose=False):
     # load the scraped metadata dataframe
 
     import shutil
@@ -211,14 +224,17 @@ def load_scrape_metadata(consolidate=False, verbose=False):
     from os.path import join, basename
     from pandas import concat, read_pickle
     from datetime import datetime
+    from fyp.fyp_main import init_config
 
+    if cf is None:
+        cf = init_config()
 
     # load the scrape_metadata dataframe
     print("Loading scraped metadata... ", end="", flush = True)
 
-    scrape_metadata_filenames = [join(fyp.cf["paths"]["scrape"],gg) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith("scrape_metadata") and not "_TEST_" in gg]
+    scrape_metadata_filenames = [join(cf["paths"]["scrape"],gg) for gg in listdir(cf["paths"]["scrape"]) if gg.startswith("scrape_metadata") and not "_TEST_" in gg]
 
-    scrape_metadata = pd.concat([pd.read_pickle(fn) for fn in scrape_metadata_filenames])
+    scrape_metadata = concat([read_pickle(fn) for fn in scrape_metadata_filenames])
     if verbose:
         print(f"Shape: {scrape_metadata.shape}")
 
@@ -248,7 +264,7 @@ def load_scrape_metadata(consolidate=False, verbose=False):
             print(f"This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}")
 
         # recombine the two dataframes
-        scrape_metadata = pd.concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
+        scrape_metadata = concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
         if verbose:
             print(f"After this procedure, the shape of the scrape DF is: {scrape_metadata.shape}")
 
@@ -294,7 +310,7 @@ def load_scrape_metadata(consolidate=False, verbose=False):
         scrape_metadata.to_pickle(latest_filename+".temp")
 
         for fn in scrape_metadata_filenames:
-            shutil.move(fn,join(fyp.cf['paths']['scrape'],'archive',basename(fn)))
+            shutil.move(fn,join(cf['paths']['scrape'],'archive',basename(fn)))
             if verbose:
                 print(f"Moved {basename(fn)} to archive")
         
@@ -313,7 +329,11 @@ def load_scrape_metadata(consolidate=False, verbose=False):
 
 
 
-def load_failed_scrapes(consolidate = False, verbose = False, super_verbose = False):
+def load_failed_scrapes(
+    cf = None,
+    consolidate = False,
+    verbose = False,
+    super_verbose = False):
     # Load list of failed scraped attempts.
 
     from os import listdir
@@ -321,10 +341,14 @@ def load_failed_scrapes(consolidate = False, verbose = False, super_verbose = Fa
     from json import load as json_load, dump
     from datetime import datetime
     from shutil import move
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
 
     failed_scrape_fn_core = "scrape_failed_items"
 
-    failed_scrape_files = [join(fyp.cf["paths"]["scrape"],gg) for gg in listdir(fyp.cf["paths"]["scrape"]) if gg.startswith(failed_scrape_fn_core)]
+    failed_scrape_files = [join(cf["paths"]["scrape"],gg) for gg in listdir(cf["paths"]["scrape"]) if gg.startswith(failed_scrape_fn_core)]
 
     failed_scrapes = []
     for fn in failed_scrape_files:
@@ -339,11 +363,11 @@ def load_failed_scrapes(consolidate = False, verbose = False, super_verbose = Fa
         if verbose:
             print(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {failed_scrape_fn_core}_{fine_ts}.json.")
 
-        with open(join(fyp.cf['paths']['scrape'],f"{failed_scrape_fn_core}_{fine_ts}.json"), "w") as jf:
+        with open(join(cf['paths']['scrape'],f"{failed_scrape_fn_core}_{fine_ts}.json"), "w") as jf:
             dump(list(failed_scrapes), jf)
 
         for fn in failed_scrape_files:
-            move(fn,join(fyp.cf['paths']['scrape'],'archive',basename(fn)))
+            move(fn,join(cf['paths']['scrape'],'archive',basename(fn)))
             if verbose:
                 print(f"Moved {basename(fn)} to archive")
         if verbose:
@@ -364,17 +388,30 @@ def load_failed_scrapes(consolidate = False, verbose = False, super_verbose = Fa
 
 
 
-def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
+def load_zeeschuimer_data(
+    cf = None,
+    study_name = None,
+    use_half_baked = False,
+    verbose=False):
     # load items from baseline logs
 
     from pandas import concat, read_pickle
     from os.path import exists, join, getctime
-    from os import remove
+    from os import remove, listdir
     from datetime import datetime
+    from json import load as json_load
+    from zoneinfo import ZoneInfo
+    from fyp.fyp_main import init_config
 
-    USE_HALF_BAKED_FILES = use_half_baked#fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
+    if cf is None:
+        cf = init_config()
+    
+    if study_name is None:
+        raise ValueError("study_name must be specified")
 
-    half_baked_baseline_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_BASELINE.pkl")
+    USE_HALF_BAKED_FILES = use_half_baked
+
+    half_baked_baseline_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_BASELINE.pkl")
 
     if not USE_HALF_BAKED_FILES and exists(half_baked_baseline_path):
         remove(half_baked_baseline_path)
@@ -389,21 +426,17 @@ def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
         print(f"Shape: {baseline_log.shape}")
     else:
 
-        BASELINE_START_DATE = fyp.cf["study_defs"][study_name]["BASELINE_START_DATE"]
-        BASELINE_END_DATE = fyp.cf["study_defs"][study_name]["BASELINE_END_DATE"]
+        BASELINE_START_DATE = cf["study_defs"][study_name]["BASELINE_START_DATE"]
+        BASELINE_END_DATE = cf["study_defs"][study_name]["BASELINE_END_DATE"]
 
         print("Loading baseline logs...")
-
-        from os import listdir
-        from json import load as json_load
-        from zoneinfo import ZoneInfo
 
 
         list_of_zeeschuimer_logs = []
         okay_test_cases = []
-        for fn in listdir(fyp.cf["paths"]["zeeschuimer_refined"]):
+        for fn in listdir(cf["paths"]["zeeschuimer_refined"]):
             if fn.endswith(".pkl"):
-                zeeschuimer_candidate = read_pickle(join(fyp.cf["paths"]["zeeschuimer_refined"],fn))
+                zeeschuimer_candidate = read_pickle(join(cf["paths"]["zeeschuimer_refined"],fn))
                 test_cols = zeeschuimer_candidate[["item_id","timestamp_collected"]].reset_index(drop=True).sort_values("timestamp_collected").copy()
                 duplicate_found = False
                 for zl in okay_test_cases:
@@ -449,7 +482,12 @@ def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
         
         baseline_log.reset_index(drop=True, inplace=True)
 
-        baseline_log = extract_local_time_features(study_name, baseline_log, kind_of_log='baseline', verbose=verbose)
+        baseline_log = extract_local_time_features(
+            cf = cf,
+            study_name = study_name,
+            some_events_df_in = baseline_log,
+            kind_of_log = 'baseline',
+            verbose = verbose)
 
         if USE_HALF_BAKED_FILES:
             if verbose:
@@ -468,15 +506,22 @@ def load_zeeschuimer_data(study_name, use_half_baked = False, verbose=False):
 
 
 
-def sample_ddp_events(study_name, all_ddp_events_df, verbose=False):
+def sample_ddp_events(
+    cf = None, 
+    study_name = None, 
+    all_ddp_events_df = None, 
+    verbose=False):
 
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
 
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
 
-    group_factors = fyp.cf["var_scheme"][fyp.cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
+    group_factors = cf["var_scheme"][cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
 
-    #group_factors = fyp.cf["study_defs"][study_name]["group_factors"]
     t1 = []
     for c in group_factors:
         if c[:2] in ["D_","T_","S_","B_"]:
@@ -485,10 +530,10 @@ def sample_ddp_events(study_name, all_ddp_events_df, verbose=False):
             t1 += [c]
     group_factors = t1
 
-    AGG_GROUP_SIZE_PERCENTILE_LIMITS = fyp.cf["study_defs"][study_name]["AGG_GROUP_SIZE_PERCENTILE_LIMITS"]
-    MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = fyp.cf["study_defs"][study_name]["MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION"]
-    N_SAMPLED_DATES_FROM_EACH_DONATION = fyp.cf["study_defs"][study_name]["N_SAMPLED_DATES_FROM_EACH_DONATION"]
-    N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = fyp.cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP"]
+    AGG_GROUP_SIZE_PERCENTILE_LIMITS = cf["study_defs"][study_name]["AGG_GROUP_SIZE_PERCENTILE_LIMITS"]
+    MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = cf["study_defs"][study_name]["MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION"]
+    N_SAMPLED_DATES_FROM_EACH_DONATION = cf["study_defs"][study_name]["N_SAMPLED_DATES_FROM_EACH_DONATION"]
+    N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP"]
 
     if verbose:
         print("Sampling events based on donation-date groups, which is the unit of analysis for the study")
@@ -584,7 +629,11 @@ def sample_ddp_events(study_name, all_ddp_events_df, verbose=False):
 
 
 
-def load_ddp_events(study_name, use_half_baked = False, verbose=False):
+def load_ddp_events(
+    cf = None, 
+    study_name = None, 
+    use_half_baked = False, 
+    verbose=False):
     # load DF with all donations previously ingested
 
     from os import listdir, remove
@@ -592,13 +641,18 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
     from json import load as json_load
     from pandas import concat, read_pickle
     from datetime import datetime
+    from fyp.fyp_main import init_config
 
+    if cf is None:
+        cf = init_config()
+    if study_name is None:
+        raise ValueError("study_name must be specified")
 
-    USE_HALF_BAKED_FILES = use_half_baked#fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
+    USE_HALF_BAKED_FILES = use_half_baked
     
 
-    half_baked_ddp_events_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_ALL_DDP.pkl")
-    half_baked_sampled_ddp_events_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_SAMPLED_DDP.pkl")
+    half_baked_ddp_events_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_ALL_DDP.pkl")
+    half_baked_sampled_ddp_events_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_SAMPLED_DDP.pkl")
 
 
     if not USE_HALF_BAKED_FILES and exists(half_baked_ddp_events_path):
@@ -615,11 +669,11 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
         print(f"Shape: {all_ddp_events_df.shape}")
     else:
 
-        DDP_START_DATE = fyp.cf["study_defs"][study_name]["DDP_START_DATE"]
-        DDP_END_DATE = fyp.cf["study_defs"][study_name]["DDP_END_DATE"]
+        DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
+        DDP_END_DATE = cf["study_defs"][study_name]["DDP_END_DATE"]
 
         print("Loading all DDP events...", end=" ", flush=True)
-        all_ddp_events_df = read_pickle(join(fyp.cf["paths"]["ddp_main"], "all_participant_events.pkl"))
+        all_ddp_events_df = read_pickle(join(cf["paths"]["ddp_main"], "all_participant_events.pkl"))
 
         # drop two columns
         all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
@@ -645,7 +699,12 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
         if verbose:
             print(f"Dropping DDP events with corrupt TikTok URLs. New shape: {all_ddp_events_df.shape}")
 
-        all_ddp_events_df = extract_local_time_features(study_name, all_ddp_events_df, kind_of_log='ddp', verbose=verbose)
+        all_ddp_events_df = extract_local_time_features(
+            cf = cf,
+            study_name = study_name,
+            some_events_df_in = all_ddp_events_df,
+            kind_of_log = 'ddp',
+            verbose = verbose)
 
         if USE_HALF_BAKED_FILES:
             if verbose:
@@ -659,7 +718,11 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
         sampled_data_ddp_events = read_pickle(half_baked_sampled_ddp_events_path)
         print(f"Shape: {sampled_data_ddp_events.shape}")
     else:
-        sampled_data_ddp_events = sample_ddp_events(study_name, all_ddp_events_df, verbose=verbose)
+        sampled_data_ddp_events = sample_ddp_events(
+            cf = cf, 
+            study_name = study_name, 
+            all_ddp_events_df = all_ddp_events_df, 
+            verbose=verbose)
 
         if USE_HALF_BAKED_FILES:
             if verbose:
@@ -675,15 +738,24 @@ def load_ddp_events(study_name, use_half_baked = False, verbose=False):
 
 
 
-def load_special_donations(study_name, verbose=False):
+def load_special_donations(
+    cf = None, 
+    study_name = None, 
+    verbose=False):
     # sometimes it is useful to select events in a specific donation.
 
     from pandas import concat, read_pickle, DataFrame
     from os.path import join
+    from fyp.fyp_main import init_config
 
-    DDP_START_DATE = fyp.cf["study_defs"][study_name]["DDP_START_DATE"]
-    DDP_END_DATE = fyp.cf["study_defs"][study_name]["DDP_END_DATE"]
-    the_special_donations = fyp.cf["study_defs"][study_name]["SPECIAL_DONATIONS"]
+    if cf is None:
+        cf = init_config()
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+
+    DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
+    DDP_END_DATE = cf["study_defs"][study_name]["DDP_END_DATE"]
+    the_special_donations = cf["study_defs"][study_name]["SPECIAL_DONATIONS"]
 
     if len(the_special_donations) == 0:
         if verbose:
@@ -695,7 +767,7 @@ def load_special_donations(study_name, verbose=False):
     print(f"Loading special DDP events from {donations_str}")
 
     # Loading all DDP events...
-    all_ddp_events_df = read_pickle(join(fyp.cf["paths"]["ddp_main"], "all_participant_events.pkl"))
+    all_ddp_events_df = read_pickle(join(cf["paths"]["ddp_main"], "all_participant_events.pkl"))
 
     # drop two columns
     all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
@@ -722,7 +794,12 @@ def load_special_donations(study_name, verbose=False):
 
     if verbose:
         print("Processing DDP events to extract local time features...")
-    special_ddp_events_df = extract_local_time_features(study_name, special_ddp_events_df, kind_of_log='ddp', verbose=verbose)
+    special_ddp_events_df = extract_local_time_features(
+        cf = cf,
+        study_name = study_name,
+        some_events_df_in = special_ddp_events_df,
+        kind_of_log = 'ddp',
+        verbose = verbose)
 
     if verbose:
         print("--"*60)
@@ -734,18 +811,23 @@ def load_special_donations(study_name, verbose=False):
 
 
 def load_datasets(
-    study_name,
+    cf = None,
+    study_name = None,
     use_half_baked = False,
     delete_all_half_baked_files = False,
     consolidate = False,
     verbose=False):
 
-    from fyp.machine_annotation import load_machine_annotations
 
     from os import remove, listdir
     from os.path import join
+    from fyp.machine_annotation import load_machine_annotations
+    from fyp.fyp_main import init_config
 
-
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    if cf is None:
+        cf = init_config()
 
 
     print("Loading all datasets:")
@@ -753,7 +835,7 @@ def load_datasets(
 
     if delete_all_half_baked_files:
         print(" - Deleting half-baked files")
-        export_path = fyp.cf["paths"]["exports"]
+        export_path = cf["paths"]["exports"]
         for half_baked_file in listdir(export_path):
             if "HALF_BAKED" in half_baked_file:
                 path_to_it = join(export_path, half_baked_file)
@@ -770,12 +852,12 @@ def load_datasets(
     print("=="*60)
 
 
-    tutti.update(load_zeeschuimer_data(study_name, use_half_baked = use_half_baked, verbose=verbose))
-    tutti.update(load_ddp_events(study_name, use_half_baked = use_half_baked, verbose=verbose))
-    tutti.update(load_special_donations(study_name, verbose=verbose))
+    tutti.update(load_zeeschuimer_data(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
+    tutti.update(load_ddp_events(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
+    tutti.update(load_special_donations(cf = cf, study_name = study_name, verbose=verbose))
 
-    tutti.update(load_scrape_metadata(consolidate=consolidate, verbose=verbose))
-    tutti["data_annotated"] = load_machine_annotations(include_failed_calls=False, consolidate=consolidate, verbose = verbose)
+    tutti.update(load_scrape_metadata(cf = cf, consolidate=consolidate, verbose=verbose))
+    tutti["data_annotated"] = load_machine_annotations(cf = cf, include_failed_calls=False, consolidate=consolidate, verbose = verbose)
 
     print("Datasets loaded")
     print("=="*60)
@@ -789,13 +871,20 @@ def load_datasets(
 
 
 
-def identify_unique_videos(study_name, stuff, verbose = False):
-
-
+def identify_unique_videos(cf = None, study_name = None, stuff = None, verbose = False):
     # combine the special DDP events with the sampled DDP events
-    from pandas import concat, read_pickle, DataFrame, NamedAgg, NA
 
-    MIN_NUNIQUE_USERS = fyp.cf["study_defs"][study_name]["MIN_NUNIQUE_USERS"]
+    from pandas import concat, read_pickle, DataFrame, NamedAgg, NA
+    from fyp.fyp_main import init_config
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    if stuff is None:
+        raise ValueError("stuff must be specified")
+    if cf is None:
+        cf = init_config()
+
+    MIN_NUNIQUE_USERS = cf["study_defs"][study_name]["MIN_NUNIQUE_USERS"]
 
 
     ddp_events_for_unique_videos_df = DataFrame(columns=stuff["sampled_data_ddp_events"].columns)
@@ -884,14 +973,23 @@ def identify_unique_videos(study_name, stuff, verbose = False):
 
 
 
-def calculate_all_unique_video_subsets(study_name, stuff, verbose=False):
+def calculate_all_unique_video_subsets(cf = None, study_name = None, stuff = None, verbose=False):
     ### Check the unique videos against scraped metadata, machine results and such things
 
     from fyp.machine_annotation import load_machine_annotations
+    from fyp.fyp_main import init_config
+
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    if stuff is None:
+        raise ValueError("stuff must be specified")
+    if cf is None:
+        cf = init_config()
 
 
     # load failed_scrapes as a set
-    failed_scrapes = load_failed_scrapes(verbose=verbose, consolidate = True)
+    failed_scrapes = load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True)
 
     # load 
     machine_annotated_videos = set([int(k) for k in stuff["data_annotated"].item_id.tolist()])
@@ -902,14 +1000,14 @@ def calculate_all_unique_video_subsets(study_name, stuff, verbose=False):
         ).item_id.tolist())
     failed_annotations = failed_annotations - machine_annotated_videos
 
-    too_long_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]>fyp.cf["machine"]["max_duration_for_annotation"]].item_id.to_list())
+    too_long_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]>cf["machine"]["max_duration_for_annotation"]].item_id.to_list())
     if verbose:
         print(f"Too long videos: {len(too_long_videos):,} of {len(stuff['data_scraped']):,}")
 
     completed_downloads = set([int(k) for k in stuff["data_scraped"][stuff["data_scraped"]["video_downloaded"]].item_id.to_list()]) - too_long_videos
     missing_downloads = set([int(k) for k in stuff["data_scraped"][~stuff["data_scraped"]["video_downloaded"]].item_id.to_list()]) | too_long_videos
 
-    unique_videos_with_stats = identify_unique_videos(study_name, stuff, verbose=verbose)
+    unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, stuff = stuff, verbose=verbose)
     all_unique_videos = set([int(k) for k in unique_videos_with_stats.item_id.to_list()])
 
     failed_annotations = failed_annotations & all_unique_videos
@@ -952,9 +1050,10 @@ def calculate_all_unique_video_subsets(study_name, stuff, verbose=False):
 
 
 def save_selected_unique_video_subsets(
-    study_name,
-    stuff,
-    subsets,
+    cf = None,
+    study_name = None,
+    stuff = None,
+    subsets = None,
     file_label = "",
     INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
     INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
@@ -962,13 +1061,21 @@ def save_selected_unique_video_subsets(
     INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
     INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
     INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-    #INCLUDE_LONG_VIDEOS_IN_EXPORT = False,
     verbose=False
 ):
 
     from os.path import join
     from datetime import datetime
     from pandas import DataFrame
+    from fyp.fyp_main import init_config
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    if stuff is None:
+        raise ValueError("stuff must be specified")
+    if cf is None:
+        cf = init_config()
+
 
     if verbose:
         print("The user's selection of available subsets of the videos gives the following total set:")
@@ -1014,12 +1121,12 @@ def save_selected_unique_video_subsets(
             file_label += "_"
         unique_videos_filename = f"{study_name}_{file_label}UNIQUE.pkl"
 
-        unique_videos_with_stats = identify_unique_videos(study_name, stuff, verbose=False)
+        unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, stuff = stuff, verbose=False)
         all_unique_videos_to_save = unique_videos_with_stats[unique_videos_with_stats.item_id.isin(work_with_these_videos)].copy()
 
-        export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
+        export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
-        all_unique_videos_to_save.to_pickle(join(fyp.cf['paths']['exports'],unique_videos_filename))
+        all_unique_videos_to_save.to_pickle(join(cf['paths']['exports'],unique_videos_filename))
         if verbose:
             print(f"Exported {len(all_unique_videos_to_save):,} unique videos to {join(export_sub_folder_name,unique_videos_filename)}")
             print(f"Now: {datetime.now()}")
@@ -1036,7 +1143,8 @@ def save_selected_unique_video_subsets(
 
 
 def select_videos_from_half_baked(
-    study_name,
+    cf = None,
+    study_name = None,
     file_label = "",
     INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
     INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
@@ -1046,19 +1154,33 @@ def select_videos_from_half_baked(
     INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
     verbose = False):
 
+    from fyp.fyp_main import init_config
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    if cf is None:
+        cf = init_config()
+
+
     tutti = load_datasets(
-        study_name,
+        cf = cf,
+        study_name = study_name,
         use_half_baked = True,
         delete_all_half_baked_files = False,
         consolidate = False,
         verbose = verbose)
 
-    video_subsets = calculate_all_unique_video_subsets(study_name, tutti, verbose = verbose)
+    video_subsets = calculate_all_unique_video_subsets(
+        cf = cf,
+        study_name = study_name,
+        stuff = tutti,
+        verbose = verbose)
 
     selected_videos = save_selected_unique_video_subsets(
-        study_name,
-        tutti,
-        video_subsets,
+        cf = cf,
+        study_name = study_name,
+        stuff = tutti,
+        subsets = video_subsets,
         file_label = file_label,
         INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = INCLUDE_UNSEEN_VIDEOS_IN_EXPORT,
         INCLUDE_FAILED_SCRAPES_IN_EXPORT = INCLUDE_FAILED_SCRAPES_IN_EXPORT,
@@ -1133,9 +1255,20 @@ def _check_for_null_values_in_df(some_df_C, verbose=False):
 
 
 
-def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0), verbose=False):
+def _process_baseline_for_log_export(
+    cf = None,
+    stuff = None,
+    session_id_counter = np_int64(0),
+    verbose=False):
 
     from pandas import concat
+    from fyp.fyp_main import init_config
+
+    if stuff is None:
+        raise ValueError("stuff must be specified")
+
+    if cf is None:
+        cf = init_config()
 
     baseline_log = stuff["data_baseline_log"]
     
@@ -1177,8 +1310,10 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0), ver
         print("--"*60)
 
 
-    if "var_scheme" in fyp.cf and not fyp.cf["var_scheme"].empty:
-        vs = fyp.cf["var_scheme"]
+    if "var_scheme" in cf and not cf["var_scheme"].empty:
+        vs = cf["var_scheme"]
+        # TODO - this has to be changed to be less connected to specific variable names
+        #
         # Determine baseline vars: those with 'role'='standard' (like B_anchors) or starting with B_ ? 
         # The original list had B_ challenges etc. In CSV they are defined.
         # Original List: item_id, T_local_timestamp... T_local_date, session_id, event_order..., event_pos...
@@ -1202,19 +1337,7 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0), ver
         # Remove duplicates just in case
         relevant_baseline_cols = list(dict.fromkeys(relevant_baseline_cols))
     else:
-        # Fallback if scheme not loaded correctly (though we loaded it in fyp_main)
-        relevant_baseline_cols = [
-            'item_id',
-            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
-            'T_local_hour', 'T_local_day_segment', 'T_local_date',
-            'session_id', 'event_order_in_session',
-            'event_pos_in_session',
-
-            'B_challenges', 'B_anchors', 'B_effectStickers',
-            'B_source_app_language', 'B_source_browser_language',
-            'B_source_language', 'B_source_region',
-            'B_source_tz_name', 
-        ]
+        raise ValueError("var_scheme not found in config")
 
 
     baseline_log_simple = _rename_columns(baseline_log_simple)
@@ -1239,7 +1362,7 @@ def process_baseline_for_log_export(stuff, session_id_counter = np_int64(0), ver
 def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0), verbose=False):
     # attach session stats to donation events
     ddp_log = ddp_log_in.copy()
-    from pandas import isna as pd_isna
+    from pandas import isna as pd_isna, concat
     import numpy as np
 
 
@@ -1303,7 +1426,7 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0), v
 
         # OPTIMIZATION: Apply all updates at once instead of in the loop
         if updates_list:
-            all_updates = pd.concat(updates_list)
+            all_updates = concat(updates_list)
             ddp_log.loc[all_updates.index, 'session_id'] = all_updates['session_id']
             ddp_log.loc[all_updates.index, 'event_order_in_session'] = all_updates['event_order_in_session']
             ddp_log.loc[all_updates.index, 'event_pos_in_session'] = all_updates['event_pos_in_session'].astype(float)
@@ -1330,10 +1453,23 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0), v
 
 
 
-def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0), verbose=False):
+def _process_ddp_log_for_log_export(
+    cf = None, 
+    stuff = None, 
+    session_id_counter = np_int64(0), 
+    verbose=False):
     # combine the special DDP events with the all DDP events
 
     from pandas import DataFrame, concat
+    from fyp.fyp_main import init_config
+
+    if stuff is None:
+        raise ValueError("stuff must be specified")
+
+    if cf is None:
+        cf = init_config()
+
+
 
     ddp_log = DataFrame(columns=stuff["all_data_ddp_events"].columns)
 
@@ -1370,8 +1506,8 @@ def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0), verb
         return ddp_log, session_id_counter
 
 
-    if "var_scheme" in fyp.cf and not fyp.cf["var_scheme"].empty:
-        vs = fyp.cf["var_scheme"]
+    if "var_scheme" in cf and not cf["var_scheme"].empty:
+        vs = cf["var_scheme"]
         # Structural columns
         structural_ddp_cols = [
             'item_id',
@@ -1394,21 +1530,7 @@ def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0), verb
         relevant_ddp_cols = structural_ddp_cols + d_vars
         relevant_ddp_cols = list(dict.fromkeys(relevant_ddp_cols))
     else:
-
-        relevant_ddp_cols = [
-            'item_id',
-            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
-            'T_local_hour', 'T_local_day_segment', 'T_local_date',
-            'session_id', 'event_order_in_session',
-            'event_pos_in_session',
-
-            'D_donation_id',
-            
-            'D_feature_name','D_primary_label',
-            'D_primary_value',
-            'D_secondary_label', 'D_secondary_value',
-
-        ]
+        raise ValueError("var_scheme not found in config")
 
 
     ddp_log, session_id_counter = add_session_stats_to_ddp_log(ddp_log, session_id_counter, verbose=verbose)
@@ -1425,9 +1547,9 @@ def process_ddp_log_for_log_export(stuff, session_id_counter = np_int64(0), verb
 
 
 
-def process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
+def _process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
 
-    from pandas import isna as pd_isna, Timestamp, DataFrame
+    from pandas import isna as pd_isna, Timestamp, DataFrame, to_datetime
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -1439,18 +1561,16 @@ def process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
         print("Processing scraped metadata for log export...")
     scrape_metadata_log = stuff["data_scraped"][stuff["data_scraped"].item_id.isin(combined_log.item_id.unique())].copy()
 
-    # VECTORIZED: Replace 'nan' string with empty string (faster than map)
-    # Only apply to object columns to avoid FutureWarning
+
     object_cols = scrape_metadata_log.select_dtypes(include=['object']).columns
     scrape_metadata_log[object_cols] = scrape_metadata_log[object_cols].replace('nan', '').infer_objects(copy=False)
 
-    # VECTORIZED: Convert createTime without lambda
-    # Use pd.to_datetime for the conversion instead of map(lambda)
-    scrape_metadata_log["createTime"] = pd.to_datetime(
+
+    scrape_metadata_log["createTime"] = to_datetime(
         scrape_metadata_log["createTime"], 
         errors='coerce',
         utc=True
-    ).fillna(pd.Timestamp(year=2100, month=1, day=1, tz='UTC'))
+    ).fillna(Timestamp(year=2100, month=1, day=1, tz='UTC'))
 
 
     scrape_metadata_log.drop(columns=[
@@ -1476,14 +1596,14 @@ def process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
 
 
 
-def process_machine_annotations_for_log_export(stuff, combined_log, verbose=False):
+def _process_machine_annotations_for_log_export(stuff, combined_log, verbose=False):
 
     from pandas import DataFrame
 
     if len(combined_log) == 0:
         return DataFrame()
 
-    # polishig the machine results data for merging with the log
+    # polishing the machine results data for merging with the log
     if verbose:
         print("Processing machine annotations for the log export...")
     machine_annotations_for_log = stuff["data_annotated"][stuff["data_annotated"].item_id.isin(combined_log.item_id.unique())].copy()
@@ -1511,8 +1631,9 @@ def process_machine_annotations_for_log_export(stuff, combined_log, verbose=Fals
 
 
 
-def process_and_combine_logs_for_log_export(
-    study_name,
+def _process_and_combine_logs_for_log_export(
+    cf = None,
+    study_name = None,
     stuff=None,
     use_half_baked=False,
     verbose=False):
@@ -1520,11 +1641,18 @@ def process_and_combine_logs_for_log_export(
 
     from pandas import concat, read_pickle
     from os.path import exists, join
+    from fyp.fyp_main import init_config
 
+    if cf is None:
+        cf = init_config()
 
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    if stuff is None:
+        raise ValueError("stuff must be specified")
 
-    USE_HALF_BAKED_FILES = use_half_baked#fyp.cf["study_defs"][study_name]["USE_HALF_BAKED_FILES"]
-    half_baked_combined_path = join(fyp.cf['paths']['exports'],f"{study_name}_HALF_BAKED_COMBINED.pkl")
+    USE_HALF_BAKED_FILES = use_half_baked
+    half_baked_combined_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_COMBINED.pkl")
 
 
     if USE_HALF_BAKED_FILES and exists(half_baked_combined_path):
@@ -1535,8 +1663,8 @@ def process_and_combine_logs_for_log_export(
             print(f"Shape: {combined_log.shape}")
     else:
 
-        baseline_log_simple, sesh_counter = process_baseline_for_log_export(stuff, 100, verbose=verbose)
-        ddp_log, sesh_counter = process_ddp_log_for_log_export(stuff, session_id_counter = sesh_counter, verbose=verbose)
+        baseline_log_simple, sesh_counter = _process_baseline_for_log_export(cf = cf, stuff = stuff, session_id_counter = 100, verbose=verbose)
+        ddp_log, sesh_counter = _process_ddp_log_for_log_export(cf = cf, stuff = stuff, session_id_counter = sesh_counter, verbose=verbose)
 
 
         combined_log = concat([ddp_log,baseline_log_simple])
@@ -1567,17 +1695,17 @@ def process_and_combine_logs_for_log_export(
 
 
 
-def process_enrichment_data_and_merge_with_logs(
+def _process_enrichment_data_and_merge_with_logs(
     stuff,
     combined_log,
     ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
     verbose=False
 ):
 
-    from pandas import merge
+    from pandas import merge, to_datetime
 
-    scrape_metadata_log = process_scrape_metadata_for_log_export(stuff, combined_log, verbose=verbose)
-    machine_annotations_for_log = process_machine_annotations_for_log_export(stuff, combined_log, verbose=verbose)
+    scrape_metadata_log = _process_scrape_metadata_for_log_export(stuff, combined_log, verbose=verbose)
+    machine_annotations_for_log = _process_machine_annotations_for_log_export(stuff, combined_log, verbose=verbose)
 
     ### merge log with enriched video metadata and annotations
 
@@ -1605,9 +1733,9 @@ def process_enrichment_data_and_merge_with_logs(
     
     # Convert to datetime if they're object dtype
     if t_timestamp.dtype == 'object':
-        t_timestamp = pd.to_datetime(t_timestamp, utc=True)
+        t_timestamp = to_datetime(t_timestamp, utc=True)
     if s_createtime.dtype == 'object':
-        s_createtime = pd.to_datetime(s_createtime, utc=True)
+        s_createtime = to_datetime(s_createtime, utc=True)
     
     # Now we can subtract them
     outdata["T_days_since_created"] = (t_timestamp - s_createtime).dt.days
@@ -1695,13 +1823,23 @@ def filter_log_against_sampled_donation_groups(
 
 
 def save_logs_as_pkl(
-    study_name,
-    outdata_filtered,
+    cf = None,
+    study_name = None,
+    outdata_filtered = None,
     file_label = "",
     verbose=False):
 
     from datetime import datetime
     from os.path import join
+    from pandas import Timestamp
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+
 
     nullis = outdata_filtered.isna().sum()
     allok = True
@@ -1721,7 +1859,7 @@ def save_logs_as_pkl(
             elif outdata_filtered[n].dtype==float:
                 outdata_filtered[n] = outdata_filtered[n].fillna(-1)
             elif is_datetime64_any_dtype(outdata_filtered[n]):
-                outdata_filtered["S_createTime"] = outdata_filtered["S_createTime"].fillna(pd.Timestamp(year=2100,month=1,day=1))
+                outdata_filtered["S_createTime"] = outdata_filtered["S_createTime"].fillna(Timestamp(year=2100,month=1,day=1))
     if not allok:
         if verbose:
             print("--"*60)
@@ -1729,9 +1867,9 @@ def save_logs_as_pkl(
     if len(file_label)>0 and file_label[-1] != "_":
         file_label += "_"
     log_filename = f"{study_name}_{file_label}LOG.pkl"
-    export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
+    export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
-    outdata_filtered.to_pickle(join(fyp.cf['paths']['exports'],log_filename))
+    outdata_filtered.to_pickle(join(cf['paths']['exports'],log_filename))
     if verbose:
         print(f"Exported {len(outdata_filtered):,} events to {join(export_sub_folder_name,log_filename)}.")
         print(f"Date range: {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
@@ -1743,12 +1881,23 @@ def save_logs_as_pkl(
 
 
 def save_logs_as_csv(
-    study_name,
-    outdata_filtered,
+    cf = None,
+    study_name = None,
+    outdata_filtered = None,
+    file_label = "",
     verbose=False):
 
     from datetime import datetime
     from os.path import join
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    if outdata_filtered is None:
+        raise ValueError("outdata_filtered must be specified")
 
     def _convert_num_to_string_and_then_some(a_number):
         bookend_char = "'"
@@ -1827,10 +1976,10 @@ def save_logs_as_csv(
         outdata_for_csv_export["tiktok_url"] = "https://www.tiktok.com/@/video/" + outdata_for_csv_export["item_id"] + "/"
 
 
-        export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
+        export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
         # Export with error handling for any remaining encoding issues
-        outdata_for_csv_export.to_csv(join(fyp.cf['paths']['exports'],log_as_csv_filename), errors='replace')
+        outdata_for_csv_export.to_csv(join(cf['paths']['exports'],log_as_csv_filename), errors='replace')
         if verbose:
             print(f"Exported {len(outdata_for_csv_export):,} observations in {join(export_sub_folder_name,log_as_csv_filename)}.")
             print(f"The date of the observations in the log range from {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
@@ -1846,9 +1995,18 @@ def save_logs_as_csv(
 
 
 def export_logs(
-    study_name,
+    cf = None,
+    study_name = None,
     verbose = False
     ):
+
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
 
     print("=="*60)
     print(f"Exporting logs for study '{study_name}'")
@@ -1856,23 +2014,25 @@ def export_logs(
 
 
     tutti = load_datasets(
-        study_name,
+        cf = cf,
+        study_name = study_name,
         use_half_baked = True,
         delete_all_half_baked_files = False,
         consolidate = False,
         verbose = verbose)
 
 
-    combined_log = process_and_combine_logs_for_log_export(
-        study_name, 
-        tutti,
+    combined_log = _process_and_combine_logs_for_log_export(
+        cf = cf,
+        study_name = study_name,
+        stuff = tutti,
         use_half_baked = False,
         verbose=verbose
         )
 
-    outdata = process_enrichment_data_and_merge_with_logs(
-        tutti,
-        combined_log,
+    outdata = _process_enrichment_data_and_merge_with_logs(
+        stuff = tutti,
+        combined_log = combined_log,
         ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
         verbose=verbose
     )
@@ -1884,7 +2044,12 @@ def export_logs(
         verbose=verbose
         )
 
-    save_logs_as_pkl(study_name, outdata_filtered, verbose=True)
+    save_logs_as_pkl(
+        cf = cf,
+        study_name = study_name,
+        outdata_filtered = outdata_filtered,
+        file_label = "",
+        verbose=True)
 
 
-    #save_logs_as_csv(STUDY_NAME, outdata_filtered)
+    

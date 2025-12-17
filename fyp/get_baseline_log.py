@@ -7,7 +7,6 @@ Author: Patrik
 Date: 
 """
 
-import fyp.fyp_main as fyp
 
 
 
@@ -16,40 +15,48 @@ import fyp.fyp_main as fyp
 ############################################################################################################
 
 # read a file with one json object per line and return a list of dictionaries
-def read_ndjson_file(file_path):
+def read_ndjson_file(cf = None, file_path = None):
     from json import loads
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
 
 
-    fine_fn = file_path.replace(fyp.cf["paths"]["zeeschuimer_raw"]+"/","").replace("/","").replace(".ndjson","").split('-')[0]
+    fine_fn = file_path.replace(cf["paths"]["zeeschuimer_raw"]+"/","").replace("/","").replace(".ndjson","").split('-')[0]
     data = []
     with open(file_path, 'r') as file:
         for line in file:
-            line = '{"label":"' + fyp.cf["misc"]["label"] + '",' + line[1:]
+            line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
             line = '{"log_script":"' + fine_fn + '",' + line[1:]
             data.append(loads(line))
     return data
 
 
 
-def refine_zeeschuimer_log(item_list_or_ndjson_path: str | list[dict]):
-    import pandas as pd
+def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict] = None):
+    from pandas import DataFrame, json_normalize, merge
     from datetime import datetime
     from copy import copy
+    from fyp.fyp_main import init_config, extract_and_join_subkeys, clean_url
+
+    if cf is None:
+        cf = init_config()
 
     if isinstance(item_list_or_ndjson_path, str):
-        item_list = read_ndjson_file(item_list_or_ndjson_path)
+        item_list = read_ndjson_file(cf = cf, file_path = item_list_or_ndjson_path)
     elif isinstance(item_list_or_ndjson_path, list):
         item_list = item_list_or_ndjson_path
     else:
         print("Input must be a list of dictionaries or a path to an ndjson file.")
-        return pd.DataFrame()
+        return DataFrame()
         
     # if the list is empty, return an empty dataframe
     if len(item_list) == 0:
-        return pd.DataFrame()
+        return DataFrame()
 
     # normalize the list of dictionaries into a dataframe and convert the item_id to an integer
-    zeeschuimer_logs_df = pd.json_normalize(item_list)
+    zeeschuimer_logs_df = json_normalize(item_list)
 
     # drop the items with corrupt item_ids
     zeeschuimer_logs_df = copy(zeeschuimer_logs_df[zeeschuimer_logs_df.item_id.map(lambda x:all([u in "0123456789" for u in x]) and len(x) == 19)])
@@ -86,7 +93,7 @@ def refine_zeeschuimer_log(item_list_or_ndjson_path: str | list[dict]):
     for a_column_to_fix in columns_to_fix:
         # if the column is in the DF, apply the extract_and_join_subkeys function
         if a_column_to_fix in zeeschuimer_logs_df.columns:
-            zeeschuimer_logs_df[a_column_to_fix] = zeeschuimer_logs_df[a_column_to_fix].apply(lambda x:fyp.extract_and_join_subkeys(x, columns_to_fix[a_column_to_fix]))
+            zeeschuimer_logs_df[a_column_to_fix] = zeeschuimer_logs_df[a_column_to_fix].apply(lambda x:extract_and_join_subkeys(x, columns_to_fix[a_column_to_fix]))
         
     # iterate over the columns_in columns_to_fix (again)
     for ff in columns_to_fix:
@@ -99,11 +106,11 @@ def refine_zeeschuimer_log(item_list_or_ndjson_path: str | list[dict]):
     # and the result is a dataframe with the source_url metadata as separate columns.
     source_details = []
     for ii in zeeschuimer_logs_df.index:
-        source_details += [fyp.clean_url(zeeschuimer_logs_df['source_url'][ii])]        
-    source_details = pd.DataFrame(source_details)
+        source_details += [clean_url(zeeschuimer_logs_df['source_url'][ii])]        
+    source_details = DataFrame(source_details)
 
     # merge the source_details dataframe with the zeeschuimer_logs_df dataframe and drop the source_url column
-    zeeschuimer_logs_df = pd.merge(left=zeeschuimer_logs_df, right=source_details, left_index=True, right_index=True)
+    zeeschuimer_logs_df = merge(left=zeeschuimer_logs_df, right=source_details, left_index=True, right_index=True)
     del zeeschuimer_logs_df["source_url"]
 
     # convert the 'data.createTime' and 'timestamp_collected' columns to datetime
@@ -160,13 +167,22 @@ def get_baseline_info_as_string(the_raw_posts_df):
 
 
 def move_and_refine_recent_file(
-    the_recent_file,
-    the_script
+    cf = None,
+    the_recent_file = None,
+    the_script = None
     ):
     from shutil import move
     from os.path import basename, join, exists
     import subprocess
     from datetime import datetime
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+
+    if the_recent_file is None:
+        raise ValueError("the_recent_file must be a dictionary with a 'filename' key")
+
 
     # the filename of the latest zeeschuimer ndjson file in the firefox downloads folder
     latest_zee_ndjson_in_firefox_downloads = the_recent_file["filename"]
@@ -176,19 +192,19 @@ def move_and_refine_recent_file(
     better_zee_ndjson_fn = the_script+basename(latest_zee_ndjson_in_firefox_downloads.replace("zeeschuimer", ""))
 
     # move (and rename) the latest zeeschuimer ndjson file to the folder for raw zeeschuimer logs
-    new_zee_ndjson_path = join(fyp.cf["paths"]["zeeschuimer_raw"], better_zee_ndjson_fn)
+    new_zee_ndjson_path = join(cf["paths"]["zeeschuimer_raw"], better_zee_ndjson_fn)
     move(latest_zee_ndjson_in_firefox_downloads, new_zee_ndjson_path)
 
     # read the zeeschuimer log file from the new location and clean up the data
-    raw_zee_log = read_ndjson_file(new_zee_ndjson_path)
-    refined_zee_log = refine_zeeschuimer_log(raw_zee_log)
+    raw_zee_log = read_ndjson_file(cf = cf, file_path = new_zee_ndjson_path)
+    refined_zee_log = refine_zeeschuimer_log(cf = cf, item_list_or_ndjson_path = raw_zee_log)
 
     # create a filename for the zeeschuimer pickle file by just replacing the suffix
     zee_pickle_fn = better_zee_ndjson_fn.replace(".ndjson",".pkl")
 
     # make sure the filename for the pickle file is unique
     r = 0
-    while exists(join(fyp.cf["paths"]["zeeschuimer_refined"], zee_pickle_fn)):
+    while exists(join(cf["paths"]["zeeschuimer_refined"], zee_pickle_fn)):
         r += 1
         if r ==  1:
             zee_pickle_fn = zee_pickle_fn.replace(".pkl", f"_{r:04}.pkl")
@@ -197,7 +213,7 @@ def move_and_refine_recent_file(
 
     # save the refined zeeschuimer log as a pickle file
     print(f"Saving the log file as a DataFrame: '{zee_pickle_fn}'.")
-    refined_zee_log.to_pickle(join(fyp.cf["paths"]["zeeschuimer_refined"], zee_pickle_fn))
+    refined_zee_log.to_pickle(join(cf["paths"]["zeeschuimer_refined"], zee_pickle_fn))
     
     # print some info about what is in refined_zee_log
     print(get_baseline_info_as_string(refined_zee_log))
@@ -206,19 +222,23 @@ def move_and_refine_recent_file(
 
 
 
-def get_baseline_log(the_script=None, 
+def get_baseline_log(cf = None,
+                     the_script=None, 
                      how_recent=30):
     from os.path import basename, join
     import subprocess
     from datetime import datetime
+    from fyp.fyp_main import init_config, pretty_str_seconds, get_recent_files
 
+    if cf is None:
+        cf = init_config()
 
     start_time = datetime.now()
     print("\n"+"*"*100)
 
     if the_script is None:
-        print(f"No script name provided. Looking for recent zeeschuimer files in {fyp.cf['paths']['firefox_downloads']}")
-        the_script = "zeeschuimer"
+        print(f"No script name provided. Looking for recent zeeschuimer files in {cf['paths']['firefox_downloads']}")
+        the_script = "zee"
     else:
         if the_script.endswith(".scrpt"):
             the_script = the_script.replace(".scrpt", "")
@@ -232,11 +252,11 @@ def get_baseline_log(the_script=None,
             the_script+".scrpt"
         ])
         end_time = datetime.now()
-        print(f"{end_time.strftime('%Y-%m-%d %H:%M:%S')}: Harvest w '{basename(the_script)}' completed in {fyp.pretty_str_seconds((end_time-start_time).total_seconds())}.")    
+        print(f"{end_time.strftime('%Y-%m-%d %H:%M:%S')}: Harvest w '{basename(the_script)}' completed in {pretty_str_seconds((end_time-start_time).total_seconds())}.")    
 
     the_script = basename(the_script)
 
-    recent_files = fyp.get_recent_files(fyp.cf["paths"]["firefox_downloads"],
+    recent_files = get_recent_files(cf["paths"]["firefox_downloads"],
                                         suffix=".ndjson",
                                         how_recent=how_recent)
     if len(recent_files) > 0:
@@ -247,54 +267,17 @@ def get_baseline_log(the_script=None,
             print(f"Processing: {recent_file}")
             print("=========================================================")
             move_and_refine_recent_file(
-                recent_file,
-                the_script
+                cf = cf,
+                the_recent_file = recent_file,
+                the_script = the_script
                 )
             print("---------------------------------------------------------")
 
-        '''        if len(recent_files) > 1:
-            print(f"I'm only processing the latest one. If you want to process the other files, \
-                run the script again without any arguments.")
-
-        # the filename of the latest zeeschuimer ndjson file in the firefox downloads folder
-        latest_zee_ndjson_in_firefox_downloads = recent_files[0]["filename"]
-        print(f"Processing the latest Zeeschuimer log file {latest_zee_ndjson_in_firefox_downloads}")
-
-        # create a filename for the zeeschuimer ndjson file that is more readable
-        better_zee_ndjson_fn = the_script+basename(latest_zee_ndjson_in_firefox_downloads.replace("zeeschuimer", ""))
-
-        # move (and rename) the latest zeeschuimer ndjson file to the folder for raw zeeschuimer logs
-        new_zee_ndjson_path = join(fyp.cf["paths"]["zeeschuimer_raw"], better_zee_ndjson_fn)
-        move(latest_zee_ndjson_in_firefox_downloads, new_zee_ndjson_path)
-
-        # read the zeeschuimer log file from the new location and clean up the data
-        raw_zee_log = read_ndjson_file(new_zee_ndjson_path) # NOTE - only processing the latest file
-        refined_zee_log = refine_zeeschuimer_log(raw_zee_log)
-
-        # create a filename for the zeeschuimer pickle file by just replacing the suffix
-        zee_pickle_fn = better_zee_ndjson_fn.replace(".ndjson",".pkl")
-
-        # make sure the filename for the pickle file is unique
-        r = 0
-        while exists(join(fyp.cf["paths"]["zeeschuimer_refined"], zee_pickle_fn)):
-            r += 1
-            if r ==  1:
-                zee_pickle_fn = zee_pickle_fn.replace(".pkl", f"_{r:04}.pkl")
-            else:
-                zee_pickle_fn = zee_pickle_fn.replace(f"_{r-1:04}.pkl", f"_{r:04}.pkl")
-
-        # save the refined zeeschuimer log as a pickle file
-        print(f"Saving the log file as a DataFrame: '{zee_pickle_fn}'.")
-        refined_zee_log.to_pickle(join(fyp.cf["paths"]["zeeschuimer_refined"], zee_pickle_fn))
-        
-        # print some info about what is in refined_zee_log
-        print(get_baseline_info_as_string(refined_zee_log))
-        '''    
     else:
         print(f"Could not find a Zeeschuimer ndjson file in the firefox downloads folder.")
 
     end_time = datetime.now()
-    print(f"{end_time.strftime('%Y-%m-%d %H:%M:%S')}: Process completed in {fyp.pretty_str_seconds((end_time-start_time).total_seconds())}.")    
+    print(f"{end_time.strftime('%Y-%m-%d %H:%M:%S')}: Process completed in {pretty_str_seconds((end_time-start_time).total_seconds())}.")    
     print("Done\n"+"*"*80+"\n")
 
 

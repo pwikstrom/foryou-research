@@ -336,4 +336,10 @@ function openTab(evt, tabName) {
     if (evt && evt.currentTarget) {
         evt.currentTarget.className += " active";
     }
+
+    // Force reload of config when settings tab is opened
+    if (tabName === 'settings') {
+        loadConfig('studies.toml');
+        loadConfig('config.toml');
+    }
 }

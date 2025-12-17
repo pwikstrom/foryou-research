@@ -6,10 +6,10 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
-import fyp.download_videos as dv
 
 if __name__ == "__main__":
     import argparse
+    import fyp.download_videos as dv
     
     parser = argparse.ArgumentParser(description="Run downloader")
     parser.add_argument("study_name", help="Name of the study")
@@ -22,8 +22,11 @@ if __name__ == "__main__":
     print(f"Starting downloader for study: {args.study_name}")
     print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
     
+    #import fyp
     try:
+        #cf = fyp.init_project()
         dv.download_videos_loop(
+            cf = None,
             study_name=args.study_name,
             batch_size=args.batch_size,
             max_batches=args.max_batches

@@ -16,6 +16,11 @@ import pandas as pd
 
 
 
+import logging
+# Silence the noisy HTTP request logs from Flask/Werkzeug
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+
 app = Flask(__name__)
 
 # --- Config ---
@@ -52,15 +57,20 @@ processes = {
     "calculate_pca": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None}
 }
 
+
+
 process_stats = {}
 
-# --- Explorer State ---
+
+
 # --- Explorer State ---
 import explorer_backend as explorer
 active_explorer_study = None # Store currently loaded study name
 explorer_df = None
 explorer_col_types = None
 explorer_total_stats = None
+
+
 
 def get_explorer_data(study):
     global explorer_df, explorer_col_types, explorer_total_stats, active_explorer_study
@@ -74,17 +84,18 @@ def get_explorer_data(study):
     pkl_path = exports_dir / f"{study}_RECODED.pkl"
     
     if pkl_path.exists():
-        print(f"Loading Explorer Study '{study}' from {pkl_path}...")
+        #print(f"Loading Explorer Study '{study}' from {pkl_path}...")
         explorer_df, explorer_col_types = explorer.load_data(str(pkl_path))
-        print(f"Explorer Study '{study}' loaded. Computing total stats...")
+        #print(f"Explorer Study '{study}' loaded. Computing total stats...")
         res = explorer.get_current_stats(explorer_df, explorer_col_types)
         explorer_total_stats = res['stats']
         active_explorer_study = study
-        print("Total stats computed.")
+        #print("Total stats computed.")
         return explorer_df, explorer_col_types
     else:
         print(f"Explorer Study pickle not found at {pkl_path}")
         return None, None
+
 
 
 def load_process_stats():
@@ -99,6 +110,8 @@ def load_process_stats():
     else:
         process_stats = {}
 
+
+
 def save_process_stats():
     try:
         with open(PROCESS_STATS_FILE, 'w') as f:
@@ -106,8 +119,12 @@ def save_process_stats():
     except Exception as e:
         print(f"Failed to save process stats: {e}")
 
+
+
 # Load stats on startup
 load_process_stats()
+
+
 
 def enqueue_output(out, queue, progress_state, data_state):
     for line in iter(out.readline, b''):
@@ -132,6 +149,8 @@ def enqueue_output(out, queue, progress_state, data_state):
     out.close()
 
 
+
+
 def monitor_process_completion(name, proc):
     """Waits for process to finish and updates stats."""
     proc.wait()
@@ -147,6 +166,8 @@ def monitor_process_completion(name, proc):
     processes[name]["status"] = "stopped"
     processes[name]["proc"] = None
     processes[name]["start_time"] = None
+
+
 
 
 def start_process(name, script_path, args=[]):
@@ -191,6 +212,8 @@ def start_process(name, script_path, args=[]):
         return False, str(e)
 
 
+
+
 def stop_process(name):
     proc = processes[name]["proc"]
     if proc:
@@ -207,11 +230,15 @@ def stop_process(name):
     return False, "Not running"
 
 
+
+
 # --- Routes ---
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
 
 
 
@@ -268,6 +295,8 @@ def api_start(name):
 
 
 
+
+
 @app.route('/api/stop/<name>', methods=['POST'])
 def api_stop(name):
     if name not in processes:
@@ -275,6 +304,8 @@ def api_stop(name):
     
     success, msg = stop_process(name)
     return jsonify({"status": "success" if success else "error", "message": msg})
+
+
 
 
 
@@ -300,6 +331,7 @@ def api_status():
 
 
 
+
 @app.route('/api/logs/clear/<name>', methods=['POST'])
 def api_clear_logs(name):
     if name not in processes:
@@ -307,6 +339,7 @@ def api_clear_logs(name):
     
     processes[name]["logs"].clear()
     return jsonify({"status": "success"})
+
 
 
 
@@ -318,6 +351,7 @@ def api_logs(name):
     # Return last N lines
     logs = list(processes[name]["logs"])
     return jsonify({"logs": "".join(logs)})
+
 
 
 
@@ -364,6 +398,8 @@ def api_explorer_studies():
     return jsonify(sorted(studies))
 
 
+
+
 @app.route('/api/explorer/metadata', methods=['GET'])
 def api_explorer_metadata():
     study = request.args.get('study')
@@ -396,6 +432,8 @@ def api_explorer_metadata():
         metadata['priority_list'] = []
 
     return jsonify(metadata)
+
+
 
 
 @app.route('/api/explorer/filter', methods=['POST'])
@@ -464,6 +502,8 @@ def api_viewer_ids():
     return jsonify({"ids": ids, "count": len(ids)})
 
 
+
+
 @app.route('/api/viewer/item/<study>/<item_id>', methods=['GET'])
 def api_viewer_item(study, item_id):
     df, col_types = get_explorer_data(study)
@@ -486,12 +526,21 @@ def api_viewer_item(study, item_id):
     return jsonify(record)
 
 
+
+
 @app.route('/api/video/<study>/<item_id>', methods=['GET'])
 def api_video_stream(study, item_id):
+    global fyp_cf
+    
+    # Lazy init of GCS bucket if not already connected
+    if fyp_cf["media_storage"]["bucket"] is None:
+        #print("Connecting to Google Cloud Storage for video streaming...")
+        fyp_cf = fyp.connect_to_google(fyp_cf)
+
     # Get GCS bucket
     bucket = fyp_cf.get("media_storage", {}).get("bucket")
     if not bucket:
-        return "GCS Bucket not available", 503
+        return "GCS Bucket not available. Check credentials or internet connection.", 503
 
     # Attempt to find the file
     # Candidates: item_id.mp4, maybe in subfolders?
@@ -514,6 +563,8 @@ def api_video_stream(study, item_id):
                 yield chunk
 
     return Response(stream_with_context(generate()), mimetype="video/mp4")
+
+
 
 
 @app.route('/api/find_ndjson', methods=['POST'])
@@ -569,6 +620,8 @@ def api_find_ndjson():
         return jsonify({"error": str(e)}), 500
 
 
+
+
 @app.route('/api/ingest_ndjson', methods=['POST'])
 def api_ingest_ndjson():
     data = request.json or {}
@@ -620,6 +673,8 @@ def api_ingest_ndjson():
         return jsonify({"error": str(e)}), 500
 
 
+
+
 @app.route('/api/browse_folder', methods=['POST'])
 def api_browse_folder():
     try:
@@ -640,6 +695,8 @@ def api_browse_folder():
             
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
 
 
 @app.route('/api/upload_ndjson', methods=['POST'])
@@ -678,5 +735,7 @@ def api_upload_ndjson():
         return jsonify({"error": str(e)}), 500
 
 
+
+
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=5003)
+    app.run(debug=True, host='0.0.0.0', port=5003)

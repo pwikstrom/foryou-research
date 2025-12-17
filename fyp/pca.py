@@ -1,7 +1,6 @@
 
 
 from typing import Iterable, Hashable, Tuple, Dict, List, Sequence, Union, Literal, Optional
-import fyp.fyp_main as fyp
 
 
 Group = Union[Dict[str, int], Sequence[str]]
@@ -406,7 +405,8 @@ def transform_categories_to_components_and_diversity(
 
 
 def calculate_scaled_pca_scores(
-    study_name,
+    cf = None,
+    study_name = None,
     some_events_df = None,
     selected_factors = None,
     minimum_group_size = 10,
@@ -421,8 +421,15 @@ def calculate_scaled_pca_scores(
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.recode_variables import get_factors_and_features_from_var_scheme
+    from fyp.fyp_main import init_config
 
-    selected_factors = fyp.cf["var_scheme"][fyp.cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+
+    if cf is None:
+        cf = init_config()
+
+    selected_factors = cf["var_scheme"][cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
 
 
 
@@ -431,7 +438,7 @@ def calculate_scaled_pca_scores(
 
 
     if some_events_df is None:
-        recoded_path = join(fyp.cf['paths']['exports'],f"{study_name}_RECODED.pkl")
+        recoded_path = join(cf['paths']['exports'],f"{study_name}_RECODED.pkl")
         if not exists(recoded_path):
             raise FileNotFoundError(f"Recoded events file not found at: {recoded_path}")
         nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
@@ -440,7 +447,7 @@ def calculate_scaled_pca_scores(
         print(f"  |  Shape: {some_events_df.shape}")
 
 
-    fyp_factors, fyp_features = get_factors_and_features_from_var_scheme(some_events_df, verbose=verbose)
+    fyp_factors, fyp_features = get_factors_and_features_from_var_scheme(cf = cf, some_events_df = some_events_df, verbose=verbose)
     
     if verbose:
         print(f"Step 1: Dropping {"-".join(selected_factors)}-groups that are smaller than {minimum_group_size} rows")
@@ -536,9 +543,9 @@ def calculate_scaled_pca_scores(
 
 
     pca_filename = f"{study_name}_PCA.pkl"
-    export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
+    export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
-    events_pca_scores_scaled.to_pickle(join(fyp.cf['paths']['exports'],pca_filename))
+    events_pca_scores_scaled.to_pickle(join(cf['paths']['exports'],pca_filename))
     print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")
     print(f"Now: {datetime.now()}")
     print("--"*60)

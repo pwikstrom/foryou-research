@@ -67,12 +67,12 @@ def ingest_files(file_paths, label):
             # It uses fyp.cf["misc"]["label"] which is hardcoded in config... 
             # We need to overwrite the label column anyway.
             
-            raw_data = read_ndjson_file(str(dest_path))
+            raw_data = read_ndjson_file(fyp_cf, str(dest_path))
             if not raw_data:
                 log("  Warning: Empty data found.")
                 continue
                 
-            df = refine_zeeschuimer_log(raw_data)
+            df = refine_zeeschuimer_log(fyp_cf, raw_data)
             
             if df.empty:
                 log("  Warning: DataFrame empty after refinement.")

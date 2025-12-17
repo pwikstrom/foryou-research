@@ -6,11 +6,11 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
-import fyp.machine_annotation as ma
 
 if __name__ == "__main__":
     import argparse
     import traceback
+    import fyp.machine_annotation as ma
     
     parser = argparse.ArgumentParser(description="Run annotator")
     parser.add_argument("study_name", help="Name of the study")
@@ -23,8 +23,11 @@ if __name__ == "__main__":
     print(f"Starting annotator for study: {args.study_name}")
     print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
 
+    #import fyp
     try:
+        #cf = fyp.init_project()
         ma.annotate_videos_loop(
+            cf = None,
             study_name=args.study_name,
             batch_size=args.batch_size,
             max_batches=args.max_batches

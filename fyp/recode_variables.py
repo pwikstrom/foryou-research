@@ -1,5 +1,4 @@
 
-import fyp.fyp_main as fyp
 
 
 
@@ -92,11 +91,15 @@ def _is_emoji(s: str) -> bool:
 
 
 
-def get_factors_and_features_from_var_scheme(some_events_df, verbose = False):
+def get_factors_and_features_from_var_scheme(cf = None, some_events_df = None, verbose = False):
     import pandas as pd
     from os.path import join
+    from fyp.fyp_main import init_config
 
-    var_scheme = fyp.cf["var_scheme"]
+    if cf is None:
+        cf = init_config()
+    
+    var_scheme = cf["var_scheme"]
     
     the_factors = list(set(var_scheme[var_scheme["role"].isin(['factor','group_factor'])].variable_name) & set(some_events_df.columns))
     the_features = list(set(var_scheme[var_scheme["role"]=='feature'].variable_name) & set(some_events_df.columns))
@@ -567,7 +570,8 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 
 def recode_events_df(
-    study_name,
+    cf = None,
+    study_name = None,
     cool_events_in = None,
     verbose = False):
 
@@ -575,12 +579,19 @@ def recode_events_df(
     from os.path import join, getctime, exists
     from datetime import datetime
     from copy import copy
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+    
+    if study_name is None:
+        raise ValueError("study_name must be specified")
 
     print(f"Recoding variables, implementing missing data policy and a whole range of other things: Study:{study_name}")
 
 
     if cool_events_in is None:
-        log_path = join(fyp.cf['paths']['exports'],f"{study_name}_LOG.pkl")
+        log_path = join(cf['paths']['exports'],f"{study_name}_LOG.pkl")
         if not exists(log_path):
             raise FileNotFoundError(f"Log file not found at: {log_path}")
         nice_time = datetime.fromtimestamp(getctime(log_path)).strftime('%Y-%m-%d %H:%M:%S')
@@ -591,7 +602,7 @@ def recode_events_df(
 
     cool_events = cool_events_in.copy()
 
-    var_scheme = fyp.cf["var_scheme"].copy()
+    var_scheme = cf["var_scheme"].copy()
 
     var_scheme.set_index("variable_name", inplace=True)
 
@@ -749,9 +760,9 @@ def recode_events_df(
     cool_events = cool_events[sorted(cool_events.columns)]
 
     recoded_filename = f"{study_name}_RECODED.pkl"
-    export_sub_folder_name = fyp.cf["paths"]["exports"].replace(fyp.cf["paths"]["main"],"")
+    export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
-    cool_events.to_pickle(join(fyp.cf['paths']['exports'],recoded_filename))
+    cool_events.to_pickle(join(cf['paths']['exports'],recoded_filename))
     print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,recoded_filename)}.")
     print(f"Now: {datetime.now()}")
     print("--"*60)

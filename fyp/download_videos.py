@@ -8,7 +8,6 @@ Date:
 """
 
 
-import fyp.fyp_main as fyp
 
 from typing import List, Tuple, Union, Sequence
 
@@ -169,11 +168,26 @@ def make_slideshow(
 
 
 
-def download_single_video(video_id: int, verbose = True):
+def download_single_video(
+    cf = None,
+    video_id: int = None, 
+    verbose: bool = True,
+    ):
 
     import fyp.mypyktok as pyk
-
     from os.path import join, exists, getsize
+    from fyp.fyp_main import init_config, connect_to_google
+
+    if cf is None:
+        cf = init_config()
+    if cf['media_storage']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+    if cf['media_storage']['bucket'] is None:
+        raise ValueError("No media storage bucket specified")
+    if video_id is None:
+        raise ValueError("No video id specified")
+
 
     pyk.specify_browser('chrome')
 
@@ -184,14 +198,13 @@ def download_single_video(video_id: int, verbose = True):
     scrape_metadata = pyk.save_tiktok(
         tiktok_url,
         save_video=True,
-        max_duration_to_save=fyp.cf['misc']['max_duration_for_download'],
+        max_duration_to_save = cf['misc']['max_duration_for_download'],
         browser_name='chrome',
         save_path="",
-        stream_to_bucket=fyp.cf["media_storage"]["bucket"],
+        stream_to_bucket = cf["media_storage"]["bucket"],
         verbose=verbose
     )
-    #import pandas as pd
-    #scrape_metadata = pd.DataFrame([[True,""]],columns=["video_downloaded","image_list"])
+
     try:
         # if there are columns in the result and a something has been downloaded
         col_count = len(scrape_metadata.columns)
@@ -203,7 +216,7 @@ def download_single_video(video_id: int, verbose = True):
                     print(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
 
                 # if there isn't a video already associated to this post...
-                blob = fyp.cf["media_storage"]["bucket"].blob(f"{video_id}.mp4")
+                blob = cf["media_storage"]["bucket"].blob(f"{video_id}.mp4")
                 if blob.exists():
                     if verbose:
                         print(f"Photo slideshow already in bucket")
@@ -215,30 +228,30 @@ def download_single_video(video_id: int, verbose = True):
                     # look for image files and download those that are found
                     ccc = 1
                     image_files = []
-                    blob = fyp.cf["media_storage"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
+                    blob = cf["media_storage"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
 
                     while blob and blob.exists():
-                        blob.download_to_filename(join(fyp.cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
-                        if blob.size >= fyp.cf["misc"]["min_media_object_size"]:
-                            image_files.append(join(fyp.cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
+                        blob.download_to_filename(join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
+                        if blob.size >= cf["misc"]["min_media_object_size"]:
+                            image_files.append(join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
                         ccc += 1
-                        blob = fyp.cf["media_storage"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
+                        blob = cf["media_storage"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
 
                     # use the images to build a slideshow
                     make_slideshow(
                         image_files,
-                        output=join(fyp.cf["paths"]["temp"],f"{video_id}.mp4"),
+                        output=join(cf["paths"]["temp"],f"{video_id}.mp4"),
                         duration=2,
                         swipe=False,
                         verbose=verbose
                     )
 
                     # upload the video slideshow to the storage bucket if it is large enough
-                    if getsize(join(fyp.cf["paths"]["temp"],f"{video_id}.mp4")) > fyp.cf["misc"]["min_media_object_size"]:
+                    if getsize(join(cf["paths"]["temp"],f"{video_id}.mp4")) > cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"Uploading video file to storage bucket...")
-                        blob = fyp.cf["media_storage"]["bucket"].blob(f"{video_id}.mp4")
-                        blob.upload_from_filename(join(fyp.cf["paths"]["temp"],f"{video_id}.mp4"))
+                        blob = cf["media_storage"]["bucket"].blob(f"{video_id}.mp4")
+                        blob.upload_from_filename(join(cf["paths"]["temp"],f"{video_id}.mp4"))
                         scrape_metadata.loc[0,'video_downloaded'] = True
                     else:
                         if verbose:
@@ -251,18 +264,20 @@ def download_single_video(video_id: int, verbose = True):
                     print(f"OK   - Video downloaded '{video_id}' - {col_count} metadata fields")
 
                 # check if it truly is stored and is big enough
-                if fyp.cf["media_storage"]["bucket"].blob(f"{video_id}.mp4").exists():
-                    blob = fyp.cf["media_storage"]["bucket"].get_blob(f"{video_id}.mp4")
-                    if verbose:
-                        print(f"Video file found in bucket")
-                    if blob.size < fyp.cf["misc"]["min_media_object_size"]:
+                if verbose:
+                    print(f"Checking video file in bucket")
+                if cf["media_storage"]["bucket"].blob(f"{video_id}.mp4").exists():
+                    blob = cf["media_storage"]["bucket"].get_blob(f"{video_id}.mp4")
+                    if blob.size < cf["misc"]["min_media_object_size"]:
                         if verbose:
-                            print(f"\nDeleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
+                            print(f"   - Deleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
                         blob.delete()
                         scrape_metadata.loc[0,'video_downloaded'] = False
+                    if verbose:
+                        print(f"   - Video file {blob.name} of size {blob.size:,} bytes is okay")
                 else:
                     if verbose:
-                        print("file not in bucket")
+                        print("   - WARNING: File not found")
                     scrape_metadata.loc[0,'video_downloaded'] = False
 
             return scrape_metadata
@@ -403,7 +418,11 @@ def start_monitor(futures, submit_times, interval=5, label="monitor", bar_width=
 
 
 
-def download_video_threads(interesting_videos, max_workers=4, verbose=False):
+def download_video_threads(
+    cf = None,
+    interesting_videos = None,
+    max_workers=4,
+    verbose=False):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from pandas import concat, DataFrame
     from datetime import datetime
@@ -411,6 +430,18 @@ def download_video_threads(interesting_videos, max_workers=4, verbose=False):
     from os.path import join
     import json
     import time
+    from fyp.fyp_main import init_config, connect_to_google
+
+
+    if cf is None:
+        cf = init_config()
+    if cf['media_storage']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+    if cf['media_storage']['bucket'] is None:
+        raise ValueError("No media storage bucket specified")
+    if interesting_videos is None:
+        raise ValueError("No interesting videos specified")
 
     if len(interesting_videos) == 0:
         return DataFrame()
@@ -419,7 +450,10 @@ def download_video_threads(interesting_videos, max_workers=4, verbose=False):
 
     def worker(idx_video):
         idx, video = idx_video
-        return idx, download_single_video(video, verbose=verbose)
+        return idx, download_single_video(
+            cf = cf,
+            video_id = video, 
+            verbose=verbose)
 
     if verbose:
         print(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
@@ -463,7 +497,7 @@ def download_video_threads(interesting_videos, max_workers=4, verbose=False):
     
     if len(results)>0:
         
-        final_path = join(fyp.cf['paths']['scrape'], f"scrape_metadata_{fine_ts}.pkl")
+        final_path = join(cf['paths']['scrape'], f"scrape_metadata_{fine_ts}.pkl")
         temp_path = final_path + ".tmp"
         results.to_pickle(temp_path)
         rename(temp_path, final_path)
@@ -471,7 +505,7 @@ def download_video_threads(interesting_videos, max_workers=4, verbose=False):
         print(f"and saved media objects to the bucket for {len(results[results['video_downloaded']]):,} of these.")
 
     if len(failed_items)>0:
-        with open(join(fyp.cf['paths']['scrape'],f"scrape_failed_items_{fine_ts}.json"), "w") as jf:
+        with open(join(cf['paths']['scrape'],f"scrape_failed_items_{fine_ts}.json"), "w") as jf:
             json.dump(failed_items, jf)
         print(f"Saved {len(failed_items)} failed items")
 
@@ -484,12 +518,25 @@ def download_video_threads(interesting_videos, max_workers=4, verbose=False):
 
 
 
-def download_videos_loop(study_name, batch_size = 500, max_batches = None, verbose = False):
+def download_videos_loop(
+    cf = None,
+    study_name = None,
+    batch_size = 500,
+    max_batches = None,
+    verbose = False):
 
     from datetime import datetime
     from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked
+    from fyp.fyp_main import init_config, connect_to_google
     from os import environ
 
+    if cf is None:
+        cf = init_config()
+    if cf['media_storage']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+    if study_name is None:
+        raise ValueError("No study name specified")
 
     # --- TEST MODE ---
     if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
@@ -509,7 +556,8 @@ def download_videos_loop(study_name, batch_size = 500, max_batches = None, verbo
     print("Starting loop...")
     while len(selected_videos)>0:
         selected_videos = select_videos_from_half_baked(
-            study_name,
+            cf = cf,
+            study_name = study_name,
             file_label = "SCRAPE",
             INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = True,
             INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
@@ -527,7 +575,11 @@ def download_videos_loop(study_name, batch_size = 500, max_batches = None, verbo
 
             print(f"{len(work_with_these_videos_list):,} videos to process for study '{study_name}'")
 
-            _ = download_video_threads(work_with_these_videos_list[:batch_size], max_workers=4, verbose = verbose)
+            _ = download_video_threads(
+                cf = cf,
+                interesting_videos = work_with_these_videos_list[:batch_size], 
+                max_workers=4, 
+                verbose = verbose)
         
         if selected_videos is None:
             selected_videos = []
