@@ -264,16 +264,33 @@ def get_current_stats(df, column_types, viz_config=None):
 
              # Continuous Variable - Density Plot
              # Use robust bounds to exclude outliers
-             series = df[col][df[col]>=0].dropna()
-             min_val, max_val = get_robust_bounds(series)
-             
-             # Filter data to robust bounds for the histogram
-             # (We still want to know if there's data outside, but for density shape we focus on core)
-             # Actually, let's clamp the data for the histogram calculation
-             
+             try:
+                 series = df[col][df[col]>=0].dropna()
+             except Exception as e:
+                 print(f"Error filtering {col}: {e}")
+                 stats[col] = {}
+                 continue
+
              if series.empty:
                  stats[col] = {"type": "density", "x": [], "y": []}
                  continue
+             
+             # Calculate Mean, Std, Count (Safe for JSON)
+             try:
+                 import math
+                 val = float(series.mean())
+                 mean_val = val if math.isfinite(val) else None
+                 
+                 std_val = float(series.std())
+                 std_val = std_val if math.isfinite(std_val) else None
+                 
+                 count_val = int(len(series))
+             except:
+                 mean_val = None
+                 std_val = None
+                 count_val = 0
+
+             min_val, max_val = get_robust_bounds(series)
                  
              # Check Skewness & Transform
              transform = "linear"
@@ -309,7 +326,10 @@ def get_current_stats(df, column_types, viz_config=None):
                         "y": [float(len(clamped_series))],
                         "transform": transform,
                         "min": min_val,
-                        "max": max_val
+                        "max": max_val,
+                        "mean": mean_val,
+                        "std": std_val,
+                        "count": count_val
                     }
                      continue
                 
@@ -384,7 +404,10 @@ def get_current_stats(df, column_types, viz_config=None):
                         "min": min_val, # Original units
                         "max": max_val,  # Original units
                         "tick_vals": tick_vals,
-                        "tick_text": tick_text
+                        "tick_text": tick_text,
+                        "mean": mean_val,
+                        "std": std_val,
+                        "count": count_val
                     }
                     continue # Use continue to skip the default stats assignment below
                 else:
@@ -401,7 +424,10 @@ def get_current_stats(df, column_types, viz_config=None):
                     "y": counts.tolist(),
                     "transform": transform,
                     "min": min_val, # Original units
-                    "max": max_val  # Original units
+                    "max": max_val,  # Original units
+                    "mean": mean_val,
+                    "std": std_val,
+                    "count": count_val
                 }
              except Exception as e:
                  print(f"Error calculating histogram for {col}: {e}")
@@ -423,5 +449,15 @@ def get_current_stats(df, column_types, viz_config=None):
             from collections import Counter
             # Cap list items to Top 20
             stats[col] = dict(Counter(all_items).most_common(20))
+             
+    # DEBUG LOGGING
+    try:
+        with open("debug_explorer_stats.txt", "w") as f:
+            f.write(f"Count: {count}\n")
+            f.write(f"Columns in stats: {list(stats.keys())}\n")
+            for k, v in stats.items():
+                f.write(f"{k}: Type={v.get('type', 'Category')}, Mean={v.get('mean')}, Error={v == {}}\n")
+    except:
+        pass
 
     return {"count": count, "stats": stats}

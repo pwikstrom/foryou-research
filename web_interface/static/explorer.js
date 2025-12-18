@@ -277,10 +277,8 @@ function resetFilters() {
     const inputs = document.querySelectorAll('#explorer-filters input[type="text"], #explorer-filters input[type="number"]');
     inputs.forEach(i => i.value = '');
 
-    // Uncheck categories? Actually renderFilters() rebuilds them from metadata usually?
-    // The current renderStats logic re-renders charts.
-    // The current logic doesn't seem to rebuild filter WIDGETS, it just clears data.
-    // Let's assume re-rendering or clearing logic is robust.
+    const checkboxes = document.querySelectorAll('#explorer-filters input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = false);
 
     updateExplorerStats();
 }
@@ -351,8 +349,91 @@ function renderStats(sliceStats) {
         card.style.marginBottom = '10px';
         card.style.borderRadius = '4px';
 
+        // Check if Slice is identical to Total up front (for title and plot)
+        // Check types match and simple length check first (optimization)
+        let isIdentical = false;
+        if (sTotal.type === 'density' && sSlice.type === 'density') {
+            isIdentical = (sSlice.y.length === sTotal.y.length) &&
+                (JSON.stringify(sSlice.y) === JSON.stringify(sTotal.y));
+        } else if (sTotal.type !== 'density' && sSlice.type !== 'density') {
+            // For categorical, check keys and values
+            // Simplified: Check if Slice count == Total count (implies all selected)
+            // or deep compare. Deep compare is safer.
+            isIdentical = JSON.stringify(sSlice) === JSON.stringify(sTotal);
+        }
+
         const title = document.createElement('h3');
-        title.innerText = col;
+
+        let titleText = col;
+        let meanHtml = '';
+
+        if (sTotal.mean !== undefined) {
+            const mTotal = parseFloat(sTotal.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
+            meanHtml += `<span style="font-size:0.8em; margin-left:10px; color:#888;">Mean: ${mTotal}</span>`;
+
+            if (sSlice && sSlice.mean !== undefined && !isIdentical) {
+                const mSlice = parseFloat(sSlice.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+                // Significance Test (Welch's t-test: Slice vs Rest)
+                let sigMarker = '';
+                try {
+                    const meanT = sTotal.mean;
+                    const stdT = sTotal.std || 0;
+                    const nT = sTotal.count || 0;
+
+                    const meanS = sSlice.mean;
+                    const stdS = sSlice.std || 0;
+                    const nS = sSlice.count || 0;
+
+                    // Calculate Rest (Total - Slice)
+                    const nR = nT - nS;
+
+                    if (nR > 1 && nS > 1) {
+                        // Reconstruct Sum and SumSq to find Var_R
+                        // Sum = Mean * N
+                        // Var * (N-1) = SumSq_dev
+                        // SumSq_raw = Var*(N-1) + Sum^2/N
+
+                        const getSumSqRaw = (mean, std, n) => (std * std * (n - 1)) + (mean * mean * n);
+
+                        const sumT = meanT * nT;
+                        const sumS = meanS * nS;
+                        const sumR = sumT - sumS;
+                        const meanR = sumR / nR;
+
+                        const ssRawT = getSumSqRaw(meanT, stdT, nT);
+                        const ssRawS = getSumSqRaw(meanS, stdS, nS);
+                        const ssRawR = ssRawT - ssRawS;
+
+                        // Var_R = (SS_Raw_R - Sum_R^2/N_R) / (N_R - 1)
+                        let ssDevR = ssRawR - (sumR * sumR) / nR;
+                        if (ssDevR < 0) ssDevR = 0; // Float precision guard
+                        const varR = ssDevR / (nR - 1);
+                        const varS = stdS * stdS;
+
+                        // Welch's t-stat
+                        const se = Math.sqrt((varS / nS) + (varR / nR));
+                        if (se > 0) {
+                            const tStat = Math.abs(meanS - meanR) / se;
+
+                            // Significance Thresholds (large N assumption)
+                            if (tStat > 3.29) sigMarker = '***';
+                            else if (tStat > 2.58) sigMarker = '**';
+                            else if (tStat > 1.96) sigMarker = '*';
+
+                            if (sigMarker) {
+                                const pVal = tStat > 3.29 ? '< 0.001' : (tStat > 2.58 ? '< 0.01' : '< 0.05');
+                                sigMarker = `<span title="p ${pVal} (Slice vs Rest)" style="cursor:help; margin-left:5px; font-weight:bold; color:#4CAF50;">${sigMarker}</span>`;
+                            }
+                        }
+                    }
+                } catch (e) { console.error("Sig test error", e); }
+
+                meanHtml += `<span style="font-size:0.8em; margin-left:10px; color:#4CAF50;">Slice: ${mSlice}${sigMarker}</span>`;
+            }
+        }
+
+        title.innerHTML = `${titleText} ${meanHtml}`;
         title.style.marginTop = '0';
         title.style.marginBottom = '5px';
         title.style.fontSize = '1em';
@@ -397,12 +478,6 @@ function renderStats(sliceStats) {
                 },
                 hoverinfo: 'x+y'
             };
-
-            // Check if Slice is identical to Total (e.g. no filters active)
-            // If so, we can hide the Total trace to avoid overlapping/aliasartifacts
-            // A simple check is comparing the Y-array string representation
-            const isIdentical = (sSlice.y.length === sTotal.y.length) &&
-                (JSON.stringify(sSlice.y) === JSON.stringify(sTotal.y));
 
             const traces = [];
             if (!isIdentical) {

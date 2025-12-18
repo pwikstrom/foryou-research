@@ -450,6 +450,7 @@ def api_explorer_metadata():
         return jsonify({"error": "Dataset not found"}), 404
     
     metadata = explorer.get_metadata(df, col_types)
+    
     # Inject total stats so frontend knows baseline
     # Recompute total_stats dynamically to adhere to current viz_config
     viz_config = get_viz_config()
