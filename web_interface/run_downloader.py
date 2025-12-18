@@ -31,9 +31,9 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             max_batches=args.max_batches
         )
-        print("Downloader process completed.")
+        print("Scrape and download process completed.")
     except Exception as e:
-        print(f"Downloader failed: {e}")
+        print(f"Scrape and download process failed: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

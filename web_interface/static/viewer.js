@@ -42,7 +42,7 @@ async function loadViewerStudies() {
     const selector = document.getElementById('viewer-study-select');
 
     try {
-        const res = await fetch('/api/explorer/studies'); // Reuse endpoint
+        const res = await fetch('/api/studies/defined'); // Reuse endpoint
         const studies = await res.json();
 
         selector.innerHTML = '<option value="" disabled selected>Select a study...</option>';

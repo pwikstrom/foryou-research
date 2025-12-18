@@ -33,7 +33,7 @@ async function loadExplorerStudies() {
     const selector = document.getElementById('explorer-study-select');
 
     try {
-        const res = await fetch('/api/explorer/studies');
+        const res = await fetch('/api/studies/defined');
         const studies = await res.json();
 
         selector.innerHTML = '<option value="" disabled selected>Select a study...</option>';

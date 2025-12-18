@@ -66,10 +66,26 @@ body {
     border: 1px solid #3e3e42;
     padding: 10px;
     border-radius: 5px;
-    min-height: 0;
+    min-height: 200px; /* Force minimum height to ensure visibility */
     /* Critical so internal scroll works */
 
     /* If this panel is a control bar, it should override this with flex: 0 0 auto inline or via class */
+}
+
+/* ... existing styles ... */
+
+textarea {
+    flex: 1;
+    background: #1e1e1e;
+    border: 1px solid #3e3e42;
+    color: #d4d4d4;
+    font-family: monospace;
+    padding: 10px;
+    font-size: 0.9em;
+    resize: none;
+    min-height: 150px; /* Force visibility */
+    display: block;    /* Ensure it's not hidden */
+    width: 100%;       /* Full width */
 }
 
 .header {

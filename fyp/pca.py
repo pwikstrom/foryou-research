@@ -439,12 +439,14 @@ def calculate_scaled_pca_scores(
 
     if some_events_df is None:
         recoded_path = join(cf['paths']['exports'],f"{study_name}_RECODED.pkl")
-        if not exists(recoded_path):
-            raise FileNotFoundError(f"Recoded events file not found at: {recoded_path}")
-        nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
-        print(f"Loading recoded events file in export folder, created at: {nice_time}", end=" ", flush=True)
-        some_events_df = read_pickle(recoded_path)
-        print(f"  |  Shape: {some_events_df.shape}")
+        if exists(recoded_path):
+            nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
+            print(f"Loading recoded events file in export folder, created at: {nice_time}", end=" ", flush=True)
+            some_events_df = read_pickle(recoded_path)
+            print(f"  |  Shape: {some_events_df.shape}")
+        else:
+            print(f"ERROR: This process cannot be run until there is a RECODED dataset has been created.")
+            return None
 
 
     fyp_factors, fyp_features = get_factors_and_features_from_var_scheme(cf = cf, some_events_df = some_events_df, verbose=verbose)
@@ -466,7 +468,7 @@ def calculate_scaled_pca_scores(
                 f"{len(too_small_groups):,} groups of {n_groups:,} have fewer than {minimum_group_size}"
                 f" elements and will be excluded from the analysis. {len(good_sized_groups):,} groups remain."
             )
-            print(f"This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.\n")
+            print(f"This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.")
 
         some_events_df = some_events_df.set_index(selected_factors).loc[good_sized_groups.index].reset_index().copy()
 
@@ -478,7 +480,6 @@ def calculate_scaled_pca_scores(
 
 
     if verbose:
-        print()
         print("Step 2: consolidating events into groups and performing PCA transformation on categorical variables")
 
     events_pca_scores = []
@@ -516,7 +517,6 @@ def calculate_scaled_pca_scores(
 
     events_pca_scores = concat(events_pca_scores, axis=1)
     if verbose:
-        print()
         print(f"Rows: {len(events_pca_scores):,} -- Cols: {len(events_pca_scores.columns):,}")
 
 
@@ -525,7 +525,6 @@ def calculate_scaled_pca_scores(
         return events_pca_scores
 
     if verbose:
-        print()
         print(f"Step 3: Scaling pca scores and concatenating factors into the scaled table")
     events_pca_scores_scaled = DataFrame(
         StandardScaler().fit_transform(events_pca_scores), 
@@ -548,7 +547,7 @@ def calculate_scaled_pca_scores(
     events_pca_scores_scaled.to_pickle(join(cf['paths']['exports'],pca_filename))
     print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")
     print(f"Now: {datetime.now()}")
-    print("--"*60)
+    #print("--"*60)
 
 
 

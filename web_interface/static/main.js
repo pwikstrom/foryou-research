@@ -1,13 +1,68 @@
 // Poll intervals
-setInterval(updateStatus, 2000);
+// The updateStatus interval is now handled within window.onload
+let previousProcessStates = {};
 setInterval(updateLogs, 1000);
 
 // Initial load
 window.onload = function () {
-    loadConfig('studies.toml');
-    loadConfig('config.toml');
     updateStatus();
+    setInterval(updateStatus, 1000); // 1 second interval
+
+    // Load study definitions for dropdowns
+    loadDefinedStudies();
+
+    // Listener for build study name change
+    const buildStudySelect = document.getElementById('build-study-name');
+    if (buildStudySelect) {
+        buildStudySelect.addEventListener('change', function () {
+            fetchStudyFiles(this.value);
+        });
+    }
 };
+
+async function loadDefinedStudies() {
+    try {
+        const response = await fetch('/api/studies/defined');
+        const studies = await response.json();
+
+        const dropdownIds = [
+            'global-study-name',
+            'build-study-name'
+        ];
+
+        dropdownIds.forEach(id => {
+            const select = document.getElementById(id);
+            if (select) {
+                // Keep the first "Select..." option if it exists and value is empty
+                let hasDefault = false;
+                if (select.options.length > 0 && select.options[0].value === "") {
+                    hasDefault = true;
+                }
+
+                // Clear existing options except default
+                select.innerHTML = '';
+                if (hasDefault) {
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = "";
+                    defaultOption.text = "Select a study...";
+                    defaultOption.disabled = true;
+                    defaultOption.selected = true;
+                    select.appendChild(defaultOption);
+                }
+
+                studies.forEach(study => {
+                    const option = document.createElement('option');
+                    option.value = study;
+                    option.text = study;
+                    select.appendChild(option);
+                });
+            }
+        });
+
+    } catch (e) {
+        console.error("Error loading defined studies:", e);
+    }
+}
 
 async function startProcess(name) {
     let body = {};
@@ -15,7 +70,7 @@ async function startProcess(name) {
     let studyNameInputId = 'global-study-name'; // default for scrape/annotate
     if (name === 'create_subsets') {
         studyNameInputId = 'overview-study-name';
-    } else if (['create_event_log', 'recode_event_log', 'calculate_pca'].includes(name)) {
+    } else if (['create_event_log', 'recode_event_log', 'calculate_pca', 'regenerate_datasets'].includes(name)) {
         studyNameInputId = 'build-study-name';
     }
 
@@ -66,6 +121,8 @@ async function startProcess(name) {
     }
 }
 
+
+
 async function stopProcess(name) {
     try {
         const res = await fetch(`/api/stop/${name}`, { method: 'POST' });
@@ -78,6 +135,8 @@ async function stopProcess(name) {
         console.error(e);
     }
 }
+
+
 
 async function toggleProcess(name, label) {
     // Check current state inferred from UI or wait for status update
@@ -101,6 +160,8 @@ async function toggleProcess(name, label) {
     }
 }
 
+
+
 async function updateStatus() {
     try {
         const res = await fetch('/api/status');
@@ -112,14 +173,28 @@ async function updateStatus() {
         setStatus('create_subsets', data.create_subsets);
 
         // Discreet processes
-        setDiscreetStatus('regenerate_datasets', data.regenerate_datasets);
-        setDiscreetStatus('create_event_log', data.create_event_log);
-        setDiscreetStatus('recode_event_log', data.recode_event_log);
-        setDiscreetStatus('calculate_pca', data.calculate_pca);
+        const discreetProcesses = ['regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'];
+
+        discreetProcesses.forEach(name => {
+            setDiscreetStatus(name, data[name]);
+
+            // Check for process completion to refresh file list
+            if (previousProcessStates[name] === 'running' && data[name].state !== 'running') {
+                // Process just finished
+                const buildStudySelect = document.getElementById('build-study-name');
+                if (buildStudySelect && buildStudySelect.value) {
+                    fetchStudyFiles(buildStudySelect.value);
+                }
+            }
+            previousProcessStates[name] = data[name].state;
+        });
+
     } catch (e) {
         console.error(e);
     }
 }
+
+
 
 function setStatus(name, data) {
     const status = data.state;
@@ -157,6 +232,8 @@ function setStatus(name, data) {
     }
 }
 
+
+
 function setDiscreetStatus(name, data) {
     const dot = document.getElementById(`dot-${name}`);
     const text = document.getElementById(`text-${name}`);
@@ -174,7 +251,11 @@ function setDiscreetStatus(name, data) {
 
     // Update Text
     if (state === 'running') {
-        if (data.start_time) {
+        text.style.color = '#aaa'; // Reset to neutral color
+        if (data.last_message && data.last_message.trim() !== '') {
+            text.innerText = data.last_message;
+            text.title = data.last_message; // Full text on hover
+        } else if (data.start_time) {
             const start = new Date(data.start_time);
             const now = new Date();
             const diff = now - start;
@@ -185,14 +266,49 @@ function setDiscreetStatus(name, data) {
             text.innerText = "Running...";
         }
     } else {
-        if (data.last_success) {
+        // Updated formatting: "Last run for study 'study_name'. <Success/Fail> <mm:ss>"
+        if (data.last_run_end_time) {
+            let runInfo = "Last run";
+            if (data.last_run_study) {
+                runInfo += ` for study '${data.last_run_study}'`;
+            }
+
+            let outcome = data.last_run_outcome || "Unknown";
+            // Color code outcome? simpler to just text for now as requested.
+
+            let durationStr = "00:00";
+            if (data.last_run_duration !== undefined) {
+                let s = Math.floor(data.last_run_duration);
+                let m = Math.floor(s / 60);
+                s = s % 60;
+                // format mm:ss
+                durationStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            }
+
+            text.innerText = `${runInfo}. ${outcome} ${durationStr}`;
+
+            // Dynamic color for text based on outcome
+            if (outcome === 'Success') {
+                text.style.color = '#4cd964'; // Greenish
+            } else if (outcome === 'Fail') {
+                text.style.color = '#ff3b30'; // Reddish
+            } else {
+                text.style.color = '#aaa';
+            }
+
+        } else if (data.last_success) {
+            // Fallback for old stats or undefined new stats
             const successTime = new Date(data.last_success);
             text.innerText = "Last success: " + successTime.toLocaleString();
+            text.style.color = '#aaa';
         } else {
             text.innerText = "Last success: Never"; // Or empty
+            text.style.color = '#aaa';
         }
     }
 }
+
+
 
 
 function renderSubsetChart(data) {
@@ -218,6 +334,8 @@ function renderSubsetChart(data) {
     Plotly.react('subsets-pie-chart', plotData, layout, { displayModeBar: false });
 }
 
+
+
 function formatETA(seconds) {
     if (seconds === undefined || seconds === null) return "--";
     let val = parseFloat(seconds);
@@ -240,6 +358,8 @@ function formatETA(seconds) {
     return str;
 }
 
+
+
 async function updateLogs() {
     await fetchLogs('downloader');
     await fetchLogs('monitor');
@@ -247,6 +367,8 @@ async function updateLogs() {
     await fetchLogs('create_subsets');
     // await fetchLogs('regenerate_datasets'); // Optional if we want logs visible somewhere
 }
+
+
 
 async function fetchLogs(name) {
     try {
@@ -270,23 +392,37 @@ async function fetchLogs(name) {
     }
 }
 
-async function loadConfig(filename) {
+
+
+async function loadConfig(filename, targetIdOverride = null) {
     try {
-        const res = await fetch(`/api/config?file=${filename}`);
+        const res = await fetch(`/api/config?file=${filename}&_t=${Date.now()}`);
         const data = await res.json();
 
-        const targetId = filename === 'studies.toml' ? 'config-editor-studies' : 'config-editor-core';
-        document.getElementById(targetId).value = data.content;
+        let targetId = targetIdOverride;
+        if (!targetId) {
+            targetId = filename === 'studies.toml' ? 'config-editor-studies' : 'config-editor-core';
+        }
+
+        const el = document.getElementById(targetId);
+        if (el) el.value = data.content;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function saveConfig(filename) {
-    const targetId = filename === 'studies.toml' ? 'config-editor-studies' : 'config-editor-core';
-    const content = document.getElementById(targetId).value;
+async function saveConfig(filename, sourceIdOverride = null) {
+    let sourceId = sourceIdOverride;
+    if (!sourceId) {
+        sourceId = filename === 'studies.toml' ? 'config-editor-studies' : 'config-editor-core';
+    }
+
+    const el = document.getElementById(sourceId);
+    if (!el) return;
+
+    const content = el.value;
     try {
-        const res = await fetch(`/api/config?file=${filename}`, {
+        const res = await fetch(`/ api / config ? file = ${filename} `, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: content })
@@ -305,7 +441,7 @@ async function saveConfig(filename) {
 
 async function clearLogs(name) {
     try {
-        await fetch(`/api/logs/clear/${name}`, { method: 'POST' });
+        const res = await fetch(`/api/logs/clear/${name}`, { method: 'POST' });
         const el = document.getElementById(`${name}-logs`);
         if (el) {
             el.textContent = "";
@@ -314,6 +450,33 @@ async function clearLogs(name) {
         console.error(e);
     }
 }
+
+// --- Settings 2 Sidebar Logic ---
+let currentSettingsFile = 'studies.toml';
+
+async function openSettingsFile(filename) {
+    currentSettingsFile = filename;
+    document.getElementById('settings-file-title').innerText = filename;
+
+    // Highlight active button
+    const buttons = document.querySelectorAll('#settings_tab_v2 .settings-menu-btn');
+    buttons.forEach(btn => {
+        if (btn.innerText.trim() === filename) {
+            btn.style.background = '#37373d';
+            btn.style.fontWeight = 'bold';
+        } else {
+            btn.style.background = 'none';
+            btn.style.fontWeight = 'normal';
+        }
+    });
+
+    await loadConfig(filename, 'settings-editor-v2');
+}
+
+async function saveCurrentSettings() {
+    await saveConfig(currentSettingsFile, 'settings-editor-v2');
+}
+
 
 function openTab(evt, tabName) {
     // Hide all tab panes
@@ -341,5 +504,148 @@ function openTab(evt, tabName) {
     if (tabName === 'settings') {
         loadConfig('studies.toml');
         loadConfig('config.toml');
+    }
+
+    if (tabName === 'settings_tab_v2') {
+        openSettingsFile('studies.toml');
+    }
+}
+
+async function fetchStudyFiles(studyName) {
+    if (!studyName) return;
+
+    const container = document.getElementById('study-export-files-container');
+    if (!container) return;
+
+    container.innerHTML = '<p>Loading...</p>';
+
+    try {
+        const res = await fetch(`/api/study_files/${studyName}`);
+        const files = await res.json();
+
+        if (files.error) {
+            container.innerHTML = `<p style="color: #ff6b6b;">Error: ${files.error}</p>`;
+            return;
+        }
+
+        let html = '<ul style="list-style: none; padding-left: 0; margin-top: 5px;">';
+        // Order: HALF_BAKED, UNIQUE, LOG, RECODED, PCA (Custom order if desired, or just iterate)
+        const order = ["HALF_BAKED", "UNIQUE", "LOG", "RECODED", "PCA"];
+
+        order.forEach(category => {
+            if (files[category]) {
+                // Make category name nicer?
+                // e.g. HALF_BAKED -> Half Baked
+                // But keeping it consistent with the keys is fine too, or simple title case.
+                // Let's just use the key for now or a map.
+                const labelMap = {
+                    "HALF_BAKED": "Half-Baked Datasets",
+                    "UNIQUE": "Unique Subsets",
+                    "LOG": "Event Log",
+                    "RECODED": "Recoded Log",
+                    "PCA": "PCA Scores"
+                };
+                const label = labelMap[category] || category;
+
+                html += `<li style="margin-bottom: 5px;">
+                   <strong style="color: #d4d4d4;">${label}:</strong> <span style="color: #aaa;">${files[category]}</span>
+               </li>`;
+            }
+        });
+        html += '</ul>';
+        container.innerHTML = html;
+
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<p style="color: #ff6b6b;">Failed to load files.</p>`;
+    }
+}
+
+async function checkDatasets() {
+    const studyName = document.getElementById('build-study-name').value;
+    const container = document.getElementById('dataset-check-results');
+
+    if (!studyName) {
+        alert("Please select a study first.");
+        return;
+    }
+
+    container.innerHTML = '<p>Checking datasets (this may take a moment)...</p>';
+
+    try {
+        const res = await fetch(`/api/check_datasets/${studyName}`);
+        const data = await res.json();
+
+        if (data.error) {
+            container.innerHTML = `<p style="color: #ff6b6b;">Error: ${data.error}</p>`;
+            return;
+        }
+
+        if (data.length === 0) {
+            container.innerHTML = '<p>No datasets found for this study.</p>';
+            return;
+        }
+
+        let html = '<table style="width: 100%; text-align: left; border-collapse: collapse; margin-top: 10px;">';
+        html += '<tr style="border-bottom: 1px solid #555;"><th>Filename</th><th>Rows</th><th>Cols</th><th>Size (KB)</th></tr>';
+
+        data.forEach(file => {
+            // Handle errors per file
+            if (file.error) {
+                html += `<tr><td>${file.filename}</td><td colspan="3" style="color: #ff6b6b;">${file.error}</td></tr>`;
+            } else {
+                html += `<tr>
+                    <td style="padding: 4px 15px 4px 4px;">${file.filename}</td>
+                    <td style="padding: 4px 15px 4px 4px;">${file.rows.toLocaleString()}</td>
+                    <td style="padding: 4px 15px 4px 4px;">${file.cols.toLocaleString()}</td>
+                    <td style="padding: 4px 15px 4px 4px;">${file.size_kb.toLocaleString()}</td>
+                 </tr>`;
+            }
+        });
+
+        html += '</table>';
+        container.innerHTML = html;
+
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<p style="color: #ff6b6b;">Failed to check datasets.</p>`;
+    }
+}
+
+async function checkVideoCounts() {
+    const studyName = document.getElementById('global-study-name').value;
+    const display = document.getElementById('video-counts-display');
+
+    if (!studyName) {
+        alert("Please select a study first.");
+        return;
+    }
+
+    display.innerHTML = 'Checking...';
+    display.style.color = '#aaa';
+
+    try {
+        const res = await fetch(`/api/check_video_counts/${studyName}`);
+        const data = await res.json();
+
+        if (data.error) {
+            display.innerHTML = `Error: ${data.error}`;
+            display.style.color = '#ff6b6b';
+            return;
+        }
+
+        // data = { "annotate": [rows, cols], "scrape": [rows, cols] }
+        // Tuple usually comes as array in JSON: [rows, cols]
+
+        const scrapeCount = data.scrape ? data.scrape[0] : 0;
+        const annotateCount = data.annotate ? data.annotate[0] : 0;
+
+        display.innerHTML = `Scrape: <b>${scrapeCount.toLocaleString()}</b> | Annotate: <b>${annotateCount.toLocaleString()}</b>`;
+        display.style.color = '#d4d4d4';
+
+    } catch (e) {
+        console.error(e);
+        display.innerHTML = `Failed to check counts.`;
+        display.style.color = '#ff6b6b';
     }
 }

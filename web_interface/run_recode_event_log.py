@@ -16,8 +16,12 @@ def main():
     try:
         print(f"Starting RECODE EVENT LOG for study: {args.study_name}")
         #cf = fyp.init_project()
-        recode_variables.recode_events_df(cf = None, study_name = args.study_name)
-        print("Process completed successfully.")
+        result = recode_variables.recode_events_df(cf = None, study_name = args.study_name, verbose = True)
+        if result is None:
+            print("Process failed.")
+            sys.exit(1)
+        else:
+            print("Process completed successfully.")
     except Exception as e:
         print(f"Process failed: {e}")
         traceback.print_exc()

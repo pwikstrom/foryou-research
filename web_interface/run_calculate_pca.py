@@ -18,8 +18,13 @@ def main():
     try:
         print(f"Starting CALCULATE PCA SCORES for study: {args.study_name}")
                 
-        pca.calculate_scaled_pca_scores(cf = None, study_name = args.study_name)
-        print("Process completed successfully.")
+        result = pca.calculate_scaled_pca_scores(cf = None, study_name = args.study_name, verbose = True)
+
+        if result is None:
+            print("Calculate PCA scores failed.")
+            sys.exit(1)
+        else:
+            print("Calculate PCA scores completed successfully.")
     except Exception as e:
         print(f"Process failed: {e}")
         traceback.print_exc()

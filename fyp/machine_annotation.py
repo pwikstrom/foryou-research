@@ -103,8 +103,8 @@ def load_machine_annotations(
             print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
 
 
-    if verbose:
-        print("--"*60)
+    #if verbose:
+        #print("--"*60)
 
 
 
@@ -1045,7 +1045,7 @@ def remove_repetitions_from_transcripts(
     outputs_from_machine_df['transcript_no_repetitions'] = new_transcripts
 
     if verbose:
-        print("\nprettifying all strings")
+        print("Prettifying all strings")
     outputs_from_machine_df = outputs_from_machine_df.map(lambda x:x if not isinstance(x,str) else _prettify_string(x)).copy()
 
     return outputs_from_machine_df
@@ -1250,7 +1250,7 @@ def annotate_videos_loop(
     verbose = False):
 
     from datetime import datetime
-    from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked, load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
+    #from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked, load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
     from os import environ
     from os.path import join
     import json
@@ -1270,7 +1270,7 @@ def annotate_videos_loop(
 
     print(f"Annotating downloaded videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
     print(f"Now: {datetime.now()}")
-    print("##"*60)
+    #print("--"*60)
 
     # --- TEST MODE ---
     if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":

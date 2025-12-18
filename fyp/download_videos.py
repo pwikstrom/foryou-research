@@ -547,7 +547,7 @@ def download_videos_loop(
 
     print(f"Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
     print(f"Now: {datetime.now()}")
-    print("##"*60)
+    #print("--"*60)
 
 
     selected_videos = [0] # just a non-empty list to get things started

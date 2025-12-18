@@ -2,8 +2,10 @@
     <!-- Global Control Bar -->
     <div class="panel"
         style="margin-bottom: 20px; display: flex; flex-direction: row; align-items: center; gap: 20px; padding: 5px 15px; width: auto; flex: 0 0 auto;">
-        <input type="text" id="global-study-name" placeholder="Study Name" value="everything"
+        <select id="global-study-name"
             style="width: 25ch; border: 1px solid #3e3e42; background: #3c3c3c; color: #d4d4d4; padding: 5px;">
+            <option value="" disabled selected>Select Study</option>
+        </select>
 
 
         <div style="width: 1px; height: 20px; background: #3e3e42; margin: 0 10px;"></div>
@@ -20,14 +22,12 @@
                 style="width: 80px; border: 1px solid #3e3e42; background: #3c3c3c; color: #d4d4d4; padding: 3px;">
         </div>
 
-        <!-- Discreet Process Control -->
-        <div class="discreet-control" id="control-regenerate_datasets">
-            <button class="btn-discreet"
-                onclick="toggleProcess('regenerate_datasets', 'Regenerate half-baked datasets')">Regenerate half-baked
-                datasets</button>
-            <span class="status-dot" id="dot-regenerate_datasets"></span>
-            <span class="status-text tiny-text" id="text-regenerate_datasets"></span>
-        </div>
+        <div style="width: 1px; height: 20px; background: #3e3e42; margin: 0 10px;"></div>
+
+        <button class="btn-primary" onclick="checkVideoCounts()" style="font-size: 0.8em; padding: 4px 10px;">Check
+            counts</button>
+        <span id="video-counts-display" style="font-size: 0.85em; color: #d4d4d4; margin-left: 5px;"></span>
+
     </div>
 
     <div class="container" style="flex-direction: row; gap: 20px;">
@@ -37,7 +37,7 @@
             <!-- Downloader Panel -->
             <div class="panel" style="flex: 1;">
                 <div class="header">
-                    <h2>Downloader Loop</h2>
+                    <h2>Scraper Loop</h2>
                     <div class="controls">
                         <span id="downloader-status" class="status-indicator status-stopped"></span>
                         <button class="btn-start" onclick="startProcess('downloader')">Start</button>
@@ -56,7 +56,7 @@
             <!-- Monitor Panel -->
             <div class="panel" style="flex: 1;">
                 <div class="header">
-                    <h2>Monitor Downloads & Auto Annotate</h2>
+                    <h2>Monitor Scrapes & Auto Annotate</h2>
                     <label
                         style="font-size: 0.8em; display: flex; align-items: center; cursor: pointer; margin-left: auto; margin-right: 15px; color: #a0a0a0;">
                         <input type="checkbox" id="monitor-auto-start" checked style="margin-right: 5px;"> Auto start

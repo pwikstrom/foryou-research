@@ -6,6 +6,7 @@ Author: Patrik
 Date: 
 """
 
+from typing import Iterable, List
 
 
 ############################################################################################################
@@ -125,7 +126,6 @@ def init_config(
     cf["paths"]["machine_annotations"] = join(cf["paths"]["main"], "machine_annotations", "new_gen")
     cf["paths"]["exports"] = join(cf["paths"]["main"], "exports")
 
-
     return cf
 
 
@@ -161,7 +161,7 @@ def connect_to_google(cf_in):
 
 
     if not _checkInternetHttplib():
-        print("No internet connection. Running local mode.")
+        print("No internet connection. Running local mode without connecting to Google services.")
         return cf
 
     try:
@@ -188,7 +188,7 @@ def connect_to_google(cf_in):
             thinking_config=types.ThinkingConfig(thinking_budget=cf["machine"]["thinking_budget"]),
         )
 
-        print("Gemini initialized successfully")
+        print("Google Gemini initialized successfully")
 
     except:
         print("Error Gemini API key. Gemini won't be available.")
@@ -233,28 +233,6 @@ def init_project(clear_temp_dir=False, verbose=False) -> dict:
 
 
 
-############################################################################################################
-############################################################################################################
-############################################################################################################
-############################################################################################################
-############################################################################################################
-############################################################################################################
-############################################################################################################
-
-#cf = init_project(verbose = False)
-
-############################################################################################################
-############################################################################################################
-############################################################################################################
-############################################################################################################
-############################################################################################################
-############################################################################################################
-############################################################################################################
-
-
-
-
-
 
 
 
@@ -273,60 +251,6 @@ def temp_path(cf: dict, filename: str = "") -> str:
     #cf = toml.load(CONFIG_PATH)
     temp_dir = join(cf["paths"]["main_not_gdrive_synced"],"temp")
     return join(temp_dir, filename)
-
-
-
-
-
-
-
-def OLDOLD_back_this_up(the_file: str, move_the_file: bool = False) -> None:
-    from os.path import join, exists, basename
-    from datetime import datetime
-    from shutil import copy, move
-
-    #cf = init_config()
-
-    if exists(the_file) == False:
-        return
-
-    nice_now = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    backup_file = join(cf["paths"]["backup"],"backup_"+nice_now+"_"+basename(the_file))
-
-    if move_the_file:
-        print(f"Backing up (moving) {basename(the_file)}")
-        move(the_file, backup_file)
-    else:
-        print(f"Backing up (copying) {basename(the_file)}")
-        copy(the_file, backup_file)
-
-
-
-
-
-
-
-############################################################################################################
-###                     Utilities
-############################################################################################################
-
-
-from typing import Iterable, List
-
-def sort_by_similarity(reference: str, candidates: Iterable[str]) -> List[str]:
-    """
-    Return the candidates sorted from most to least similar to the reference string.
-    Similarity is measured via difflib.SequenceMatcher ratio (0.0–1.0).
-    """
-    from difflib import SequenceMatcher
-
-    return sorted(
-        candidates,
-        key=lambda candidate: SequenceMatcher(None, reference, candidate).ratio(),
-        reverse=True,
-    )
-
 
 
 
@@ -352,6 +276,123 @@ def get_recent_files(directory, suffix=None, how_recent=10):
 
 
 
+def get_study_export_files(cf = None, study_name = None):
+    from os import listdir
+    from os.path import join, getmtime
+    from fyp.fyp_main import init_config
+    from numpy import mean as np_mean
+    from datetime import datetime
+
+    if cf is None:
+        cf = init_config()
+    
+    if study_name is None:
+        raise ValueError("study_name is required")
+
+    export_file_categories = ["HALF_BAKED", "PCA", "LOG", "RECODED"]
+    study_files = {category: [] for category in export_file_categories}
+    
+    for fn in listdir(cf["paths"]["exports"]):
+        if fn.startswith(study_name) and fn.endswith(".pkl"):
+            for category in export_file_categories:
+                if category in fn:
+                    study_files[category].append(getmtime(join(cf["paths"]["exports"], fn)))
+    
+    for category in study_files:
+        if len(study_files[category]) == 0:
+            study_files[category] = "No file found"
+        elif len(study_files[category]) == 1:
+            study_files[category] = f"1 file saved on {datetime.fromtimestamp(int(study_files[category][0]))}"
+        else:
+            oldest_file = int(min(study_files[category]))
+            newest_file = int(max(study_files[category]))
+            study_files[category] = f"{len  (study_files[category])} files from {datetime.fromtimestamp(oldest_file)} to {datetime.fromtimestamp(newest_file)}"
+
+    return study_files
+
+
+
+def get_dataset_details(cf=None, study_name=None):
+    from os import listdir
+    from os.path import join, getsize
+    from fyp.fyp_main import init_config
+    import pandas as pd
+    
+    if cf is None:
+        cf = init_config()
+        
+    if study_name is None:
+        raise ValueError("study_name is required")
+        
+    details = []
+    export_path = cf["paths"]["exports"]
+    
+    try:
+        files = [f for f in listdir(export_path) if f.startswith(study_name) and f.endswith(".pkl")]
+    except FileNotFoundError:
+        return []
+
+    for fn in files:
+        file_path = join(export_path, fn)
+        try:
+            # Get size in KB
+            size_kb = getsize(file_path) / 1024
+            
+            # Read pickle to get shape. 
+            # Note: Reading large pickles might be slow. Optimization: read only metadata if possible?
+            # Standard pandas read_pickle loads whole object.
+            df = pd.read_pickle(file_path)
+            
+            rows, cols = df.shape if hasattr(df, "shape") else (len(df), "N/A")
+            
+            details.append({
+                "filename": fn,
+                "rows": rows,
+                "cols": cols,
+                "size_kb": round(size_kb, 1)
+            })
+            
+            # Clean up memory
+            del df
+            
+        except Exception as e:
+            details.append({
+                "filename": fn,
+                "error": str(e)
+            })
+            
+    # Sort by filename
+    details.sort(key=lambda x: x["filename"])
+    return details
+
+
+
+
+
+############################################################################################################
+###                     Utilities
+############################################################################################################
+
+
+
+def sort_by_similarity(reference: str, candidates: Iterable[str]) -> List[str]:
+    """
+    Return the candidates sorted from most to least similar to the reference string.
+    Similarity is measured via difflib.SequenceMatcher ratio (0.0–1.0).
+    """
+    from difflib import SequenceMatcher
+
+    return sorted(
+        candidates,
+        key=lambda candidate: SequenceMatcher(None, reference, candidate).ratio(),
+        reverse=True,
+    )
+
+
+
+
+
+
 def pretty_str_seconds(proc_time_seconds: float) -> str:
     minutes, seconds = divmod(proc_time_seconds, 60)
     out = ""
@@ -362,14 +403,6 @@ def pretty_str_seconds(proc_time_seconds: float) -> str:
             out += " and "
         out += f"{seconds:.0f}s"
     return out
-
-
-
-def OLDOLD_get_item_id_from_video_uri(video_uri):
-    if video_uri[-1] == "/":
-        video_uri = video_uri[:-1]
-    return video_uri.split("/")[-1]
-
 
 
 
@@ -420,8 +453,6 @@ def extract_and_join_subkeys(data, sub_keys: list):
 
 
 
-
-
 def clean_url(the_url: str) -> dict:
     from urllib.parse import unquote
     outout = {}
@@ -439,162 +470,6 @@ def clean_url(the_url: str) -> dict:
 
 
 
-def OLDOLD_get_video_id_from_link(link):
-    if isinstance(link, str):
-        if link.endswith("/"):
-            link = link[:-1]
-        link_split = link.split("/")[-1]
-        if len(link_split) != 19:
-            return None
-        else:
-            return int(link_split)
-    else:
-        return None
-
-
-
-
-
-
-def OLDOLD_boxplots_w_max_range(persona_distribution_stats, m_min, m_max):
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
-
-    # Select only numeric rows (exclude lists/arrays)
-    numeric_stats = persona_distribution_stats[~persona_distribution_stats['mean'].apply(lambda x: isinstance(x, list))].copy()
-    numeric_stats = numeric_stats.drop(["most_freq_emoji"])
-    numeric_stats = numeric_stats[(numeric_stats['max']>m_min) & (numeric_stats['max']<m_max)].copy()
-
-    # Convert all columns to float
-    for col in ['mean', 'q25', 'q75', 'median', 'min', 'max']:
-        numeric_stats[col] = pd.to_numeric(numeric_stats[col], errors='coerce')
-
-    # Prepare data for boxplot
-    box_data = []
-    labels = []
-    for idx, row in numeric_stats.iterrows():
-        box_data.append([row['min'], row['q25'], row['median'], row['q75'], row['max']])
-        labels.append(idx)
-
-    fig, ax = plt.subplots(figsize=(10, max(1 + len(numeric_stats) // 2,2)))
-    bp = ax.boxplot(box_data, vert=False, tick_labels=labels, showmeans=True, meanline=True)
-
-    ax.set_title('Persona stats')
-    plt.tight_layout()
-
-    # Custom legend with correct colors and explanation for rings
-    legend_elements = [
-        Line2D([0], [0], color='C0', lw=2, label='Box: 25th-75th percentile)'),
-        Line2D([0], [0], color='C2', lw=2, linestyle='--', label='Mean (green line)'),
-        Line2D([0], [0], color='orange', lw=2, label='Median (orange line)'),
-        Line2D([0], [0], color='C0', lw=1, label='Whiskers: min/max'),
-    ]
-    #ax.legend(handles=legend_elements, loc='lower right')
-
-    plt.show()
-
-
-
-
-def OLDOLD_str_range_mean(ss):
-    if " - " in ss:
-        numb = ss.split(" - ")
-        return (float(numb[0]) + float(numb[1])) / 2
-    else:
-        numb = "".join([c for c in ss if c in "1234567890"])
-        return int(numb)
-
-
-
-
-
-
-def OLDOLD_boost(x, a):
-    from math import log
-    if not (0 <= x <= 1):
-        raise ValueError("x must be between 0 and 1 (inclusive).")
-    if a <= 0:
-        raise ValueError("Parameter a must be greater than 0.")
-        
-    return log(1 + a * x) / log(1 + a)
-
-
-
-
-
-
-
-def OLDOLD_most_frequent_cooccurring(texts, keyword, *, max_ngram: int = 3):
-    """
-    texts       : list[str]   documents to search
-    keyword     : str         word *or phrase* that must appear in a document
-    max_ngram   : int         longest phrase length to count (default 3)
-
-    returns     : list[(str, int)]  (token/phrase, frequency) with the
-                   (keyword, keyword_count) tuple always first.
-    """
-
-
-
-    import re
-    from collections import Counter
-    from itertools import islice
-    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
-
-
-
-
-    kw_lower = keyword.lower().strip()
-    # look for the *whole* keyword / phrase
-    kw_pattern = re.compile(rf"\b{re.escape(kw_lower)}\b", flags=re.IGNORECASE)
-
-    stop_words = set(ENGLISH_STOP_WORDS)
-    counts = Counter()
-
-    for text in texts:
-        if not kw_pattern.search(text):
-            continue                      # skip docs that lack the keyword
-
-        # simple tokenisation on word boundaries
-        tokens = re.findall(r"\b\w+\b", text.lower())
-
-        # build n-grams of length 1…max_ngram
-        for n in range(1, min(max_ngram, len(tokens)) + 1):
-            for i in range(len(tokens) - n + 1):
-                ngram_tokens = tokens[i : i + n]
-                phrase = " ".join(ngram_tokens)
-
-                # skip numbers anywhere in a candidate
-                if any(tok[0].isdigit() for tok in ngram_tokens):
-                    continue
-
-                if n == 1:  # unigram filtering
-                    tok = phrase
-                    if tok in stop_words or len(tok) < 3:
-                        continue
-                else:       # n-gram (n>1) filtering
-                    # drop n-grams that are *all* stop-words
-                    if all(tok in stop_words for tok in ngram_tokens):
-                        continue
-
-                counts[phrase] += 1
-
-    kw_count = counts.get(kw_lower, 0)
-    # remove the keyword itself from the pool before sorting
-    if kw_lower in counts:
-        del counts[kw_lower]
-
-    common = counts.most_common()
-    return [(kw_lower, kw_count)] + common
-
-
-
-
-
-
-
-
 def flatten_list(nested_list):
     """
     Flattens a nested list into a single list.
@@ -602,75 +477,6 @@ def flatten_list(nested_list):
     return [item for sublist in nested_list for item in sublist]
 
 
-
-
-def OLDOLD_calc_focus_words_ratio_by_date(focus_word_list, analyse_these_events, analyse_these_videos, first_date):
-    import pandas as pd
-
-    analyse_these_videos['has_focus_words'] = analyse_these_videos.title.map(lambda x: 1*these_are_in_string(x, [c for c in focus_word_list]))
-    #analyse_these_videos['focus_word_list'] = analyse_these_videos.title.map(lambda x: these_are_in_string_return_list(x, [c for c in focus_word_list]))
-
-    #print(analyse_these_videos.has_focus_words.value_counts())
-
-    ext_events_df = pd.merge(left=analyse_these_events, right=analyse_these_videos, how='left', left_on='primary_value', right_on='video_url')
-
-    check_something = ext_events_df[ext_events_df["date"]>=first_date][['simple_date','has_focus_words']].dropna().groupby("simple_date").agg(
-        events_w_focus_words=pd.NamedAgg(column="has_focus_words", aggfunc="sum"),
-        n_events=pd.NamedAgg(column="simple_date", aggfunc="count"))
-
-    check_something["focus_words_ratio"] = check_something["events_w_focus_words"] / check_something["n_events"]
-
-    return check_something["focus_words_ratio"].to_dict()
-
-
-
-
-
-
-def OLDOLD_calc_focus_words_in_donations(focus_word_list, analyse_these_events, analyse_these_videos):
-    analyse_these_videos['has_focus_words'] = analyse_these_videos.title.map(lambda x: 1*these_are_in_string(x, [c for c in focus_word_list]))
-
-    ext_events_df = pd.merge(left=analyse_these_events, right=analyse_these_videos, how='left', left_on='primary_value', right_on='video_url')
-
-    fw_in_donations = ext_events_df.groupby("donation_id").agg(
-        events_w_focus_words=pd.NamedAgg(column="has_focus_words", aggfunc="sum"),
-        n_events=pd.NamedAgg(column="donation_id", aggfunc="count"))
-
-    fw_in_donations = fw_in_donations[fw_in_donations.n_events > 20000].copy()
-
-    fw_in_donations["focus_words_ratio"] = fw_in_donations.events_w_focus_words / fw_in_donations.n_events
-
-    return fw_in_donations.focus_words_ratio.describe()[["count","mean","min","max","50%"]]
-
-
-
-
-
-
-
-def OLDOLD_these_are_in_string_return_list(string, these):
-    """
-    Check if any of the strings in 'these' are in 'string'.
-    """
-    hoj = []
-    for t in these:
-        if t.lower() in string.lower():
-            hoj += [t.lower()]
-    return hoj
-
-
-
-
-
-
-def OLDOLD_these_are_in_string(string, these):
-    """
-    Check if any of the strings in 'these' are in 'string'.
-    """
-    for t in these:
-        if t.lower() in string.lower():
-            return True
-    return False
 
 
 

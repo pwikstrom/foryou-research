@@ -260,7 +260,7 @@ def load_scrape_metadata(
         # for items with inconsistent video download status, only keep the ones where video_downloaded is True
         items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status['video_downloaded']].copy()
         if verbose:
-            print(f"\nFixed the inconsistencies by keeping the one of the pairs with video_download=True")
+            print(f"Fixed the inconsistencies by keeping the one of the pairs with video_download=True")
             print(f"This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}")
 
         # recombine the two dataframes
@@ -272,7 +272,7 @@ def load_scrape_metadata(
         print(
             f"{scrape_metadata['video_downloaded'].value_counts().loc[True]:,} items have downloaded videos and "
             f"{scrape_metadata['video_downloaded'].value_counts().loc[False]:,} don't")
-        print("--"*60)
+        #print("--"*60)
 
 
     # fixing up some minor issues with the columns
@@ -319,7 +319,7 @@ def load_scrape_metadata(
 
 
     print(f"Loaded scraped metadata - shape {scrape_metadata.shape}")
-    print("--"*60)
+    #print("--"*60)
     
     return {"data_scraped":scrape_metadata}
 
@@ -370,13 +370,13 @@ def load_failed_scrapes(
             move(fn,join(cf['paths']['scrape'],'archive',basename(fn)))
             if verbose:
                 print(f"Moved {basename(fn)} to archive")
-        if verbose:
-            print("--"*60)
+        #if verbose:
+            #print("--"*60)
 
 
     if verbose:
         print(f"Loaded list of ALL failed scrapes: {len(failed_scrapes):,}")
-        print("--"*60)
+        #print("--"*60)
 
     return failed_scrapes
 
@@ -495,7 +495,7 @@ def load_zeeschuimer_data(
             baseline_log.to_pickle(half_baked_baseline_path)
 
     #print(f"Baseline data contains {baseline_log.shape[0]:,} rows")
-    print("--"*60)
+    #print("--"*60)
     return {"data_baseline_log":baseline_log}
 
 
@@ -730,7 +730,7 @@ def load_ddp_events(
             sampled_data_ddp_events.to_pickle(half_baked_sampled_ddp_events_path)
 
 
-    print("--"*60)
+    #print("--"*60)
     return {"sampled_data_ddp_events":sampled_data_ddp_events, "all_data_ddp_events":all_ddp_events_df }
 
 
@@ -760,11 +760,11 @@ def load_special_donations(
     if len(the_special_donations) == 0:
         if verbose:
             print("Skipping special DDP events loading as the number of SPECIAL_DONATIONS is zero.")
-            print("--"*60)
+            #print("--"*60)
         return {"data_special_ddps":DataFrame()}
     
-    donations_str = '\n - '.join(the_special_donations)
-    print(f"Loading special DDP events from {donations_str}")
+    donations_str = '; '.join(the_special_donations)
+    print(f"Loading special DDP events from: {donations_str}")
 
     # Loading all DDP events...
     all_ddp_events_df = read_pickle(join(cf["paths"]["ddp_main"], "all_participant_events.pkl"))
@@ -801,8 +801,8 @@ def load_special_donations(
         kind_of_log = 'ddp',
         verbose = verbose)
 
-    if verbose:
-        print("--"*60)
+    #if verbose:
+        #print("--"*60)
     return {"data_special_ddps":special_ddp_events_df}
 
 
@@ -831,13 +831,14 @@ def load_datasets(
 
 
     print("Loading all datasets:")
-    tutti = {}
+    all_datasets = {}
+    print("*********2**************",verbose)
 
     if delete_all_half_baked_files:
         print(" - Deleting half-baked files")
         export_path = cf["paths"]["exports"]
         for half_baked_file in listdir(export_path):
-            if "HALF_BAKED" in half_baked_file:
+            if half_baked_file.startswith(f"{study_name}_HALF_BAKED"):
                 path_to_it = join(export_path, half_baked_file)
                 remove(path_to_it)
                 if verbose:
@@ -849,29 +850,29 @@ def load_datasets(
         print(" - Generating fresh datasets - WILL SAVE new half-baked files")
     else:
         print(" - Loading existing half-baked files")
-    print("=="*60)
+    #print("--"*60)
 
 
-    tutti.update(load_zeeschuimer_data(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
-    tutti.update(load_ddp_events(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
-    tutti.update(load_special_donations(cf = cf, study_name = study_name, verbose=verbose))
+    all_datasets.update(load_zeeschuimer_data(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
+    all_datasets.update(load_ddp_events(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
+    all_datasets.update(load_special_donations(cf = cf, study_name = study_name, verbose=verbose))
 
-    tutti.update(load_scrape_metadata(cf = cf, consolidate=consolidate, verbose=verbose))
-    tutti["data_annotated"] = load_machine_annotations(cf = cf, include_failed_calls=False, consolidate=consolidate, verbose = verbose)
+    all_datasets.update(load_scrape_metadata(cf = cf, consolidate=consolidate, verbose=verbose))
+    all_datasets["data_annotated"] = load_machine_annotations(cf = cf, include_failed_calls=False, consolidate=consolidate, verbose = verbose)
 
     print("Datasets loaded")
-    print("=="*60)
+    #print("--"*60)
 
-    #for k in sorted(list(tutti.keys())):
-    #    print(k , type(tutti[k]), len(tutti[k]))
+    #for k in sorted(list(all_datasets.keys())):
+    #    print(k , type(all_datasets[k]), len(all_datasets[k]))
 
-    return tutti
-
-
+    return all_datasets
 
 
 
-def identify_unique_videos(cf = None, study_name = None, stuff = None, verbose = False):
+
+
+def identify_unique_videos(cf = None, study_name = None, all_datasets = None, verbose = False):
     # combine the special DDP events with the sampled DDP events
 
     from pandas import concat, read_pickle, DataFrame, NamedAgg, NA
@@ -879,19 +880,19 @@ def identify_unique_videos(cf = None, study_name = None, stuff = None, verbose =
 
     if study_name is None:
         raise ValueError("study_name must be specified")
-    if stuff is None:
-        raise ValueError("stuff must be specified")
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
     if cf is None:
         cf = init_config()
 
     MIN_NUNIQUE_USERS = cf["study_defs"][study_name]["MIN_NUNIQUE_USERS"]
 
 
-    ddp_events_for_unique_videos_df = DataFrame(columns=stuff["sampled_data_ddp_events"].columns)
+    ddp_events_for_unique_videos_df = DataFrame(columns=all_datasets["sampled_data_ddp_events"].columns)
 
-    if len(stuff["sampled_data_ddp_events"]) + len(stuff["data_special_ddps"]) > 0:
+    if len(all_datasets["sampled_data_ddp_events"]) + len(all_datasets["data_special_ddps"]) > 0:
 
-        dataframes_to_combine = [k for k in [stuff["sampled_data_ddp_events"], stuff["data_special_ddps"]] if len(k) > 0]
+        dataframes_to_combine = [k for k in [all_datasets["sampled_data_ddp_events"], all_datasets["data_special_ddps"]] if len(k) > 0]
         ddp_events_for_unique_videos_df = concat(dataframes_to_combine, ignore_index=True).drop_duplicates()
         if verbose:
             print(f"Shape of the combined (sampled + special) DDP events DF for exporting list of unique videos: {ddp_events_for_unique_videos_df.shape}")
@@ -900,8 +901,8 @@ def identify_unique_videos(cf = None, study_name = None, stuff = None, verbose =
         if verbose:
             print("No DDP events to combine, creating an empty dataframe.")
 
-    if verbose:
-        print("--"*60)
+    #if verbose:
+        #print("--"*60)
 
     ### Generate a DF w unique videos from DDPs
     unique_ddp_videos = DataFrame()
@@ -934,15 +935,15 @@ def identify_unique_videos(cf = None, study_name = None, stuff = None, verbose =
         if verbose:
             print("No events in the combined DDP dataframe")
 
-    if verbose:
-        print("--"*60)
+    #if verbose:
+        #print("--"*60)
 
     ### identify unique videos in baseline logs
     unique_baseline_videos = DataFrame(columns=["item_id", "nunique_users", "total_views", "primary_value"])
 
-    if len(stuff["data_baseline_log"])>0:
+    if len(all_datasets["data_baseline_log"])>0:
 
-        unique_item_id_list = list(int(k) for k in stuff["data_baseline_log"].item_id.unique())
+        unique_item_id_list = list(int(k) for k in all_datasets["data_baseline_log"].item_id.unique())
         unique_baseline_videos = DataFrame()
         unique_baseline_videos['item_id'] = unique_item_id_list
         unique_baseline_videos['nunique_users'] = NA
@@ -954,7 +955,7 @@ def identify_unique_videos(cf = None, study_name = None, stuff = None, verbose =
 
     if verbose:
         print(f"Unique videos identified in the baseline logs: {len(list(set(unique_baseline_videos.index.tolist()))):,}")
-        print("--"*60)
+        #print("--"*60)
 
 
     ### combine unique donation videos with unique baseline videos
@@ -962,7 +963,7 @@ def identify_unique_videos(cf = None, study_name = None, stuff = None, verbose =
     video_observation_stats = concat(dataframes_to_combine, ignore_index=True).drop_duplicates(subset='item_id', keep='last')
     if verbose:
         print(f"Combining unique videos from data donation events with videos from baseline data into a DF with the shape: {video_observation_stats.shape}")
-        print("--"*60)
+        #print("--"*60)
 
 
     
@@ -973,7 +974,7 @@ def identify_unique_videos(cf = None, study_name = None, stuff = None, verbose =
 
 
 
-def calculate_all_unique_video_subsets(cf = None, study_name = None, stuff = None, verbose=False):
+def calculate_all_unique_video_subsets(cf = None, study_name = None, all_datasets = None, verbose=False):
     ### Check the unique videos against scraped metadata, machine results and such things
 
     from fyp.machine_annotation import load_machine_annotations
@@ -982,8 +983,8 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, stuff = Non
 
     if study_name is None:
         raise ValueError("study_name must be specified")
-    if stuff is None:
-        raise ValueError("stuff must be specified")
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
     if cf is None:
         cf = init_config()
 
@@ -992,7 +993,7 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, stuff = Non
     failed_scrapes = load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True)
 
     # load 
-    machine_annotated_videos = set([int(k) for k in stuff["data_annotated"].item_id.tolist()])
+    machine_annotated_videos = set([int(k) for k in all_datasets["data_annotated"].item_id.tolist()])
 
     failed_annotations = set(load_machine_annotations(
         include_failed_calls=True,
@@ -1000,14 +1001,14 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, stuff = Non
         ).item_id.tolist())
     failed_annotations = failed_annotations - machine_annotated_videos
 
-    too_long_videos = set(stuff["data_scraped"][stuff["data_scraped"]["video_duration"]>cf["machine"]["max_duration_for_annotation"]].item_id.to_list())
+    too_long_videos = set(all_datasets["data_scraped"][all_datasets["data_scraped"]["video_duration"]>cf["machine"]["max_duration_for_annotation"]].item_id.to_list())
     if verbose:
-        print(f"Too long videos: {len(too_long_videos):,} of {len(stuff['data_scraped']):,}")
+        print(f"Too long videos: {len(too_long_videos):,} of {len(all_datasets['data_scraped']):,}")
 
-    completed_downloads = set([int(k) for k in stuff["data_scraped"][stuff["data_scraped"]["video_downloaded"]].item_id.to_list()]) - too_long_videos
-    missing_downloads = set([int(k) for k in stuff["data_scraped"][~stuff["data_scraped"]["video_downloaded"]].item_id.to_list()]) | too_long_videos
+    completed_downloads = set([int(k) for k in all_datasets["data_scraped"][all_datasets["data_scraped"]["video_downloaded"]].item_id.to_list()]) - too_long_videos
+    missing_downloads = set([int(k) for k in all_datasets["data_scraped"][~all_datasets["data_scraped"]["video_downloaded"]].item_id.to_list()]) | too_long_videos
 
-    unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, stuff = stuff, verbose=verbose)
+    unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, all_datasets = all_datasets, verbose=verbose)
     all_unique_videos = set([int(k) for k in unique_videos_with_stats.item_id.to_list()])
 
     failed_annotations = failed_annotations & all_unique_videos
@@ -1029,7 +1030,7 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, stuff = Non
     print(f"    Failed scrapes: {len(failed_scrapes):,} videos")
     print(f"    Unseen videos: {len(unseen_videos):,} videos")
     print(f"Sum of the set sizes: {len(unseen_videos) + len(downloaded_and_annotated) + len(downloaded_not_annotated) + len(missing_downloads) + len(failed_annotations) + len(failed_scrapes):,}")
-    print("--"*60)
+    #print("--"*60)
 
     return {
         'downloaded_and_annotated': downloaded_and_annotated,
@@ -1052,7 +1053,7 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, stuff = Non
 def save_selected_unique_video_subsets(
     cf = None,
     study_name = None,
-    stuff = None,
+    all_datasets = None,
     subsets = None,
     file_label = "",
     INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
@@ -1071,8 +1072,8 @@ def save_selected_unique_video_subsets(
 
     if study_name is None:
         raise ValueError("study_name must be specified")
-    if stuff is None:
-        raise ValueError("stuff must be specified")
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
     if cf is None:
         cf = init_config()
 
@@ -1103,7 +1104,7 @@ def save_selected_unique_video_subsets(
     if len(work_with_these_videos) == 0:
         if verbose:
             print("No videos selected for export")
-            print("--"*60)
+            #print("--"*60)
         return work_with_these_videos
 
     #if verbose:
@@ -1112,7 +1113,7 @@ def save_selected_unique_video_subsets(
  
     if verbose:
         print(f"This data selection policy yielded {len(work_with_these_videos):,} unique videos")
-        print("--"*60)
+        #print("--"*60)
 
 
     ### save the unique item_ids (videos) w basic stats to a file
@@ -1121,7 +1122,7 @@ def save_selected_unique_video_subsets(
             file_label += "_"
         unique_videos_filename = f"{study_name}_{file_label}UNIQUE.pkl"
 
-        unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, stuff = stuff, verbose=False)
+        unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, all_datasets = all_datasets, verbose=False)
         all_unique_videos_to_save = unique_videos_with_stats[unique_videos_with_stats.item_id.isin(work_with_these_videos)].copy()
 
         export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
@@ -1130,7 +1131,7 @@ def save_selected_unique_video_subsets(
         if verbose:
             print(f"Exported {len(all_unique_videos_to_save):,} unique videos to {join(export_sub_folder_name,unique_videos_filename)}")
             print(f"Now: {datetime.now()}")
-            print("--"*60)
+            #print("--"*60)
         return all_unique_videos_to_save
     else:
         if verbose:
@@ -1162,7 +1163,7 @@ def select_videos_from_half_baked(
         cf = init_config()
 
 
-    tutti = load_datasets(
+    all_datasets = load_datasets(
         cf = cf,
         study_name = study_name,
         use_half_baked = True,
@@ -1173,13 +1174,13 @@ def select_videos_from_half_baked(
     video_subsets = calculate_all_unique_video_subsets(
         cf = cf,
         study_name = study_name,
-        stuff = tutti,
+        all_datasets = all_datasets,
         verbose = verbose)
 
     selected_videos = save_selected_unique_video_subsets(
         cf = cf,
         study_name = study_name,
-        stuff = tutti,
+        all_datasets = all_datasets,
         subsets = video_subsets,
         file_label = file_label,
         INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = INCLUDE_UNSEEN_VIDEOS_IN_EXPORT,
@@ -1197,6 +1198,46 @@ def select_videos_from_half_baked(
 
 
 
+
+def generate_and_check_unique_videos_for_scrape_and_annotate(cf = None, study_name = None, verbose = False):
+
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+
+
+    selected_annotate_videos = select_videos_from_half_baked(
+        cf = cf,
+        study_name = study_name,
+        file_label = "ANNOTATE",
+        INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
+        INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
+        INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
+        INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
+        INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
+        INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
+        verbose = verbose
+    )
+    selected_scrape_videos = select_videos_from_half_baked(
+        cf = cf,
+        study_name = study_name,
+        file_label = "SCRAPE",
+        INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = True,
+        INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
+        INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
+        INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
+        INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
+        INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
+        verbose = verbose
+    )
+
+    return {
+        "annotate": selected_annotate_videos.shape,
+        "scrape": selected_scrape_videos.shape
+    }
 
 
 
@@ -1245,9 +1286,9 @@ def _check_for_null_values_in_df(some_df_C, verbose=False):
             if verbose:
                 print(n, some_df[n].dtype)
             allok = False
-    if not allok:
-        if verbose:
-            print("--"*60)
+    #if not allok:
+        #if verbose:
+            #print("--"*60)
     
     return some_df
 
@@ -1257,20 +1298,20 @@ def _check_for_null_values_in_df(some_df_C, verbose=False):
 
 def _process_baseline_for_log_export(
     cf = None,
-    stuff = None,
+    all_datasets = None,
     session_id_counter = np_int64(0),
     verbose=False):
 
     from pandas import concat
     from fyp.fyp_main import init_config
 
-    if stuff is None:
-        raise ValueError("stuff must be specified")
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
 
     if cf is None:
         cf = init_config()
 
-    baseline_log = stuff["data_baseline_log"]
+    baseline_log = all_datasets["data_baseline_log"]
     
     if len(baseline_log) > 0:
         baseline_log_simple = baseline_log.rename(columns={c:"B_"+c if not c=="item_id" else c for c in baseline_log.columns}).copy()
@@ -1279,8 +1320,8 @@ def _process_baseline_for_log_export(
     else:
         if verbose:
             print("No baseline log data available or log type is not 'baseline' --> skipping baseline log processing.")
-    if verbose:
-        print("--"*60)
+    #if verbose:
+        #print("--"*60)
 
     # attach session stats to baseline log
 
@@ -1306,8 +1347,8 @@ def _process_baseline_for_log_export(
         if verbose:
             print("no baseline data")
 
-    if verbose:
-        print("--"*60)
+    #if verbose:
+        #print("--"*60)
 
 
     if "var_scheme" in cf and not cf["var_scheme"].empty:
@@ -1443,8 +1484,8 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0), v
         if verbose:
             print("no ddp data")
 
-    if verbose:
-        print("--"*60)
+    #if verbose:
+        #print("--"*60)
     return ddp_log, session_id_counter
 
 
@@ -1455,7 +1496,7 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0), v
 
 def _process_ddp_log_for_log_export(
     cf = None, 
-    stuff = None, 
+    all_datasets = None, 
     session_id_counter = np_int64(0), 
     verbose=False):
     # combine the special DDP events with the all DDP events
@@ -1463,19 +1504,19 @@ def _process_ddp_log_for_log_export(
     from pandas import DataFrame, concat
     from fyp.fyp_main import init_config
 
-    if stuff is None:
-        raise ValueError("stuff must be specified")
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
 
     if cf is None:
         cf = init_config()
 
 
 
-    ddp_log = DataFrame(columns=stuff["all_data_ddp_events"].columns)
+    ddp_log = DataFrame(columns=all_datasets["all_data_ddp_events"].columns)
 
-    if len(stuff["all_data_ddp_events"]) + len(stuff["data_special_ddps"]) > 0:
+    if len(all_datasets["all_data_ddp_events"]) + len(all_datasets["data_special_ddps"]) > 0:
 
-        dataframes_to_combine = [k for k in [stuff["all_data_ddp_events"], stuff["data_special_ddps"]] if len(k) > 0]
+        dataframes_to_combine = [k for k in [all_datasets["all_data_ddp_events"], all_datasets["data_special_ddps"]] if len(k) > 0]
         ddp_log = concat(dataframes_to_combine, ignore_index=True).drop_duplicates()
 
 
@@ -1496,13 +1537,13 @@ def _process_ddp_log_for_log_export(
         if verbose:
             print(f"Shape of all DDP events DF for exporting full logs: {ddp_log.shape}")
             print(f"The combined DDP events range from {ddp_log.D_date.min()} -- {ddp_log.D_date.max()}")
-            print("--"*60)
+            #print("--"*60)
 
 
     else:
         if verbose:
             print("No DDP events to combine, creating an empty dataframe.")
-            print("--"*60)
+            #print("--"*60)
         return ddp_log, session_id_counter
 
 
@@ -1522,7 +1563,7 @@ def _process_ddp_log_for_log_export(
         ]
         
         # Logic: Is there a specific set of D_ variables we want beyond the structural ones? 
-        # The original list basically included all the DDP structural stuff + D_donation_id. 
+        # The original list basically included all the DDP structural variables + D_donation_id. 
         # It seems 'D_' prefix in var_scheme might include D_donation_id.
         # Let's ensure we get all D_ vars from scheme too if they exist.
         
@@ -1547,7 +1588,7 @@ def _process_ddp_log_for_log_export(
 
 
 
-def _process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
+def _process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=False):
 
     from pandas import isna as pd_isna, Timestamp, DataFrame, to_datetime
     from datetime import datetime
@@ -1559,7 +1600,7 @@ def _process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
     # polishing the scraped metadata dataset for merging with the log
     if verbose:
         print("Processing scraped metadata for log export...")
-    scrape_metadata_log = stuff["data_scraped"][stuff["data_scraped"].item_id.isin(combined_log.item_id.unique())].copy()
+    scrape_metadata_log = all_datasets["data_scraped"][all_datasets["data_scraped"].item_id.isin(combined_log.item_id.unique())].copy()
 
 
     object_cols = scrape_metadata_log.select_dtypes(include=['object']).columns
@@ -1584,8 +1625,8 @@ def _process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
     if verbose:
         print(f"Resulting scraped metadata shape {scrape_metadata_log.shape}")
 
-    if verbose:
-        print("--"*60)
+    #if verbose:
+        #print("--"*60)
 
     scrape_metadata_log = _check_for_null_values_in_df(scrape_metadata_log, verbose=verbose)
 
@@ -1596,7 +1637,7 @@ def _process_scrape_metadata_for_log_export(stuff, combined_log, verbose=False):
 
 
 
-def _process_machine_annotations_for_log_export(stuff, combined_log, verbose=False):
+def _process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=False):
 
     from pandas import DataFrame
 
@@ -1606,7 +1647,7 @@ def _process_machine_annotations_for_log_export(stuff, combined_log, verbose=Fal
     # polishing the machine results data for merging with the log
     if verbose:
         print("Processing machine annotations for the log export...")
-    machine_annotations_for_log = stuff["data_annotated"][stuff["data_annotated"].item_id.isin(combined_log.item_id.unique())].copy()
+    machine_annotations_for_log = all_datasets["data_annotated"][all_datasets["data_annotated"].item_id.isin(combined_log.item_id.unique())].copy()
 
     machine_annotations_for_log.drop(columns=[
         "inference_ts","inference_duration","model","prompt_fn","error","finish_reason"], inplace=True, errors="ignore")
@@ -1619,8 +1660,8 @@ def _process_machine_annotations_for_log_export(stuff, combined_log, verbose=Fal
     if verbose:
         print(f"Resulting machine_annotations_for_log shape {machine_annotations_for_log.shape}")
 
-    if verbose:
-        print("--"*60)
+    #if verbose:
+        #print("--"*60)
 
     machine_annotations_for_log = _check_for_null_values_in_df(machine_annotations_for_log, verbose=verbose)
 
@@ -1634,7 +1675,7 @@ def _process_machine_annotations_for_log_export(stuff, combined_log, verbose=Fal
 def _process_and_combine_logs_for_log_export(
     cf = None,
     study_name = None,
-    stuff=None,
+    all_datasets=None,
     use_half_baked=False,
     verbose=False):
     
@@ -1648,8 +1689,8 @@ def _process_and_combine_logs_for_log_export(
 
     if study_name is None:
         raise ValueError("study_name must be specified")
-    if stuff is None:
-        raise ValueError("stuff must be specified")
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
 
     USE_HALF_BAKED_FILES = use_half_baked
     half_baked_combined_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_COMBINED.pkl")
@@ -1663,8 +1704,8 @@ def _process_and_combine_logs_for_log_export(
             print(f"Shape: {combined_log.shape}")
     else:
 
-        baseline_log_simple, sesh_counter = _process_baseline_for_log_export(cf = cf, stuff = stuff, session_id_counter = 100, verbose=verbose)
-        ddp_log, sesh_counter = _process_ddp_log_for_log_export(cf = cf, stuff = stuff, session_id_counter = sesh_counter, verbose=verbose)
+        baseline_log_simple, sesh_counter = _process_baseline_for_log_export(cf = cf, all_datasets = all_datasets, session_id_counter = 100, verbose=verbose)
+        ddp_log, sesh_counter = _process_ddp_log_for_log_export(cf = cf, all_datasets = all_datasets, session_id_counter = sesh_counter, verbose=verbose)
 
 
         combined_log = concat([ddp_log,baseline_log_simple])
@@ -1696,7 +1737,7 @@ def _process_and_combine_logs_for_log_export(
 
 
 def _process_enrichment_data_and_merge_with_logs(
-    stuff,
+    all_datasets,
     combined_log,
     ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
     verbose=False
@@ -1704,8 +1745,8 @@ def _process_enrichment_data_and_merge_with_logs(
 
     from pandas import merge, to_datetime
 
-    scrape_metadata_log = _process_scrape_metadata_for_log_export(stuff, combined_log, verbose=verbose)
-    machine_annotations_for_log = _process_machine_annotations_for_log_export(stuff, combined_log, verbose=verbose)
+    scrape_metadata_log = _process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=verbose)
+    machine_annotations_for_log = _process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=verbose)
 
     ### merge log with enriched video metadata and annotations
 
@@ -1742,7 +1783,7 @@ def _process_enrichment_data_and_merge_with_logs(
 
     if verbose:
         print(f"Adding 'days_since_created' column. Resulting output log DF shape {outdata.shape}")
-        print("--"*60)
+        #print("--"*60)
 
 
     return outdata
@@ -1754,20 +1795,33 @@ def _process_enrichment_data_and_merge_with_logs(
 
 
 def filter_log_against_sampled_donation_groups(
-    stuff,
-    outdata,
+    cf = None,
+    all_datasets = None,
+    outdata = None,
     MAX_DAILY_MISSING_DATA_RATIO = 0.3,
     verbose=False
 ):
 
     from pandas import merge, concat
+    from fyp.recode_variables import get_factors_and_features_from_var_scheme
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
+    if outdata is None:
+        raise ValueError("outdata must be specified")
+
+    fyp_factors, _ = get_factors_and_features_from_var_scheme(cf = cf, some_events_df = outdata, verbose=verbose)
 
     outdata_filtered = outdata.copy()
     if verbose:
         print(f"Rows at this stage: {len(outdata_filtered):,}")
 
     # set up a filter to filter out only the DDP events that were in the DDP sample earlier in this notebook
-    fine_filter = stuff["sampled_data_ddp_events"].copy()
+    fine_filter = all_datasets["sampled_data_ddp_events"].copy()
     fine_filter.rename(columns={"donation_id":"D_donation_id","local_timestamp":"T_local_timestamp"}, inplace=True)
     fine_filter = fine_filter.drop_duplicates(subset=["D_donation_id","T_local_timestamp","item_id"])
     fine_filter = fine_filter.set_index(["D_donation_id","T_local_timestamp","item_id"])
@@ -1800,7 +1854,7 @@ def filter_log_against_sampled_donation_groups(
     # use the okay dates to get rid of dates with too much missing data
     outdata_filtered = outdata_filtered.set_index(["D_donation_id","T_local_date"]).loc[okay_dates_index,:].reset_index().copy()
 
-    sampled_ddp_count = len(stuff["sampled_data_ddp_events"])
+    sampled_ddp_count = len(all_datasets["sampled_data_ddp_events"])
     if verbose:
         print(
             f"After dropping dates with too high missing data ratio, we have {len(outdata_filtered):,} ddp events in the export log,\n"
@@ -1813,7 +1867,7 @@ def filter_log_against_sampled_donation_groups(
 
     if verbose:
         print(f"...making the total number of events (BASELINE and DDP) in the export data log to {len(outdata_filtered):,} events.")
-        print("--"*60)
+        #print("--"*60)
     
     return outdata_filtered
 
@@ -1860,9 +1914,9 @@ def save_logs_as_pkl(
                 outdata_filtered[n] = outdata_filtered[n].fillna(-1)
             elif is_datetime64_any_dtype(outdata_filtered[n]):
                 outdata_filtered["S_createTime"] = outdata_filtered["S_createTime"].fillna(Timestamp(year=2100,month=1,day=1))
-    if not allok:
-        if verbose:
-            print("--"*60)
+    #if not allok:
+        #if verbose:
+            #print("--"*60)
 
     if len(file_label)>0 and file_label[-1] != "_":
         file_label += "_"
@@ -1874,7 +1928,7 @@ def save_logs_as_pkl(
         print(f"Exported {len(outdata_filtered):,} events to {join(export_sub_folder_name,log_filename)}.")
         print(f"Date range: {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
         print(f"Now: {datetime.now()}")
-        print("--"*60)
+        #print("--"*60)
 
 
 
@@ -1929,8 +1983,8 @@ def save_logs_as_csv(
         if verbose:
             print("A log file has not been generated so a CSV cannot be saved")
     else:
-        if verbose:
-            print("=="*60)
+        #if verbose:
+            #print("--"*60)
         log_as_csv_filename = study_name + "_" + "_LOG.csv"
         outdata_for_csv_export = outdata_filtered.copy()
 
@@ -1985,8 +2039,8 @@ def save_logs_as_csv(
             print(f"The date of the observations in the log range from {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
             print(f"Now: {datetime.now()}")
 
-        if verbose:
-            print("=="*60)
+        #if verbose:
+            #print("--"*60)
 
 
 
@@ -2008,12 +2062,11 @@ def export_logs(
     if study_name is None:
         raise ValueError("study_name must be specified")
 
-    print("=="*60)
+    #print("--"*60)
     print(f"Exporting logs for study '{study_name}'")
-    print("=="*60)
+    #print("--"*60)
 
-
-    tutti = load_datasets(
+    all_datasets = load_datasets(
         cf = cf,
         study_name = study_name,
         use_half_baked = True,
@@ -2025,21 +2078,22 @@ def export_logs(
     combined_log = _process_and_combine_logs_for_log_export(
         cf = cf,
         study_name = study_name,
-        stuff = tutti,
+        all_datasets = all_datasets,
         use_half_baked = False,
         verbose=verbose
         )
 
     outdata = _process_enrichment_data_and_merge_with_logs(
-        stuff = tutti,
+        all_datasets = all_datasets,
         combined_log = combined_log,
         ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
         verbose=verbose
     )
 
     outdata_filtered = filter_log_against_sampled_donation_groups(
-        tutti,
-        outdata,
+        cf = cf,
+        all_datasets = all_datasets,
+        outdata = outdata,
         MAX_DAILY_MISSING_DATA_RATIO = 0.3,
         verbose=verbose
         )
@@ -2049,7 +2103,7 @@ def export_logs(
         study_name = study_name,
         outdata_filtered = outdata_filtered,
         file_label = "",
-        verbose=True)
+        verbose=verbose)
 
 
     

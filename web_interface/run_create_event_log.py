@@ -21,7 +21,8 @@ def main():
         print(f"Starting CREATE EVENT LOG for study: {args.study_name}")
         organize_datasets.export_logs(
             cf = None,
-            study_name = args.study_name)
+            study_name = args.study_name,
+            verbose = True)
         print("Process completed successfully.")
     except Exception as e:
         print(f"Process failed: {e}")

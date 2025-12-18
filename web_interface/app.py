@@ -47,14 +47,14 @@ PYTHON_EXEC = sys.executable
 # --- Global State ---
 # Store process handles and logs
 processes = {
-    "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
-    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
-    "annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
-    "create_subsets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
-    "regenerate_datasets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
-    "create_event_log": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
-    "recode_event_log": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None},
-    "calculate_pca": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None}
+    "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "create_subsets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "regenerate_datasets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "create_event_log": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "recode_event_log": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "calculate_pca": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
 }
 
 
@@ -126,22 +126,26 @@ load_process_stats()
 
 
 
-def enqueue_output(out, queue, progress_state, data_state):
+def enqueue_output(out, queue, process_state):
     for line in iter(out.readline, b''):
         line_str = line.decode('utf-8')
         print(line_str, end='') # Mirror to console
+        
+        # Update last message for UI
+        process_state["last_message"] = line_str.strip()
+        
         if "::PROGRESS::" in line_str:
             try:
                 _, json_str = line_str.split("::PROGRESS::", 1)
                 data = json.loads(json_str.strip())
-                progress_state.update(data)
+                process_state["progress"].update(data)
             except Exception:
                 queue.append(line_str)
         elif "::DATA::" in line_str:
             try:
                 _, json_str = line_str.split("::DATA::", 1)
                 data = json.loads(json_str.strip())
-                data_state.update(data)
+                process_state["data"].update(data)
             except Exception:
                 queue.append(line_str)
         else:
@@ -154,23 +158,41 @@ def enqueue_output(out, queue, progress_state, data_state):
 def monitor_process_completion(name, proc):
     """Waits for process to finish and updates stats."""
     proc.wait()
-    # Process finished
-    if proc.returncode == 0:
-        # Success
-        process_stats[name] = {
-            "last_success": datetime.now().isoformat()
-        }
-        save_process_stats()
+    
+    end_time = datetime.now()
+    start_time_str = processes[name].get("start_time")
+    duration = 0
+    if start_time_str:
+        start_time = datetime.fromisoformat(start_time_str)
+        duration = (end_time - start_time).total_seconds()
+
+    outcome = "Success" if proc.returncode == 0 else "Fail"
+    study_name = processes[name].get("study_name")
+
+    # Record stats
+    process_stats[name] = {
+        "last_success": end_time.isoformat() if outcome == "Success" else process_stats.get(name, {}).get("last_success"),
+        "last_run_end_time": end_time.isoformat(),
+        "last_run_duration": duration,
+        "last_run_outcome": outcome,
+        "last_run_study": study_name
+    }
+    save_process_stats()
     
     # Update global state to stopped
     processes[name]["status"] = "stopped"
     processes[name]["proc"] = None
     processes[name]["start_time"] = None
+    # Keep study_name until next run? Or clear it? 
+    # Logic in frontend might need it if we are checking active study.
+    # But last_run_study in process_stats is the persistent record.
+    # We can clear processes[name]["study_name"] here.
+    processes[name]["study_name"] = None
 
 
 
 
-def start_process(name, script_path, args=[]):
+def start_process(name, script_path, args=[], study_name=None):
     if processes[name]["proc"] is not None:
         if processes[name]["proc"].poll() is None:
             return False, "Process already running"
@@ -195,10 +217,12 @@ def start_process(name, script_path, args=[]):
         processes[name]["proc"] = proc
         processes[name]["status"] = "running"
         processes[name]["start_time"] = datetime.now().isoformat()
+        processes[name]["study_name"] = study_name
         processes[name]["progress"] = {} # Reset progress
+        processes[name]["last_message"] = "" # Reset last message
         
         # Start logging thread
-        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]["progress"], processes[name]["data"]))
+        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]))
         t.daemon = True
         t.start()
 
@@ -274,7 +298,7 @@ def api_start(name):
         # run_downloader.py handles it?
         # Let's look at `start_process` implementation if I can.
         
-    study_name = data.get("study_name") # Get study_name once if needed
+    study_name = data.get("study_name") 
 
     script_map = {
         "downloader": DOWNLOADER_SCRIPT,
@@ -287,7 +311,7 @@ def api_start(name):
         "calculate_pca": CALCULATE_PCA_SCRIPT
     }
     
-    success, msg = start_process(name, script_map[name], args)
+    success, msg = start_process(name, script_map[name], args, study_name=study_name)
     if success:
         return jsonify({"status": "success", "message": msg})
     else:
@@ -325,7 +349,13 @@ def api_status():
             "progress": p_data["progress"],
             "data": p_data["data"],
             "start_time": p_data["start_time"],
-            "last_success": process_stats.get(name, {}).get("last_success")
+            "last_message": p_data.get("last_message", ""),
+            "last_message": p_data.get("last_message", ""),
+            "last_success": process_stats.get(name, {}).get("last_success"),
+            "last_run_end_time": process_stats.get(name, {}).get("last_run_end_time"),
+            "last_run_duration": process_stats.get(name, {}).get("last_run_duration"),
+            "last_run_outcome": process_stats.get(name, {}).get("last_run_outcome"),
+            "last_run_study": process_stats.get(name, {}).get("last_run_study")
         }
     return jsonify(status_data)
 
@@ -396,6 +426,14 @@ def api_explorer_studies():
         studies.append(study_name)
     
     return jsonify(sorted(studies))
+
+
+@app.route('/api/studies/defined', methods=['GET'])
+def api_get_study_defs():
+    """Return list of study keys defined in fyp_cf['study_defs']"""
+    if 'study_defs' in fyp_cf:
+        return jsonify(sorted(list(fyp_cf['study_defs'].keys())))
+    return jsonify([])
 
 
 
@@ -733,6 +771,42 @@ def api_upload_ndjson():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/study_files/<study_name>', methods=['GET'])
+def api_get_study_files(study_name):
+    try:
+        files_info = fyp.get_study_export_files(fyp_cf, study_name)
+        return jsonify(files_info)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        print(f"Error getting study files: {e}")
+        return jsonify({"error": "Failed to retrieve study files"}), 500
+
+
+@app.route('/api/check_datasets/<study_name>', methods=['GET'])
+def api_check_datasets(study_name):
+    try:
+        details = fyp.get_dataset_details(fyp_cf, study_name)
+        return jsonify(details)
+    except Exception as e:
+        print(f"Error checking datasets: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/check_video_counts/<study_name>', methods=['GET'])
+def api_check_video_counts(study_name):
+    try:
+        counts = fyp.generate_and_check_unique_videos_for_scrape_and_annotate(fyp_cf, study_name)
+        # Returns dict: {"annotate": (rows, cols), "scrape": (rows, cols)}
+        return jsonify(counts)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        print(f"Error checking video counts: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 
 

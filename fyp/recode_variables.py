@@ -592,12 +592,14 @@ def recode_events_df(
 
     if cool_events_in is None:
         log_path = join(cf['paths']['exports'],f"{study_name}_LOG.pkl")
-        if not exists(log_path):
-            raise FileNotFoundError(f"Log file not found at: {log_path}")
-        nice_time = datetime.fromtimestamp(getctime(log_path)).strftime('%Y-%m-%d %H:%M:%S')
-        print(f"Loading events file in export folder, created at: {nice_time}", end=" ", flush=True)
-        cool_events_in = pd.read_pickle(log_path)
-        print(f"Shape: {cool_events_in.shape}")
+        if exists(log_path):
+            nice_time = datetime.fromtimestamp(getctime(log_path)).strftime('%Y-%m-%d %H:%M:%S')
+            print(f"Loading events file in export folder, created at: {nice_time}", end=" ", flush=True)
+            cool_events_in = pd.read_pickle(log_path)
+            print(f"Shape: {cool_events_in.shape}")
+        else:
+            print("This process required a LOG file to be generated first. Log file not found at: ", log_path)
+            return None
 
 
     cool_events = cool_events_in.copy()
@@ -619,7 +621,7 @@ def recode_events_df(
     if verbose:
         print(cool_events.shape)
 
-    single_value_columns = [c for c in cool_events.columns if cool_events[c].nunique()==1]
+    single_value_columns = [c for c in cool_events.columns if cool_events[c].nunique()==1 and c not in FYP_FACTORS]
     if verbose:
         print(f"Dropping {len(single_value_columns)} single value columns:\n - {"\n - ".join(single_value_columns)}")
     cool_events = cool_events.drop(columns=single_value_columns).copy()
@@ -765,7 +767,7 @@ def recode_events_df(
     cool_events.to_pickle(join(cf['paths']['exports'],recoded_filename))
     print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,recoded_filename)}.")
     print(f"Now: {datetime.now()}")
-    print("--"*60)
+    #print("--"*60)
 
     return cool_events 
 

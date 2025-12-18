@@ -5,22 +5,20 @@
 <div class="tab-nav">
     <button class="tab-button active" onclick="openTab(event, 'home')">Home</button>
     <button class="tab-button" onclick="openTab(event, 'scrape_annotate')">Scrape & Annotate</button>
-    <button class="tab-button" onclick="openTab(event, 'data_overview')">Data Overview</button>
     <button class="tab-button" onclick="openTab(event, 'build_datasets')">Build Datasets</button>
     <button class="tab-button" onclick="openTab(event, 'dataset_explorer')">Dataset Explorer</button>
     <button class="tab-button" onclick="openTab(event, 'video_viewer')">Video Viewer</button>
     <button class="tab-button" onclick="openTab(event, 'ingest_ndjson')">Ingest Zeeschuimer</button>
-    <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
+    <button class="tab-button" onclick="openTab(event, 'settings_tab_v2')">Settings</button>
 </div>
 
 <div class="tab-content">
     {% include 'tabs/home.html' %}
     {% include 'tabs/scrape_annotate.html' %}
-    {% include 'tabs/data_overview.html' %}
     {% include 'tabs/build_datasets.html' %}
     {% include 'tabs/dataset_explorer.html' %}
     {% include 'tabs/video_viewer.html' %}
     {% include 'tabs/ingest_ndjson.html' %}
-    {% include 'tabs/settings.html' %}
+    {% include 'tabs/settings_v2.html' %}
 </div>
 {% endblock %}

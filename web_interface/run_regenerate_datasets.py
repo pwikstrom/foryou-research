@@ -27,7 +27,7 @@ if __name__ == "__main__":
             use_half_baked=True,
             delete_all_half_baked_files=True,
             consolidate=True,
-            verbose=False
+            verbose=True
         )
         print("Dataset regeneration completed successfully.")
     except KeyboardInterrupt:
