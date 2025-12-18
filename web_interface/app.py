@@ -451,7 +451,10 @@ def api_explorer_metadata():
     
     metadata = explorer.get_metadata(df, col_types)
     # Inject total stats so frontend knows baseline
-    metadata['total_stats'] = explorer_total_stats
+    # Recompute total_stats dynamically to adhere to current viz_config
+    viz_config = get_viz_config()
+    res = explorer.get_current_stats(df, col_types, viz_config=viz_config)
+    metadata['total_stats'] = res['stats']
 
     # Inject Source File Info
     try:
@@ -490,7 +493,7 @@ def api_explorer_metadata():
                  metadata['viz_priority'] = []
             
             # 2. Filter Priority (Explorer & Viewer Filters)
-            if 'web_filter_prio' in scheme_df.columns:
+            if 'web_filter_prio' in scheme_df.columns:  
                 scheme_df['web_filter_prio'] = pd.to_numeric(scheme_df['web_filter_prio'], errors='coerce')
                 filter_df = scheme_df.dropna(subset=['web_filter_prio']).sort_values('web_filter_prio')
                 metadata['filter_priority'] = filter_df['variable_name'].tolist()
@@ -533,6 +536,65 @@ def api_explorer_metadata():
     return jsonify(metadata)
 
 
+def get_viz_config():
+    """
+    Reads var_scheme.csv and returns a dictionary of visualization settings.
+    {
+        var_name: {
+            "log": bool,
+            "bins": int or list of edges or None
+        }
+    }
+    """
+    config = {}
+    try:
+        var_scheme_path = PROJECT_ROOT / "config" / "var_scheme.csv"
+        if var_scheme_path.exists():
+            df = pd.read_csv(var_scheme_path)
+            
+            # Check if columns exist
+            has_log = 'web_viz_log' in df.columns
+            has_bins = 'web_viz_bins' in df.columns
+            
+            if not has_log and not has_bins:
+                return {}
+                
+            for _, row in df.iterrows():
+                var = row['variable_name']
+                cfg = {}
+                
+                # Log Setting
+                if has_log:
+                    val = str(row['web_viz_log']).lower().strip()
+                    cfg['log'] = (val == 'yes')
+                
+                # Bin Setting
+                if has_bins:
+                    val = row['web_viz_bins']
+                    if pd.notna(val):
+                        val_str = str(val).strip()
+                        if "|" in val_str:
+                            # Parse custom edges: "10|30|50"
+                            try:
+                                edges = [float(x) for x in val_str.split("|")]
+                                cfg['bins'] = sorted(edges)
+                                
+                            except:
+                                cfg['bins'] = None
+                        elif val_str.isdigit():
+                             cfg['bins'] = int(val_str)
+                        else:
+                             cfg['bins'] = None
+                    else:
+                        cfg['bins'] = None
+                
+                if cfg:
+                    config[var] = cfg
+                    
+    except Exception as e:
+        print(f"Error reading viz config: {e}")
+        
+    return config
 
 
 @app.route('/api/explorer/filter', methods=['POST'])
@@ -551,7 +613,11 @@ def api_explorer_filter():
     search_query = data.get("search_query")
     
     filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
-    result = explorer.get_current_stats(filtered_df, col_types)
+    
+    # Load Viz Config
+    viz_config = get_viz_config()
+    
+    result = explorer.get_current_stats(filtered_df, col_types, viz_config=viz_config)
     
     return jsonify(result)
 

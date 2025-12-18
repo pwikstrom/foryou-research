@@ -398,6 +398,18 @@ function renderStats(sliceStats) {
                 hoverinfo: 'x+y'
             };
 
+            // Check if Slice is identical to Total (e.g. no filters active)
+            // If so, we can hide the Total trace to avoid overlapping/aliasartifacts
+            // A simple check is comparing the Y-array string representation
+            const isIdentical = (sSlice.y.length === sTotal.y.length) &&
+                (JSON.stringify(sSlice.y) === JSON.stringify(sTotal.y));
+
+            const traces = [];
+            if (!isIdentical) {
+                traces.push(traceTotal);
+            }
+            traces.push(traceSlice);
+
             // Determine Range consistent for Total vs Slice
             const isLog = sTotal.transform === 'log10';
             const xMin = isLog ? Math.log10(sTotal.min + 1) : sTotal.min;
@@ -416,9 +428,9 @@ function renderStats(sliceStats) {
                     zeroline: false,
                     gridcolor: '#444',
                     type: 'linear', // Always linear now (we manually transformed)
-                    title: isLog ? 'Log10(x+1)' : '',
+                    title: isLog ? 'Log' : '',
                     tickfont: { color: '#d4d4d4' },
-                    ...(sTotal.tick_vals ? {
+                    ...(sTotal.tick_vals && sTotal.tick_vals.length > 0 ? {
                         tickmode: 'array',
                         tickvals: sTotal.tick_vals,
                         ticktext: sTotal.tick_text
@@ -433,7 +445,7 @@ function renderStats(sliceStats) {
             // If log, ensure range is positive? 
             // Backend ensures min_val > 0 for log.
 
-            Plotly.newPlot(plotDiv, [traceTotal, traceSlice], layout, { displayModeBar: false });
+            Plotly.newPlot(plotDiv, traces, layout, { displayModeBar: false });
 
         } else {
             // Stacked Bar (Horizontal) normalized to %

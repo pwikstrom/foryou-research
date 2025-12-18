@@ -234,14 +234,16 @@ def calculate_adaptive_histogram(data, min_val, max_val, bins=50, max_empty_rati
     return counts, bin_centers
 
 
-def get_current_stats(df, column_types):
+def get_current_stats(df, column_types, viz_config=None):
     from pandas import set_option
     set_option('future.no_silent_downcasting', True)
     """
     Returns robust stats for the (filtered) dataframe.
+    viz_config: { var: { 'log': bool, 'bins': int/list/None } }
     """
     count = len(df)
     stats = {}
+    if viz_config is None: viz_config = {}
 
     if count == 0:
         return {"count": 0, "stats": {}}
@@ -262,24 +264,32 @@ def get_current_stats(df, column_types):
 
              # Continuous Variable - Density Plot
              # Use robust bounds to exclude outliers
-             min_val, max_val = get_robust_bounds(df[col])
+             series = df[col][df[col]>=0].dropna()
+             min_val, max_val = get_robust_bounds(series)
              
              # Filter data to robust bounds for the histogram
              # (We still want to know if there's data outside, but for density shape we focus on core)
              # Actually, let's clamp the data for the histogram calculation
-             series = df[col].dropna()
+             
              if series.empty:
                  stats[col] = {"type": "density", "x": [], "y": []}
                  continue
                  
              # Check Skewness & Transform
              transform = "linear"
-             skew = series.skew()
              
-             # Use absolute skew check.
-             # Relax min_val check: log1p handles 0 safely (log(1)=0). 
-             # Negative values? min_val >= 0 ensures correct log1p usage.
-             if abs(skew) > 3 and min_val >= 0:
+             # Config Override for LOG
+             use_log = False
+             if col in viz_config and viz_config[col].get('log'):
+                 use_log = True
+             else:
+                 # Default Logic (if not strictly specified to NO? User said "if yes -> log, otherwise not")
+                 # This implies we ONLY log if yes. So disable auto-skew check?
+                 # "web_viz_log: if this column is 'yes' then the variable should be logged, otherwise not."
+                 # This implies strict override. 
+                 use_log = False
+                 
+             if use_log:# and min_val >= 0:
                  transform = "log10"
              
              # Clamp data (original domain)
@@ -302,7 +312,23 @@ def get_current_stats(df, column_types):
                         "max": max_val
                     }
                      continue
-
+                
+                # Bin Configuration
+                # Default: 10 bins (User request)
+                # Config: int or list
+                bins_arg = 10 
+                adaptive = True # Default to adaptive? User said "defaults to 10". 
+                # "If a numerical plot doesn't have a value ... default to 10"
+                # If explicit bins are given, likely we shouldn't adaptively reduce them?
+                
+                if col in viz_config and viz_config[col].get('bins') is not None:
+                     bins_arg = viz_config[col]['bins']
+                     adaptive = False # explicit bins -> disable adaptive
+                elif col not in viz_config: 
+                     # Should we keep adaptive for default 10? 
+                     # Start with 10. If empty, reducing to 5 is fine.
+                     adaptive = True
+                
                 if transform == "log10":
                     # Transform data: log10(x + 1)
                     log_data = np.log10(clamped_series + 1)
@@ -310,8 +336,24 @@ def get_current_stats(df, column_types):
                     log_max = np.log10(max_val + 1)
                     
                     # Histogram in log domain (linear bins in log space)
-                    # Adaptive Logic
-                    counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max)
+                    if adaptive and isinstance(bins_arg, int):
+                         counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max, bins=bins_arg)
+                    else:
+                         # Explicit bins (int or list)
+                         # If list (edges), we need to ensure they are in log domain? 
+                         # User config is likely in ORIGINAL domain.
+                         # "10|30|50"
+                         # If log, edges need transform. 
+                         chosen_bins = bins_arg
+                         if isinstance(chosen_bins, list):
+                             # Transform edges to log
+                             chosen_bins = [np.log10(b + 1) for b in chosen_bins]
+                             # Add min/max to edges if not covering range? 
+                             # np.histogram handles range if bins is int. If bins is sequence, it defines edges.
+                             
+                         counts, bin_edges = np.histogram(log_data, bins=chosen_bins, range=(log_min, log_max) if isinstance(chosen_bins, int) else None, density=True)
+                         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
                     
                     # Generate Custom Ticks for Log Axis (Original Values)
                     # We want ticks at 0, 1, 10, 100, 1000...
@@ -347,8 +389,11 @@ def get_current_stats(df, column_types):
                     continue # Use continue to skip the default stats assignment below
                 else:
                     # Linear Bins in original domain
-                    # Adaptive Logic
-                    counts, bin_centers = calculate_adaptive_histogram(clamped_series, min_val, max_val)
+                    if adaptive and isinstance(bins_arg, int):
+                        counts, bin_centers = calculate_adaptive_histogram(clamped_series, min_val, max_val, bins=bins_arg)
+                    else:
+                        counts, bin_edges = np.histogram(clamped_series, bins=bins_arg, range=(min_val, max_val) if isinstance(bins_arg, int) else None, density=True)
+                        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
                 
                 stats[col] = {
                     "type": "density",
