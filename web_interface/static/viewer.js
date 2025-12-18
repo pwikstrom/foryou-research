@@ -133,7 +133,16 @@ function renderViewerFilters(metadata) {
     const container = document.getElementById('viewer-filters');
     container.innerHTML = '';
 
-    const sortedCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
+    // Use filter_priority if available
+    const priority = metadata.filter_priority;
+    let sortedCols = [];
+
+    if (priority && priority.length > 0) {
+        sortedCols = priority.filter(c => metadata[c]);
+    } else {
+        // Fallback to all (except special)
+        sortedCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
+    }
 
     // Populate Sort Dropdown
     const sortSelect = document.getElementById('viewer-sort-select');
@@ -357,60 +366,134 @@ function renderMetadata(item) {
     const tbody = document.getElementById('viewer-metadata').querySelector('tbody');
     tbody.innerHTML = '';
 
-    const priorityList = viewerData.metadata && viewerData.metadata.priority_list ? viewerData.metadata.priority_list : [];
+    const priorityList = viewerData.metadata && viewerData.metadata.display_priority ? viewerData.metadata.display_priority : [];
+    const schemaMap = viewerData.metadata && viewerData.metadata.schema_map ? viewerData.metadata.schema_map : {};
 
+    // Group items by Section
+    const sections = {};
+    const generalSection = "General";
 
-
-
-    const keys = Object.keys(item).sort((a, b) => {
-        const idxA = priorityList.indexOf(a);
-        const idxB = priorityList.indexOf(b);
-
-        // If both in list, sort by index
-        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-
-        // If only A in list, A comes first
-        if (idxA !== -1) return -1;
-
-        // If only B in list, B comes first
-        if (idxB !== -1) return 1;
-
-        // Neither in list: alphabetical fallback
-        return a.localeCompare(b);
-    });
-
-    keys.forEach(key => {
-        const tr = document.createElement('tr');
-        const tdKey = document.createElement('td');
-        tdKey.innerText = key;
-        const tdVal = document.createElement('td');
-
-        let val = item[key];
-        let displayVal = '';
-
-        if (val === null || val === undefined) {
-            displayVal = '';
-        } else if (Array.isArray(val)) {
-            displayVal = val.join(', ');
-        } else if (typeof val === 'number') {
-            // Check for ID columns to keep as raw string
-            // "interpret item_id as a string"
-            if (key === 'item_id' || key === 'video_id' || key === 'G_id') {
-                displayVal = String(val);
-            } else {
-                displayVal = val.toLocaleString();
-            }
-        } else if (typeof val === 'object') {
-            displayVal = JSON.stringify(val);
-        } else {
-            displayVal = String(val);
+    Object.keys(item).forEach(key => {
+        let section = generalSection;
+        if (schemaMap[key] && schemaMap[key].section) {
+            section = schemaMap[key].section;
+            if (!section || section.trim() === "") section = generalSection;
         }
 
-        tdVal.innerText = displayVal;
+        if (!sections[section]) sections[section] = [];
+        sections[section].push(key);
+    });
 
-        tr.appendChild(tdKey);
-        tr.appendChild(tdVal);
-        tbody.appendChild(tr);
+    // Sort Sections (General first? Or alphabetical? Let's do alphabetical, General last?)
+    let sectionNames = Object.keys(sections).sort();
+
+    // Sort variables within sections
+    sectionNames.forEach(sec => {
+        sections[sec].sort((a, b) => {
+            const idxA = priorityList.indexOf(a);
+            const idxB = priorityList.indexOf(b);
+
+            // If both in list, sort by index (Priority)
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+
+            // If only A in list, A comes first
+            if (idxA !== -1) return -1;
+
+            // If only B in list, B comes first
+            if (idxB !== -1) return 1;
+
+            // Neither in list: alphabetical fallback
+            return a.localeCompare(b);
+        });
+    });
+
+    // Render
+    sectionNames.forEach(sec => {
+        const keys = sections[sec];
+        if (keys.length === 0) return;
+
+        // Section Header (Collapsible)
+        // We put rows inside a tbody? No, we are INSIDE a tbody already (passed in selector).
+        // HTML tables don't support nested divs easily for toggle.
+        // Better: Use a single row for header, spanning 2 columns. 
+        // AND toggle visibility of subsequent rows.
+
+        // Alternatively, use multiple tbodies if parent allows?
+        // document.getElementById('viewer-metadata') is a table.
+        // We can append multiple tbodies to the TABLE, not inside a single tbody.
+        // But the helper passed "tbody" as the container.
+        // Let's change helper to clear table content and assume sections.
+
+        // Wait, the DOM structure is static in HTML: 
+        // <table id="viewer-metadata"> <tbody> <!-- Rows --> </tbody> </table>
+        // It's cleaner to inject header rows.
+
+        const headerRow = document.createElement('tr');
+        headerRow.style.background = '#3e3e42';
+        headerRow.style.cursor = 'pointer';
+
+        const headerCell = document.createElement('td');
+        headerCell.colSpan = 2;
+        headerCell.style.padding = '8px';
+        headerCell.style.fontWeight = 'bold';
+        headerCell.style.color = '#fff';
+        headerCell.innerHTML = `&#9662; ${sec}`; // Down arrow default
+        headerRow.appendChild(headerCell);
+
+        tbody.appendChild(headerRow);
+
+        // Variables
+        const rowGroups = [];
+        keys.forEach(key => {
+            const tr = document.createElement('tr');
+            const tdKey = document.createElement('td');
+            tdKey.innerText = key;
+
+            // Tooltip
+            if (schemaMap[key] && schemaMap[key].description) {
+                // Remove title attribute to prevent native tooltip
+                tdKey.removeAttribute('title');
+
+                // Use custom CSS tooltip
+                tdKey.classList.add('meta-tooltip');
+                tdKey.setAttribute('data-tooltip', schemaMap[key].description);
+            }
+
+            const tdVal = document.createElement('td');
+
+            let val = item[key];
+            let displayVal = '';
+
+            if (val === null || val === undefined) {
+                displayVal = '';
+            } else if (Array.isArray(val)) {
+                displayVal = val.join(', ');
+            } else if (typeof val === 'number') {
+                if (key === 'item_id' || key === 'video_id' || key === 'G_id') {
+                    displayVal = String(val);
+                } else {
+                    displayVal = val.toLocaleString();
+                }
+            } else if (typeof val === 'object') {
+                displayVal = JSON.stringify(val);
+            } else {
+                displayVal = String(val);
+            }
+
+            tdVal.innerText = displayVal;
+
+            tr.appendChild(tdKey);
+            tr.appendChild(tdVal);
+            tbody.appendChild(tr);
+            rowGroups.push(tr);
+        });
+
+        // Click handler for collapse
+        headerRow.onclick = () => {
+            const isHidden = rowGroups[0].style.display === 'none';
+            rowGroups.forEach(r => r.style.display = isHidden ? '' : 'none');
+            headerCell.innerHTML = isHidden ? `&#9662; ${sec}` : `&#9656; ${sec}`; // Down vs Right arrow
+        };
     });
 }
 

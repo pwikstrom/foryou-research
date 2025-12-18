@@ -119,10 +119,24 @@ function renderFilters(metadata) {
     const container = document.getElementById('explorer-filters');
     container.innerHTML = '';
 
-    const sortedCols = Object.keys(metadata).sort();
+    // Use filter_priority if available, otherwise fallback to sorted alphanumeric
+    // If filter_priority is present (and not empty), ONLY show items in that list.
+    const priority = metadata.filter_priority;
+    let colsToRender = [];
 
-    // Skip 'total_stats' key if present in metadata (it's injected there)
-    const colsToRender = sortedCols.filter(c => c !== 'total_stats');
+    if (priority && priority.length > 0) {
+        // Only include columns that exist in metadata AND are in priority list
+        colsToRender = priority.filter(c => metadata[c]);
+    } else {
+        // Fallback: all columns except total_stats and special ones
+        // But user request implies: "If a variable is not given a value in this column, it should not be used in the filter."
+        // So if filter_priority is empty/missing, maybe we show nothing? 
+        // Or fallback to default behavior? User said "If ... not given a value ... not used".
+        // If the entire column is missing in var_scheme, likely priority list is empty.
+        // Let's assume if list is provided, we strictly follow it. If list is empty (e.g. var_scheme load failed or empty), fallback to all?
+        // Safe bet: Fallback to all if list is empty, otherwise strict. 
+        colsToRender = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
+    }
 
     colsToRender.forEach(col => {
         const info = metadata[col];
@@ -312,9 +326,18 @@ function renderStats(sliceStats) {
     if (!metadata || !metadata.total_stats) return;
 
     const totalStats = metadata.total_stats;
-    const sortedCols = Object.keys(sliceStats).sort();
 
-    sortedCols.forEach(col => {
+    // Use viz_priority for plots (previously display_priority)
+    const priority = metadata.viz_priority;
+    let colsToRender = [];
+
+    if (priority && priority.length > 0) {
+        colsToRender = priority.filter(c => sliceStats[c]);
+    } else {
+        colsToRender = Object.keys(sliceStats).sort();
+    }
+
+    colsToRender.forEach(col => {
         const sSlice = sliceStats[col];
         const sTotal = totalStats[col];
         const info = metadata[col];
@@ -344,27 +367,35 @@ function renderStats(sliceStats) {
         container.appendChild(card);
 
         if (sTotal.type === 'density') {
-            // Density Plots (Area Charts)
+            // Density Plots (Histograms)
             const traceTotal = {
                 x: sTotal.x,
                 y: sTotal.y,
-                mode: 'lines',
-                fill: 'tozeroy',
-                type: 'scatter',
+                type: 'bar',
                 name: 'Total',
-                line: { color: '#888', width: 1 },
-                fillcolor: 'rgba(120, 120, 120, 0.3)'
+                marker: {
+                    color: 'rgba(128, 128, 128, 0.5)',
+                    line: {
+                        color: 'rgba(128, 128, 128, 1.0)',
+                        width: 1
+                    }
+                },
+                hoverinfo: 'x+y'
             };
 
             const traceSlice = {
                 x: sSlice.x,
                 y: sSlice.y,
-                mode: 'lines',
-                fill: 'tozeroy',
-                type: 'scatter',
+                type: 'bar',
                 name: 'Slice',
-                line: { color: '#4CAF50', width: 1 },
-                fillcolor: 'rgba(76, 175, 80, 0.5)'
+                marker: {
+                    color: 'rgba(76, 175, 80, 0.7)',
+                    line: {
+                        color: 'rgba(76, 175, 80, 1.0)',
+                        width: 1
+                    }
+                },
+                hoverinfo: 'x+y'
             };
 
             // Determine Range consistent for Total vs Slice
@@ -377,12 +408,21 @@ function renderStats(sliceStats) {
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 showlegend: false,
+                barmode: 'overlay', // Overlay histograms
+                bargap: 0,          // Make bars touch
+                font: { color: '#d4d4d4' }, // Global Font Color for Dark Mode
                 xaxis: {
                     range: [xMin, xMax],
                     zeroline: false,
                     gridcolor: '#444',
                     type: 'linear', // Always linear now (we manually transformed)
-                    title: isLog ? 'Log10(x+1)' : ''
+                    title: isLog ? 'Log10(x+1)' : '',
+                    tickfont: { color: '#d4d4d4' },
+                    ...(sTotal.tick_vals ? {
+                        tickmode: 'array',
+                        tickvals: sTotal.tick_vals,
+                        ticktext: sTotal.tick_text
+                    } : {})
                 },
                 yaxis: {
                     showgrid: false,
@@ -441,13 +481,14 @@ function renderStats(sliceStats) {
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 showlegend: false,
+                font: { color: '#d4d4d4' },
                 xaxis: {
                     range: [0, 100],
                     showgrid: false,
                     zeroline: false
                 },
                 yaxis: {
-                    tickfont: { color: '#ccc' }
+                    tickfont: { color: '#d4d4d4' }
                 }
             };
 

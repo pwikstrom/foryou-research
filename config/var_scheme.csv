@@ -1,91 +1,91 @@
-variable_name,scale,mapper,ignore_strings,splitter,missing_data_policy,unable_to_detect_policy,recode_func,role,web_filter_prio,web_display_prio
-item_id,string,{},[],,drop,,,standard,,1
-G_video_story,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,2
-S_desc_raw,string,{},[],,keep,,,standard,,3
-S_desc_hashtags,collection,{},[],,,,,standard,,4
-S_author_signature,string,{},[],,keep,keep,recode_long_strings,standard,,5
-G_transcript_no_repetitions,string,{},[],,keep,keep,recode_long_strings,standard,,6
-G_type_of_story,categorical,{},[], | ,keep,keep,recode_stringified_list,feature,,7
-G_main_activity,categorical,{},IRRELEVANT_WORDS + ['getting'], ,keep,keep,recode_main_activity,feature,,8
-G_content_category,collection,{},[], | ,empty,empty,recode_stringified_list,feature,,9
-G_australian_relevance,dichotomous,{},[], | ,drop,zero,recode_stringified_list,feature,,10
-G_trend,dichotomous,{},[], | ,drop,keep,recode_stringified_list,feature,,11
-G_advertising,dichotomous,{},[], | ,drop,zero,recode_stringified_list,feature,,12
-S_isAd,dichotomous,{},[], | ,zero,,recode_stringified_list,feature,,13
-G_aigc,categorical,{},[], | ,drop,zero,recode_stringified_list,standard,,14
-G_tiktok_native,dichotomous,{},[], | ,drop,keep,recode_stringified_list,feature,,15
-G_symbols_and_brands,collection,{},"['tiktok', 'tiktok logo']", | ,empty,empty,recode_stringified_list,standard,,16
-S_stats_collectCount,ratio,{},[],,median,,,outcome,,17
-S_stats_commentCount,ratio,{},[],,median,,,outcome,,18
-S_stats_diggCount,ratio,{},[],,median,,,outcome,,19
-S_stats_playCount,ratio,{},[],,median,,,outcome,,20
-S_stats_shareCount,ratio,{},[],,median,,,outcome,,21
-plays_per_day,ratio,{},[],,median,,,outcome,,22
-S_video_duration,ratio,{},[],,median,,,outcome,,23
-T_days_since_created,ratio,{},[],,median,,,outcome,,24
-T_local_date,factor,{},[],,drop,,,group_factor,,25
-T_local_day_segment,factor,{},[],,drop,,,factor,,26
-T_local_week,factor,{},[],,drop,,,factor,,27
-T_local_weekday,factor,{},[],,drop,,,factor,,28
-D_donation_id,factor,{},[],,drop,,,group_factor,,29
-B_source_tz_name,factor,{},[],,drop,,,factor,,30
-G_background_music,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,standard,,31
-G_notable_sounds,collection,{},"['speech', 'music']", | ,empty,empty,recode_stringified_list,feature,,32
-G_speech_vs_music,ratio,{},[],,median,median,recode_speech_vs_music,outcome,,33
-G_text_overlays,string,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,standard,,34
-G_objects,collection,{},"['woman', 'man', 'person', 'people']", | ,empty,empty,recode_stringified_list,standard,,35
-S_challenges,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,standard,,36
-G_call_to_action_words,collection,{},[],,,,,standard,,37
-G_political_score,ratio,{},[],,median,median,recode_scores,outcome,,38
-G_sensitivity_score,ratio,{},[],,median,median,recode_scores,outcome,,39
-G_faces_age_estimate,ratio,{},[],,median,median,recode_faces_age_estimate,outcome,,40
-G_main_ethnicity,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,feature,,41
-G_main_gender,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,feature,,42
-G_CRA_symbolism_and_imagery,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,43
-G_CRA_inclusion_and_exclusion,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,44
-G_CRA_key_groups,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,45
-G_CRA_complexity_vs_stereotypes,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,46
-G_IA_critique_or_reinforcement,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,47
-G_IA_power_dynamics,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,48
-G_IA_cultural_or_historical_context,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,49
-G_IA_dominant_ideologies,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,50
-G_FA_attribution_of_responsibility,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,51
-G_FA_moral_evaluation,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,52
-G_FA_problem_definition,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,53
-G_FA_treatment_recommendation,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,54
-G_scene_sentiments_energy,interval,{},[],,,,,outcome,,55
-G_scene_sentiments_valence,interval,{},[],,,,,outcome,,56
-T_local_timestamp,datetime,{},[],,drop,,recode_timestamp,standard,,57
-B_anchors,string,{},[],,keep,keep,recode_long_strings,standard,,
-B_challenges,collection,{},[], | ,empty,,recode_challenges,skip,,
-B_effectStickers,string,{},[],,keep,keep,recode_long_strings,skip,,
-B_source_app_language,categorical,{},[],,keep,,,skip,,
-B_source_browser_language,categorical,{},[],,keep,,,skip,,
-B_source_language,categorical,{},[],,keep,,,skip,,
-B_source_region,categorical,{},[],,keep,,,skip,,
-event_order_in_session,ordinal,{},[],,drop,,,skip,,
-event_pos_in_session,interval,{},[],,drop,,,skip,,
-G_aussie_political_message,string,{},[],,keep,keep,recode_long_strings,skip,,
-G_aussie_political_positioning,string,{},[],,keep,keep,recode_long_strings,skip,,
-G_call_to_action,raw,{},"IRRELEVANT_WORDS + ['implicit', 'implicitly', 'encourages', 'viewers']",,drop,drop,recode_call_to_action,raw,,
-G_faces_ethnicity,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,skip,,
-G_faces_gender,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,skip,,
-G_scene_sentiments,raw,{},[],,drop,keep,recode_scene_sentiments,raw,,
-S_anchors,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_author_nickname,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_author_uniqueId,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_createTime,datetime,{},[],,drop,,,skip,,
-S_desc,raw,{},[],,keep,,recode_descriptions,raw,,
-S_desc_mentions,collection,{},[],,,,,skip,,
-S_desc_not_hashtags,collection,{},[],,,,,skip,,
-S_IsAigc,dichotomous,{},[], | ,zero,,recode_stringified_list,feature,,
-S_music_album,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_music_authorName,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_music_title,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_poi_address,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_poi_name,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_poi_city,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_poi_province,string,{},[],,keep,keep,recode_long_strings,skip,,
-S_poi_country,string,{},[],,keep,keep,recode_long_strings,skip,,
-session_id,factor,{},[],,drop,,,factor,,
-T_local_hour,interval,{},[],,drop,,,skip,,
+variable_name,scale,mapper,ignore_strings,splitter,missing_data_policy,unable_to_detect_policy,recode_func,role,web_filter_prio,web_viz_prio,web_display_prio,description,section
+item_id,string,{},[],,drop,,,standard,,,1,Fine description of item_id,one
+G_video_story,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,2,2,Fine description of G_video_story,one
+S_desc_raw,string,{},[],,keep,,,standard,,3,3,Fine description of S_desc_raw,one
+S_desc_hashtags,collection,{},[],,,,,standard,1,4,4,Fine description of S_desc_hashtags,one
+S_author_signature,string,{},[],,keep,keep,recode_long_strings,standard,,,5,Fine description of S_author_signature,one
+G_transcript_no_repetitions,string,{},[],,keep,keep,recode_long_strings,standard,,,6,Fine description of G_transcript_no_repetitions,one
+G_type_of_story,categorical,{},[], | ,keep,keep,recode_stringified_list,feature,2,7,7,Fine description of G_type_of_story,one
+G_main_activity,categorical,{},IRRELEVANT_WORDS + ['getting'], ,keep,keep,recode_main_activity,feature,3,8,8,Fine description of G_main_activity,one
+G_content_category,collection,{},[], | ,empty,empty,recode_stringified_list,feature,4,9,9,Fine description of G_content_category,one
+G_australian_relevance,dichotomous,{},[], | ,drop,zero,recode_stringified_list,feature,5,10,10,Fine description of G_australian_relevance,one
+G_trend,dichotomous,{},[], | ,drop,keep,recode_stringified_list,feature,6,11,11,Fine description of G_trend,one
+G_advertising,dichotomous,{},[], | ,drop,zero,recode_stringified_list,feature,7,12,12,Fine description of G_advertising,one
+S_isAd,dichotomous,{},[], | ,zero,,recode_stringified_list,feature,8,13,13,Fine description of S_isAd,one
+G_aigc,categorical,{},[], | ,drop,zero,recode_stringified_list,standard,9,14,14,Fine description of G_aigc,one
+G_tiktok_native,dichotomous,{},[], | ,drop,keep,recode_stringified_list,feature,10,15,15,Fine description of G_tiktok_native,one
+G_symbols_and_brands,collection,{},"['tiktok', 'tiktok logo']", | ,empty,empty,recode_stringified_list,standard,11,16,16,Fine description of G_symbols_and_brands,one
+S_stats_collectCount,ratio,{},[],,median,,,outcome,12,17,17,Fine description of S_stats_collectCount,one
+S_stats_commentCount,ratio,{},[],,median,,,outcome,13,18,18,Fine description of S_stats_commentCount,one
+S_stats_diggCount,ratio,{},[],,median,,,outcome,14,19,19,Fine description of S_stats_diggCount,one
+S_stats_playCount,ratio,{},[],,median,,,outcome,15,20,20,Fine description of S_stats_playCount,two
+S_stats_shareCount,ratio,{},[],,median,,,outcome,16,21,21,Fine description of S_stats_shareCount,two
+plays_per_day,ratio,{},[],,median,,,outcome,17,22,22,Fine description of plays_per_day,two
+S_video_duration,ratio,{},[],,median,,,outcome,18,23,23,Fine description of S_video_duration and it is a very long text to see what happens when this goes on for a while. Will it be able to break at a reasonable point.,two
+T_days_since_created,ratio,{},[],,median,,,outcome,19,24,24,Fine description of T_days_since_created,two
+T_local_date,factor,{},[],,drop,,,group_factor,20,25,25,Fine description of T_local_date,two
+T_local_day_segment,factor,{},[],,drop,,,factor,21,26,26,Fine description of T_local_day_segment,two
+T_local_week,factor,{},[],,drop,,,factor,22,27,27,Fine description of T_local_week,two
+T_local_weekday,factor,{},[],,drop,,,factor,23,28,28,Fine description of T_local_weekday,two
+D_donation_id,factor,{},[],,drop,,,group_factor,,29,29,Fine description of D_donation_id,two
+B_source_tz_name,factor,{},[],,drop,,,factor,24,30,30,Fine description of B_source_tz_name,two
+G_background_music,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,standard,,,31,Fine description of G_background_music,two
+G_notable_sounds,collection,{},"['speech', 'music']", | ,empty,empty,recode_stringified_list,feature,25,,32,Fine description of G_notable_sounds,two
+G_speech_vs_music,ratio,{},[],,median,median,recode_speech_vs_music,outcome,26,33,33,Fine description of G_speech_vs_music,two
+G_text_overlays,string,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,standard,,,34,Fine description of G_text_overlays,two
+G_objects,collection,{},"['woman', 'man', 'person', 'people']", | ,empty,empty,recode_stringified_list,standard,27,35,35,Fine description of G_objects,two
+S_challenges,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,standard,28,36,36,Fine description of S_challenges,two
+G_call_to_action_words,collection,{},[],,,,,standard,29,,37,Fine description of G_call_to_action_words,two
+G_political_score,ratio,{},[],,median,median,recode_scores,outcome,30,38,38,Fine description of G_political_score,two
+G_sensitivity_score,ratio,{},[],,median,median,recode_scores,outcome,31,39,39,Fine description of G_sensitivity_score,two
+G_faces_age_estimate,ratio,{},[],,median,median,recode_faces_age_estimate,outcome,32,40,40,Fine description of G_faces_age_estimate,two
+G_main_ethnicity,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,feature,33,,41,Fine description of G_main_ethnicity,two
+G_main_gender,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,feature,34,,42,Fine description of G_main_gender,two
+G_CRA_symbolism_and_imagery,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,43,Fine description of G_CRA_symbolism_and_imagery,three
+G_CRA_inclusion_and_exclusion,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,44,Fine description of G_CRA_inclusion_and_exclusion,three
+G_CRA_key_groups,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,45,Fine description of G_CRA_key_groups,three
+G_CRA_complexity_vs_stereotypes,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,46,Fine description of G_CRA_complexity_vs_stereotypes,three
+G_IA_critique_or_reinforcement,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,47,Fine description of G_IA_critique_or_reinforcement,three
+G_IA_power_dynamics,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,48,Fine description of G_IA_power_dynamics,three
+G_IA_cultural_or_historical_context,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,49,Fine description of G_IA_cultural_or_historical_context,three
+G_IA_dominant_ideologies,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,50,Fine description of G_IA_dominant_ideologies,three
+G_FA_attribution_of_responsibility,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,51,Fine description of G_FA_attribution_of_responsibility,three
+G_FA_moral_evaluation,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,52,Fine description of G_FA_moral_evaluation,three
+G_FA_problem_definition,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,53,Fine description of G_FA_problem_definition,three
+G_FA_treatment_recommendation,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,54,Fine description of G_FA_treatment_recommendation,three
+G_scene_sentiments_energy,interval,{},[],,,,,outcome,,,,Fine description of G_scene_sentiments_energy,four
+G_scene_sentiments_valence,interval,{},[],,,,,outcome,,,,Fine description of G_scene_sentiments_valence,four
+T_local_timestamp,datetime,{},[],,drop,,recode_timestamp,standard,,,57,Fine description of T_local_timestamp,four
+B_anchors,string,{},[],,keep,keep,recode_long_strings,standard,,,,Fine description of B_anchors,four
+B_challenges,collection,{},[], | ,empty,,recode_challenges,skip,,,,Fine description of B_challenges,four
+B_effectStickers,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of B_effectStickers,four
+B_source_app_language,categorical,{},[],,keep,,,skip,,,,Fine description of B_source_app_language,four
+B_source_browser_language,categorical,{},[],,keep,,,skip,,,,Fine description of B_source_browser_language,four
+B_source_language,categorical,{},[],,keep,,,skip,,,,Fine description of B_source_language,four
+B_source_region,categorical,{},[],,keep,,,skip,,,,Fine description of B_source_region,four
+event_order_in_session,ordinal,{},[],,drop,,,skip,,,,Fine description of event_order_in_session,four
+event_pos_in_session,interval,{},[],,drop,,,skip,,,,Fine description of event_pos_in_session,four
+G_aussie_political_message,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of G_aussie_political_message,four
+G_aussie_political_positioning,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of G_aussie_political_positioning,four
+G_call_to_action,raw,{},"IRRELEVANT_WORDS + ['implicit', 'implicitly', 'encourages', 'viewers']",,drop,drop,recode_call_to_action,raw,,,,Fine description of G_call_to_action,four
+G_faces_ethnicity,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,skip,,,,Fine description of G_faces_ethnicity,four
+G_faces_gender,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,skip,,,,Fine description of G_faces_gender,four
+G_scene_sentiments,raw,{},[],,drop,keep,recode_scene_sentiments,raw,,,,Fine description of G_scene_sentiments,four
+S_anchors,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_anchors,four
+S_author_nickname,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_author_nickname,four
+S_author_uniqueId,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_author_uniqueId,four
+S_createTime,datetime,{},[],,drop,,,skip,,,,Fine description of S_createTime,four
+S_desc,raw,{},[],,keep,,recode_descriptions,raw,,,,Fine description of S_desc,four
+S_desc_mentions,collection,{},[],,,,,skip,,,,Fine description of S_desc_mentions,four
+S_desc_not_hashtags,collection,{},[],,,,,skip,,,,Fine description of S_desc_not_hashtags,four
+S_IsAigc,dichotomous,{},[], | ,zero,,recode_stringified_list,feature,,,,Fine description of S_IsAigc,four
+S_music_album,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_music_album,four
+S_music_authorName,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_music_authorName,four
+S_music_title,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_music_title,four
+S_poi_address,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_poi_address,four
+S_poi_name,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_poi_name,four
+S_poi_city,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_poi_city,four
+S_poi_province,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_poi_province,four
+S_poi_country,string,{},[],,keep,keep,recode_long_strings,skip,,,,Fine description of S_poi_country,four
+session_id,factor,{},[],,drop,,,factor,,,,Fine description of session_id,four
+T_local_hour,interval,{},[],,drop,,,skip,37,,,Fine description of T_local_hour,four

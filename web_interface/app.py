@@ -469,21 +469,66 @@ def api_explorer_metadata():
         metadata['source_file'] = "Error"
         metadata['source_file_modified'] = ""
 
-    # Inject priority list from var_scheme.csv
+    # Inject priority lists from var_scheme.csv
     try:
         var_scheme_path = PROJECT_ROOT / "config" / "var_scheme.csv"
         if var_scheme_path.exists():
             scheme_df = pd.read_csv(var_scheme_path)
+            
+            # 1. Display Priority (Viewer Metadata Sort)
             # Filter rows with numeric web_display_prio
-            # Ensure it's numeric, drop NaNs
             scheme_df['web_display_prio'] = pd.to_numeric(scheme_df['web_display_prio'], errors='coerce')
-            sorted_vars = scheme_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')['variable_name'].tolist()
-            metadata['priority_list'] = sorted_vars
+            display_df = scheme_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')
+            metadata['display_priority'] = display_df['variable_name'].tolist()
+
+            # 1b. Visualization Priority (Explorer Plots)
+            if 'web_viz_prio' in scheme_df.columns:
+                scheme_df['web_viz_prio'] = pd.to_numeric(scheme_df['web_viz_prio'], errors='coerce')
+                viz_df = scheme_df.dropna(subset=['web_viz_prio']).sort_values('web_viz_prio')
+                metadata['viz_priority'] = viz_df['variable_name'].tolist()
+            else:
+                 metadata['viz_priority'] = []
+            
+            # 2. Filter Priority (Explorer & Viewer Filters)
+            if 'web_filter_prio' in scheme_df.columns:
+                scheme_df['web_filter_prio'] = pd.to_numeric(scheme_df['web_filter_prio'], errors='coerce')
+                filter_df = scheme_df.dropna(subset=['web_filter_prio']).sort_values('web_filter_prio')
+                metadata['filter_priority'] = filter_df['variable_name'].tolist()
+            else:
+                metadata['filter_priority'] = []
+
+            # 3. Schema Map (Section & Description)
+            # Create a dictionary for section and description
+            # Ensure columns exist
+            if 'section' not in scheme_df.columns:
+                scheme_df['section'] = 'General'
+            if 'description' not in scheme_df.columns:
+                scheme_df['description'] = ''
+            
+            # Fill NaNs
+            scheme_df['section'] = scheme_df['section'].fillna('General')
+            scheme_df['description'] = scheme_df['description'].fillna('')
+            
+            # Create map: { var_name: { section: "...", description: "..." } }
+            # Only for variables present in scheme
+            schema_map = {}
+            for _, row in scheme_df.iterrows():
+                var_name = row['variable_name']
+                schema_map[var_name] = {
+                    "section": str(row['section']),
+                    "description": str(row['description'])
+                }
+            metadata['schema_map'] = schema_map
+                
         else:
-            metadata['priority_list'] = []
+            metadata['display_priority'] = []
+            metadata['filter_priority'] = []
+            metadata['schema_map'] = {}
     except Exception as e:
         print(f"Error loading priority list: {e}")
-        metadata['priority_list'] = []
+        metadata['display_priority'] = []
+        metadata['filter_priority'] = []
+        metadata['schema_map'] = {}
 
     return jsonify(metadata)
 

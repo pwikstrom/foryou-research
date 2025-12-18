@@ -93,9 +93,9 @@ def get_robust_bounds(series):
     if s.empty:
         return 0, 0
 
-    # Calculate percentiles
-    low = np.percentile(s, 1)
-    high = np.percentile(s, 99)
+    # Calculate min/max (No outlier clipping)
+    low = s.min()
+    high = s.max()
     
     return float(low), float(high)
 
@@ -212,6 +212,28 @@ def filter_dataframe(df, column_types, filters, search_query=None):
     return filtered_df
 
 
+def calculate_adaptive_histogram(data, min_val, max_val, bins=50, max_empty_ratio=0.1):
+    """
+    Recursively reduces bin count if too many bins are empty.
+    """
+    counts, bin_edges = np.histogram(data, bins=bins, range=(min_val, max_val), density=True)
+    
+    # Check emptiness
+    # Count bins with 0 data
+    empty_bins = np.sum(counts == 0)
+    empty_ratio = empty_bins / bins
+    
+    if empty_ratio > max_empty_ratio and bins > 5:
+        # Reduce bins by ~50% (Agilent approach)
+        new_bins = int(bins * 0.5)
+        # Ensure we don't get stuck if bins * 0.5 rounds to same int (unlikely with >5)
+        if new_bins == bins: new_bins -= 1
+        return calculate_adaptive_histogram(data, min_val, max_val, bins=new_bins, max_empty_ratio=max_empty_ratio)
+    
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    return counts, bin_centers
+
+
 def get_current_stats(df, column_types):
     from pandas import set_option
     set_option('future.no_silent_downcasting', True)
@@ -257,7 +279,7 @@ def get_current_stats(df, column_types):
              # Use absolute skew check.
              # Relax min_val check: log1p handles 0 safely (log(1)=0). 
              # Negative values? min_val >= 0 ensures correct log1p usage.
-             if abs(skew) > 2 and min_val >= 0:
+             if abs(skew) > 3 and min_val >= 0:
                  transform = "log10"
              
              # Clamp data (original domain)
@@ -284,16 +306,49 @@ def get_current_stats(df, column_types):
                 if transform == "log10":
                     # Transform data: log10(x + 1)
                     log_data = np.log10(clamped_series + 1)
+                    log_min = np.log10(min_val + 1)
+                    log_max = np.log10(max_val + 1)
                     
                     # Histogram in log domain (linear bins in log space)
-                    counts, bin_edges = np.histogram(log_data, bins=50, density=True)
-                    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                    # Adaptive Logic
+                    counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max)
                     
-                    # x sent to frontend is LOGGED values
+                    # Generate Custom Ticks for Log Axis (Original Values)
+                    # We want ticks at 0, 1, 10, 100, 1000...
+                    tick_vals = []
+                    tick_text = []
+                    
+                    # 0
+                    if 0 >= min_val and 0 <= max_val:
+                        tick_vals.append(np.log10(1))
+                        tick_text.append("0")
+                    
+                    # Powers of 10
+                    p = 0
+                    while True:
+                        v = 10**p
+                        if v > max_val:
+                            break
+                        if v >= min_val:
+                            tick_vals.append(np.log10(v + 1))
+                            tick_text.append(f"{v:,}") # Add comma separator
+                        p += 1
+                        
+                    stats[col] = {
+                        "type": "density",
+                        "x": bin_centers.tolist(), # Transformed if log
+                        "y": counts.tolist(),
+                        "transform": transform,
+                        "min": min_val, # Original units
+                        "max": max_val,  # Original units
+                        "tick_vals": tick_vals,
+                        "tick_text": tick_text
+                    }
+                    continue # Use continue to skip the default stats assignment below
                 else:
                     # Linear Bins in original domain
-                    counts, bin_edges = np.histogram(clamped_series, bins=50, range=(min_val, max_val), density=True)
-                    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                    # Adaptive Logic
+                    counts, bin_centers = calculate_adaptive_histogram(clamped_series, min_val, max_val)
                 
                 stats[col] = {
                     "type": "density",

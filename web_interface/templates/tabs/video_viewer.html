@@ -116,4 +116,42 @@
     #viewer-metadata tr:hover {
         background: #2a2a2d;
     }
+
+    /* Custom Tooltip CSS */
+    .meta-tooltip {
+        position: relative;
+        cursor: help;
+        text-decoration: underline dotted #888;
+    }
+
+    .meta-tooltip::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        /* transform: translateX(-50%); Removed to prevent left overflow */
+        background: #333;
+        color: #fff;
+        padding: 8px;
+        /* Increased padding */
+        border-radius: 4px;
+        font-size: 0.85em;
+        white-space: pre-wrap;
+        /* Allow line breaks */
+        max-width: 300px;
+        /* Constrain width */
+        width: max-content;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+        z-index: 1000;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        border: 1px solid #555;
+    }
+
+    .meta-tooltip:hover::after {
+        opacity: 1;
+        bottom: 110%;
+        /* Move up slightly on hover */
+    }
 </style>
