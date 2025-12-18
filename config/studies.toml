@@ -1,6 +1,6 @@
 # ====================================================================================
 # Study parameters: Documentation
-# ====================================================================================
+# ===================================================================================
 
 # MIN_DURATION: minimum watch duration in seconds, set to 0 to include all events
 # MIN_NUNIQUE_USERS: minimum number of unique users per video, set to 1 to include all events

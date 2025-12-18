@@ -422,7 +422,7 @@ async function saveConfig(filename, sourceIdOverride = null) {
 
     const content = el.value;
     try {
-        const res = await fetch(`/ api / config ? file = ${filename} `, {
+        const res = await fetch(`/api/config?file=${filename}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: content })
@@ -640,7 +640,7 @@ async function checkVideoCounts() {
         const scrapeCount = data.scrape ? data.scrape[0] : 0;
         const annotateCount = data.annotate ? data.annotate[0] : 0;
 
-        display.innerHTML = `Scrape: <b>${scrapeCount.toLocaleString()}</b> | Annotate: <b>${annotateCount.toLocaleString()}</b>`;
+        display.innerHTML = `Videos to scrape: <b>${scrapeCount.toLocaleString()}</b> | Videos to annotate: <b>${annotateCount.toLocaleString()}</b>`;
         display.style.color = '#d4d4d4';
 
     } catch (e) {

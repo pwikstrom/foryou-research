@@ -107,6 +107,16 @@ async function loadViewerMetadata() {
             return;
         }
 
+        // Update File Info Display
+        const infoSpan = document.getElementById('viewer-file-info');
+        if (infoSpan) {
+            if (data.source_file && data.source_file_modified) {
+                infoSpan.innerText = `Using file: ${data.source_file} - saved ${data.source_file_modified}`;
+            } else {
+                infoSpan.innerText = "";
+            }
+        }
+
         viewerData.metadata = data;
         renderViewerFilters(data);
 

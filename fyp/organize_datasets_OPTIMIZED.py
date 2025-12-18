@@ -832,7 +832,6 @@ def load_datasets(
 
     print("Loading all datasets:")
     all_datasets = {}
-    print("*********2**************",verbose)
 
     if delete_all_half_baked_files:
         print(" - Deleting half-baked files")

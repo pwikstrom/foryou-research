@@ -95,6 +95,16 @@ async function loadExplorerMetadata() {
             return;
         }
 
+        // Update File Info Display
+        const infoSpan = document.getElementById('explorer-file-info');
+        if (infoSpan) {
+            if (data.source_file && data.source_file_modified) {
+                infoSpan.innerText = `Using file: ${data.source_file} - saved ${data.source_file_modified}`;
+            } else {
+                infoSpan.innerText = "";
+            }
+        }
+
         explorerData.metadata = data;
         renderFilters(data);
         // Initial fetch of stats

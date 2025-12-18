@@ -453,6 +453,22 @@ def api_explorer_metadata():
     # Inject total stats so frontend knows baseline
     metadata['total_stats'] = explorer_total_stats
 
+    # Inject Source File Info
+    try:
+        exports_dir = Path(fyp_cf["paths"]["exports"])
+        pkl_path = exports_dir / f"{study}_RECODED.pkl"
+        if pkl_path.exists():
+            metadata['source_file'] = pkl_path.name
+            mtime = datetime.fromtimestamp(pkl_path.stat().st_mtime)
+            metadata['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+             metadata['source_file'] = "Unknown"
+             metadata['source_file_modified'] = ""
+    except Exception as e:
+        print(f"Error getting file info: {e}")
+        metadata['source_file'] = "Error"
+        metadata['source_file_modified'] = ""
+
     # Inject priority list from var_scheme.csv
     try:
         var_scheme_path = PROJECT_ROOT / "config" / "var_scheme.csv"
