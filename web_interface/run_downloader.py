@@ -32,8 +32,10 @@ if __name__ == "__main__":
             max_batches=args.max_batches
         )
         print("Scrape and download process completed.")
+        print("-"*100)
     except Exception as e:
         print(f"Scrape and download process failed: {e}")
+        print("-"*100)
         import traceback
         traceback.print_exc()
         sys.exit(1)

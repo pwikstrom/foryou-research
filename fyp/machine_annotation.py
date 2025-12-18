@@ -612,6 +612,8 @@ def _flatten_one_machine_response(some_response, verbose=False):
                 print(f"WARNING: Required key '{rk}' is missing in response. Returning None")
             return None
 
+    # #######################
+    # scenes
     # it is expected that there is a sentiment value for each scene. This can be a string or a list of strings
     if 'scene_sentiments' in flat_response.keys():
         if type(flat_response['scene_sentiments']) != str:
@@ -625,14 +627,20 @@ def _flatten_one_machine_response(some_response, verbose=False):
         if type(flat_response['scenes']) != str:
             flat_response['scenes'] = " | ".join([k.get('description','') for k in flat_response['scenes']])
 
+    # #######################
+    # transcript
     if type(flat_response['transcript']) != str:
         flat_response['transcript'] = " | ".join([k if type(k)!=dict else k.get('text','') for k in flat_response['transcript']])
 
-    flat_response['objects'] = " | ".join(flat_response['objects'])
-    flat_response['symbols_and_brands'] = " | ".join([s for s in flat_response['symbols_and_brands'] if type(s)==str])
-    flat_response['text_overlays'] = " | ".join([s for s in flat_response['text_overlays'] if type(s)==str])
-    flat_response['content_category'] = " | ".join([s for s in flat_response['content_category'] if type(s)==str])
+    for k in ['objects','symbols_and_brands','text_overlays','content_category']:
+        if type(flat_response[k]) != str:
+            flat_response[k] = " | ".join(flat_response[k])
+    #flat_response['objects'] = " | ".join(flat_response['objects'])
+    #flat_response['symbols_and_brands'] = " | ".join([s for s in flat_response['symbols_and_brands'] if type(s)==str])
+    #flat_response['text_overlays'] = " | ".join([s for s in flat_response['text_overlays'] if type(s)==str])
+    #flat_response['content_category'] = " | ".join([s for s in flat_response['content_category'] if type(s)==str])
 
+    # #######################
     # sometimes audio summary hasn't been converted to json
     # not sure why this happens, this is trying to do something about that
     audio_summary_ok = True
@@ -655,6 +663,8 @@ def _flatten_one_machine_response(some_response, verbose=False):
                 flat_response[k] = audio_detail
     del flat_response['audio_summary']
 
+    # #######################
+    # faces
     if type(flat_response['faces']) != str:
         if type(flat_response['faces']) != list:
             flat_response['faces'] = [flat_response['faces']]
@@ -668,6 +678,12 @@ def _flatten_one_machine_response(some_response, verbose=False):
     for k in flat_response:
         if (k.startswith("faces_")) and (flat_response[k].endswith(" | ")):
             flat_response[k] = flat_response[k][:-3]    
+
+    # #######################
+    # get rid of pesky lists - just pick the first element. This is a bit of a hack, but it works.
+    for k in flat_response:
+        if isinstance(flat_response[k],list):
+            flat_response[k] = flat_response[k][0]
 
     return flat_response
 
