@@ -34,8 +34,12 @@ def load_machine_annotations(
         cf = None,
         include_failed_calls:bool = False,
         consolidate:bool = False,
-        verbose:bool = False,
-    ):
+        verbose=False,
+        notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
+
     from pandas import DataFrame, concat, read_pickle
     from os import listdir, rename
     from os.path import join, basename
@@ -103,8 +107,8 @@ def load_machine_annotations(
             print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
 
 
-    #if verbose:
-        #print("--"*60)
+    if notebook_mode:
+        print("--"*60)
 
 
 
@@ -121,8 +125,11 @@ def load_machine_annotations(
 def save_machine_annotations_json(
     json_list: list, 
     the_path:str, 
-    verbose:bool = False
-    ):
+    verbose=False,
+    notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
     from os.path import join
     from json import dump
     from datetime import datetime
@@ -403,8 +410,11 @@ def call_machine_threads(
         cf = None,  
         interesting_videos = None,
         max_workers=32,
-        verbose: bool = False
-    ):
+        verbose=False,
+        notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from datetime import datetime
@@ -497,8 +507,11 @@ def call_machine_threads(
 
 def consolidate_rare_columns_from_gemini_output(
         outputs_from_machine_df_in,
-        verbose = False
-    ):
+        verbose=False,
+        notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
     """
     Clean up Gemini’s loosely structured output:
     1. Compute each column’s non-null ratio so we can spot “rare” keys (<10% populated).
@@ -514,7 +527,7 @@ def consolidate_rare_columns_from_gemini_output(
 
     nonnull_ratio = (len(outputs_from_machine_df) - outputs_from_machine_df.isna().sum()) / len(outputs_from_machine_df)
 
-    if verbose:
+    if notebook_mode:
         print(outputs_from_machine_df.shape)
         print(len(nonnull_ratio[nonnull_ratio<0.1]))
         print(nonnull_ratio[nonnull_ratio<0.1])
@@ -586,7 +599,13 @@ def consolidate_rare_columns_from_gemini_output(
 
 
 
-def _flatten_one_machine_response(some_response, verbose=False):
+def flatten_one_machine_response(
+        some_response,
+        verbose=False,
+        notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
     """
     Flattens a machine response into a single level dictionary.
     NOTE: This is directly dependent on the prompt you are using. 
@@ -594,12 +613,14 @@ def _flatten_one_machine_response(some_response, verbose=False):
     """
 
 
-    from copy import deepcopy
+    from copy import deepcopy, copy
     from collections import Counter
+    from fuzzy_json import loads
+    import re
 
     # if the response is not a dictionary, something is wrong - return it as is
     if some_response is None or type(some_response) != dict:
-        if verbose:
+        if notebook_mode:
             print(type(some_response))
         return some_response
 
@@ -614,43 +635,113 @@ def _flatten_one_machine_response(some_response, verbose=False):
 
     # #######################
     # scenes
-    # it is expected that there is a sentiment value for each scene. This can be a string or a list of strings
-    if 'scene_sentiments' in flat_response.keys():
-        if type(flat_response['scene_sentiments']) != str:
-            flat_response['scene_sentiments'] = Counter([k.get('sentiment','') for k in flat_response['scene_sentiments']]).most_common(1)[0][0]
-    elif 'scenes' in flat_response.keys():
-        flat_response['scene_sentiments'] = Counter([k.get('sentiment','') for k in flat_response['scenes']]).most_common(1)[0][0]
-    else:
-        return None
-
     if 'scenes' in flat_response.keys():
-        if type(flat_response['scenes']) != str:
-            flat_response['scenes'] = " | ".join([k.get('description','') for k in flat_response['scenes']])
+        if isinstance(flat_response['scenes'], str):
+            flat_response['scenes'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['scenes'])
+            try:
+                flat_response['scenes'] = loads(flat_response['scenes'])
+            except Exception as e:
+                return None
+        if isinstance(flat_response['scenes'], list):
+            try:
+                description_list = []
+                sentiment_list = []
+                for k in flat_response['scenes']:
+                    if isinstance(k, dict):
+                        description_list += [k.get('description','')]
+                        sentiment_list += [k.get('sentiment','')]
+                flat_response['scenes'] = " | ".join(description_list)
+                tt1 = Counter(sentiment_list).most_common(1)
+                if len(tt1) == 0:
+                    flat_response['scene_sentiments'] = ""
+                else:
+                    flat_response['scene_sentiments'] = tt1[0][0]
+            except Exception as e:
+                return None
+            #elif isinstance(flat_response['scenes'], str):
+            #    aa = re.sub(r"\{.*?\|", ' | ', flat_response['scenes'].replace("'description':"," | "))
+            #    aa = re.sub(r"\'sentiment.*?\|", ' |', aa)
+            #    aa = re.sub(r"\'sentiment.*?\}", ' ', aa)
+            #    keep_it = copy(flat_response['scenes']) 
+            #    flat_response['scenes'] = aa.replace("',  "," ").replace(" '"," ").replace("  "," ")[3:-3].strip()
+            #    tt1 = Counter(list(map(lambda x: x.split("'}")[0], keep_it.split("sentiment':'")[1:]))).most_common(1)
+            #    if len(tt1) == 0:
+            #        flat_response['scene_sentiments'] = ""
+            #    else:
+            #        flat_response['scene_sentiments'] = tt1[0][0]
+        else:
+            return None
+            #flat_response['scenes'] = ""
+            #flat_response['scene_sentiments'] = ""
 
     # #######################
     # transcript
-    if type(flat_response['transcript']) != str:
-        flat_response['transcript'] = " | ".join([k if type(k)!=dict else k.get('text','') for k in flat_response['transcript']])
+    if 'transcript' in flat_response.keys():
+        if isinstance(flat_response['transcript'], str):
+            flat_response['transcript'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['transcript'])
+            try:
+                flat_response['transcript'] = loads(flat_response['transcript'])
+            except Exception as e:
+                return None
+        if isinstance(flat_response['transcript'], list):
+            try:
+                text_list = []
+                for k in flat_response['transcript']:
+                    if isinstance(k, dict):
+                        text_list += [k.get('text','')]
+                    elif isinstance(k, str):
+                        text_list += [k]
+                flat_response['transcript'] = " | ".join(text_list)
+            except Exception as e:
+                return None
+            #elif isinstance(flat_response['transcript'], str):
+            #    aa = re.sub(r"\{.*?\|", ' | ', flat_response['transcript'].replace("'text':"," | "))
+            #    flat_response['transcript'] = aa.replace("'},  | "," |").replace(" '"," ")[3:-3].strip()
+        else:
+            return None
+            #flat_response['transcript'] = ""
 
-    for k in ['objects','symbols_and_brands','text_overlays','content_category']:
-        if type(flat_response[k]) != str:
-            flat_response[k] = " | ".join(flat_response[k])
-    #flat_response['objects'] = " | ".join(flat_response['objects'])
-    #flat_response['symbols_and_brands'] = " | ".join([s for s in flat_response['symbols_and_brands'] if type(s)==str])
-    #flat_response['text_overlays'] = " | ".join([s for s in flat_response['text_overlays'] if type(s)==str])
-    #flat_response['content_category'] = " | ".join([s for s in flat_response['content_category'] if type(s)==str])
+
+    # #######################
+    # objects
+    for res_key in ['objects','symbols_and_brands','text_overlays','content_category']:
+        if res_key in flat_response.keys():
+            if isinstance(flat_response[res_key], str):
+                flat_response[res_key] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response[res_key])
+                try:
+                    flat_response[res_key] = loads(flat_response[res_key])
+                except Exception as e:
+                    print(flat_response[res_key])
+                    return None
+            if isinstance(flat_response[res_key], list):
+                try:
+                    res_list = []
+                    for k in flat_response[res_key]:
+                        if isinstance(k, dict):
+                            res_list += [k.get(res_key,'')]
+                        elif isinstance(k, str):
+                            res_list += [k]
+                    flat_response[res_key] = " | ".join(res_list)
+                except Exception as e:
+                    return None
+            else:#elif not isinstance(flat_response[res_key], str):
+                return None
+                #flat_response[res_key] = ""
+
+
 
     # #######################
     # sometimes audio summary hasn't been converted to json
     # not sure why this happens, this is trying to do something about that
-    audio_summary_ok = True
-    if isinstance(flat_response['audio_summary'],str):
-        try:
-            flat_response['audio_summary'] = eval(flat_response['audio_summary'])
-        except:
-            audio_summary_ok = False
-    
-    if audio_summary_ok:
+    if 'audio_summary' in flat_response.keys():
+        if isinstance(flat_response['audio_summary'],str):
+            flat_response['audio_summary'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['audio_summary'])
+            try:
+                flat_response['audio_summary'] = loads(flat_response['audio_summary'])
+            except Exception as e:
+                print(flat_response['audio_summary'])
+                return None
+        
         for k in flat_response['audio_summary']:
             try:
                 audio_detail = flat_response['audio_summary'][k]
@@ -659,9 +750,11 @@ def _flatten_one_machine_response(some_response, verbose=False):
                 return None
             if isinstance(audio_detail,list):
                 flat_response[k] = " | ".join([s for s in audio_detail if type(s)==str])
-            else:
+            elif isinstance(audio_detail,str):
                 flat_response[k] = audio_detail
-    del flat_response['audio_summary']
+            else:
+                return None
+        del flat_response['audio_summary']
 
     # #######################
     # faces
@@ -672,7 +765,10 @@ def _flatten_one_machine_response(some_response, verbose=False):
             for k in face:
                 if not "faces_"+k in flat_response.keys():
                     flat_response["faces_"+k] = ""
-                flat_response["faces_"+k] += str(face[k]) + " | "
+                try:
+                    flat_response["faces_"+k] += str(face[k]) + " | "
+                except:
+                    return None
     del flat_response['faces']
 
     for k in flat_response:
@@ -683,6 +779,7 @@ def _flatten_one_machine_response(some_response, verbose=False):
     # get rid of pesky lists - just pick the first element. This is a bit of a hack, but it works.
     for k in flat_response:
         if isinstance(flat_response[k],list):
+            print(flat_response[k])
             flat_response[k] = flat_response[k][0]
 
     return flat_response
@@ -780,7 +877,7 @@ def _decode_valid_unicode_escapes(text, drop_invalid=True):
 
     
     
-def _fuzzy_load_of_json_from_string(resp_text_in: str, testing = False):
+def fuzzy_load_of_json_from_string(resp_text_in: str, notebook_mode = False):
     """
     The model output is a bit unpredictable so this function is doing what it can to figure 
     out the json structure in the string and load it
@@ -814,10 +911,9 @@ def _fuzzy_load_of_json_from_string(resp_text_in: str, testing = False):
             
             return machine_annotations
         except Exception as e:
-            if testing:
-                print("Fail!!")
+            if notebook_mode:
+                print(e, refined_text)
                 return refined_text
-            print(e, "--- Returning 'None'")
             return None
     else:
         return None
@@ -830,8 +926,12 @@ def _fuzzy_load_of_json_from_string(resp_text_in: str, testing = False):
 
 
 def flatten_and_fix_machine_outputs(
-        raw_outputs_from_machine, verbose=False, super_verbose = False
-    ):
+        raw_outputs_from_machine,
+        verbose = False,
+        notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
     """
     Transform the output dicts from the video analysis process to fix errors in the response
     Flatten the response and elevate it to the top level of the output dicts
@@ -854,20 +954,20 @@ def flatten_and_fix_machine_outputs(
         flattened_response = None
         flattened_outputs_from_machine[h] = copy(raw_outputs_from_machine[h])
         if raw_outputs_from_machine[h]['response'] is None or raw_outputs_from_machine[h]['response']=='':
-            if verbose:
-                print(raw_outputs_from_machine[h]['finish_reason'])
             bad_count += 1
         else:
-            good_count += 1
-            if super_verbose:
-                print("Fuzzy-loading response into json")
-            json_response = _fuzzy_load_of_json_from_string(raw_outputs_from_machine[h]['response'])
-            if super_verbose:
-                print("Flattening json")
-            flattened_response = _flatten_one_machine_response(json_response, verbose=verbose)
+            json_response = fuzzy_load_of_json_from_string(raw_outputs_from_machine[h]['response'], notebook_mode = notebook_mode)
+            flattened_response = flatten_one_machine_response(json_response, verbose = verbose, notebook_mode = notebook_mode)
             if type(flattened_response)==dict:
+                good_count += 1
                 for rk in flattened_response:
                     flattened_outputs_from_machine[h][rk] = copy(flattened_response[rk])
+            else:
+                bad_count += 1
+                if verbose:
+                    print("Error when postprocessing response -> bad response")
+                if notebook_mode:
+                    print(raw_outputs_from_machine[h])
     
     print(f"Flattened and fixed {good_count} good responses, {bad_count} bad responses")
 
@@ -1022,9 +1122,12 @@ def _prettify_string(a_string):
 
 
 def remove_repetitions_from_transcripts(
-        outputs_from_machine_df_in, # expecting a dataframe with a column called "transcript". Elements should be a pipe-separated stringified list.
-        verbose=False
-    ):
+    outputs_from_machine_df_in, # expecting a dataframe with a column called "transcript". Elements should be a pipe-separated stringified list.
+    verbose = False,
+    notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
 
     from copy import copy
 
@@ -1081,10 +1184,15 @@ def remove_repetitions_from_transcripts(
 # *********************************************************************************************************
 
 
-def _post_process_raw_annotations(
+def post_process_raw_annotations(
     cf = None,
     raw_outputs_from_machine = None,
-    verbose = False):
+    verbose = False,
+    notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
+
     from datetime import datetime
     from os.path import join
     from fyp.fyp_main import init_config, connect_to_google, temp_path
@@ -1100,24 +1208,24 @@ def _post_process_raw_annotations(
     print("Starting post-processing of raw annotations...")
     if verbose:
         print("Flattening raw machine annotations")
-    outputs_from_machine_df = flatten_and_fix_machine_outputs(raw_outputs_from_machine, verbose=verbose)
+    outputs_from_machine_df = flatten_and_fix_machine_outputs(raw_outputs_from_machine, verbose = verbose, notebook_mode = notebook_mode)
 
 
     # check if required keys are present
     found_all_required_keys = True
     for rk in REQUIRED_KEYS:
         if not rk in outputs_from_machine_df.columns:
-            print(f"WARNING: Essential column '{rk}' is missing in machine output DF. Returning None")
+            print(f"WARNING: Essential column '{rk}' is missing in machine output")
             found_all_required_keys = False
 
     if verbose:
         print("Consolidating rare columns from machine annotations")
-    outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose=verbose)
+    outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose = verbose, notebook_mode = notebook_mode)
 
     if 'transcript' in outputs_from_machine_df.columns:
         if verbose:
             print("Removing repetitions from machine annotation transcripts")
-        outputs_from_machine_df = remove_repetitions_from_transcripts(outputs_from_machine_df, verbose=verbose)
+        outputs_from_machine_df = remove_repetitions_from_transcripts(outputs_from_machine_df, verbose = verbose, notebook_mode = notebook_mode)
 
     if verbose:
         print("Ready to save processed results")
@@ -1127,6 +1235,8 @@ def _post_process_raw_annotations(
     if verbose:
         print(f"Saved processed results to '{file_prefix}_{fine_ts}.pkl'")
     
+    return outputs_from_machine_df
+    
 
 
 
@@ -1135,7 +1245,12 @@ def _post_process_raw_annotations(
 def annotate_from_list(
     cf = None,
     fine_list = None,
-    verbose = False):
+    max_workers = 32,
+    verbose = False,
+    notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
     """
     This function takes a list of video IDs and calls the machine to annotate them.
     It also performs the necessary post processing of the raw outputs from the machine.
@@ -1163,16 +1278,16 @@ def annotate_from_list(
         raw_outputs_from_machine = call_machine_threads(
                 cf = cf,
                 interesting_videos = fine_list,
-                max_workers=32,
-                verbose = verbose
+                max_workers=max_workers,
+                verbose = verbose, notebook_mode = notebook_mode
             )
 
         print("...video annotation completed.")
 
-        _post_process_raw_annotations(
+        _ = post_process_raw_annotations(
             cf = cf,
             raw_outputs_from_machine = raw_outputs_from_machine,
-            verbose = verbose)
+            verbose = verbose, notebook_mode = notebook_mode)
 
     else:
         if verbose:
@@ -1185,7 +1300,11 @@ def annotate_from_list(
 def annotate_from_scrape_metadata_file(
     cf = None,
     scrape_metadata_filename = None,
-    verbose = False):
+    verbose = False,
+    notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
     """
     This is a wrapper that is reading a scrape metadata file and extracts a list of video IDs
     to process. It then calls annotate_from_list.
@@ -1214,7 +1333,7 @@ def annotate_from_scrape_metadata_file(
     annotate_from_list(
         cf = cf,
         fine_list = work_with_these_videos_list,
-        verbose = verbose)
+        verbose = verbose, notebook_mode = notebook_mode)
 
 
 
@@ -1224,7 +1343,11 @@ def annotate_from_scrape_metadata_file(
 def post_process_raw_annotations_from_json_file(
     cf = None,
     json_file = None,
-    verbose = False):
+    verbose = False,
+    notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
     """
     This is useful when the post_processing crashes. It's expensive to call the machine so
     it's preferrable to use the raw json and try to fix whatever might be causing the trouble
@@ -1237,8 +1360,6 @@ def post_process_raw_annotations_from_json_file(
 
     if cf is None:
         cf = init_config()
-    if cf["machine"]["client"] is None:
-        cf = connect_to_google(cf)
 
     if json_file is None or not exists(json_file):
         if verbose:
@@ -1248,7 +1369,8 @@ def post_process_raw_annotations_from_json_file(
     with open(json_file, 'r') as f:
         raw_outputs_from_machine = load(f)
 
-    _post_process_raw_annotations(cf = cf, raw_outputs_from_machine = raw_outputs_from_machine, verbose=verbose)
+    #process raw_outputs_from_machine
+    _ = post_process_raw_annotations(cf = cf, raw_outputs_from_machine = raw_outputs_from_machine, verbose = verbose, notebook_mode = notebook_mode)
 
 
 
@@ -1263,10 +1385,13 @@ def annotate_videos_loop(
     study_name = None,
     batch_size = 500,
     max_batches = None,
-    verbose = False):
+    verbose = False,
+    notebook_mode = False):
+
+    if notebook_mode:
+        verbose = True
 
     from datetime import datetime
-    #from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked, load_datasets, calculate_all_unique_video_subsets, save_selected_unique_video_subsets
     from os import environ
     from os.path import join
     import json
@@ -1286,15 +1411,8 @@ def annotate_videos_loop(
 
     print(f"Annotating downloaded videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
     print(f"Now: {datetime.now()}")
-    #print("--"*60)
-
-    # --- TEST MODE ---
-    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
-        print("!!! TEST MODE ENABLED - Doing a mini batch once!!!")
-        batch_size = 10
-        max_batches = 1
-    # -----------------
-
+    if notebook_mode:
+        print("--"*60)
 
 
 
@@ -1313,7 +1431,7 @@ def annotate_videos_loop(
             INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
             INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
             INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            verbose = verbose
+            verbose = verbose, notebook_mode = notebook_mode
         )
 
 
@@ -1326,7 +1444,7 @@ def annotate_videos_loop(
             _ = annotate_from_list(
                 cf = cf,
                 fine_list = work_with_these_videos_list[:batch_size],
-                verbose = verbose)
+                verbose = verbose, notebook_mode = notebook_mode)
         
         if selected_videos is None:
             selected_videos = []

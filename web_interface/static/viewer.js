@@ -8,6 +8,7 @@ let viewerData = {
     itemCount: 0,
     searchQuery: "",
     sortBy: null,
+    sortOrder: 'asc',
     currentIndex: -1
 };
 
@@ -33,6 +34,25 @@ document.addEventListener('DOMContentLoaded', function () {
 
             searchInput.addEventListener('input', (e) => {
                 viewerData.searchQuery = e.target.value;
+            });
+        }
+
+        // Slider Listener
+        const slider = document.getElementById('viewer-slider');
+        if (slider) {
+            // Live update of index text
+            slider.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value) - 1;
+                // Only update text, don't load yet
+                const count = viewerData.itemCount;
+                document.getElementById('viewer-index').innerText = `${val + 1} / ${count}`;
+            });
+
+            // Load on release (change)
+            slider.addEventListener('change', (e) => {
+                const val = parseInt(e.target.value) - 1;
+                viewerData.currentIndex = val;
+                loadViewerItem(val);
             });
         }
     }
@@ -147,8 +167,6 @@ function renderViewerFilters(metadata) {
     // Populate Sort Dropdown
     const sortSelect = document.getElementById('viewer-sort-select');
     if (sortSelect) {
-        // Only repopulate if empty or changed? 
-        // Simpler to just repopulate on metadata load.
         const currentVal = sortSelect.value || viewerData.sortBy;
         sortSelect.innerHTML = '<option value="">Default (Unsorted)</option>';
 
@@ -164,6 +182,9 @@ function renderViewerFilters(metadata) {
             viewerData.sortBy = e.target.value;
         };
     }
+
+    // Init Sort Button
+    updateSortBtnUI();
 
     sortedCols.forEach(col => {
         const info = metadata[col];
@@ -284,6 +305,24 @@ function resetViewerFilters() {
     loadViewerMetadata(); // Re-render to clear inputs
 }
 
+function toggleViewerSort() {
+    viewerData.sortOrder = viewerData.sortOrder === 'asc' ? 'desc' : 'asc';
+    updateSortBtnUI();
+    // Only apply if we have a sort key selected? 
+    // Or just apply anyway (backend handles it)
+    if (viewerData.sortBy) {
+        applyViewerFilters();
+    }
+}
+
+function updateSortBtnUI() {
+    const btn = document.getElementById('viewer-sort-btn');
+    if (btn) {
+        btn.innerText = viewerData.sortOrder === 'asc' ? 'ASC' : 'DESC';
+        // Optional: change color or icon
+    }
+}
+
 async function applyViewerFilters() {
     if (!viewerData.activeStudy) return;
 
@@ -295,7 +334,8 @@ async function applyViewerFilters() {
                 study: viewerData.activeStudy,
                 filters: viewerData.filters,
                 search_query: viewerData.searchQuery,
-                sort_by: viewerData.sortBy
+                sort_by: viewerData.sortBy,
+                sort_order: viewerData.sortOrder
             })
         });
         const data = await res.json();
@@ -514,6 +554,26 @@ function prevVideo() {
 
 function updateNavUI() {
     const indexStr = viewerData.currentIndex >= 0 ? (viewerData.currentIndex + 1) : 0;
-    document.getElementById('viewer-index').innerText = `${indexStr} / ${viewerData.itemCount}`;
+    const count = viewerData.itemCount;
+    document.getElementById('viewer-index').innerText = `${indexStr} / ${count}`;
     document.getElementById('viewer-status').innerText = "Ready";
+
+    // Update Slider
+    const slider = document.getElementById('viewer-slider');
+    if (slider) {
+        if (count > 0) {
+            slider.disabled = false;
+            slider.max = count;
+            slider.value = indexStr; // 1-based usually for range if min=1
+            // If currentIndex is -1 (empty), value 0? min is 1.
+            if (viewerData.currentIndex === -1) {
+                slider.value = 1;
+                slider.disabled = true;
+            }
+        } else {
+            slider.disabled = true;
+            slider.max = 1;
+            slider.value = 1;
+        }
+    }
 }

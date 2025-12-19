@@ -13,10 +13,17 @@
 
         <label for="viewer-sort-select"
             style="margin-right: 10px; margin-left: 20px; font-weight: bold; color: #eee;">Sort By:</label>
-        <select id="viewer-sort-select" class="dropdown"
-            style="width: 200px; padding: 5px; background: #3c3c3c; border: 1px solid #555; color: white;">
-            <option value="" selected>Default (Unsorted)</option>
-        </select>
+        <div style="display: flex; align-items: center;">
+            <select id="viewer-sort-select" class="dropdown"
+                style="width: 200px; padding: 5px; background: #3c3c3c; border: 1px solid #555; color: white;">
+                <option value="" selected>Default (Unsorted)</option>
+            </select>
+            <button id="viewer-sort-btn" onclick="toggleViewerSort()"
+                style="margin-left: 5px; padding: 5px 10px; background: #3c3c3c; border: 1px solid #555; color: white; cursor: pointer;"
+                title="Toggle Sort Order">
+                ASC
+            </button>
+        </div>
 
         <span id="viewer-file-info" style="margin-left: 20px; color: #888; font-size: 0.9em;"></span>
     </div>
@@ -47,14 +54,22 @@
             <!-- Navigation Header -->
             <div
                 style="padding: 15px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; background: #2d2d30;">
-                <div>
+                <div style="flex: 0 0 auto;">
                     <h2 style="margin: 0; font-size: 1.2em;">Video Viewer</h2>
                     <span id="viewer-status" style="font-size: 0.9em; color: #888;">No data</span>
                 </div>
-                <div class="nav-controls" style="display: flex; gap: 10px; align-items: center;">
+
+                <!-- Slider Area -->
+                <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 0 20px;">
+                    <input type="range" id="viewer-slider" min="1" max="1" value="1" disabled
+                        style="width: 100%; cursor: pointer;">
+                </div>
+
+                <div class="nav-controls" style="flex: 0 0 auto; display: flex; gap: 10px; align-items: center;">
                     <button class="btn-secondary" onclick="prevVideo()">&lt; Prev</button>
-                    <span id="viewer-index" style="font-family: monospace; font-size: 1.1em; padding: 0 10px;">0 /
-                        0</span>
+                    <span id="viewer-index"
+                        style="font-family: monospace; font-size: 1.1em; padding: 0 10px; min-width: 80px; text-align: center;">0
+                        / 0</span>
                     <button class="btn-secondary" onclick="nextVideo()">Next &gt;</button>
                 </div>
             </div>

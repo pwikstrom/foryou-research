@@ -1,0 +1,71 @@
+<div id="pca_viz" class="tab-pane">
+    <div class="control-bar"
+        style="display: flex; align-items: center; padding: 10px; background-color: #252526; margin-bottom: 20px; border-bottom: 1px solid #3e3e42;">
+        <label for="pca-study-select" style="margin-right: 10px; font-weight: bold; color: #eee;">Select Study:</label>
+        <select id="pca-study-select" class="dropdown" onchange="changePcaStudy()"
+            style="width: 300px; padding: 5px; background: #3c3c3c; border: 1px solid #555; color: white;">
+            <option value="" disabled selected>Select a study...</option>
+        </select>
+        <span id="pca-status" style="margin-left: 20px; color: #888;"></span>
+    </div>
+
+    <!-- Main Content -->
+    <div style="display: flex; height: calc(100vh - 180px); gap: 20px;">
+
+        <!-- Filter Panel -->
+        <div class="panel" style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="header">
+                <h2>Filters</h2>
+                <button class="btn-save" onclick="resetPcaFilters()">Reset</button>
+            </div>
+            <div id="pca-filters" style="flex: 1; overflow-y: auto; padding: 10px;">
+                <!-- Filters injected here -->
+            </div>
+        </div>
+
+        <!-- Visualization Panel -->
+        <div class="panel" style="flex: 1; display: flex; flex-direction: column; padding: 0;">
+
+            <!-- Plot Controls -->
+            <div
+                style="padding: 10px; border-bottom: 1px solid #333; background: #2d2d30; display: flex; gap: 20px; align-items: center;">
+                <div>
+                    <label style="font-weight: bold; color: #ccc; margin-right: 5px;">X Axis:</label>
+                    <select id="pca-x-select" class="dropdown" onchange="updatePcaPlot()"
+                        style="width: 150px; background: #3c3c3c; color: white;">
+                    </select>
+                </div>
+                <div>
+                    <label style="font-weight: bold; color: #ccc; margin-right: 5px;">Y Axis:</label>
+                    <select id="pca-y-select" class="dropdown" onchange="updatePcaPlot()"
+                        style="width: 150px; background: #3c3c3c; color: white;">
+                    </select>
+                </div>
+                <div>
+                    <label style="font-weight: bold; color: #ccc; margin-right: 5px;">Color By:</label>
+                    <select id="pca-color-select" class="dropdown" onchange="updatePcaPlot()"
+                        style="width: 150px; background: #3c3c3c; color: white;">
+                    </select>
+                </div>
+                <!-- Stats Toggle -->
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <input type="checkbox" id="pca-show-stats" onchange="updatePcaPlot()">
+                    <label for="pca-show-stats" style="color: #ccc; cursor: pointer;">Show Stats</label>
+                </div>
+                <!-- Ellipses Toggle -->
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <input type="checkbox" id="pca-show-ellipses" onchange="updatePcaPlot()">
+                    <label for="pca-show-ellipses" style="color: #ccc; cursor: pointer;">Show Ellipses</label>
+                </div>
+                <!-- 
+                <button class="btn-primary" onclick="updatePcaPlot()">Update Plot</button>
+                 -->
+            </div>
+
+            <!-- Plot Area -->
+            <div id="pca-plot" style="flex: 1; min-height: 0;"></div>
+
+        </div>
+
+    </div>
+</div>

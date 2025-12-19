@@ -196,8 +196,9 @@ def calc_entropy_and_dominance(
 
 
 def interpret_axes_with_categories(
-    counts_df,
-    feat,
+    cf = None,
+    counts_df = None,
+    feat = None,
     top=5
 ) -> dict:
     """
@@ -205,6 +206,13 @@ def interpret_axes_with_categories(
     feat: DataFrame with columns cat_PC1..k, index=matching group labels
     Returns dict {axis: [(category, corr), ...]}
     """
+
+
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+
 
     from numpy import nan as np_nan, inf as np_inf, corrcoef
     from collections import Counter
@@ -218,12 +226,51 @@ def interpret_axes_with_categories(
         corrs = corrs.replace([np_inf, -np_inf], np_nan).dropna()
         # top positive and negative
         top_pos = corrs.sort_values(ascending=False).head(top).items()
-        top_pos = " | ".join([f"{cat.replace("  and  "," & ")}({cor:.2f})" for cat,cor in top_pos])
+        top_pos = [(cat,cor) for cat,cor in top_pos if cor>0.2 and cat!=cf["misc"]["OTHER_THINGS"]]
+        #top_pos = " | ".join([f"{cat.replace("  and  "," & ")}({cor:.2f})" for cat,cor in top_pos])
+        top_pos = " | ".join([f"{cat.replace("  and  "," & ")}" for cat,cor in top_pos])
         top_neg = corrs.sort_values(ascending=True).head(top).items()
-        top_neg = " | ".join([f"{cat.replace("  and  "," & ")}({cor:.2f})" for cat,cor in top_neg])
+        top_neg = [(cat,cor) for cat,cor in top_neg if cor<-0.2 and cat!=cf["misc"]["OTHER_THINGS"]]
+        #top_neg = " | ".join([f"{cat.replace("  and  "," & ")}({cor:.2f})" for cat,cor in top_neg])
+        top_neg = " | ".join([f"{cat.replace("  and  "," & ")}" for cat,cor in top_neg])
         out[col] = {"top_positive": top_pos, "top_negative": top_neg}
     return out
 
+
+
+def interpret_pca_axes(
+    cf = None,
+    c = None,
+    scaled_pca_scores = None, 
+    events_df_recoded = None):
+
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+
+    group_factors = cf["var_scheme"][cf["var_scheme"].role=="group_factor"].variable_name.tolist()
+
+    # this looks awkward but it makes the selection realy clear
+    components_associated_w_this_feature = []
+    for kk in scaled_pca_scores.columns:
+        if c in kk:
+            if kk[-1].isnumeric():
+                components_associated_w_this_feature += [kk]
+
+    selected_pca_scores = scaled_pca_scores.set_index(group_factors)[components_associated_w_this_feature]
+
+    cool_counts = transform_category_column_to_counts_df(
+        events_df_recoded, 
+        the_column=c, 
+        the_selected_factors=group_factors)
+
+    xx = interpret_axes_with_categories(cf = cf, counts_df = cool_counts, feat = selected_pca_scores, top=3)
+    for yy in xx:
+        for zz in xx[yy]:
+            print(yy,zz,xx[yy][zz])
+    
+    return xx
 
 
 
@@ -381,10 +428,10 @@ def transform_categories_to_components_and_diversity(
 
     result_df = concat([pc_df,DataFrame(entropy_and_dominance),DataFrame(counts_df.T.idxmax(), columns=["top1"])],axis=1)
 
-    if verbose:
-        xx = interpret_axes_with_categories(counts_df, pc_df)
-        for yy in xx:
-            for zz in xx[yy]:
+    xx = interpret_axes_with_categories(counts_df = counts_df, feat = pc_df, top = 5)
+    for yy in xx:
+        for zz in xx[yy]:
+            if verbose:
                 print(yy,zz,xx[yy][zz])
 
 
@@ -397,7 +444,7 @@ def transform_categories_to_components_and_diversity(
         group_labels = counts_df.index  # placeholder if groups=rows
         # raise ValueError("Need a group label column or separate argument")
 
-    return result_df, pc_df
+    return result_df, pc_df, xx
 
 
 
@@ -408,14 +455,15 @@ def calculate_scaled_pca_scores(
     cf = None,
     study_name = None,
     some_events_df = None,
-    selected_factors = None,
     minimum_group_size = 10,
     target_explained_variance = 0.8,
     drop_rare_globally_below = 0.01,
     scale_it = True,
-    verbose = False
+    verbose = False,
+    save_it = True
 
 ):
+    from json import dump as json_dump
     from pandas import NamedAgg, MultiIndex, DataFrame, concat, read_pickle
     from os.path import join, getctime, exists
     from datetime import datetime
@@ -484,6 +532,8 @@ def calculate_scaled_pca_scores(
 
     events_pca_scores = []
     
+
+    comp_interpretations = {}
     for c in some_events_df[fyp_features].columns:
         if c in some_events_df.select_dtypes(object).columns:
             
@@ -491,7 +541,7 @@ def calculate_scaled_pca_scores(
 
             if verbose:
                 print(c,counts_df.shape, end=": ", flush=True)
-            wer, the_pc_df = transform_categories_to_components_and_diversity(
+            wer, the_pc_df, comp_interpretation = transform_categories_to_components_and_diversity(
                 counts_df,
                 metric="hellinger",#"jensen-shannon",
                 gamma=0.8,
@@ -511,8 +561,12 @@ def calculate_scaled_pca_scores(
             
         else:
             the_pc_df = None
+            comp_interpretation = {}
             wer = DataFrame(some_events_df[[c] + selected_factors].groupby(selected_factors).mean())
         
+        for cvb in comp_interpretation:
+            comp_interpretations[c+"_"+cvb] = comp_interpretation[cvb]
+
         events_pca_scores += [wer.copy()]
 
     events_pca_scores = concat(events_pca_scores, axis=1)
@@ -540,16 +594,26 @@ def calculate_scaled_pca_scores(
     if verbose:
         print(f"Rows: {len(events_pca_scores_scaled):,} -- Cols: {len(events_pca_scores_scaled.columns):,}")
 
+    for c in events_pca_scores_scaled.columns:
+        if not c in comp_interpretations.keys():
+            comp_interpretations[c] = {'top_positive':'high', 'top_negative':'low'}
 
-    pca_filename = f"{study_name}_PCA.pkl"
-    export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
-    events_pca_scores_scaled.to_pickle(join(cf['paths']['exports'],pca_filename))
-    print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")
+    if save_it:
+        pca_filename = f"{study_name}_PCA.pkl"
+        comp_inter_filename = f"{study_name}_COMP_INTERPRETATIONS.json"
+        export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
+
+        events_pca_scores_scaled.to_pickle(join(cf['paths']['exports'],pca_filename))
+        print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")
+        with open(join(cf['paths']['exports'],comp_inter_filename), 'w') as f:
+            json_dump(comp_interpretations, f, indent=4)
+
     print(f"Now: {datetime.now()}")
     #print("--"*60)
 
+            
 
 
-    return events_pca_scores_scaled
+    return events_pca_scores_scaled, comp_interpretations
 

@@ -27,20 +27,20 @@ T_local_date,factor,{},[],,drop,,,group_factor,20,25,,,25,Fine description of T_
 T_local_day_segment,factor,{},[],,drop,,,factor,21,26,,,26,Fine description of T_local_day_segment,two
 T_local_week,factor,{},[],,drop,,,factor,22,27,,,27,Fine description of T_local_week,two
 T_local_weekday,factor,{},[],,drop,,,factor,23,28,,,28,Fine description of T_local_weekday,two
-D_donation_id,factor,{},[],,drop,,,group_factor,,29,,,29,Fine description of D_donation_id,two
-B_source_tz_name,factor,{},[],,drop,,,factor,24,30,,,30,Fine description of B_source_tz_name,two
+D_donation_id,factor,{},[],,drop,,,group_factor,24,29,,,29,Fine description of D_donation_id,two
+B_source_tz_name,factor,{},[],,drop,,,factor,25,30,,,30,Fine description of B_source_tz_name,two
 G_background_music,collection,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,standard,,,,,31,Fine description of G_background_music,two
-G_notable_sounds,collection,{},"['speech', 'music']", | ,empty,empty,recode_stringified_list,feature,25,,,,32,Fine description of G_notable_sounds,two
-G_speech_vs_music,ratio,{},[],,median,median,recode_speech_vs_music,outcome,26,33,,0|0.05|0.1|0.9|1,33,Fine description of G_speech_vs_music,two
+G_notable_sounds,collection,{},"['speech', 'music']", | ,empty,empty,recode_stringified_list,feature,26,,,,32,Fine description of G_notable_sounds,two
+G_speech_vs_music,ratio,{},[],,median,median,recode_speech_vs_music,outcome,27,33,,0|0.05|0.1|0.9|1,33,Fine description of G_speech_vs_music,two
 G_text_overlays,string,GENERIC_MAPPER,[], | ,empty,empty,recode_stringified_list,standard,,,,,34,Fine description of G_text_overlays,two
-G_objects,collection,{},"['woman', 'man', 'person', 'people']", | ,empty,empty,recode_stringified_list,standard,27,35,,,35,Fine description of G_objects,two
-S_challenges,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,standard,28,,,,36,Fine description of S_challenges,two
-G_call_to_action_words,collection,{},[],,,,,standard,29,,,,37,Fine description of G_call_to_action_words,two
-G_political_score,ratio,{},[],,median,median,recode_scores,outcome,30,38,,10,38,Fine description of G_political_score,two
-G_sensitivity_score,ratio,{},[],,median,median,recode_scores,outcome,31,39,,10,39,Fine description of G_sensitivity_score,two
-G_faces_age_estimate,ratio,{},[],,median,median,recode_faces_age_estimate,outcome,32,40,,10,40,Fine description of G_faces_age_estimate,two
-G_main_ethnicity,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,feature,33,,,,41,Fine description of G_main_ethnicity,two
-G_main_gender,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,feature,34,,,,42,Fine description of G_main_gender,two
+G_objects,collection,{},"['woman', 'man', 'person', 'people']", | ,empty,empty,recode_stringified_list,standard,28,35,,,35,Fine description of G_objects,two
+S_challenges,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,standard,29,,,,36,Fine description of S_challenges,two
+G_call_to_action_words,collection,{},[],,,,,standard,30,,,,37,Fine description of G_call_to_action_words,two
+G_political_score,ratio,{},[],,median,median,recode_scores,outcome,31,38,,10,38,Fine description of G_political_score,two
+G_sensitivity_score,ratio,{},[],,median,median,recode_scores,outcome,32,39,,10,39,Fine description of G_sensitivity_score,two
+G_faces_age_estimate,ratio,{},[],,median,median,recode_faces_age_estimate,outcome,33,40,,10,40,Fine description of G_faces_age_estimate,two
+G_main_ethnicity,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,feature,34,,,,41,Fine description of G_main_ethnicity,two
+G_main_gender,categorical,GENERIC_MAPPER,[], | ,keep,keep,recode_stringified_list,feature,35,,,,42,Fine description of G_main_gender,two
 G_CRA_symbolism_and_imagery,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,,,43,Fine description of G_CRA_symbolism_and_imagery,three
 G_CRA_inclusion_and_exclusion,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,,,44,Fine description of G_CRA_inclusion_and_exclusion,three
 G_CRA_key_groups,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,,,45,Fine description of G_CRA_key_groups,three
@@ -55,7 +55,7 @@ G_FA_problem_definition,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_str
 G_FA_treatment_recommendation,string,GENERIC_MAPPER,[], | ,empty,empty,recode_long_strings,standard,,,,,54,Fine description of G_FA_treatment_recommendation,three
 G_scene_sentiments_energy,interval,{},[],,,,,outcome,,,,,,Fine description of G_scene_sentiments_energy,four
 G_scene_sentiments_valence,interval,{},[],,,,,outcome,,,,,,Fine description of G_scene_sentiments_valence,four
-T_local_timestamp,datetime,{},[],,drop,,recode_timestamp,standard,,,,,57,Fine description of T_local_timestamp,four
+T_local_timestamp,datetime,{},[],,drop,,recode_timestamp,standard,38,,,,57,Fine description of T_local_timestamp,four
 B_anchors,string,{},[],,keep,keep,recode_long_strings,standard,,,,,,Fine description of B_anchors,four
 B_challenges,collection,{},[], | ,empty,,recode_challenges,skip,,,,,,Fine description of B_challenges,four
 B_effectStickers,string,{},[],,keep,keep,recode_long_strings,skip,,,,,,Fine description of B_effectStickers,four

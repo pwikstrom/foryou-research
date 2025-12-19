@@ -344,12 +344,17 @@ def get_dataset_details(cf=None, study_name=None):
             df = pd.read_pickle(file_path)
             
             rows, cols = df.shape if hasattr(df, "shape") else (len(df), "N/A")
+            if "item_id" in df.columns:
+                nunique_items = df["item_id"].nunique()
+            else:
+                nunique_items = "N/A"
             
             details.append({
                 "filename": fn,
                 "rows": rows,
                 "cols": cols,
-                "size_kb": round(size_kb, 1)
+                "nunique_items": nunique_items,
+                "size_kb": round(size_kb, 0)
             })
             
             # Clean up memory
@@ -373,6 +378,10 @@ def get_dataset_details(cf=None, study_name=None):
 ###                     Utilities
 ############################################################################################################
 
+def chunk_list(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 
 def sort_by_similarity(reference: str, candidates: Iterable[str]) -> List[str]:

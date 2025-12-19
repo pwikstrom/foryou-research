@@ -573,7 +573,8 @@ def recode_events_df(
     cf = None,
     study_name = None,
     cool_events_in = None,
-    verbose = False):
+    verbose = False,
+    save_it = True):
 
     import pandas as pd
     from os.path import join, getctime, exists
@@ -761,11 +762,13 @@ def recode_events_df(
 
     cool_events = cool_events[sorted(cool_events.columns)]
 
-    recoded_filename = f"{study_name}_RECODED.pkl"
-    export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
-    cool_events.to_pickle(join(cf['paths']['exports'],recoded_filename))
-    print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,recoded_filename)}.")
+    if save_it:
+        recoded_filename = f"{study_name}_RECODED.pkl"
+        export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
+        cool_events.to_pickle(join(cf['paths']['exports'],recoded_filename))
+        print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,recoded_filename)}.")
+    
     print(f"Now: {datetime.now()}")
     #print("--"*60)
 

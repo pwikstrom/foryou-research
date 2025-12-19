@@ -308,7 +308,7 @@ async function updateExplorerStats() {
             return;
         }
 
-        countEl.innerText = `${data.count} items selected`;
+        countEl.innerText = `${data.count} items in slice`;
         renderStats(data.stats);
 
     } catch (e) {

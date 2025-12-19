@@ -613,12 +613,28 @@ def api_explorer_filter():
     filters = data.get("filters", {})
     search_query = data.get("search_query")
     
+    # Slice 1 Processing
     filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
     
     # Load Viz Config
     viz_config = get_viz_config()
     
     result = explorer.get_current_stats(filtered_df, col_types, viz_config=viz_config)
+    
+    # Slice 2 Processing (Optional)
+    if "filters2" in data:
+        filters2 = data.get("filters2", {})
+        search_query2 = data.get("search_query2")
+        
+        # If filters2 is empty and no search query, it equals the TOTAL dataset (unfiltered)
+        # But we must run it through filter_dataframe to be safe (e.g. if we add global filters later)
+        # Actually filter_dataframe handles empty filters by returning copy of df.
+        
+        filtered_df2 = explorer.filter_dataframe(df, col_types, filters2, search_query2)
+        res2 = explorer.get_current_stats(filtered_df2, col_types, viz_config=viz_config)
+        
+        result['stats2'] = res2['stats']
+        result['count2'] = res2['count']
     
     return jsonify(result)
 
@@ -644,13 +660,20 @@ def api_viewer_ids():
     
     # Sort if requested
     if sort_by and sort_by in filtered_df.columns:
-        # Determine sort direction based on type
-        # numbers -> descending (highest first)
-        # others -> ascending (A-Z)
-        dtype = col_types.get(sort_by)
-        ascending = True
-        if dtype == 'number':
-            ascending = False
+        # Determine sort direction
+        # 1. Explicit request
+        sort_order = data.get("sort_order") # 'asc' or 'desc'
+        
+        if sort_order:
+            ascending = (sort_order == 'asc')
+        else:
+            # 2. Fallback based on type
+            # numbers -> descending (highest first)
+            # others -> ascending (A-Z)
+            dtype = col_types.get(sort_by)
+            ascending = True
+            if dtype == 'number':
+                ascending = False
             
         filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending)
     
@@ -666,6 +689,176 @@ def api_viewer_ids():
     # Convert to string to ensure consistency
     ids = filtered_df[id_col].astype(str).tolist()
     return jsonify({"ids": ids, "count": len(ids)})
+
+
+# --- PCA Visualization Endpoints ---
+
+# Cache logic for PCA data? Reuse get_explorer_data for efficiency if possible?
+# But PCA data is a DIFFERENT file ({study}_PCA.pkl).
+# Let's add a separate cache or helper.
+
+pca_df_cache = {}
+
+def get_pca_df(study_name):
+    global pca_df_cache
+    if study_name in pca_df_cache:
+        # Check freshness? Simple version: just return.
+        return pca_df_cache[study_name]
+
+    # Load file
+    try:
+        from os.path import join, exists
+        import pandas as pd
+        
+        # Path logic reusing fyp.cf["paths"]["exports"]
+        # But we need access to 'fyp_cf'
+        exports_dir = fyp_cf["paths"]["exports"]
+        pca_path = join(exports_dir, f"{study_name}_PCA.pkl")
+        
+        if not exists(pca_path):
+            return None
+        
+        df = pd.read_pickle(pca_path)
+        pca_df_cache[study_name] = df
+        return df
+    except Exception as e:
+        print(f"Error loading PCA: {e}")
+        return None
+
+
+@app.route('/api/pca/metadata', methods=['POST'])
+def api_pca_metadata():
+    data = request.json or {}
+    study = data.get("study")
+    if not study: return jsonify({"error": "No study"}), 400
+
+    df = get_pca_df(study)
+    if df is None: return jsonify({"error": "PCA data not found"}), 404
+
+    # Identify metadata
+    # Numeric columns (for X/Y): float/int
+    # Factors (for Color/Filter): defined in var_scheme where role='factor'/'group_factor'
+    # BUT we need to check if they exist in the DF.
+    
+    # 1. Numeric
+    numeric_cols = df.select_dtypes(include=['float', 'int']).columns.tolist()
+    # Filter out boring ones? Keep all for flexibility.
+    
+    # 2. Factors from var_scheme
+    # We can use 'fyp_cf' global to access var_scheme
+    factors = []
+    if "var_scheme" in fyp_cf:
+        vs = fyp_cf["var_scheme"]
+        # role is 'factor' or 'group_factor'
+        target_roles = ['factor', 'group_factor']
+        potential_factors = vs[vs['role'].isin(target_roles)]['variable_name'].tolist()
+        
+        # Intersect with df columns
+        factors = [c for c in potential_factors if c in df.columns]
+    
+    # Fallback if var_scheme not loaded or matching
+    if not factors:
+        factors = df.select_dtypes(include=['object', 'category']).columns.tolist()
+
+    # Get unique values for factors (for filters)
+    factor_values = {}
+    for f in factors:
+        # Cap at certain number to avoid huge lists
+        vals = df[f].dropna().unique().tolist()
+        if len(vals) < 500: # Reasonable limit?
+            factor_values[f] = sorted([str(v) for v in vals])
+
+    # Load Interpretations
+    interpretations = {}
+    try:
+        from json import load as json_load
+        from os.path import join, exists
+        exports_dir = fyp_cf["paths"]["exports"]
+        inter_path = join(exports_dir, f"{study}_COMP_INTERPRETATIONS.json")
+        if exists(inter_path):
+            with open(inter_path, 'r') as f:
+                interpretations = json_load(f)
+    except Exception as e:
+        print(f"Error loading interpretations: {e}")
+
+    return jsonify({
+        "numeric_cols": sorted(numeric_cols),
+        "factor_cols": sorted(factors),
+        "factor_values": factor_values,
+        "interpretations": interpretations
+    })
+
+
+@app.route('/api/pca/data', methods=['POST'])
+def api_pca_data():
+    data = request.json or {}
+    study = data.get("study")
+    filters = data.get("filters", {})
+    x_col = data.get("x_col")
+    y_col = data.get("y_col")
+    color_col = data.get("color_col")
+
+    if not study or not x_col or not y_col: 
+        return jsonify({"error": "Missing params"}), 400
+
+    df = get_pca_df(study)
+    if df is None: return jsonify({"error": "PCA data not found"}), 404
+
+    # Filter
+    mask = pd.Series(True, index=df.index)
+    for col, vals in filters.items():
+        if col in df.columns:
+            # vals is list of allowed strings
+            mask &= df[col].astype(str).isin(vals)
+    
+    filtered_df = df[mask].copy()
+
+    # Prepare response
+    # Limit points? 
+    MAX_POINTS = 5000
+    if len(filtered_df) > MAX_POINTS:
+        filtered_df = filtered_df.sample(MAX_POINTS)
+
+    # Need to handle NaN in X/Y
+    filtered_df = filtered_df.dropna(subset=[x_col, y_col])
+    
+    # Construct output list
+    # x, y, color, text (metadata tooltip)
+    
+    # For tooltip, maybe include ID and Color val
+    # Assuming 'item_id' exists?
+    
+    result_data = []
+    
+    # Pre-fetch columns to numpy for speed?
+    # Or just itertuples
+    
+    # Ensure color column exists, else use default
+    has_color = color_col and color_col in filtered_df.columns
+    
+    for row in filtered_df.itertuples():
+        # Get vals safely
+        x_val = getattr(row, x_col)
+        y_val = getattr(row, y_col)
+        
+        c_val = "Default"
+        if has_color:
+            c_val = str(getattr(row, color_col))
+        
+        # Tooltip text
+        # Reuse 'item_id' if possible, else index?
+        # But 'itertuples' handles index as Index?
+        # Let's just put basic info
+        txt = f"{color_col}: {c_val}"
+        
+        result_data.append({
+            "x": x_val,
+            "y": y_val,
+            "color_val": c_val,
+            "text": txt
+        })
+
+    return jsonify({"data": result_data})
 
 
 

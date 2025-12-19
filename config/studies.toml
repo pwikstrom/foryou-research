@@ -36,6 +36,22 @@ N_SAMPLED_DATES_FROM_EACH_DONATION = 35 #TODO: not really dynamic and flexible..
 N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
 
 
+[aanzca2025]
+MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
+MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
+DDP_START_DATE = "2023-01-01" # only keep events after this date
+DDP_END_DATE = "2025-12-31" # only keep events before this date
+BASELINE_START_DATE = "2024-05-15" # only keep events after this date
+BASELINE_END_DATE = "2024-07-15" # only keep events before this date
+SPECIAL_DONATIONS = []
+INCLUDE_ZEESCHUIMER_DATA = true
+COL_MISSING_DATA_THRES = 0.5
+TIME_ZONE = "Australia/Brisbane"
+MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
+AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
+N_SAMPLED_DATES_FROM_EACH_DONATION = 30
+N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 35
+
 [everything]
 MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
 MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
