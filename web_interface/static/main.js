@@ -587,7 +587,14 @@ async function checkDatasets() {
         }
 
         let html = '<table style="width: 100%; text-align: left; border-collapse: collapse; margin-top: 10px;">';
-        html += '<tr style="border-bottom: 1px solid #555;"><th>Filename</th><th>Rows</th><th>Cols</th><th>Nunique Items</th><th>Size (KB)</th></tr>';
+        html += '<tr style="border-bottom: 1px solid #555;">';
+        html += '<th style="padding: 4px 15px 4px 4px;">Filename</th>';
+        html += '<th style="padding: 4px 15px 4px 4px;">Rows</th>';
+        html += '<th style="padding: 4px 15px 4px 4px;">Cols</th>';
+        html += '<th style="padding: 4px 15px 4px 4px;">Nunique Items</th>';
+        html += '<th style="padding: 4px 15px 4px 4px;">Group Size</th>';
+        html += '<th style="padding: 4px 15px 4px 4px;">Size (KB)</th>';
+        html += '</tr>';
 
         data.forEach(file => {
             // Handle errors per file
@@ -599,6 +606,7 @@ async function checkDatasets() {
                     <td style="padding: 4px 15px 4px 4px;">${file.rows.toLocaleString()}</td>
                     <td style="padding: 4px 15px 4px 4px;">${file.cols.toLocaleString()}</td>
                     <td style="padding: 4px 15px 4px 4px;">${file.nunique_items.toLocaleString()}</td>
+                    <td style="padding: 4px 15px 4px 4px;">${file.group_factor_counts.toLocaleString()}</td>
                     <td style="padding: 4px 15px 4px 4px;">${file.size_kb.toLocaleString()}</td>
                  </tr>`;
             }

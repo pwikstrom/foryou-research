@@ -323,7 +323,9 @@ def get_dataset_details(cf=None, study_name=None):
         
     if study_name is None:
         raise ValueError("study_name is required")
-        
+
+    group_factors = cf['var_scheme'][cf['var_scheme']['role']=='group_factor']['variable_name'].tolist()
+
     details = []
     export_path = cf["paths"]["exports"]
     
@@ -348,12 +350,24 @@ def get_dataset_details(cf=None, study_name=None):
                 nunique_items = df["item_id"].nunique()
             else:
                 nunique_items = "N/A"
+
+            all_group_factors_in_df = all([gf in df.columns for gf in group_factors])
+            if all_group_factors_in_df:
+                group_factor_counts = len(df.groupby(group_factors).size())
+            else:
+                all_group_factors_in_df = all([gf[2:] in df.columns for gf in group_factors])
+                if all_group_factors_in_df:
+                    group_factor_counts = len(df.groupby([gf[2:] for gf in group_factors]).size())
+                else:
+                    group_factor_counts = "N/A"
+
             
             details.append({
                 "filename": fn,
                 "rows": rows,
                 "cols": cols,
                 "nunique_items": nunique_items,
+                "group_factor_counts": group_factor_counts,
                 "size_kb": round(size_kb, 0)
             })
             

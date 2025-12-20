@@ -500,7 +500,7 @@ def calculate_scaled_pca_scores(
     fyp_factors, fyp_features = get_factors_and_features_from_var_scheme(cf = cf, some_events_df = some_events_df, verbose=verbose)
     
     if verbose:
-        print(f"Step 1: Dropping {"-".join(selected_factors)}-groups that are smaller than {minimum_group_size} rows")
+        print(f"Dropping {"-".join(selected_factors)}-groups that are smaller than {minimum_group_size} rows")
 
     group_sizes = some_events_df[selected_factors].groupby(selected_factors).agg(group_size = NamedAgg(column=selected_factors[0], aggfunc="count"))
 
@@ -528,19 +528,19 @@ def calculate_scaled_pca_scores(
 
 
     if verbose:
-        print("Step 2: consolidating events into groups and performing PCA transformation on categorical variables")
+        print("Consolidating events into groups and performing PCA transformation on categorical variables")
 
     events_pca_scores = []
     
 
     comp_interpretations = {}
-    for c in some_events_df[fyp_features].columns:
+    for i,c in enumerate(some_events_df[fyp_features].columns):
         if c in some_events_df.select_dtypes(object).columns:
             
             counts_df = transform_category_column_to_counts_df(some_events_df, the_column=c, the_selected_factors=selected_factors)
 
             if verbose:
-                print(c,counts_df.shape, end=": ", flush=True)
+                print(f"({i+1}/{len(some_events_df[fyp_features].columns)}): {c}, {counts_df.shape}", end=": ", flush=True)
             wer, the_pc_df, comp_interpretation = transform_categories_to_components_and_diversity(
                 counts_df,
                 metric="hellinger",#"jensen-shannon",
@@ -579,7 +579,7 @@ def calculate_scaled_pca_scores(
         return events_pca_scores
 
     if verbose:
-        print(f"Step 3: Scaling pca scores and concatenating factors into the scaled table")
+        print(f"Scaling pca scores and concatenating factors into the scaled table")
     events_pca_scores_scaled = DataFrame(
         StandardScaler().fit_transform(events_pca_scores), 
         index=events_pca_scores.index, 

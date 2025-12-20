@@ -758,25 +758,38 @@ def flatten_one_machine_response(
 
     # #######################
     # faces
-    if type(flat_response['faces']) != str:
-        if type(flat_response['faces']) != list:
-            flat_response['faces'] = [flat_response['faces']]
-        for face in flat_response['faces']:
-            for k in face:
-                if not "faces_"+k in flat_response.keys():
-                    flat_response["faces_"+k] = ""
-                try:
-                    flat_response["faces_"+k] += str(face[k]) + " | "
-                except:
-                    return None
-    del flat_response['faces']
+    if 'faces' in flat_response.keys():
+        if isinstance(flat_response['faces'], str):
+            flat_response['faces'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['faces'])
+            try:
+                flat_response['faces'] = loads(flat_response['faces'])
+            except Exception as e:
+                print(flat_response['faces'])
+                return None
 
-    for k in flat_response:
-        if (k.startswith("faces_")) and (flat_response[k].endswith(" | ")):
-            flat_response[k] = flat_response[k][:-3]    
+        if isinstance(flat_response['faces'], list):
+            for face in flat_response['faces']:
+                if isinstance(face, dict):
+                    for k in face:
+                        if not "faces_"+k in flat_response.keys():
+                            flat_response["faces_"+k] = ""                    
+                        try:
+                            flat_response["faces_"+k] += str(face[k]) + " | "
+                        except Exception as e:
+                            return None
+                else:
+                    return None
+        else:
+            return None
+        del flat_response['faces']
+
+        for k in flat_response:
+            if (k.startswith("faces_")) and (flat_response[k].endswith(" | ")):
+                flat_response[k] = flat_response[k][:-3]    
+
 
     # #######################
-    # get rid of pesky lists - just pick the first element. This is a bit of a hack, but it works.
+    # get rid of pesky lists that are still lingering - just pick the first element. This is a bit of a hack, but it works.
     for k in flat_response:
         if isinstance(flat_response[k],list):
             print(flat_response[k])
