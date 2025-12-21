@@ -7,6 +7,7 @@ for fn in listdir():
 
 
 from .fyp_main import *
+from .data_io import *
 from .machine_annotation import *
 from .download_videos import *
 from .get_baseline_log import *

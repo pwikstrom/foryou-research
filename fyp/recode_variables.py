@@ -581,22 +581,25 @@ def recode_events_df(
     from datetime import datetime
     from copy import copy
     from fyp.fyp_main import init_config
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
     
     if study_name is None:
         raise ValueError("study_name must be specified")
+    
+    file_format = cf['misc']['file_format']
 
     print(f"Recoding variables, implementing missing data policy and a whole range of other things: Study:{study_name}")
 
 
     if cool_events_in is None:
-        log_path = join(cf['paths']['exports'],f"{study_name}_LOG.pkl")
+        log_path = join(cf['paths']['exports'],f"{study_name}_LOG{file_format}")
         if exists(log_path):
             nice_time = datetime.fromtimestamp(getctime(log_path)).strftime('%Y-%m-%d %H:%M:%S')
             print(f"Loading events file in export folder, created at: {nice_time}", end=" ", flush=True)
-            cool_events_in = pd.read_pickle(log_path)
+            cool_events_in = data_io.load_dataset(log_path)
             print(f"Shape: {cool_events_in.shape}")
         else:
             print("This process required a LOG file to be generated first. Log file not found at: ", log_path)
@@ -617,14 +620,16 @@ def recode_events_df(
 
     variables_not_found_in_var_scheme = list(set(cool_events.columns) - set(var_scheme.index))
     if verbose:
-        print(f"Dropping {len(variables_not_found_in_var_scheme)} columns not found in the variable scheme:\n - {"\n - ".join(variables_not_found_in_var_scheme)}")
+        join_str = "\n - "
+        print(f"Dropping {len(variables_not_found_in_var_scheme)} columns not found in the variable scheme:\n - {join_str.join(variables_not_found_in_var_scheme)}")
     cool_events = cool_events.drop(columns=variables_not_found_in_var_scheme).copy()
     if verbose:
         print(cool_events.shape)
 
     single_value_columns = [c for c in cool_events.columns if cool_events[c].nunique()==1 and c not in FYP_FACTORS]
     if verbose:
-        print(f"Dropping {len(single_value_columns)} single value columns:\n - {"\n - ".join(single_value_columns)}")
+        join_str = "\n - "
+        print(f"Dropping {len(single_value_columns)} single value columns:\n - {join_str.join(single_value_columns)}")
     cool_events = cool_events.drop(columns=single_value_columns).copy()
     if verbose:
         print(cool_events.shape)
@@ -764,9 +769,9 @@ def recode_events_df(
 
 
     if save_it:
-        recoded_filename = f"{study_name}_RECODED.pkl"
+        recoded_filename = f"{study_name}_RECODED{file_format}"
         export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
-        cool_events.to_pickle(join(cf['paths']['exports'],recoded_filename))
+        data_io.save_dataset(cool_events, join(cf['paths']['exports'],recoded_filename))
         print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,recoded_filename)}.")
     
     print(f"Now: {datetime.now()}")

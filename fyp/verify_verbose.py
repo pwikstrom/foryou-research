@@ -80,7 +80,7 @@ functions_to_check = [
     "process_and_combine_logs_for_log_export",
     "process_enrichment_data_and_merge_with_logs",
     "filter_log_against_sampled_donation_groups",
-    "save_logs_as_pkl",
+    "save_logs",
     "save_logs_as_csv"
 ]
 

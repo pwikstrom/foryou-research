@@ -1,17 +1,17 @@
 import pandas as pd
 import ast
 import numpy as np
+import fyp.data_io as data_io
+from fyp.fyp_main import init_project
+fyp_cf = init_project(verbose=False)
+
 
 def load_data(file_path):
-    """
-    Loads the dataset (CSV or PKL) and detects column types.
-    Parses stringified lists if CSV, or identifies lists if PKL.
-    """
     try:
-        if file_path.endswith('.pkl'):
-            df = pd.read_pickle(file_path)
+        if file_path.endswith(fyp_cf['misc']['file_format']):
+            df = data_io.load_dataset(file_path)
         else:
-            raise ValueError("Unsupported file format. Only .pkl is supported.")
+            raise ValueError(f"Unsupported file format. Only {fyp_cf['misc']['file_format']} is supported.")
     except Exception as e:
         print(f"Error loading data {file_path}: {e}")
         return None, {}

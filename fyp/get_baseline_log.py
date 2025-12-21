@@ -39,6 +39,7 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
     from datetime import datetime
     from copy import copy
     from fyp.fyp_main import init_config, extract_and_join_subkeys, clean_url
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
@@ -183,6 +184,7 @@ def move_and_refine_recent_file(
     if the_recent_file is None:
         raise ValueError("the_recent_file must be a dictionary with a 'filename' key")
 
+    file_format = cf['misc']['file_format']
 
     # the filename of the latest zeeschuimer ndjson file in the firefox downloads folder
     latest_zee_ndjson_in_firefox_downloads = the_recent_file["filename"]
@@ -199,21 +201,21 @@ def move_and_refine_recent_file(
     raw_zee_log = read_ndjson_file(cf = cf, file_path = new_zee_ndjson_path)
     refined_zee_log = refine_zeeschuimer_log(cf = cf, item_list_or_ndjson_path = raw_zee_log)
 
-    # create a filename for the zeeschuimer pickle file by just replacing the suffix
-    zee_pickle_fn = better_zee_ndjson_fn.replace(".ndjson",".pkl")
+    # create a filename for the zeeschuimer processed file by just replacing the suffix
+    zee_processed_fn = better_zee_ndjson_fn.replace(".ndjson",file_format)
 
-    # make sure the filename for the pickle file is unique
+    # make sure the filename for the processed file is unique
     r = 0
-    while exists(join(cf["paths"]["zeeschuimer_refined"], zee_pickle_fn)):
+    while exists(join(cf["paths"]["zeeschuimer_refined"], zee_processed_fn)):
         r += 1
         if r ==  1:
-            zee_pickle_fn = zee_pickle_fn.replace(".pkl", f"_{r:04}.pkl")
+            zee_processed_fn = zee_processed_fn.replace(file_format, f"_{r:04}{file_format}")
         else:
-            zee_pickle_fn = zee_pickle_fn.replace(f"_{r-1:04}.pkl", f"_{r:04}.pkl")
+            zee_processed_fn = zee_processed_fn.replace(f"_{r-1:04}{file_format}", f"_{r:04}{file_format}")
 
-    # save the refined zeeschuimer log as a pickle file
-    print(f"Saving the log file as a DataFrame: '{zee_pickle_fn}'.")
-    refined_zee_log.to_pickle(join(cf["paths"]["zeeschuimer_refined"], zee_pickle_fn))
+    # save the refined zeeschuimer log as a processed file
+    print(f"Saving the log file as a DataFrame: '{zee_processed_fn}'.")
+    data_io.save_dataset(refined_zee_log, join(cf["paths"]["zeeschuimer_refined"], zee_processed_fn))
     
     # print some info about what is in refined_zee_log
     print(get_baseline_info_as_string(refined_zee_log))

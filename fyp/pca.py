@@ -228,11 +228,11 @@ def interpret_axes_with_categories(
         top_pos = corrs.sort_values(ascending=False).head(top).items()
         top_pos = [(cat,cor) for cat,cor in top_pos if cor>0.2 and cat!=cf["misc"]["OTHER_THINGS"]]
         #top_pos = " | ".join([f"{cat.replace("  and  "," & ")}({cor:.2f})" for cat,cor in top_pos])
-        top_pos = " | ".join([f"{cat.replace("  and  "," & ")}" for cat,cor in top_pos])
+        top_pos = "More likely: " + " | ".join([f"{cat.replace("  and  "," & ")}" for cat,cor in top_pos])
         top_neg = corrs.sort_values(ascending=True).head(top).items()
         top_neg = [(cat,cor) for cat,cor in top_neg if cor<-0.2 and cat!=cf["misc"]["OTHER_THINGS"]]
         #top_neg = " | ".join([f"{cat.replace("  and  "," & ")}({cor:.2f})" for cat,cor in top_neg])
-        top_neg = " | ".join([f"{cat.replace("  and  "," & ")}" for cat,cor in top_neg])
+        top_neg = "More likely: " + " | ".join([f"{cat.replace("  and  "," & ")}" for cat,cor in top_neg])
         out[col] = {"top_positive": top_pos, "top_negative": top_neg}
     return out
 
@@ -464,12 +464,13 @@ def calculate_scaled_pca_scores(
 
 ):
     from json import dump as json_dump
-    from pandas import NamedAgg, MultiIndex, DataFrame, concat, read_pickle
+    from pandas import NamedAgg, MultiIndex, DataFrame, concat
     from os.path import join, getctime, exists
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.recode_variables import get_factors_and_features_from_var_scheme
     from fyp.fyp_main import init_config
+    import fyp.data_io as data_io
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -479,18 +480,20 @@ def calculate_scaled_pca_scores(
 
     selected_factors = cf["var_scheme"][cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
 
+    file_format = cf['misc']['file_format']
 
 
-    print(f"Performing Principal Component Analysis based on {" | ".join(selected_factors)}. Study: '{study_name}'")
+
+    print(f"Performing Principal Component Analysis based on {' | '.join(selected_factors)}. Study: '{study_name}'")
     print(f"Now: {datetime.now()}")
 
 
     if some_events_df is None:
-        recoded_path = join(cf['paths']['exports'],f"{study_name}_RECODED.pkl")
+        recoded_path = join(cf['paths']['exports'],f"{study_name}_RECODED{file_format}")
         if exists(recoded_path):
             nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
             print(f"Loading recoded events file in export folder, created at: {nice_time}", end=" ", flush=True)
-            some_events_df = read_pickle(recoded_path)
+            some_events_df = data_io.load_dataset(recoded_path)
             print(f"  |  Shape: {some_events_df.shape}")
         else:
             print(f"ERROR: This process cannot be run until there is a RECODED dataset has been created.")
@@ -600,11 +603,11 @@ def calculate_scaled_pca_scores(
 
 
     if save_it:
-        pca_filename = f"{study_name}_PCA.pkl"
+        pca_filename = f"{study_name}_PCA{file_format}"
         comp_inter_filename = f"{study_name}_COMP_INTERPRETATIONS.json"
         export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
-        events_pca_scores_scaled.to_pickle(join(cf['paths']['exports'],pca_filename))
+        data_io.save_dataset(events_pca_scores_scaled, join(cf['paths']['exports'],pca_filename))
         print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")
         with open(join(cf['paths']['exports'],comp_inter_filename), 'w') as f:
             json_dump(comp_interpretations, f, indent=4)

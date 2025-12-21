@@ -27,6 +27,7 @@ app = Flask(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
 import fyp
+import fyp.data_io as data_io
 # Initialize configuration to access paths
 fyp_cf = fyp.init_project(verbose=False)
 
@@ -81,11 +82,11 @@ def get_explorer_data(study):
 
     # Resolve path
     exports_dir = Path(fyp_cf["paths"]["exports"])
-    pkl_path = exports_dir / f"{study}_RECODED.pkl"
-    
-    if pkl_path.exists():
-        #print(f"Loading Explorer Study '{study}' from {pkl_path}...")
-        explorer_df, explorer_col_types = explorer.load_data(str(pkl_path))
+    dataset_path = exports_dir / f"{study}_RECODED{fyp_cf['misc']['file_format']}"
+    print(dataset_path)
+    if dataset_path.exists():
+        #print(f"Loading Explorer Study '{study}' from {dataset_path}...")
+        explorer_df, explorer_col_types = explorer.load_data(str(dataset_path))
         #print(f"Explorer Study '{study}' loaded. Computing total stats...")
         res = explorer.get_current_stats(explorer_df, explorer_col_types)
         explorer_total_stats = res['stats']
@@ -93,7 +94,7 @@ def get_explorer_data(study):
         #print("Total stats computed.")
         return explorer_df, explorer_col_types
     else:
-        print(f"Explorer Study pickle not found at {pkl_path}")
+        print(f"Explorer Study dataset not found at {dataset_path}")
         return None, None
 
 
@@ -420,9 +421,9 @@ def api_explorer_studies():
         return jsonify([])
     
     studies = []
-    for f in exports_dir.glob("*_RECODED.pkl"):
-        # Extract study name: filename is {study_name}_RECODED.pkl
-        study_name = f.name.replace("_RECODED.pkl", "")
+    for f in exports_dir.glob(f"*_RECODED{fyp_cf['misc']['file_format']}"):
+        # Extract study name: filename is {study_name}_RECODED...
+        study_name = f.name.replace(f"_RECODED{fyp_cf['misc']['file_format']}", "")
         studies.append(study_name)
     
     return jsonify(sorted(studies))
@@ -460,10 +461,10 @@ def api_explorer_metadata():
     # Inject Source File Info
     try:
         exports_dir = Path(fyp_cf["paths"]["exports"])
-        pkl_path = exports_dir / f"{study}_RECODED.pkl"
-        if pkl_path.exists():
-            metadata['source_file'] = pkl_path.name
-            mtime = datetime.fromtimestamp(pkl_path.stat().st_mtime)
+        dataset_path = exports_dir / f"{study}_RECODED{fyp_cf['misc']['file_format']}"
+        if dataset_path.exists():
+            metadata['source_file'] = dataset_path.name
+            mtime = datetime.fromtimestamp(dataset_path.stat().st_mtime)
             metadata['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
         else:
              metadata['source_file'] = "Unknown"
@@ -694,7 +695,7 @@ def api_viewer_ids():
 # --- PCA Visualization Endpoints ---
 
 # Cache logic for PCA data? Reuse get_explorer_data for efficiency if possible?
-# But PCA data is a DIFFERENT file ({study}_PCA.pkl).
+# But PCA data is a DIFFERENT file ({study}_PCA..).
 # Let's add a separate cache or helper.
 
 pca_df_cache = {}
@@ -713,12 +714,12 @@ def get_pca_df(study_name):
         # Path logic reusing fyp.cf["paths"]["exports"]
         # But we need access to 'fyp_cf'
         exports_dir = fyp_cf["paths"]["exports"]
-        pca_path = join(exports_dir, f"{study_name}_PCA.pkl")
+        pca_path = join(exports_dir, f"{study_name}_PCA{fyp_cf['misc']['file_format']}")
         
         if not exists(pca_path):
             return None
         
-        df = pd.read_pickle(pca_path)
+        df = data_io.load_dataset(pca_path)
         pca_df_cache[study_name] = df
         return df
     except Exception as e:
@@ -1097,7 +1098,7 @@ def api_upload_ndjson():
 @app.route('/api/study_files/<study_name>', methods=['GET'])
 def api_get_study_files(study_name):
     try:
-        files_info = fyp.get_study_export_files(fyp_cf, study_name)
+        files_info = data_io.get_study_export_files(fyp_cf, study_name)
         return jsonify(files_info)
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400
@@ -1109,7 +1110,7 @@ def api_get_study_files(study_name):
 @app.route('/api/check_datasets/<study_name>', methods=['GET'])
 def api_check_datasets(study_name):
     try:
-        details = fyp.get_dataset_details(fyp_cf, study_name)
+        details = data_io.get_dataset_details(fyp_cf, study_name)
         return jsonify(details)
     except Exception as e:
         print(f"Error checking datasets: {e}")

@@ -426,11 +426,12 @@ def download_video_threads(
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from pandas import concat, DataFrame
     from datetime import datetime
-    from os import rename
+    #from os import rename
     from os.path import join
     import json
     import time
     from fyp.fyp_main import init_config, connect_to_google
+    import fyp.data_io as data_io
 
 
     if cf is None:
@@ -497,11 +498,9 @@ def download_video_threads(
     
     if len(results)>0:
         
-        final_path = join(cf['paths']['scrape'], f"scrape_metadata_{fine_ts}.pkl")
-        temp_path = final_path + ".tmp"
-        results.to_pickle(temp_path)
-        rename(temp_path, final_path)
-        print(f"Saved {len(results):,} rows to 'scrape_metadata_{fine_ts}.pkl'")
+        final_path = join(cf['paths']['scrape'], f"scrape_metadata_{fine_ts}{cf['misc']['file_format']}")
+        data_io.save_dataset(results, final_path)
+        print(f"Saved {len(results):,} rows to 'scrape_metadata_{fine_ts}{cf['misc']['file_format']}')")
         print(f"and saved media objects to the bucket for {len(results[results['video_downloaded']]):,} of these.")
 
     if len(failed_items)>0:

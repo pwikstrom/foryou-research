@@ -40,22 +40,24 @@ def load_machine_annotations(
     if notebook_mode:
         verbose = True
 
-    from pandas import DataFrame, concat, read_pickle
+    from pandas import DataFrame, concat
     from os import listdir, rename
     from os.path import join, basename
     from shutil import move
     from datetime import datetime
 
     from fyp.fyp_main import init_config, connect_to_google
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
 
 
+    file_format = cf['misc']['file_format']
 
-    machine_file_names = [join(cf['paths']['machine_annotations'], fn) for fn in listdir(cf['paths']['machine_annotations']) if fn.endswith(".pkl") and fn.startswith("machine_annotations")]
+    machine_file_names = [join(cf['paths']['machine_annotations'], fn) for fn in listdir(cf['paths']['machine_annotations']) if fn.endswith(file_format) and fn.startswith("machine_annotations")]
 
-    all_results = concat([read_pickle(fn) for fn in machine_file_names])
+    all_results = concat([data_io.load_dataset(fn) for fn in machine_file_names])
 
     all_results.reset_index(drop=True, inplace=True)
     all_results['error'] = all_results['error'].map(lambda x:"-" if x=={} else x)
@@ -84,10 +86,10 @@ def load_machine_annotations(
         latest_filename = sorted(machine_file_names)[-1]
         #fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
-            print(f"The machine annotation pkl files will be consolidated into a single file: '{basename(latest_filename)}'")
+            print(f"The machine annotation {file_format} files will be consolidated into a single file: '{basename(latest_filename)}'")
             print(f"The raw json files will remain untouched")
 
-        all_results.to_pickle(latest_filename+".temp")
+        data_io.save_dataset(all_results, latest_filename+".temp")
 
         for fn in machine_file_names:
             move(fn,join(cf['paths']['machine_annotations'], 'archive',basename(fn)))
@@ -409,7 +411,7 @@ def _start_monitor(futures, submit_times, interval=5, label="monitor", bar_width
 def call_machine_threads(
         cf = None,  
         interesting_videos = None,
-        max_workers=32,
+        max_workers=50,
         verbose=False,
         notebook_mode = False):
 
@@ -1209,6 +1211,7 @@ def post_process_raw_annotations(
     from datetime import datetime
     from os.path import join
     from fyp.fyp_main import init_config, connect_to_google, temp_path
+    import fyp.data_io as data_io
 
     if raw_outputs_from_machine is None:
         raise ValueError("raw_outputs_from_machine cannot be None")
@@ -1217,6 +1220,8 @@ def post_process_raw_annotations(
         cf = init_config()
     if cf["machine"]["client"] is None:
         cf = connect_to_google(cf)
+    
+    file_format = cf['misc']['file_format']
 
     print("Starting post-processing of raw annotations...")
     if verbose:
@@ -1244,9 +1249,9 @@ def post_process_raw_annotations(
         print("Ready to save processed results")
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     file_prefix = "machine_annotations"
-    outputs_from_machine_df.to_pickle(join(cf["paths"]["machine_annotations"],f"{file_prefix}_{fine_ts}.pkl"))
+    data_io.save_dataset(outputs_from_machine_df, join(cf["paths"]["machine_annotations"],f"{file_prefix}_{fine_ts}{file_format}"))
     if verbose:
-        print(f"Saved processed results to '{file_prefix}_{fine_ts}.pkl'")
+        print(f"Saved processed results to '{file_prefix}_{fine_ts}{file_format}'")
     
     return outputs_from_machine_df
     
@@ -1258,7 +1263,7 @@ def post_process_raw_annotations(
 def annotate_from_list(
     cf = None,
     fine_list = None,
-    max_workers = 32,
+    max_workers = 50,
     verbose = False,
     notebook_mode = False):
 
@@ -1322,8 +1327,8 @@ def annotate_from_scrape_metadata_file(
     This is a wrapper that is reading a scrape metadata file and extracts a list of video IDs
     to process. It then calls annotate_from_list.
     """
-    from pandas import read_pickle
     from os.path import exists
+    import fyp.data_io as data_io
 
     from fyp.fyp_main import init_config, connect_to_google
 
@@ -1338,7 +1343,7 @@ def annotate_from_scrape_metadata_file(
             print(f"File {scrape_metadata_filename} does not exist. Cannot process this file.")
         return None
 
-    df = read_pickle(scrape_metadata_filename)
+    df = data_io.load_dataset(scrape_metadata_filename)
 
     # we're only annotating the videos that are downloaded and shorter than a certain max duration
     work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"]<cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()
@@ -1423,17 +1428,17 @@ def annotate_videos_loop(
         return None
 
     print(f"Annotating downloaded videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
-    print(f"Now: {datetime.now()}")
-    if notebook_mode:
-        print("--"*60)
 
 
 
     selected_videos = [0] # just a list that contains anything and that is longer than zero elements to get things started
     batch_number = 1
 
+    print()
     print("Starting loop...")
     while len(selected_videos)>0:
+        print(f"Now: {datetime.now()}")
+        print("--"*60)
         selected_videos = select_videos_from_half_baked(
             cf = cf,
             study_name = study_name,

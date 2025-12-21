@@ -40,6 +40,7 @@ def extract_local_time_features(
     from pandas import concat, to_datetime, Categorical, notna as pd_notna, NaT as pd_NaT
     from numpy import select as np_select
     from fyp.fyp_main import init_config
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
@@ -222,7 +223,8 @@ def load_scrape_metadata(
     import shutil
     from os import listdir, rename
     from os.path import join, basename
-    from pandas import concat, read_pickle
+    from pandas import concat
+    import fyp.data_io as data_io
     from datetime import datetime
     from fyp.fyp_main import init_config
 
@@ -234,7 +236,7 @@ def load_scrape_metadata(
 
     scrape_metadata_filenames = [join(cf["paths"]["scrape"],gg) for gg in listdir(cf["paths"]["scrape"]) if gg.startswith("scrape_metadata") and not "_TEST_" in gg]
 
-    scrape_metadata = concat([read_pickle(fn) for fn in scrape_metadata_filenames])
+    scrape_metadata = concat([data_io.load_dataset(fn) for fn in scrape_metadata_filenames])
     if verbose:
         print(f"Shape: {scrape_metadata.shape}")
 
@@ -307,7 +309,7 @@ def load_scrape_metadata(
         if verbose:
             print(f"The scrape_metadata files will be consolidated into a single file: {basename(latest_filename)}.")
 
-        scrape_metadata.to_pickle(latest_filename+".temp")
+        data_io.save_dataset(scrape_metadata, latest_filename+".temp")
 
         for fn in scrape_metadata_filenames:
             shutil.move(fn,join(cf['paths']['scrape'],'archive',basename(fn)))
@@ -395,23 +397,26 @@ def load_zeeschuimer_data(
     verbose=False):
     # load items from baseline logs
 
-    from pandas import concat, read_pickle
+    from pandas import concat
     from os.path import exists, join, getctime
     from os import remove, listdir
     from datetime import datetime
     from json import load as json_load
     from zoneinfo import ZoneInfo
     from fyp.fyp_main import init_config
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
     
     if study_name is None:
         raise ValueError("study_name must be specified")
+    
+    file_format = cf['misc']['file_format']
 
     USE_HALF_BAKED_FILES = use_half_baked
 
-    half_baked_baseline_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_BASELINE.pkl")
+    half_baked_baseline_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_BASELINE{file_format}")
 
     if not USE_HALF_BAKED_FILES and exists(half_baked_baseline_path):
         remove(half_baked_baseline_path)
@@ -422,7 +427,7 @@ def load_zeeschuimer_data(
     if USE_HALF_BAKED_FILES and exists(half_baked_baseline_path):
         nice_time = datetime.fromtimestamp(getctime(half_baked_baseline_path)).strftime('%Y-%m-%d %H:%M:%S')
         print(f"Loading half-baked baseline events file created at: {nice_time}", end=" ", flush=True)
-        baseline_log = read_pickle(half_baked_baseline_path)
+        baseline_log = data_io.load_dataset(half_baked_baseline_path)
         print(f"Shape: {baseline_log.shape}")
     else:
 
@@ -435,8 +440,8 @@ def load_zeeschuimer_data(
         list_of_zeeschuimer_logs = []
         okay_test_cases = []
         for fn in listdir(cf["paths"]["zeeschuimer_refined"]):
-            if fn.endswith(".pkl"):
-                zeeschuimer_candidate = read_pickle(join(cf["paths"]["zeeschuimer_refined"],fn))
+            if fn.endswith(file_format):
+                zeeschuimer_candidate = data_io.load_dataset(join(cf["paths"]["zeeschuimer_refined"],fn))
                 test_cols = zeeschuimer_candidate[["item_id","timestamp_collected"]].reset_index(drop=True).sort_values("timestamp_collected").copy()
                 duplicate_found = False
                 for zl in okay_test_cases:
@@ -491,8 +496,8 @@ def load_zeeschuimer_data(
 
         if USE_HALF_BAKED_FILES:
             if verbose:
-                print("Saving half-baked baseline events to pickle...")    
-            baseline_log.to_pickle(half_baked_baseline_path)
+                print("Saving half-baked baseline events...")    
+            data_io.save_dataset(baseline_log, half_baked_baseline_path)
 
     #print(f"Baseline data contains {baseline_log.shape[0]:,} rows")
     #print("--"*60)
@@ -639,7 +644,8 @@ def load_ddp_events(
     from os import listdir, remove
     from os.path import join, exists, getctime
     from json import load as json_load
-    from pandas import concat, read_pickle
+    from pandas import concat
+    import fyp.data_io as data_io
     from datetime import datetime
     from fyp.fyp_main import init_config
 
@@ -647,12 +653,14 @@ def load_ddp_events(
         cf = init_config()
     if study_name is None:
         raise ValueError("study_name must be specified")
+    
+    file_format = cf['misc']['file_format']
 
     USE_HALF_BAKED_FILES = use_half_baked
     
 
-    half_baked_ddp_events_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_ALL_DDP.pkl")
-    half_baked_sampled_ddp_events_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_SAMPLED_DDP.pkl")
+    half_baked_ddp_events_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_ALL_DDP{file_format}")
+    half_baked_sampled_ddp_events_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_SAMPLED_DDP{file_format}")
 
 
     if not USE_HALF_BAKED_FILES and exists(half_baked_ddp_events_path):
@@ -665,7 +673,7 @@ def load_ddp_events(
     if USE_HALF_BAKED_FILES and exists(half_baked_ddp_events_path):
         nice_time = datetime.fromtimestamp(getctime(half_baked_ddp_events_path)).strftime('%Y-%m-%d %H:%M:%S')
         print(f"Loading half-baked DDP events file created at: {nice_time}", end=" ", flush=True)
-        all_ddp_events_df = read_pickle(half_baked_ddp_events_path)
+        all_ddp_events_df = data_io.load_dataset(half_baked_ddp_events_path)
         print(f"Shape: {all_ddp_events_df.shape}")
     else:
 
@@ -673,7 +681,7 @@ def load_ddp_events(
         DDP_END_DATE = cf["study_defs"][study_name]["DDP_END_DATE"]
 
         print("Loading all DDP events...", end=" ", flush=True)
-        all_ddp_events_df = read_pickle(join(cf["paths"]["ddp_main"], "all_participant_events.pkl"))
+        all_ddp_events_df = data_io.load_dataset(join(cf["paths"]["ddp_main"], "all_participant_events"+file_format))
 
         # drop two columns
         all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
@@ -708,14 +716,14 @@ def load_ddp_events(
 
         if USE_HALF_BAKED_FILES:
             if verbose:
-                print("Saving half-baked DDP events to pickle...")    
-            all_ddp_events_df.to_pickle(half_baked_ddp_events_path)
+                print("Saving half-baked DDP events...")    
+            data_io.save_dataset(all_ddp_events_df, half_baked_ddp_events_path)
 
         
     if USE_HALF_BAKED_FILES and exists(half_baked_sampled_ddp_events_path):
         nice_time = datetime.fromtimestamp(getctime(half_baked_sampled_ddp_events_path)).strftime('%Y-%m-%d %H:%M:%S')
         print(f"Loading half-baked sampled DDP events file created at: {nice_time}", end=" ", flush=True)
-        sampled_data_ddp_events = read_pickle(half_baked_sampled_ddp_events_path)
+        sampled_data_ddp_events = data_io.load_dataset(half_baked_sampled_ddp_events_path)
         print(f"Shape: {sampled_data_ddp_events.shape}")
     else:
         sampled_data_ddp_events = sample_ddp_events(
@@ -726,8 +734,8 @@ def load_ddp_events(
 
         if USE_HALF_BAKED_FILES:
             if verbose:
-                print("Saving half-baked sampled DDP events to pickle...")    
-            sampled_data_ddp_events.to_pickle(half_baked_sampled_ddp_events_path)
+                print("Saving half-baked sampled DDP events...")    
+            data_io.save_dataset(sampled_data_ddp_events, half_baked_sampled_ddp_events_path)
 
 
     #print("--"*60)
@@ -744,14 +752,17 @@ def load_special_donations(
     verbose=False):
     # sometimes it is useful to select events in a specific donation.
 
-    from pandas import concat, read_pickle, DataFrame
+    from pandas import concat, DataFrame
     from os.path import join
     from fyp.fyp_main import init_config
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
     if study_name is None:
         raise ValueError("study_name must be specified")
+    
+    file_format = cf['misc']['file_format']
 
     DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
     DDP_END_DATE = cf["study_defs"][study_name]["DDP_END_DATE"]
@@ -767,7 +778,7 @@ def load_special_donations(
     print(f"Loading special DDP events from: {donations_str}")
 
     # Loading all DDP events...
-    all_ddp_events_df = read_pickle(join(cf["paths"]["ddp_main"], "all_participant_events.pkl"))
+    all_ddp_events_df = data_io.load_dataset(join(cf["paths"]["ddp_main"], "all_participant_events"+file_format))
 
     # drop two columns
     all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
@@ -874,7 +885,7 @@ def load_datasets(
 def identify_unique_videos(cf = None, study_name = None, all_datasets = None, verbose = False):
     # combine the special DDP events with the sampled DDP events
 
-    from pandas import concat, read_pickle, DataFrame, NamedAgg, NA
+    from pandas import concat, DataFrame, NamedAgg, NA
     from fyp.fyp_main import init_config
 
     if study_name is None:
@@ -1068,6 +1079,7 @@ def save_selected_unique_video_subsets(
     from datetime import datetime
     from pandas import DataFrame
     from fyp.fyp_main import init_config
+    import fyp.data_io as data_io
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -1075,6 +1087,8 @@ def save_selected_unique_video_subsets(
         raise ValueError("all_datasets must be specified")
     if cf is None:
         cf = init_config()
+    
+    file_format = cf['misc']['file_format']
 
 
     if verbose:
@@ -1102,40 +1116,30 @@ def save_selected_unique_video_subsets(
 
     if len(work_with_these_videos) == 0:
         if verbose:
-            print("No videos selected for export")
+            print("This data selection did not yield any videos")
             #print("--"*60)
-        return work_with_these_videos
+        return DataFrame()
 
-    #if verbose:
-    #    print(f"Unique videos selected (regardless of their duration): {len(work_with_these_videos):,}")
-
- 
     if verbose:
-        print(f"This data selection policy yielded {len(work_with_these_videos):,} unique videos")
+        print(f"This data selection yielded {len(work_with_these_videos):,} unique videos")
         #print("--"*60)
 
-
     ### save the unique item_ids (videos) w basic stats to a file
-    if len(work_with_these_videos) > 0:
-        if len(file_label)>0 and file_label[-1] != "_":
-            file_label += "_"
-        unique_videos_filename = f"{study_name}_{file_label}UNIQUE.pkl"
+    if len(file_label)>0 and file_label[-1] != "_":
+        file_label += "_"
+    unique_videos_filename = f"{study_name}_{file_label}UNIQUE{file_format}"
 
-        unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, all_datasets = all_datasets, verbose=False)
-        all_unique_videos_to_save = unique_videos_with_stats[unique_videos_with_stats.item_id.isin(work_with_these_videos)].copy()
+    unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, all_datasets = all_datasets, verbose=False)
+    all_unique_videos_to_save = unique_videos_with_stats[unique_videos_with_stats.item_id.isin(work_with_these_videos)].copy()
 
-        export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
+    export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
-        all_unique_videos_to_save.to_pickle(join(cf['paths']['exports'],unique_videos_filename))
-        if verbose:
-            print(f"Exported {len(all_unique_videos_to_save):,} unique videos to {join(export_sub_folder_name,unique_videos_filename)}")
-            print(f"Now: {datetime.now()}")
-            #print("--"*60)
-        return all_unique_videos_to_save
-    else:
-        if verbose:
-            print("Not exporting unique videos as no videos were selected.")
-        return DataFrame()
+    data_io.save_dataset(all_unique_videos_to_save, join(cf['paths']['exports'],unique_videos_filename))
+    if verbose:
+        print(f"Exported {len(all_unique_videos_to_save):,} unique videos to {join(export_sub_folder_name,unique_videos_filename)}")
+        print(f"Now: {datetime.now()}")
+        #print("--"*60)
+    return all_unique_videos_to_save
 
 
 
@@ -1152,7 +1156,7 @@ def select_videos_from_half_baked(
     INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
     INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
     INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-    verbose = False):
+    verbose = False, notebook_mode = False):
 
     from fyp.fyp_main import init_config
 
@@ -1207,10 +1211,26 @@ def generate_and_check_unique_videos_for_scrape_and_annotate(cf = None, study_na
     if study_name is None:
         raise ValueError("study_name must be specified")
 
-
-    selected_annotate_videos = select_videos_from_half_baked(
+    all_datasets = load_datasets(
         cf = cf,
         study_name = study_name,
+        use_half_baked = True,
+        delete_all_half_baked_files = False,
+        consolidate = False,
+        verbose = verbose)
+
+    video_subsets = calculate_all_unique_video_subsets(
+        cf = cf,
+        study_name = study_name,
+        all_datasets = all_datasets,
+        verbose = verbose)
+
+
+    selected_annotate_videos = save_selected_unique_video_subsets(
+        cf = cf,
+        study_name = study_name,
+        all_datasets = all_datasets,
+        subsets = video_subsets,
         file_label = "ANNOTATE",
         INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
         INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
@@ -1220,9 +1240,12 @@ def generate_and_check_unique_videos_for_scrape_and_annotate(cf = None, study_na
         INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
         verbose = verbose
     )
-    selected_scrape_videos = select_videos_from_half_baked(
+
+    selected_scrape_videos = save_selected_unique_video_subsets(
         cf = cf,
         study_name = study_name,
+        all_datasets = all_datasets,
+        subsets = video_subsets,
         file_label = "SCRAPE",
         INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = True,
         INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
@@ -1679,9 +1702,10 @@ def _process_and_combine_logs_for_log_export(
     verbose=False):
     
 
-    from pandas import concat, read_pickle
+    from pandas import concat
     from os.path import exists, join
     from fyp.fyp_main import init_config
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
@@ -1690,15 +1714,17 @@ def _process_and_combine_logs_for_log_export(
         raise ValueError("study_name must be specified")
     if all_datasets is None:
         raise ValueError("all_datasets must be specified")
+    
+    file_format = cf['misc']['file_format']
 
     USE_HALF_BAKED_FILES = use_half_baked
-    half_baked_combined_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_COMBINED.pkl")
+    half_baked_combined_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_COMBINED{file_format}")
 
 
     if USE_HALF_BAKED_FILES and exists(half_baked_combined_path):
         if verbose:
-            print("Loading half-baked combined log from pickle...", end=" ", flush=True)
-        combined_log = read_pickle(half_baked_combined_path)
+            print("Loading half-baked combined log...", end=" ", flush=True)
+        combined_log = data_io.load_dataset(half_baked_combined_path)
         if verbose:
             print(f"Shape: {combined_log.shape}")
     else:
@@ -1725,8 +1751,8 @@ def _process_and_combine_logs_for_log_export(
 
         if USE_HALF_BAKED_FILES:
             if verbose:
-                print("Saving half-baked combined log to pickle...")    
-            combined_log.to_pickle(half_baked_combined_path)
+                print("Saving half-baked combined log...")    
+            data_io.save_dataset(combined_log, half_baked_combined_path)
 
 
     return combined_log
@@ -1875,7 +1901,7 @@ def filter_log_against_sampled_donation_groups(
 
 
 
-def save_logs_as_pkl(
+def save_logs(
     cf = None,
     study_name = None,
     outdata_filtered = None,
@@ -1886,12 +1912,15 @@ def save_logs_as_pkl(
     from os.path import join
     from pandas import Timestamp
     from fyp.fyp_main import init_config
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
 
     if study_name is None:
         raise ValueError("study_name must be specified")
+    
+    file_format = cf['misc']['file_format']
 
 
     nullis = outdata_filtered.isna().sum()
@@ -1919,10 +1948,10 @@ def save_logs_as_pkl(
 
     if len(file_label)>0 and file_label[-1] != "_":
         file_label += "_"
-    log_filename = f"{study_name}_{file_label}LOG.pkl"
+    log_filename = f"{study_name}_{file_label}LOG{file_format}"
     export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
-    outdata_filtered.to_pickle(join(cf['paths']['exports'],log_filename))
+    data_io.save_dataset(outdata_filtered, join(cf['paths']['exports'], log_filename))
     if verbose:
         print(f"Exported {len(outdata_filtered):,} events to {join(export_sub_folder_name,log_filename)}.")
         print(f"Date range: {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
@@ -2097,7 +2126,7 @@ def export_logs(
         verbose=verbose
         )
 
-    save_logs_as_pkl(
+    save_logs(
         cf = cf,
         study_name = study_name,
         outdata_filtered = outdata_filtered,

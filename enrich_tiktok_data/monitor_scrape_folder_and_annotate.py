@@ -26,7 +26,7 @@ def main() -> None:
 
     # === CONFIG ===
     WATCH_DIR = Path(cf['paths']['scrape'])                  # folder with the files to watch
-    PATTERN_SUFFIX = ".pkl"                                      # final suffix to react to
+    PATTERN_SUFFIX = cf['misc']['file_format']                                      # final suffix to react to
     PATTERN_PREFIX = "scrape_metadata_"                          # prefix to react to
     LOG_FILE = Path(cf['paths']['scrape'] + "/watcher.log")  # log file
     POLL_INTERVAL = 10.0                                         # seconds between scans

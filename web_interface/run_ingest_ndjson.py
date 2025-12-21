@@ -13,6 +13,7 @@ sys.path.append(str(PROJECT_ROOT))
 
 import fyp.fyp_main as fyp
 from fyp.get_baseline_log import read_ndjson_file, refine_zeeschuimer_log, get_baseline_info_as_string
+import fyp.data_io as data_io
 import pandas as pd
 
 def ingest_files(file_paths, label):
@@ -82,23 +83,21 @@ def ingest_files(file_paths, label):
             df['label'] = label
             #log(f"  Assigned label: {label}")
             
-            # 5. Save Pickle
+            # 5. Save File
             # Naming logic from move_and_refine_recent_file
-            # It creates names like {script}{original_name_wo_zeeschuimer}.pkl
+            # It creates names like {script}{original_name_wo_zeeschuimer} (.pkl or .parquet)
             # simplified:
-            pickle_fn = new_filename.replace(".ndjson", ".pkl")
+            processed_fn = new_filename.replace(".ndjson", fyp_cf['misc']['file_format'])
             
             # Ensure unique
             r = 0
-            while (refined_dir / pickle_fn).exists():
+            while (refined_dir / processed_fn).exists():
                 r += 1
                 stem = new_filename.replace(".ndjson", "")
-                pickle_fn = f"{stem}_{r:04}.pkl"
+                processed_fn = f"{stem}_{r:04}{fyp_cf['misc']['file_format']}"
             
-            save_path = refined_dir / pickle_fn
-            df.to_pickle(str(save_path))
-            save_path = refined_dir / pickle_fn
-            df.to_pickle(str(save_path))
+            save_path = refined_dir / processed_fn
+            data_io.save_dataset(df, str(save_path))
             log(f"  Saved refined DataFrame to {save_path.name}")
             
             # Generate summary

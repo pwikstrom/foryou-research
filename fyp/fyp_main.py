@@ -276,113 +276,11 @@ def get_recent_files(directory, suffix=None, how_recent=10):
 
 
 
-def get_study_export_files(cf = None, study_name = None):
-    from os import listdir
-    from os.path import join, getmtime
-    from fyp.fyp_main import init_config
-    from numpy import mean as np_mean
-    from datetime import datetime
-
-    if cf is None:
-        cf = init_config()
-    
-    if study_name is None:
-        raise ValueError("study_name is required")
-
-    export_file_categories = ["HALF_BAKED", "PCA", "LOG", "RECODED"]
-    study_files = {category: [] for category in export_file_categories}
-    
-    for fn in listdir(cf["paths"]["exports"]):
-        if fn.startswith(study_name) and fn.endswith(".pkl"):
-            for category in export_file_categories:
-                if category in fn:
-                    study_files[category].append(getmtime(join(cf["paths"]["exports"], fn)))
-    
-    for category in study_files:
-        if len(study_files[category]) == 0:
-            study_files[category] = "No file found"
-        elif len(study_files[category]) == 1:
-            study_files[category] = f"1 file saved on {datetime.fromtimestamp(int(study_files[category][0]))}"
-        else:
-            oldest_file = int(min(study_files[category]))
-            newest_file = int(max(study_files[category]))
-            study_files[category] = f"{len  (study_files[category])} files from {datetime.fromtimestamp(oldest_file)} to {datetime.fromtimestamp(newest_file)}"
-
-    return study_files
 
 
 
-def get_dataset_details(cf=None, study_name=None):
-    from os import listdir
-    from os.path import join, getsize
-    from fyp.fyp_main import init_config
-    import pandas as pd
-    
-    if cf is None:
-        cf = init_config()
-        
-    if study_name is None:
-        raise ValueError("study_name is required")
 
-    group_factors = cf['var_scheme'][cf['var_scheme']['role']=='group_factor']['variable_name'].tolist()
 
-    details = []
-    export_path = cf["paths"]["exports"]
-    
-    try:
-        files = [f for f in listdir(export_path) if f.startswith(study_name) and f.endswith(".pkl")]
-    except FileNotFoundError:
-        return []
-
-    for fn in files:
-        file_path = join(export_path, fn)
-        try:
-            # Get size in KB
-            size_kb = getsize(file_path) / 1024
-            
-            # Read pickle to get shape. 
-            # Note: Reading large pickles might be slow. Optimization: read only metadata if possible?
-            # Standard pandas read_pickle loads whole object.
-            df = pd.read_pickle(file_path)
-            
-            rows, cols = df.shape if hasattr(df, "shape") else (len(df), "N/A")
-            if "item_id" in df.columns:
-                nunique_items = df["item_id"].nunique()
-            else:
-                nunique_items = "N/A"
-
-            all_group_factors_in_df = all([gf in df.columns for gf in group_factors])
-            if all_group_factors_in_df:
-                group_factor_counts = len(df.groupby(group_factors).size())
-            else:
-                all_group_factors_in_df = all([gf[2:] in df.columns for gf in group_factors])
-                if all_group_factors_in_df:
-                    group_factor_counts = len(df.groupby([gf[2:] for gf in group_factors]).size())
-                else:
-                    group_factor_counts = "N/A"
-
-            
-            details.append({
-                "filename": fn,
-                "rows": rows,
-                "cols": cols,
-                "nunique_items": nunique_items,
-                "group_factor_counts": group_factor_counts,
-                "size_kb": round(size_kb, 0)
-            })
-            
-            # Clean up memory
-            del df
-            
-        except Exception as e:
-            details.append({
-                "filename": fn,
-                "error": str(e)
-            })
-            
-    # Sort by filename
-    details.sort(key=lambda x: x["filename"])
-    return details
 
 
 
