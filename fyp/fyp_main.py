@@ -276,11 +276,152 @@ def get_recent_files(directory, suffix=None, how_recent=10):
 
 
 
+def fix_surrogates(text):
+    if not isinstance(text, str):
+        return text
+    # This trick encodes surrogates to UTF-16 and decodes them correctly
+    return text.encode('utf-16', 'surrogatepass').decode('utf-16', 'replace')
+
+
+def fix_complex_types(some_iterable, verbose=False):
+    from pandas import NA as pd_NA
+    from json import dumps as json_dumps
+
+    if not len(some_iterable.shape) == 1:
+        raise ValueError("Input must be a 1D iterable")
+
+    if verbose:
+        print("*** Fixing complex types in iterable")
+        print("Input iterable shape:", some_iterable.shape)
+    
+    # replace nans with pd.NA
+    some_iterable[some_iterable.isna()] = pd_NA
+
+    # I think I have to convert the types to strings to count them
+    row_types = some_iterable.dropna().map(lambda x:str(type(x)))
+    type_counts = row_types.value_counts()
+
+    if verbose:
+        print("Type counts:", type_counts)
+
+    # check if there are dicts in the iterable - if yes, convert them to json strings
+    if "<class 'dict'>" in type_counts.index:
+        dict_indeces = row_types[row_types == "<class 'dict'>"].index
+        some_iterable.loc[dict_indeces] = some_iterable.loc[dict_indeces].map(lambda x: json_dumps(x))
+
+        if verbose:
+            print("Dicts converted to json strings")
+
+        # If the dicts have been turned into strings, I need to check the
+        # types again
+        row_types = some_iterable.dropna().map(lambda x:str(type(x)))
+        type_counts = row_types.value_counts()
+
+        if verbose:
+            print("Type counts after dict conversion:", type_counts)
+
+    # check if elements in lists in the iterable have a single type
+    # If they don't - raise an error 
+    if "<class 'list'>" in type_counts.index:
+    
+        list_indeces = row_types[row_types == "<class 'list'>"].index
+        element_types = []
+        for i in list_indeces:
+            for j in some_iterable.loc[i]:
+                element_types += [type(j)]
+        element_types = list(set(element_types))
+
+        if verbose:
+            print("Element types in lists:", element_types)
+
+        if len(element_types) > 1:
+            raise ValueError("Lists in the iterable contains elements of different types")
+        if len(element_types) == 1 and element_types[0] in [list, dict]:
+            if verbose:
+                print(f"Lists in the iterable contains elements of type {element_types[0]} - converting to json strings")
+            for i in list_indeces:
+                some_iterable.loc[i] = [json_dumps(j) for j in some_iterable.loc[i]]
+    
+                    
+
+    # if all rows in the iterable is of the same type, then all is good
+    if len(type_counts) == 1:
+        if verbose:
+            print("All rows in the iterable is of the same type")
+        return some_iterable
+
+    # if there are more than a single type and there are lists - convert all to lists
+    if "<class 'list'>" in type_counts.index:
+        nonlist_indeces = row_types[~row_types.isin(["<class 'list'>"])].index
+        try:
+            some_iterable.loc[nonlist_indeces] = some_iterable.loc[nonlist_indeces].map(lambda x: [element_types[0](x)])
+        except Exception as e:
+            if verbose:
+                print(f"Failed to convert non-list elements to lists and type {element_types[0]}. Trying one row at a time")
+            for i in nonlist_indeces:
+                try:
+                    some_iterable.loc[i] = [element_types[0](some_iterable.loc[i])]
+                except Exception as e:
+                    if verbose:
+                        print(f"Failed to convert row {i} to list and type {element_types[0]}. Setting to pd.NA")
+                    some_iterable.loc[i] = pd.NA
+        
+        if verbose:
+            print("Non-list elements converted to lists")
+
+        return some_iterable
+
+
+
+    if "<class 'str'>" in type_counts.index:
+        if verbose:
+            print("Multiple types, one is 'str' - converting all to pyarrow strings")
+        some_iterable = some_iterable.astype('string[pyarrow]')
+
+    
+    return some_iterable
 
 
 
 
 
+def convert_dtypes_to_pyarrow(df_in, verbose=False):
+    df = df_in.copy()
+    for col in df.columns:
+        try:
+            df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
+            if verbose:
+                print(f"Converted {col} to {df[col].dtype}")
+        except:
+            if verbose:
+                print(f"Failed to convert {col} to pyarrow - trying to fix surrogates")
+            df[col] = df[col].map(fix_surrogates)
+            try:
+                df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
+                if verbose:
+                    print(f"Converted {col} to {df[col].dtype}")
+            except:
+                if verbose:
+                    print(f"Failed to convert {col}")
+        
+        if df[col].dtype == 'object':
+            if verbose:
+                print(f"{col} is of type object - trying to fix complex types")
+            df[col] = fix_complex_types(df[col].copy(), verbose=verbose)
+            df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
+    
+    if verbose:
+        print("Checking if any numerical looking columns are not of type numeric and need to be converted to string")
+    for c in df.columns:
+        try:
+            df[c].describe()
+        except Exception as e:
+            if verbose:
+                print(f"WARNING: {e} | {c} doesn't work well as a number - converting to string")
+            df[c] = df[c].astype("string[pyarrow]")
+
+
+    return df
 
 
 

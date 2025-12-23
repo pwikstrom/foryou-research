@@ -167,16 +167,22 @@ def get_baseline_info_as_string(the_raw_posts_df):
 
 
 
+
+
+
 def move_and_refine_recent_file(
     cf = None,
     the_recent_file = None,
-    the_script = None
+    the_script = None,
+    verbose=False,
+    move_it = True
     ):
     from shutil import move
     from os.path import basename, join, exists
     import subprocess
     from datetime import datetime
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
@@ -195,7 +201,10 @@ def move_and_refine_recent_file(
 
     # move (and rename) the latest zeeschuimer ndjson file to the folder for raw zeeschuimer logs
     new_zee_ndjson_path = join(cf["paths"]["zeeschuimer_raw"], better_zee_ndjson_fn)
-    move(latest_zee_ndjson_in_firefox_downloads, new_zee_ndjson_path)
+    if move_it:
+        move(latest_zee_ndjson_in_firefox_downloads, new_zee_ndjson_path)
+    else:
+        new_zee_ndjson_path = latest_zee_ndjson_in_firefox_downloads
 
     # read the zeeschuimer log file from the new location and clean up the data
     raw_zee_log = read_ndjson_file(cf = cf, file_path = new_zee_ndjson_path)
@@ -213,9 +222,11 @@ def move_and_refine_recent_file(
         else:
             zee_processed_fn = zee_processed_fn.replace(f"_{r-1:04}{file_format}", f"_{r:04}{file_format}")
 
+
     # save the refined zeeschuimer log as a processed file
     print(f"Saving the log file as a DataFrame: '{zee_processed_fn}'.")
-    data_io.save_dataset(refined_zee_log, join(cf["paths"]["zeeschuimer_refined"], zee_processed_fn))
+    refined_zee_log = convert_dtypes_to_pyarrow(refined_zee_log, verbose=verbose)
+    data_io.save_dataset(refined_zee_log, join(cf["paths"]["zeeschuimer_refined"], zee_processed_fn), verbose=verbose)
     
     # print some info about what is in refined_zee_log
     print(get_baseline_info_as_string(refined_zee_log))
@@ -226,7 +237,8 @@ def move_and_refine_recent_file(
 
 def get_baseline_log(cf = None,
                      the_script=None, 
-                     how_recent=30):
+                     how_recent=30,
+                     verbose=False):
     from os.path import basename, join
     import subprocess
     from datetime import datetime
@@ -268,15 +280,18 @@ def get_baseline_log(cf = None,
             print("=========================================================")
             print(f"Processing: {recent_file}")
             print("=========================================================")
-            move_and_refine_recent_file(
+            result = move_and_refine_recent_file(
                 cf = cf,
                 the_recent_file = recent_file,
-                the_script = the_script
+                the_script = the_script,
+                move_it = True,
+                verbose = verbose
                 )
             print("---------------------------------------------------------")
-
+            return result
     else:
         print(f"Could not find a Zeeschuimer ndjson file in the firefox downloads folder.")
+
 
     end_time = datetime.now()
     print(f"{end_time.strftime('%Y-%m-%d %H:%M:%S')}: Process completed in {pretty_str_seconds((end_time-start_time).total_seconds())}.")    

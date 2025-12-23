@@ -210,7 +210,17 @@ function setStatus(name, data) {
             const pct = (info.done / info.total) * 100;
             bar.style.width = `${pct}%`;
             const etaStr = formatETA(info.eta);
-            text.innerText = `${info.done.toLocaleString()} / ${info.total.toLocaleString()} (${pct.toFixed(1)}%) - ${info.rate.toFixed(2)}/s - ETA ${etaStr}`;
+
+            // Calculate duration
+            let durationStr = "";
+            if (data.start_time) {
+                const start = new Date(data.start_time);
+                const now = new Date();
+                const diff = (now - start) / 1000; // seconds
+                durationStr = " - Time: " + formatETA(diff);
+            }
+
+            text.innerText = `${info.done.toLocaleString()} / ${info.total.toLocaleString()} (${pct.toFixed(1)}%) - ${info.rate.toFixed(2)}/s - ETA ${etaStr}${durationStr}`;
         } else {
             if (status === 'stopped') {
                 // bar.style.width = '0%';
@@ -253,7 +263,11 @@ function setDiscreetStatus(name, data) {
     if (state === 'running') {
         text.style.color = '#aaa'; // Reset to neutral color
         if (data.last_message && data.last_message.trim() !== '') {
-            text.innerText = data.last_message;
+            let msg = data.last_message;
+            if (msg.length > 80) {
+                msg = msg.substring(0, 80) + "...";
+            }
+            text.innerText = msg;
             text.title = data.last_message; // Full text on hover
         } else if (data.start_time) {
             const start = new Date(data.start_time);
@@ -498,6 +512,13 @@ function openTab(evt, tabName) {
     }
     if (evt && evt.currentTarget) {
         evt.currentTarget.className += " active";
+    }
+
+    // Video Viewer Logic integration
+    if (tabName !== 'video_viewer') {
+        if (typeof pauseViewerVideo === 'function') pauseViewerVideo();
+    } else {
+        if (typeof playViewerVideo === 'function') playViewerVideo();
     }
 
     // Force reload of config when settings tab is opened

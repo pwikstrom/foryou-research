@@ -294,7 +294,7 @@ def download_single_video(
     except Exception as e:
         print(e)
     
-
+    # things have gone terribly wrong if we end up down here
     return video_id
 
 
@@ -428,9 +428,9 @@ def download_video_threads(
     from datetime import datetime
     #from os import rename
     from os.path import join
-    import json
+    from json import dump as json_dump
     import time
-    from fyp.fyp_main import init_config, connect_to_google
+    from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
 
 
@@ -475,12 +475,8 @@ def download_video_threads(
 
 
         for fut in as_completed(futures):
-            #try:
             idx, res = fut.result()
             results_by_index[idx] = res
-            #except Exception as e:
-            #    idx = next(i for i, f in enumerate(futures) if f is fut)  
-            #    results_by_index[idx] = e  
         
         monitor_thread.join()
 
@@ -499,13 +495,14 @@ def download_video_threads(
     if len(results)>0:
         
         final_path = join(cf['paths']['scrape'], f"scrape_metadata_{fine_ts}{cf['misc']['file_format']}")
-        data_io.save_dataset(results, final_path)
+        results = convert_dtypes_to_pyarrow(results, verbose=verbose)
+        data_io.save_dataset(results, final_path, verbose=verbose)
         print(f"Saved {len(results):,} rows to 'scrape_metadata_{fine_ts}{cf['misc']['file_format']}')")
         print(f"and saved media objects to the bucket for {len(results[results['video_downloaded']]):,} of these.")
 
     if len(failed_items)>0:
         with open(join(cf['paths']['scrape'],f"scrape_failed_items_{fine_ts}.json"), "w") as jf:
-            json.dump(failed_items, jf)
+            json_dump(failed_items, jf)
         print(f"Saved {len(failed_items)} failed items")
 
 

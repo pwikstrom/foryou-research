@@ -15,26 +15,22 @@ import json
 # =============================================================================
 # If True, writing a dataset will write BOTH .parquet and .pkl files.
 # This is for the transition period to ensure we can always rollback.
-WRITE_BOTH = True
+WRITE_BOTH = False
 
 # If True, we verify that the loaded Parquet data matches what would be loaded from Pickle (if it exists).
 # This is slow but useful for verification.
 VERIFY_ON_LOAD = False
 
 # If True, forcing fallback to Pickle only (emergency switch).
-USE_PICKLE_ONLY = True
+USE_PICKLE_ONLY = False
 
 
 def load_dataset(path: str, verbose: bool = False, **kwargs) -> pd.DataFrame:
     """
     Load a dataframe from a given path (base path without extension or with .pkl/.parquet).
-    
-    Logic:
-    1. If USE_PICKLE_ONLY is True, try loading .pkl.
-    2. Try loading .parquet.
-    3. If .parquet fails or doesn't exist, fall back to .pkl.
-    4. If VERIFY_ON_LOAD is True, load both and compare.
     """
+    from fyp.fyp_main import convert_dtypes_to_pyarrow
+
     base_path, ext = os.path.splitext(path)
     if ext in ['.pkl', '.parquet']:
         path_no_ext = base_path
@@ -44,31 +40,54 @@ def load_dataset(path: str, verbose: bool = False, **kwargs) -> pd.DataFrame:
     parquet_path = f"{path_no_ext}.parquet"
     pickle_path = f"{path_no_ext}.pkl"
 
-    # Emergency Switch
-    if USE_PICKLE_ONLY:
-        if verbose: print(f" [DATA_IO] Loading Pickle (Enforced): {pickle_path}")
-        return pd.read_pickle(pickle_path, **kwargs)
+    df = None
+    loaded_from_parquet = False
 
     # Try Parquet
-    if os.path.exists(parquet_path):
-        try:
-            if verbose: print(f" [DATA_IO] Loading Parquet: {parquet_path}")
-            df = pd.read_parquet(parquet_path, **kwargs)
+    if os.path.exists(parquet_path) and not USE_PICKLE_ONLY:
+        if verbose: print(f" [DATA_IO] Loading Parquet: {parquet_path}")
+        df = pd.read_parquet(parquet_path, engine='pyarrow', dtype_backend="pyarrow")
+        loaded_from_parquet = True
             
-            if VERIFY_ON_LOAD and os.path.exists(pickle_path):
-                _verify_data(df, pickle_path, **kwargs)
-                
-            return df
-        except Exception as e:
-            print(f" [DATA_IO] WARNING: Failed to load Parquet {parquet_path}: {e}")
-            print(f" [DATA_IO] Falling back to Pickle...")
+    # Try Pickle
+    if os.path.exists(pickle_path) and df is None:
+        if verbose: print(f" [DATA_IO] Loading Pickle: {pickle_path}")
+        df = pd.read_pickle(pickle_path, **kwargs)
+        loaded_from_parquet = False
     
-    # Fallback to Pickle
-    if os.path.exists(pickle_path):
-        if verbose: print(f" [DATA_IO] Loading Pickle (Fallback): {pickle_path}")
-        return pd.read_pickle(pickle_path, **kwargs)
-    
-    raise FileNotFoundError(f"Neither Parquet nor Pickle found for: {path_no_ext}")
+    if df is None:
+        raise FileNotFoundError(f"Neither Parquet nor Pickle found for: {path_no_ext}")
+
+    # this is really only necessary if it has been loaded from pickle
+    if not loaded_from_parquet:
+        if verbose: print(f" [DATA_IO] Converting data from Pickle file to Parquet types")
+
+        df = convert_dtypes_to_pyarrow(df, verbose=verbose)
+
+        """for col in df.columns:
+            try:
+                df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
+            except:
+                print(col)
+                df[col] = df[col].map(fix_surrogates)
+                try:
+                    df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
+                except:
+                    print(f"Failed to convert {col}")
+            
+            if df[col].dtype == 'object':
+                df[col] = fix_complex_types(df[col].copy(), verbose=verbose)
+                df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')"""
+
+    return df
+
+
+
+
+
+
+
+
 
 
 def save_dataset(df: pd.DataFrame, path: str, verbose: bool = False, **kwargs):
@@ -81,6 +100,7 @@ def save_dataset(df: pd.DataFrame, path: str, verbose: bool = False, **kwargs):
     """
 
     from os import rename
+    from fyp.fyp_main import convert_dtypes_to_pyarrow
 
 
     base_path, ext = os.path.splitext(path)
@@ -92,62 +112,37 @@ def save_dataset(df: pd.DataFrame, path: str, verbose: bool = False, **kwargs):
     parquet_path = f"{path_no_ext}.parquet"
     pickle_path = f"{path_no_ext}.pkl"
 
+
+    # UPDATED - now expecting all dtypes to be pyarrow compatible
+    # type management to ensure pyarrow can handle the data
+    # but I'm doing it for pickle save as well to ensure consistency 
+    #df = convert_dtypes_to_pyarrow(df, verbose=verbose)
+
     # 1. Save Parquet
     if not USE_PICKLE_ONLY:
-        try:
-            # Handle potential complex types before saving to Parquet
-            # We work on a shallow copy to avoid modifying the original df in memory if it's used elsewhere
-            # But deep copy is too expensive. We'll modify a copy of the columns that need it.
-            df_parquet = df.copy(deep=False) 
-            
-            for col in df_parquet.columns:
-                # Check if object dtype (candidates for mixed types or lists/dicts)
-                if df_parquet[col].dtype == 'object':
-                    # Check a sample- non-null value
-                    sample = df_parquet[col].dropna().iloc[0] if not df_parquet[col].dropna().empty else None
-                    if isinstance(sample, (list, dict)):
-                        # Serialize to JSON string
-                        df_parquet[col] = df_parquet[col].apply(lambda x: json.dumps(x) if isinstance(x, (list, dict)) else x)
-                    
-                    # Ensure all object columns are cast to string for Parquet compatibility
-                    # This handles mixed types (e.g. ints and strings) which crash Parquet
-                    df_parquet[col] = df_parquet[col].astype(str).replace('nan', None).replace('None', None)
-
+        if True:#try:
+            # pyarrow handles lists/dicts natively, no need for JSON conversion
             if verbose: print(f" [DATA_IO] Saving Parquet: {parquet_path}")
-            temp_path = parquet_path + ".tmp"
-            df_parquet.to_parquet(temp_path, engine='pyarrow', index=False, **kwargs) 
-            rename(temp_path, parquet_path)
-        except Exception as e:
+            
+
+            df.to_parquet(parquet_path, engine='pyarrow', **kwargs) 
+
+        """except Exception as e:
              print(f" [DATA_IO] ERROR: Failed to save Parquet {parquet_path}: {e}")
              # If parquet write fails, we MUST ensure we write pickle if intended
              if not WRITE_BOTH:
                  print(f" [DATA_IO] Force-writing Pickle due to Parquet failure.")
-                 temp_path = pickle_path + ".tmp"
-                 df.to_pickle(temp_path, **kwargs)
-                 rename(temp_path, pickle_path)
-                 return
+                 df.to_pickle(pickle_path, **kwargs)
+                 return"""
 
     # 2. Save Pickle (Dual Write / Legacy)
     if WRITE_BOTH or USE_PICKLE_ONLY:
-        if verbose: print(f" [DATA_IO] Saving Pickle: {pickle_path}")
-        temp_path = pickle_path + ".tmp"
-        df.to_pickle(temp_path, **kwargs)
-        rename(temp_path, pickle_path)
+        print(f" [DATA_IO] Saving Pickle: {pickle_path}")
+        df.to_pickle(pickle_path, **kwargs)
 
 
-def _verify_data(parquet_df, pickle_path, **kwargs):
-    """
-    Compare loaded Parquet DF with Pickle DF.
-    """
-    try:
-        pickle_df = pd.read_pickle(pickle_path, **kwargs)
-        # Basic check: shape
-        if parquet_df.shape != pickle_df.shape:
-            print(f" [DATA_IO] VERIFICATION FAILED: Shapes differ! Parquet: {parquet_df.shape}, Pickle: {pickle_df.shape}")
-        else:
-            print(f" [DATA_IO] Verification passed: Shapes match.")
-    except Exception as e:
-        print(f" [DATA_IO] Verification error: {e}")
+
+
 
 # ------------------------------------------------------------------------------
 # Data Management Utilities (Moved from fyp_main.py)
@@ -186,6 +181,8 @@ def get_study_export_files(cf = None, study_name = None):
             study_files[category] = f"{len  (study_files[category])} files from {datetime.fromtimestamp(oldest_file)} to {datetime.fromtimestamp(newest_file)}"
 
     return study_files
+
+
 
 
 def get_dataset_details(cf=None, study_name=None):

@@ -42,11 +42,12 @@ def load_machine_annotations(
 
     from pandas import DataFrame, concat
     from os import listdir, rename
-    from os.path import join, basename
+    from os.path import join, basename, exists
     from shutil import move
     from datetime import datetime
+    import shutil
 
-    from fyp.fyp_main import init_config, connect_to_google
+    from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
 
     if cf is None:
@@ -55,9 +56,16 @@ def load_machine_annotations(
 
     file_format = cf['misc']['file_format']
 
-    machine_file_names = [join(cf['paths']['machine_annotations'], fn) for fn in listdir(cf['paths']['machine_annotations']) if fn.endswith(file_format) and fn.startswith("machine_annotations")]
 
-    all_results = concat([data_io.load_dataset(fn) for fn in machine_file_names])
+    machine_file_names = []
+    for fn in listdir(cf['paths']['machine_annotations']):
+        if fn.startswith("machine_annotations") and (fn.endswith(".parquet") or fn.endswith(".pkl")):
+            machine_file_names.append(join(cf['paths']['machine_annotations'], ".".join(fn.split(".")[:-1])))
+            
+    #machine_file_names = [join(cf['paths']['machine_annotations'], ".".join(fn.split(".")[:-1])) for fn in listdir(cf['paths']['machine_annotations']) if fn.startswith("machine_annotations")]
+    machine_file_names = list(set(machine_file_names))
+
+    all_results = concat([data_io.load_dataset(fn, verbose=verbose) for fn in machine_file_names])
 
     all_results.reset_index(drop=True, inplace=True)
     all_results['error'] = all_results['error'].map(lambda x:"-" if x=={} else x)
@@ -86,17 +94,25 @@ def load_machine_annotations(
         latest_filename = sorted(machine_file_names)[-1]
         #fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
-            print(f"The machine annotation {file_format} files will be consolidated into a single file: '{basename(latest_filename)}'")
+            print(f"The machine annotation files will be consolidated into a single file: '{basename(latest_filename)}'")
             print(f"The raw json files will remain untouched")
 
-        data_io.save_dataset(all_results, latest_filename+".temp")
+        all_results = convert_dtypes_to_pyarrow(all_results, verbose=verbose)
+        data_io.save_dataset(all_results, latest_filename, verbose=verbose)
+
 
         for fn in machine_file_names:
-            move(fn,join(cf['paths']['machine_annotations'], 'archive',basename(fn)))
-            if verbose:
-                print(f"Moved {basename(fn)} to archive")
+            if not fn == latest_filename:
+                if exists(fn+".parquet"):
+                    shutil.move(fn+".parquet",join(cf['paths']['machine_annotations'],'archive',basename(fn)+".parquet"))
+                    if verbose:
+                        print(f"Moved {basename(fn)+'.parquet'} to archive")
+                if exists(fn+".pkl"):
+                    shutil.move(fn+".pkl",join(cf['paths']['machine_annotations'],'archive',basename(fn)+".pkl"))
+                    if verbose:
+                        print(f"Moved {basename(fn)+'.pkl'} to archive")
 
-        rename(latest_filename+".temp", latest_filename)
+
 
 
     if include_failed_calls:
@@ -438,8 +454,8 @@ def call_machine_threads(
     def worker(idx_video):
         idx, video = idx_video
 
-        # Gemini doesn't like to get to many request at once
-        # sleeping for a bit with the first ones solves the problem
+        # Maybe Gemini doesn't like to get to many request at once.
+        # Sleeping for a bit with the first ones solves the problem
         if idx < max_workers:
             sleep(3+random()*max_workers/2)
 
@@ -482,7 +498,9 @@ def call_machine_threads(
     if len(results_by_index)>0:
         save_machine_annotations_json(
             results_by_index,
-            cf['paths']['machine_annotations']
+            cf['paths']['machine_annotations'],
+            verbose=verbose,
+            notebook_mode=notebook_mode
         )
 
     return results_by_index
@@ -1210,7 +1228,7 @@ def post_process_raw_annotations(
 
     from datetime import datetime
     from os.path import join
-    from fyp.fyp_main import init_config, connect_to_google, temp_path
+    from fyp.fyp_main import init_config, connect_to_google, temp_path, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
 
     if raw_outputs_from_machine is None:
@@ -1249,7 +1267,9 @@ def post_process_raw_annotations(
         print("Ready to save processed results")
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     file_prefix = "machine_annotations"
-    data_io.save_dataset(outputs_from_machine_df, join(cf["paths"]["machine_annotations"],f"{file_prefix}_{fine_ts}{file_format}"))
+
+    outputs_from_machine_df = convert_dtypes_to_pyarrow(outputs_from_machine_df, verbose=verbose)
+    data_io.save_dataset(outputs_from_machine_df, join(cf["paths"]["machine_annotations"], f"{file_prefix}_{fine_ts}{file_format}"), verbose=verbose)
     if verbose:
         print(f"Saved processed results to '{file_prefix}_{fine_ts}{file_format}'")
     

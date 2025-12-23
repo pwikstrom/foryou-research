@@ -469,7 +469,7 @@ def calculate_scaled_pca_scores(
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.recode_variables import get_factors_and_features_from_var_scheme
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
 
     if study_name is None:
@@ -489,11 +489,12 @@ def calculate_scaled_pca_scores(
 
 
     if some_events_df is None:
-        recoded_path = join(cf['paths']['exports'],f"{study_name}_RECODED{file_format}")
-        if exists(recoded_path):
-            nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
-            print(f"Loading recoded events file in export folder, created at: {nice_time}", end=" ", flush=True)
-            some_events_df = data_io.load_dataset(recoded_path)
+        recoded_path = join(cf['paths']['exports'],f"{study_name}_RECODED")
+        if exists(recoded_path+".pkl") or exists(recoded_path+".parquet"):
+            #nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
+            #print(f"Loading recoded events file in export folder, created at: {nice_time}", end=" ", flush=True)
+            print("Loading recoded events file in export folder", end=" ", flush=True)
+            some_events_df = data_io.load_dataset(recoded_path, verbose=verbose)
             print(f"  |  Shape: {some_events_df.shape}")
         else:
             print(f"ERROR: This process cannot be run until there is a RECODED dataset has been created.")
@@ -589,9 +590,11 @@ def calculate_scaled_pca_scores(
         columns=events_pca_scores.columns)
     events_pca_scores_scaled.reset_index(inplace=True)
 
+    # TODO: avoid making direct references to column names
     time_columns_to_put_back = some_events_df[["D_donation_id","T_local_weekday","T_local_date","T_local_week"]].sample(frac=1, random_state=42).drop_duplicates().set_index(selected_factors)
     events_pca_scores_scaled = concat([time_columns_to_put_back,events_pca_scores_scaled.set_index(selected_factors)], axis=1).reset_index().copy()
 
+    # TODO: avoid making direct references to column names
     events_pca_scores_scaled["T_local_month"] = events_pca_scores_scaled["T_local_date"].map(lambda x:x[:7])
 
     if verbose:
@@ -603,10 +606,11 @@ def calculate_scaled_pca_scores(
 
 
     if save_it:
-        pca_filename = f"{study_name}_PCA{file_format}"
+        pca_filename = f"{study_name}_PCA"
         comp_inter_filename = f"{study_name}_COMP_INTERPRETATIONS.json"
         export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
+        events_pca_scores_scaled = convert_dtypes_to_pyarrow(events_pca_scores_scaled, verbose=verbose)
         data_io.save_dataset(events_pca_scores_scaled, join(cf['paths']['exports'],pca_filename))
         print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")
         with open(join(cf['paths']['exports'],comp_inter_filename), 'w') as f:
@@ -616,7 +620,5 @@ def calculate_scaled_pca_scores(
     #print("--"*60)
 
             
-
-
     return events_pca_scores_scaled, comp_interpretations
 

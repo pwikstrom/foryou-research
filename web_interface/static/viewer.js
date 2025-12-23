@@ -394,6 +394,12 @@ async function loadViewerItem(index) {
         videoEl.src = videoUrl;
         document.getElementById('viewer-video-msg').style.display = "none";
 
+        // Check if tab is visible before playing
+        const viewerTab = document.getElementById('video_viewer');
+        if (viewerTab && viewerTab.classList.contains('active')) {
+            videoEl.play().catch(e => console.log("Auto-play blocked or failed:", e));
+        }
+
         updateNavUI();
 
     } catch (e) {
@@ -511,6 +517,32 @@ function renderMetadata(item) {
             } else if (typeof val === 'number') {
                 if (key === 'item_id' || key === 'video_id' || key === 'G_id') {
                     displayVal = String(val);
+                } else if (key.includes('_timestamp')) {
+                    // Try to parse timestamp
+                    try {
+                        let ts = val;
+                        // Heuristic: if ts > 1e11 (100 billion), likely ms (valid after 1973).
+                        // If < 1e11, likely seconds.
+                        // Current time ~1.7e9 (seconds) or 1.7e12 (ms).
+                        // So 1e11 is a safe divider.
+                        if (ts < 1e11) ts *= 1000;
+
+                        const date = new Date(ts);
+                        if (!isNaN(date.getTime())) {
+                            // Format dd/mm/yy hh:mm:ss
+                            const day = String(date.getDate()).padStart(2, '0');
+                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                            const year = String(date.getFullYear()).slice(-2);
+                            const hours = String(date.getHours()).padStart(2, '0');
+                            const minutes = String(date.getMinutes()).padStart(2, '0');
+                            const seconds = String(date.getSeconds()).padStart(2, '0');
+                            displayVal = `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+                        } else {
+                            displayVal = String(val);
+                        }
+                    } catch (e) {
+                        displayVal = String(val);
+                    }
                 } else {
                     displayVal = val.toLocaleString();
                 }
@@ -575,5 +607,21 @@ function updateNavUI() {
             slider.max = 1;
             slider.value = 1;
         }
+    }
+}
+
+function playViewerVideo() {
+    const video = document.getElementById('viewer-video');
+    if (video && video.src && !video.paused) {
+        // Already playing
+    } else if (video && video.src) {
+        video.play().catch(e => console.log("Play failed:", e));
+    }
+}
+
+function pauseViewerVideo() {
+    const video = document.getElementById('viewer-video');
+    if (video && !video.paused) {
+        video.pause();
     }
 }

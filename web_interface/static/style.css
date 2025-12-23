@@ -66,7 +66,8 @@ body {
     border: 1px solid #3e3e42;
     padding: 10px;
     border-radius: 5px;
-    min-height: 200px; /* Force minimum height to ensure visibility */
+    min-height: 200px;
+    /* Force minimum height to ensure visibility */
     /* Critical so internal scroll works */
 
     /* If this panel is a control bar, it should override this with flex: 0 0 auto inline or via class */
@@ -83,9 +84,12 @@ textarea {
     padding: 10px;
     font-size: 0.9em;
     resize: none;
-    min-height: 150px; /* Force visibility */
-    display: block;    /* Ensure it's not hidden */
-    width: 100%;       /* Full width */
+    min-height: 150px;
+    /* Force visibility */
+    display: block;
+    /* Ensure it's not hidden */
+    width: 100%;
+    /* Full width */
 }
 
 .header {
@@ -196,7 +200,8 @@ textarea {
 }
 
 .progress-bar {
-    background: #4ec9b0;
+    background: #00640087;
+    /* Darker Green for better contrast with white text */
     height: 100%;
     width: 0%;
     transition: width 0.5s ease;
@@ -209,10 +214,12 @@ textarea {
     width: 100%;
     height: 100%;
     text-align: center;
-    color: white;
+    color: #ffffffbc;
     font-size: 0.8em;
     line-height: 20px;
-    text-shadow: 0 0 2px black;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .tab-button {

@@ -97,7 +97,8 @@ def ingest_files(file_paths, label):
                 processed_fn = f"{stem}_{r:04}{fyp_cf['misc']['file_format']}"
             
             save_path = refined_dir / processed_fn
-            data_io.save_dataset(df, str(save_path))
+            df = fyp.convert_dtypes_to_pyarrow(df, verbose=False)
+            data_io.save_dataset(df, str(save_path), verbose=False)
             log(f"  Saved refined DataFrame to {save_path.name}")
             
             # Generate summary

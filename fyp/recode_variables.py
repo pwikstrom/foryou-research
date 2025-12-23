@@ -209,7 +209,7 @@ def recode_call_to_action(
 
 def recode_speech_vs_music(
     a_string: str, 
-    recoding_policy : dict = {}) -> float | None:
+    recoding_policy : dict = {}):
     """
     Extracts the percentage of speech from a string formatted like "50% speech, 50% music".
     Returns the fraction as a float between 0 and 1, or None if parsing fails.
@@ -221,11 +221,10 @@ def recode_speech_vs_music(
 
     Returns
     -------
-    float or None
         Fraction of speech (0-1), or None if not parseable.
     """
 
-    from numpy import array
+    from numpy import array, int64, float64
 
 
 
@@ -236,7 +235,7 @@ def recode_speech_vs_music(
     some_list_check = [[1 * ("speech" in h), 1 * ("music" in h)] for h in some_list]
     if len(some_list) == 2 and all(array(some_list_check).sum(axis=0) == 1):
         try:
-            some_list = [{h.split("%")[1].strip(): int(h.split("%")[0])} for h in some_list]
+            some_list = [{h.split("%")[1].strip(): int64(h.split("%")[0])} for h in some_list]
         except Exception:
             return None
 
@@ -255,23 +254,24 @@ def recode_speech_vs_music(
 
 def recode_scores(
     a_string: str, 
-    recoding_policy : dict = {}) -> int | None:
+    recoding_policy : dict = {}):
     """
     takes a string of this template: "<numeral><, ><text>" and returns the numeral split by 100
     It assumes that the stringified numeral is ranging between 0-100 so it splits it by 100
     to return a float between 0 and 1
     """
 
-    from numpy import nan as np_nan
+    from pandas import NA as pd_NA
+    from numpy import int64
 
 
     if isinstance(a_string,str):
         the_val = a_string.split(", ")[0]
         try:
-            the_val = int(the_val)
+            the_val = int64(the_val)
             return the_val / 100
         except:
-            return np_nan
+            return pd_NA
     else:
         return a_string
 
@@ -312,12 +312,13 @@ def recode_scene_sentiments(
     TODO: check the word lists. They are probably not exhaustive.
     """
 
-    from numpy import nan as np_nan
+    #from numpy import nan as np_nan
+    from pandas import NA as pd_NA
 
 
 
     if not isinstance(a_string,str):
-        return {"valence":np_nan,"energy":np_nan}
+        return {"valence":pd_NA,"energy":pd_NA}
 
     a_string = a_string.lower().replace("-","").replace(" ","")
     valence = 0
@@ -346,30 +347,32 @@ def recode_scene_sentiments(
 # can be aggregated using the function for continuous variables "calc_centre_and_entropy()".
 def recode_faces_age_estimate(
     an_age_range_list: str, 
-    recoding_policy : dict = {}) -> float:
+    recoding_policy : dict = {}):
 
     from pandas import isna
-    from numpy import nan as np_nan, mean as np_mean
+    from numpy import mean as np_mean
+    from pandas import NA as pd_NA
+    from numpy import int64, float64
 
 
     def single_age_range_str_to_float(an_age_range: str) -> float:
         if isna(an_age_range):
-            return np_nan
+            return pd_NA
 
         try:
-            return float(an_age_range)
+            return float64(an_age_range)
         except:
             pass
 
         if isinstance(an_age_range,str) and an_age_range.count("-")==1:
             try:
-                age_limits = [int(i) for i in an_age_range.split("-")]
+                age_limits = [int64(i) for i in an_age_range.split("-")]
                 if age_limits[1]<age_limits[0]:
-                    return np_nan
-                return float(np_mean(age_limits))
+                    return pd_NA
+                return float64(np_mean(age_limits))
             except:
-                return np_nan
-        return np_nan
+                return pd_NA
+        return pd_NA
 
     if isinstance(an_age_range_list,str):
         return np_mean(list(map(single_age_range_str_to_float, an_age_range_list.split(" | "))))
@@ -437,7 +440,10 @@ def recode_main_activity(
 def recode_timestamp(
     timestamp, 
     recoding_policy : dict = {}):
-    return int(timestamp.timestamp())
+
+    from numpy import int64
+
+    return int64(timestamp.timestamp())
     
 
 
@@ -504,15 +510,15 @@ def recode_stringified_list(
 
 def implement_missing_data_policy(x, missing_data_policy, the_median=0):
 
-    from pandas import isna
-    from numpy import nan as np_nan
+    from pandas import isna, NA as pd_NA
+    from numpy import int64, float64
 
 
     if (isinstance(x,list) and len(x)==1 and x[0]==NOT_CODED) or (isinstance(x,str) and x==NOT_CODED) or ((not isinstance(x,list)) and isna(x)):
         if missing_data_policy == "empty":
             return []
         elif missing_data_policy == "drop":
-            return np_nan
+            return pd_NA
         elif missing_data_policy == "median":
             return the_median
         elif missing_data_policy == "keep":
@@ -522,8 +528,8 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
                 return x
         elif missing_data_policy == "zero":
             gg = x if not isinstance(x,list) else x[0]
-            if isinstance(gg,(int,float)):
-                gg_out = 0
+            if isinstance(gg,(int64,float64, int, float)):
+                gg_out = int64(0)
             else:
                 gg_out = "no"
             if isinstance(x,list):
@@ -539,7 +545,7 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
 
 def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
     from pandas import isna
-    from numpy import nan as np_nan
+    from numpy import nan as np_nan, int64, float64
 
     if (isinstance(x,list) and len(x)==1 and x[0]==UNABLE_TO_DETECT) or (isinstance(x,str) and x==UNABLE_TO_DETECT) or ((not isinstance(x,list)) and isna(x)):
         if unable_to_detect_policy == "empty":
@@ -555,8 +561,8 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
                 return x
         elif unable_to_detect_policy == "zero":
             gg = x if not isinstance(x,list) else x[0]
-            if isinstance(gg,(int,float)):
-                gg_out = 0
+            if isinstance(gg,(int, float, int64, float64)):
+                gg_out = int64(0)
             else:
                 gg_out = "no"
             if isinstance(x,list):
@@ -580,8 +586,9 @@ def recode_events_df(
     from os.path import join, getctime, exists
     from datetime import datetime
     from copy import copy
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
+    from numpy import int64, float64
 
     if cf is None:
         cf = init_config()
@@ -595,11 +602,12 @@ def recode_events_df(
 
 
     if cool_events_in is None:
-        log_path = join(cf['paths']['exports'],f"{study_name}_LOG{file_format}")
-        if exists(log_path):
-            nice_time = datetime.fromtimestamp(getctime(log_path)).strftime('%Y-%m-%d %H:%M:%S')
-            print(f"Loading events file in export folder, created at: {nice_time}", end=" ", flush=True)
-            cool_events_in = data_io.load_dataset(log_path)
+        log_path = join(cf['paths']['exports'],f"{study_name}_LOG")
+        if exists(log_path+".pkl") or exists(log_path+".parquet"):
+            #nice_time = datetime.fromtimestamp(getctime(log_path)).strftime('%Y-%m-%d %H:%M:%S')
+            #print(f"Loading events file in export folder, created at: {nice_time}", end=" ", flush=True)
+            print(f"Loading events file in export folder...", end=" ", flush=True)
+            cool_events_in = data_io.load_dataset(log_path, verbose=verbose)
             print(f"Shape: {cool_events_in.shape}")
         else:
             print("This process required a LOG file to be generated first. Log file not found at: ", log_path)
@@ -615,8 +623,8 @@ def recode_events_df(
     var_scheme[['mapper','ignore_strings','recode_func']] = var_scheme[['mapper','ignore_strings','recode_func']].map(_try_eval)
 
     FYP_FACTORS = list(set(var_scheme[var_scheme["scale"].isin(['factor','group_factor'])].index) & set(cool_events.columns))
-    cool_events[FYP_FACTORS] = cool_events[FYP_FACTORS].astype(str)
-    cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int(x):05}")
+    cool_events[FYP_FACTORS] = cool_events[FYP_FACTORS].astype("string[pyarrow]")
+    cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int64(x):05}")
 
     variables_not_found_in_var_scheme = list(set(cool_events.columns) - set(var_scheme.index))
     if verbose:
@@ -695,6 +703,7 @@ def recode_events_df(
                 cool_types = cool_events[c].dropna().map(lambda x:type(x)).value_counts()
                 top_type = cool_types.index[0]
                 n_types = len(cool_types)
+                if verbose: print(f"{c} has {n_types} types. The most common is {top_type}")
 
 
 
@@ -767,11 +776,12 @@ def recode_events_df(
 
     cool_events = cool_events[sorted(cool_events.columns)]
 
+    cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
     if save_it:
-        recoded_filename = f"{study_name}_RECODED{file_format}"
+        recoded_filename = f"{study_name}_RECODED"
         export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
-        data_io.save_dataset(cool_events, join(cf['paths']['exports'],recoded_filename))
+        data_io.save_dataset(cool_events, join(cf['paths']['exports'],recoded_filename), verbose=verbose)
         print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,recoded_filename)}.")
     
     print(f"Now: {datetime.now()}")
@@ -882,7 +892,7 @@ def clean_up_machine_annotations(some_events, verbose = False):
     for c in [k for k in some_events.select_dtypes(object).columns if k.startswith("G_")]:
 
         # Step 1 of 3: Flatten and filter the column
-        flattened_column = _flatten_and_filter(some_events[c], exclude=["DDP","BASELINE", "unable to detect", "", OTHER_THINGS])
+        flattened_column = _flatten_and_filter(some_events[c], exclude=["DDP","BASELINE", UNABLE_TO_DETECT, "", OTHER_THINGS])
 
         mean_length = np.mean(list(map(lambda x:len(x), flattened_column)))
 
@@ -895,7 +905,7 @@ def clean_up_machine_annotations(some_events, verbose = False):
             # replace the smallest labels with an OTHER_THINGS label
             some_cleaned_up_events[c] = _replace_in_structure(
                 some_events[c],
-                ["DDP","BASELINE", "unable to detect", "", OTHER_THINGS] + okay_list,
+                ["DDP","BASELINE", UNABLE_TO_DETECT, "", OTHER_THINGS] + okay_list,
                 OTHER_THINGS
             )
 
