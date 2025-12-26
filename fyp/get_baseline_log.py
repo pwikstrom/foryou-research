@@ -38,8 +38,9 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
     from pandas import DataFrame, json_normalize, merge
     from datetime import datetime
     from copy import copy
-    from fyp.fyp_main import init_config, extract_and_join_subkeys, clean_url
+    from fyp.fyp_main import init_config, extract_and_join_subkeys, clean_url, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
+    import numpy as np
 
     if cf is None:
         cf = init_config()
@@ -62,7 +63,7 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
     # drop the items with corrupt item_ids
     zeeschuimer_logs_df = copy(zeeschuimer_logs_df[zeeschuimer_logs_df.item_id.map(lambda x:all([u in "0123456789" for u in x]) and len(x) == 19)])
 
-    zeeschuimer_logs_df.item_id = zeeschuimer_logs_df.item_id.astype(int)
+    zeeschuimer_logs_df.item_id = zeeschuimer_logs_df.item_id.astype("string[pyarrow]")
 
     # drop these columns
     zeeschuimer_logs_df.drop(columns=["avatar", "secUid", "data.contents", "music.cover", "music.playUrl", "data.video"], errors="ignore", inplace=True)
@@ -115,15 +116,18 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
     del zeeschuimer_logs_df["source_url"]
 
     # convert the 'data.createTime' and 'timestamp_collected' columns to datetime
-    zeeschuimer_logs_df["data.createTime"] = zeeschuimer_logs_df["data.createTime"].astype(int)
+    zeeschuimer_logs_df["data.createTime"] = zeeschuimer_logs_df["data.createTime"].astype(np.int64)
     zeeschuimer_logs_df["data.createTime"] = zeeschuimer_logs_df["data.createTime"].apply(lambda x:datetime.fromtimestamp(x))
-    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].astype(int)
-    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].apply(lambda x: datetime.fromtimestamp(int(x/1000)))
+    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].astype(np.int64)
+    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].apply(lambda x: datetime.fromtimestamp(np.int64(x/1000)))
 
     # replace commas and newlines in object columns with spaces
     object_cols = [c for c in zeeschuimer_logs_df.columns if zeeschuimer_logs_df[c].dtype == 'object']
     zeeschuimer_logs_df[object_cols] = zeeschuimer_logs_df[object_cols].map(lambda x: x.replace(","," ") if type(x)==str else x)
     zeeschuimer_logs_df[object_cols] = zeeschuimer_logs_df[object_cols].map(lambda x: x.replace("\n"," ") if type(x) == str else x)
+
+
+    zeeschuimer_logs_df = convert_dtypes_to_pyarrow(zeeschuimer_logs_df)
 
     return zeeschuimer_logs_df
 
@@ -181,7 +185,7 @@ def move_and_refine_recent_file(
     from os.path import basename, join, exists
     import subprocess
     from datetime import datetime
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
+    from fyp.fyp_main import init_config
     import fyp.data_io as data_io
 
     if cf is None:
@@ -225,7 +229,7 @@ def move_and_refine_recent_file(
 
     # save the refined zeeschuimer log as a processed file
     print(f"Saving the log file as a DataFrame: '{zee_processed_fn}'.")
-    refined_zee_log = convert_dtypes_to_pyarrow(refined_zee_log, verbose=verbose)
+
     data_io.save_dataset(refined_zee_log, join(cf["paths"]["zeeschuimer_refined"], zee_processed_fn), verbose=verbose)
     
     # print some info about what is in refined_zee_log

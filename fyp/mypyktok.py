@@ -52,21 +52,21 @@ def generate_data_row(item_struct):
     pyk_data_defaults = {
         'desc': "",
         'createTime': "no default", # the type is datetime, but that doesn't work for me but aok, since I'm not using it anyway
-        'item_id': 0,
+        'item_id': "",
         'video_duration': -1,
         'image_list': "",
-        'author_id': 0,
+        'author_id': "",
         'author_uniqueId': "",
         'author_nickname': "",
         'author_signature': "",
         'author_verified': False,
-        'music_id': 0,
+        'music_id': "",
         'music_title': "",
         'music_authorName': "",
         'music_album': "",
         'music_original': False,
         'music_duration': 0,
-        'playlistId': 0,
+        'playlistId': "",
         'stats_diggCount': -1,
         'stats_commentCount': -1,
         'stats_playCount': -1,
@@ -91,7 +91,7 @@ def generate_data_row(item_struct):
         'last_modified': "no default" # the type is datetime, but that doesn't work for me but aok, since I'm not using it anyway
     }
 
-    item_struct["item_id"] = int(item_struct["id"])
+    item_struct["item_id"] = str(item_struct["id"])
 
     try:
         item_struct["createTime"] = datetime.fromtimestamp(int(item_struct["createTime"]))

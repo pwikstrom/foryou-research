@@ -390,6 +390,9 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
     for col in df.columns:
         try:
             df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
+            #if col=="item_id":
+            #    print("1111")
+            #    df[col] = df[col].astype("string[pyarrow]")
             if verbose:
                 print(f"Converted {col} to {df[col].dtype}")
         except:

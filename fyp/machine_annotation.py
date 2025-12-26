@@ -1474,7 +1474,7 @@ def annotate_videos_loop(
 
 
         if len(selected_videos) > 0:
-            work_with_these_videos_list_raw = [int(k) for k in selected_videos.item_id.to_list()]
+            work_with_these_videos_list_raw = [str(k) for k in selected_videos.item_id.to_list()]
             work_with_these_videos_list = work_with_these_videos_list_raw.copy()
 
             print(f"{len(work_with_these_videos_list):,} videos selected")

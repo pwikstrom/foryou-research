@@ -396,7 +396,7 @@ def load_failed_scrapes(
             print(fn)
         with open(fn, 'r') as file:
             failed_scrapes += json_load(file)
-    failed_scrapes = set(map(lambda x:int(x), failed_scrapes))
+    failed_scrapes = set(map(lambda one_item_id:str(one_item_id), failed_scrapes))
 
     if consolidate and len(failed_scrape_files) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
@@ -485,7 +485,7 @@ def load_zeeschuimer_data(
         zeeschuimer_refined_files = list(set(map(lambda x:".".join(x.split(".")[:-1]), zeeschuimer_refined_files)))
 
         for fn in zeeschuimer_refined_files:
-            print(fn)
+            #print(fn)
             zeeschuimer_candidate = data_io.load_dataset(join(cf["paths"]["zeeschuimer_refined"],fn), verbose=verbose)
 
             empty_columns = []
@@ -664,25 +664,12 @@ def sample_ddp_events(
     if verbose:
         print(f"Sampling {N_SAMPLED_DATES_FROM_EACH_DONATION} dates from each donation, giving {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
 
-    #all_ddp_events_df['feature_name'].fillna("-", inplace=True)
 
     # get the watch events in these sampled donation-date groups (nonb-watch events are just cream on top)
-    #print("11111111111111")
-    #print(all_ddp_events_df['feature_name'].info())
-    #print("11111111111111")
-    #print(all_ddp_events_df['feature_name'].dtype)
-    #print("11111111111111")
-    #print(all_ddp_events_df['feature_name'].unique())
-    #print("11111111111111")
     ddp_events_in_sampled_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"]#.set_index(group_factors).loc[sampled_donation_date_groups_by_regulars.index].reset_index()
-    #print("22222222222222")
-    #print(ddp_events_in_sampled_groups[group_factors].head())
     ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.set_index(group_factors)#.loc[sampled_donation_date_groups_by_regulars.index].reset_index()
-    #print("33333333333333")
     ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.loc[sampled_donation_date_groups_by_regulars.index]#.reset_index()
-    #print("44444444444444")
     ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.reset_index()
-    #print("55555555555555")
     if verbose:
         print(f"There are {len(ddp_events_in_sampled_groups):,} events in these {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
 
@@ -859,7 +846,7 @@ def load_special_donations(
 
     from pandas import concat, DataFrame
     from os.path import join
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
     from datetime import datetime
 
@@ -923,6 +910,9 @@ def load_special_donations(
         some_events_df_in = special_ddp_events_df,
         kind_of_log = 'ddp',
         verbose = verbose)
+
+    special_ddp_events_df = convert_dtypes_to_pyarrow(special_ddp_events_df, verbose=verbose)
+
 
     return {"data_special_ddps":special_ddp_events_df}
 
@@ -1044,9 +1034,10 @@ def identify_unique_videos(cf = None, study_name = None, all_datasets = None, ve
         unique_ddp_videos = ddp_video_stats[ddp_video_stats.nunique_users >= MIN_NUNIQUE_USERS].copy()
         if verbose:
             print(f"Keeping unique DDP videos that have been watched/liked/etc by at least {MIN_NUNIQUE_USERS} unique users. Shape: {unique_ddp_videos.shape}")
-
-        # extracting item ids from the URLs (in the index) - vectorized
-        unique_ddp_videos["item_id"] = unique_ddp_videos.index.str.split("/").str[-2].astype(int)
+        #return unique_ddp_videos
+        # extracting item ids from the URLs (in the index)
+        unique_ddp_videos["item_id"] = [parts[-2] if len(parts := s.rsplit("/", 2)) > 1 else None for s in unique_ddp_videos.index]
+        #unique_ddp_videos["item_id"] = unique_ddp_videos.index.str.split("/").str[-2].astype(int)
     else:
         if verbose:
             print("No events in the combined DDP dataframe")
@@ -1057,7 +1048,7 @@ def identify_unique_videos(cf = None, study_name = None, all_datasets = None, ve
 
     if len(all_datasets["data_baseline_log"])>0:
 
-        unique_item_id_list = list(int(k) for k in all_datasets["data_baseline_log"].item_id.unique())
+        unique_item_id_list = list(str(k) for k in all_datasets["data_baseline_log"].item_id.unique())
         unique_baseline_videos = DataFrame()
         unique_baseline_videos['item_id'] = unique_item_id_list
         unique_baseline_videos['nunique_users'] = NA
@@ -1070,8 +1061,9 @@ def identify_unique_videos(cf = None, study_name = None, all_datasets = None, ve
     if verbose:
         print(f"Unique videos identified in the baseline logs: {len(list(set(unique_baseline_videos.index.tolist()))):,}")
 
-    ### combine unique donation videos with unique baseline videos
-    dataframes_to_combine = [k for k in [unique_baseline_videos, unique_ddp_videos] if len(k) > 0]
+    ### combine unique donation videos with unique baseline videos.Drop columns with all NaN values
+    dataframes_to_combine = [k.dropna(axis="columns", how="all") for k in [unique_baseline_videos, unique_ddp_videos] if len(k) > 0]
+    
     video_observation_stats = concat(dataframes_to_combine, ignore_index=True).drop_duplicates(subset='item_id', keep='last')
     if verbose:
         print(f"Combining unique videos from data donation events with videos from baseline data into a DF with the shape: {video_observation_stats.shape}")
@@ -1102,7 +1094,7 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, all_dataset
     failed_scrapes = load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True)
 
     # load 
-    machine_annotated_videos = set([int(k) for k in all_datasets["data_annotated"].item_id.tolist()])
+    machine_annotated_videos = set([str(k) for k in all_datasets["data_annotated"].item_id.tolist()])
 
     failed_annotations = set(load_machine_annotations(
         include_failed_calls=True,
@@ -1114,11 +1106,11 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, all_dataset
     if verbose:
         print(f"Too long videos: {len(too_long_videos):,} of {len(all_datasets['data_scraped']):,}")
 
-    completed_downloads = set([int(k) for k in all_datasets["data_scraped"][all_datasets["data_scraped"]["video_downloaded"]].item_id.to_list()]) - too_long_videos
-    missing_downloads = set([int(k) for k in all_datasets["data_scraped"][~all_datasets["data_scraped"]["video_downloaded"]].item_id.to_list()]) | too_long_videos
+    completed_downloads = set([str(k) for k in all_datasets["data_scraped"][all_datasets["data_scraped"]["video_downloaded"]].item_id.to_list()]) - too_long_videos
+    missing_downloads = set([str(k) for k in all_datasets["data_scraped"][~all_datasets["data_scraped"]["video_downloaded"]].item_id.to_list()]) | too_long_videos
 
     unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, all_datasets = all_datasets, verbose=verbose)
-    all_unique_videos = set([int(k) for k in unique_videos_with_stats.item_id.to_list()])
+    all_unique_videos = set([str(k) for k in unique_videos_with_stats.item_id.to_list()])
 
     failed_annotations = failed_annotations & all_unique_videos
 
@@ -1226,10 +1218,21 @@ def save_selected_unique_video_subsets(
         file_label += "_"
     unique_videos_filename = f"{study_name}_{file_label}UNIQUE{file_format}"
 
+
+
     unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, all_datasets = all_datasets, verbose=False)
+
+    if verbose:
+        print(f"Unique videos with stats shape: {unique_videos_with_stats.shape}")
+        print(f"Type of first item in work_with_these_videos: {type(list(work_with_these_videos)[0])}")
+        print(f"Type of item_id in unique_videos_with_stats: {unique_videos_with_stats.item_id.dtype}")
+
     all_unique_videos_to_save = unique_videos_with_stats[unique_videos_with_stats.item_id.isin(work_with_these_videos)].copy()
 
     all_unique_videos_to_save = convert_dtypes_to_pyarrow(all_unique_videos_to_save, verbose=verbose)
+
+    if verbose:
+        print(f"All unique videos to save shape: {all_unique_videos_to_save.shape}")
 
     data_io.save_dataset(all_unique_videos_to_save, join(cf['paths']['exports'],unique_videos_filename), verbose=verbose)
 
