@@ -59,6 +59,8 @@ def pairwise_matrix_for_categorical_groups(
         return np.linalg.norm(np.sqrt(p) - np.sqrt(q)) / np.sqrt(2)  # in [0,1]
 
     def _total_variation(p: np.ndarray, q: np.ndarray, eps: float = 0.0) -> float:
+        print(p)
+        print(q)
         p = p + eps; q = q + eps
         p /= p.sum(); q /= q.sum()
         return 0.5 * np.abs(p - q).sum()  # in [0,1]
@@ -378,7 +380,6 @@ def transform_categories_to_components_and_diversity(
     gamma: optional probability tempering in (0,1], e.g., 0.8 to soften the head
     drop_rare_globally_below: drop categories whose global relative mass is below this threshold
     """
-
     entropy_and_dominance = calc_entropy_and_dominance(counts_df, 1)
 
     D = pairwise_matrix_for_categorical_groups(
@@ -444,6 +445,7 @@ def transform_categories_to_components_and_diversity(
         group_labels = counts_df.index  # placeholder if groups=rows
         # raise ValueError("Need a group label column or separate argument")
 
+
     return result_df, pc_df, xx
 
 
@@ -469,7 +471,7 @@ def calculate_scaled_pca_scores(
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.recode_variables import get_factors_and_features_from_var_scheme
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow, is_list_like_col
     import fyp.data_io as data_io
 
     if study_name is None:
@@ -538,9 +540,9 @@ def calculate_scaled_pca_scores(
     
 
     comp_interpretations = {}
+
     for i,c in enumerate(some_events_df[fyp_features].columns):
-        if c in some_events_df.select_dtypes(object).columns:
-            
+        if c in some_events_df.select_dtypes(exclude=["number"]).columns:
             counts_df = transform_category_column_to_counts_df(some_events_df, the_column=c, the_selected_factors=selected_factors)
 
             if verbose:
@@ -562,18 +564,24 @@ def calculate_scaled_pca_scores(
             else:
                 wer.index = wer.index.get_level_values(0)
                 wer.index.name = selected_factors[0]
+
             
         else:
             the_pc_df = None
             comp_interpretation = {}
             wer = DataFrame(some_events_df[[c] + selected_factors].groupby(selected_factors).mean())
-        
+
+
         for cvb in comp_interpretation:
             comp_interpretations[c+"_"+cvb] = comp_interpretation[cvb]
 
         events_pca_scores += [wer.copy()]
 
+
+    #return events_pca_scores
+
     events_pca_scores = concat(events_pca_scores, axis=1)
+
     if verbose:
         print(f"Rows: {len(events_pca_scores):,} -- Cols: {len(events_pca_scores.columns):,}")
 

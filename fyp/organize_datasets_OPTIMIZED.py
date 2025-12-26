@@ -1731,7 +1731,7 @@ def _process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=
         print(f"Processing scraped metadata {scrape_metadata_log.shape} for log export. Log shape:{combined_log.shape}")
 
 
-    object_cols = scrape_metadata_log.select_dtypes(include=['object']).columns
+    object_cols = scrape_metadata_log.select_dtypes(exclude=['number']).columns
     scrape_metadata_log[object_cols] = scrape_metadata_log[object_cols].replace('nan', '').infer_objects(copy=False)
 
 
@@ -2039,6 +2039,7 @@ def save_logs_as_csv(
     from datetime import datetime
     from os.path import join
     from fyp.fyp_main import init_config
+    from numpy import float64 as np_float64
 
     if cf is None:
         cf = init_config()
@@ -2086,7 +2087,7 @@ def save_logs_as_csv(
         # Vectorized string cleaning - chain multiple replacements
         if verbose:
             print("Cleaning string data...")
-        string_cols = outdata_for_csv_export.select_dtypes(include=['object']).columns
+        string_cols = outdata_for_csv_export.select_dtypes(exclude=['number']).columns
         for col in string_cols:
             outdata_for_csv_export[col] = (
                 outdata_for_csv_export[col]
@@ -2104,12 +2105,12 @@ def save_logs_as_csv(
         # VECTORIZED: Only apply to string columns, not entire DataFrame
         if verbose:
             print("Cleaning surrogate characters from string data...")
-        string_cols = outdata_for_csv_export.select_dtypes(include=['object']).columns
+        string_cols = outdata_for_csv_export.select_dtypes(exclude=['number']).columns
         for col in string_cols:
             outdata_for_csv_export[col] = outdata_for_csv_export[col].apply(_clean_surrogates)
 
         # all numbers except for those related to session stats can be integers, so let's retype those
-        some_float_cols = [c for c in outdata_for_csv_export.select_dtypes(include=[float]).columns if not "session" in c]
+        some_float_cols = [c for c in outdata_for_csv_export.select_dtypes(include=[float, np_float64]).columns if not "session" in c]
         outdata_for_csv_export[some_float_cols] = outdata_for_csv_export[some_float_cols].fillna(value=-1).astype(int)
 
 

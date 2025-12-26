@@ -7,6 +7,7 @@ fyp_cf = init_project(verbose=False)
 
 
 def load_data(file_path):
+    from numpy import ndarray as np_ndarray
     try:
         if file_path.endswith(fyp_cf['misc']['file_format']):
             df = data_io.load_dataset(file_path)
@@ -28,12 +29,12 @@ def load_data(file_path):
         val = df[col].loc[first_valid_index]
 
         # 1. Check for List (actual list or stringified)
-        if isinstance(val, list) or isinstance(val, np.ndarray):
+        if isinstance(val, (list, np_ndarray)):
             column_types[col] = "list"
         elif isinstance(val, str) and val.strip().startswith('[') and val.strip().endswith(']'):
             try:
                 # Attempt to parse entire column as list
-                df[col] = df[col].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) and x.strip().startswith('[') else (x if isinstance(x, list) else []))
+                df[col] = df[col].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) and x.strip().startswith('[') else (x if isinstance(x, (list, np_ndarray)) else []))
                 column_types[col] = "list"
             except (ValueError, SyntaxError):
                 column_types[col] = "category"
@@ -106,6 +107,7 @@ def get_metadata(df, column_types):
     - columns: { name: type }
     - stats: min/max for numbers, unique values for categories
     """
+    from numpy import ndarray as np_ndarray
     metadata = {}
     for col, dtype in column_types.items():
         if dtype == "number":
@@ -134,7 +136,7 @@ def get_metadata(df, column_types):
             # Flatten
             all_items = []
             for row in df[col].dropna():
-                if isinstance(row, list):
+                if isinstance(row, (list, np_ndarray)):
                     all_items.extend(row)
             
             # Use Counter to find top 50 tags
@@ -160,6 +162,8 @@ def get_metadata(df, column_types):
 
 
 def filter_dataframe(df, column_types, filters, search_query=None):
+    from numpy import ndarray as np_ndarray
+
     filtered_df = df.copy()
 
     for col, criteria in filters.items():
@@ -181,13 +185,13 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                 filtered_df = filtered_df[filtered_df[col] <= float(max_val)]
 
         elif dtype == "category":
-            if isinstance(val, list) and len(val) > 0:
+            if isinstance(val, (list, np_ndarray)) and len(val) > 0:
                 filtered_df = filtered_df[filtered_df[col].astype(str).isin(val)]
         
         elif dtype == "list":
-            if isinstance(val, list) and len(val) > 0:
+            if isinstance(val, (list, np_ndarray)) and len(val) > 0:
                 search_set = set(val)
-                filtered_df = filtered_df[filtered_df[col].apply(lambda x: bool(set(x) & search_set) if isinstance(x, list) else False)]
+                filtered_df = filtered_df[filtered_df[col].apply(lambda x: bool(set(x) & search_set) if isinstance(x, (list, np_ndarray)) else False)]
 
     # Global Search Logic
     if search_query and isinstance(search_query, str):
@@ -236,6 +240,7 @@ def calculate_adaptive_histogram(data, min_val, max_val, bins=50, max_empty_rati
 
 def get_current_stats(df, column_types, viz_config=None):
     from pandas import set_option
+    from numpy import ndarray as np_ndarray
     set_option('future.no_silent_downcasting', True)
     """
     Returns robust stats for the (filtered) dataframe.
@@ -365,7 +370,7 @@ def get_current_stats(df, column_types, viz_config=None):
                          # "10|30|50"
                          # If log, edges need transform. 
                          chosen_bins = bins_arg
-                         if isinstance(chosen_bins, list):
+                         if isinstance(chosen_bins, (list, np_ndarray)):
                              # Transform edges to log
                              chosen_bins = [np.log10(b + 1) for b in chosen_bins]
                              # Add min/max to edges if not covering range? 
@@ -443,7 +448,7 @@ def get_current_stats(df, column_types, viz_config=None):
             # Flatten and count
             all_items = []
             for row in df[col].dropna():
-                    if isinstance(row, list):
+                    if isinstance(row, (list, np_ndarray)):
                         all_items.extend(row)
             
             from collections import Counter

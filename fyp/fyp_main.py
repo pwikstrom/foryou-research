@@ -437,6 +437,23 @@ def chunk_list(lst, n):
         yield lst[i:i + n]
 
 
+
+
+def is_list_like_col(s):
+    from pyarrow import types as pa_types
+    from pandas import ArrowDtype
+    # Check for the Arrow List type (your original code)
+    is_arrow_list = (
+        isinstance(s.dtype, ArrowDtype) and 
+        pa_types.is_list(s.dtype.pyarrow_dtype)
+    )
+    # Check for the "good old" object type
+    is_object = s.dtype == "object"
+    
+    return is_arrow_list or is_object
+
+
+
 def sort_by_similarity(reference: str, candidates: Iterable[str]) -> List[str]:
     """
     Return the candidates sorted from most to least similar to the reference string.

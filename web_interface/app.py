@@ -742,7 +742,7 @@ def api_pca_metadata():
     # BUT we need to check if they exist in the DF.
     
     # 1. Numeric
-    numeric_cols = df.select_dtypes(include=['float', 'int']).columns.tolist()
+    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
     # Filter out boring ones? Keep all for flexibility.
     
     # 2. Factors from var_scheme
@@ -759,7 +759,7 @@ def api_pca_metadata():
     
     # Fallback if var_scheme not loaded or matching
     if not factors:
-        factors = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        raise Exception("No factors found in var_scheme")
 
     # Get unique values for factors (for filters)
     factor_values = {}

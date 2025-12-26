@@ -889,7 +889,7 @@ def clean_up_machine_annotations(some_events, verbose = False):
     some_cleaned_up_events = some_events.copy()
 
     # iterate over all object type columns in the events DF that starts w G_, i.e. are machine annotations
-    for c in [k for k in some_events.select_dtypes(object).columns if k.startswith("G_")]:
+    for c in [k for k in some_events.select_dtypes(exclude=["number"]).columns if k.startswith("G_")]:
 
         # Step 1 of 3: Flatten and filter the column
         flattened_column = _flatten_and_filter(some_events[c], exclude=["DDP","BASELINE", UNABLE_TO_DETECT, "", OTHER_THINGS])
