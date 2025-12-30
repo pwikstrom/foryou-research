@@ -62,7 +62,11 @@ processes = {
 
 
 
+
+
 process_stats = {}
+
+
 
 
 
@@ -72,6 +76,10 @@ active_explorer_study = None # Store currently loaded study name
 explorer_df = None
 explorer_col_types = None
 explorer_total_stats = None
+
+
+
+
 
 
 
@@ -101,6 +109,9 @@ def get_explorer_data(study):
 
 
 
+
+
+
 def load_process_stats():
     global process_stats
     if PROCESS_STATS_FILE.exists():
@@ -115,6 +126,9 @@ def load_process_stats():
 
 
 
+
+
+
 def save_process_stats():
     try:
         with open(PROCESS_STATS_FILE, 'w') as f:
@@ -124,8 +138,13 @@ def save_process_stats():
 
 
 
+
+
 # Load stats on startup
 load_process_stats()
+
+
+
 
 
 
@@ -154,6 +173,9 @@ def enqueue_output(out, queue, process_state):
         else:
             queue.append(line_str)
     out.close()
+
+
+
 
 
 
@@ -195,6 +217,9 @@ def monitor_process_completion(name, proc):
 
 
 
+
+
+
 def start_process(name, script_path, args=[], study_name=None):
     if processes[name]["proc"] is not None:
         if processes[name]["proc"].poll() is None:
@@ -203,9 +228,9 @@ def start_process(name, script_path, args=[], study_name=None):
     env_vars = os.environ.copy()
     env_vars["WEB_INTERFACE"] = "true"
     
-    if args and isinstance(args[-1], dict) and args[-1].get("testing"):
-        env_vars["FYP_TESTING"] = "true"
-        args.pop() # Remove the config dict from args if passed
+    #if args and isinstance(args[-1], dict) and args[-1].get("testing"):
+    #    env_vars["FYP_TESTING"] = "true"
+    #    args.pop() # Remove the config dict from args if passed
 
     cmd = [PYTHON_EXEC, "-u", str(script_path)] + args
 
@@ -237,6 +262,9 @@ def start_process(name, script_path, args=[], study_name=None):
         return True, "Started"
     except Exception as e:
         return False, str(e)
+
+
+
 
 
 
@@ -288,18 +316,18 @@ def api_start(name):
              args.extend(["--max-batches", str(data["max_batches"])])
 
     # Pass testing flag if present
-    if data.get("testing"):
-        args.append("--testing") # Or however the scripts handle it. 
-        # Wait, the other scripts might expect it differently? 
-        # downloader uses os.environ usually passed via env var, but previous code 
-        # had: if data.get("testing"): args.append({"testing": True}) <- wait, args must be strings for subprocess.
-        # Let's see how start_process handles args.
-        # Actually start_process does: cmd = [PYTHON_EXEC, script_path] + [str(a) for a in args]
-        # So passing a dict {"testing": True} would become string representation.
-        # But wait, looking at my previous read of app.py (Step 248? No, 353 and earlier).
-        # run_regenerate_datasets.py creates env var from CLI? No.
-        # run_downloader.py handles it?
-        # Let's look at `start_process` implementation if I can.
+    #if data.get("testing"):
+    #    args.append("--testing") # Or however the scripts handle it. 
+    #    # Wait, the other scripts might expect it differently? 
+    #    # downloader uses os.environ usually passed via env var, but previous code 
+    #    # had: if data.get("testing"): args.append({"testing": True}) <- wait, args must be strings for subprocess.
+    #    # Let's see how start_process handles args.
+    #    # Actually start_process does: cmd = [PYTHON_EXEC, script_path] + [str(a) for a in args]
+    #    # So passing a dict {"testing": True} would become string representation.
+    #    # But wait, looking at my previous read of app.py (Step 248? No, 353 and earlier).
+    #    # run_regenerate_datasets.py creates env var from CLI? No.
+    #    # run_downloader.py handles it?
+    #    # Let's look at `start_process` implementation if I can.
         
     study_name = data.get("study_name") 
 
@@ -431,12 +459,18 @@ def api_explorer_studies():
     return jsonify(sorted(studies))
 
 
+
+
+
 @app.route('/api/studies/defined', methods=['GET'])
 def api_get_study_defs():
     """Return list of study keys defined in fyp_cf['study_defs']"""
     if 'study_defs' in fyp_cf:
         return jsonify(sorted(list(fyp_cf['study_defs'].keys())))
     return jsonify([])
+
+
+
 
 
 
@@ -540,6 +574,11 @@ def api_explorer_metadata():
     return jsonify(metadata)
 
 
+
+
+
+
+
 def get_viz_config():
     """
     Reads var_scheme.csv and returns a dictionary of visualization settings.
@@ -601,6 +640,11 @@ def get_viz_config():
     return config
 
 
+
+
+
+
+
 @app.route('/api/explorer/filter', methods=['POST'])
 def api_explorer_filter():
     data = request.json or {}
@@ -640,6 +684,10 @@ def api_explorer_filter():
         result['count2'] = res2['count']
     
     return jsonify(result)
+
+
+
+
 
 
 
@@ -694,11 +742,13 @@ def api_viewer_ids():
     return jsonify({"ids": ids, "count": len(ids)})
 
 
+
+
+
+
+
 # --- PCA Visualization Endpoints ---
 
-# Cache logic for PCA data? Reuse get_explorer_data for efficiency if possible?
-# But PCA data is a DIFFERENT file ({study}_PCA..).
-# Let's add a separate cache or helper.
 
 pca_df_cache = {}
 
@@ -727,6 +777,9 @@ def get_pca_df(study_name):
     except Exception as e:
         print(f"Error loading PCA: {e}")
         return None
+
+
+
 
 
 @app.route('/api/pca/metadata', methods=['POST'])
@@ -792,20 +845,23 @@ def api_pca_metadata():
     })
 
 
+
+
+
+
+
+
+
+
+
 @app.route('/api/pca/data', methods=['POST'])
 def api_pca_data():
     data = request.json or {}
-    print(data)
     study = data.get("study")
-    print(study)
     filters = data.get("filters", {})
-    print(filters)
     x_col = data.get("x_col")
-    print(x_col)
     y_col = data.get("y_col")
-    print(y_col)
     color_col = data.get("color_col")
-    print(color_col)
 
     if not study or not x_col or not y_col: 
         return jsonify({"error": "Missing params"}), 400
@@ -872,9 +928,114 @@ def api_pca_data():
 
 
 
+
+
+
+
 # --- Persona Explorer Endpoints ---
 
+# Initialize geocoder and timezone finder (lazy loaded)
+_geocoder = None
+_timezone_finder = None
+
+
+
+def _get_geocoder():
+    """Lazy-load the geocoder to avoid initialization on startup."""
+    global _geocoder
+    if _geocoder is None:
+        from geopy.geocoders import Nominatim
+        _geocoder = Nominatim(user_agent="fyp_persona_explorer")
+    return _geocoder
+
+
+
+
+
+def _get_timezone_finder():
+    """Lazy-load the timezone finder."""
+    global _timezone_finder
+    if _timezone_finder is None:
+        from timezonefinder import TimezoneFinder
+        _timezone_finder = TimezoneFinder()
+    return _timezone_finder
+
+
+
+
+
+
+
+def _infer_tz_from_location(postcode, country):
+    """
+    Infer UTC offset from postcode and country using geocoding.
+    Returns the UTC offset as an integer, or None if inference fails.
+    """
+    # Handle None, NA, empty strings safely
+    def is_empty(val):
+        if val is None:
+            return True
+        try:
+            if pd.isna(val):
+                return True
+        except (TypeError, ValueError):
+            pass
+        if isinstance(val, str) and val.strip() == '':
+            return True
+        return False
+    
+    if is_empty(postcode) and is_empty(country):
+        return None
+    
+    try:
+        from datetime import datetime
+        import pytz
+        
+        # Build query string
+        query_parts = []
+        if not is_empty(postcode):
+            query_parts.append(str(postcode).strip())
+        if not is_empty(country):
+            query_parts.append(str(country).strip())
+        
+        if not query_parts:
+            return None
+            
+        query = ", ".join(query_parts)
+        
+        # Geocode to get coordinates
+        geocoder = _get_geocoder()
+        location = geocoder.geocode(query, timeout=5)
+        
+        if location is None:
+            return None
+        
+        # Get timezone from coordinates
+        tf = _get_timezone_finder()
+        tz_name = tf.timezone_at(lat=location.latitude, lng=location.longitude)
+        
+        if tz_name is None:
+            return None
+        
+        # Convert timezone name to UTC offset
+        tz = pytz.timezone(tz_name)
+        # Use current time to get offset (handles DST)
+        now = datetime.now(tz)
+        offset_seconds = now.utcoffset().total_seconds()
+        offset_hours = int(offset_seconds / 3600)
+        
+        return offset_hours
+        
+    except Exception as e:
+        # Silently fail for individual lookups
+        return None
+
+
+
 PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
+
+
+
 
 @app.route('/api/persona_stats_info', methods=['GET'])
 def api_persona_stats_info():
@@ -892,6 +1053,10 @@ def api_persona_stats_info():
             return jsonify({"exists": False, "timestamp": None})
     except Exception as e:
         return jsonify({"exists": False, "timestamp": None, "error": str(e)})
+
+
+
+
 
 @app.route('/api/persona_stats_cached', methods=['GET'])
 def api_persona_stats_cached():
@@ -919,6 +1084,10 @@ def api_persona_stats_cached():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+
+
+
+
 def _make_serializable(obj):
     """Helper to convert non-JSON-serializable types."""
     if obj is None or pd.isna(obj):
@@ -930,6 +1099,12 @@ def _make_serializable(obj):
     if isinstance(obj, (list, tuple)):
         return [_make_serializable(x) for x in obj]
     return obj
+
+
+
+
+
+
 
 @app.route('/api/persona_stats', methods=['POST'])
 def api_persona_stats():
@@ -975,6 +1150,28 @@ def api_persona_stats():
                     on='donation_id',
                     how='left'
                 )
+                
+                # Infer timezone from location data (postcode + country)
+                print("Inferring timezone from location data...")
+                
+                def safe_get_value(row, col):
+                    """Get value from row and convert to Python native type."""
+                    val = row.get(col)
+                    if val is None:
+                        return None
+                    try:
+                        if pd.isna(val):
+                            return None
+                    except (TypeError, ValueError):
+                        pass
+                    return str(val) if val else None
+                
+                stats_df['location_tz_offset'] = stats_df.apply(
+                    lambda row: _infer_tz_from_location(safe_get_value(row, 'postCode'), safe_get_value(row, 'country')),
+                    axis=1
+                )
+                print(f"Location timezone inferred for {stats_df['location_tz_offset'].notna().sum()} donations")
+                
         except Exception as e:
             print(f"Could not load metadata: {e}")
             import traceback
@@ -1003,6 +1200,9 @@ def api_persona_stats():
 
 
 
+
+
+
 @app.route('/api/viewer/item/<study>/<item_id>', methods=['GET'])
 def api_viewer_item(study, item_id):
     df, col_types = get_explorer_data(study)
@@ -1023,6 +1223,9 @@ def api_viewer_item(study, item_id):
     # Convert row to dict. Handle NaNs
     record = row.iloc[0].replace({np.nan: None}).to_dict()
     return jsonify(record)
+
+
+
 
 
 
@@ -1062,6 +1265,8 @@ def api_video_stream(study, item_id):
                 yield chunk
 
     return Response(stream_with_context(generate()), mimetype="video/mp4")
+
+
 
 
 
@@ -1121,6 +1326,8 @@ def api_find_ndjson():
 
 
 
+
+
 @app.route('/api/ingest_ndjson', methods=['POST'])
 def api_ingest_ndjson():
     data = request.json or {}
@@ -1174,6 +1381,9 @@ def api_ingest_ndjson():
 
 
 
+
+
+
 @app.route('/api/browse_folder', methods=['POST'])
 def api_browse_folder():
     try:
@@ -1194,6 +1404,9 @@ def api_browse_folder():
             
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
 
 
 
@@ -1234,6 +1447,10 @@ def api_upload_ndjson():
         return jsonify({"error": str(e)}), 500
 
 
+
+
+
+
 @app.route('/api/study_files/<study_name>', methods=['GET'])
 def api_get_study_files(study_name):
     try:
@@ -1246,6 +1463,9 @@ def api_get_study_files(study_name):
         return jsonify({"error": "Failed to retrieve study files"}), 500
 
 
+
+
+
 @app.route('/api/check_datasets/<study_name>', methods=['GET'])
 def api_check_datasets(study_name):
     try:
@@ -1254,6 +1474,10 @@ def api_check_datasets(study_name):
     except Exception as e:
         print(f"Error checking datasets: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+
+
 
 
 @app.route('/api/check_video_counts/<study_name>', methods=['GET'])
