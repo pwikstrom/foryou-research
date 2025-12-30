@@ -203,7 +203,7 @@ def get_dataset_details(cf=None, study_name=None):
     export_path = cf["paths"]["exports"]
     
     try:
-        files = [f for f in listdir(export_path) if f.startswith(study_name) and f.endswith(".pkl")]
+        files = [f for f in listdir(export_path) if f.startswith(study_name) and (f.endswith(".pkl") or f.endswith(".parquet"))]
     except FileNotFoundError:
         return []
 

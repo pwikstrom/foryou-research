@@ -1,0 +1,171 @@
+<div id="persona_explorer" class="tab-pane">
+    <div class="control-bar">
+        <h3>Persona Explorer</h3>
+        <div class="control-group">
+            <button onclick="pe_loadStats()" class="btn-primary">Load All Stats</button>
+        </div>
+    </div>
+
+    <div class="pe-container">
+        <!-- Left Panel: Lists & Controls -->
+        <div class="pe-sidebar">
+            <div class="panel-card">
+                <h4>Select Donation</h4>
+                <select id="pe-donation-select" onchange="pe_onDonationSelect()" class="full-width-select"></select>
+
+                <div id="pe-details-card" class="details-card hidden">
+                    <h5 id="pe-details-id"></h5>
+                    <p id="pe-details-moniker" class="moniker-text"></p>
+                    <div id="pe-details-emoji" class="emoji-display"></div>
+                    <ul class="stats-list">
+                        <li><span class="stat-label">Active Days:</span> <span id="pe-stat-active-days"></span></li>
+                        <li><span class="stat-label">Total Events:</span> <span id="pe-stat-total-events"></span></li>
+                        <li><span class="stat-label">Peak Segment:</span> <span id="pe-stat-peak-segment"></span></li>
+                        <li><span class="stat-label">Watch Time:</span> <span id="pe-stat-watch-time"></span></li>
+                        <li><span class="stat-label">First Event:</span> <span id="pe-stat-first-event"></span></li>
+                        <li><span class="stat-label">Last Event:</span> <span id="pe-stat-last-event"></span></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="panel-card">
+                <h4>Persona Shape</h4>
+                <div id="pe-radar-plot" style="width: 100%; height: 300px;"></div>
+            </div>
+        </div>
+
+        <!-- Main Panel: Metric Histograms -->
+        <div class="pe-main">
+            <div class="panel-card">
+                <h4>Population Distribution by Metric</h4>
+                <p class="helper-text">Click on any bar to select that donation. The selected donation is highlighted in
+                    red across all charts.</p>
+                <div class="histogram-grid">
+                    <div id="pe-hist-videos_per_day" class="histogram-cell"></div>
+                    <div id="pe-hist-avg_watch_time_s" class="histogram-cell"></div>
+                    <div id="pe-hist-avg_session_duration_s" class="histogram-cell"></div>
+                    <div id="pe-hist-weekend_bias" class="histogram-cell"></div>
+                    <div id="pe-hist-activity_trend_slope" class="histogram-cell"></div>
+                    <div id="pe-hist-day_to_day_return_prob" class="histogram-cell"></div>
+                    <div id="pe-hist-session_velocity_vpm" class="histogram-cell"></div>
+                    <div id="pe-hist-likes_per_video" class="histogram-cell"></div>
+                    <div id="pe-hist-consistency_top_2_hours" class="histogram-cell"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .pe-container {
+        display: flex;
+        gap: 20px;
+        padding: 20px;
+        height: calc(100vh - 120px);
+        /* Adjust based on header */
+    }
+
+    .pe-sidebar {
+        flex: 0 0 350px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .pe-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .panel-card {
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .full-width-select {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+    }
+
+    .moniker-text {
+        font-style: italic;
+        color: #555;
+        font-weight: 500;
+        margin: 10px 0;
+        text-align: center;
+        min-height: 40px;
+    }
+
+    .emoji-display {
+        font-size: 2em;
+        text-align: center;
+        margin-bottom: 10px;
+    }
+
+    .stats-table {
+        width: 100%;
+        font-size: 0.9em;
+    }
+
+    .stats-table td {
+        padding: 4px;
+        border-bottom: 1px solid #eee;
+    }
+
+    .stats-table td:last-child {
+        text-align: right;
+        font-weight: bold;
+    }
+
+    .plot-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    .helper-text {
+        font-size: 0.85em;
+        color: #666;
+        margin-bottom: 15px;
+    }
+
+    .histogram-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+    }
+
+    .histogram-cell {
+        height: 250px;
+        border: 1px solid #eee;
+        border-radius: 4px;
+    }
+
+    .stats-list {
+        list-style: none;
+        padding: 0;
+        margin: 10px 0 0 0;
+        font-size: 0.85em;
+    }
+
+    .stats-list li {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 0;
+        border-bottom: 1px solid #eee;
+    }
+
+    .stat-label {
+        color: #666;
+    }
+</style>

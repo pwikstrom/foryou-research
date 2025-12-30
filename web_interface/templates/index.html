@@ -11,6 +11,7 @@
     <button class="tab-button" onclick="openTab(event, 'video_viewer')">Video Viewer</button>
     <button class="tab-button" onclick="openTab(event, 'pca_viz')">PCA Viz</button>
     <button class="tab-button" onclick="openTab(event, 'ingest_ndjson')">Ingest Zeeschuimer</button>
+    <button class="tab-button" onclick="openTab(event, 'persona_explorer')">Persona Explorer</button>
     <button class="tab-button" onclick="openTab(event, 'settings_tab_v2')">Settings</button>
 </div>
 
@@ -23,6 +24,7 @@
     {% include 'tabs/video_viewer.html' %}
     {% include 'tabs/pca_viz.html' %}
     {% include 'tabs/ingest_ndjson.html' %}
+    {% include 'tabs/persona_explorer.html' %}
     {% include 'tabs/settings_v2.html' %}
 </div>
 {% endblock %}

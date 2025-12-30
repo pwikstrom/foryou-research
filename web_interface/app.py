@@ -28,6 +28,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
 import fyp
 import fyp.data_io as data_io
+from fyp.calc_donation_stats import calculate_all_donation_stats
+from fyp.organize_datasets_OPTIMIZED import load_ddp_events
 # Initialize configuration to access paths
 fyp_cf = fyp.init_project(verbose=False)
 
@@ -798,6 +800,41 @@ def api_pca_data():
     x_col = data.get("x_col")
     y_col = data.get("y_col")
     color_col = data.get("color_col")
+
+
+# --- Persona Explorer Endpoints ---
+
+@app.route('/api/persona_stats', methods=['POST'])
+def api_persona_stats():
+    # Load global DDP events directly
+    try:
+        from os.path import join
+        
+        parquet_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_events.parquet')
+        print(f"Loading global DDP events from {parquet_path}...")
+        
+        events_df = pd.read_parquet(
+            parquet_path, 
+            engine='pyarrow', 
+            dtype_backend='pyarrow'
+        )
+        
+        if events_df is None or events_df.empty:
+            return jsonify({"error": "No DDP events found"}), 404
+            
+        print(f"Calculating persona stats for {len(events_df)} events...")
+        stats_df = calculate_all_donation_stats(events_df)
+        
+        # Convert to records for frontend
+        stats_df = stats_df.reset_index()
+        records = stats_df.replace({np.nan: None}).to_dict(orient='records')
+        
+        return jsonify(records)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
     if not study or not x_col or not y_col: 
         return jsonify({"error": "Missing params"}), 400

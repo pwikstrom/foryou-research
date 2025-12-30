@@ -10,15 +10,74 @@ WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday"
 
 
 
-def _get_day_segment_from_hour_of_day(the_hour):
-    if the_hour in [0,1,2,3,4,5]:
+
+def _day_segment_from_hour(hour: int) -> str:
+    if not (0 <= hour <= 23):
+        raise ValueError(f"hour must be in 0..23, got {hour}")
+    if hour <= 5:
         return "night"
-    elif the_hour in [6,7,8,9,10,11]:
-        return "morning" 
-    elif the_hour in [12,13,14,15,16,17]:
+    if hour <= 11:
+        return "morning"
+    if hour <= 17:
         return "afternoon"
+    return "evening"
+
+
+def timestamp_to_local_parts(
+    ts: int | float,
+    input_tz: str,
+    output_tz: str,
+    *,
+    ts_is_unix_utc: bool = True,
+) -> dict:
+    """
+    Args:
+        ts:
+          - If ts_is_unix_utc=True (default): `ts` is a real Unix timestamp (absolute instant).
+            In this mode, input_tz does NOT affect the final instant; it's included for metadata.
+          - If ts_is_unix_utc=False: `ts` is treated as an epoch-like number that was "recorded"
+            in the wall-clock of `input_tz`. In this mode, input_tz DOES affect output.
+
+        input_tz: timezone in which the timestamp was recorded/assumed.
+        output_tz: timezone that defines "local" outputs.
+        ts_is_unix_utc: choose interpretation mode (see above).
+    """
+    from datetime import datetime, timezone
+
+
+    in_zone = ZoneInfo(input_tz)
+    out_zone = ZoneInfo(output_tz)
+
+    if ts_is_unix_utc:
+        # Real Unix timestamp: absolute moment in time.
+        dt_local = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(out_zone)
     else:
-        return "evening"
+        # Reinterpretation mode:
+        # 1) Build the UTC wall-clock corresponding to ts (naive)
+        # 2) Pretend that wall-clock was actually in input_tz
+        # 3) Convert to output_tz
+        dt_naive_utc = datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None)
+        dt_in = dt_naive_utc.replace(tzinfo=in_zone)
+        dt_local = dt_in.astimezone(out_zone)
+
+    iso_year, iso_week, _ = dt_local.isocalendar()
+    local_week = f"{iso_year:04d}-{iso_week:02d}"
+    local_weekday = dt_local.strftime("%A").lower()
+    local_hour = dt_local.hour
+
+    return {
+        "ts": ts,
+        "input_tz": input_tz,
+        "output_tz": output_tz,
+        "ts_is_unix_utc": ts_is_unix_utc,
+        "local_week": local_week,
+        "local_weekday": local_weekday,
+        "local_hour": local_hour,
+        "local_day_segment": _day_segment_from_hour(local_hour),
+        "local_date": dt_local.strftime("%Y-%m-%d"),
+        "local_datetime": dt_local.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
 
 
 
