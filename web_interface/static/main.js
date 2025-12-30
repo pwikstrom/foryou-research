@@ -530,6 +530,13 @@ function openTab(evt, tabName) {
     if (tabName === 'settings_tab_v2') {
         openSettingsFile('studies.toml');
     }
+
+    // Persona Explorer - init on first open
+    if (tabName === 'persona_explorer') {
+        if (typeof pe_init === 'function' && (!window.pe_data || window.pe_data.length === 0)) {
+            pe_init();
+        }
+    }
 }
 
 async function fetchStudyFiles(studyName) {

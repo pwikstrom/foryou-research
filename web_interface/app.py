@@ -804,9 +804,66 @@ def api_pca_data():
 
 # --- Persona Explorer Endpoints ---
 
+PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
+
+@app.route('/api/persona_stats_info', methods=['GET'])
+def api_persona_stats_info():
+    """Get info about cached stats file (existence and timestamp)."""
+    try:
+        from os.path import join, exists, getmtime
+        cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
+        
+        if exists(cache_path):
+            mtime = getmtime(cache_path)
+            from datetime import datetime
+            timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
+            return jsonify({"exists": True, "timestamp": timestamp})
+        else:
+            return jsonify({"exists": False, "timestamp": None})
+    except Exception as e:
+        return jsonify({"exists": False, "timestamp": None, "error": str(e)})
+
+@app.route('/api/persona_stats_cached', methods=['GET'])
+def api_persona_stats_cached():
+    """Load pre-calculated stats from cache file."""
+    try:
+        from os.path import join, exists
+        cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
+        
+        if not exists(cache_path):
+            return jsonify({"error": "No cached stats found. Click 'Recalculate Stats' to generate."}), 404
+        
+        print(f"Loading cached persona stats from {cache_path}...")
+        stats_df = pd.read_parquet(cache_path, engine='pyarrow')
+        
+        # Convert to JSON-safe records
+        records = stats_df.replace({np.nan: None}).to_dict(orient='records')
+        for rec in records:
+            for key, val in rec.items():
+                rec[key] = _make_serializable(val)
+        
+        return jsonify(records)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+def _make_serializable(obj):
+    """Helper to convert non-JSON-serializable types."""
+    if obj is None or pd.isna(obj):
+        return None
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if hasattr(obj, 'tolist'):  # numpy scalars
+        return obj.tolist()
+    if isinstance(obj, (list, tuple)):
+        return [_make_serializable(x) for x in obj]
+    return obj
+
 @app.route('/api/persona_stats', methods=['POST'])
 def api_persona_stats():
-    # Load global DDP events directly
+    """Recalculate all persona stats and save to cache file."""
     try:
         from os.path import join
         
@@ -825,9 +882,45 @@ def api_persona_stats():
         print(f"Calculating persona stats for {len(events_df)} events...")
         stats_df = calculate_all_donation_stats(events_df)
         
-        # Convert to records for frontend
-        stats_df = stats_df.reset_index()
+        # Try to load and merge participant metadata
+        metadata_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_metadata.parquet')
+        try:
+            metadata_df = pd.read_parquet(metadata_path, engine='pyarrow')
+            print(f"Loaded {len(metadata_df)} metadata records")
+            
+            # Handle columns that might be pyarrow lists (convert to comma-joined strings)
+            list_columns = ['age', 'email', 'name', 'tiktokHandle', 'country', 'postCode']
+            for col in list_columns:
+                if col in metadata_df.columns:
+                    # Convert list-like values to comma-joined strings
+                    metadata_df[col] = metadata_df[col].apply(
+                        lambda x: ', '.join(str(v) for v in x) if hasattr(x, '__iter__') and not isinstance(x, str) else x
+                    )
+            
+            # Merge metadata with stats on donation_id
+            if 'donation_id' in metadata_df.columns:
+                cols_to_merge = ['donation_id'] + [c for c in ['email', 'name', 'date', 'age', 'tiktokHandle', 'country', 'postCode'] if c in metadata_df.columns]
+                stats_df = stats_df.merge(
+                    metadata_df[cols_to_merge].drop_duplicates('donation_id'),
+                    on='donation_id',
+                    how='left'
+                )
+        except Exception as e:
+            print(f"Could not load metadata: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Save stats to cache file
+        cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
+        stats_df = stats_df.reset_index(drop=True)
+        stats_df.to_parquet(cache_path, engine='pyarrow', index=False)
+        print(f"Saved persona stats cache to {cache_path}")
+        
+        # Convert to JSON-safe records
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')
+        for rec in records:
+            for key, val in rec.items():
+                rec[key] = _make_serializable(val)
         
         return jsonify(records)
         

@@ -1,8 +1,9 @@
 <div id="persona_explorer" class="tab-pane">
     <div class="control-bar">
         <h3>Persona Explorer</h3>
-        <div class="control-group">
-            <button onclick="pe_loadStats()" class="btn-primary">Load All Stats</button>
+        <div class="control-group" style="display: flex; align-items: center; gap: 15px;">
+            <span id="pe-stats-timestamp" class="timestamp-text" style="font-size: 0.85em; color: #888;"></span>
+            <button onclick="pe_recalculateStats()" class="btn-primary">Recalculate Stats</button>
         </div>
     </div>
 
@@ -16,15 +17,36 @@
                 <div id="pe-details-card" class="details-card hidden">
                     <h5 id="pe-details-id"></h5>
                     <p id="pe-details-moniker" class="moniker-text"></p>
-                    <div id="pe-details-emoji" class="emoji-display"></div>
-                    <ul class="stats-list">
-                        <li><span class="stat-label">Active Days:</span> <span id="pe-stat-active-days"></span></li>
-                        <li><span class="stat-label">Total Events:</span> <span id="pe-stat-total-events"></span></li>
-                        <li><span class="stat-label">Peak Segment:</span> <span id="pe-stat-peak-segment"></span></li>
-                        <li><span class="stat-label">Watch Time:</span> <span id="pe-stat-watch-time"></span></li>
-                        <li><span class="stat-label">First Event:</span> <span id="pe-stat-first-event"></span></li>
-                        <li><span class="stat-label">Last Event:</span> <span id="pe-stat-last-event"></span></li>
-                    </ul>
+
+                    <!-- Participant Info -->
+                    <div class="stats-section">
+                        <div class="section-title">Participant Info</div>
+                        <ul class="stats-list">
+                            <li><span class="stat-label">Name:</span> <span id="pe-stat-name"></span></li>
+                            <li><span class="stat-label">Email:</span> <span id="pe-stat-email"></span></li>
+                            <li><span class="stat-label">TikTok:</span> <span id="pe-stat-tiktok"></span></li>
+                            <li><span class="stat-label">Age:</span> <span id="pe-stat-age"></span></li>
+                            <li><span class="stat-label">Country:</span> <span id="pe-stat-country"></span></li>
+                            <li><span class="stat-label">Post Code:</span> <span id="pe-stat-postcode"></span></li>
+                            <li><span class="stat-label">Signup Date:</span> <span id="pe-stat-signup-date"></span></li>
+                        </ul>
+                    </div>
+
+                    <!-- Activity Stats -->
+                    <div class="stats-section">
+                        <div class="section-title">Activity Stats</div>
+                        <ul class="stats-list">
+                            <li><span class="stat-label">Timezone:</span> <span id="pe-stat-timezone"></span></li>
+                            <li><span class="stat-label">Active Days:</span> <span id="pe-stat-active-days"></span></li>
+                            <li><span class="stat-label">Total Events:</span> <span id="pe-stat-total-events"></span>
+                            </li>
+                            <li><span class="stat-label">Peak Segment:</span> <span id="pe-stat-peak-segment"></span>
+                            </li>
+                            <li><span class="stat-label">Watch Time:</span> <span id="pe-stat-watch-time"></span></li>
+                            <li><span class="stat-label">First Event:</span> <span id="pe-stat-first-event"></span></li>
+                            <li><span class="stat-label">Last Event:</span> <span id="pe-stat-last-event"></span></li>
+                        </ul>
+                    </div>
                 </div>
             </div>
 
@@ -34,22 +56,14 @@
             </div>
         </div>
 
-        <!-- Main Panel: Metric Histograms -->
+        <!-- Main Panel: Metric Strip Plots -->
         <div class="pe-main">
-            <div class="panel-card">
+            <div class="panel-card" style="overflow-y: auto;">
                 <h4>Population Distribution by Metric</h4>
-                <p class="helper-text">Click on any bar to select that donation. The selected donation is highlighted in
-                    red across all charts.</p>
-                <div class="histogram-grid">
-                    <div id="pe-hist-videos_per_day" class="histogram-cell"></div>
-                    <div id="pe-hist-avg_watch_time_s" class="histogram-cell"></div>
-                    <div id="pe-hist-avg_session_duration_s" class="histogram-cell"></div>
-                    <div id="pe-hist-weekend_bias" class="histogram-cell"></div>
-                    <div id="pe-hist-activity_trend_slope" class="histogram-cell"></div>
-                    <div id="pe-hist-day_to_day_return_prob" class="histogram-cell"></div>
-                    <div id="pe-hist-session_velocity_vpm" class="histogram-cell"></div>
-                    <div id="pe-hist-likes_per_video" class="histogram-cell"></div>
-                    <div id="pe-hist-consistency_top_2_hours" class="histogram-cell"></div>
+                <p class="helper-text">Click on any box to select that donation. Selected donation is highlighted in red
+                    across all metrics.</p>
+                <div id="pe-strips-container" class="strips-container">
+                    <!-- Strip plots will be generated dynamically -->
                 </div>
             </div>
         </div>
@@ -70,6 +84,7 @@
         display: flex;
         flex-direction: column;
         gap: 20px;
+        overflow-y: auto;
     }
 
     .pe-main {
@@ -139,22 +154,89 @@
         margin-bottom: 15px;
     }
 
-    .histogram-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 15px;
+    .strips-container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
     }
 
-    .histogram-cell {
-        height: 250px;
-        border: 1px solid #eee;
-        border-radius: 4px;
+    .strip-row {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .strip-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+    }
+
+    .strip-label {
+        font-weight: 600;
+        font-size: 0.9em;
+        color: #333;
+    }
+
+    .strip-selected-value {
+        font-size: 0.8em;
+        color: #e63946;
+        font-weight: 500;
+    }
+
+    .strip-boxes {
+        display: flex;
+        flex-wrap: nowrap;
+        width: 100%;
+    }
+
+    .strip-box {
+        flex: 1;
+        height: 20px;
+        background: #4a90d9;
+        cursor: pointer;
+        transition: transform 0.1s;
+        border-right: 1px solid #fff;
+    }
+
+    .strip-box:last-child {
+        border-right: none;
+    }
+
+    .strip-box:hover {
+        transform: scaleY(1.3);
+        z-index: 10;
+    }
+
+    .strip-box.selected {
+        background: #e63946;
+    }
+
+    .strip-axis {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75em;
+        color: #888;
+        margin-top: 2px;
+    }
+
+    .stats-section {
+        margin-top: 15px;
+    }
+
+    .section-title {
+        font-size: 0.75em;
+        font-weight: 600;
+        color: #999;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 5px;
     }
 
     .stats-list {
         list-style: none;
         padding: 0;
-        margin: 10px 0 0 0;
+        margin: 0;
         font-size: 0.85em;
     }
 
