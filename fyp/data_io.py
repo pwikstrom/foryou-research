@@ -165,7 +165,7 @@ def get_study_export_files(cf = None, study_name = None):
     study_files = {category: [] for category in export_file_categories}
     
     for fn in listdir(cf["paths"]["exports"]):
-        if fn.startswith(study_name) and fn.endswith(".pkl"):
+        if fn.startswith(study_name) and fn.endswith(cf['misc']['file_format']):
             for category in export_file_categories:
                 if category in fn:
                     study_files[category].append(getmtime(join(cf["paths"]["exports"], fn)))

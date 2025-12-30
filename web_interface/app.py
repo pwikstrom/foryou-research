@@ -795,11 +795,81 @@ def api_pca_metadata():
 @app.route('/api/pca/data', methods=['POST'])
 def api_pca_data():
     data = request.json or {}
+    print(data)
     study = data.get("study")
+    print(study)
     filters = data.get("filters", {})
+    print(filters)
     x_col = data.get("x_col")
+    print(x_col)
     y_col = data.get("y_col")
+    print(y_col)
     color_col = data.get("color_col")
+    print(color_col)
+
+    if not study or not x_col or not y_col: 
+        return jsonify({"error": "Missing params"}), 400
+
+    df = get_pca_df(study)
+    if df is None: return jsonify({"error": "PCA data not found"}), 404
+
+    # Filter
+    mask = pd.Series(True, index=df.index)
+    for col, vals in filters.items():
+        if col in df.columns:
+            # vals is list of allowed strings
+            mask &= df[col].astype(str).isin(vals)
+    
+    filtered_df = df[mask].copy()
+
+    # Prepare response
+    # Limit points? 
+    MAX_POINTS = 5000
+    if len(filtered_df) > MAX_POINTS:
+        filtered_df = filtered_df.sample(MAX_POINTS)
+
+    # Need to handle NaN in X/Y
+    filtered_df = filtered_df.dropna(subset=[x_col, y_col])
+    
+    # Construct output list
+    # x, y, color, text (metadata tooltip)
+    
+    # For tooltip, maybe include ID and Color val
+    # Assuming 'item_id' exists?
+    
+    result_data = []
+    
+    # Pre-fetch columns to numpy for speed?
+    # Or just itertuples
+    
+    # Ensure color column exists, else use default
+    has_color = color_col and color_col in filtered_df.columns
+    
+    for row in filtered_df.itertuples():
+        # Get vals safely
+        x_val = getattr(row, x_col)
+        y_val = getattr(row, y_col)
+        
+        c_val = "Default"
+        if has_color:
+            c_val = str(getattr(row, color_col))
+        
+        # Tooltip text
+        # Reuse 'item_id' if possible, else index?
+        # But 'itertuples' handles index as Index?
+        # Let's just put basic info
+        txt = f"{color_col}: {c_val}"
+        
+        result_data.append({
+            "x": x_val,
+            "y": y_val,
+            "color_val": c_val,
+            "text": txt
+        })
+
+    return jsonify({"data": result_data})
+
+
 
 
 # --- Persona Explorer Endpoints ---
@@ -929,67 +999,6 @@ def api_persona_stats():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-    if not study or not x_col or not y_col: 
-        return jsonify({"error": "Missing params"}), 400
-
-    df = get_pca_df(study)
-    if df is None: return jsonify({"error": "PCA data not found"}), 404
-
-    # Filter
-    mask = pd.Series(True, index=df.index)
-    for col, vals in filters.items():
-        if col in df.columns:
-            # vals is list of allowed strings
-            mask &= df[col].astype(str).isin(vals)
-    
-    filtered_df = df[mask].copy()
-
-    # Prepare response
-    # Limit points? 
-    MAX_POINTS = 5000
-    if len(filtered_df) > MAX_POINTS:
-        filtered_df = filtered_df.sample(MAX_POINTS)
-
-    # Need to handle NaN in X/Y
-    filtered_df = filtered_df.dropna(subset=[x_col, y_col])
-    
-    # Construct output list
-    # x, y, color, text (metadata tooltip)
-    
-    # For tooltip, maybe include ID and Color val
-    # Assuming 'item_id' exists?
-    
-    result_data = []
-    
-    # Pre-fetch columns to numpy for speed?
-    # Or just itertuples
-    
-    # Ensure color column exists, else use default
-    has_color = color_col and color_col in filtered_df.columns
-    
-    for row in filtered_df.itertuples():
-        # Get vals safely
-        x_val = getattr(row, x_col)
-        y_val = getattr(row, y_col)
-        
-        c_val = "Default"
-        if has_color:
-            c_val = str(getattr(row, color_col))
-        
-        # Tooltip text
-        # Reuse 'item_id' if possible, else index?
-        # But 'itertuples' handles index as Index?
-        # Let's just put basic info
-        txt = f"{color_col}: {c_val}"
-        
-        result_data.append({
-            "x": x_val,
-            "y": y_val,
-            "color_val": c_val,
-            "text": txt
-        })
-
-    return jsonify({"data": result_data})
 
 
 
