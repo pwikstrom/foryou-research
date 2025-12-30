@@ -28,7 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
 import fyp
 import fyp.data_io as data_io
-from fyp.calc_donation_stats import calculate_all_donation_stats
+from fyp.calc_donation_stats import calculate_all_donation_stats, enrich_stats_with_metadata
 from fyp.organize_datasets_OPTIMIZED import load_ddp_events
 # Initialize configuration to access paths
 fyp_cf = fyp.init_project(verbose=False)
@@ -934,104 +934,11 @@ def api_pca_data():
 
 # --- Persona Explorer Endpoints ---
 
-# Initialize geocoder and timezone finder (lazy loaded)
-_geocoder = None
-_timezone_finder = None
-
-
-
-def _get_geocoder():
-    """Lazy-load the geocoder to avoid initialization on startup."""
-    global _geocoder
-    if _geocoder is None:
-        from geopy.geocoders import Nominatim
-        _geocoder = Nominatim(user_agent="fyp_persona_explorer")
-    return _geocoder
 
 
 
 
-
-def _get_timezone_finder():
-    """Lazy-load the timezone finder."""
-    global _timezone_finder
-    if _timezone_finder is None:
-        from timezonefinder import TimezoneFinder
-        _timezone_finder = TimezoneFinder()
-    return _timezone_finder
-
-
-
-
-
-
-
-def _infer_tz_from_location(postcode, country):
-    """
-    Infer UTC offset from postcode and country using geocoding.
-    Returns the UTC offset as an integer, or None if inference fails.
-    """
-    # Handle None, NA, empty strings safely
-    def is_empty(val):
-        if val is None:
-            return True
-        try:
-            if pd.isna(val):
-                return True
-        except (TypeError, ValueError):
-            pass
-        if isinstance(val, str) and val.strip() == '':
-            return True
-        return False
-    
-    if is_empty(postcode) and is_empty(country):
-        return None
-    
-    try:
-        from datetime import datetime
-        import pytz
-        
-        # Build query string
-        query_parts = []
-        if not is_empty(postcode):
-            query_parts.append(str(postcode).strip())
-        if not is_empty(country):
-            query_parts.append(str(country).strip())
-        
-        if not query_parts:
-            return None
-            
-        query = ", ".join(query_parts)
-        
-        # Geocode to get coordinates
-        geocoder = _get_geocoder()
-        location = geocoder.geocode(query, timeout=5)
-        
-        if location is None:
-            return None
-        
-        # Get timezone from coordinates
-        tf = _get_timezone_finder()
-        tz_name = tf.timezone_at(lat=location.latitude, lng=location.longitude)
-        
-        if tz_name is None:
-            return None
-        
-        # Convert timezone name to UTC offset
-        tz = pytz.timezone(tz_name)
-        # Use current time to get offset (handles DST)
-        now = datetime.now(tz)
-        offset_seconds = now.utcoffset().total_seconds()
-        offset_hours = int(offset_seconds / 3600)
-        
-        return offset_hours
-        
-    except Exception as e:
-        # Silently fail for individual lookups
-        return None
-
-
-
+LOCATION_CACHE_FILE = 'location_timezone_cache.json'
 PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
 
 
@@ -1127,53 +1034,22 @@ def api_persona_stats():
         print(f"Calculating persona stats for {len(events_df)} events...")
         stats_df = calculate_all_donation_stats(events_df)
         
-        # Try to load and merge participant metadata
+        # Try to load participant metadata and enrich
         metadata_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_metadata.parquet')
         try:
-            metadata_df = pd.read_parquet(metadata_path, engine='pyarrow')
-            print(f"Loaded {len(metadata_df)} metadata records")
-            
-            # Handle columns that might be pyarrow lists (convert to comma-joined strings)
-            list_columns = ['age', 'email', 'name', 'tiktokHandle', 'country', 'postCode']
-            for col in list_columns:
-                if col in metadata_df.columns:
-                    # Convert list-like values to comma-joined strings
-                    metadata_df[col] = metadata_df[col].apply(
-                        lambda x: ', '.join(str(v) for v in x) if hasattr(x, '__iter__') and not isinstance(x, str) else x
-                    )
-            
-            # Merge metadata with stats on donation_id
-            if 'donation_id' in metadata_df.columns:
-                cols_to_merge = ['donation_id'] + [c for c in ['email', 'name', 'date', 'age', 'tiktokHandle', 'country', 'postCode'] if c in metadata_df.columns]
-                stats_df = stats_df.merge(
-                    metadata_df[cols_to_merge].drop_duplicates('donation_id'),
-                    on='donation_id',
-                    how='left'
-                )
+            if os.path.exists(metadata_path):
+                metadata_df = pd.read_parquet(metadata_path, engine='pyarrow')
+                print(f"Loaded {len(metadata_df)} metadata records")
                 
-                # Infer timezone from location data (postcode + country)
-                print("Inferring timezone from location data...")
+                # Cache file path
+                tz_cache_path = join(fyp_cf['paths']['ddp_main'], LOCATION_CACHE_FILE)
                 
-                def safe_get_value(row, col):
-                    """Get value from row and convert to Python native type."""
-                    val = row.get(col)
-                    if val is None:
-                        return None
-                    try:
-                        if pd.isna(val):
-                            return None
-                    except (TypeError, ValueError):
-                        pass
-                    return str(val) if val else None
-                
-                stats_df['location_tz_offset'] = stats_df.apply(
-                    lambda row: _infer_tz_from_location(safe_get_value(row, 'postCode'), safe_get_value(row, 'country')),
-                    axis=1
-                )
-                print(f"Location timezone inferred for {stats_df['location_tz_offset'].notna().sum()} donations")
+                stats_df = enrich_stats_with_metadata(stats_df, metadata_df, cache_path=tz_cache_path)
+            else:
+                print("Metadata file not found, skipping enrichment.")
                 
         except Exception as e:
-            print(f"Could not load metadata: {e}")
+            print(f"Could not load metadata or enrich stats: {e}")
             import traceback
             traceback.print_exc()
         
