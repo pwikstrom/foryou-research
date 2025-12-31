@@ -93,13 +93,14 @@ def extract_local_time_features(
     """
     Optimized version - extracts local time features from timestamps using vectorized operations.
     
-    This function was previously slow due to iterrows() and map(lambda) calls.
-    Now uses vectorized pandas operations for much better performance.
+    Now integrates per-donation timezone offsets from persona_stats_cache.
     """
-    from pandas import concat, to_datetime, Categorical, notna as pd_notna, NaT as pd_NaT
+    from pandas import concat, to_datetime, Categorical, notna as pd_notna, NaT as pd_NaT, read_parquet, to_timedelta
     from numpy import select as np_select
     from fyp.fyp_main import init_config
     import fyp.data_io as data_io
+    from os.path import join, exists
+    from datetime import datetime
 
     if cf is None:
         cf = init_config()
@@ -110,13 +111,13 @@ def extract_local_time_features(
     df = some_events_df_in.copy()
 
     if verbose:
-        print(f"Processing timestamps in dataset to extract local time features (Timezone:{TIME_ZONE})... ", end = "", flush=True)
+        print(f"Processing timestamps in dataset to extract local time features... ")
 
     # ---------------------------------------------------------------------
     # 1. Build local_timestamp depending on log type
     # ---------------------------------------------------------------------
     if kind_of_log == "baseline":
-        # assume timestamp_collected is naive datetime64[ns]
+        # the 'baseline' timestamp is not utc - it is in the timezone of the device
         tz_col = "source_url.tz_name"
         ts_col = "timestamp_collected"
 
@@ -126,7 +127,7 @@ def extract_local_time_features(
             tz = ZoneInfo(unique_tz[0])
             df["local_timestamp"] = df[ts_col].dt.tz_localize(tz)
         else:
-            # Slower path: per-timezone blocks (still way faster than iterrows)
+            # Slower path: per-timezone blocks
             local_parts = []
             for tz_name, block in df.groupby(tz_col, sort=False):
                 tz = ZoneInfo(tz_name)
@@ -135,8 +136,13 @@ def extract_local_time_features(
             df["local_timestamp"] = concat(local_parts).sort_index()
 
         df = df.drop(columns=[ts_col])
+        
+        # Convert baseline timestamps to naive local (remove timezone info but keep local wall clock)
+        # This aligns with the new DDP strategy below
+        df["local_timestamp"] = df["local_timestamp"].dt.tz_localize(None)
 
     elif kind_of_log == "ddp":
+        # the 'ddp' timestamp is utc
 
         # Build item_id if missing
         if "item_id" not in df.columns:
@@ -152,7 +158,7 @@ def extract_local_time_features(
             # SAFE INTEGER PARSING: avoid float64 / to_numeric
             # keep only pure digit strings, everything else -> <NA>
             digits = extracted.str.fullmatch(r"\d+")
-            ints = extracted.where(digits).astype("Int64")
+            ints = extracted.where(digits).astype("string[pyarrow]")
 
             mask = (
                 df["primary_label"].eq("link")
@@ -168,31 +174,66 @@ def extract_local_time_features(
             df = df.rename(columns={"timestamp": "utc_timestamp"})
 
 
-        print(df["utc_timestamp"].dtype)
+        # NEW LOGIC: Use per-donation timezone offsets
+        
+        # 1. Calculate Default Offset from static TIME_ZONE (as fallback)
+        try:
+            now_local = datetime.now(ZoneInfo(TIME_ZONE))
+            default_offset_hours = now_local.utcoffset().total_seconds() / 3600.0
+        except Exception as e:
+            if verbose: print(f"Warning: Could not determine offset for {TIME_ZONE}, defaulting to 0. {e}")
+            default_offset_hours = 0.0
+            
+        # 2. Load Offsets from Cache
+        stats_cache_path = join(cf['paths']['ddp_main'], 'persona_stats_cache.parquet')
+        
+        df['tz_offset_hours'] = default_offset_hours # Initialize with default
+        
+        if exists(stats_cache_path):
+            try:
+                # Load only necessary columns
+                stats_df = read_parquet(stats_cache_path, columns=['donation_id', 'inferred_tz_offset'])
+                
+                # Map offsets to main df
+                # stats_df needs unique donation_ids. It should be unique per previous logic.
+                if not stats_df['donation_id'].is_unique:
+                    stats_df = stats_df.drop_duplicates(subset=['donation_id'])
+                    
+                offset_map = stats_df.set_index('donation_id')['inferred_tz_offset']
+                
+                # Map using donation_id column in df
+                if 'donation_id' in df.columns:
+                    mapped_offsets = df['donation_id'].map(offset_map)
+                    # Update where not null
+                    df.loc[mapped_offsets.notna(), 'tz_offset_hours'] = mapped_offsets[mapped_offsets.notna()]
+                    if verbose:
+                        print(f"Applied individual timezones to {mapped_offsets.notna().sum():,} events.")
+                else:
+                    if verbose: print("Warning: donation_id column missing, using default timezone.")
+                    
+            except Exception as e:
+                print(f"Warning: Failed to load/apply timezone cache: {e}. Using default {TIME_ZONE}")
+        else:
+            if verbose: print("Timezone cache not found. Using default study timezone.")
 
-        #df["local_timestamp"] = df["utc_timestamp"].dt.tz_localize("UTC").dt.tz_convert(TIME_ZONE)
-
-
-        print(100*"-")
-        print(100*"-")
-        print(100*"-")
-        print(100*"-")
-
-        # UTC -> local conversion
-        utc_ts = to_datetime(
-            df["utc_timestamp"].astype("Int64"),
-            unit="s",
-            utc=True
-        )
-        df["local_timestamp"] = utc_ts.dt.tz_convert(TIME_ZONE)
+        # 3. Calculate Local Timestamp (Naive Wall Clock)
+        # local_ts = utc_ts + offset_hours
+        # We work with timestamps (seconds) directly for speed then convert to datetime
+        
+        # Ensure utc_timestamp is numeric (seconds)
+        utc_seconds = df["utc_timestamp"].astype("float64")
+        
+        # Add offset (hours * 3600)
+        local_seconds = utc_seconds + (df['tz_offset_hours'] * 3600.0)
+        
+        # Convert to Naive Datetime
+        df["local_timestamp"] = to_datetime(local_seconds, unit='s', utc=False)
+        
+        # Cleanup temp column
+        df = df.drop(columns=['tz_offset_hours'], errors='ignore')
+        
+        # Pyarrow conversion
         df["local_timestamp"] = df["local_timestamp"].convert_dtypes(dtype_backend="pyarrow")
-        print(df["local_timestamp"].dtype)
-        print(df["local_timestamp"].head())
-        print(100*"-")
-        print(100*"-")
-        print(100*"-")
-        print(100*"-")
-
 
 
     else:
@@ -203,33 +244,20 @@ def extract_local_time_features(
     # ---------------------------------------------------------------------
     ts = df["local_timestamp"]
     
-    # If stored as object dtype, reconstruct as proper datetime series
+    # Check if we still have timezone awareness (should be none for DDP, but maybe for baseline if not stripped)
+    # The new logic strips it for baseline too.
+    
+    # If stored as object dtype, force conversion (should handle naive correctly)
     if ts.dtype == 'object':
-        if verbose:
-            print("ts is an object... Have to fix this")
-        # Get the first non-null value to determine timezone
-        sample = ts.dropna().iloc[0] if len(ts.dropna()) > 0 else None
-        if sample is not None and hasattr(sample, 'tz') and sample.tz is not None:
-            # Extract timezone from sample
-            tz = sample.tz
-            # Convert each datetime to UTC timestamp, then reconstruct with timezone
-            # This avoids the "tz-aware cannot be converted" error
-            utc_timestamps = ts.apply(lambda x: x.timestamp() if pd_notna(x) and hasattr(x, 'timestamp') else pd_NaT)
-            df["local_timestamp"] = to_datetime(utc_timestamps, unit='s', utc=True).dt.tz_convert(tz)
-        else:
-            # No timezone info, simple conversion
-            df["local_timestamp"] = to_datetime(ts)
+        df["local_timestamp"] = to_datetime(ts)
         ts = df["local_timestamp"]
 
     iso = ts.dt.isocalendar()  # DataFrame: year, week, day
+    iso["day"] = iso["day"].map(WEEKDAY_MAPPER)
+    iso["year_week"] = iso["year"].astype("uint16").astype("string[pyarrow]") + "-" + iso["week"].astype("uint8").astype("string[pyarrow]")
 
-    df["local_weekday"] = iso["day"].map(WEEKDAY_MAPPER).astype("category")
-
-    df["local_week"] = (
-        iso["year"].astype("uint16").astype("string")
-        + "-"
-        + iso["week"].astype("uint8").astype("string")
-    )
+    df["local_weekday"] = iso["day"].to_list()
+    df["local_week"] = iso["year_week"].to_list()
 
     df["local_hour"] = ts.dt.hour.astype("uint8")
 
@@ -256,8 +284,8 @@ def extract_local_time_features(
         ordered=True,
     )
 
-    
-    df["local_date"] = ts.map(lambda x:x.date())
+    # Optimization: Use .dt.date directly (faster than map)
+    df["local_date"] = ts.dt.date
     df["local_date_str"] = df["local_date"].astype(str)
 
 
@@ -788,6 +816,11 @@ def load_ddp_events(
     
     file_format = cf['misc']['file_format']
 
+    if not cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() in ["sample","all"]:
+        if verbose:
+            print("Not loading DDP events")
+        return None
+
 
     half_baked_ddp_events_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_ALL_DDP{file_format}")
     half_baked_sampled_ddp_events_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_SAMPLED_DDP{file_format}")
@@ -867,30 +900,32 @@ def load_ddp_events(
                 print("Saving half-baked DDP events...")    
             data_io.save_dataset(all_ddp_events_df, half_baked_ddp_events_path, verbose=verbose)
 
+    the_result = {"all_data_ddp_events":all_ddp_events_df}
+
+    if cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() == "sample":
+        if use_half_baked and (exists(half_baked_sampled_ddp_events_path+".pkl") or exists(half_baked_sampled_ddp_events_path+".parquet")):
+            #nice_time = datetime.fromtimestamp(getctime(half_baked_sampled_ddp_events_path)).strftime('%Y-%m-%d %H:%M:%S')
+            #print(f"Loading half-baked sampled DDP events file created at: {nice_time}", end=" ", flush=True)
+            print("Loading half-baked sampled DDP events file...", end=" ", flush=True)
+            sampled_data_ddp_events = data_io.load_dataset(half_baked_sampled_ddp_events_path, verbose=verbose)
+            print(f"Shape: {sampled_data_ddp_events.shape}")
+        else:
+            sampled_data_ddp_events = sample_ddp_events(
+                cf = cf, 
+                study_name = study_name, 
+                all_ddp_events_df = all_ddp_events_df, 
+                verbose=verbose)
+
+            sampled_data_ddp_events = convert_dtypes_to_pyarrow(sampled_data_ddp_events, verbose=verbose)
+
+            if use_half_baked:
+                if verbose:
+                    print("Saving half-baked sampled DDP events...")    
+                data_io.save_dataset(sampled_data_ddp_events, half_baked_sampled_ddp_events_path, verbose=verbose)
         
-    if use_half_baked and (exists(half_baked_sampled_ddp_events_path+".pkl") or exists(half_baked_sampled_ddp_events_path+".parquet")):
-        #nice_time = datetime.fromtimestamp(getctime(half_baked_sampled_ddp_events_path)).strftime('%Y-%m-%d %H:%M:%S')
-        #print(f"Loading half-baked sampled DDP events file created at: {nice_time}", end=" ", flush=True)
-        print("Loading half-baked sampled DDP events file...", end=" ", flush=True)
-        sampled_data_ddp_events = data_io.load_dataset(half_baked_sampled_ddp_events_path, verbose=verbose)
-        print(f"Shape: {sampled_data_ddp_events.shape}")
-    else:
-        sampled_data_ddp_events = sample_ddp_events(
-            cf = cf, 
-            study_name = study_name, 
-            all_ddp_events_df = all_ddp_events_df, 
-            verbose=verbose)
+        the_result["sampled_data_ddp_events"] = sampled_data_ddp_events
 
-        sampled_data_ddp_events = convert_dtypes_to_pyarrow(sampled_data_ddp_events, verbose=verbose)
-
-        if use_half_baked:
-            if verbose:
-                print("Saving half-baked sampled DDP events...")    
-            data_io.save_dataset(sampled_data_ddp_events, half_baked_sampled_ddp_events_path, verbose=verbose)
-
-
-    #print("--"*60)
-    return {"sampled_data_ddp_events":sampled_data_ddp_events, "all_data_ddp_events":all_ddp_events_df }
+    return the_result
 
 
 
@@ -1022,9 +1057,12 @@ def load_datasets(
     #print("--"*60)
 
 
-    all_datasets.update(load_zeeschuimer_data(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
-    all_datasets.update(load_ddp_events(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
-    all_datasets.update(load_special_donations(cf = cf, study_name = study_name, verbose=verbose))
+    if cf["study_defs"][study_name]["INCLUDE_ZEESCHUIMER_DATA"]:
+        all_datasets.update(load_zeeschuimer_data(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
+    if cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() != "none":
+        all_datasets.update(load_ddp_events(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
+    if len(cf["study_defs"][study_name]["SPECIAL_DONATIONS"])>0:
+        all_datasets.update(load_special_donations(cf = cf, study_name = study_name, verbose=verbose))
 
     all_datasets.update(load_scrape_metadata(cf = cf, consolidate=consolidate, verbose=verbose))
     all_datasets["data_annotated"] = load_machine_annotations(cf = cf, include_failed_calls=False, consolidate=consolidate, verbose = verbose)
@@ -1477,7 +1515,7 @@ def _rename_columns(some_events):
 
 
 
-def _process_baseline_for_log_export(
+def process_baseline_for_log_export(
     cf = None,
     all_datasets = None,
     session_id_counter = np_int64(0),
@@ -1492,15 +1530,16 @@ def _process_baseline_for_log_export(
     if cf is None:
         cf = init_config()
 
-    baseline_log = all_datasets["data_baseline_log"]
-    
-    if len(baseline_log) > 0:
+    if "data_baseline_log" in all_datasets and len(all_datasets["data_baseline_log"]) > 0:
+        baseline_log = all_datasets["data_baseline_log"]
         baseline_log_simple = baseline_log.rename(columns={c:"B_"+c if not c=="item_id" else c for c in baseline_log.columns}).copy()
         if verbose:
             print(f"The baseline log has shape: {baseline_log_simple.shape}")
     else:
         if verbose:
-            print("No baseline log data available or log type is not 'baseline' --> skipping baseline log processing.")
+            print("No baseline log data available --> skipping baseline log processing. Returning None.")
+        return None, session_id_counter
+
     #if verbose:
         #print("--"*60)
 
@@ -1526,7 +1565,8 @@ def _process_baseline_for_log_export(
             print("Adding session stats to baseline data",baseline_log_simple.shape)
     else:
         if verbose:
-            print("no baseline data")
+            print("no baseline data available --> skipping session stats attachment. Returning None.")
+        return None, session_id_counter
 
     #if verbose:
         #print("--"*60)
@@ -1595,12 +1635,14 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0), v
 
     all_sessions = []
     if len(ddp_log) and ("D_donation_id" in ddp_log.columns):
+
         ddp_log['session_id'] = -1
         ddp_log['event_order_in_session'] = -1
         ddp_log['event_pos_in_session'] = -1.0
         
         # Collect all updates, then apply in bulk at the end
         updates_list = []
+
 
         for one_donation_id,one_donation in ddp_log.groupby("D_donation_id"):
 
@@ -1680,7 +1722,7 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0), v
 
 
 
-def _process_ddp_log_for_log_export(
+def process_ddp_log_for_log_export(
     cf = None, 
     all_datasets = None, 
     session_id_counter = np_int64(0), 
@@ -1698,19 +1740,29 @@ def _process_ddp_log_for_log_export(
     if cf is None:
         cf = init_config()
 
+    #ddp_event_count = 0
+    dataframes_to_combine = []
+    if "all_data_ddp_events" in all_datasets:
+        #ddp_event_count = len(all_datasets["all_data_ddp_events"])
+        dataframes_to_combine.append(all_datasets["all_data_ddp_events"])
+    
+    if "data_special_ddps" in all_datasets:
+        #ddp_event_count += len(all_datasets["data_special_ddps"])
+        dataframes_to_combine.append(all_datasets["data_special_ddps"])
 
+    #if verbose:
+    #    print(f"Number of DDP events: {len(dataframes_to_combine)}")
 
-    ddp_log = DataFrame(columns=all_datasets["all_data_ddp_events"].columns)
+    #ddp_log = DataFrame(columns=all_datasets["all_data_ddp_events"].columns)
 
-    if len(all_datasets["all_data_ddp_events"]) + len(all_datasets["data_special_ddps"]) > 0:
+    if len(dataframes_to_combine) > 0:
 
-        dataframes_to_combine = [k for k in [all_datasets["all_data_ddp_events"], all_datasets["data_special_ddps"]] if len(k) > 0]
         ddp_log = concat(dataframes_to_combine, ignore_index=True).drop_duplicates()
-
 
     
         ddp_log.loc[ddp_log[ddp_log["primary_label"]=="ip"].index,"feature_name"] = "login_event"
-        ddp_log.loc[ddp_log[ddp_log["item_id"].isna()].index,"item_id"] = pd_NA
+
+        #ddp_log.loc[ddp_log[ddp_log["item_id"].isna()].index,"item_id"] = pd_NA
         #ddp_log["item_id"] = ddp_log["item_id"].fillna(np.int64(-1))
 
         ddp_log["secondary_label"] = ddp_log["secondary_label"].fillna("")
@@ -1723,16 +1775,15 @@ def _process_ddp_log_for_log_export(
         ddp_log = ddp_log.rename(columns={c:"D_"+c if not c in ["item_id"] else c for c in ddp_log.columns}).copy()
 
         if verbose:
-            print(f"Shape of all DDP events DF for exporting full logs: {ddp_log.shape}")
+            print(f"Shape of all DDP events DF for exporting full logs: {ddp_log.shape} from {ddp_log.D_donation_id.nunique()} donations")
             print(f"The combined DDP events range from {ddp_log.D_date.min()} -- {ddp_log.D_date.max()}")
             #print("--"*60)
 
 
     else:
         if verbose:
-            print("No DDP events to combine, creating an empty dataframe.")
-            #print("--"*60)
-        return ddp_log, session_id_counter
+            print("No DDP events found, returning None.")
+        return None, session_id_counter
 
 
     if "var_scheme" in cf and not cf["var_scheme"].empty:
@@ -1761,11 +1812,6 @@ def _process_ddp_log_for_log_export(
     ddp_log, session_id_counter = add_session_stats_to_ddp_log(ddp_log, session_id_counter, verbose=verbose)
     ddp_log = _rename_columns(ddp_log)
     ddp_log = ddp_log[relevant_ddp_cols].copy()
-    print(100*"*")
-    print(100*"*")
-    print(relevant_ddp_cols)
-    print(100*"*")
-    print(100*"*")
 
     #ddp_log = _check_for_null_values_in_df(ddp_log, verbose=verbose)
 
@@ -1777,7 +1823,7 @@ def _process_ddp_log_for_log_export(
 
 
 
-def _process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=False):
+def process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=False):
 
     from pandas import isna as pd_isna, Timestamp, DataFrame, to_datetime
     from datetime import datetime
@@ -1785,6 +1831,7 @@ def _process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=
 
     if len(combined_log) == 0:
         return DataFrame()
+
 
     # polishing the scraped metadata dataset for merging with the log
     scrape_metadata_log = all_datasets["data_scraped"][all_datasets["data_scraped"].item_id.isin(combined_log.item_id.unique())].copy()
@@ -1827,7 +1874,7 @@ def _process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=
 
 
 
-def _process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=False):
+def process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=False):
 
     from pandas import DataFrame
 
@@ -1860,11 +1907,11 @@ def _process_machine_annotations_for_log_export(all_datasets, combined_log, verb
 
 
 
-def _process_and_combine_logs_for_log_export(
+def process_and_combine_logs_for_log_export(
     cf = None,
     study_name = None,
     all_datasets=None,
-    use_half_baked=False,
+    #use_half_baked=False,
     verbose=False):
     
 
@@ -1882,24 +1929,31 @@ def _process_and_combine_logs_for_log_export(
     if all_datasets is None:
         raise ValueError("all_datasets must be specified")
     
-    file_format = cf['misc']['file_format']
+    #file_format = cf['misc']['file_format']
 
     half_baked_combined_path = join(cf['paths']['exports'],f"{study_name}_HALF_BAKED_COMBINED")
 
 
-    if use_half_baked and (exists(half_baked_combined_path+".pkl") or exists(half_baked_combined_path+".parquet")):
-        if verbose:
-            print("Loading half-baked combined log...", end=" ", flush=True)
-        combined_log = data_io.load_dataset(half_baked_combined_path, verbose=verbose)
-        if verbose:
-            print(f"Shape: {combined_log.shape}")
-    else:
+    #if use_half_baked and (exists(half_baked_combined_path+".pkl") or exists(half_baked_combined_path+".parquet")):
+    #    if verbose:
+    #        print("Loading half-baked combined log...", end=" ", flush=True)
+    #    combined_log = data_io.load_dataset(half_baked_combined_path, verbose=verbose)
+    #    if verbose:
+    #        print(f"Shape: {combined_log.dtypes}")
+    if True:#else:
 
-        baseline_log_simple, sesh_counter = _process_baseline_for_log_export(cf = cf, all_datasets = all_datasets, session_id_counter = 100, verbose=verbose)
-        ddp_log, sesh_counter = _process_ddp_log_for_log_export(cf = cf, all_datasets = all_datasets, session_id_counter = sesh_counter, verbose=verbose)
+        baseline_log_simple, sesh_counter = process_baseline_for_log_export(cf = cf, all_datasets = all_datasets, session_id_counter = 100, verbose=verbose)
+        ddp_log, sesh_counter = process_ddp_log_for_log_export(cf = cf, all_datasets = all_datasets, session_id_counter = sesh_counter, verbose=verbose)
 
+        if not ddp_log is None and not baseline_log_simple is None:
+            combined_log = concat([ddp_log,baseline_log_simple])
+        elif not ddp_log is None:
+            combined_log = ddp_log
+        elif not baseline_log_simple is None:
+            combined_log = baseline_log_simple
+        else:
+            raise ValueError("No DDP or baseline log found")
 
-        combined_log = concat([ddp_log,baseline_log_simple])
         if verbose:
             print(f"Combined log length: {len(combined_log)}")
 
@@ -1936,10 +1990,10 @@ def _process_and_combine_logs_for_log_export(
 
         combined_log = convert_dtypes_to_pyarrow(combined_log, verbose=verbose)
 
-        if use_half_baked:
-            if verbose:
-                print("Saving half-baked combined log...")    
-            data_io.save_dataset(combined_log, half_baked_combined_path, verbose=verbose)
+        #if use_half_baked:
+        #    if verbose:
+        #        print("Saving half-baked combined log...")    
+        #    data_io.save_dataset(combined_log, half_baked_combined_path, verbose=verbose)
 
 
     return combined_log
@@ -1948,7 +2002,7 @@ def _process_and_combine_logs_for_log_export(
 
 
 
-def _process_enrichment_data_and_merge_with_logs(
+def process_enrichment_data_and_merge_with_logs(
     all_datasets,
     combined_log,
     ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
@@ -1957,13 +2011,13 @@ def _process_enrichment_data_and_merge_with_logs(
 
     from pandas import merge, to_datetime
 
-    scrape_metadata_log = _process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=verbose)
-    machine_annotations_for_log = _process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=verbose)
+    scrape_metadata_log = process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=verbose)
+    machine_annotations_for_log = process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=verbose)
 
     ### merge log with enriched video metadata and annotations
 
     if verbose:
-        print("Merging combined log with enriched metadata (scraped & annotated)")
+        print(f"Merging combined log with enriched metadata (scraped {scrape_metadata_log.shape} & annotated {machine_annotations_for_log.shape})")
 
     if ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED:
         if verbose:
@@ -2020,11 +2074,19 @@ def filter_log_against_sampled_donation_groups(
 
     if cf is None:
         cf = init_config()
+    
 
     if all_datasets is None:
         raise ValueError("all_datasets must be specified")
     if outdata is None:
         raise ValueError("outdata must be specified")
+
+    if not "sampled_data_ddp_events" in all_datasets:
+        if verbose:
+            print("Not filtering donation events against sampled donation groups")
+        return outdata
+
+
 
     fyp_factors, _ = get_factors_and_features_from_var_scheme(cf = cf, some_events_df = outdata, verbose=verbose)
 
@@ -2205,7 +2267,7 @@ def save_logs_as_csv(
 
 
 
-def _save_logs(
+def save_logs(
     cf = None,
     study_name = None,
     outdata_filtered = None,
@@ -2296,37 +2358,39 @@ def export_logs(
 
     
 
-    combined_log = _process_and_combine_logs_for_log_export(
+    combined_log = process_and_combine_logs_for_log_export(
         cf = cf,
         study_name = study_name,
         all_datasets = all_datasets,
-        use_half_baked = True,
+        #use_half_baked = False,
         verbose=verbose
         )
 
 
 
 
-    outdata = _process_enrichment_data_and_merge_with_logs(
+    outdata = process_enrichment_data_and_merge_with_logs(
         all_datasets = all_datasets,
         combined_log = combined_log,
         ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
         verbose=verbose
     )
 
-    #return all_datasets, outdata
 
-    outdata_filtered = filter_log_against_sampled_donation_groups(
-        cf = cf,
-        all_datasets = all_datasets,
-        outdata = outdata,
-        MAX_DAILY_MISSING_DATA_RATIO = 0.3,
+    if cf['studies'][study_name]['INCLUDE_DONATIONS'].lower() == "sample":
+        outdata_filtered = filter_log_against_sampled_donation_groups(
+            cf = cf,
+            all_datasets = all_datasets,
+            outdata = outdata,
+            MAX_DAILY_MISSING_DATA_RATIO = 0.3,
         verbose=verbose
         )
+    else:
+        outdata_filtered = outdata
 
-    #return outdata_filtered
 
-    _save_logs(
+
+    save_logs(
         cf = cf,
         study_name = study_name,
         outdata_filtered = outdata_filtered,

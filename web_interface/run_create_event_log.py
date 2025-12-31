@@ -22,7 +22,7 @@ def main():
         organize_datasets.export_logs(
             cf = None,
             study_name = args.study_name,
-            verbose = True)
+            verbose = False)
         print("Process completed successfully.")
     except Exception as e:
         print(f"Process failed: {e}")

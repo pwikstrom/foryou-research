@@ -760,6 +760,7 @@ def recode_events_df(
     # Clean the recoded dataset - drop rows with NaN values and constant columns
     if verbose:
         print(cool_events.shape, "shape of recoded dataset before cleaning")
+        
     cool_events = cool_events.loc[~cool_events.isna().any(axis=1)]                      # drop rows with NaN values
     if verbose:
         print(cool_events.shape, "shape of recoded dataset after dropping rows with NaN values")
