@@ -37,6 +37,11 @@ def init_config(
     from os import environ
     from os.path import join, abspath
     import toml
+    import pandas as pd
+    
+    # NOTE: pd.options.mode.dtype_backend does not exist in 2.3.0
+    # Consistency is enforced via proper arguments in data_io execution functions.
+
 
     if abs_project_root_path is None:
 
@@ -386,43 +391,130 @@ def fix_complex_types(some_iterable, verbose=False):
 
 
 def convert_dtypes_to_pyarrow(df_in, verbose=False):
+    from pandas import api, NA as pd_NA
+    #import numpy as np
+
     df = df_in.copy()
-    for col in df.columns:
+    
+    # ---------------------------------------------------------
+    # 1. OPTIMISTIC BATCH CONVERSION
+    # ---------------------------------------------------------
+    if verbose:
+        print("Attempting batch conversion of DF dtype to pyarrow...")
+    
+    try:
+        # This handles the vast majority of "easy" columns (int, float, clean strings)
+        # much faster than iterating column by column.
+        df = df.convert_dtypes(dtype_backend='pyarrow')
+    except Exception as e:
+        if verbose:
+            print(f"Batch conversion failed ({e}). Falling back to column-wise checks.")
+
+    # ---------------------------------------------------------
+    # 2. IDENTIFY AND FIX PROBLEMATIC COLUMNS
+    # ---------------------------------------------------------
+    # We only need to spend time on columns that are STILL 'object' 
+    # (meaning pyarrow couldn't natively handle them).
+    # Note: convert_dtypes automatically converts objects to strings if possible.
+    # If it fails/ambiguous, it leaves them as object.
+    
+    cols_to_check = [c for c in df.columns if df[c].dtype == "object"]
+
+    if len(cols_to_check) > 0 and verbose:
+        print(f"Refining {len(cols_to_check)} columns that failed simple batch conversion...")
+
+    for col in cols_to_check:
+        # A) Try explicit conversion (sometimes works individually if batch had a holistic issue, though rare)
         try:
             df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
-            #if col=="item_id":
-            #    print("1111")
-            #    df[col] = df[col].astype("string[pyarrow]")
-            if verbose:
-                print(f"Converted {col} to {df[col].dtype}")
         except:
+            pass
+        
+        # If still object, it likely has issues (surrogates, mixed types, etc.)
+        if df[col].dtype == "object":
             if verbose:
-                print(f"Failed to convert {col} to pyarrow - trying to fix surrogates")
-            df[col] = df[col].map(fix_surrogates)
+                 print(f"Fixing surrogates in {col}...")
+            
+            # B) Fix surrogates
             try:
+                # We apply map only if necessary to save time, but safe to just apply
+                df[col] = df[col].map(fix_surrogates)
                 df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
-                if verbose:
-                    print(f"Converted {col} to {df[col].dtype}")
             except:
                 if verbose:
-                    print(f"Failed to convert {col}")
-        
-        if df[col].dtype == 'object':
-            if verbose:
-                print(f"{col} is of type object - trying to fix complex types")
-            df[col] = fix_complex_types(df[col].copy(), verbose=verbose)
-            df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
-    
-    if verbose:
-        print("Checking if any numerical looking columns are not of type numeric and need to be converted to string")
-    for c in df.columns:
-        try:
-            df[c].describe()
-        except Exception as e:
-            if verbose:
-                print(f"WARNING: {e} | {c} doesn't work well as a number - converting to string")
-            df[c] = df[c].astype("string[pyarrow]")
+                    print(f"Surrogate fix didn't fully resolve {col}.")
 
+        # If STILL object, it's likely complex types (lists, dicts, etc.)
+        if df[col].dtype == "object":
+            if verbose:
+                print(f"{col} is still object - fixing complex types...")
+            try:
+                # First, ensure contents are normalized (e.g. dicts -> json strings)
+                df[col] = fix_complex_types(df[col].copy(), verbose=verbose)
+                
+                # Now, standard convert_dtypes often fails on lists of strings, leaving them as object.
+                # We try to explicitly convert to a pyarrow array and back again.
+                try:
+                    import pyarrow as pa
+                    from pandas import Series, ArrowDtype
+                    
+                    # Create pyarrow array from the series
+                    # type_inference=True is default, but explicit casting can help if we know it's string
+                    arrow_array = pa.array(df[col])
+                    
+                    # Check if the resulting array is actually a list type (or other complex type we want)
+                    # If it's just 'string' or 'int', convert_dtypes would have likely caught it, 
+                    # but if it's List<String>, convert_dtypes might miss it.
+                    if pa.types.is_list(arrow_array.type) or pa.types.is_struct(arrow_array.type):
+                         if verbose:
+                             print(f"Explicitly converting {col} to {arrow_array.type} via pyarrow.array...")
+                         df[col] = Series(
+                             arrow_array, 
+                             dtype=ArrowDtype(arrow_array.type),
+                             index=df[col].index
+                         )
+                    else:
+                         # Fallback to standard convert_dtypes if it wasn't a complex arrow type
+                         df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
+
+                except Exception as e:
+                    if verbose:
+                        print(f"Explicit pyarrow Array conversion failed for {col}: {e}")
+                    # Fallback to standard 
+                    df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
+
+            except Exception as e:
+                # Last resort: if complex fix fails, force string conversion for anything not null
+                if verbose: 
+                    print(f"Failed to fix complex types for {col}: {e}. Forcing string conversion.")
+                df[col] = df[col].astype("string[pyarrow]")
+        
+        if verbose and df[col].dtype != "object":
+             print(f"Successfully converted {col} to {df[col].dtype}")
+
+    # ---------------------------------------------------------
+    # 3. FINAL SAFETY CHECKS (NUMERICS)
+    # ---------------------------------------------------------
+    numeric_col_to_check = [c for c in df.columns if api.types.is_numeric_dtype(df[c])]
+
+    if len(numeric_col_to_check) > 0:
+        if verbose:
+            print(f"Found {len(numeric_col_to_check)} numeric columns to check for overflows...")
+
+        # Iterate through all columns that claim to be numeric now
+        for c in numeric_col_to_check:
+            try:
+                # trying to calculate describe() to catch overflow issues (integers > 2^53)
+                # that would be silently coerced lossily by mean(), but rejected by explicit 
+                # float-casting in describe's percentile calc (in pyarrow backend).
+                df[c].describe()
+            except Exception as e:
+                if verbose:
+                    print(f"WARNING: {e} | {c} doesn't work well as a number - converting to string")
+                df[c] = df[c].astype("string[pyarrow]")
+        
+    if verbose:
+        print("...conversion complete.")
 
     return df
 

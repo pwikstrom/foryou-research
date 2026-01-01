@@ -444,6 +444,7 @@ def load_scrape_metadata(
                         print(f"Moved {basename(fn)+'.pkl'} to archive")
         
 
+    scrape_metadata = convert_dtypes_to_pyarrow(scrape_metadata, verbose=verbose)
 
     print(f"Loaded scraped metadata - shape {scrape_metadata.shape}")
     #print("--"*60)
@@ -1091,16 +1092,27 @@ def identify_unique_videos(cf = None, study_name = None, all_datasets = None, ve
     MIN_NUNIQUE_USERS = cf["study_defs"][study_name]["MIN_NUNIQUE_USERS"]
 
 
-    ddp_events_for_unique_videos_df = DataFrame(columns=all_datasets["sampled_data_ddp_events"].columns)
 
-    if len(all_datasets["sampled_data_ddp_events"]) + len(all_datasets["data_special_ddps"]) > 0:
 
-        dataframes_to_combine = [k for k in [all_datasets["sampled_data_ddp_events"], all_datasets["data_special_ddps"]] if len(k) > 0]
+
+    dataframes_to_combine = []
+    # use the sampled events if available, otherwise use the all events
+    if "sampled_data_ddp_events" in all_datasets:
+        dataframes_to_combine.append(all_datasets["sampled_data_ddp_events"])
+    elif "all_data_ddp_events" in all_datasets:
+        dataframes_to_combine.append(all_datasets["all_data_ddp_events"])
+    
+    if "data_special_ddps" in all_datasets:
+        dataframes_to_combine.append(all_datasets["data_special_ddps"])
+
+
+    if len(dataframes_to_combine) > 0:
         ddp_events_for_unique_videos_df = concat(dataframes_to_combine, ignore_index=True).drop_duplicates()
         if verbose:
             print(f"Shape of the combined (sampled + special) DDP events DF for exporting list of unique videos: {ddp_events_for_unique_videos_df.shape}")
             print(f"The combined DDP events range from {ddp_events_for_unique_videos_df.date.min()} -- {ddp_events_for_unique_videos_df.date.max()}")
     else:
+        ddp_events_for_unique_videos_df = DataFrame()
         if verbose:
             print("No DDP events to combine, creating an empty dataframe.")
 
@@ -1131,10 +1143,11 @@ def identify_unique_videos(cf = None, study_name = None, all_datasets = None, ve
         unique_ddp_videos = ddp_video_stats[ddp_video_stats.nunique_users >= MIN_NUNIQUE_USERS].copy()
         if verbose:
             print(f"Keeping unique DDP videos that have been watched/liked/etc by at least {MIN_NUNIQUE_USERS} unique users. Shape: {unique_ddp_videos.shape}")
-        #return unique_ddp_videos
+
         # extracting item ids from the URLs (in the index)
         unique_ddp_videos["item_id"] = [parts[-2] if len(parts := s.rsplit("/", 2)) > 1 else None for s in unique_ddp_videos.index]
-        #unique_ddp_videos["item_id"] = unique_ddp_videos.index.str.split("/").str[-2].astype(int)
+        unique_ddp_videos['item_id'] = unique_ddp_videos['item_id'].astype("string[pyarrow]")
+
     else:
         if verbose:
             print("No events in the combined DDP dataframe")
@@ -1148,6 +1161,7 @@ def identify_unique_videos(cf = None, study_name = None, all_datasets = None, ve
         unique_item_id_list = list(str(k) for k in all_datasets["data_baseline_log"].item_id.unique())
         unique_baseline_videos = DataFrame()
         unique_baseline_videos['item_id'] = unique_item_id_list
+        unique_baseline_videos['item_id'] = unique_baseline_videos['item_id'].astype("string[pyarrow]")
         unique_baseline_videos['nunique_users'] = NA
         unique_baseline_videos['total_views'] = NA
         # construct URL
@@ -1158,7 +1172,7 @@ def identify_unique_videos(cf = None, study_name = None, all_datasets = None, ve
     if verbose:
         print(f"Unique videos identified in the baseline logs: {len(list(set(unique_baseline_videos.index.tolist()))):,}")
 
-    ### combine unique donation videos with unique baseline videos.Drop columns with all NaN values
+    ### combine unique donation videos with unique baseline videos.Drop columns with all null values
     dataframes_to_combine = [k.dropna(axis="columns", how="all") for k in [unique_baseline_videos, unique_ddp_videos] if len(k) > 0]
     
     video_observation_stats = concat(dataframes_to_combine, ignore_index=True).drop_duplicates(subset='item_id', keep='last')
@@ -1320,9 +1334,9 @@ def save_selected_unique_video_subsets(
     unique_videos_with_stats = identify_unique_videos(cf = cf, study_name = study_name, all_datasets = all_datasets, verbose=False)
 
     if verbose:
-        print(f"Unique videos with stats shape: {unique_videos_with_stats.shape}")
-        print(f"Type of first item in work_with_these_videos: {type(list(work_with_these_videos)[0])}")
-        print(f"Type of item_id in unique_videos_with_stats: {unique_videos_with_stats.item_id.dtype}")
+        print(f"Unique videos (DF with some stats) shape: {unique_videos_with_stats.shape}")
+        #print(f"Type of first item in work_with_these_videos: {type(list(work_with_these_videos)[0])}")
+        #print(f"Type of item_id in unique_videos_with_stats: {unique_videos_with_stats.item_id.dtype}")
 
     all_unique_videos_to_save = unique_videos_with_stats[unique_videos_with_stats.item_id.isin(work_with_these_videos)].copy()
 
@@ -1522,7 +1536,7 @@ def process_baseline_for_log_export(
     verbose=False):
 
     from pandas import concat
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
 
     if all_datasets is None:
         raise ValueError("all_datasets must be specified")
@@ -1609,12 +1623,14 @@ def process_baseline_for_log_export(
     baseline_log_simple = baseline_log_simple[relevant_baseline_cols].copy()
     
     # Convert categorical columns to string to avoid fillna errors with categoricals
-    for col in baseline_log_simple.select_dtypes(include=['category']).columns:
-        baseline_log_simple[col] = baseline_log_simple[col].astype(str)
+    #for col in baseline_log_simple.select_dtypes(include=['category']).columns:
+    #    baseline_log_simple[col] = baseline_log_simple[col].astype(str)
     
     #baseline_log_simple = baseline_log_simple.fillna("").copy()
     #baseline_log_simple = _check_for_null_values_in_df(baseline_log_simple, verbose=verbose)
 
+
+    baseline_log_simple = convert_dtypes_to_pyarrow(baseline_log_simple, verbose=verbose)
 
     if verbose:
         print("Processed baseline for log export - shape:", baseline_log_simple.shape)
@@ -1730,7 +1746,7 @@ def process_ddp_log_for_log_export(
     # combine the special DDP events with the all DDP events
 
     from pandas import DataFrame, concat
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
     from numpy import int64 as np_int64
     from pandas import NA as pd_NA
 
@@ -1740,20 +1756,13 @@ def process_ddp_log_for_log_export(
     if cf is None:
         cf = init_config()
 
-    #ddp_event_count = 0
     dataframes_to_combine = []
     if "all_data_ddp_events" in all_datasets:
-        #ddp_event_count = len(all_datasets["all_data_ddp_events"])
         dataframes_to_combine.append(all_datasets["all_data_ddp_events"])
     
     if "data_special_ddps" in all_datasets:
-        #ddp_event_count += len(all_datasets["data_special_ddps"])
         dataframes_to_combine.append(all_datasets["data_special_ddps"])
 
-    #if verbose:
-    #    print(f"Number of DDP events: {len(dataframes_to_combine)}")
-
-    #ddp_log = DataFrame(columns=all_datasets["all_data_ddp_events"].columns)
 
     if len(dataframes_to_combine) > 0:
 
@@ -1813,7 +1822,8 @@ def process_ddp_log_for_log_export(
     ddp_log = _rename_columns(ddp_log)
     ddp_log = ddp_log[relevant_ddp_cols].copy()
 
-    #ddp_log = _check_for_null_values_in_df(ddp_log, verbose=verbose)
+
+    ddp_log = convert_dtypes_to_pyarrow(ddp_log, verbose=verbose)
 
     
     return ddp_log, session_id_counter
@@ -1828,6 +1838,7 @@ def process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=F
     from pandas import isna as pd_isna, Timestamp, DataFrame, to_datetime
     from datetime import datetime
     from zoneinfo import ZoneInfo
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
 
     if len(combined_log) == 0:
         return DataFrame()
@@ -1867,6 +1878,8 @@ def process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=F
 
     #scrape_metadata_log = _check_for_null_values_in_df(scrape_metadata_log, verbose=verbose)
 
+    scrape_metadata_log = convert_dtypes_to_pyarrow(scrape_metadata_log, verbose=verbose)
+
     
     return scrape_metadata_log
 
@@ -1877,6 +1890,7 @@ def process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=F
 def process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=False):
 
     from pandas import DataFrame
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
 
     if len(combined_log) == 0:
         return DataFrame()
@@ -1900,6 +1914,7 @@ def process_machine_annotations_for_log_export(all_datasets, combined_log, verbo
 
     #machine_annotations_for_log = _check_for_null_values_in_df(machine_annotations_for_log, verbose=verbose)
 
+    machine_annotations_for_log = convert_dtypes_to_pyarrow(machine_annotations_for_log, verbose=verbose)
 
     return machine_annotations_for_log
 
@@ -2010,6 +2025,7 @@ def process_enrichment_data_and_merge_with_logs(
 ):
 
     from pandas import merge, to_datetime
+
 
     scrape_metadata_log = process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=verbose)
     machine_annotations_for_log = process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=verbose)
@@ -2377,7 +2393,7 @@ def export_logs(
     )
 
 
-    if cf['studies'][study_name]['INCLUDE_DONATIONS'].lower() == "sample":
+    if cf['study_defs'][study_name]['INCLUDE_DONATIONS'].lower() == "sample":
         outdata_filtered = filter_log_against_sampled_donation_groups(
             cf = cf,
             all_datasets = all_datasets,

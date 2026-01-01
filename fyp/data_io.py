@@ -32,58 +32,39 @@ def load_dataset(path: str, verbose: bool = False, **kwargs) -> pd.DataFrame:
     from fyp.fyp_main import convert_dtypes_to_pyarrow
 
     base_path, ext = os.path.splitext(path)
-    if ext in ['.pkl', '.parquet']:
+    if ext in ['.parquet']:
         path_no_ext = base_path
     else:
         path_no_ext = path 
 
     parquet_path = f"{path_no_ext}.parquet"
-    pickle_path = f"{path_no_ext}.pkl"
+    #pickle_path = f"{path_no_ext}.pkl"
 
     df = None
-    loaded_from_parquet = False
+    #loaded_from_parquet = False
 
     # Try Parquet
-    if os.path.exists(parquet_path) and not USE_PICKLE_ONLY:
+    if os.path.exists(parquet_path):# and not USE_PICKLE_ONLY:
         if verbose: print(f" [DATA_IO] Loading Parquet: {parquet_path}")
         df = pd.read_parquet(parquet_path, engine='pyarrow', dtype_backend="pyarrow")
-        loaded_from_parquet = True
+        #loaded_from_parquet = True
             
     # Try Pickle
-    if os.path.exists(pickle_path) and df is None:
-        if verbose: print(f" [DATA_IO] Loading Pickle: {pickle_path}")
-        df = pd.read_pickle(pickle_path, **kwargs)
-        loaded_from_parquet = False
+    #if os.path.exists(pickle_path) and df is None:
+    #    if verbose: print(f" [DATA_IO] Loading Pickle: {pickle_path}")
+    #    df = pd.read_pickle(pickle_path, **kwargs)
+    #    loaded_from_parquet = False
     
     if df is None:
-        raise FileNotFoundError(f"Neither Parquet nor Pickle found for: {path_no_ext}")
+        raise FileNotFoundError(f"Parquet not found for: {path_no_ext}")
 
     # this is really only necessary if it has been loaded from pickle
-    if not loaded_from_parquet:
-        if verbose: print(f" [DATA_IO] Converting data from Pickle file to Parquet types")
+    if verbose:
+        print(f" [DATA_IO] Converting data from Pickle file to Parquet types")
 
-        df = convert_dtypes_to_pyarrow(df, verbose=verbose)
-
-        """for col in df.columns:
-            try:
-                df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
-            except:
-                print(col)
-                df[col] = df[col].map(fix_surrogates)
-                try:
-                    df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
-                except:
-                    print(f"Failed to convert {col}")
-            
-            if df[col].dtype == 'object':
-                df[col] = fix_complex_types(df[col].copy(), verbose=verbose)
-                df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')"""
+    df = convert_dtypes_to_pyarrow(df, verbose=verbose)
 
     return df
-
-
-
-
 
 
 
@@ -102,43 +83,22 @@ def save_dataset(df: pd.DataFrame, path: str, verbose: bool = False, **kwargs):
     from os import rename
     from fyp.fyp_main import convert_dtypes_to_pyarrow
 
-
     base_path, ext = os.path.splitext(path)
-    if ext in ['.pkl', '.parquet']:
+    if ext in ['.parquet']:
         path_no_ext = base_path
     else:
         path_no_ext = path
 
     parquet_path = f"{path_no_ext}.parquet"
-    pickle_path = f"{path_no_ext}.pkl"
 
-
-    # UPDATED - now expecting all dtypes to be pyarrow compatible
     # type management to ensure pyarrow can handle the data
-    # but I'm doing it for pickle save as well to ensure consistency 
-    #df = convert_dtypes_to_pyarrow(df, verbose=verbose)
+    df = convert_dtypes_to_pyarrow(df, verbose=verbose)
 
     # 1. Save Parquet
-    if not USE_PICKLE_ONLY:
-        if True:#try:
-            # pyarrow handles lists/dicts natively, no need for JSON conversion
-            if verbose: print(f" [DATA_IO] Saving Parquet: {parquet_path}")
-            
+    # pyarrow handles lists/dicts natively, no need for JSON conversion
+    if verbose: print(f" [DATA_IO] Saving Parquet: {parquet_path}")
+    df.to_parquet(parquet_path, engine='pyarrow', **kwargs) 
 
-            df.to_parquet(parquet_path, engine='pyarrow', **kwargs) 
-
-        """except Exception as e:
-             print(f" [DATA_IO] ERROR: Failed to save Parquet {parquet_path}: {e}")
-             # If parquet write fails, we MUST ensure we write pickle if intended
-             if not WRITE_BOTH:
-                 print(f" [DATA_IO] Force-writing Pickle due to Parquet failure.")
-                 df.to_pickle(pickle_path, **kwargs)
-                 return"""
-
-    # 2. Save Pickle (Dual Write / Legacy)
-    if WRITE_BOTH or USE_PICKLE_ONLY:
-        print(f" [DATA_IO] Saving Pickle: {pickle_path}")
-        df.to_pickle(pickle_path, **kwargs)
 
 
 
