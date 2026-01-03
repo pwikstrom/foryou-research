@@ -43,9 +43,9 @@ def load_machine_annotations(
     from pandas import DataFrame, concat
     from os import listdir, rename
     from os.path import join, basename, exists
-    from shutil import move
+    #from shutil import move
     from datetime import datetime
-    import shutil
+    #import shutil
 
     from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
@@ -54,18 +54,14 @@ def load_machine_annotations(
         cf = init_config()
 
 
-    file_format = cf['misc']['file_format']
-
 
     machine_file_names = []
-    for fn in listdir(cf['paths']['machine_annotations']):
-        if fn.startswith("machine_annotations") and (fn.endswith(".parquet") or fn.endswith(".pkl")):
-            machine_file_names.append(join(cf['paths']['machine_annotations'], ".".join(fn.split(".")[:-1])))
-            
-    #machine_file_names = [join(cf['paths']['machine_annotations'], ".".join(fn.split(".")[:-1])) for fn in listdir(cf['paths']['machine_annotations']) if fn.startswith("machine_annotations")]
+    for fn in data_io.listdir(cf, "machine_annotations", verbose=verbose):
+        if fn.startswith("machine_annotations") and fn.endswith(cf['misc']['file_format']):
+            machine_file_names.append(fn)
     machine_file_names = list(set(machine_file_names))
 
-    all_results = concat([data_io.load_dataset(fn, verbose=verbose) for fn in machine_file_names])
+    all_results = concat([data_io.load_parquet(cf, "machine_annotations", fn, verbose=verbose) for fn in machine_file_names])
 
     all_results.reset_index(drop=True, inplace=True)
     all_results['error'] = all_results['error'].map(lambda x:"-" if x=={} else x)
@@ -98,19 +94,13 @@ def load_machine_annotations(
             print(f"The raw json files will remain untouched")
 
         all_results = convert_dtypes_to_pyarrow(all_results, verbose=verbose)
-        data_io.save_dataset(all_results, latest_filename, verbose=verbose)
+        data_io.save_parquet(cf, all_results, "machine_annotations", latest_filename, verbose=verbose)
 
 
         for fn in machine_file_names:
             if not fn == latest_filename:
-                if exists(fn+".parquet"):
-                    shutil.move(fn+".parquet",join(cf['paths']['machine_annotations'],'archive',basename(fn)+".parquet"))
-                    if verbose:
-                        print(f"Moved {basename(fn)+'.parquet'} to archive")
-                if exists(fn+".pkl"):
-                    shutil.move(fn+".pkl",join(cf['paths']['machine_annotations'],'archive',basename(fn)+".pkl"))
-                    if verbose:
-                        print(f"Moved {basename(fn)+'.pkl'} to archive")
+                data_io.move(cf, "machine_annotations", "archive", fn)
+
 
 
 
@@ -141,21 +131,22 @@ def load_machine_annotations(
 
 
 def save_machine_annotations_json(
+    cf,
     json_list: list, 
-    the_path:str, 
     verbose=False,
     notebook_mode = False):
 
     if notebook_mode:
         verbose = True
-    from os.path import join
-    from json import dump
+
+    #from os.path import join
+    #from json import dump
     from datetime import datetime
+    from fyp.data_io import save_json
 
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
 
-    with open(join(the_path,f"machine_annotations_{fine_ts}.json"),'w') as f:
-        dump(json_list,f)
+    save_json(cf, json_list, "machine_annotations", f"machine_annotations_{fine_ts}.json", verbose=verbose)
     if verbose:
         print(f"Saved raw machine annotations to 'machine_annotations_{fine_ts}.json'")
 
@@ -188,8 +179,8 @@ def call_machine(
     ) -> dict:
 
     from datetime import datetime
-    from json import dump
-    import json
+    #from json import dump
+    #import json
     from os.path import join, basename
     from google.genai import types
     from time import sleep
@@ -197,6 +188,7 @@ def call_machine(
     from copy import copy
 
     from fyp.fyp_main import init_config, connect_to_google, temp_path
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
@@ -217,11 +209,12 @@ def call_machine(
         "model" : cf['machine']['model'],
         "prompt_fn" : basename(cf['machine']['new_prompt']),
         "error" : "-",
-        "finish_reason":"did not even start",
+        "finish_reason": "did not even start",
         "response" : "",
     }
 
-    temp_fn = temp_path(cf, f"temp_machine_annotations_{output['item_id']}_{output['inference_ts']}.json")
+    #temp_fn = temp_path(cf, f"temp_machine_annotations_{output['item_id']}_{output['inference_ts']}.json")
+    temp_fn = f"temp_machine_annotations_{output['item_id']}_{output['inference_ts']}.json"
 
 
     # initialise the contents for the model
@@ -248,8 +241,9 @@ def call_machine(
     
     except Exception as e:
         output["error"] = str(e)
-        with open(temp_fn, 'w') as file:
-            dump(output,file)
+        data_io.save_json(cf, output, "errors", temp_fn, verbose=verbose)
+        #with open(temp_fn, 'w') as file:
+        #    dump(output,file)
         return output
 
 
@@ -274,8 +268,9 @@ def call_machine(
         else:
             output["finish_reason"] = "DNF - see error msg"
 
-        with open(temp_fn, 'w') as file:
-            dump(output,file)
+        data_io.save_json(cf, output, "errors", temp_fn, verbose=verbose)
+        #with open(temp_fn, 'w') as file:
+        #    dump(output,file)
         return output
 
 
@@ -294,8 +289,9 @@ def call_machine(
         output["finish_reason"] = the_finish_reason
         output["response"] = resp
 
-        with open(temp_fn, 'w') as file:
-            dump(output,file)
+        data_io.save_json(cf, output, "errors", temp_fn, verbose=verbose)
+        #with open(temp_fn, 'w') as file:
+        #    dump(output,file)
         return output
 
     output["inference_duration"] = (times[-1] - times[-2]).total_seconds()
@@ -303,8 +299,9 @@ def call_machine(
     output["response"] = machine_annotations
 
     # save the json just in case everything crashes
-    with open(temp_fn, 'w') as file:
-        dump(output,file)
+    data_io.save_json(cf, output, "errors", temp_fn, verbose=verbose)
+    #with open(temp_fn, 'w') as file:
+    #    dump(output,file)
 
     return output
 
@@ -497,8 +494,8 @@ def call_machine_threads(
 
     if len(results_by_index)>0:
         save_machine_annotations_json(
+            cf,
             results_by_index,
-            cf['paths']['machine_annotations'],
             verbose=verbose,
             notebook_mode=notebook_mode
         )
@@ -1265,11 +1262,12 @@ def post_process_raw_annotations(
 
     if verbose:
         print("Ready to save processed results")
+        
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     file_prefix = "machine_annotations"
 
     outputs_from_machine_df = convert_dtypes_to_pyarrow(outputs_from_machine_df, verbose=verbose)
-    data_io.save_dataset(outputs_from_machine_df, join(cf["paths"]["machine_annotations"], f"{file_prefix}_{fine_ts}{file_format}"), verbose=verbose)
+    data_io.save_parquet(cf, outputs_from_machine_df, "machine_annotations", f"{file_prefix}_{fine_ts}{file_format}", verbose=verbose)
     if verbose:
         print(f"Saved processed results to '{file_prefix}_{fine_ts}{file_format}'")
     
@@ -1358,12 +1356,12 @@ def annotate_from_scrape_metadata_file(
         cf = connect_to_google(cf)
 
 
-    if scrape_metadata_filename is None or not exists(scrape_metadata_filename):
+    if scrape_metadata_filename is None or not data_io.exists(cf, "scrape", scrape_metadata_filename):
         if verbose:
             print(f"File {scrape_metadata_filename} does not exist. Cannot process this file.")
         return None
 
-    df = data_io.load_dataset(scrape_metadata_filename)
+    df = data_io.load_parquet(cf, "scrape", scrape_metadata_filename, verbose=verbose)
 
     # we're only annotating the videos that are downloaded and shorter than a certain max duration
     work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"]<cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()
@@ -1380,7 +1378,7 @@ def annotate_from_scrape_metadata_file(
 
 def post_process_raw_annotations_from_json_file(
     cf = None,
-    json_file = None,
+    json_filename = None,
     verbose = False,
     notebook_mode = False):
 
@@ -1391,21 +1389,26 @@ def post_process_raw_annotations_from_json_file(
     it's preferrable to use the raw json and try to fix whatever might be causing the trouble
     """
     from datetime import datetime
-    from json import load
-    from os.path import exists
+    #from json import load
+    #from os.path import exists
 
     from fyp.fyp_main import init_config, connect_to_google
+    import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
 
-    if json_file is None or not exists(json_file):
-        if verbose:
-            print(f"File {json_file} does not exist. Cannot process this file.")
-        return None
 
-    with open(json_file, 'r') as f:
-        raw_outputs_from_machine = load(f)
+    raw_outputs_from_machine = data_io.load_json(cf, "machine_annotations", json_filename, verbose=verbose)
+
+
+    #if json_file is None or not exists(json_file):
+    #    if verbose:
+    #        print(f"File {json_file} does not exist. Cannot process this file.")
+    #    return None
+
+    #with open(json_file, 'r') as f:
+    #    raw_outputs_from_machine = load(f)
 
     #process raw_outputs_from_machine
     _ = post_process_raw_annotations(cf = cf, raw_outputs_from_machine = raw_outputs_from_machine, verbose = verbose, notebook_mode = notebook_mode)

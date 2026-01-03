@@ -13,9 +13,6 @@ import numpy as np
 import pandas as pd
 
 
-
-
-
 import logging
 # Silence the noisy HTTP request logs from Flask/Werkzeug
 log = logging.getLogger('werkzeug')
@@ -26,17 +23,20 @@ app = Flask(__name__)
 # --- Config ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
+
 import fyp
 import fyp.data_io as data_io
 from fyp.calc_donation_stats import calculate_all_donation_stats, enrich_stats_with_metadata
 from fyp.organize_datasets_OPTIMIZED import load_ddp_events
+
+
 # Initialize configuration to access paths
 fyp_cf = fyp.init_project(verbose=False)
 
 DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
 INGEST_SCRIPT = PROJECT_ROOT / "web_interface" / "run_ingest_ndjson.py"
 ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_annotator.py"
-MONITOR_SCRIPT = PROJECT_ROOT / "enrich_tiktok_data" / "monitor_scrape_folder_and_annotate.py"
+MONITOR_SCRIPT = PROJECT_ROOT / "web_interface" / "monitor_scrape_folder_and_annotate.py"
 CREATE_SUBSETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_subsets.py"
 REGENERATE_DATASETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_regenerate_datasets.py"
 CREATE_EVENT_LOG_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_event_log.py"
@@ -91,12 +91,10 @@ def get_explorer_data(study):
         return explorer_df, explorer_col_types
 
     # Resolve path
-    exports_dir = Path(fyp_cf["paths"]["exports"])
-    dataset_path = exports_dir / f"{study}_RECODED{fyp_cf['misc']['file_format']}"
-    print(dataset_path)
-    if dataset_path.exists():
+    dataset_filename = f"{study}_RECODED{fyp_cf['misc']['file_format']}"
+    if data_io.exists(fyp_cf, "exports", dataset_filename):
         #print(f"Loading Explorer Study '{study}' from {dataset_path}...")
-        explorer_df, explorer_col_types = explorer.load_data(str(dataset_path))
+        explorer_df, explorer_col_types = explorer.load_data(dataset_filename)
         #print(f"Explorer Study '{study}' loaded. Computing total stats...")
         res = explorer.get_current_stats(explorer_df, explorer_col_types)
         explorer_total_stats = res['stats']
@@ -446,14 +444,12 @@ def api_config():
 
 @app.route('/api/explorer/studies', methods=['GET'])
 def api_explorer_studies():
-    exports_dir = Path(fyp_cf["paths"]["exports"])
-    if not exports_dir.exists():
-        return jsonify([])
     
     studies = []
-    for f in exports_dir.glob(f"*_RECODED{fyp_cf['misc']['file_format']}"):
+    recoded_files = [fn for fn in data_io.listdir(fyp_cf, "exports") if fn.endswith(f"_RECODED{fyp_cf['misc']['file_format']}")]
+    for fn in recoded_files:
         # Extract study name: filename is {study_name}_RECODED...
-        study_name = f.name.replace(f"_RECODED{fyp_cf['misc']['file_format']}", "")
+        study_name = fn.replace(f"_RECODED{fyp_cf['misc']['file_format']}", "")
         studies.append(study_name)
     
     return jsonify(sorted(studies))
@@ -496,11 +492,10 @@ def api_explorer_metadata():
 
     # Inject Source File Info
     try:
-        exports_dir = Path(fyp_cf["paths"]["exports"])
-        dataset_path = exports_dir / f"{study}_RECODED{fyp_cf['misc']['file_format']}"
-        if dataset_path.exists():
-            metadata['source_file'] = dataset_path.name
-            mtime = datetime.fromtimestamp(dataset_path.stat().st_mtime)
+        the_recoded_file = f"{study}_RECODED{fyp_cf['misc']['file_format']}"
+        if data_io.exists(fyp_cf, "exports", the_recoded_file):
+            metadata['source_file'] = the_recoded_file
+            mtime = datetime.fromtimestamp(data_io.getmtime(fyp_cf, "exports", the_recoded_file))
             metadata['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
         else:
              metadata['source_file'] = "Unknown"
@@ -763,15 +758,12 @@ def get_pca_df(study_name):
         from os.path import join, exists
         import pandas as pd
         
-        # Path logic reusing fyp.cf["paths"]["exports"]
-        # But we need access to 'fyp_cf'
-        exports_dir = fyp_cf["paths"]["exports"]
-        pca_path = join(exports_dir, f"{study_name}_PCA{fyp_cf['misc']['file_format']}")
+        pca_filename = f"{study_name}_PCA{fyp_cf['misc']['file_format']}"
         
-        if not exists(pca_path):
+        if not data_io.exists(fyp_cf, "exports", pca_filename):
             return None
         
-        df = data_io.load_dataset(pca_path)
+        df = data_io.load_parquet(fyp_cf, "exports", pca_filename)
         pca_df_cache[study_name] = df
         return df
     except Exception as e:
@@ -827,13 +819,8 @@ def api_pca_metadata():
     # Load Interpretations
     interpretations = {}
     try:
-        from json import load as json_load
-        from os.path import join, exists
-        exports_dir = fyp_cf["paths"]["exports"]
-        inter_path = join(exports_dir, f"{study}_COMP_INTERPRETATIONS.json")
-        if exists(inter_path):
-            with open(inter_path, 'r') as f:
-                interpretations = json_load(f)
+        inter_path = f"{study}_COMP_INTERPRETATIONS.json"
+        interpretations = data_io.load_json(fyp_cf, "exports", inter_path, verbose=False)
     except Exception as e:
         print(f"Error loading interpretations: {e}")
 
@@ -938,8 +925,8 @@ def api_pca_data():
 
 
 
-LOCATION_CACHE_FILE = 'location_timezone_cache.json'
-PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
+LOCATION_CACHE_FILE = 'location_timezone_cache.json' # sits in 'ddp_main'
+PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet' # sits in 'ddp_main'
 
 
 
@@ -949,10 +936,10 @@ def api_persona_stats_info():
     """Get info about cached stats file (existence and timestamp)."""
     try:
         from os.path import join, exists, getmtime
-        cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
+        #cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
         
-        if exists(cache_path):
-            mtime = getmtime(cache_path)
+        if data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
+            mtime = data_io.getmtime(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE)
             from datetime import datetime
             timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
             return jsonify({"exists": True, "timestamp": timestamp})
@@ -969,14 +956,14 @@ def api_persona_stats_info():
 def api_persona_stats_cached():
     """Load pre-calculated stats from cache file."""
     try:
-        from os.path import join, exists
-        cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
+        #from os.path import join, exists
+        #cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
         
-        if not exists(cache_path):
+        if not data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
             return jsonify({"error": "No cached stats found. Click 'Recalculate Stats' to generate."}), 404
         
-        print(f"Loading cached persona stats from {cache_path}...")
-        stats_df = pd.read_parquet(cache_path, engine='pyarrow')
+        print(f"Loading cached persona stats from {PERSONA_STATS_CACHE_FILE}...")
+        stats_df = data_io.load_parquet(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE)
         
         # Convert to JSON-safe records
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')
@@ -1019,14 +1006,10 @@ def api_persona_stats():
     try:
         from os.path import join
         
-        parquet_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_events.parquet')
-        print(f"Loading global DDP events from {parquet_path}...")
+        #parquet_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_events.parquet')
+        print(f"Loading global DDP events...")
         
-        events_df = pd.read_parquet(
-            parquet_path, 
-            engine='pyarrow', 
-            dtype_backend='pyarrow'
-        )
+        events_df = data_io.load_parquet(fyp_cf, "ddp_main", "all_participant_events.parquet")
         
         if events_df is None or events_df.empty:
             return jsonify({"error": "No DDP events found"}), 404
@@ -1035,16 +1018,16 @@ def api_persona_stats():
         stats_df = calculate_all_donation_stats(events_df)
         
         # Try to load participant metadata and enrich
-        metadata_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_metadata.parquet')
+        #metadata_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_metadata.parquet')
         try:
-            if os.path.exists(metadata_path):
-                metadata_df = pd.read_parquet(metadata_path, engine='pyarrow')
+            if data_io.exists(fyp_cf, "ddp_main", "all_participant_metadata.parquet"):
+                metadata_df = data_io.load_parquet(fyp_cf, "ddp_main", "all_participant_metadata.parquet")
                 print(f"Loaded {len(metadata_df)} metadata records")
                 
                 # Cache file path
-                tz_cache_path = join(fyp_cf['paths']['ddp_main'], LOCATION_CACHE_FILE)
+                #tz_cache_path = join(fyp_cf['paths']['ddp_main'], LOCATION_CACHE_FILE)
                 
-                stats_df = enrich_stats_with_metadata(stats_df, metadata_df, cache_path=tz_cache_path)
+                stats_df = enrich_stats_with_metadata(fyp_cf, stats_df, metadata_df, cache_filename=LOCATION_CACHE_FILE)
             else:
                 print("Metadata file not found, skipping enrichment.")
                 
@@ -1172,7 +1155,7 @@ def api_find_ndjson():
     # Actually get_recent_files returns list of dicts: {'filename': ..., 'modified': ...}
     
     try:
-        files = fyp.get_recent_files(str(dir_path), suffix=".ndjson", how_recent=525600) # Get files from last year
+        files = fyp.get_recent_files(fyp_cf, directory, suffix=".ndjson", how_recent=525600) # Get files from last year
         
         # Add full path to result
         result_files = []

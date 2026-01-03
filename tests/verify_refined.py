@@ -13,7 +13,7 @@ import fyp.machine_annotation as ma
 # We need to import the monitor script to check its setup_logger, 
 # but it runs code on import if not careful (it has a main check but some setup at top level?)
 # It has "Current_dir" setup at top level, which is fine.
-import enrich_tiktok_data.monitor_scrape_folder_and_annotate as monitor
+import web_interface.monitor_scrape_folder_and_annotate as monitor
 
 class TestRefinedSilence(unittest.TestCase):
     def test_logger_levels(self):

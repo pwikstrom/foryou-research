@@ -1,7 +1,7 @@
 
 import sys
-import os
-import shutil
+#import os
+#import shutil 
 import json
 import traceback
 from datetime import datetime
@@ -14,9 +14,12 @@ sys.path.append(str(PROJECT_ROOT))
 import fyp.fyp_main as fyp
 from fyp.get_baseline_log import read_ndjson_file, refine_zeeschuimer_log, get_baseline_info_as_string
 import fyp.data_io as data_io
-import pandas as pd
+#import pandas as pd
 
-def ingest_files(file_paths, label):
+
+
+
+def ingest_files(file_names, label):
     log_output = []
     summary_output = []
     
@@ -26,41 +29,41 @@ def ingest_files(file_paths, label):
 
     fyp_cf = fyp.init_project(verbose=False)
     
-    raw_dir = Path(fyp_cf["paths"]["zeeschuimer_raw"])
-    refined_dir = Path(fyp_cf["paths"]["zeeschuimer_refined"])
     
     processed_count = 0
     
-    for file_path in file_paths:
+    for file_name in file_names:
         try:
-            original_path = Path(file_path)
-            if not original_path.exists():
-                log(f"Error: File not found: {file_path}")
+            if not data_io.exists(fyp_cf, "firefox_downloads", file_name):
+                log(f"Error: File not found: {file_name}")
                 continue
+            #original_path = Path(file_path)
+            #if not original_path.exists():
+            #    log(f"Error: File not found: {file_path}")
+            #    continue
                 
             #log(f"Processing: {original_path.name}")
             
             # 1. Prepare new filename (Label + original name)
             # Sanitize label a bit
-            safe_label = "".join(c for c in label if c.isalnum() or c in (' ', '_', '-')).strip().replace(" ", "_")
+            #safe_label = "".join(c for c in label if c.isalnum() or c in (' ', '_', '-')).strip().replace(" ", "_")
             
             # Construct new filename: Label_OriginalName
             # existing naming convention in get_baseline_log uses script name as prefix.
             # We will use the label as "the_script" essentially.
             
-            new_filename = f"{safe_label}_{original_path.name}"
-            dest_path = raw_dir / new_filename
+            #new_filename = f"{safe_label}_{file_name}"
+            #dest_path = raw_dir / new_filename
             
             # 2. Move File
-            if dest_path.exists():
-                # Handle collision? For now overwriting or maybe appending timestamp?
-                # User asked to just move. I'll append timestamp if exists to be safe.
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                new_filename = f"{safe_label}_{timestamp}_{original_path.name}"
-                dest_path = raw_dir / new_filename
+            #if data_io.exists(fyp_cf, "zeeschuimer_raw", new_filename):
+            #    # Handle collision by appending timestamp
+            #    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            #    new_filename = f"{safe_label}_{timestamp}_{file_name}"
+            #    #dest_path = raw_dir / new_filename
                 
-            shutil.move(str(original_path), str(dest_path))
-            #log(f"  Moved to {dest_path}")
+            
+            data_io.move(fyp_cf, "firefox_downloads", "zeeschuimer_raw", file_name)
             
             # 3. Read and Refine
             # The read_ndjson_file function expects the file to be in zeeschuimer_raw usually 
@@ -68,7 +71,7 @@ def ingest_files(file_paths, label):
             # It uses fyp.cf["misc"]["label"] which is hardcoded in config... 
             # We need to overwrite the label column anyway.
             
-            raw_data = read_ndjson_file(fyp_cf, str(dest_path))
+            raw_data = read_ndjson_file(fyp_cf, storage_location="zeeschuimer_raw", file_name=file_name)
             if not raw_data:
                 log("  Warning: Empty data found.")
                 continue
@@ -81,37 +84,42 @@ def ingest_files(file_paths, label):
 
             # 4. Overwrite Label
             df['label'] = label
-            #log(f"  Assigned label: {label}")
             
             # 5. Save File
             # Naming logic from move_and_refine_recent_file
-            # It creates names like {script}{original_name_wo_zeeschuimer} (.pkl or .parquet)
+            # It creates names like {script}{original_name_wo_zeeschuimer}.parquet)
             # simplified:
-            processed_fn = new_filename.replace(".ndjson", fyp_cf['misc']['file_format'])
+            processed_fn = file_name.replace(".ndjson", fyp_cf['misc']['file_format'])
             
-            # Ensure unique
-            r = 0
-            while (refined_dir / processed_fn).exists():
-                r += 1
-                stem = new_filename.replace(".ndjson", "")
-                processed_fn = f"{stem}_{r:04}{fyp_cf['misc']['file_format']}"
+            # Check f there is already a file with this name in the zeeschuimer_refined - if so, append a number
+            #r = 0
+            #while data_io.exists(fyp_cf, "zeeshuimer_refined", processed_fn):
+            #    r += 1
+            #    stem = file_name.replace(".ndjson", "")
+            #    processed_fn = f"{stem}_{r:04}{fyp_cf['misc']['file_format']}"
             
-            save_path = refined_dir / processed_fn
+            #save_path = refined_dir / processed_fn
             df = fyp.convert_dtypes_to_pyarrow(df, verbose=False)
-            data_io.save_dataset(df, str(save_path), verbose=False)
-            log(f"  Saved refined DataFrame to {save_path.name}")
+            data_io.save_parquet(fyp_cf, df, "zeeschuimer_refined", processed_fn, verbose=False)
+            log(f"  Saved refined DataFrame to {processed_fn}")
             
             # Generate summary
             summary = get_baseline_info_as_string(df)
-            summary_output.append(f"Summary for {original_path.name}:\n{summary}")
+            summary_output.append(f"Summary for {file_name}:\n{summary}")
             
             processed_count += 1
             
         except Exception as e:
-            log(f"  Error processing {file_path}: {e}")
+            log(f"  Error processing {file_name}: {e}")
             log(traceback.format_exc())
 
     return log_output, processed_count, "\n".join(summary_output)
+
+
+
+
+
+
 
 if __name__ == "__main__":
     # Expects JSON input from stdin with "files" and "label"

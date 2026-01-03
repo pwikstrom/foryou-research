@@ -53,7 +53,7 @@ class TestTimezoneInference(unittest.TestCase):
 
         print("\n--- Running Pass 1 (Populate Cache) ---")
         # Run 1
-        result = enrich_stats_with_metadata(stats, meta, cache_path=self.cache_path)
+        result = enrich_stats_with_metadata(stats, meta, cache_filename=self.cache_path)
         
         self.assertTrue('location_tz_offset' in result.columns, "Output dataframe should have 'location_tz_offset' column")
         # Brisbane is UTC+10
@@ -76,7 +76,7 @@ class TestTimezoneInference(unittest.TestCase):
         # Reset mock counts
         mock_geocoder.geocode.reset_mock()
         
-        result2 = enrich_stats_with_metadata(stats, meta, cache_path=self.cache_path)
+        result2 = enrich_stats_with_metadata(stats, meta, cache_filename=self.cache_path)
         self.assertEqual(len(result2), 3)
         print("Pass 2 successful: Geocoder was not called.")
 

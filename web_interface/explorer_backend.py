@@ -10,7 +10,7 @@ def load_data(file_path):
     from numpy import ndarray as np_ndarray
     try:
         if file_path.endswith(fyp_cf['misc']['file_format']):
-            df = data_io.load_dataset(file_path)
+            df = data_io.load_parquet(fyp_cf, "exports", file_path)
         else:
             raise ValueError(f"Unsupported file format. Only {fyp_cf['misc']['file_format']} is supported.")
     except Exception as e:

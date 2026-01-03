@@ -130,6 +130,7 @@ def init_config(
     cf["paths"]["ddp_participants"] = join(cf["paths"]["ddp"], "main", "participants_raw")
     cf["paths"]["machine_annotations"] = join(cf["paths"]["main"], "machine_annotations", "new_gen")
     cf["paths"]["exports"] = join(cf["paths"]["main"], "exports")
+    cf["paths"]["archive"] = join(cf["paths"]["main"], "archive")
 
     return cf
 
@@ -260,22 +261,23 @@ def temp_path(cf: dict, filename: str = "") -> str:
 
 
 
-def get_recent_files(directory, suffix=None, how_recent=10):
-    from os import listdir
-    from os.path import isfile, join, getmtime, getctime
+def get_recent_files(cf, storage_location, suffix=None, how_recent=10):
+    #from os import listdir
+    #from os.path import isfile, join, getmtime, getctime
     from datetime import datetime, timedelta
+    import fyp.data_io as data_io
 
     current_time = datetime.now()
     recent_files = []
 
-    for filename in listdir(directory):
-        file_path = join(directory, filename)
-        if isfile(file_path) and (suffix is None or file_path.endswith(suffix)):
-            modified_time = datetime.fromtimestamp(getmtime(file_path))
-            created_time = datetime.fromtimestamp(getctime(file_path))
+    for filename in data_io.listdir(cf, storage_location):
+        #file_path = join(storage_location, filename)
+        if suffix is None or filename.endswith(suffix):
+            modified_time = datetime.fromtimestamp(data_io.getmtime(cf, storage_location, filename))
+            created_time = datetime.fromtimestamp(data_io.getctime(cf, storage_location, filename))
             time_difference = current_time - max(modified_time, created_time)
             if time_difference < timedelta(minutes=how_recent):
-                recent_files.append({"filename":file_path, "mtime":modified_time, "ctime":created_time})
+                recent_files.append({"filename":filename, "mtime":modified_time, "ctime":created_time})
 
     return sorted(recent_files,key=lambda x: x["mtime"], reverse=True)
 

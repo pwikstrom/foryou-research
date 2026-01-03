@@ -528,7 +528,10 @@ def _get_timezone_finder():
         _timezone_finder = TimezoneFinder()
     return _timezone_finder
 
-def load_tz_cache(cache_path: str) -> dict:
+
+
+
+"""def load_tz_cache(cache_path: str) -> dict:
     if cache_path and os.path.exists(cache_path):
         try:
             with open(cache_path, 'r') as f:
@@ -537,6 +540,8 @@ def load_tz_cache(cache_path: str) -> dict:
             print(f"Warning: Could not load timezone cache: {e}")
     return {}
 
+
+
 def save_tz_cache(cache: dict, cache_path: str):
     if not cache_path:
         return
@@ -544,7 +549,12 @@ def save_tz_cache(cache: dict, cache_path: str):
         with open(cache_path, 'w') as f:
             json.dump(cache, f, indent=2)
     except Exception as e:
-        print(f"Warning: Could not save timezone cache: {e}")
+        print(f"Warning: Could not save timezone cache: {e}")"""
+
+
+
+
+
 
 def infer_tz_from_location(postcode, country, cache: dict = None) -> float:
     """
@@ -629,15 +639,22 @@ def infer_tz_from_location(postcode, country, cache: dict = None) -> float:
         print(f"Error inferring timezone for {cache_key}: {e}")
         return None
 
-def enrich_stats_with_metadata(stats_df: pd.DataFrame, metadata_df: pd.DataFrame, cache_path: str = None) -> pd.DataFrame:
+
+
+
+
+def enrich_stats_with_metadata(cf, stats_df: pd.DataFrame, metadata_df: pd.DataFrame, cache_filename: str = None) -> pd.DataFrame:
     """
     Merges metadata into stats_df and adds checking location-based timezone.
     """
+    import fyp.data_io as data_io
+
     if stats_df.empty:
         return stats_df
 
     # Load cache
-    tz_cache = load_tz_cache(cache_path) if cache_path else {}
+    #tz_cache = load_tz_cache(cache_path) if cache_filename else {}
+    tz_cache = data_io.load_json(cf, "ddp_main", cache_filename, verbose=False) if cache_filename else {}
     initial_cache_size = len(tz_cache)
     
     # Merge Logic (taken from app.py)
@@ -675,8 +692,8 @@ def enrich_stats_with_metadata(stats_df: pd.DataFrame, metadata_df: pd.DataFrame
         print(f"Location timezone inferred for {stats_df['location_tz_offset'].notna().sum()} donations")
         
     # Save cache if changed
-    if cache_path and len(tz_cache) > initial_cache_size:
-        save_tz_cache(tz_cache, cache_path)
-        print(f"Updated timezone cache saved to {cache_path} (entries: {len(tz_cache)})")
+    if cache_filename and len(tz_cache) > initial_cache_size:
+        data_io.save_json(cf, "ddp_main", cache_filename, tz_cache)
+        print(f"Updated timezone cache saved to {cache_filename} (entries: {len(tz_cache)})")
         
     return stats_df

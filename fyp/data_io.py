@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Script Name: data_io.py
-Description: Centralized I/O operations for dataframes, handling the migration from Pickle to Parquet.
-Author: Antigravity (Assistant)
+Description: Centralized I/O operations for dataframes.
+Author: Patrik
 """
 
 import pandas as pd
@@ -10,58 +10,245 @@ import os
 import logging
 import json
 
-# =============================================================================
-# Configuration
-# =============================================================================
-# If True, writing a dataset will write BOTH .parquet and .pkl files.
-# This is for the transition period to ensure we can always rollback.
-WRITE_BOTH = False
-
-# If True, we verify that the loaded Parquet data matches what would be loaded from Pickle (if it exists).
-# This is slow but useful for verification.
-VERIFY_ON_LOAD = False
-
-# If True, forcing fallback to Pickle only (emergency switch).
-USE_PICKLE_ONLY = False
 
 
-def load_dataset(path: str, verbose: bool = False, **kwargs) -> pd.DataFrame:
+
+
+
+def exists(cf, storage_location, filename, verbose=False) -> bool:
+    """
+    Check if the file filename exists in the given storage location.
+    """
+    from os.path import exists, join
+
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+    
+    full_path = join(cf['paths'][storage_location], filename)
+
+    file_exists = exists(full_path)
+    return file_exists
+
+
+
+def getctime(cf, storage_location, filename, verbose=False):
+    """
+    Get the creation time of the file filename in the given storage location.
+    """
+    from os.path import getctime
+    from os.path import join
+
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+    
+    full_path = join(cf['paths'][storage_location], filename)
+
+    file_ctime = getctime(full_path)
+    return file_ctime
+
+
+
+
+def getmtime(cf, storage_location, filename, verbose=False):
+    """
+    Get the modification time of the file filename in the given storage location.
+    """
+    from os.path import getmtime
+    from os.path import join
+
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+    
+    full_path = join(cf['paths'][storage_location], filename)
+
+    file_ctime = getmtime(full_path)
+    return file_ctime
+
+
+
+def getsize(cf, storage_location, filename, verbose=False):
+    """
+    Get the size of the file filename in the given storage location.
+    """
+    from os.path import getsize
+    from os.path import join
+
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+    
+    full_path = join(cf['paths'][storage_location], filename)
+
+    file_ctime = getsize(full_path)
+    return file_ctime
+
+
+
+
+
+
+
+
+def remove(cf, storage_location, filename, verbose=False):
+    """
+    Remove the file filename from the given storage location.
+    """
+    from os import remove
+    from os.path import join
+
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+
+    full_path = join(cf['paths'][storage_location], filename)
+
+    if exists(cf, storage_location, filename):
+        remove(full_path)
+        if verbose: print(f" [DATA_IO] Removed '{filename}' from '{storage_location}'")
+    else:
+        if verbose: print(f" [DATA_IO] ERROR Couldn't find '{filename}' in '{storage_location}'")
+
+
+
+
+
+def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> list:
+    """
+    List files in the given storage location.
+    """
+    from os import listdir
+    from os.path import join
+
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+
+    files = listdir(cf['paths'][storage_location])
+
+    if return_absolute_path:
+        files = [join(cf['paths'][storage_location], f) for f in files]
+
+    if verbose: print(f" [DATA_IO] Listed {len(files)} files in '{storage_location}'")
+
+    return files
+
+
+
+
+def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=False):
+    """
+    Move the file filename from src_storage_location to dst_storage_location.
+    """
+    from shutil import move
+    from os.path import join
+
+    if src_storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{src_storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+
+    if dst_storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{dst_storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+
+    full_src = join(cf['paths'][src_storage_location], filename)
+    full_dst = join(cf['paths'][dst_storage_location], filename)
+
+
+    if exists(cf, src_storage_location, filename):
+        move(full_src, full_dst)
+        if verbose: print(f" [DATA_IO] Moved '{filename}' from '{src_storage_location}' to '{dst_storage_location}'")
+    else:
+        if verbose: print(f" [DATA_IO] ERROR Couldn't find '{filename}' in '{src_storage_location}'")
+
+
+
+
+def load_json(cf, storage_location, filename, verbose = False):
+    """
+    Load a json from a given path.
+    """
+    from os.path import join
+    from json import load
+
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+
+    full_path = join(cf['paths'][storage_location], filename)
+
+    base_path, ext = os.path.splitext(full_path)
+    if ext == '.json':
+        path_no_ext = base_path
+    else:
+        raise ValueError(f"File extension must be '.json', got: '{ext}'") 
+
+    json_path = f"{path_no_ext}.json"
+
+
+
+
+    with open(full_path, 'r') as file:
+        return load(file)
+
+
+
+
+
+def save_json(cf, data, storage_location, filename, verbose = False):
+    """
+    Save a json to a given path.
+    """
+    from os.path import join
+    from json import dump
+
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+
+    full_path = join(cf['paths'][storage_location], filename)
+
+    base_path, ext = os.path.splitext(full_path)
+    if ext == '.json':
+        path_no_ext = base_path
+    else:
+        raise ValueError(f"File extension must be '.json', got: '{ext}'") 
+
+    json_path = f"{path_no_ext}.json"
+
+
+
+    with open(full_path, 'w') as file:
+        dump(data, file)
+
+
+
+
+
+
+def load_parquet(cf, storage_location, filename, columns=None, verbose = False):
     """
     Load a dataframe from a given path (base path without extension or with .pkl/.parquet).
     """
     from fyp.fyp_main import convert_dtypes_to_pyarrow
+    from os.path import join, basename
 
-    base_path, ext = os.path.splitext(path)
-    if ext in ['.parquet']:
+
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+
+    full_path = join(cf['paths'][storage_location], basename(filename))
+
+    base_path, ext = os.path.splitext(full_path)
+    if ext == '.parquet':
         path_no_ext = base_path
     else:
-        path_no_ext = path 
+        raise ValueError(f"File extension must be '.parquet', got: '{ext}'") 
 
     parquet_path = f"{path_no_ext}.parquet"
-    #pickle_path = f"{path_no_ext}.pkl"
 
     df = None
-    #loaded_from_parquet = False
 
-    # Try Parquet
-    if os.path.exists(parquet_path):# and not USE_PICKLE_ONLY:
-        if verbose: print(f" [DATA_IO] Loading Parquet: {parquet_path}")
-        df = pd.read_parquet(parquet_path, engine='pyarrow', dtype_backend="pyarrow")
-        #loaded_from_parquet = True
-            
-    # Try Pickle
-    #if os.path.exists(pickle_path) and df is None:
-    #    if verbose: print(f" [DATA_IO] Loading Pickle: {pickle_path}")
-    #    df = pd.read_pickle(pickle_path, **kwargs)
-    #    loaded_from_parquet = False
+    if os.path.exists(parquet_path):
+        if verbose: print(f" [DATA_IO] Loading: '{filename}' from '{storage_location}'")
+        df = pd.read_parquet(parquet_path, engine='pyarrow', dtype_backend="pyarrow", columns=columns)
     
     if df is None:
-        raise FileNotFoundError(f"Parquet not found for: {path_no_ext}")
+        raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
 
-    # this is really only necessary if it has been loaded from pickle
-    if verbose:
-        print(f" [DATA_IO] Converting data from Pickle file to Parquet types")
-
+    # type management to be sure
     df = convert_dtypes_to_pyarrow(df, verbose=verbose)
 
     return df
@@ -71,33 +258,37 @@ def load_dataset(path: str, verbose: bool = False, **kwargs) -> pd.DataFrame:
 
 
 
-def save_dataset(df: pd.DataFrame, path: str, verbose: bool = False, **kwargs):
+def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = False):
     """
     Save a dataframe to the given path.
     
     Logic:
     1. Always save to .parquet (unless USE_PICKLE_ONLY is True).
-    2. If WRITE_BOTH is True, also save to .pkl.
     """
 
     from os import rename
     from fyp.fyp_main import convert_dtypes_to_pyarrow
+    from os.path import join, basename
 
-    base_path, ext = os.path.splitext(path)
-    if ext in ['.parquet']:
+    if storage_location not in cf['paths']:
+        raise ValueError(f"Invalid storage location: '{storage_location}'. Use one of these locations: {', '.join(list(cf['paths'].keys()))}")
+
+    full_path = join(cf['paths'][storage_location], basename(filename))
+
+    base_path, ext = os.path.splitext(full_path)
+    if ext == '.parquet':
         path_no_ext = base_path
     else:
-        path_no_ext = path
+        raise ValueError(f"File extension must be '.parquet', got: '{ext}'") 
 
     parquet_path = f"{path_no_ext}.parquet"
 
     # type management to ensure pyarrow can handle the data
     df = convert_dtypes_to_pyarrow(df, verbose=verbose)
 
-    # 1. Save Parquet
     # pyarrow handles lists/dicts natively, no need for JSON conversion
-    if verbose: print(f" [DATA_IO] Saving Parquet: {parquet_path}")
-    df.to_parquet(parquet_path, engine='pyarrow', **kwargs) 
+    if verbose: print(f" [DATA_IO] Saving: '{filename}' to '{storage_location}'")
+    df.to_parquet(parquet_path, engine='pyarrow') 
 
 
 
@@ -105,12 +296,12 @@ def save_dataset(df: pd.DataFrame, path: str, verbose: bool = False, **kwargs):
 
 
 # ------------------------------------------------------------------------------
-# Data Management Utilities (Moved from fyp_main.py)
+# Data Management Utilities
 # ------------------------------------------------------------------------------
 
 def get_study_export_files(cf = None, study_name = None):
-    from os import listdir
-    from os.path import join, getmtime
+    #from os import listdir
+    #from os.path import join, getmtime
     from fyp.fyp_main import init_config
     from numpy import mean as np_mean
     from datetime import datetime
@@ -124,11 +315,11 @@ def get_study_export_files(cf = None, study_name = None):
     export_file_categories = ["HALF_BAKED", "PCA", "LOG", "RECODED"]
     study_files = {category: [] for category in export_file_categories}
     
-    for fn in listdir(cf["paths"]["exports"]):
+    for fn in listdir(cf, "exports"):
         if fn.startswith(study_name) and fn.endswith(cf['misc']['file_format']):
             for category in export_file_categories:
                 if category in fn:
-                    study_files[category].append(getmtime(join(cf["paths"]["exports"], fn)))
+                    study_files[category].append(getmtime(cf, "exports", fn))
     
     for category in study_files:
         if len(study_files[category]) == 0:
@@ -146,8 +337,8 @@ def get_study_export_files(cf = None, study_name = None):
 
 
 def get_dataset_details(cf=None, study_name=None):
-    from os import listdir
-    from os.path import join, getsize
+    #from os import listdir
+    #from os.path import join, getsize
     from fyp.fyp_main import init_config
     import pandas as pd
     
@@ -160,22 +351,22 @@ def get_dataset_details(cf=None, study_name=None):
     group_factors = cf['var_scheme'][cf['var_scheme']['role']=='group_factor']['variable_name'].tolist()
 
     details = []
-    export_path = cf["paths"]["exports"]
-    
+
+
+
     try:
-        files = [f for f in listdir(export_path) if f.startswith(study_name) and (f.endswith(".pkl") or f.endswith(".parquet"))]
+        files = [f for f in listdir(cf, "exports") if f.startswith(study_name) and f.endswith(cf['misc']['file_format'])]
     except FileNotFoundError:
         return []
 
     for fn in files:
-        file_path = join(export_path, fn)
         try:
             # Get size in KB
-            size_kb = getsize(file_path) / 1024
+            size_kb = getsize(cf, "exports", fn) / 1024
             
             # Read dataset safely
             # Note: calling load_dataset directly within same module
-            df = load_dataset(file_path)
+            df = load_parquet(cf, "exports", fn)
             
             rows, cols = df.shape if hasattr(df, "shape") else (len(df), "N/A")
             if "item_id" in df.columns:

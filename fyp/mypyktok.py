@@ -318,7 +318,7 @@ def save_tiktok(video_url,
                                         allow_redirects=True,
                                         headers=headers,
                                         cookies=cookies)
-                                    with open(join("",image_fn), 'wb') as fn:
+                                    with open(join(save_path,image_fn), 'wb') as fn:
                                         fn.write(tt_image.content)
                                 else:
                                     tt_image = requests_get(

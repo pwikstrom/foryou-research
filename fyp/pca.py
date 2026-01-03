@@ -465,9 +465,9 @@ def calculate_scaled_pca_scores(
     save_it = True
 
 ):
-    from json import dump as json_dump
+    #from json import dump as json_dump
     from pandas import NamedAgg, MultiIndex, DataFrame, concat
-    from os.path import join, getctime, exists
+    #from os.path import join, exists
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.recode_variables import get_factors_and_features_from_var_scheme
@@ -491,12 +491,10 @@ def calculate_scaled_pca_scores(
 
 
     if some_events_df is None:
-        recoded_path = join(cf['paths']['exports'],f"{study_name}_RECODED")
-        if exists(recoded_path+".pkl") or exists(recoded_path+".parquet"):
-            #nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
-            #print(f"Loading recoded events file in export folder, created at: {nice_time}", end=" ", flush=True)
+        recoded_path = f"{study_name}_RECODED{cf['misc']['file_format']}"
+        if data_io.exists(cf, "exports", recoded_path):
             print("Loading recoded events file in export folder", end=" ", flush=True)
-            some_events_df = data_io.load_dataset(recoded_path, verbose=verbose)
+            some_events_df = data_io.load_parquet(cf, "exports", recoded_path, verbose=verbose)
             print(f"  |  Shape: {some_events_df.shape}")
         else:
             print(f"ERROR: This process cannot be run until there is a RECODED dataset has been created.")
@@ -614,15 +612,16 @@ def calculate_scaled_pca_scores(
 
 
     if save_it:
-        pca_filename = f"{study_name}_PCA"
+        pca_filename = f"{study_name}_PCA{cf['misc']['file_format']}"
         comp_inter_filename = f"{study_name}_COMP_INTERPRETATIONS.json"
-        export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
         events_pca_scores_scaled = convert_dtypes_to_pyarrow(events_pca_scores_scaled, verbose=verbose)
-        data_io.save_dataset(events_pca_scores_scaled, join(cf['paths']['exports'],pca_filename))
-        print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")
-        with open(join(cf['paths']['exports'],comp_inter_filename), 'w') as f:
-            json_dump(comp_interpretations, f, indent=4)
+        data_io.save_parquet(cf, events_pca_scores_scaled, "exports", pca_filename, verbose=verbose)
+        print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in '{pca_filename}'.")
+
+        data_io.save_json(cf, comp_interpretations, "exports", comp_inter_filename, verbose=verbose)
+        #with open(join(cf['paths']['exports'],comp_inter_filename), 'w') as f:
+        #    json_dump(comp_interpretations, f, indent=4)
 
     print(f"Now: {datetime.now()}")
     #print("--"*60)

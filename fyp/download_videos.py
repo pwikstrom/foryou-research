@@ -428,7 +428,7 @@ def download_video_threads(
     from datetime import datetime
     #from os import rename
     from os.path import join
-    from json import dump as json_dump
+    #from json import dump as json_dump
     import time
     from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
@@ -494,15 +494,16 @@ def download_video_threads(
     
     if len(results)>0:
         
-        final_path = join(cf['paths']['scrape'], f"scrape_metadata_{fine_ts}{cf['misc']['file_format']}")
+        scrape_metadata_filename = f"scrape_metadata_{fine_ts}{cf['misc']['file_format']}"
         results = convert_dtypes_to_pyarrow(results, verbose=verbose)
-        data_io.save_dataset(results, final_path, verbose=verbose)
-        print(f"Saved {len(results):,} rows to 'scrape_metadata_{fine_ts}{cf['misc']['file_format']}')")
+        data_io.save_parquet(cf, results, "scrape", scrape_metadata_filename, verbose=verbose)
+        print(f"Saved {len(results):,} rows to '{scrape_metadata_filename}'")
         print(f"and saved media objects to the bucket for {len(results[results['video_downloaded']]):,} of these.")
 
     if len(failed_items)>0:
-        with open(join(cf['paths']['scrape'],f"scrape_failed_items_{fine_ts}.json"), "w") as jf:
-            json_dump(failed_items, jf)
+        data_io.save_json(cf, failed_items, "scrape", f"scrape_failed_items_{fine_ts}.json", verbose=verbose)
+        #with open(join(cf['paths']['scrape'],f"scrape_failed_items_{fine_ts}.json"), "w") as jf:
+        #    json_dump(failed_items, jf)
         print(f"Saved {len(failed_items)} failed items")
 
 

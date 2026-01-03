@@ -583,7 +583,7 @@ def recode_events_df(
     save_it = True):
 
     import pandas as pd
-    from os.path import join, getctime, exists
+    from os.path import join, exists
     from datetime import datetime
     from copy import copy
     from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
@@ -596,18 +596,14 @@ def recode_events_df(
     if study_name is None:
         raise ValueError("study_name must be specified")
     
-    file_format = cf['misc']['file_format']
-
     print(f"Recoding variables, implementing missing data policy and a whole range of other things: Study:{study_name}")
 
 
     if cool_events_in is None:
-        log_path = join(cf['paths']['exports'],f"{study_name}_LOG")
-        if exists(log_path+".pkl") or exists(log_path+".parquet"):
-            #nice_time = datetime.fromtimestamp(getctime(log_path)).strftime('%Y-%m-%d %H:%M:%S')
-            #print(f"Loading events file in export folder, created at: {nice_time}", end=" ", flush=True)
+        log_path = f"{study_name}_LOG{cf['misc']['file_format']}"
+        if data_io.exists(cf, "exports", log_path):
             print(f"Loading events file in export folder...", end=" ", flush=True)
-            cool_events_in = data_io.load_dataset(log_path, verbose=verbose)
+            cool_events_in = data_io.load_parquet(cf, "exports", log_path, verbose=verbose)
             print(f"Shape: {cool_events_in.shape}")
         else:
             print("This process required a LOG file to be generated first. Log file not found at: ", log_path)
@@ -780,10 +776,9 @@ def recode_events_df(
     cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
     if save_it:
-        recoded_filename = f"{study_name}_RECODED"
-        export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
-        data_io.save_dataset(cool_events, join(cf['paths']['exports'],recoded_filename), verbose=verbose)
-        print(f"Exported {len(cool_events):,} events in {join(export_sub_folder_name,recoded_filename)}.")
+        recoded_filename = f"{study_name}_RECODED{cf['misc']['file_format']}"
+        data_io.save_parquet(cf, cool_events, "exports", recoded_filename, verbose=verbose)
+        print(f"Exported {len(cool_events):,} events in '{recoded_filename}'.")
     
     print(f"Now: {datetime.now()}")
     #print("--"*60)

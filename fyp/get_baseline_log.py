@@ -15,22 +15,25 @@ Date:
 ############################################################################################################
 
 # read a file with one json object per line and return a list of dictionaries
-def read_ndjson_file(cf = None, file_path = None):
+def read_ndjson_file(cf = None, storage_location = None, file_name = None):
     from json import loads
     from fyp.fyp_main import init_config
+    from os.path import join
 
     if cf is None:
         cf = init_config()
 
-
-    fine_fn = file_path.replace(cf["paths"]["zeeschuimer_raw"]+"/","").replace("/","").replace(".ndjson","").split('-')[0]
+    fine_fn = file_name.replace("/","").replace(".ndjson","").split('-')[0]
     data = []
-    with open(file_path, 'r') as file:
+    with open(join(cf["paths"][storage_location], file_name), 'r') as file:
         for line in file:
             line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
             line = '{"log_script":"' + fine_fn + '",' + line[1:]
             data.append(loads(line))
     return data
+
+
+
 
 
 
@@ -46,7 +49,7 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
         cf = init_config()
 
     if isinstance(item_list_or_ndjson_path, str):
-        item_list = read_ndjson_file(cf = cf, file_path = item_list_or_ndjson_path)
+        item_list = read_ndjson_file(cf = cf, storage_location="zeeschuimer_raw", file_name = item_list_or_ndjson_path)
     elif isinstance(item_list_or_ndjson_path, list):
         item_list = item_list_or_ndjson_path
     else:
@@ -181,7 +184,7 @@ def move_and_refine_recent_file(
     verbose=False,
     move_it = True
     ):
-    from shutil import move
+    #from shutil import move
     from os.path import basename, join, exists
     import subprocess
     from datetime import datetime
@@ -194,43 +197,40 @@ def move_and_refine_recent_file(
     if the_recent_file is None:
         raise ValueError("the_recent_file must be a dictionary with a 'filename' key")
 
-    file_format = cf['misc']['file_format']
 
     # the filename of the latest zeeschuimer ndjson file in the firefox downloads folder
     latest_zee_ndjson_in_firefox_downloads = the_recent_file["filename"]
     print(f"Processing the latest Zeeschuimer log file {latest_zee_ndjson_in_firefox_downloads}")
 
     # create a filename for the zeeschuimer ndjson file that is more readable
-    better_zee_ndjson_fn = the_script+basename(latest_zee_ndjson_in_firefox_downloads.replace("zeeschuimer", ""))
+    #better_zee_ndjson_fn = the_script+basename(latest_zee_ndjson_in_firefox_downloads.replace("zeeschuimer", ""))
 
     # move (and rename) the latest zeeschuimer ndjson file to the folder for raw zeeschuimer logs
-    new_zee_ndjson_path = join(cf["paths"]["zeeschuimer_raw"], better_zee_ndjson_fn)
     if move_it:
-        move(latest_zee_ndjson_in_firefox_downloads, new_zee_ndjson_path)
-    else:
-        new_zee_ndjson_path = latest_zee_ndjson_in_firefox_downloads
+        data_io.move(cf, "firefox_downloads", "zeeschuimer_raw", latest_zee_ndjson_in_firefox_downloads)
+
 
     # read the zeeschuimer log file from the new location and clean up the data
-    raw_zee_log = read_ndjson_file(cf = cf, file_path = new_zee_ndjson_path)
+    raw_zee_log = read_ndjson_file(cf = cf, file_path = latest_zee_ndjson_in_firefox_downloads)
     refined_zee_log = refine_zeeschuimer_log(cf = cf, item_list_or_ndjson_path = raw_zee_log)
 
     # create a filename for the zeeschuimer processed file by just replacing the suffix
-    zee_processed_fn = better_zee_ndjson_fn.replace(".ndjson",file_format)
+    zee_processed_fn = better_zee_ndjson_fn.replace(".ndjson",cf['misc']['file_format'])
 
     # make sure the filename for the processed file is unique
     r = 0
-    while exists(join(cf["paths"]["zeeschuimer_refined"], zee_processed_fn)):
+    while data_io.exists(cf, "zeeschuimer_refined", zee_processed_fn):
         r += 1
         if r ==  1:
-            zee_processed_fn = zee_processed_fn.replace(file_format, f"_{r:04}{file_format}")
+            zee_processed_fn = zee_processed_fn.replace(cf['misc']['file_format'], f"_{r:04}{cf['misc']['file_format']}")
         else:
-            zee_processed_fn = zee_processed_fn.replace(f"_{r-1:04}{file_format}", f"_{r:04}{file_format}")
+            zee_processed_fn = zee_processed_fn.replace(f"_{r-1:04}{cf['misc']['file_format']}", f"_{r:04}{cf['misc']['file_format']}")
 
 
     # save the refined zeeschuimer log as a processed file
     print(f"Saving the log file as a DataFrame: '{zee_processed_fn}'.")
 
-    data_io.save_dataset(refined_zee_log, join(cf["paths"]["zeeschuimer_refined"], zee_processed_fn), verbose=verbose)
+    data_io.save_parquet(cf, refined_zee_log, "zeeschuimer_refined", zee_processed_fn, verbose=verbose)
     
     # print some info about what is in refined_zee_log
     print(get_baseline_info_as_string(refined_zee_log))
@@ -274,7 +274,7 @@ def get_baseline_log(cf = None,
 
     the_script = basename(the_script)
 
-    recent_files = get_recent_files(cf["paths"]["firefox_downloads"],
+    recent_files = get_recent_files(fyp_cf, "firefox_downloads",
                                         suffix=".ndjson",
                                         how_recent=how_recent)
     if len(recent_files) > 0:
