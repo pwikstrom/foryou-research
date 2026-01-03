@@ -1094,12 +1094,12 @@ def api_video_stream(study, item_id):
     global fyp_cf
     
     # Lazy init of GCS bucket if not already connected
-    if fyp_cf["media_storage"]["bucket"] is None:
+    if fyp_cf["data_io"]["bucket"] is None:
         #print("Connecting to Google Cloud Storage for video streaming...")
         fyp_cf = fyp.connect_to_google(fyp_cf)
 
     # Get GCS bucket
-    bucket = fyp_cf.get("media_storage", {}).get("bucket")
+    bucket = fyp_cf.get("data_io", {}).get("bucket")
     if not bucket:
         return "GCS Bucket not available. Check credentials or internet connection.", 503
 

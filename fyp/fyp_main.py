@@ -13,17 +13,17 @@ from typing import Iterable, List
 ###                     Initialize project
 ############################################################################################################
 
-def create_dirs(this_cf: dict, clear_temp_dir: bool = False) -> None:
+"""def create_dirs(this_cf: dict, clear_temp_dir: bool = False) -> None:
     from os import makedirs
     from os.path import join
     from os import listdir, remove
 
-    for k in ["main", "zeeschuimer_raw", "zeeschuimer_refined", "ddp", "temp", "backup", "scrape", "exports","archive","errors"]:
+    for k in ["local_data", "zeeschuimer_raw", "zeeschuimer_refined", "ddp", "temp", "backup", "scrape", "exports","archive","errors"]:
         makedirs(this_cf["paths"][k], exist_ok=True)
 
     if clear_temp_dir:
         for fn in listdir(temp_path(this_cf)):
-            remove(join(temp_path(this_cf),fn))
+            remove(join(temp_path(this_cf),fn))"""
 
 
 
@@ -69,9 +69,9 @@ def init_config(
 
     cf = toml.load(config_path)
     # Prefer env var for secrets; fall back to file if present (avoid committing real keys)
-    gcp_bucket_name = environ.get("FYP_GCP_BUCKET_NAME")
+    gcp_bucket_name = environ.get("FYP_GCS_BUCKET_NAME")
     if gcp_bucket_name:
-        cf["media_storage"]["GCP_bucket"] = gcp_bucket_name
+        cf["data_io"]["GCS_bucket_name"] = gcp_bucket_name
 
     # Prefer env var for secrets; fall back to file if present (avoid committing real keys)
     gemini_env_key = environ.get("GEMINI_API_KEY")
@@ -103,36 +103,36 @@ def init_config(
 
     cf["machine"]["client"] = None
     cf["machine"]["global_generation_config"] = None
-    cf["media_storage"]["bucket"] = None
+    cf["data_io"]["bucket"] = None
 
     for p in cf["machine"].keys():
         if "prompt" in p:
             cf["machine"][p] = join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
 
-    cf["paths"]["main"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["main"]))
-    cf["paths"]["main_no_sync"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["main_not_gdrive_synced"]))
+    # Resolve relative paths against the project root for consistent file access.
+    cf["paths"]["local_data"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
+    cf["paths"]["local_temp"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_temp"]))
 
     # paths to folders
-
-    cf["paths"]["zeeschuimer"] = join(cf["paths"]["main"],"activity_data", "zeeschuimer")
+    cf["paths"]["zeeschuimer"] = join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
     cf["paths"]["zeeschuimer_raw"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")
     cf["paths"]["zeeschuimer_refined"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
 
-    cf["paths"]["ddp"] = join(cf["paths"]["main"],"activity_data", "ddp")
+    cf["paths"]["ddp"] = join(cf["paths"]["local_data"],"activity_data", "ddp")
     cf["paths"]["ddp_raw"] = join(cf["paths"]["ddp"], "ddp_raw")
     cf["paths"]["ddp_processed"] = join(cf["paths"]["ddp"], "ddp_processed")
     cf["paths"]["ddp_main"] = join(cf["paths"]["ddp"], "ddp_main")
     cf["paths"]["ddp_participants"] = join(cf["paths"]["ddp"], "ddp_participants")
 
-    cf["paths"]["scrape"] = join(cf["paths"]["main"], "scrape")
+    cf["paths"]["scrape"] = join(cf["paths"]["local_data"], "scrape")
 
-    cf["paths"]["machine_annotations"] = join(cf["paths"]["main"], "machine_annotations")
+    cf["paths"]["machine_annotations"] = join(cf["paths"]["local_data"], "machine_annotations")
     cf["paths"]["machine_annotations_raw"] = join(cf["paths"]["machine_annotations"], "machine_annotations_raw")
     cf["paths"]["machine_annotations_refined"] = join(cf["paths"]["machine_annotations"], "machine_annotations_refined")
 
-    cf["paths"]["exports"] = join(cf["paths"]["main"], "exports")
-    cf["paths"]["archive"] = join(cf["paths"]["main"], "archive")
-    cf["paths"]["temp"] = join(cf["paths"]["main_no_sync"], "temp")
+    cf["paths"]["exports"] = join(cf["paths"]["local_data"], "exports")
+    cf["paths"]["archive"] = join(cf["paths"]["local_data"], "archive")
+    cf["paths"]["temp"] = join(cf["paths"]["local_temp"], "temp")
 
 
     for k in cf["paths"].keys():
@@ -143,7 +143,7 @@ def init_config(
 
 
     if verbose:
-        print(f"Initialised with main data directory: {cf['paths']['main']}")
+        print(f"Initialised with main data directory: {cf["paths"]["local_data"]}")
 
 
 
@@ -159,7 +159,7 @@ def connect_to_google(cf_in):
     from google import genai
     from google.genai import types
     from google.api_core.exceptions import Forbidden
-    from google.cloud import storage
+    from google.cloud import storage as gcs_storage
     import http.client as httplib
 
     cf = copy(cf_in)
@@ -215,17 +215,17 @@ def connect_to_google(cf_in):
         print("Error Gemini API key. Gemini won't be available.")
 
 
-    # Initialize a GCP storage client
+    # Initialize a GCS storage client
     try:
-        bucket_client = storage.Client()
+        bucket_client = gcs_storage.Client()
 
-        # Get the GCP bucket
-        bucket = bucket_client.get_bucket(cf["media_storage"]["GCP_bucket"])
+        # Get the GCS bucket
+        bucket = bucket_client.get_bucket(cf["data_io"]["GCS_bucket_name"])
 
-        # Try to access the GCP bucket's metadata
+        # Try to access the GCS bucket's metadata
         bucket.reload()
-        cf["media_storage"]["bucket"] = bucket
-        print(f"Access to the project Google Cloud Storage bucket is authorized.")
+        cf["data_io"]["bucket"] = bucket
+        print(f"Access to the project Google Cloud Storage bucket {bucket.name} located at {bucket.location} is authorized.")
     except Forbidden:
         print(f"You don't have access to the project Google Cloud Storage bucket.")
     except Exception as e:
@@ -270,7 +270,7 @@ def temp_path(cf: dict, filename: str = "") -> str:
     from os.path import join
 
     #cf = toml.load(CONFIG_PATH)
-    temp_dir = join(cf["paths"]["main_not_gdrive_synced"],"temp")
+    temp_dir = join(cf["paths"]["local_temp"],"temp")
     return join(temp_dir, filename)
 
 
@@ -303,6 +303,8 @@ def fix_surrogates(text):
         return text
     # This trick encodes surrogates to UTF-16 and decodes them correctly
     return text.encode('utf-16', 'surrogatepass').decode('utf-16', 'replace')
+
+
 
 
 def fix_complex_types(some_iterable, verbose=False):
@@ -365,7 +367,6 @@ def fix_complex_types(some_iterable, verbose=False):
                 some_iterable.loc[i] = [json_dumps(j) for j in some_iterable.loc[i]]
     
                     
-
     # if all rows in the iterable is of the same type, then all is good
     if len(type_counts) == 1:
         if verbose:
@@ -394,7 +395,6 @@ def fix_complex_types(some_iterable, verbose=False):
         return some_iterable
 
 
-
     if "<class 'str'>" in type_counts.index:
         if verbose:
             print("Multiple types, one is 'str' - converting all to pyarrow strings")
@@ -402,6 +402,8 @@ def fix_complex_types(some_iterable, verbose=False):
 
     
     return some_iterable
+
+
 
 
 
@@ -672,7 +674,7 @@ def flatten_list(nested_list):
 
 
 ############################################################################################################
-###                     manage media storage / GCP bucket
+###                     manage data storage
 ############################################################################################################
 
 def DONT_USE_get_gcp_bucket(bucket_name, verbose = False):
@@ -702,23 +704,23 @@ def DONT_USE_get_gcp_bucket(bucket_name, verbose = False):
 
 
 
-def DONT_USE_init_media_storage(verbose=False):
+def DONT_USE_init_data_io(verbose=False):
     from os.path import join
 
     #cf = init_config()
 
-    if cf["media_storage"]["storage_type"]=="GCP":
+    if cf["data_io"]["storage_type"]=="GC":
         if verbose:
-            print("Connecting to GCP bucket...")
-        main_media_storage = get_gcp_bucket(cf["media_storage"]["GCP_bucket"])
-        if main_media_storage is None:
-            print("Could not connect to GCP bucket. Exiting.")
+            print("Connecting to GCS bucket...")
+        main_data_io = get_gcp_bucket(cf["data_io"]["GCS_bucket_name"])
+        if main_data_io is None:
+            print("Could not connect to GCS bucket. Exiting.")
             return None
     else:
         if verbose:
             print("Using local storage.")
-        main_media_storage = cf["media_storage"]["local_storage_dir"]
-    return main_media_storage
+        main_data_io = cf["data_io"]["local_storage_dir"]
+    return main_data_io
 
 
 

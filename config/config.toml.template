@@ -14,7 +14,7 @@ new_prompt = "new_prompt_002.txt"
 
 # vertexai settings
 vertexai = true
-project = "<REDACTED_GCP_PROJECT_NAME"
+project = "<REDACTED_GCP_PROJECT_NAME>"
 location = "global"
 http_options_api_version = "v1"
 http_options_timeout = 180000
@@ -36,8 +36,8 @@ max_duration_for_annotation = 300
 
 # Path for all project data except for media files
 # Change this to an absolute path on your machine or use an env var.
-main = "./data/main"
-main_not_gdrive_synced = "./data/temp"
+local_data = "./data/main"
+local_temp = "./data/temp"
 
 # Path to your Firefox Downloads folder (used by baseline ingestion)
 firefox_downloads = "~/Downloads"
@@ -59,12 +59,12 @@ local_mode = true
 ##########################################################################################
 # settings for the media storage
 ##########################################################################################
-[media_storage]
+[data_io]
 
 # Use local storage by default in the template
 storage_type = "local"
 local_storage_dir = "./media"
-GCP_bucket = "<REDACTED_GCP_BUCKET>"
+GCS_bucket_name = "<REDACTED_GCS_BUCKET>"
 
 
 # NOTES:

@@ -233,7 +233,7 @@ def call_machine(
         else:
             contents = [
                 types.Part.from_uri(
-                    file_uri=f"gs://{cf['media_storage']['GCP_bucket']}/{video_id}.mp4",
+                    file_uri=f"gs://{cf['data_io']['GCS_bucket_name']}/{video_id}.mp4",
                     mime_type="video/mp4"
                 ),
                 types.Part.from_text(text="Analyze this video")
@@ -256,7 +256,7 @@ def call_machine(
     except Exception as e:
         times += [datetime.now()]
 
-        video_found = cf["media_storage"]["bucket"].blob(f"{video_id}.mp4").exists()
+        video_found = cf["data_io"]["bucket"].blob(f"{video_id}.mp4").exists()
 
         output["error"] = str(e)
         output["inference_duration"] = (times[-1] - times[-2]).total_seconds()

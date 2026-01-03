@@ -180,11 +180,11 @@ def download_single_video(
 
     if cf is None:
         cf = init_config()
-    if cf['media_storage']['bucket'] is None:
+    if cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
-    if cf['media_storage']['bucket'] is None:
-        raise ValueError("No media storage bucket specified")
+    if cf['data_io']['bucket'] is None:
+        raise ValueError("No GCS bucket specified")
     if video_id is None:
         raise ValueError("No video id specified")
 
@@ -201,7 +201,7 @@ def download_single_video(
         max_duration_to_save = cf['misc']['max_duration_for_download'],
         browser_name='chrome',
         save_path="",
-        stream_to_bucket = cf["media_storage"]["bucket"],
+        stream_to_bucket = cf["data_io"]["bucket"],
         verbose=verbose
     )
 
@@ -216,7 +216,7 @@ def download_single_video(
                     print(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
 
                 # if there isn't a video already associated to this post...
-                blob = cf["media_storage"]["bucket"].blob(f"{video_id}.mp4")
+                blob = cf["data_io"]["bucket"].blob(f"{video_id}.mp4")
                 if blob.exists():
                     if verbose:
                         print(f"Photo slideshow already in bucket")
@@ -228,14 +228,14 @@ def download_single_video(
                     # look for image files and download those that are found
                     ccc = 1
                     image_files = []
-                    blob = cf["media_storage"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
+                    blob = cf["data_io"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
 
                     while blob and blob.exists():
                         blob.download_to_filename(join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
                         if blob.size >= cf["misc"]["min_media_object_size"]:
                             image_files.append(join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
                         ccc += 1
-                        blob = cf["media_storage"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
+                        blob = cf["data_io"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
 
                     # use the images to build a slideshow
                     make_slideshow(
@@ -250,7 +250,7 @@ def download_single_video(
                     if getsize(join(cf["paths"]["temp"],f"{video_id}.mp4")) > cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"Uploading video file to storage bucket...")
-                        blob = cf["media_storage"]["bucket"].blob(f"{video_id}.mp4")
+                        blob = cf["data_io"]["bucket"].blob(f"{video_id}.mp4")
                         blob.upload_from_filename(join(cf["paths"]["temp"],f"{video_id}.mp4"))
                         scrape_metadata.loc[0,'video_downloaded'] = True
                     else:
@@ -266,8 +266,8 @@ def download_single_video(
                 # check if it truly is stored and is big enough
                 if verbose:
                     print(f"Checking video file in bucket")
-                if cf["media_storage"]["bucket"].blob(f"{video_id}.mp4").exists():
-                    blob = cf["media_storage"]["bucket"].get_blob(f"{video_id}.mp4")
+                if cf["data_io"]["bucket"].blob(f"{video_id}.mp4").exists():
+                    blob = cf["data_io"]["bucket"].get_blob(f"{video_id}.mp4")
                     if blob.size < cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"   - Deleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
@@ -436,11 +436,11 @@ def download_video_threads(
 
     if cf is None:
         cf = init_config()
-    if cf['media_storage']['bucket'] is None:
+    if cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
-    if cf['media_storage']['bucket'] is None:
-        raise ValueError("No media storage bucket specified")
+    if cf['data_io']['bucket'] is None:
+        raise ValueError("No GCS bucket specified")
     if interesting_videos is None:
         raise ValueError("No interesting videos specified")
 
@@ -530,7 +530,7 @@ def download_videos_loop(
 
     if cf is None:
         cf = init_config()
-    if cf['media_storage']['bucket'] is None:
+    if cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
     if study_name is None:

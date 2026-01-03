@@ -351,8 +351,6 @@ def get_dataset_details(cf=None, study_name=None):
 
     details = []
 
-
-
     try:
         files = [f for f in listdir(cf, "exports") if f.startswith(study_name) and f.endswith(cf['misc']['file_format'])]
     except FileNotFoundError:

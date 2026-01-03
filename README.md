@@ -1,12 +1,12 @@
 # For You Project – data + analysis stack
 
 - **Purpose**: ingest TikTok data donations and baseline captures, enrich with scraping/LLM coding, run analysis, and serve a simple dashboard of viewing logs.
-- **Tech**: Python notebooks + helper package (`fyp`), FastAPI + React dashboard, GCP bucket for media, optional Gemini integration.
+- **Tech**: Python notebooks + helper package (`fyp`), FastAPI + React dashboard, GCS bucket for media, optional Gemini integration.
 
 ## Repo layout
-- `config/`: `core.toml` chooses config file + study defs; `config.toml` holds paths (data dirs, temp/backup), Gemini model/prompt, GCP bucket; `studies.toml` defines study presets (date windows, sampling, inclusion of Zeeschuimer data).
+- `config/`: `core.toml` chooses config file + study defs; `config.toml` holds paths (data dirs, temp/backup), Gemini model/prompt, GCS bucket; `studies.toml` defines study presets (date windows, sampling, inclusion of Zeeschuimer data).
 - `fyp/`: core helpers.
-  - `fyp_main.py`: finds project root via `__proj__.py`, loads config, ensures directories, optionally inits Gemini client + GCP bucket handle; utilities for temp/backup paths, pattern checks, URL parsing.
+  - `fyp_main.py`: finds project root via `__proj__.py`, loads config, ensures directories, optionally inits Gemini client + GCS bucket handle; utilities for temp/backup paths, pattern checks, URL parsing.
   - `mypyktok.py`: PykTok-based TikTok fetch/normalisation (cookies via `browser_cookie3`, JSON scraping, pandas row builder with author/music/stats fields).
   - `donations.py`: AWS DynamoDB scan + S3 download helpers for recent data donations.
   - `pca.py`: distance/similarity matrices for categorical counts (JS, Hellinger, TV, Bray-Curtis, chi²) with smoothing/weighting/tempering; entropy/dominance helpers.
@@ -26,10 +26,10 @@
 - Python: create/activate a virtualenv; install `pip install -r requirements.txt` (or the slim `requirements_1.txt` set).
 - Node (dashboard): from `ddp_dashboard/frontend`, run `npm install`.
 - AWS CLI + credentials required for `fyp/donations.py` download helpers.
-- GCP auth required for media bucket access if `local_mode` is false.
+- GCS auth required for media bucket access if `local_mode` is false.
 
 ## Configuration
-- Edit `config/config.toml` for paths, Gemini model/prompt, GCP bucket, and local_mode toggle; pick active config via `config/core.toml`.
+- Edit `config/config.toml` for paths, Gemini model/prompt, GCS bucket, and local_mode toggle; pick active config via `config/core.toml`.
 - Study presets (date ranges, sampling, inclusion flags) live in `config/studies.toml`; `init_config` injects selected study into runtime config.
 - Set `GEMINI_API_KEY` in your environment; the config file leaves the key blank to avoid committing secrets.
 
@@ -46,7 +46,7 @@
   python - <<'PY'
   from fyp.fyp_main import init_config
   cf = init_config(verbose=True)
-  print(cf["paths"]["main"])
+  print(cf["paths"]["local_data"])
   PY
   ```
 - Fetch recent donation metadata (requires AWS CLI creds):
@@ -68,6 +68,6 @@
   ```
 
 ## Notes and cautions
-- `fyp_main.py` will print project root and attach it to `sys.path`; it also tries to init Gemini and GCP unless `local_mode=true`.
+- `fyp_main.py` will print project root and attach it to `sys.path`; it also tries to init Gemini and GCS unless `local_mode=true`.
 - Data paths in `config.toml` point to local Google Drive/temp locations—adjust to your environment before running ingestion/enrichment notebooks.
 - Parquet/CSV artifacts under `ddp_dashboard/backend/data/` are sample data; replace with your exports as needed.
