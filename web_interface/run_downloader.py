@@ -24,7 +24,6 @@ if __name__ == "__main__":
     
     #import fyp
     try:
-        #cf = fyp.init_project()
         dv.download_videos_loop(
             cf = None,
             study_name=args.study_name,

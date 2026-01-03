@@ -56,12 +56,12 @@ def load_machine_annotations(
 
 
     machine_file_names = []
-    for fn in data_io.listdir(cf, "machine_annotations", verbose=verbose):
+    for fn in data_io.listdir(cf, "machine_annotations_refined", verbose=verbose):
         if fn.startswith("machine_annotations") and fn.endswith(cf['misc']['file_format']):
             machine_file_names.append(fn)
     machine_file_names = list(set(machine_file_names))
 
-    all_results = concat([data_io.load_parquet(cf, "machine_annotations", fn, verbose=verbose) for fn in machine_file_names])
+    all_results = concat([data_io.load_parquet(cf, "machine_annotations_refined", fn, verbose=verbose) for fn in machine_file_names])
 
     all_results.reset_index(drop=True, inplace=True)
     all_results['error'] = all_results['error'].map(lambda x:"-" if x=={} else x)
@@ -94,12 +94,12 @@ def load_machine_annotations(
             print(f"The raw json files will remain untouched")
 
         all_results = convert_dtypes_to_pyarrow(all_results, verbose=verbose)
-        data_io.save_parquet(cf, all_results, "machine_annotations", latest_filename, verbose=verbose)
+        data_io.save_parquet(cf, all_results, "machine_annotations_refined", latest_filename, verbose=verbose)
 
 
         for fn in machine_file_names:
             if not fn == latest_filename:
-                data_io.move(cf, "machine_annotations", "archive", fn)
+                data_io.move(cf, "machine_annotations_refined", "archive", fn)
 
 
 
@@ -146,7 +146,7 @@ def save_machine_annotations_json(
 
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
 
-    save_json(cf, json_list, "machine_annotations", f"machine_annotations_{fine_ts}.json", verbose=verbose)
+    save_json(cf, json_list, "machine_annotations_raw", f"machine_annotations_{fine_ts}.json", verbose=verbose)
     if verbose:
         print(f"Saved raw machine annotations to 'machine_annotations_{fine_ts}.json'")
 
@@ -172,7 +172,7 @@ def save_machine_annotations_json(
 
 def call_machine(
         cf = None,
-        video_id: int = None, 
+        video_id: str = None, 
         testing: bool = False,
         use_local_video_file = False,
         local_path: str = '/Users/<user>/Downloads/',
@@ -241,9 +241,7 @@ def call_machine(
     
     except Exception as e:
         output["error"] = str(e)
-        data_io.save_json(cf, output, "errors", temp_fn, verbose=verbose)
-        #with open(temp_fn, 'w') as file:
-        #    dump(output,file)
+        data_io.save_json(cf, output, "temp", temp_fn)
         return output
 
 
@@ -268,9 +266,7 @@ def call_machine(
         else:
             output["finish_reason"] = "DNF - see error msg"
 
-        data_io.save_json(cf, output, "errors", temp_fn, verbose=verbose)
-        #with open(temp_fn, 'w') as file:
-        #    dump(output,file)
+        data_io.save_json(cf, output, "temp", temp_fn)
         return output
 
 
@@ -289,9 +285,7 @@ def call_machine(
         output["finish_reason"] = the_finish_reason
         output["response"] = resp
 
-        data_io.save_json(cf, output, "errors", temp_fn, verbose=verbose)
-        #with open(temp_fn, 'w') as file:
-        #    dump(output,file)
+        data_io.save_json(cf, output, "temp", temp_fn)
         return output
 
     output["inference_duration"] = (times[-1] - times[-2]).total_seconds()
@@ -299,9 +293,7 @@ def call_machine(
     output["response"] = machine_annotations
 
     # save the json just in case everything crashes
-    data_io.save_json(cf, output, "errors", temp_fn, verbose=verbose)
-    #with open(temp_fn, 'w') as file:
-    #    dump(output,file)
+    data_io.save_json(cf, output, "temp", temp_fn)
 
     return output
 
@@ -1267,7 +1259,7 @@ def post_process_raw_annotations(
     file_prefix = "machine_annotations"
 
     outputs_from_machine_df = convert_dtypes_to_pyarrow(outputs_from_machine_df, verbose=verbose)
-    data_io.save_parquet(cf, outputs_from_machine_df, "machine_annotations", f"{file_prefix}_{fine_ts}{file_format}", verbose=verbose)
+    data_io.save_parquet(cf, outputs_from_machine_df, "machine_annotations_refined", f"{file_prefix}_{fine_ts}{file_format}", verbose=verbose)
     if verbose:
         print(f"Saved processed results to '{file_prefix}_{fine_ts}{file_format}'")
     
@@ -1300,14 +1292,9 @@ def annotate_from_list(
     if cf["machine"]["client"] is None:
         cf = connect_to_google(cf)
     
-
-
-
     if isinstance(fine_list, list) and len(fine_list) > 0:
-        if not all(map(lambda video_id:type(video_id)==int and len(str(video_id))==19, fine_list)):
-            if verbose:
-                print("Some videoIDs in the list were corrupt. Cannot process this list.")
-            return None
+        if not all(map(lambda video_id:type(video_id)==str and video_id.isnumeric() and len(video_id)==19, fine_list)):
+            raise ValueError("Some videoIDs in the list were corrupt. Cannot process this list.")
 
         print("Annotating videos...")
 
@@ -1366,6 +1353,8 @@ def annotate_from_scrape_metadata_file(
     # we're only annotating the videos that are downloaded and shorter than a certain max duration
     work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"]<cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()
 
+
+
     annotate_from_list(
         cf = cf,
         fine_list = work_with_these_videos_list,
@@ -1399,7 +1388,7 @@ def post_process_raw_annotations_from_json_file(
         cf = init_config()
 
 
-    raw_outputs_from_machine = data_io.load_json(cf, "machine_annotations", json_filename, verbose=verbose)
+    raw_outputs_from_machine = data_io.load_json(cf, "machine_annotations_raw", json_filename, verbose=verbose)
 
 
     #if json_file is None or not exists(json_file):

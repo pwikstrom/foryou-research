@@ -18,7 +18,7 @@ def create_dirs(this_cf: dict, clear_temp_dir: bool = False) -> None:
     from os.path import join
     from os import listdir, remove
 
-    for k in ["main", "zeeschuimer_raw", "zeeschuimer_refined", "ddp", "temp", "backup", "scrape", "exports"]:
+    for k in ["main", "zeeschuimer_raw", "zeeschuimer_refined", "ddp", "temp", "backup", "scrape", "exports","archive","errors"]:
         makedirs(this_cf["paths"][k], exist_ok=True)
 
     if clear_temp_dir:
@@ -34,7 +34,7 @@ def init_config(
     abs_project_root_path=None
     ) -> dict:
 
-    from os import environ
+    from os import environ, listdir, remove, makedirs
     from os.path import join, abspath
     import toml
     import pandas as pd
@@ -105,32 +105,47 @@ def init_config(
     cf["machine"]["global_generation_config"] = None
     cf["media_storage"]["bucket"] = None
 
-
-    cf["paths"]["main"] = abspath(join(abs_project_root_path, cf["paths"]["main"]))
-    cf["paths"]["main_no_sync"] = abspath(join(abs_project_root_path, cf["paths"]["main_not_gdrive_synced"]))
-
     for p in cf["machine"].keys():
         if "prompt" in p:
             cf["machine"][p] = join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
 
-
-    if verbose:
-        print(f"Initialising with main data directory: {cf['paths']['main']}")
+    cf["paths"]["main"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["main"]))
+    cf["paths"]["main_no_sync"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["main_not_gdrive_synced"]))
 
     # paths to folders
-    cf["paths"]["temp"] = join(cf["paths"]["main_no_sync"], "temp")
-    cf["paths"]["backup"] = join(cf["paths"]["main"], "backup")
-    cf["paths"]["ddp"] = join(cf["paths"]["main"],"activity_data", "participant_logs")
-    cf["paths"]["zeeschuimer_raw"] = join(cf["paths"]["main"],"activity_data", "zeeschuimer_raw")
-    cf["paths"]["zeeschuimer_refined"] = join(cf["paths"]["main"],"activity_data", "zeeschuimer_refined")
+
+    cf["paths"]["zeeschuimer"] = join(cf["paths"]["main"],"activity_data", "zeeschuimer")
+    cf["paths"]["zeeschuimer_raw"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")
+    cf["paths"]["zeeschuimer_refined"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
+
+    cf["paths"]["ddp"] = join(cf["paths"]["main"],"activity_data", "ddp")
+    cf["paths"]["ddp_raw"] = join(cf["paths"]["ddp"], "ddp_raw")
+    cf["paths"]["ddp_processed"] = join(cf["paths"]["ddp"], "ddp_processed")
+    cf["paths"]["ddp_main"] = join(cf["paths"]["ddp"], "ddp_main")
+    cf["paths"]["ddp_participants"] = join(cf["paths"]["ddp"], "ddp_participants")
+
     cf["paths"]["scrape"] = join(cf["paths"]["main"], "scrape")
-    cf["paths"]["ddp_raw"] = join(cf["paths"]["ddp"], "raw")
-    cf["paths"]["ddp_processed"] = join(cf["paths"]["ddp"], "processed")
-    cf["paths"]["ddp_main"] = join(cf["paths"]["ddp"], "main")
-    cf["paths"]["ddp_participants"] = join(cf["paths"]["ddp"], "main", "participants_raw")
-    cf["paths"]["machine_annotations"] = join(cf["paths"]["main"], "machine_annotations", "new_gen")
+
+    cf["paths"]["machine_annotations"] = join(cf["paths"]["main"], "machine_annotations")
+    cf["paths"]["machine_annotations_raw"] = join(cf["paths"]["machine_annotations"], "machine_annotations_raw")
+    cf["paths"]["machine_annotations_refined"] = join(cf["paths"]["machine_annotations"], "machine_annotations_refined")
+
     cf["paths"]["exports"] = join(cf["paths"]["main"], "exports")
     cf["paths"]["archive"] = join(cf["paths"]["main"], "archive")
+    cf["paths"]["temp"] = join(cf["paths"]["main_no_sync"], "temp")
+
+
+    for k in cf["paths"].keys():
+        makedirs(cf["paths"][k], exist_ok=True)
+
+    for fn in listdir(cf["paths"]["temp"]):
+        remove(join(cf["paths"]["temp"],fn))
+
+
+    if verbose:
+        print(f"Initialised with main data directory: {cf['paths']['main']}")
+
+
 
     return cf
 
@@ -224,7 +239,7 @@ def connect_to_google(cf_in):
 
 
 
-def init_project(clear_temp_dir=False, verbose=False) -> dict:
+"""def init_project(clear_temp_dir=False, verbose=False) -> dict:
 
     if verbose:
         print("\n\nInitializing...\n\n")
@@ -233,7 +248,7 @@ def init_project(clear_temp_dir=False, verbose=False) -> dict:
     create_dirs(cf, clear_temp_dir)
 
     return cf
-        
+"""        
 
 
 

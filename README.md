@@ -44,8 +44,8 @@
 - Load config + ensure directories:
   ```bash
   python - <<'PY'
-  from fyp.fyp_main import init_project
-  cf = init_project(verbose=True)
+  from fyp.fyp_main import init_config
+  cf = init_config(verbose=True)
   print(cf["paths"]["main"])
   PY
   ```

@@ -170,7 +170,7 @@ def make_slideshow(
 
 def download_single_video(
     cf = None,
-    video_id: int = None, 
+    video_id: str = None, 
     verbose: bool = True,
     ):
 
@@ -500,6 +500,7 @@ def download_video_threads(
         print(f"Saved {len(results):,} rows to '{scrape_metadata_filename}'")
         print(f"and saved media objects to the bucket for {len(results[results['video_downloaded']]):,} of these.")
 
+
     if len(failed_items)>0:
         data_io.save_json(cf, failed_items, "scrape", f"scrape_failed_items_{fine_ts}.json", verbose=verbose)
         #with open(join(cf['paths']['scrape'],f"scrape_failed_items_{fine_ts}.json"), "w") as jf:
@@ -535,11 +536,6 @@ def download_videos_loop(
     if study_name is None:
         raise ValueError("No study name specified")
 
-    # --- TEST MODE ---
-    if environ.get("FYP_TESTING") and environ.get("FYP_TESTING") == "true":
-        print("!!! TEST MODE ENABLED - Doing a mini batch once!!!")
-        batch_size = 10
-        max_batches = 1
 
 
     print(f"Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
@@ -567,7 +563,7 @@ def download_videos_loop(
 
 
         if len(selected_videos) > 0:
-            work_with_these_videos_list_raw = [int(k) for k in selected_videos.item_id.to_list()]
+            work_with_these_videos_list_raw = [str(k) for k in selected_videos.item_id.to_list()]
             work_with_these_videos_list = work_with_these_videos_list_raw.copy()
 
             print(f"{len(work_with_these_videos_list):,} videos to process for study '{study_name}'")

@@ -27,7 +27,7 @@ def ingest_files(file_names, label):
         print(msg, file=sys.stderr)
         log_output.append(msg)
 
-    fyp_cf = fyp.init_project(verbose=False)
+    fyp_cf = fyp.init_config(verbose=False)
     
     
     processed_count = 0

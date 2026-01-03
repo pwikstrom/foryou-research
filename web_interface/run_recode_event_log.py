@@ -15,7 +15,6 @@ def main():
 
     try:
         print(f"Starting RECODE EVENT LOG for study: {args.study_name}")
-        #cf = fyp.init_project()
         result = recode_variables.recode_events_df(cf = None, study_name = args.study_name, verbose = True)
         if result is None:
             print("Process failed.")

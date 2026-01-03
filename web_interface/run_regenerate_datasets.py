@@ -20,7 +20,6 @@ if __name__ == "__main__":
 
     print(f"Starting dataset regeneration for study: {study_name}")
     try:
-        #cf = fyp.init_project()
         organize_datasets.load_datasets(
             cf = None,
             study_name = study_name,

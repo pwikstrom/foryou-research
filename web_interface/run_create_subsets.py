@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     print(f"Starting Create Item Subsets for study: {study_name}")
     try:
-        cf = fyp.init_project()
+        cf = fyp.init_config()
         tutti = fyp.load_datasets(cf, study_name)
         subsets = fyp.calculate_all_unique_video_subsets(cf, study_name, tutti)
         del subsets["completed_downloads"]

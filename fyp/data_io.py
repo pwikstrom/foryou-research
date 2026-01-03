@@ -178,11 +178,12 @@ def load_json(cf, storage_location, filename, verbose = False):
 
     json_path = f"{path_no_ext}.json"
 
-
-
-
-    with open(full_path, 'r') as file:
-        return load(file)
+    try:
+        with open(full_path, 'r') as file:
+            return load(file)
+    except Exception as e:
+        print(f" [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
+        return None
 
 
 
@@ -207,8 +208,6 @@ def save_json(cf, data, storage_location, filename, verbose = False):
         raise ValueError(f"File extension must be '.json', got: '{ext}'") 
 
     json_path = f"{path_no_ext}.json"
-
-
 
     with open(full_path, 'w') as file:
         dump(data, file)

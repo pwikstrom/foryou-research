@@ -2,8 +2,8 @@ import pandas as pd
 import ast
 import numpy as np
 import fyp.data_io as data_io
-from fyp.fyp_main import init_project
-fyp_cf = init_project(verbose=False)
+from fyp.fyp_main import init_config
+fyp_cf = init_config(verbose=False)
 
 
 def load_data(file_path):

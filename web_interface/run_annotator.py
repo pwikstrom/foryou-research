@@ -23,9 +23,7 @@ if __name__ == "__main__":
     print(f"Starting annotator for study: {args.study_name}")
     print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
 
-    #import fyp
     try:
-        #cf = fyp.init_project()
         ma.annotate_videos_loop(
             cf = None,
             study_name=args.study_name,

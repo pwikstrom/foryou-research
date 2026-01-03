@@ -467,6 +467,8 @@ def load_failed_scrapes(
     if cf is None:
         cf = init_config()
 
+    print("Loading failed scrapes")
+
     failed_scrape_fn_core = "scrape_failed_items"
 
     failed_scrape_files = [gg for gg in data_io.listdir(cf, "scrape", verbose=verbose) if gg.startswith(failed_scrape_fn_core)]
@@ -475,8 +477,12 @@ def load_failed_scrapes(
     for fn in failed_scrape_files:
         if super_verbose:
             print(fn)
-        failed_scrapes += data_io.load_json(cf, "scrape", fn, verbose=verbose)
-    failed_scrapes = set(map(lambda one_item_id:str(one_item_id), failed_scrapes))
+        some_dict = data_io.load_json(cf, "scrape", fn, verbose=verbose)
+        if some_dict is not None:
+            failed_scrapes += some_dict
+
+    failed_scrapes = list(set(map(lambda one_item_id:str(one_item_id), failed_scrapes)))
+
 
     if consolidate and len(failed_scrape_files) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
@@ -1170,7 +1176,7 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, all_dataset
 
 
     # load failed_scrapes as a set
-    failed_scrapes = load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True)
+    failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True))
 
     # load 
     machine_annotated_videos = set([str(k) for k in all_datasets["data_annotated"].item_id.tolist()])

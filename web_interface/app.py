@@ -31,7 +31,7 @@ from fyp.organize_datasets_OPTIMIZED import load_ddp_events
 
 
 # Initialize configuration to access paths
-fyp_cf = fyp.init_project(verbose=False)
+fyp_cf = fyp.init_config(verbose=False)
 
 DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
 INGEST_SCRIPT = PROJECT_ROOT / "web_interface" / "run_ingest_ndjson.py"
@@ -102,7 +102,7 @@ def get_explorer_data(study):
         #print("Total stats computed.")
         return explorer_df, explorer_col_types
     else:
-        print(f"Explorer Study dataset not found at {dataset_path}")
+        print(f"Explorer Study dataset not found at {dataset_filename} in 'exports'")
         return None, None
 
 
@@ -1040,7 +1040,7 @@ def api_persona_stats():
         cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
         stats_df = stats_df.reset_index(drop=True)
         stats_df.to_parquet(cache_path, engine='pyarrow', index=False)
-        print(f"Saved persona stats cache to {cache_path}")
+        print(f"Saved persona stats cache to '{PERSONA_STATS_CACHE_FILE}'")
         
         # Convert to JSON-safe records
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')
