@@ -165,3 +165,6 @@ websocket-client==1.8.0
 websockets==15.0.1
 Werkzeug==3.1.4
 widgetsnbextension==4.0.11
+gcsfs==2025.12.0
+pyarrow==22.0.0
+fastparquet==2025.12.0

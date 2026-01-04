@@ -8,8 +8,11 @@ Date:
 """
 
 
-
-
+from .fyp_main import init_config
+from . import data_io
+import json
+import os
+import shutil
 
 
 
@@ -83,7 +86,7 @@ def download_recent_metadata(hours_back: int,
 
 
 def download_recent_donations(hours_back: int,
-                              output_dir: str,
+                              cf: dict = None,
                               *,
                               table_name: str = (
                                   "data-donation-stack-"
@@ -96,16 +99,16 @@ def download_recent_donations(hours_back: int,
                               campaign_name: str = "qut",
                               use_local_time: bool = False) -> None:
     """
-    Scan the Donations metadata table for items whose *date* (\"shareDate\")
+    Scan the Donations metadata table for items whose *date* ("shareDate")
     is within the last ``hours_back`` hours and download the associated files
-    to ``output_dir``.
+    to the project's 'ddp_raw' storage location (local or GCS depending on config).
 
     Parameters
     ----------
     hours_back : int
         How far back to look (in hours) from *now*.
-    output_dir : str
-        Directory where the files pulled from S3 will be written.
+    cf : dict, optional
+        Project configuration. If not provided, it will be initialized.
     table_name, bucket, campaign_name : str, optional
         Override the defaults if your stack names ever change.
     use_local_time : bool, optional
@@ -122,7 +125,11 @@ def download_recent_donations(hours_back: int,
     from pathlib import Path
     import subprocess
     from shlex import quote as shlex_quote
+    from shutil import rmtree
 
+
+    if cf is None:
+        cf = init_config()
 
     # ------------------------------------------------------------------
     # 1) Figure out the time window and format it the way the table stores it
@@ -134,9 +141,11 @@ def download_recent_donations(hours_back: int,
     share_date = cutoff.replace(microsecond=0).isoformat()
 
     # ------------------------------------------------------------------
-    # 2) Make sure the destination directory exists
+    # 2) Prepare temporary destination
     # ------------------------------------------------------------------
-    dest = Path(output_dir).expanduser().resolve()
+    # Use a specific temp folder for this batch
+    temp_dir_path = os.path.join(cf["paths"]["temp"], "download_batch_" + now.strftime("%Y%m%d%H%M%S"))
+    dest = Path(temp_dir_path).expanduser().resolve()
     dest.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -167,9 +176,42 @@ def download_recent_donations(hours_back: int,
     )
     
     # ------------------------------------------------------------------
-    # 4) Run it
+    # 4) Run the download to temp
     # ------------------------------------------------------------------
+    print(f"Downloading recent donations to temporary storage: {dest}")
     subprocess.run(full_cmd, shell=True, check=True)
+
+    # ------------------------------------------------------------------
+    # 5) Move/Upload files to ddp_raw storage
+    # ------------------------------------------------------------------
+    downloaded_files = os.listdir(dest)
+    print(f"Transferring {len(downloaded_files)} files to ddp_raw storage...")
+    
+    count = 0
+    for filename in downloaded_files:
+        val_path = dest / filename
+        # Read the content
+        with open(val_path, 'r') as f:
+            try:
+                # Assuming they are JSONs as per previous scripts?
+                # ingest script treats them as JSONs
+                data = json.load(f)
+                
+                # Use data_io to save (handles GCS upload + Local secondary)
+                data_io.save_json(cf, data, "ddp_raw", filename)
+                count += 1
+            except Exception as e:
+                print(f"Failed to process/upload {filename}: {e}")
+
+    print(f"Successfully processed {count} files.")
+
+    # ------------------------------------------------------------------
+    # 6) Cleanup Temp
+    # ------------------------------------------------------------------
+    try:
+        rmtree(dest)
+    except Exception as e:
+        print(f"Warning: Failed to clean up temp directory {dest}: {e}")
 
 
 

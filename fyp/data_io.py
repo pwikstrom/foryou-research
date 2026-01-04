@@ -388,7 +388,7 @@ def load_json(cf, storage_location, filename, verbose = False):
     bn = basename(filename)
     root, ext = splitext(bn)
     if ext != '.json':
-        raise ValueError(f"File extension must be '.json', got: '{ext}'")
+        if verbose: print(f" [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
     
@@ -456,7 +456,7 @@ def save_json(cf, data, storage_location, filename, verbose = False):
     bn = basename(filename)
     root, ext = splitext(bn)
     if ext != '.json':
-        raise ValueError(f"File extension must be '.json', got: '{ext}'") 
+        if verbose: print(f" [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
 
@@ -574,19 +574,9 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
     
     # Base logic to ensure extension is .parquet
     base_name = basename(filename)
-    if not base_name.endswith('.parquet'):
-         # If user didn't provide extension (common in this codebase), add it.
-         # But wait, original code checks extension on 'full_path'.
-         # "File extension must be .parquet, got: {ext}"
-         # It seems original code enforced extension to BE .parquet.
-         
-         # Retaining original strictness:
-         root, ext = os.path.splitext(base_name)
-         # If no extension or wrong extension? 
-         # Original code: "if ext == '.parquet': path_no_ext = base_path ... parquet_path = ... .parquet"
-         # This suggests it expects filename to HAVE .parquet, or it fails.
-         if ext != '.parquet':
-              raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
+    root, ext = os.path.splitext(base_name)
+    if ext != '.parquet':
+        raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
     
     # Resolve using the filename (which has .parquet)
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)

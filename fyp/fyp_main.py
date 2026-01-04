@@ -161,9 +161,12 @@ def init_config(
     cf["gcs_paths"]["local_data"] = gcs_prefix if gcs_prefix else ""
 
 
-    for k in cf["paths"].keys():
-        makedirs(cf["paths"][k], exist_ok=True)
+    # create missing local folders if not using GCS
+    if not cf['misc']['use_gcs_for_data']:        
+        for k in cf["paths"].keys():
+            makedirs(cf["paths"][k], exist_ok=True)
 
+    # empty local temp folder
     for fn in listdir(cf["paths"]["temp"]):
         remove(join(cf["paths"]["temp"],fn))
 
