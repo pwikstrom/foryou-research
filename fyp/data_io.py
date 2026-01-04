@@ -596,17 +596,30 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
 
     # C) Save to Primary
     if verbose: print(f" [DATA_IO] Saving: '{filename}' to '{storage_location}' ({mode})")
-    
-    # Pandas handles gs:// if gcsfs is installed
-    df.to_parquet(primary, engine='pyarrow')
+
+    # To get the total memory usage of the DataFrame in bytes:
+    memory_per_column = df.memory_usage(deep=True) 
+    total_memory_bytes = memory_per_column.sum()
+    total_memory_mb = total_memory_bytes / (1024**2)
+
+    if verbose: print(f" [DATA_IO] Total DF memory usage: {total_memory_mb:.2f} MB")
+
+    if total_memory_mb > 100:
+        df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=7)
+    elif total_memory_mb > 10:
+        df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=5)
+    elif total_memory_mb > 1:
+        df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=3)
+    else:
+        df.to_parquet(primary, engine='pyarrow')
     
     if mode == 'gcs':
         if verbose: print(f" [DATA_IO] Saved to GCS: {primary}")
         
     # D) Parallel Save (Secondary)
-    if secondary:
-        if verbose: print(f" [DATA_IO] Parallel Save: Writing local copy to {secondary}")
-        df.to_parquet(secondary, engine='pyarrow')
+    #if secondary:
+    #    if verbose: print(f" [DATA_IO] Parallel Save: Writing local copy to {secondary}")
+    #    df.to_parquet(secondary, engine='pyarrow', compression="zstd", compression_level=7)
 
 
 
