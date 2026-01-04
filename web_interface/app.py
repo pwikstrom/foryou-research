@@ -32,6 +32,9 @@ from fyp.organize_datasets_OPTIMIZED import load_ddp_events
 
 # Initialize configuration to access paths
 fyp_cf = fyp.init_config(verbose=False)
+if fyp_cf['misc']['use_gcs_for_data']:
+    fyp_cf = fyp.connect_to_google(fyp_cf)
+    
 
 DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
 INGEST_SCRIPT = PROJECT_ROOT / "web_interface" / "run_ingest_ndjson.py"
@@ -93,9 +96,7 @@ def get_explorer_data(study):
     # Resolve path
     dataset_filename = f"{study}_RECODED{fyp_cf['misc']['file_format']}"
     if data_io.exists(fyp_cf, "exports", dataset_filename):
-        #print(f"Loading Explorer Study '{study}' from {dataset_path}...")
-        explorer_df, explorer_col_types = explorer.load_data(dataset_filename)
-        #print(f"Explorer Study '{study}' loaded. Computing total stats...")
+        explorer_df, explorer_col_types = explorer.load_data(fyp_cf, dataset_filename, verbose=True)
         res = explorer.get_current_stats(explorer_df, explorer_col_types)
         explorer_total_stats = res['stats']
         active_explorer_study = study
@@ -1105,11 +1106,10 @@ def api_video_stream(study, item_id):
 
     # Attempt to find the file
     # Candidates: item_id.mp4, maybe in subfolders?
-    # User said "bucket is initialized and ready to go". 
     # Usually files are at root or study/video? 
     # Let's assume root/{item_id}.mp4 based on "video associated with each row".
     
-    blob_name = f"{item_id}.mp4"
+    blob_name = f"{fyp_cf['paths']['gcs_media_prefix']}/{item_id}.mp4"
     blob = bucket.blob(blob_name)
     
     if not blob.exists():

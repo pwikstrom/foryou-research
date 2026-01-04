@@ -504,7 +504,7 @@ def calculate_scaled_pca_scores(
     fyp_factors, fyp_features = get_factors_and_features_from_var_scheme(cf = cf, some_events_df = some_events_df, verbose=verbose)
     
     if verbose:
-        print(f"Dropping {"-".join(selected_factors)}-groups that are smaller than {minimum_group_size} rows")
+        print(f"Dropping '{'-'.join(selected_factors)}' groups that are smaller than {minimum_group_size} rows")
 
     group_sizes = some_events_df[selected_factors].groupby(selected_factors).agg(group_size = NamedAgg(column=selected_factors[0], aggfunc="count"))
 

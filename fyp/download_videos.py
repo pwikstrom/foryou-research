@@ -189,6 +189,8 @@ def download_single_video(
         raise ValueError("No video id specified")
 
 
+    gcs_media_prefix = cf['paths']['gcs_media_prefix']
+
     pyk.specify_browser('chrome')
 
     #tiktok_url = f"https://www.tiktokv.com/share/video/{video_id}/"
@@ -216,7 +218,7 @@ def download_single_video(
                     print(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
 
                 # if there isn't a video already associated to this post...
-                blob = cf["data_io"]["bucket"].blob(f"{video_id}.mp4")
+                blob = cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
                 if blob.exists():
                     if verbose:
                         print(f"Photo slideshow already in bucket")
@@ -228,14 +230,14 @@ def download_single_video(
                     # look for image files and download those that are found
                     ccc = 1
                     image_files = []
-                    blob = cf["data_io"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
+                    blob = cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                     while blob and blob.exists():
                         blob.download_to_filename(join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
                         if blob.size >= cf["misc"]["min_media_object_size"]:
                             image_files.append(join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
                         ccc += 1
-                        blob = cf["data_io"]["bucket"].get_blob(f"{video_id}_{ccc:02}.jpeg")
+                        blob = cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                     # use the images to build a slideshow
                     make_slideshow(
@@ -250,7 +252,7 @@ def download_single_video(
                     if getsize(join(cf["paths"]["temp"],f"{video_id}.mp4")) > cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"Uploading video file to storage bucket...")
-                        blob = cf["data_io"]["bucket"].blob(f"{video_id}.mp4")
+                        blob = cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
                         blob.upload_from_filename(join(cf["paths"]["temp"],f"{video_id}.mp4"))
                         scrape_metadata.loc[0,'video_downloaded'] = True
                     else:
@@ -266,8 +268,8 @@ def download_single_video(
                 # check if it truly is stored and is big enough
                 if verbose:
                     print(f"Checking video file in bucket")
-                if cf["data_io"]["bucket"].blob(f"{video_id}.mp4").exists():
-                    blob = cf["data_io"]["bucket"].get_blob(f"{video_id}.mp4")
+                if cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4").exists():
+                    blob = cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}.mp4")
                     if blob.size < cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"   - Deleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")

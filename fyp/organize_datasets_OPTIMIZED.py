@@ -1175,6 +1175,7 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, all_dataset
         cf = init_config()
 
 
+
     # load failed_scrapes as a set
     failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True))
 
@@ -1182,6 +1183,7 @@ def calculate_all_unique_video_subsets(cf = None, study_name = None, all_dataset
     machine_annotated_videos = set([str(k) for k in all_datasets["data_annotated"].item_id.tolist()])
 
     failed_annotations = set(load_machine_annotations(
+        cf = cf,
         include_failed_calls=True,
         verbose = False,
         ).item_id.tolist())

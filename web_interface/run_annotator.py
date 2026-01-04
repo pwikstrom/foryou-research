@@ -11,6 +11,7 @@ if __name__ == "__main__":
     import argparse
     import traceback
     import fyp.machine_annotation as ma
+    from fyp.fyp_main import connect_to_google, init_config
     
     parser = argparse.ArgumentParser(description="Run annotator")
     parser.add_argument("study_name", help="Name of the study")
@@ -23,9 +24,14 @@ if __name__ == "__main__":
     print(f"Starting annotator for study: {args.study_name}")
     print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
 
+    # Load CF
+    cf = init_config(verbose=False)
+    if cf['misc']['use_gcs_for_data']:
+        cf = connect_to_google(cf)
+
     try:
         ma.annotate_videos_loop(
-            cf = None,
+            cf = cf,
             study_name=args.study_name,
             batch_size=args.batch_size,
             max_batches=args.max_batches

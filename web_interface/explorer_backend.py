@@ -2,15 +2,12 @@ import pandas as pd
 import ast
 import numpy as np
 import fyp.data_io as data_io
-from fyp.fyp_main import init_config
-fyp_cf = init_config(verbose=False)
 
-
-def load_data(file_path):
+def load_data(fyp_cf, file_path, verbose=False):
     from numpy import ndarray as np_ndarray
     try:
         if file_path.endswith(fyp_cf['misc']['file_format']):
-            df = data_io.load_parquet(fyp_cf, "exports", file_path)
+            df = data_io.load_parquet(fyp_cf, "exports", file_path, verbose=verbose)
         else:
             raise ValueError(f"Unsupported file format. Only {fyp_cf['misc']['file_format']} is supported.")
     except Exception as e:

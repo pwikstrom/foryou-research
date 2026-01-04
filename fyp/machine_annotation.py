@@ -52,7 +52,7 @@ def load_machine_annotations(
 
     if cf is None:
         cf = init_config()
-
+    
 
 
     machine_file_names = []
@@ -1348,7 +1348,7 @@ def annotate_from_scrape_metadata_file(
             print(f"File {scrape_metadata_filename} does not exist. Cannot process this file.")
         return None
 
-    df = data_io.load_parquet(cf, "scrape", scrape_metadata_filename, verbose=verbose)
+    df = data_io.load_parquet(cf, "scrape", scrape_metadata_filename, columns=["item_id", "video_downloaded", "video_duration"], verbose=verbose)
 
     # we're only annotating the videos that are downloaded and shorter than a certain max duration
     work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"]<cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()

@@ -10,6 +10,7 @@ sys.path.append(str(project_root))
 if __name__ == "__main__":
     import argparse
     import fyp.download_videos as dv
+    from fyp.fyp_main import connect_to_google, init_config
     
     parser = argparse.ArgumentParser(description="Run downloader")
     parser.add_argument("study_name", help="Name of the study")
@@ -22,10 +23,16 @@ if __name__ == "__main__":
     print(f"Starting downloader for study: {args.study_name}")
     print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
     
+    # Load CF
+    cf = init_config(verbose=False)
+    if cf['misc']['use_gcs_for_data']:
+        cf = connect_to_google(cf)
+
+
     #import fyp
     try:
         dv.download_videos_loop(
-            cf = None,
+            cf = cf,
             study_name=args.study_name,
             batch_size=args.batch_size,
             max_batches=args.max_batches

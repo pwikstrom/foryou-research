@@ -35,7 +35,7 @@ def init_config(
     ) -> dict:
 
     from os import environ, listdir, remove, makedirs
-    from os.path import join, abspath
+    from os.path import join, abspath, relpath
     import toml
     import pandas as pd
     
@@ -133,6 +133,32 @@ def init_config(
     cf["paths"]["exports"] = join(cf["paths"]["local_data"], "exports")
     cf["paths"]["archive"] = join(cf["paths"]["local_data"], "archive")
     cf["paths"]["temp"] = join(cf["paths"]["local_temp"], "temp")
+    
+    # ------------------------------------------------------------------
+    # GCS Path Mapping
+    # Mirror the local data structure to GCS
+    # ------------------------------------------------------------------
+    cf["gcs_paths"] = {}
+    gcs_prefix = cf["paths"].get("gcs_data_prefix", "")
+    local_data_root = cf["paths"]["local_data"]
+
+    for k, v in cf["paths"].items():
+        if isinstance(v, str) and v.startswith(local_data_root) and k != "local_data":
+            # calculate relative path from local_data root
+            # e.g. /.../data/activity/zeeschuimer -> activity/zeeschuimer
+            rel = relpath(v, local_data_root)
+            
+            # Combine with GCS prefix
+            # Use forward slashes for GCS always, though on Mac os.path.join uses /
+            if rel == ".": 
+                gcs_path = gcs_prefix
+            else:
+                gcs_path = f"{gcs_prefix}/{rel}" if gcs_prefix else rel
+                
+            cf["gcs_paths"][k] = gcs_path
+    
+    # Explicitly ensure root is mapped if needed, or handled above (local_data itself)
+    cf["gcs_paths"]["local_data"] = gcs_prefix if gcs_prefix else ""
 
 
     for k in cf["paths"].keys():
@@ -143,7 +169,7 @@ def init_config(
 
 
     if verbose:
-        print(f"Initialised with main data directory: {cf["paths"]["local_data"]}")
+        print(f"Initialised with main data directory: {cf['paths']['local_data']}")
 
 
 

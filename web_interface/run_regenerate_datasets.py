@@ -9,19 +9,28 @@ sys.path.append(str(project_root))
 
 if __name__ == "__main__":
     import fyp.organize_datasets_OPTIMIZED as organize_datasets
-    if len(sys.argv) > 1:
-        study_name = sys.argv[1]
-    else:
-        print("Usage: python run_regenerate_datasets.py <study_name>")
-        # Defaulting is dangerous for this operation, better to fail if not provided, 
-        # but matching other scripts behavior if needed. 
-        # For now, let's exit.
-        sys.exit(1)
+    import argparse
+    import json
+    import base64
+    from fyp.fyp_main import connect_to_google, init_config
+
+    
+    # Argument Parser
+    parser = argparse.ArgumentParser(description=f"Regenerate datasets for a study.")
+    parser.add_argument('study_name', help="Name of the study")
+    
+    args = parser.parse_args()
+    study_name = args.study_name
+    
+    # Load CF
+    cf = init_config(verbose=False)
+    if cf['misc']['use_gcs_for_data']:
+        cf = connect_to_google(cf)
 
     print(f"Starting dataset regeneration for study: {study_name}")
     try:
         organize_datasets.load_datasets(
-            cf = None,
+            cf = cf,
             study_name = study_name,
             use_half_baked=True,
             delete_all_half_baked_files=True,
