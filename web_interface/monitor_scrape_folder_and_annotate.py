@@ -20,10 +20,11 @@ def main() -> None:
         current_dir = current_dir.parent
     sys.path.append(str(current_dir))
 
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import init_config, connect_to_google
     import fyp.data_io as data_io
 
     cf = init_config()
+    cf = connect_to_google(cf)
 
 
     # === CONFIG ===
@@ -34,7 +35,7 @@ def main() -> None:
     PATTERN_PREFIX = "scrape_metadata_"                          # prefix to react to
     STATE_FILE = "watcher_state.json"                            # JSON file in GCS to track state
     POLL_INTERVAL = 10.0                                         # seconds between scans
-    PROCESS_STARTUP_BACKLOG = True                               # Default to True so we don't miss files after reboot
+    PROCESS_STARTUP_BACKLOG = False                               # Default to True so we don't miss files after reboot
 
 
     # Ensure local directory exists for the log file (still useful for debug or legacy checks)
