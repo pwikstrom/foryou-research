@@ -233,7 +233,7 @@ def call_machine(
         else:
             contents = [
                 types.Part.from_uri(
-                    file_uri=f"gs://{cf['data_io']['GCS_bucket_name']}/{video_id}.mp4",
+                    file_uri=f"gs://{cf['data_io']['GCS_bucket_name']}/{cf['paths']['gcs_media_prefix']}/{video_id}.mp4",
                     mime_type="video/mp4"
                 ),
                 types.Part.from_text(text="Analyze this video")
@@ -256,7 +256,7 @@ def call_machine(
     except Exception as e:
         times += [datetime.now()]
 
-        video_found = cf["data_io"]["bucket"].blob(f"{video_id}.mp4").exists()
+        video_found = cf["data_io"]["bucket"].blob(f"{cf['paths']['gcs_media_prefix']}/{video_id}.mp4").exists()
 
         output["error"] = str(e)
         output["inference_duration"] = (times[-1] - times[-2]).total_seconds()
@@ -1293,6 +1293,7 @@ def annotate_from_list(
         cf = connect_to_google(cf)
     
     if isinstance(fine_list, list) and len(fine_list) > 0:
+
         if not all(map(lambda video_id:type(video_id)==str and video_id.isnumeric() and len(video_id)==19, fine_list)):
             raise ValueError("Some videoIDs in the list were corrupt. Cannot process this list.")
 
@@ -1349,6 +1350,8 @@ def annotate_from_scrape_metadata_file(
         return None
 
     df = data_io.load_parquet(cf, "scrape", scrape_metadata_filename, columns=["item_id", "video_downloaded", "video_duration"], verbose=verbose)
+
+    #return df
 
     # we're only annotating the videos that are downloaded and shorter than a certain max duration
     work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"]<cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()

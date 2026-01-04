@@ -202,7 +202,7 @@ def download_single_video(
         save_video=True,
         max_duration_to_save = cf['misc']['max_duration_for_download'],
         browser_name='chrome',
-        save_path="",
+        save_path=gcs_media_prefix,
         stream_to_bucket = cf["data_io"]["bucket"],
         verbose=verbose
     )

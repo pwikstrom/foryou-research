@@ -292,7 +292,7 @@ def save_tiktok(video_url,
                                     stream=True,
                                     timeout=60)
 
-                                video_blob = stream_to_bucket.blob(video_fn)
+                                video_blob = stream_to_bucket.blob(f"{save_path}/{video_fn}")
                                 with video_blob.open("wb") as gcs_file:
                                     for chunk in tt_video.iter_content(chunk_size=_CHUNK):
                                         if chunk:                       # skip keep-alive chunks
@@ -328,7 +328,7 @@ def save_tiktok(video_url,
                                         stream=True,
                                         timeout=60)
 
-                                    image_blob = stream_to_bucket.blob(image_fn)
+                                    image_blob = stream_to_bucket.blob(f"{save_path}/{image_fn}")
                                     with image_blob.open("wb") as gcs_file:
                                         for chunk in tt_image.iter_content(chunk_size=_CHUNK):
                                             if chunk:                       # skip keep-alive chunks
