@@ -28,7 +28,6 @@ import fyp
 from fyp.fyp_main import init_config
 cf = init_config()
 
- [markdown]
 # # Function definitions
 
 
@@ -50,7 +49,6 @@ def _deser(value):
     # Anything else is kept verbatim
     return value
 
- [markdown]
 # # Ingest participant metadata
 
 

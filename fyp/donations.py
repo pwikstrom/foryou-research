@@ -13,6 +13,34 @@ from . import data_io
 import json
 import os
 import shutil
+from numpy import int64 as np_int64
+
+
+
+
+
+
+def _remove_link_events_with_corrupt_links(some_events_df):
+    """Optimized: uses vectorized string length calculation instead of map(lambda)"""
+    from pandas import concat
+
+    non_video_ddp_events_df = some_events_df[some_events_df["primary_label"] != "link"].copy()
+    video_ddp_events_df = some_events_df[some_events_df["primary_label"] == "link"].copy()
+    
+    # Vectorized string length calculation
+    url_lengths = video_ddp_events_df.primary_value.str.len()
+    most_common_url_length = int(url_lengths.value_counts().index[0])
+    
+    video_ddp_events_df = video_ddp_events_df[url_lengths == most_common_url_length].copy()
+    some_events_df = concat([video_ddp_events_df, non_video_ddp_events_df])
+
+    return some_events_df
+
+
+
+
+
+
 
 
 
@@ -82,6 +110,9 @@ def download_recent_metadata(hours_back: int,
     subprocess.run(full_cmd, shell=True, check=True)
 
     return outfile
+
+
+
 
 
 
@@ -212,6 +243,9 @@ def download_recent_donations(hours_back: int,
         rmtree(dest)
     except Exception as e:
         print(f"Warning: Failed to clean up temp directory {dest}: {e}")
+
+
+
 
 
 
@@ -467,6 +501,8 @@ def transform_data_to_df(data_input, donation_item_id=0):
 
 
 
+
+
 def calc_donated_items_stats(edf, sort_by=None):
     """
     Calculate statistics for donated items, specifically counting feature occurrences per donation.
@@ -508,6 +544,513 @@ def calc_donated_items_stats(edf, sort_by=None):
     df1["other","donation_date"] = df1.index.map(lambda x: these_donation_dates[x])
 
     return df1
+
+
+
+
+
+
+
+
+def load_special_donations(
+    cf = None, 
+    study_name = None, 
+    verbose=False):
+    # sometimes it is useful to select events in a specific donation.
+
+
+    import fyp.data_io as data_io
+    from datetime import datetime
+    from fyp.fyp_main import init_config
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+
+
+    if cf is None:
+        cf = init_config()
+
+    the_special_donations = cf["study_defs"][study_name]["SPECIAL_DONATIONS"]
+    donations_str = '; '.join(the_special_donations)
+
+    if len(the_special_donations) == 0:
+        if verbose:
+            print("Skipping special DDP events loading as the number of SPECIAL_DONATIONS is zero.")
+            #print("--"*60)
+        return {"data_special_ddps":DataFrame()}
+    
+
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+    DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
+    if isinstance(DDP_START_DATE, str):
+        DDP_START_DATE = datetime.strptime(DDP_START_DATE, "%Y-%m-%d").date()
+    
+    DDP_END_DATE = cf["study_defs"][study_name]["DDP_END_DATE"]
+    if isinstance(DDP_END_DATE, str):
+        DDP_END_DATE = datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
+
+    sel = [("D_donation_id", "in", the_special_donations),("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
+
+    if verbose:
+        print(f"Trying to load all events from {len(the_special_donations)} donations", end=" ", flush=True)
+    special_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2{cf['misc']['file_format']}", filters=sel,verbose=verbose)
+    if verbose:
+        print(f"Special DDP events dataframe loaded: {special_ddp_events_df.D_donation_id.nunique()} unique donations. Shape: {special_ddp_events_df.shape}")
+        print(f"The special DDP events range from {special_ddp_events_df.T_local_date.min():%Y-%m-%d} -- {special_ddp_events_df.T_local_date.max():%Y-%m-%d}")
+
+
+    return {"data_ddp_events":special_ddp_events_df}
+
+
+
+
+
+
+
+
+
+def sample_ddp_events(
+    cf = None, 
+    study_name = None, 
+    all_ddp_events_df = None, 
+    verbose=False):
+
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+    # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
+    # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
+
+    group_factors = cf["var_scheme"][cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
+
+    #t1 = []
+    #for c in group_factors:
+    #    if c[:2] in ["D_","T_","S_","B_"]:
+    #        t1 += [c[2:]]
+    #    else:
+    #        t1 += [c]
+    #group_factors = t1
+
+    AGG_GROUP_SIZE_PERCENTILE_LIMITS = cf["study_defs"][study_name]["AGG_GROUP_SIZE_PERCENTILE_LIMITS"]
+    MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = cf["study_defs"][study_name]["MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION"]
+    N_SAMPLED_DATES_FROM_EACH_DONATION = cf["study_defs"][study_name]["N_SAMPLED_DATES_FROM_EACH_DONATION"]
+    N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP"]
+
+    if verbose:
+        print("Sampling events based on donation-date groups, which is the unit of analysis for the study")
+
+    # count the number of events in the donation-date groups
+    donation_date_groups = all_ddp_events_df[all_ddp_events_df['D_feature_name']=="watch"].groupby(group_factors)["D_sample_id"].count()
+
+
+    # this is transforming the donation-date group percentile limits to actual values
+    donation_date_group_size_limits = donation_date_groups.describe(percentiles=AGG_GROUP_SIZE_PERCENTILE_LIMITS).loc[[f"{k:.0%}" for k in AGG_GROUP_SIZE_PERCENTILE_LIMITS]].values
+    percentile_str = "-".join([f"{k:.0%}" for k in AGG_GROUP_SIZE_PERCENTILE_LIMITS])
+    limits_str = "-".join([f"{k:,.0f}" for k in donation_date_group_size_limits])
+    if verbose:
+        print(f"Percentile limits {percentile_str} translate to {limits_str} in actual event counts")
+
+
+    # apply the size limits to the donation-date groups to get those that fit the criteria
+    donation_date_groups_within_size_limits = donation_date_groups[(donation_date_groups>=donation_date_group_size_limits[0]) & (donation_date_groups<donation_date_group_size_limits[1])]
+    if verbose:
+        print(f"There are {len(donation_date_groups_within_size_limits):,} donation-date groups with event counts within the limits")
+
+
+    # for each donation, count how many dates have event counts within the limits
+    n_tiktok_dates_within_limits_per_donation = (~donation_date_groups_within_size_limits.unstack(level=0).isna()).sum()
+
+    # I want donations who have a considerable number of dates within this range.
+    donations_with_many_dates_within_limits = n_tiktok_dates_within_limits_per_donation[n_tiktok_dates_within_limits_per_donation>=MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION]
+    if verbose:
+        print(f"There are {len(donations_with_many_dates_within_limits):,} donations with at least {MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION} dates where the number of events is within the limits")
+
+
+    # use these identified donations to identify the donation-date groups that meet the events per date criteria
+    donation_date_groups_by_regulars = donation_date_groups_within_size_limits.unstack(1).loc[donations_with_many_dates_within_limits.index,:].stack()
+    if verbose:
+        print(f"These donations yield {len(donation_date_groups_by_regulars):,} donation-date groups meeting the criteria")
+
+
+    # Sample step 1: sample a certain number of dates from each donation
+
+    # I'm first shuffling the dates for each donation (pseudo-randomly for replicability)
+    ordered_groups = (
+        donation_date_groups_by_regulars.groupby(level=0, group_keys=False)
+          .apply(lambda g: g.sample(frac=1, replace=False, random_state=42))
+    )
+
+    # then I pick the top 'N_SAMPLED_DATES_FROM_EACH_DONATION' dates from each donation
+    # this ensures that I keep the elements selected when 'N_SAMPLED_DATES_FROM_EACH_DONATION' is small,
+    # also when I pick a higher 'N_SAMPLED_DATES_FROM_EACH_DONATION' value
+    # It's expensive to scrape and annotate videos, so I don't want to start from scratch
+    # just because I increased the sample size
+    sampled_donation_date_groups_by_regulars = ordered_groups.groupby(level=0).head(N_SAMPLED_DATES_FROM_EACH_DONATION)
+    del ordered_groups # clean up
+
+    if verbose:
+        print(f"Sampling {N_SAMPLED_DATES_FROM_EACH_DONATION} dates from each donation, giving {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
+
+
+    # get the watch events in these sampled donation-date groups (nonb-watch events are just cream on top)
+    ddp_events_in_sampled_groups = all_ddp_events_df[all_ddp_events_df['D_feature_name']=="watch"]#.set_index(group_factors).loc[sampled_donation_date_groups_by_regulars.index].reset_index()
+    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.set_index(group_factors)#.loc[sampled_donation_date_groups_by_regulars.index].reset_index()
+    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.loc[sampled_donation_date_groups_by_regulars.index]#.reset_index()
+    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.reset_index()
+    if verbose:
+        print(f"There are {len(ddp_events_in_sampled_groups):,} events in these {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
+
+
+    # Sample step 2: sample a certain number of events from each donation-date group
+
+    # I'm first shuffling the events for each donation-date group pseudo-randomly
+    ordered_events_in_groups = (
+        ddp_events_in_sampled_groups.groupby(group_factors)
+          .apply(lambda g: g.sample(frac=1, replace=False, random_state=42), include_groups=False)
+    )
+    del ddp_events_in_sampled_groups # clean up
+
+    # then I pick the top 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' events from each donation-date group
+    # this ensures that I keep the elements selected when 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' is small, 
+    # also when I pick a higher 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' value
+    # It's expensive to scrape and annotate videos, so I don't want to start from scratch
+    # just because I increased the sample size
+    sampled_ddp_events_in_sampled_donation_date_groups = ordered_events_in_groups.groupby(group_factors).head(N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP)
+    del ordered_events_in_groups # clean up
+
+    # push the grouping variables back from index into columns
+    sampled_ddp_events_in_sampled_donation_date_groups.reset_index(level=[0,1], inplace=True)
+
+    print(f"Sampled {N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
+
+
+    # check some stats of the sampling procedure
+    #print(sampled_ddp_events_in_sampled_donation_date_groups[sampled_ddp_events_in_sampled_donation_date_groups['feature_name']=="watch"].groupby(group_factors)["sample_id"].count().describe())
+    
+    return sampled_ddp_events_in_sampled_donation_date_groups
+
+
+
+
+
+def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(1_000_000), verbose=False):
+    # attach session stats to donation events
+
+    from pandas import isna as pd_isna, concat
+    import numpy as np
+
+    ddp_log = ddp_log_in.copy()
+
+    all_sessions = []
+    if len(ddp_log) and ("D_donation_id" in ddp_log.columns):
+
+        ddp_log['session_id'] = -1
+        ddp_log['event_order_in_session'] = -1
+        ddp_log['event_pos_in_session'] = -1.0
+        
+        # Collect all updates, then apply in bulk at the end
+        updates_list = []
+
+
+        for one_donation_id,one_donation in ddp_log.groupby("D_donation_id"):
+
+            watch = (one_donation.sort_values(['D_ts_jiggled'])).copy()
+
+            watch['delta'] = watch['D_local_timestamp'].shift(-1) - watch['D_local_timestamp']
+            # Vectorized timedelta conversion to seconds
+            watch['delta'] = watch['delta'].dt.total_seconds()
+
+            # VECTORIZED SESSION ID ASSIGNMENT (replaces slow for loop)
+            # A new session starts when delta is >15 minutes or is NaN
+            session_breaks = (watch['delta'].isna()) | (watch['delta'] > 15*60)
+            # Cumsum creates incrementing session IDs at each break
+            session_nums = session_breaks.astype(bool).cumsum()
+            # Add the counter offset and assign
+            watch['session_id'] = session_id_counter + session_nums
+            
+            # Update counter for next donation
+            session_id_counter = watch['session_id'].max() + 1
+            
+            # VECTORIZED EVENT ORDER (replaces loop)
+            # groupby().cumcount() gives sequential numbering within each session
+            watch['event_order_in_session'] = watch.groupby('session_id').cumcount()
+            # Adjust: events at session breaks get -1, others keep their count
+            watch.loc[session_breaks, 'event_order_in_session'] = -1
+
+            session_stats = watch.groupby('session_id').agg(
+                session_duration=('delta', 'sum'),
+                session_start_ts=('D_local_timestamp', 'min'),
+                n_videos_in_session=('event_order_in_session', 'max'),
+            )
+
+            session_stats = session_stats.astype(int)
+            session_stats["session_end_ts"] = session_stats["session_start_ts"] + session_stats["session_duration"]
+            session_stats["donation_id"] = one_donation_id
+
+            watch['n_videos_in_session'] = watch['session_id'].map(session_stats['n_videos_in_session'].to_dict())
+            watch['event_pos_in_session'] = watch['event_order_in_session'] / watch['n_videos_in_session']
+            watch['event_pos_in_session'] = watch['event_pos_in_session'].fillna(-1).astype(float)
+
+            session_stats["n_videos_in_session"] = session_stats["n_videos_in_session"]+1
+
+            short = watch.loc[watch['delta'].between(0, 15*60), ['delta', 'session_id', 'event_order_in_session', 'event_pos_in_session']]
+
+            # OPTIMIZATION: Store updates instead of applying immediately
+            if len(short) > 0:
+                updates_list.append(short)
+
+            all_sessions += [session_stats]
+
+        # Apply all updates at once
+        if updates_list:
+            all_updates = concat(updates_list)
+            ddp_log.loc[all_updates.index, 'session_id'] = all_updates['session_id']
+            ddp_log.loc[all_updates.index, 'event_order_in_session'] = all_updates['event_order_in_session']
+            ddp_log.loc[all_updates.index, 'event_pos_in_session'] = all_updates['event_pos_in_session'].astype(float)
+            ddp_log.loc[all_updates.index, 'D_secondary_value'] = all_updates['delta']
+        
+        # Set first event in each session to -1
+        ddp_log.loc[ddp_log[ddp_log["event_order_in_session"]==0].index, "D_secondary_value"] = -1
+
+        if verbose:
+            print("Adding session stats to DDP data",ddp_log.shape)
+        
+
+    else:
+        if verbose:
+            print("no ddp data")
+
+    #if verbose:
+        #print("--"*60)
+    return ddp_log, session_id_counter
+
+
+
+
+
+
+
+
+
+
+
+
+def process_ddp_log_for_complete_dataset(
+    cf = None, 
+    all_ddp_events_df = None, 
+    session_id_counter = np_int64(1_000_000), 
+    verbose=False):
+    # combine the special DDP events with the all DDP events
+
+    from pandas import DataFrame, concat
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
+    from fyp.organize_datasets_OPTIMIZED import rename_columns
+    from numpy import int64 as np_int64
+    from pandas import NA as pd_NA
+
+    if all_ddp_events_df is None:
+        raise ValueError("all_ddp_events_df must be specified")
+
+    if cf is None:
+        cf = init_config()
+
+
+
+    ddp_log = all_ddp_events_df.copy()
+
+    ddp_log.loc[ddp_log[ddp_log["primary_label"]=="ip"].index,"feature_name"] = "login_event"
+
+
+    ddp_log["secondary_label"] = ddp_log["secondary_label"].fillna("")
+    ddp_log["secondary_value"] = ddp_log["secondary_value"].fillna(np_int64(-1))
+
+    #ddp_log = ddp_log.drop(columns=[
+    #    "sample_id", "donation_date"], errors="ignore").copy()
+
+
+    ddp_log = ddp_log.rename(columns={c:"D_"+c if not c in ["item_id"] else c for c in ddp_log.columns}).copy()
+
+    if verbose:
+        print(f"Shape of all DDP events DF: {ddp_log.shape} from {ddp_log.D_donation_id.nunique()} donations")
+        print(f"The dates of the DDP events range from {ddp_log.D_date.min()} -- {ddp_log.D_date.max()}")
+
+
+    if "var_scheme" in cf and not cf["var_scheme"].empty:
+        vs = cf["var_scheme"]
+        # TODO: Keep an eye on this - I want it more dynamic. Structural columns
+        structural_ddp_cols = [
+            'item_id', 'D_sample_id',
+            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
+            'T_local_hour', 'T_local_day_segment', 'T_local_date',
+            'session_id', 'event_order_in_session',
+            'event_pos_in_session',
+            'D_donation_id',
+            'D_feature_name','D_primary_label',
+            'D_primary_value',
+            'D_secondary_label', 'D_secondary_value',
+        ]
+                
+        d_vars = vs[vs['variable_name'].str.startswith('D_', na=False)]['variable_name'].tolist()
+        relevant_ddp_cols = structural_ddp_cols + d_vars
+        relevant_ddp_cols = list(dict.fromkeys(relevant_ddp_cols))
+    else:
+        raise ValueError("var_scheme not found in config")
+
+
+    ddp_log, _ = add_session_stats_to_ddp_log(ddp_log, verbose=verbose)
+    ddp_log = rename_columns(ddp_log)
+    ddp_log = ddp_log[relevant_ddp_cols].copy()
+
+    
+    return ddp_log
+
+
+
+
+
+
+
+def ingest_ddp_events(
+    cf = None, 
+    verbose=False):
+    # load DF with all donations previously ingested
+
+    from os import listdir, remove
+    from os.path import join, exists
+    from json import load as json_load
+    from pandas import concat
+    import fyp.data_io as data_io
+    from datetime import datetime
+    from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
+    from fyp.organize_datasets_OPTIMIZED import extract_local_time_features
+
+    if cf is None:
+        cf = init_config()
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+
+    print("Loading all DDP events...", end=" ", flush=True)
+    all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events{cf['misc']['file_format']}", verbose=verbose)
+
+    # drop two columns
+    all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
+
+    # Extract date
+    all_ddp_events_df['simple_date'] = all_ddp_events_df['date'].dt.date
+    
+    # Extract sample_id
+    all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype(int)
+    
+    print(f"...DDP events dataframe loaded")
+    print(f"The DF contains {all_ddp_events_df.donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
+
+    if verbose:
+        print(f"The DDP events range from {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()}")
+
+
+    # dropping some corrupt URLs simply by calculating the most common length of the URLs and dropping those that doesn't match
+    all_ddp_events_df = _remove_link_events_with_corrupt_links(all_ddp_events_df)
+    if verbose:
+        print(f"Dropping DDP events with corrupt TikTok URLs. New shape: {all_ddp_events_df.shape}")
+
+    all_ddp_events_df = extract_local_time_features(
+        cf = cf,
+        some_events_df_in = all_ddp_events_df,
+        kind_of_log = 'ddp',
+        verbose = verbose)
+
+    all_ddp_events_df = process_ddp_log_for_complete_dataset(
+        cf = cf, 
+        all_ddp_events_df = all_ddp_events_df, 
+        verbose=verbose)
+
+
+    all_ddp_events_df = data_io.save_parquet(
+        cf,
+        all_ddp_events_df,
+        "ddp_main", 
+        f"all_participant_events_2{cf['misc']['file_format']}", 
+        verbose=verbose)
+
+
+    return all_ddp_events_df
+
+
+
+
+
+
+
+def load_ddp_events(
+    cf = None, 
+    study_name = None, 
+    verbose=False):
+    # load DF with all donations previously ingested
+
+    import fyp.data_io as data_io
+    from datetime import datetime
+    from fyp.fyp_main import init_config
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+
+
+    if cf is None:
+        cf = init_config()
+
+
+    if not cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() in ["sample","all"]:
+        if verbose:
+            print("Not loading DDP events")
+        return None
+
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+
+
+    DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
+    if isinstance(DDP_START_DATE, str):
+        DDP_START_DATE = datetime.strptime(DDP_START_DATE, "%Y-%m-%d").date()
+    
+    DDP_END_DATE = cf["study_defs"][study_name]["DDP_END_DATE"]
+    if isinstance(DDP_END_DATE, str):
+        DDP_END_DATE = datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
+
+    sel = [("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
+
+    print(f"Loading all DDP events from {DDP_START_DATE:%Y-%m-%d} -- {DDP_END_DATE:%Y-%m-%d}...", end=" ", flush=True)
+    all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2{cf['misc']['file_format']}", filters=sel, verbose=verbose)
+
+    print(f"...DDP events dataframe loaded")
+    print(f"The DF contains {all_ddp_events_df.D_donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
+
+
+    if cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() == "all":
+        return {"data_ddp_events":all_ddp_events_df}
+    else:
+        sampled_data_ddp_events = sample_ddp_events(
+            cf = cf, 
+            study_name = study_name, 
+            all_ddp_events_df = all_ddp_events_df, 
+            verbose=verbose)
+        return {"data_ddp_events":sampled_data_ddp_events}
+
+
+
+
+
+
+
+
+
 
 
 

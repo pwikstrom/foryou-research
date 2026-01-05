@@ -7,6 +7,7 @@ Author: Patrik
 Date: 
 """
 
+from numpy import int64 as np_int64
 
 
 
@@ -300,6 +301,295 @@ def get_baseline_log(cf = None,
     end_time = datetime.now()
     print(f"{end_time.strftime('%Y-%m-%d %H:%M:%S')}: Process completed in {pretty_str_seconds((end_time-start_time).total_seconds())}.")    
     print("Done\n"+"*"*80+"\n")
+
+
+
+
+
+
+
+
+def process_baseline_for_complete_dataset(
+    cf = None,
+    baseline_log = None,
+    session_id_counter = np_int64(0),
+    verbose=False):
+
+    from pandas import concat
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
+
+    if baseline_log is None or len(baseline_log) == 0:
+        if verbose:
+            print("No baseline log data available --> skipping baseline log processing. Returning None.")
+        return None, session_id_counter
+
+    if cf is None:
+        cf = init_config()
+
+    baseline_log_simple = baseline_log.rename(columns={c:"B_"+c if not c=="item_id" else c for c in baseline_log.columns}).copy()
+    if verbose:
+        print(f"The baseline log has shape: {baseline_log_simple.shape}")
+
+
+    # VECTORIZED: No loop needed, use groupby operations directly
+    if len(baseline_log_simple) and ("item_id" in baseline_log_simple.columns):
+        # Sort by script and timestamp
+        baseline_log_simple = baseline_log_simple.sort_values(["B_log_script", "B_local_timestamp"]).copy()
+        
+        # Assign session IDs: each script gets a unique session ID
+        baseline_log_simple["session_id"] = session_id_counter + baseline_log_simple.groupby("B_log_script").ngroup() + 1
+        session_id_counter = baseline_log_simple["session_id"].max() + 1
+        
+        # Event order within each session (vectorized)
+        baseline_log_simple["event_order_in_session"] = baseline_log_simple.groupby("session_id").cumcount()
+        
+        # Event position (vectorized)
+        n_videos_per_session = baseline_log_simple.groupby("session_id")["event_order_in_session"].transform("max")
+        baseline_log_simple["event_pos_in_session"] = baseline_log_simple["event_order_in_session"] / n_videos_per_session.replace(0, 1)
+        
+        if verbose:
+            print("Adding session stats to baseline data",baseline_log_simple.shape)
+    else:
+        if verbose:
+            print("no baseline data available --> skipping session stats attachment. Returning None.")
+        return None, session_id_counter
+
+    #if verbose:
+        #print("--"*60)
+
+
+    if "var_scheme" in cf and not cf["var_scheme"].empty:
+        vs = cf["var_scheme"]
+        # TODO - this has to be changed to be less connected to specific variable names
+        #
+        # Determine baseline vars: those with 'role'='standard' (like B_anchors) or starting with B_ ? 
+        # The original list had B_ challenges etc. In CSV they are defined.
+        # Original List: item_id, T_local_timestamp... T_local_date, session_id, event_order..., event_pos...
+        # AND B_challenges, B_anchors, ..., B_source_tz_name
+        
+        # We want: 
+        # 1. Standard structural cols (item_id, T_..., session_..., event_...)
+        # 2. All variables in scheme that start with B_
+        
+        structural_cols = [
+            'item_id',
+            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
+            'T_local_hour', 'T_local_day_segment', 'T_local_date',
+            'session_id', 'event_order_in_session',
+            'event_pos_in_session'
+        ]
+        
+        b_vars = vs[vs['variable_name'].str.startswith('B_', na=False)]['variable_name'].tolist()
+        relevant_baseline_cols = structural_cols + b_vars
+        
+        # Remove duplicates just in case
+        relevant_baseline_cols = list(dict.fromkeys(relevant_baseline_cols))
+    else:
+        raise ValueError("var_scheme not found in config")
+
+
+    baseline_log_simple = rename_columns(baseline_log_simple)
+
+    relevant_baseline_cols = [c for c in relevant_baseline_cols if c in baseline_log_simple.columns]
+
+    baseline_log_simple = baseline_log_simple[relevant_baseline_cols].copy()
+    
+    # Convert categorical columns to string to avoid fillna errors with categoricals
+    #for col in baseline_log_simple.select_dtypes(include=['category']).columns:
+    #    baseline_log_simple[col] = baseline_log_simple[col].astype(str)
+    
+    #baseline_log_simple = baseline_log_simple.fillna("").copy()
+    #baseline_log_simple = _check_for_null_values_in_df(baseline_log_simple, verbose=verbose)
+
+
+    #baseline_log_simple = convert_dtypes_to_pyarrow(baseline_log_simple, verbose=verbose)
+
+    if verbose:
+        print("Processed baseline for log export - shape:", baseline_log_simple.shape)
+    return baseline_log_simple#, session_id_counter
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+def ingest_zeeschuimer_data(
+    cf = None,
+    verbose=False):
+    # load items from baseline logs
+
+    from pandas import concat, DataFrame
+    from os.path import exists, join
+    from os import remove, listdir
+    from datetime import datetime
+    from json import load as json_load
+    from zoneinfo import ZoneInfo
+    from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
+    from fyp.organize_datasets_OPTIMIZED import extract_local_time_features
+    import fyp.data_io as data_io
+
+    if cf is None:
+        cf = init_config()
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+    
+    
+    print("Loading baseline logs...")
+
+    list_of_zeeschuimer_logs = []
+    okay_test_cases = []
+
+    zeeschuimer_refined_files = [fn for fn in data_io.listdir(cf, "zeeschuimer_refined", verbose=verbose) if fn.endswith(cf['misc']['file_format'])]
+
+    # loop to load all separate zeeschuimer refined files
+    for fn in zeeschuimer_refined_files:
+        
+        zeeschuimer_candidate = data_io.load_parquet(cf, "zeeschuimer_refined", fn, verbose=verbose)
+
+        empty_columns = []
+        for c in zeeschuimer_candidate.columns:
+            if zeeschuimer_candidate[c].isna().sum() / len(zeeschuimer_candidate) > 0.95:
+                empty_columns.append(c)
+
+        zeeschuimer_candidate.drop(empty_columns, axis=1, inplace=True)
+
+        zeeschuimer_candidate = zeeschuimer_candidate.convert_dtypes(dtype_backend="pyarrow") # to be sure
+        
+
+        test_cols = zeeschuimer_candidate[["item_id","timestamp_collected"]].reset_index(drop=True).sort_values("timestamp_collected").copy()
+        duplicate_found = False
+        for zl in okay_test_cases:
+            if zl.shape == test_cols.shape:
+                if (zl.index == test_cols.index).all() and (zl.columns == test_cols.columns).all():
+                    if (test_cols == zl).all().all():
+                        duplicate_found = True
+                        if verbose:
+                            print("   !! Found a duplicate zeeschuimer file. I'm not adding it to the collection...")
+                        wow = test_cols.copy()
+        if not duplicate_found:
+            zeeschuimer_candidate = zeeschuimer_candidate.reset_index(drop=True).reset_index().rename(columns={"index":"event_order_in_session"})
+            zeeschuimer_candidate["event_pos_in_session"] = zeeschuimer_candidate["event_order_in_session"] / max(1,len(zeeschuimer_candidate)-1)
+
+            list_of_zeeschuimer_logs += [zeeschuimer_candidate]
+            okay_test_cases += [test_cols]
+
+
+    list_of_zeeschuimer_logs = sorted(list_of_zeeschuimer_logs,key=lambda x:x["timestamp_collected"].min())
+
+
+    for i,zl in enumerate(list_of_zeeschuimer_logs):
+        zl["session_id"] = i
+
+    if len(list_of_zeeschuimer_logs)>0:
+        baseline_log = concat(list_of_zeeschuimer_logs)
+
+        if verbose:
+            print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.timestamp_collected.min()} -- {baseline_log.timestamp_collected.max()}")
+        
+        baseline_log = baseline_log.drop_duplicates(subset=["item_id","timestamp_collected","source_url.tz_name"]).copy()
+        if verbose:
+            print(f"Dropped duplicates based on item_id, timestamp and location, yielding {baseline_log.shape[0]:,} rows")
+
+
+        # only keeping videos from the FYP page not the explore page
+        baseline_log = baseline_log[baseline_log.source_platform_url.isin(['https://www.tiktok.com/en','https://www.tiktok.com/','https://www.tiktok.com/foryou'])].copy()
+        if verbose:
+            print(f"Keeping baseline logs from TikTok's ForYou page, yielding {baseline_log.shape[0]:,} rows.")
+
+        
+        baseline_log.reset_index(drop=True, inplace=True)
+
+
+        empty_columns = []
+        for c in baseline_log.columns:
+            if baseline_log[c].isna().sum() / len(baseline_log) > 0.8:
+                empty_columns.append(c)
+
+        baseline_log.drop(empty_columns, axis=1, inplace=True)
+
+        baseline_log = extract_local_time_features(
+            cf = cf,
+            some_events_df_in = baseline_log,
+            kind_of_log = 'baseline',
+            verbose = verbose)
+
+        baseline_log_simple, _ = process_baseline_for_complete_dataset(cf = cf, baseline_log = baseline_log, verbose=verbose)
+
+        if verbose:
+            print("Saving half-baked baseline events...")    
+        baseline_log_simple = data_io.save_parquet(cf, baseline_log_simple, "zeeschuimer_main", "all_zeeschuimer_events.parquet", verbose=verbose)
+    
+    else:
+        baseline_log_simple = DataFrame()
+
+    return baseline_log_simple
+
+
+
+
+
+
+
+
+
+
+def load_zeeschuimer_data(
+    cf = None,
+    study_name = None,
+    verbose=False):
+    # load items from baseline logs
+
+    from datetime import datetime
+    from fyp.fyp_main import init_config
+    import fyp.data_io as data_io
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    
+    if cf is None:
+        cf = init_config()
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+    
+
+    BASELINE_START_DATE = cf["study_defs"][study_name]["BASELINE_START_DATE"]
+    if isinstance(BASELINE_START_DATE, str):
+        BASELINE_START_DATE = datetime.strptime(BASELINE_START_DATE, "%Y-%m-%d")
+    
+    BASELINE_END_DATE = cf["study_defs"][study_name]["BASELINE_END_DATE"]
+    if isinstance(BASELINE_END_DATE, str):
+        BASELINE_END_DATE = datetime.strptime(BASELINE_END_DATE, "%Y-%m-%d")
+
+    print("Loading baseline logs...")
+
+    baseline_log = data_io.load_parquet(cf, "zeeschuimer_main", "all_zeeschuimer_events.parquet", verbose=verbose)
+
+    if verbose:
+        print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.T_local_timestamp.min():%Y-%m-%d} -- {baseline_log.T_local_timestamp.max():%Y-%m-%d}")
+    
+
+    baseline_log = baseline_log[(baseline_log.T_local_timestamp>=BASELINE_START_DATE) & (baseline_log.T_local_timestamp<=BASELINE_END_DATE)].copy()
+    if verbose:
+        print("Baseline log selected date range:",baseline_log.T_local_timestamp.min(), " ---- ", baseline_log.T_local_timestamp.max(), "Shape:",baseline_log.shape)
+    
+
+    return {"data_baseline_log":baseline_log}
+
+
+
+
+
+
+
+
 
 
 

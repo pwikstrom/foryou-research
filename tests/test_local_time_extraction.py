@@ -68,7 +68,6 @@ class TestLocalTimeExtraction(unittest.TestCase):
         # Run extraction
         res_df = extract_local_time_features(
             cf=self.mock_cf,
-            study_name='test_study',
             some_events_df_in=df,
             kind_of_log='ddp',
             verbose=True
@@ -104,7 +103,6 @@ class TestLocalTimeExtraction(unittest.TestCase):
         
         res_df = extract_local_time_features(
             cf=self.mock_cf,
-            study_name='test_study',
             some_events_df_in=df,
             kind_of_log='baseline',
             verbose=True

@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
 import fyp.fyp_main as fyp
-from fyp.get_baseline_log import read_ndjson_file, refine_zeeschuimer_log, get_baseline_info_as_string
+from fyp.zeeschuimer import read_ndjson_file, refine_zeeschuimer_log, get_baseline_info_as_string
 import fyp.data_io as data_io
 #import pandas as pd
 

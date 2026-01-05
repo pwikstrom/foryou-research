@@ -34,14 +34,13 @@ fqdn==1.5.1
 google-ai-generativelanguage==0.6.6
 google-api-core==2.19.1
 google-api-python-client==2.139.0
-google-auth==2.32.0
-google-auth-httplib2==0.2.0
+google-auth
+google-auth-httplib2
 google-cloud-core==2.4.3
 google-cloud-storage==3.1.1
 google-cloud-video-transcoder==1.16.0
 google-crc32c==1.5.0
-google-genai==1.22.0
-google-generativeai==0.7.2
+google-genai>=1.56.0
 google-resumable-media==2.7.2
 googleapis-common-protos==1.63.2
 grpcio==1.64.1
@@ -50,7 +49,7 @@ gunicorn==23.0.0
 h11==0.14.0
 httpcore==1.0.5
 httplib2==0.22.0
-httpx==0.28.1
+
 idna==3.7
 imageio==2.35.1
 imageio-ffmpeg==0.5.1
@@ -95,7 +94,7 @@ nltk==3.8.1
 notebook==7.2.1
 notebook_shim==0.2.4
 numpy==2.0.1
-ollama==0.3.2
+
 openai==1.40.0
 opencv-python==4.10.0.84
 overrides==7.7.0
@@ -118,8 +117,8 @@ pyasn1==0.6.0
 pyasn1_modules==0.4.0
 pycparser==2.22
 pycryptodomex==3.20.0
-pydantic==2.8.2
-pydantic_core==2.20.1
+pydantic
+pydantic_core
 Pygments==2.18.0
 pyparsing==3.1.2
 python-dateutil==2.9.0.post0
@@ -162,7 +161,7 @@ wcwidth==0.2.13
 webcolors==24.8.0
 webencodings==0.5.1
 websocket-client==1.8.0
-websockets==15.0.1
+websockets
 Werkzeug==3.1.4
 widgetsnbextension==4.0.11
 gcsfs==2025.12.0

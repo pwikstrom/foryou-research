@@ -52,18 +52,43 @@ def load_machine_annotations(
 
     if cf is None:
         cf = init_config()
-    
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+    print("Loading machine annotations...")
 
 
-    machine_file_names = []
-    for fn in data_io.listdir(cf, "machine_annotations_refined", verbose=verbose):
-        if fn.startswith("machine_annotations") and fn.endswith(cf['misc']['file_format']):
-            machine_file_names.append(fn)
-    machine_file_names = list(set(machine_file_names))
 
-    all_results = concat([data_io.load_parquet(cf, "machine_annotations_refined", fn, verbose=verbose) for fn in machine_file_names])
+
+    # if we are consolidating, load all columns (otherwise data is lost)
+    if consolidate:
+        all_results = data_io.load_parquet(cf, "machine_annotations_refined", "*", verbose=verbose)
+    # if we are not consolidating, load only the useful variables
+    else:
+        import re
+        useful_variables = []
+        for k in cf['var_scheme'][cf['var_scheme']['role']!='skip'].variable_name:
+            if re.match(r'^[A-Z]_', k):
+                useful_variables.append(k[2:])
+            useful_variables.append(k)
+
+        all_results = data_io.load_parquet(cf, "machine_annotations_refined", "*", columns=useful_variables, verbose=verbose)
+
+    #scrape_metadata = concat([data_io.load_parquet(cf, "scrape", fn, verbose=verbose) for fn in scrape_metadata_filenames])
+
+
+
+
+    #machine_file_names = []
+    #for fn in data_io.listdir(cf, "machine_annotations_refined", verbose=verbose):
+    #    if fn.startswith("machine_annotations") and fn.endswith(cf['misc']['file_format']):
+    #        machine_file_names.append(fn)
+    #machine_file_names = list(set(machine_file_names))
+
+    #all_results = concat([data_io.load_parquet(cf, "machine_annotations_refined", fn, verbose=verbose) for fn in machine_file_names])
 
     all_results.reset_index(drop=True, inplace=True)
+    return all_results
     all_results['error'] = all_results['error'].map(lambda x:"-" if x=={} else x)
 
     if verbose:
@@ -78,30 +103,34 @@ def load_machine_annotations(
         print(f"After full-row-dedup there are {len(all_results):,} rows, {len(all_results.columns)} cols, and {all_results.item_id.nunique():,} unique videos")
 
 
+    if consolidate:
+        machine_file_names = [gg for gg in data_io.listdir(cf, "machine_annotations_refined", verbose=verbose) if gg.startswith("machine_annotations") and gg.endswith(cf["misc"]["file_format"])]
+        machine_file_names = list(set(machine_file_names))
 
-    if consolidate and len(machine_file_names) > 1:
+        if len(machine_file_names) > 1:
 
-        # consolidating the files to a single file using the latest file name
-        # the reason for this is to not kick off potential secondary processes that are monitoring the folder
-        # for new files. I want such processes to ignore files that are consolidations of other files
-        # this has to happen before we potentially drop all failed annotations. We want to keep them in the
-        # consolidated file  
+            # consolidating the files to a single file using the latest file name
+            # the reason for this is to not kick off potential secondary processes that are monitoring the folder
+            # for new files. I want such processes to ignore files that are consolidations of other files
+            # this has to happen before we potentially drop all failed annotations. We want to keep them in the
+            # consolidated file  
 
-        latest_filename = sorted(machine_file_names)[-1]
-        #fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-        if verbose:
-            print(f"The machine annotation files will be consolidated into a single file: '{basename(latest_filename)}'")
-            print(f"The raw json files will remain untouched")
+            latest_filename = sorted(machine_file_names)[-1]
+            #fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+            if verbose:
+                print(f"The machine annotation files will be consolidated into a single file: '{basename(latest_filename)}'")
+                print(f"The raw json files will remain untouched")
 
-        all_results = convert_dtypes_to_pyarrow(all_results, verbose=verbose)
-        data_io.save_parquet(cf, all_results, "machine_annotations_refined", latest_filename, verbose=verbose)
-
-
-        for fn in machine_file_names:
-            if not fn == latest_filename:
-                data_io.move(cf, "machine_annotations_refined", "archive", fn)
+            #all_results = convert_dtypes_to_pyarrow(all_results, verbose=verbose)
+            data_io.save_parquet(cf, all_results, "machine_annotations_refined", latest_filename, verbose=verbose)
 
 
+            for fn in machine_file_names:
+                if not fn == latest_filename:
+                    data_io.move(cf, "machine_annotations_refined", "archive", fn)
+        else:
+            if verbose:
+                print(f"Only a single machine annotation file was found. No need to consolidate.")
 
 
 
@@ -114,6 +143,9 @@ def load_machine_annotations(
         if verbose:
             print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
 
+
+
+    print(f"Loaded machine annotations - shape {all_results.shape}")
 
     if notebook_mode:
         print("--"*60)

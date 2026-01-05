@@ -12,7 +12,7 @@
   - `pca.py`: distance/similarity matrices for categorical counts (JS, Hellinger, TV, Bray-Curtis, chi²) with smoothing/weighting/tempering; entropy/dominance helpers.
   - `stats.py`: ANOVA with effect sizes; PERMANOVA variants over PCA scores/features.
   - `recode_variables.py` and `machine_annotation.py`: recoding and LLM coding utilities.
-  - Other helpers: `download_videos.py`, `get_baseline_log.py`.
+  - Other helpers: `download_videos.py`, `zeeschuimer.py`.
 - `analysis_notebooks/`: main analysis notebook (`main_analysis_notebook_004.ipynb`) plus variable scheme (`var_scheme.csv`).
 - `baseline_ingest/`, `ddp_ingest/`, `enrich_tiktok_data/`, `organise_and_export_datasets/`: ingestion, enrichment, export notebooks and artifacts (e.g., `special_ids.pkl`).
 - `ddp_dashboard/`: small analytics app.

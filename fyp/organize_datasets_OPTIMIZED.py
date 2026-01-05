@@ -11,7 +11,7 @@ WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday"
 
 
 
-def _day_segment_from_hour(hour: int) -> str:
+"""def _day_segment_from_hour(hour: int) -> str:
     if not (0 <= hour <= 23):
         raise ValueError(f"hour must be in 0..23, got {hour}")
     if hour <= 5:
@@ -30,18 +30,18 @@ def timestamp_to_local_parts(
     *,
     ts_is_unix_utc: bool = True,
 ) -> dict:
-    """
-    Args:
-        ts:
-          - If ts_is_unix_utc=True (default): `ts` is a real Unix timestamp (absolute instant).
-            In this mode, input_tz does NOT affect the final instant; it's included for metadata.
-          - If ts_is_unix_utc=False: `ts` is treated as an epoch-like number that was "recorded"
-            in the wall-clock of `input_tz`. In this mode, input_tz DOES affect output.
+    
+    #Args:
+    #    ts:
+    #      - If ts_is_unix_utc=True (default): `ts` is a real Unix timestamp (absolute instant).
+    #        In this mode, input_tz does NOT affect the final instant; it's included for metadata.
+    #      - If ts_is_unix_utc=False: `ts` is treated as an epoch-like number that was "recorded"
+    #        in the wall-clock of `input_tz`. In this mode, input_tz DOES affect output.
 
-        input_tz: timezone in which the timestamp was recorded/assumed.
-        output_tz: timezone that defines "local" outputs.
-        ts_is_unix_utc: choose interpretation mode (see above).
-    """
+    #    input_tz: timezone in which the timestamp was recorded/assumed.
+    #    output_tz: timezone that defines "local" outputs.
+    #    ts_is_unix_utc: choose interpretation mode (see above).
+    
     from datetime import datetime, timezone
 
 
@@ -76,7 +76,7 @@ def timestamp_to_local_parts(
         "local_day_segment": _day_segment_from_hour(local_hour),
         "local_date": dt_local.strftime("%Y-%m-%d"),
         "local_datetime": dt_local.strftime("%Y-%m-%d %H:%M:%S"),
-    }
+    }"""
 
 
 
@@ -86,7 +86,6 @@ def timestamp_to_local_parts(
 
 def extract_local_time_features(
     cf = None,
-    study_name = None,
     some_events_df_in = None,
     kind_of_log = None,
     verbose = False):
@@ -106,7 +105,6 @@ def extract_local_time_features(
         cf = init_config()
 
 
-    TIME_ZONE = cf["study_defs"][study_name]["TIME_ZONE"]
 
     df = some_events_df_in.copy()
 
@@ -177,6 +175,7 @@ def extract_local_time_features(
         # NEW LOGIC: Use per-donation timezone offsets
         
         # 1. Calculate Default Offset from static TIME_ZONE (as fallback)
+        TIME_ZONE = cf["misc"]["TIME_ZONE"]
         try:
             now_local = datetime.now(ZoneInfo(TIME_ZONE))
             default_offset_hours = now_local.utcoffset().total_seconds() / 3600.0
@@ -302,27 +301,6 @@ def extract_local_time_features(
 
 
 
-def remove_link_events_with_corrupt_links(some_events_df):
-    """Optimized: uses vectorized string length calculation instead of map(lambda)"""
-    from pandas import concat
-
-    non_video_ddp_events_df = some_events_df[some_events_df["primary_label"] != "link"].copy()
-    video_ddp_events_df = some_events_df[some_events_df["primary_label"] == "link"].copy()
-    
-    # Vectorized string length calculation
-    url_lengths = video_ddp_events_df.primary_value.str.len()
-    most_common_url_length = int(url_lengths.value_counts().index[0])
-    
-    video_ddp_events_df = video_ddp_events_df[url_lengths == most_common_url_length].copy()
-    some_events_df = concat([video_ddp_events_df, non_video_ddp_events_df])
-
-    return some_events_df
-
-
-
-
-
-
 
 
 
@@ -343,19 +321,29 @@ def load_scrape_metadata(
 
     if cf is None:
         cf = init_config()
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
 
 
     # load the scrape_metadata dataframe
-    print("Loading scraped metadata... ", end="", flush = True)
+    print("Loading scraped metadata...")
 
-    scrape_metadata_filenames = [gg for gg in data_io.listdir(cf, "scrape", verbose=verbose) if gg.startswith("scrape_metadata") and gg.endswith(cf["misc"]["file_format"])]
-    scrape_metadata_filenames = list(set(scrape_metadata_filenames))
+    # if we are consolidating, load all columns (otherwise data is lost)
+    if consolidate:
+        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", verbose=verbose)
+    # if we are not consolidating, load only the useful variables
+    else:
+        import re
+        useful_variables = ["image_list", "video_downloaded", "createTime"]
+        for k in cf['var_scheme'][cf['var_scheme']['role']!='skip'].variable_name:
+            if re.match(r'^[A-Z]_', k):
+                useful_variables.append(k[2:])
+            useful_variables.append(k)
 
+        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", columns=useful_variables, verbose=verbose)
 
-    # load the scrape_metadata dataframe
-    scrape_metadata = concat([data_io.load_parquet(cf, "scrape", fn, verbose=verbose) for fn in scrape_metadata_filenames])
-    if verbose:
-        print(f"Shape: {scrape_metadata.shape}")
+    #scrape_metadata = concat([data_io.load_parquet(cf, "scrape", fn, verbose=verbose) for fn in scrape_metadata_filenames])
+
 
     # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both
     scrape_metadata = scrape_metadata.drop_duplicates(subset=["item_id","video_downloaded"]).copy()
@@ -418,25 +406,30 @@ def load_scrape_metadata(
     scrape_metadata = convert_dtypes_to_pyarrow(scrape_metadata, verbose=verbose)
  
 
-    if consolidate and len(scrape_metadata_filenames) > 1:
+    if consolidate:
+        scrape_metadata_filenames = [gg for gg in data_io.listdir(cf, "scrape", verbose=verbose) if gg.startswith("scrape_metadata") and gg.endswith(cf["misc"]["file_format"])]
+        scrape_metadata_filenames = list(set(scrape_metadata_filenames))
 
-        # consolidating the files to a single file using the latest file name
-        # the reason for this is to not kick off potential secondary processes that are monitoring the scrape folder
-        # for new files. I want such processes to ignore files that are consolidations of other files
 
-        latest_filename = sorted(scrape_metadata_filenames)[-1]
-        #fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-        if verbose:
-            print(f"The scrape_metadata files will be consolidated into a single file: {basename(latest_filename)}.")
+        if len(scrape_metadata_filenames) > 1:
 
-        data_io.save_parquet(cf, scrape_metadata, "scrape", latest_filename, verbose=verbose)
+            # consolidating the files to a single file using the latest filename
+            # the reason for using the old filename is to not kick off potential secondary processes that are monitoring the scrape folder
+            # for new files. I want such processes to ignore files that are consolidations of other files
 
-        for fn in scrape_metadata_filenames:
-            if not fn == latest_filename:
-                data_io.move(cf, "scrape", "archive", fn, verbose=verbose)
+            latest_filename = sorted(scrape_metadata_filenames)[-1]
+            if verbose:
+                print(f"The scrape_metadata files will be consolidated into a single file: {basename(latest_filename)}.")
+
+            data_io.save_parquet(cf, scrape_metadata, "scrape", latest_filename, verbose=verbose)
+
+            for fn in scrape_metadata_filenames:
+                if not fn == latest_filename:
+                    data_io.move(cf, "scrape", "archive", fn, verbose=verbose)
+        else:
+            if verbose:
+                print(f"Only a single scrape_metadata file was found. No need to consolidate.")
         
-
-    scrape_metadata = convert_dtypes_to_pyarrow(scrape_metadata, verbose=verbose)
 
     print(f"Loaded scraped metadata - shape {scrape_metadata.shape}")
     #print("--"*60)
@@ -456,18 +449,16 @@ def load_failed_scrapes(
     super_verbose = False):
     # Load list of failed scraped attempts.
 
-    #from os import listdir
-    #from os.path import join, basename
-    #from json import load as json_load, dump
     from datetime import datetime
-    #from shutil import move
     from fyp.fyp_main import init_config
     import fyp.data_io as data_io
 
     if cf is None:
         cf = init_config()
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
 
-    print("Loading failed scrapes")
+    print("Loading failed scrapes...")
 
     failed_scrape_fn_core = "scrape_failed_items"
 
@@ -498,7 +489,7 @@ def load_failed_scrapes(
 
 
     if verbose:
-        print(f"Loaded list of ALL failed scrapes: {len(failed_scrapes):,}")
+        print(f"Loaded list of all failed scrapes: {len(failed_scrapes):,}")
 
     return failed_scrapes
 
@@ -510,7 +501,7 @@ def load_failed_scrapes(
 
 
 
-def load_zeeschuimer_data(
+"""def OLD_load_zeeschuimer_data(
     cf = None,
     study_name = None,
     use_half_baked = False,
@@ -526,11 +517,14 @@ def load_zeeschuimer_data(
     from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
 
-    if cf is None:
-        cf = init_config()
-    
     if study_name is None:
         raise ValueError("study_name must be specified")
+
+    if cf is None:
+        cf = init_config()
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
     
 
     half_baked_baseline_path = f"{study_name}_HALF_BAKED_BASELINE{cf['misc']['file_format']}"
@@ -586,7 +580,7 @@ def load_zeeschuimer_data(
                         if (test_cols == zl).all().all():
                             duplicate_found = True
                             if verbose:
-                                print("   !! Found a duplicate zeeschuimer file. I'm not adding it to the collection...")
+                                print("Warning: Found a duplicate zeeschuimer file. I'm not adding it to the collection...")
                             wow = test_cols.copy()
             if not duplicate_found:
                 zeeschuimer_candidate = zeeschuimer_candidate.reset_index(drop=True).reset_index().rename(columns={"index":"event_order_in_session"})
@@ -634,7 +628,6 @@ def load_zeeschuimer_data(
 
             baseline_log = extract_local_time_features(
                 cf = cf,
-                study_name = study_name,
                 some_events_df_in = baseline_log,
                 kind_of_log = 'baseline',
                 verbose = verbose)
@@ -649,6 +642,7 @@ def load_zeeschuimer_data(
             baseline_log = DataFrame()
 
     return {"data_baseline_log":baseline_log}
+"""
 
 
 
@@ -658,134 +652,10 @@ def load_zeeschuimer_data(
 
 
 
-def sample_ddp_events(
-    cf = None, 
-    study_name = None, 
-    all_ddp_events_df = None, 
-    verbose=False):
-
-    from fyp.fyp_main import init_config
-
-    if cf is None:
-        cf = init_config()
-
-    # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
-    # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
-
-    group_factors = cf["var_scheme"][cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
-
-    t1 = []
-    for c in group_factors:
-        if c[:2] in ["D_","T_","S_","B_"]:
-            t1 += [c[2:]]
-        else:
-            t1 += [c]
-    group_factors = t1
-
-    AGG_GROUP_SIZE_PERCENTILE_LIMITS = cf["study_defs"][study_name]["AGG_GROUP_SIZE_PERCENTILE_LIMITS"]
-    MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = cf["study_defs"][study_name]["MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION"]
-    N_SAMPLED_DATES_FROM_EACH_DONATION = cf["study_defs"][study_name]["N_SAMPLED_DATES_FROM_EACH_DONATION"]
-    N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP"]
-
-    if verbose:
-        print("Sampling events based on donation-date groups, which is the unit of analysis for the study")
-
-    # count the number of events in the donation-date groups
-    donation_date_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"].groupby(group_factors)["sample_id"].count()
-
-
-    # this is transforming the donation-date group percentile limits to actual values
-    donation_date_group_size_limits = donation_date_groups.describe(percentiles=AGG_GROUP_SIZE_PERCENTILE_LIMITS).loc[[f"{k:.0%}" for k in AGG_GROUP_SIZE_PERCENTILE_LIMITS]].values
-    percentile_str = "-".join([f"{k:.0%}" for k in AGG_GROUP_SIZE_PERCENTILE_LIMITS])
-    limits_str = "-".join([f"{k:,.0f}" for k in donation_date_group_size_limits])
-    if verbose:
-        print(f"Percentile limits {percentile_str} translate to {limits_str} in actual event counts")
-
-
-    # apply the size limits to the donation-date groups to get those that fit the criteria
-    donation_date_groups_within_size_limits = donation_date_groups[(donation_date_groups>=donation_date_group_size_limits[0]) & (donation_date_groups<donation_date_group_size_limits[1])]
-    if verbose:
-        print(f"There are {len(donation_date_groups_within_size_limits):,} donation-date groups with event counts within the limits")
-
-
-    # for each donation, count how many dates have event counts within the limits
-    n_tiktok_dates_within_limits_per_donation = (~donation_date_groups_within_size_limits.unstack(level=0).isna()).sum()
-
-    # I want donations who have a considerable number of dates within this range.
-    donations_with_many_dates_within_limits = n_tiktok_dates_within_limits_per_donation[n_tiktok_dates_within_limits_per_donation>=MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION]
-    if verbose:
-        print(f"There are {len(donations_with_many_dates_within_limits):,} donations with at least {MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION} dates where the number of events is within the limits")
-
-
-    # use these identified donations to identify the donation-date groups that meet the events per date criteria
-    donation_date_groups_by_regulars = donation_date_groups_within_size_limits.unstack(1).loc[donations_with_many_dates_within_limits.index,:].stack()
-    if verbose:
-        print(f"These donations yield {len(donation_date_groups_by_regulars):,} donation-date groups meeting the criteria")
-
-
-    # Sample step 1: sample a certain number of dates from each donation
-
-    # I'm first shuffling the dates for each donation (pseudo-randomly for replicability)
-    ordered_groups = (
-        donation_date_groups_by_regulars.groupby(level=0, group_keys=False)
-          .apply(lambda g: g.sample(frac=1, replace=False, random_state=42))
-    )
-
-    # then I pick the top 'N_SAMPLED_DATES_FROM_EACH_DONATION' dates from each donation
-    # this ensures that I keep the elements selected when 'N_SAMPLED_DATES_FROM_EACH_DONATION' is small,
-    # also when I pick a higher 'N_SAMPLED_DATES_FROM_EACH_DONATION' value
-    # It's expensive to scrape and annotate videos, so I don't want to start from scratch
-    # just because I increased the sample size
-    sampled_donation_date_groups_by_regulars = ordered_groups.groupby(level=0).head(N_SAMPLED_DATES_FROM_EACH_DONATION)
-    del ordered_groups # clean up
-
-    if verbose:
-        print(f"Sampling {N_SAMPLED_DATES_FROM_EACH_DONATION} dates from each donation, giving {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
-
-
-    # get the watch events in these sampled donation-date groups (nonb-watch events are just cream on top)
-    ddp_events_in_sampled_groups = all_ddp_events_df[all_ddp_events_df['feature_name']=="watch"]#.set_index(group_factors).loc[sampled_donation_date_groups_by_regulars.index].reset_index()
-    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.set_index(group_factors)#.loc[sampled_donation_date_groups_by_regulars.index].reset_index()
-    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.loc[sampled_donation_date_groups_by_regulars.index]#.reset_index()
-    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.reset_index()
-    if verbose:
-        print(f"There are {len(ddp_events_in_sampled_groups):,} events in these {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
-
-
-    # Sample step 2: sample a certain number of events from each donation-date group
-
-    # I'm first shuffling the events for each donation-date group pseudo-randomly
-    ordered_events_in_groups = (
-        ddp_events_in_sampled_groups.groupby(group_factors)
-          .apply(lambda g: g.sample(frac=1, replace=False, random_state=42), include_groups=False)
-    )
-    del ddp_events_in_sampled_groups # clean up
-
-    # then I pick the top 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' events from each donation-date group
-    # this ensures that I keep the elements selected when 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' is small, 
-    # also when I pick a higher 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' value
-    # It's expensive to scrape and annotate videos, so I don't want to start from scratch
-    # just because I increased the sample size
-    sampled_ddp_events_in_sampled_donation_date_groups = ordered_events_in_groups.groupby(group_factors).head(N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP)
-    del ordered_events_in_groups # clean up
-
-    # push the grouping variables back from index into columns
-    sampled_ddp_events_in_sampled_donation_date_groups.reset_index(level=[0,1], inplace=True)
-
-    print(f"Sampled {N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
-
-
-    # check some stats of the sampling procedure
-    #print(sampled_ddp_events_in_sampled_donation_date_groups[sampled_ddp_events_in_sampled_donation_date_groups['feature_name']=="watch"].groupby(group_factors)["sample_id"].count().describe())
-    
-    return sampled_ddp_events_in_sampled_donation_date_groups
 
 
 
-
-
-
-def load_ddp_events(
+"""def OLD_load_ddp_events(
     cf = None, 
     study_name = None, 
     use_half_baked = False, 
@@ -817,8 +687,8 @@ def load_ddp_events(
 
 
     if not use_half_baked:
-        data_io.remove_file(half_baked_ddp_events_path, verbose=verbose)
-        data_io.remove_file(half_baked_sampled_ddp_events_path, verbose=verbose)
+        data_io.remove(cf, "exports", half_baked_ddp_events_path, verbose=verbose)
+        data_io.remove(cf, "exports", half_baked_sampled_ddp_events_path, verbose=verbose)
 
 
     if use_half_baked and data_io.exists(cf, "exports", half_baked_ddp_events_path): # use half-baked DDP events file if it exists
@@ -866,7 +736,6 @@ def load_ddp_events(
 
         all_ddp_events_df = extract_local_time_features(
             cf = cf,
-            study_name = study_name,
             some_events_df_in = all_ddp_events_df,
             kind_of_log = 'ddp',
             verbose = verbose)
@@ -903,90 +772,13 @@ def load_ddp_events(
         
         the_result["sampled_data_ddp_events"] = sampled_data_ddp_events
 
-    return the_result
+    return the_result"""
 
 
 
 
 
 
-def load_special_donations(
-    cf = None, 
-    study_name = None, 
-    verbose=False):
-    # sometimes it is useful to select events in a specific donation.
-
-    from pandas import concat, DataFrame
-    from os.path import join
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
-    import fyp.data_io as data_io
-    from datetime import datetime
-
-    if cf is None:
-        cf = init_config()
-    if study_name is None:
-        raise ValueError("study_name must be specified")
-    
-    file_format = cf['misc']['file_format']
-
-    DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
-    if isinstance(DDP_START_DATE, str):
-        DDP_START_DATE = datetime.strptime(DDP_START_DATE, "%Y-%m-%d").date()
-    
-    DDP_END_DATE = cf["study_defs"][study_name]["DDP_END_DATE"]
-    if isinstance(DDP_END_DATE, str):
-        DDP_END_DATE = datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
-    
-    the_special_donations = cf["study_defs"][study_name]["SPECIAL_DONATIONS"]
-
-    if len(the_special_donations) == 0:
-        if verbose:
-            print("Skipping special DDP events loading as the number of SPECIAL_DONATIONS is zero.")
-            #print("--"*60)
-        return {"data_special_ddps":DataFrame()}
-    
-    donations_str = '; '.join(the_special_donations)
-    print(f"Loading special DDP events from: {donations_str}")
-
-    # Loading all DDP events...
-    all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events{cf['misc']['file_format']}", verbose=verbose)
-
-    # drop two columns
-    all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
-
-    # Extract date and sample_id
-    all_ddp_events_df['simple_date'] = all_ddp_events_df['date'].dt.date
-    all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype(int)
-
-    special_ddp_events_df = all_ddp_events_df[all_ddp_events_df["donation_id"].isin(the_special_donations)].copy()
-    if verbose:
-        print(f"Special DDP events dataframe loaded: {special_ddp_events_df.donation_id.nunique()} unique donations. Shape: {special_ddp_events_df.shape}")
-        print(f"The special DDP events range from {special_ddp_events_df.date.min()} -- {special_ddp_events_df.date.max()}")
-
-    mask = (special_ddp_events_df["date"] >= DDP_START_DATE) & (special_ddp_events_df["date"] <= DDP_END_DATE)
-    special_ddp_events_df = special_ddp_events_df.loc[mask].copy()
-    if verbose:
-        print(f"Keeping special DDP events within date range {special_ddp_events_df.date.min()} -- {special_ddp_events_df.date.max()}: {special_ddp_events_df.shape}")
-
-
-    # dropping some corrupt URLs simply by calculating the most common length of the URLs and dropping those that doesn't match
-    special_ddp_events_df = remove_link_events_with_corrupt_links(special_ddp_events_df)
-    if verbose:
-        print(f"Dropping special DDP events with corrupt TikTok URLs. New shape: {special_ddp_events_df.shape}")
-
-    if verbose:
-        print("Processing DDP events to extract local time features...")
-    special_ddp_events_df = extract_local_time_features(
-        cf = cf,
-        study_name = study_name,
-        some_events_df_in = special_ddp_events_df,
-        kind_of_log = 'ddp',
-        verbose = verbose)
-
-    special_ddp_events_df = convert_dtypes_to_pyarrow(special_ddp_events_df, verbose=verbose)
-
-
-    return {"data_special_ddps":special_ddp_events_df}
 
 
 
@@ -1005,6 +797,8 @@ def load_datasets(
     from os import remove, listdir
     from os.path import join
     from fyp.machine_annotation import load_machine_annotations
+    from fyp.donations import load_special_donations, load_ddp_events
+    from fyp.zeeschuimer import load_zeeschuimer_data
     from fyp.fyp_main import init_config
     import fyp.data_io as data_io
 
@@ -1012,6 +806,10 @@ def load_datasets(
         raise ValueError("study_name must be specified")
     if cf is None:
         cf = init_config()
+
+    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
 
 
     print("Loading all datasets:")
@@ -1031,13 +829,13 @@ def load_datasets(
     else:
         print(f" - Loading existing half-baked files - {study_name}")
 
-
     if cf["study_defs"][study_name]["INCLUDE_ZEESCHUIMER_DATA"]:
-        all_datasets.update(load_zeeschuimer_data(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
-    if cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() != "none":
-        all_datasets.update(load_ddp_events(cf = cf, study_name = study_name, use_half_baked = use_half_baked, verbose=verbose))
-    if len(cf["study_defs"][study_name]["SPECIAL_DONATIONS"])>0:
-        all_datasets.update(load_special_donations(cf = cf, study_name = study_name, verbose=verbose))
+        all_datasets.update(load_zeeschuimer_data(cf = cf, study_name = study_name, verbose=verbose))
+    if cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() in ['all','sample']:
+        all_datasets.update(load_ddp_events(cf = cf, study_name = study_name, verbose=verbose))
+    elif cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() == "special":
+        if len(cf["study_defs"][study_name]["SPECIAL_DONATIONS"])>0:
+            all_datasets.update(load_special_donations(cf = cf, study_name = study_name, verbose=verbose))
 
     all_datasets.update(load_scrape_metadata(cf = cf, consolidate=consolidate, verbose=verbose))
     all_datasets["data_annotated"] = load_machine_annotations(cf = cf, include_failed_calls=False, consolidate=consolidate, verbose = verbose)
@@ -1064,9 +862,6 @@ def identify_unique_videos(cf = None, study_name = None, all_datasets = None, ve
         cf = init_config()
 
     MIN_NUNIQUE_USERS = cf["study_defs"][study_name]["MIN_NUNIQUE_USERS"]
-
-
-
 
 
     dataframes_to_combine = []
@@ -1453,7 +1248,7 @@ def generate_and_check_unique_videos_for_scrape_and_annotate(cf = None, study_na
 
 
 
-def _rename_columns(some_events):
+def rename_columns(some_events):
     some_eventsC = some_events.copy()
 
     fixer_upper = [
@@ -1483,333 +1278,15 @@ def _rename_columns(some_events):
 
 
 
-"""def _check_for_null_values_in_df(some_df_C, verbose=False):
-    some_df = some_df_C.copy()
-    nullis = some_df.isna().sum()
-    allok = True
-    for n in nullis.index:
-        if nullis[n] != 0:
-            if allok:
-                if verbose:
-                    print("Making sure that there are no null values anywhere in the DF")
-            if verbose:
-                print(n, some_df[n].dtype)
-            allok = False
-    #if not allok:
-        #if verbose:
-            #print("--"*60)
-    
-    return some_df"""
 
 
 
 
 
-def process_baseline_for_log_export(
-    cf = None,
-    all_datasets = None,
-    session_id_counter = np_int64(0),
-    verbose=False):
 
-    from pandas import concat
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
 
-    if all_datasets is None:
-        raise ValueError("all_datasets must be specified")
 
-    if cf is None:
-        cf = init_config()
-
-    if "data_baseline_log" in all_datasets and len(all_datasets["data_baseline_log"]) > 0:
-        baseline_log = all_datasets["data_baseline_log"]
-        baseline_log_simple = baseline_log.rename(columns={c:"B_"+c if not c=="item_id" else c for c in baseline_log.columns}).copy()
-        if verbose:
-            print(f"The baseline log has shape: {baseline_log_simple.shape}")
-    else:
-        if verbose:
-            print("No baseline log data available --> skipping baseline log processing. Returning None.")
-        return None, session_id_counter
-
-    #if verbose:
-        #print("--"*60)
-
-    # attach session stats to baseline log
-
-    # VECTORIZED: No loop needed, use groupby operations directly
-    if len(baseline_log_simple) and ("item_id" in baseline_log_simple.columns):
-        # Sort by script and timestamp
-        baseline_log_simple = baseline_log_simple.sort_values(["B_log_script", "B_local_timestamp"]).copy()
-        
-        # Assign session IDs: each script gets a unique session ID
-        baseline_log_simple["session_id"] = session_id_counter + baseline_log_simple.groupby("B_log_script").ngroup() + 1
-        session_id_counter = baseline_log_simple["session_id"].max() + 1
-        
-        # Event order within each session (vectorized)
-        baseline_log_simple["event_order_in_session"] = baseline_log_simple.groupby("session_id").cumcount()
-        
-        # Event position (vectorized)
-        n_videos_per_session = baseline_log_simple.groupby("session_id")["event_order_in_session"].transform("max")
-        baseline_log_simple["event_pos_in_session"] = baseline_log_simple["event_order_in_session"] / n_videos_per_session.replace(0, 1)
-        
-        if verbose:
-            print("Adding session stats to baseline data",baseline_log_simple.shape)
-    else:
-        if verbose:
-            print("no baseline data available --> skipping session stats attachment. Returning None.")
-        return None, session_id_counter
-
-    #if verbose:
-        #print("--"*60)
-
-
-    if "var_scheme" in cf and not cf["var_scheme"].empty:
-        vs = cf["var_scheme"]
-        # TODO - this has to be changed to be less connected to specific variable names
-        #
-        # Determine baseline vars: those with 'role'='standard' (like B_anchors) or starting with B_ ? 
-        # The original list had B_ challenges etc. In CSV they are defined.
-        # Original List: item_id, T_local_timestamp... T_local_date, session_id, event_order..., event_pos...
-        # AND B_challenges, B_anchors, ..., B_source_tz_name
-        
-        # We want: 
-        # 1. Standard structural cols (item_id, T_..., session_..., event_...)
-        # 2. All variables in scheme that start with B_
-        
-        structural_cols = [
-            'item_id',
-            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
-            'T_local_hour', 'T_local_day_segment', 'T_local_date',
-            'session_id', 'event_order_in_session',
-            'event_pos_in_session'
-        ]
-        
-        b_vars = vs[vs['variable_name'].str.startswith('B_', na=False)]['variable_name'].tolist()
-        relevant_baseline_cols = structural_cols + b_vars
-        
-        # Remove duplicates just in case
-        relevant_baseline_cols = list(dict.fromkeys(relevant_baseline_cols))
-    else:
-        raise ValueError("var_scheme not found in config")
-
-
-    baseline_log_simple = _rename_columns(baseline_log_simple)
-
-    relevant_baseline_cols = [c for c in relevant_baseline_cols if c in baseline_log_simple.columns]
-
-    baseline_log_simple = baseline_log_simple[relevant_baseline_cols].copy()
-    
-    # Convert categorical columns to string to avoid fillna errors with categoricals
-    #for col in baseline_log_simple.select_dtypes(include=['category']).columns:
-    #    baseline_log_simple[col] = baseline_log_simple[col].astype(str)
-    
-    #baseline_log_simple = baseline_log_simple.fillna("").copy()
-    #baseline_log_simple = _check_for_null_values_in_df(baseline_log_simple, verbose=verbose)
-
-
-    baseline_log_simple = convert_dtypes_to_pyarrow(baseline_log_simple, verbose=verbose)
-
-    if verbose:
-        print("Processed baseline for log export - shape:", baseline_log_simple.shape)
-    return baseline_log_simple, session_id_counter
-
-  
-
-
-
-
-def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(0), verbose=False):
-    # attach session stats to donation events
-
-    from pandas import isna as pd_isna, concat
-    import numpy as np
-
-    ddp_log = ddp_log_in.copy()
-
-    all_sessions = []
-    if len(ddp_log) and ("D_donation_id" in ddp_log.columns):
-
-        ddp_log['session_id'] = -1
-        ddp_log['event_order_in_session'] = -1
-        ddp_log['event_pos_in_session'] = -1.0
-        
-        # Collect all updates, then apply in bulk at the end
-        updates_list = []
-
-
-        for one_donation_id,one_donation in ddp_log.groupby("D_donation_id"):
-
-            watch = (one_donation.sort_values(['D_ts_jiggled'])).copy()
-
-            watch['delta'] = watch['D_local_timestamp'].shift(-1) - watch['D_local_timestamp']
-            # Vectorized timedelta conversion to seconds
-            watch['delta'] = watch['delta'].dt.total_seconds()
-
-            # VECTORIZED SESSION ID ASSIGNMENT (replaces slow for loop)
-            # A new session starts when delta is >15 minutes or is NaN
-            session_breaks = (watch['delta'].isna()) | (watch['delta'] > 15*60)
-            # Cumsum creates incrementing session IDs at each break
-            session_nums = session_breaks.astype(bool).cumsum()
-            # Add the counter offset and assign
-            watch['session_id'] = session_id_counter + session_nums
-            
-            # Update counter for next donation
-            session_id_counter = watch['session_id'].max() + 1
-            
-            # VECTORIZED EVENT ORDER (replaces loop)
-            # groupby().cumcount() gives sequential numbering within each session
-            watch['event_order_in_session'] = watch.groupby('session_id').cumcount()
-            # Adjust: events at session breaks get -1, others keep their count
-            watch.loc[session_breaks, 'event_order_in_session'] = -1
-
-            session_stats = watch.groupby('session_id').agg(
-                session_duration=('delta', 'sum'),
-                session_start_ts=('D_local_timestamp', 'min'),
-                n_videos_in_session=('event_order_in_session', 'max'),
-            )
-
-            session_stats = session_stats.astype(int)
-            session_stats["session_end_ts"] = session_stats["session_start_ts"] + session_stats["session_duration"]
-            session_stats["donation_id"] = one_donation_id
-
-            watch['n_videos_in_session'] = watch['session_id'].map(session_stats['n_videos_in_session'].to_dict())
-            watch['event_pos_in_session'] = watch['event_order_in_session'] / watch['n_videos_in_session']
-            watch['event_pos_in_session'] = watch['event_pos_in_session'].fillna(-1).astype(float)
-
-            session_stats["n_videos_in_session"] = session_stats["n_videos_in_session"]+1
-
-            short = watch.loc[watch['delta'].between(0, 15*60), ['delta', 'session_id', 'event_order_in_session', 'event_pos_in_session']]
-
-            # OPTIMIZATION: Store updates instead of applying immediately
-            if len(short) > 0:
-                updates_list.append(short)
-
-            all_sessions += [session_stats]
-
-        # Apply all updates at once
-        if updates_list:
-            all_updates = concat(updates_list)
-            ddp_log.loc[all_updates.index, 'session_id'] = all_updates['session_id']
-            ddp_log.loc[all_updates.index, 'event_order_in_session'] = all_updates['event_order_in_session']
-            ddp_log.loc[all_updates.index, 'event_pos_in_session'] = all_updates['event_pos_in_session'].astype(float)
-            ddp_log.loc[all_updates.index, 'D_secondary_value'] = all_updates['delta']
-        
-        # Set first event in each session to -1
-        ddp_log.loc[ddp_log[ddp_log["event_order_in_session"]==0].index, "D_secondary_value"] = -1
-
-        if verbose:
-            print("Adding session stats to DDP data",ddp_log.shape)
-        
-
-    else:
-        if verbose:
-            print("no ddp data")
-
-    #if verbose:
-        #print("--"*60)
-    return ddp_log, session_id_counter
-
-
-
-
-
-
-
-def process_ddp_log_for_log_export(
-    cf = None, 
-    all_datasets = None, 
-    session_id_counter = np_int64(0), 
-    verbose=False):
-    # combine the special DDP events with the all DDP events
-
-    from pandas import DataFrame, concat
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
-    from numpy import int64 as np_int64
-    from pandas import NA as pd_NA
-
-    if all_datasets is None:
-        raise ValueError("all_datasets must be specified")
-
-    if cf is None:
-        cf = init_config()
-
-    dataframes_to_combine = []
-    if "all_data_ddp_events" in all_datasets:
-        dataframes_to_combine.append(all_datasets["all_data_ddp_events"])
-    
-    if "data_special_ddps" in all_datasets:
-        dataframes_to_combine.append(all_datasets["data_special_ddps"])
-
-
-    if len(dataframes_to_combine) > 0:
-
-        ddp_log = concat(dataframes_to_combine, ignore_index=True).drop_duplicates()
-
-    
-        ddp_log.loc[ddp_log[ddp_log["primary_label"]=="ip"].index,"feature_name"] = "login_event"
-
-        #ddp_log.loc[ddp_log[ddp_log["item_id"].isna()].index,"item_id"] = pd_NA
-        #ddp_log["item_id"] = ddp_log["item_id"].fillna(np.int64(-1))
-
-        ddp_log["secondary_label"] = ddp_log["secondary_label"].fillna("")
-        ddp_log["secondary_value"] = ddp_log["secondary_value"].fillna(np_int64(-1))
-
-        ddp_log = ddp_log.drop(columns=[
-            "sample_id", "donation_date"], errors="ignore").copy()
-
-
-        ddp_log = ddp_log.rename(columns={c:"D_"+c if not c in ["item_id"] else c for c in ddp_log.columns}).copy()
-
-        if verbose:
-            print(f"Shape of all DDP events DF for exporting full logs: {ddp_log.shape} from {ddp_log.D_donation_id.nunique()} donations")
-            print(f"The combined DDP events range from {ddp_log.D_date.min()} -- {ddp_log.D_date.max()}")
-            #print("--"*60)
-
-
-    else:
-        if verbose:
-            print("No DDP events found, returning None.")
-        return None, session_id_counter
-
-
-    if "var_scheme" in cf and not cf["var_scheme"].empty:
-        vs = cf["var_scheme"]
-        # TODO: Keep an eye on this - I want it more dynamic. Structural columns
-        structural_ddp_cols = [
-            'item_id',
-            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
-            'T_local_hour', 'T_local_day_segment', 'T_local_date',
-            'session_id', 'event_order_in_session',
-            'event_pos_in_session',
-            'D_donation_id',
-            'D_feature_name','D_primary_label',
-            'D_primary_value',
-            'D_secondary_label', 'D_secondary_value',
-        ]
-        
-        
-        d_vars = vs[vs['variable_name'].str.startswith('D_', na=False)]['variable_name'].tolist()
-        relevant_ddp_cols = structural_ddp_cols + d_vars
-        relevant_ddp_cols = list(dict.fromkeys(relevant_ddp_cols))
-    else:
-        raise ValueError("var_scheme not found in config")
-
-
-    ddp_log, session_id_counter = add_session_stats_to_ddp_log(ddp_log, session_id_counter, verbose=verbose)
-    ddp_log = _rename_columns(ddp_log)
-    ddp_log = ddp_log[relevant_ddp_cols].copy()
-
-
-    ddp_log = convert_dtypes_to_pyarrow(ddp_log, verbose=verbose)
-
-    
-    return ddp_log, session_id_counter
-
-
-
-
-
-
-def process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=False):
+def _process_scrape_metadata_for_merge_w_logs(all_datasets, combined_log, verbose=False):
 
     from pandas import isna as pd_isna, Timestamp, DataFrame, to_datetime
     from datetime import datetime
@@ -1863,7 +1340,7 @@ def process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=F
 
 
 
-def process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=False):
+def _process_machine_annotations_for_merge_w_logs(all_datasets, combined_log, verbose=False):
 
     from pandas import DataFrame
     from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
@@ -1898,7 +1375,7 @@ def process_machine_annotations_for_log_export(all_datasets, combined_log, verbo
 
 
 
-def process_and_combine_logs_for_log_export(
+def _combine_all_logs(
     cf = None,
     study_name = None,
     all_datasets=None,
@@ -1923,8 +1400,8 @@ def process_and_combine_logs_for_log_export(
 
     if True:#else:
 
-        baseline_log_simple, sesh_counter = process_baseline_for_log_export(cf = cf, all_datasets = all_datasets, session_id_counter = 100, verbose=verbose)
-        ddp_log, sesh_counter = process_ddp_log_for_log_export(cf = cf, all_datasets = all_datasets, session_id_counter = sesh_counter, verbose=verbose)
+        baseline_log_simple = all_datasets["data_baseline_log"]
+        ddp_log = all_datasets["data_ddp_events"]
 
         if not ddp_log is None and not baseline_log_simple is None:
             combined_log = concat([ddp_log,baseline_log_simple])
@@ -1983,25 +1460,27 @@ def process_and_combine_logs_for_log_export(
 
 
 
-def process_enrichment_data_and_merge_with_logs(
-    all_datasets,
-    combined_log,
-    ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
+def merge_all_study_datasets(
+    cf = None,
+    study_name = None,
+    all_datasets=None,   
+    ONLY_MERGE_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
     verbose=False
 ):
+    ### merge log with enriched metadata (scraped and annotated)
 
     from pandas import merge, to_datetime
 
+    combined_log = _combine_all_logs(cf = cf, study_name = study_name, all_datasets=all_datasets, verbose=verbose)
 
-    scrape_metadata_log = process_scrape_metadata_for_log_export(all_datasets, combined_log, verbose=verbose)
-    machine_annotations_for_log = process_machine_annotations_for_log_export(all_datasets, combined_log, verbose=verbose)
+    scrape_metadata_log = _process_scrape_metadata_for_merge_w_logs(all_datasets, combined_log, verbose=verbose)
+    machine_annotations_for_log = _process_machine_annotations_for_merge_w_logs(all_datasets, combined_log, verbose=verbose)
 
-    ### merge log with enriched video metadata and annotations
 
     if verbose:
         print(f"Merging combined log with enriched metadata (scraped {scrape_metadata_log.shape} & annotated {machine_annotations_for_log.shape})")
 
-    if ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED:
+    if ONLY_MERGE_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED:
         if verbose:
             print("Only keeping events in the merged log that have been both scraped and annotated")
         the_how = 'inner'
@@ -2010,12 +1489,11 @@ def process_enrichment_data_and_merge_with_logs(
             print("Adding enriched data and keeping log events even if enriched data is missing")
         the_how = 'left'
 
-    outdata = merge(left=combined_log, right=_rename_columns(scrape_metadata_log), on='item_id',how=the_how)
-    outdata = merge(left=outdata, right=_rename_columns(machine_annotations_for_log), on='item_id',how=the_how)
+    outdata = merge(left=combined_log, right=rename_columns(scrape_metadata_log), on='item_id',how=the_how)
+    outdata = merge(left=outdata, right=rename_columns(machine_annotations_for_log), on='item_id',how=the_how)
 
 
     # Create a new column by calculating the difference between 'T_local_timestamp' and 'S_createTime'.
-    # Vectorized date difference calculation
     # Ensure both are proper datetime types (not object) before subtraction
     # TODO: This needs to be more dynamic and not make direct references to variable name
     t_timestamp = outdata["T_local_timestamp"]
@@ -2042,7 +1520,7 @@ def process_enrichment_data_and_merge_with_logs(
 
 
 
-def filter_log_against_sampled_donation_groups(
+"""def filter_log_against_sampled_donation_groups(
     cf = None,
     all_datasets = None,
     outdata = None,
@@ -2079,11 +1557,15 @@ def filter_log_against_sampled_donation_groups(
     # set up a filter to filter out only the DDP events that are in the DDP sample
     # TODO: This needs to be more dynamic and not make direct references to variable name
     fine_filter = all_datasets["sampled_data_ddp_events"].copy()
-    fine_filter.rename(columns={"donation_id":"D_donation_id","local_timestamp":"T_local_timestamp"}, inplace=True)
+    
+    #fine_filter.rename(columns={"donation_id":"D_donation_id","local_timestamp":"T_local_timestamp"}, inplace=True)
     fine_filter = fine_filter.drop_duplicates(subset=["D_donation_id","T_local_timestamp","item_id"])
     fine_filter = fine_filter.set_index(["D_donation_id","T_local_timestamp","item_id"]).copy()
 
-    fine_filter = fine_filter[["local_date"]].copy()
+    fine_filter = fine_filter[["D_sample_id"]].rename(columns={"D_sample_id":"whatever"}).copy()
+    #return fine_filter
+
+
 
 
     # use this filter to create a new version of outdata
@@ -2091,16 +1573,18 @@ def filter_log_against_sampled_donation_groups(
         left=fine_filter,
         right=outdata.set_index(["D_donation_id","T_local_timestamp","item_id"]), #TODO: avoid direct references to variable names
         left_index=True, right_index=True, how="inner")
-    outdata_filtered = outdata_filtered.reset_index().drop("local_date",axis=1).copy() #TODO: avoid direct references to variable names
+    outdata_filtered = outdata_filtered.reset_index().drop("whatever",axis=1).copy() #TODO: avoid direct references to variable names
+
 
     if verbose:
         print(f"After matching the export ddp events against the sampled donation-date groups, we have {len(outdata_filtered):,} ddp events in the export log")
 
+    return outdata_filtered
 
     # group the filter and the filtered_outdata to compare how many items were in the sample and how many
     # have been sampled and annotated. 
     check_missing_data = concat([
-        fine_filter.reset_index().rename(columns={"local_date":"T_local_date","item_id":"target_count"}).groupby(["D_donation_id","T_local_date"])["target_count"].count(),
+        fine_filter.reset_index().rename(columns={"item_id":"target_count"}).groupby(["D_donation_id","whatever"])["target_count"].count(),
         outdata_filtered.rename(columns={"item_id":"real_count"}).groupby(["D_donation_id","T_local_date"])["real_count"].count()
     ], axis=1)
 
@@ -2126,8 +1610,142 @@ def filter_log_against_sampled_donation_groups(
         print(f"...making the total number of events (BASELINE and DDP) in the export data log to {len(outdata_filtered):,} events.")
         #print("--"*60)
     
-    return outdata_filtered
+    return outdata_filtered"""
 
+
+
+
+
+
+
+
+def save_logs(
+    cf = None,
+    study_name = None,
+    outdata_filtered = None,
+    file_label = "",
+    verbose=False):
+
+    from datetime import datetime
+    from os.path import join
+    from pandas import Timestamp
+    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
+    import fyp.data_io as data_io
+    from numpy import float64 as np_float64
+
+    if cf is None:
+        cf = init_config()
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    
+    file_format = cf['misc']['file_format']
+
+
+    nullis = outdata_filtered.isna().sum()
+    allok = True
+    for n in nullis.index:
+        if nullis[n] != 0:
+            if allok:
+                if verbose:
+                    print("Making sure that there are no null values anywhere in the DF")
+            allok = False
+            if verbose:
+                print(f"Found null values in {n} (Type: {outdata_filtered[n].dtype}). Fixing this ")
+            if outdata_filtered[n].dtype in [object,"string[pyarrow]"]:
+                if n.startswith("S_"):
+                    outdata_filtered[n] = outdata_filtered[n].fillna("not scraped")
+                elif n.startswith("G_"):
+                    outdata_filtered[n] = outdata_filtered[n].fillna("not annotated")
+            elif outdata_filtered[n].dtype in [float,np_float64]:
+                outdata_filtered[n] = outdata_filtered[n].fillna(-1)
+            #elif is_datetime64_any_dtype(outdata_filtered[n]):
+            #    outdata_filtered["S_createTime"] = outdata_filtered["S_createTime"].fillna(Timestamp(year=2100,month=1,day=1))
+
+    if len(file_label)>0 and file_label[-1] != "_":
+        file_label += "_"
+
+    log_filename = f"{study_name}_{file_label}LOG{cf['misc']['file_format']}"
+
+    outdata_filtered = data_io.save_parquet(cf, outdata_filtered, "exports", log_filename, verbose=verbose)
+    if verbose:
+        print(f"Exported {len(outdata_filtered):,} events to '{log_filename}'.")
+        print(f"Date range: {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
+        print(f"Now: {datetime.now()}")
+        #print("--"*60)
+
+
+
+
+
+
+
+def create_study_main_dataset(
+    cf = None,
+    study_name = None,
+    verbose = False
+    ):
+
+    from fyp.fyp_main import init_config
+
+    if cf is None:
+        cf = init_config()
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+
+    #print("--"*60)
+    print(f"Exporting logs for study '{study_name}'")
+    #print("--"*60)
+
+    all_datasets = load_datasets(
+        cf = cf,
+        study_name = study_name,
+        use_half_baked = True,
+        delete_all_half_baked_files = False,
+        consolidate = False,
+        verbose = verbose)
+
+
+    """combined_log = process_and_combine_logs_for_merge_w_logs(
+        cf = cf,
+        study_name = study_name,
+        all_datasets = all_datasets,
+        #use_half_baked = False,
+        verbose=verbose
+        )"""
+
+
+
+    study_main_dataset = merge_all_study_datasets(
+        cf = cf,
+        study_name = study_name,
+        all_datasets = all_datasets,
+        #combined_log = combined_log,
+        ONLY_MERGE_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
+        verbose=verbose
+    )
+
+    return study_main_dataset
+
+
+    """if False and cf['study_defs'][study_name]['INCLUDE_DONATIONS'].lower() == "sample":
+        outdata_filtered = filter_log_against_sampled_donation_groups(
+            cf = cf,
+            all_datasets = all_datasets,
+            outdata = outdata,
+            MAX_DAILY_MISSING_DATA_RATIO = 0.3,
+        verbose=verbose
+        )
+    else:
+        outdata_filtered = outdata
+
+    save_logs(
+        cf = cf,
+        study_name = study_name,
+        outdata_filtered = study_event_log_df,
+        file_label = "",
+        verbose=verbose)"""
 
 
 
@@ -2245,137 +1863,3 @@ def save_logs_as_csv(
 
 
 
-
-
-
-def save_logs(
-    cf = None,
-    study_name = None,
-    outdata_filtered = None,
-    file_label = "",
-    verbose=False):
-
-    from datetime import datetime
-    from os.path import join
-    from pandas import Timestamp
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
-    import fyp.data_io as data_io
-    from numpy import float64 as np_float64
-
-    if cf is None:
-        cf = init_config()
-
-    if study_name is None:
-        raise ValueError("study_name must be specified")
-    
-    file_format = cf['misc']['file_format']
-
-
-    nullis = outdata_filtered.isna().sum()
-    allok = True
-    for n in nullis.index:
-        if nullis[n] != 0:
-            if allok:
-                if verbose:
-                    print("Making sure that there are no null values anywhere in the DF")
-            allok = False
-            if verbose:
-                print(f"Found null values in {n} (Type: {outdata_filtered[n].dtype}). Fixing this ")
-            if outdata_filtered[n].dtype in [object,"string[pyarrow]"]:
-                if n.startswith("S_"):
-                    outdata_filtered[n] = outdata_filtered[n].fillna("not scraped")
-                elif n.startswith("G_"):
-                    outdata_filtered[n] = outdata_filtered[n].fillna("not annotated")
-            elif outdata_filtered[n].dtype in [float,np_float64]:
-                outdata_filtered[n] = outdata_filtered[n].fillna(-1)
-            #elif is_datetime64_any_dtype(outdata_filtered[n]):
-            #    outdata_filtered["S_createTime"] = outdata_filtered["S_createTime"].fillna(Timestamp(year=2100,month=1,day=1))
-
-    if len(file_label)>0 and file_label[-1] != "_":
-        file_label += "_"
-
-    log_filename = f"{study_name}_{file_label}LOG{cf['misc']['file_format']}"
-
-    outdata_filtered = convert_dtypes_to_pyarrow(outdata_filtered, verbose=verbose)
-    data_io.save_parquet(cf, outdata_filtered, "exports", log_filename, verbose=verbose)
-    if verbose:
-        print(f"Exported {len(outdata_filtered):,} events to '{log_filename}'.")
-        print(f"Date range: {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
-        print(f"Now: {datetime.now()}")
-        #print("--"*60)
-
-
-
-
-
-
-
-def export_logs(
-    cf = None,
-    study_name = None,
-    verbose = False
-    ):
-
-    from fyp.fyp_main import init_config
-
-    if cf is None:
-        cf = init_config()
-
-    if study_name is None:
-        raise ValueError("study_name must be specified")
-
-    #print("--"*60)
-    print(f"Exporting logs for study '{study_name}'")
-    #print("--"*60)
-
-    all_datasets = load_datasets(
-        cf = cf,
-        study_name = study_name,
-        use_half_baked = True,
-        delete_all_half_baked_files = False,
-        consolidate = False,
-        verbose = verbose)
-
-    
-
-    combined_log = process_and_combine_logs_for_log_export(
-        cf = cf,
-        study_name = study_name,
-        all_datasets = all_datasets,
-        #use_half_baked = False,
-        verbose=verbose
-        )
-
-
-
-
-    outdata = process_enrichment_data_and_merge_with_logs(
-        all_datasets = all_datasets,
-        combined_log = combined_log,
-        ONLY_EXPORT_LOG_EVENTS_THAT_ARE_SCRAPED_AND_ANNOTATED = True,
-        verbose=verbose
-    )
-
-
-    if cf['study_defs'][study_name]['INCLUDE_DONATIONS'].lower() == "sample":
-        outdata_filtered = filter_log_against_sampled_donation_groups(
-            cf = cf,
-            all_datasets = all_datasets,
-            outdata = outdata,
-            MAX_DAILY_MISSING_DATA_RATIO = 0.3,
-        verbose=verbose
-        )
-    else:
-        outdata_filtered = outdata
-
-
-
-    save_logs(
-        cf = cf,
-        study_name = study_name,
-        outdata_filtered = outdata_filtered,
-        file_label = "",
-        verbose=verbose)
-
-
-    

@@ -78,7 +78,7 @@ functions_to_check = [
     "process_scrape_metadata_for_log_export",
     "process_machine_annotations_for_log_export",
     "process_and_combine_logs_for_log_export",
-    "process_enrichment_data_and_merge_with_logs",
+    "merge_all_study_datasets",
     "filter_log_against_sampled_donation_groups",
     "save_logs",
     "save_logs_as_csv"

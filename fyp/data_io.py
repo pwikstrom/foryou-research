@@ -19,7 +19,7 @@ import json
 
 def _resolve_paths(cf, storage_location, filename):
     """
-    Resolve the given storage location and filename to:
+    Resolve the given storage location and filename to local uri or local path:
     1. A Primary Path (GCS URI if enabled, else Local Path)
     2. A Secondary Path (Local Path if GCS is enabled, else None)
     3. Mode ('gcs' or 'local')
@@ -35,46 +35,34 @@ def _resolve_paths(cf, storage_location, filename):
         valid_locs = ', '.join(list(cf['paths'].keys()))
         raise ValueError(f"Invalid storage location: '{storage_location}'. Use: {valid_locs}")
 
-    # 2. Determine Local Path (Always needed for secondary or primary)
-    # filename might be simple 'file' or 'file.parquet', or 'subdir/file.parquet'
-    # We join it generic OS style. 
-    local_path = join(cf['paths'][storage_location], filename)
-
-    # 3. Check GCS Configuration
+    # 2. Check GCS Configuration
     use_gcs = cf.get("misc", {}).get("use_gcs_for_data", False)
     gcs_base = cf.get("gcs_paths", {}).get(storage_location)
+    bucket_name = cf['data_io'].get('GCS_bucket_name')
     
-    # 4. Resolve
+    # 3. Resolve
     if use_gcs and gcs_base:
-        bucket_name = cf['data_io'].get('GCS_bucket_name')
         if not bucket_name:
-             # Fallback if config is malformed but flag is true
-             return (local_path, None, 'local', None)
+            raise ValueError("GCS bucket name not found in config")
              
         # Construct Blob Name
-        # CAUTION: filename might contain local separators. Ensure forward slash for GCS.
-        # If filename is 'subdir/file.pkl', we want 'base/subdir/file.pkl'
-        normalized_filename = filename.replace("\\", "/") 
-        blob_name = f"{gcs_base}/{normalized_filename}"
-        # Clean double slashes
+        # CAUTION: filename can only be: [basename].parquet
+        blob_name = f"{gcs_base}/{filename}"
         blob_name = blob_name.replace("//", "/")
-        
-        # GS URI
         gcs_uri = f"gs://{bucket_name}/{blob_name}"
         
-        # Return GCS as primary, Local as secondary (Parallel Mode)
-        return (gcs_uri, local_path, 'gcs', blob_name)
+        return (gcs_uri, None, 'gcs', blob_name)
     else:
-        # Local Only
+        # Local
+        local_path = join(cf['paths'][storage_location], filename)
         return (local_path, None, 'local', None)
+
+
 
 def _get_bucket(cf):
     """Retrieve the bucket object from config."""
     w = cf.get("data_io", {}).get("bucket")
     return w
-
-
-
 
 
 
@@ -110,6 +98,9 @@ def exists(cf, storage_location, filename, verbose=False) -> bool:
 
 
 
+
+
+
 def getctime(cf, storage_location, filename, verbose=False):
     """
     Get the creation time of the file filename.
@@ -139,6 +130,9 @@ def getctime(cf, storage_location, filename, verbose=False):
         return getctime(primary)
 
 
+
+
+
 def getmtime(cf, storage_location, filename, verbose=False):
     """
     Get the modification time of the file.
@@ -165,6 +159,10 @@ def getmtime(cf, storage_location, filename, verbose=False):
             raise e
     else:
         return getmtime(primary)
+
+
+
+
 
 
 def getsize(cf, storage_location, filename, verbose=False):
@@ -227,6 +225,8 @@ def remove(cf, storage_location, filename, verbose=False):
         if local_exists(primary):
             local_remove(primary)
             if verbose: print(f" [DATA_IO] Removed local file '{primary}'")
+
+
 
 
 
@@ -318,6 +318,9 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
     if verbose: print(f" [DATA_IO] Listed {len(files)} files in '{storage_location}'")
 
     return files
+
+
+
 
 
 
@@ -475,17 +478,24 @@ def save_json(cf, data, storage_location, filename, verbose = False):
             dump(data, file)
             
     # 2. Parallel Save (Secondary)
-    if secondary:
-        if verbose: print(f" [DATA_IO] Parallel Save: Writing local JSON copy to {secondary}")
-        with open(secondary, 'w') as file:
-             dump(data, file)
+    #if secondary:
+    #    if verbose: print(f" [DATA_IO] Parallel Save: Writing local JSON copy to {secondary}")
+    #    with open(secondary, 'w') as file:
+    #         dump(data, file)
 
 
 
 
 
 
-def load_parquet(cf, storage_location, filename, columns=None, verbose = False):
+def load_parquet(
+        cf,
+        storage_location,
+        filename, # if filename == '*' -> load all parquet files in storage_location
+        columns=None,
+        filters=None,
+        verbose = False,
+    ):
     """
     Load a dataframe from a given path.
     Supports GCS direct read (gs://).
@@ -494,60 +504,83 @@ def load_parquet(cf, storage_location, filename, columns=None, verbose = False):
     from os.path import basename
     import os
 
-    # Validation and Extension Check (same as save: strictly expect .parquet)
-    # The original code did:
-    # base_path, ext = os.path.splitext(full_path)
-    # if ext == '.parquet':
-    #     path_no_ext = base_path
-    # else:
-    #     raise ValueError ...
-    # parquet_path = f"{path_no_ext}.parquet"
-    
-    # We replicate this strictness
-    bn = basename(filename)
-    root, ext = os.path.splitext(bn)
+    import pyarrow.parquet as pq
+    import gcsfs
+
+    # Initialize GCS filesystem
+    fs = gcsfs.GCSFileSystem()
+
+
+    # if we are to load all parquet files in this location (and it is gcs)
+    if filename == "*" and cf['misc']['use_gcs_for_data']:
+        gcs_base = cf.get("gcs_paths", {}).get(storage_location)
+        bucket_name = cf['data_io'].get('GCS_bucket_name')
+        files = fs.glob(f'gs://{bucket_name}/{gcs_base}/*.parquet')
+        files = ["gs://" + f for f in files]
+
+        # if specific columns are to be loaded, we need to make sure the cols actually exist in the parquet files
+        if columns is not None:
+            # Read parquet schema
+            with fs.open(files[0]) as f: # assume all files have the same schema so it's enough to check the first one
+                parquet_schema = pq.read_schema(f)
+            existing_cols = parquet_schema.names
+            columns = list(set([c for c in columns if c in existing_cols]))
+            if verbose:
+                print(f" [DATA_IO] Column selection: {columns}")
+
+
+        if verbose: print(f" [DATA_IO] Loading: all parquet files from '{storage_location}' (gcs)... ", end="", flush=True)
+        df = pd.read_parquet(
+            files,
+            filesystem=fs,
+            engine='pyarrow',
+            use_threads=True,
+            dtype_backend="pyarrow",
+            columns=columns,
+            filters=filters)
+        if verbose: print(f" ...done (shape: {df.shape})")
+
+        # type management to be sure
+        df = convert_dtypes_to_pyarrow(df, verbose=verbose)
+
+        return df
+
+
+    # if we have arrived here, we are loading a single parquet file
+    root, ext = os.path.splitext(filename)
     if ext != '.parquet':
         raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
-        
-    # Resolve
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
 
-    # 1. Attempt Primary Load
-    try:
-        # Check existence first if GCS? 
-        # Actually pandas read_parquet on gs:// might fail if not found.
-        # But we previously added an explicit exists check.
-        # Let's keep the explicit check but wrap it.
-        
-        if not exists(cf, storage_location, filename):
-             # Force exception to trigger fallback
-             raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
+    if not exists(cf, storage_location, filename):
+        raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
 
-        if verbose: print(f" [DATA_IO] Loading: '{filename}' from '{storage_location}' ({mode})")
-        
-        df = pd.read_parquet(primary, engine='pyarrow', dtype_backend="pyarrow", columns=columns)
-        
-    except Exception as e:
-        if verbose: print(f" [DATA_IO] Primary load failed ({mode}): {e}")
-        
-        # 2. Fallback if GCS
-        use_fallback = cf.get("misc", {}).get("use_local_as_fallback", False)
-        if mode == 'gcs' and secondary and use_fallback:
-             import os
-             if os.path.exists(secondary):
-                 if verbose: print(f" [DATA_IO] Fallback: Loading local copy from {secondary}")
-                 try:
-                     df = pd.read_parquet(secondary, engine='pyarrow', dtype_backend="pyarrow", columns=columns)
-                 except Exception as e2:
-                     print(f" [DATA_IO] ERROR Fallback load failed: {e2}")
-                     raise e2 # Raise the secondary error
-             else:
-                 # Secondary doesn't exist either. Raise original error?
-                 if verbose: print(" [DATA_IO] Fallback failed: local file not found.")
-                 raise e 
+    # Resolve path
+    primary, _, mode, _ = _resolve_paths(cf, storage_location, filename)
+
+    # if specific columns are to be loaded, we need to make sure the cols actually exist in the parquet files
+    if columns is not None:
+        if mode == 'gcs':
+            # Read parquet schema
+            with fs.open(primary) as f:
+                parquet_schema = pq.read_schema(f)
         else:
-             # Local mode or no secondary. Raise original.
-             raise e
+            # Local
+            parquet_schema = pq.read_schema(primary)
+        existing_cols = parquet_schema.names
+        columns = [c for c in columns if c in existing_cols]
+        if verbose:
+            print(f" [DATA_IO] Column selection: {columns}")
+
+
+    if verbose: print(f" [DATA_IO] Loading: '{filename}' from '{storage_location}' ({mode})...", end="", flush=True)
+    df = pd.read_parquet(
+        primary,
+        engine='pyarrow',
+        dtype_backend="pyarrow",
+        use_threads=True,
+        columns=columns,
+        filters=filters)
+    if verbose: print(f" ...done. Shape: {df.shape}")
 
     # type management to be sure
     df = convert_dtypes_to_pyarrow(df, verbose=verbose)
@@ -564,6 +597,8 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
     Save a dataframe to the given path.
     Supports GCS direct write and Parallel Save (GCS + Local).
     """
+
+    this_df = df.copy()
 
     from fyp.fyp_main import convert_dtypes_to_pyarrow
     from os.path import join, basename
@@ -582,34 +617,32 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
 
     # B) Type Management
-    df = convert_dtypes_to_pyarrow(df, verbose=verbose)
+    this_df = convert_dtypes_to_pyarrow(this_df, verbose=verbose)
 
     # C) Save to Primary
     if verbose: print(f" [DATA_IO] Saving: '{filename}' to '{storage_location}' ({mode})")
 
     # To get the total memory usage of the DataFrame in bytes:
-    memory_per_column = df.memory_usage(deep=True) 
+    memory_per_column = this_df.memory_usage(deep=True) 
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
 
-    if verbose: print(f" [DATA_IO] Total DF memory usage: {total_memory_mb:.2f} MB")
+    if verbose:
+        print(f" [DATA_IO] Total DF memory usage: {total_memory_mb:.2f} MB.")
+        print(f" [DATA_IO] Saving '{filename}' to '{storage_location}' ({mode})...", end="", flush=True)
 
     if total_memory_mb > 100:
-        df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=7)
+        this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=7)
     elif total_memory_mb > 10:
-        df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=5)
+        this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=5)
     elif total_memory_mb > 1:
-        df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=3)
+        this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=3)
     else:
-        df.to_parquet(primary, engine='pyarrow')
+        this_df.to_parquet(primary, engine='pyarrow')
     
-    if mode == 'gcs':
-        if verbose: print(f" [DATA_IO] Saved to GCS: {primary}")
-        
-    # D) Parallel Save (Secondary)
-    #if secondary:
-    #    if verbose: print(f" [DATA_IO] Parallel Save: Writing local copy to {secondary}")
-    #    df.to_parquet(secondary, engine='pyarrow', compression="zstd", compression_level=7)
+    if verbose: print(f" ...done. Shape: {this_df.shape}")
+    
+    return this_df
 
 
 

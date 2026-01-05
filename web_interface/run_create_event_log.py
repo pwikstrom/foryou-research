@@ -12,7 +12,7 @@ def main():
     from fyp.fyp_main import connect_to_google, init_config
 
 
-    parser = argparse.ArgumentParser(description="Run organize_datasets_OPTIMIZED.export_logs")
+    parser = argparse.ArgumentParser(description="Run organize_datasets_OPTIMIZED.create_study_main_dataset")
     parser.add_argument("study_name", help="Name of the study")
     args = parser.parse_args()
 
@@ -23,7 +23,7 @@ def main():
 
     try:
         print(f"Starting CREATE EVENT LOG for study: {args.study_name}")
-        organize_datasets.export_logs(
+        organize_datasets.create_study_main_dataset(
             cf = cf,
             study_name = args.study_name,
             verbose = False)

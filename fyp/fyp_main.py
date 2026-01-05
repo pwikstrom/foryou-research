@@ -117,6 +117,7 @@ def init_config(
     cf["paths"]["zeeschuimer"] = join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
     cf["paths"]["zeeschuimer_raw"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")
     cf["paths"]["zeeschuimer_refined"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
+    cf["paths"]["zeeschuimer_main"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_main")
 
     cf["paths"]["ddp"] = join(cf["paths"]["local_data"],"activity_data", "ddp")
     cf["paths"]["ddp_raw"] = join(cf["paths"]["ddp"], "ddp_raw")
@@ -181,7 +182,7 @@ def init_config(
 
 
 
-def connect_to_google(cf_in):
+def connect_to_google(cf_in, verbose=False):
 
     from copy import copy
 
@@ -240,8 +241,8 @@ def connect_to_google(cf_in):
 
         print("Google Gemini initialized successfully")
 
-    except:
-        print("Error Gemini API key. Gemini won't be available.")
+    except Exception as e:
+        print(f"Error Gemini API key. Gemini won't be available. {e}")
 
 
     # Initialize a GCS storage client
@@ -543,23 +544,27 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
     # ---------------------------------------------------------
     # 3. FINAL SAFETY CHECKS (NUMERICS)
     # ---------------------------------------------------------
-    numeric_col_to_check = [c for c in df.columns if api.types.is_numeric_dtype(df[c])]
+    numeric_cols_to_check = [c for c in df.columns if api.types.is_numeric_dtype(df[c])]
 
-    if len(numeric_col_to_check) > 0:
-        if verbose:
-            print(f"Found {len(numeric_col_to_check)} numeric columns to check for overflows...")
+    if len(numeric_cols_to_check) > 0:
+        # trying to calculate describe() to catch overflow issues (integers > 2^53)
+        # that would be rejected by explicit float-casting in describe's percentile calc.
+        try:
+            if verbose:
+                print(f"Found {len(numeric_cols_to_check)} numeric columns - checking all for overflows...")
+            df[numeric_cols_to_check].describe()
+        except Exception as e:
+            if verbose:
+                print(f"Failed to describe numeric columns in one go - checking each column:")
 
-        # Iterate through all columns that claim to be numeric now
-        for c in numeric_col_to_check:
-            try:
-                # trying to calculate describe() to catch overflow issues (integers > 2^53)
-                # that would be silently coerced lossily by mean(), but rejected by explicit 
-                # float-casting in describe's percentile calc (in pyarrow backend).
-                df[c].describe()
-            except Exception as e:
-                if verbose:
-                    print(f"WARNING: {e} | {c} doesn't work well as a number - converting to string")
-                df[c] = df[c].astype("string[pyarrow]")
+            # Iterate through all columns that claim to be numeric now
+            for c in numeric_cols_to_check:
+                try:
+                    df[c].describe()
+                except Exception as e:
+                    if verbose:
+                        print(f"WARNING: {e} | {c} doesn't work well as a number - converting to string")
+                    df[c] = df[c].astype("string[pyarrow]")
         
     if verbose:
         print("...conversion complete.")
