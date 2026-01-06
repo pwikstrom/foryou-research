@@ -555,6 +555,7 @@ def calc_donated_items_stats(edf, sort_by=None):
 def load_special_donations(
     cf = None, 
     study_name = None, 
+    all_data = None,
     verbose=False):
     # sometimes it is useful to select events in a specific donation.
 
@@ -571,13 +572,14 @@ def load_special_donations(
         cf = init_config()
 
     the_special_donations = cf["study_defs"][study_name]["SPECIAL_DONATIONS"]
-    donations_str = '; '.join(the_special_donations)
 
     if len(the_special_donations) == 0:
         if verbose:
             print("Skipping special DDP events loading as the number of SPECIAL_DONATIONS is zero.")
             #print("--"*60)
         return {"data_special_ddps":DataFrame()}
+
+    donations_str = '; '.join(the_special_donations)
     
 
     if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
@@ -591,17 +593,24 @@ def load_special_donations(
     if isinstance(DDP_END_DATE, str):
         DDP_END_DATE = datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
 
-    sel = [("D_donation_id", "in", the_special_donations),("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
-
     if verbose:
         print(f"Trying to load all events from {len(the_special_donations)} donations", end=" ", flush=True)
-    special_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2{cf['misc']['file_format']}", filters=sel,verbose=verbose)
+
+    if all_data is None:
+        sel = [("D_donation_id", "in", the_special_donations),("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
+        special_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2{cf['misc']['file_format']}", filters=sel,verbose=verbose)
+    else:
+        special_ddp_events_df = all_data.copy()
+        special_ddp_events_df = special_ddp_events_df[(special_ddp_events_df.D_donation_id.isin(the_special_donations)) & (special_ddp_events_df.T_local_date>=DDP_START_DATE) & (special_ddp_events_df.T_local_date<=DDP_END_DATE)].copy()
+        if verbose:
+            print(f"Special DDP events - selected date range: {special_ddp_events_df.T_local_date.min():%Y-%m-%d} ---- {special_ddp_events_df.T_local_date.max():%Y-%m-%d} Shape: {special_ddp_events_df.shape}")
+
     if verbose:
         print(f"Special DDP events dataframe loaded: {special_ddp_events_df.D_donation_id.nunique()} unique donations. Shape: {special_ddp_events_df.shape}")
         print(f"The special DDP events range from {special_ddp_events_df.T_local_date.min():%Y-%m-%d} -- {special_ddp_events_df.T_local_date.max():%Y-%m-%d}")
 
 
-    return {"data_ddp_events":special_ddp_events_df}
+    return special_ddp_events_df
 
 
 
@@ -642,8 +651,7 @@ def sample_ddp_events(
     N_SAMPLED_DATES_FROM_EACH_DONATION = cf["study_defs"][study_name]["N_SAMPLED_DATES_FROM_EACH_DONATION"]
     N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP"]
 
-    if verbose:
-        print("Sampling events based on donation-date groups, which is the unit of analysis for the study")
+    print("Sampling DDP events...")
 
     # count the number of events in the donation-date groups
     donation_date_groups = all_ddp_events_df[all_ddp_events_df['D_feature_name']=="watch"].groupby(group_factors)["D_sample_id"].count()
@@ -727,7 +735,7 @@ def sample_ddp_events(
     # push the grouping variables back from index into columns
     sampled_ddp_events_in_sampled_donation_date_groups.reset_index(level=[0,1], inplace=True)
 
-    print(f"Sampled {N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
+    print(f"...done. Sampled {N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
 
 
     # check some stats of the sampling procedure
@@ -991,6 +999,7 @@ def ingest_ddp_events(
 def load_ddp_events(
     cf = None, 
     study_name = None, 
+    all_data = None,
     verbose=False):
     # load DF with all donations previously ingested
 
@@ -1014,6 +1023,7 @@ def load_ddp_events(
     if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
+    print(f"Loading all DDP events...")
 
 
     DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
@@ -1024,24 +1034,30 @@ def load_ddp_events(
     if isinstance(DDP_END_DATE, str):
         DDP_END_DATE = datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
 
-    sel = [("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
+    if all_data is None:
+        sel = [("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
+        all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2{cf['misc']['file_format']}", filters=sel, verbose=verbose)
+    else:
+        all_ddp_events_df = all_data.copy()
+        all_ddp_events_df = all_ddp_events_df[(all_ddp_events_df.T_local_date>=DDP_START_DATE) & (all_ddp_events_df.T_local_date<=DDP_END_DATE)].copy()
+        if verbose:
+            print(f"DDP events - selected date range: {all_ddp_events_df.T_local_date.min():%Y-%m-%d} ---- {all_ddp_events_df.T_local_date.max():%Y-%m-%d} Shape: {all_ddp_events_df.shape}")
 
-    print(f"Loading all DDP events from {DDP_START_DATE:%Y-%m-%d} -- {DDP_END_DATE:%Y-%m-%d}...", end=" ", flush=True)
-    all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2{cf['misc']['file_format']}", filters=sel, verbose=verbose)
 
-    print(f"...DDP events dataframe loaded")
-    print(f"The DF contains {all_ddp_events_df.D_donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
+
+    print(f"...done. DDP events dataframe loaded. {all_ddp_events_df.D_donation_id.nunique()} unique donations. {all_ddp_events_df.shape[0]:,} events.")
+
 
 
     if cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() == "all":
-        return {"data_ddp_events":all_ddp_events_df}
+        return all_ddp_events_df
     else:
         sampled_data_ddp_events = sample_ddp_events(
             cf = cf, 
             study_name = study_name, 
             all_ddp_events_df = all_ddp_events_df, 
             verbose=verbose)
-        return {"data_ddp_events":sampled_data_ddp_events}
+        return sampled_data_ddp_events
 
 
 

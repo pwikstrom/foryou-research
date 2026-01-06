@@ -32,22 +32,19 @@ REQUIRED_KEYS = [
 
 def load_machine_annotations(
         cf = None,
-        include_failed_calls:bool = False,
+        #include_failed_calls:bool = False,
         consolidate:bool = False,
+        #all_columns:bool = False,
         verbose=False,
         notebook_mode = False):
 
     if notebook_mode:
         verbose = True
 
-    from pandas import DataFrame, concat
-    from os import listdir, rename
-    from os.path import join, basename, exists
-    #from shutil import move
-    from datetime import datetime
-    #import shutil
-
-    from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
+    from os.path import basename
+    import re
+ 
+    from fyp.fyp_main import init_config, connect_to_google
     import fyp.data_io as data_io
 
     if cf is None:
@@ -62,45 +59,27 @@ def load_machine_annotations(
 
     # if we are consolidating, load all columns (otherwise data is lost)
     if consolidate:
-        all_results = data_io.load_parquet(cf, "machine_annotations_refined", "*", verbose=verbose)
+        some_machine_annotations = data_io.load_parquet(cf, "machine_annotations_refined", "*", verbose=verbose)
     # if we are not consolidating, load only the useful variables
     else:
-        import re
         useful_variables = []
         for k in cf['var_scheme'][cf['var_scheme']['role']!='skip'].variable_name:
             if re.match(r'^[A-Z]_', k):
                 useful_variables.append(k[2:])
             useful_variables.append(k)
 
-        all_results = data_io.load_parquet(cf, "machine_annotations_refined", "*", columns=useful_variables, verbose=verbose)
+        useful_variables.append("inference_ts")
 
-    #scrape_metadata = concat([data_io.load_parquet(cf, "scrape", fn, verbose=verbose) for fn in scrape_metadata_filenames])
-
-
+        some_machine_annotations = data_io.load_parquet(cf, "machine_annotations_refined", "*", columns=useful_variables, verbose=verbose)
 
 
-    #machine_file_names = []
-    #for fn in data_io.listdir(cf, "machine_annotations_refined", verbose=verbose):
-    #    if fn.startswith("machine_annotations") and fn.endswith(cf['misc']['file_format']):
-    #        machine_file_names.append(fn)
-    #machine_file_names = list(set(machine_file_names))
 
-    #all_results = concat([data_io.load_parquet(cf, "machine_annotations_refined", fn, verbose=verbose) for fn in machine_file_names])
 
-    all_results.reset_index(drop=True, inplace=True)
-    return all_results
-    all_results['error'] = all_results['error'].map(lambda x:"-" if x=={} else x)
+    some_machine_annotations.reset_index(drop=True, inplace=True)
+    
+    some_machine_annotations = some_machine_annotations.sort_values("inference_ts").copy()
+    some_machine_annotations.drop_duplicates(subset=["item_id"],inplace=True, keep='last')
 
-    if verbose:
-        print(f"Loaded {len(all_results):,} rows from {len(machine_file_names)} machine annotation files")
-
-    all_results = all_results.sort_values("inference_ts").copy()
-    quick_check = 1 - all_results.isna().sum()/len(all_results)
-    all_results = all_results.loc[:,quick_check[quick_check>=0.1].index].copy()
-    all_results.drop_duplicates(inplace=True, keep='last')
-
-    if verbose:
-        print(f"After full-row-dedup there are {len(all_results):,} rows, {len(all_results.columns)} cols, and {all_results.item_id.nunique():,} unique videos")
 
 
     if consolidate:
@@ -116,13 +95,11 @@ def load_machine_annotations(
             # consolidated file  
 
             latest_filename = sorted(machine_file_names)[-1]
-            #fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
             if verbose:
                 print(f"The machine annotation files will be consolidated into a single file: '{basename(latest_filename)}'")
                 print(f"The raw json files will remain untouched")
 
-            #all_results = convert_dtypes_to_pyarrow(all_results, verbose=verbose)
-            data_io.save_parquet(cf, all_results, "machine_annotations_refined", latest_filename, verbose=verbose)
+            data_io.save_parquet(cf, some_machine_annotations, "machine_annotations_refined", latest_filename, verbose=verbose)
 
 
             for fn in machine_file_names:
@@ -134,25 +111,25 @@ def load_machine_annotations(
 
 
 
-    if include_failed_calls:
-        if verbose:
-            print(f"Including failed machine annotation calls")
-    else:
-        # assuming the 'scenes' variable is not na if things have gone well
-        all_results = all_results[~all_results["scenes"].isna()].copy()
-        if verbose:
-            print(f"Excluding failed machine annotation calls, which gives {len(all_results):,} rows, and {all_results.item_id.nunique():,} unique videos")
+    #if include_failed_calls:
+    #    if verbose:
+    #        print(f"Including failed machine annotation calls")
+    #else:
+    #    # assuming the 'scenes' variable is not na if things have gone well
+    #    some_machine_annotations = some_machine_annotations[~some_machine_annotations["scenes"].isna()].copy()
+    #    if verbose:
+    #        print(f"Excluding failed machine annotation calls, which gives {len(some_machine_annotations):,} rows, and {some_machine_annotations.item_id.nunique():,} unique videos")
 
 
 
-    print(f"Loaded machine annotations - shape {all_results.shape}")
+    print(f"...done. Loaded machine annotations - shape {some_machine_annotations.shape}")
 
     if notebook_mode:
         print("--"*60)
 
 
 
-    return all_results
+    return some_machine_annotations
 
 
 

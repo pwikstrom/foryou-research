@@ -544,7 +544,8 @@ def ingest_zeeschuimer_data(
 def load_zeeschuimer_data(
     cf = None,
     study_name = None,
-    verbose=False):
+    all_data = None,
+    verbose = False):
     # load items from baseline logs
 
     from datetime import datetime
@@ -570,18 +571,21 @@ def load_zeeschuimer_data(
 
     print("Loading baseline logs...")
 
-    baseline_log = data_io.load_parquet(cf, "zeeschuimer_main", "all_zeeschuimer_events.parquet", verbose=verbose)
+    if all_data is None:
+        baseline_log = data_io.load_parquet(cf, "zeeschuimer_main", "all_zeeschuimer_events.parquet", verbose=verbose)
+    else:
+        baseline_log = all_data.copy()
 
     if verbose:
         print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.T_local_timestamp.min():%Y-%m-%d} -- {baseline_log.T_local_timestamp.max():%Y-%m-%d}")
     
 
     baseline_log = baseline_log[(baseline_log.T_local_timestamp>=BASELINE_START_DATE) & (baseline_log.T_local_timestamp<=BASELINE_END_DATE)].copy()
-    if verbose:
-        print("Baseline log selected date range:",baseline_log.T_local_timestamp.min(), " ---- ", baseline_log.T_local_timestamp.max(), "Shape:",baseline_log.shape)
+    
+    print(f"...done. Selected date range: {baseline_log.T_local_timestamp.min():%Y-%m-%d} -- {baseline_log.T_local_timestamp.max():%Y-%m-%d} Observations: {baseline_log.shape[0]:,}")
     
 
-    return {"data_baseline_log":baseline_log}
+    return baseline_log
 
 
 

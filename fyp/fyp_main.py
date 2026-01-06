@@ -168,8 +168,8 @@ def init_config(
             makedirs(cf["paths"][k], exist_ok=True)
 
     # empty local temp folder
-    for fn in listdir(cf["paths"]["temp"]):
-        remove(join(cf["paths"]["temp"],fn))
+    #for fn in listdir(cf["paths"]["temp"]):
+    #    remove(join(cf["paths"]["temp"],fn))
 
 
     if verbose:
@@ -449,7 +449,7 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
     # 1. OPTIMISTIC BATCH CONVERSION
     # ---------------------------------------------------------
     if verbose:
-        print("Attempting batch conversion of DF dtype to pyarrow...")
+        print(" [PYARROW dtypes] Attempting batch conversion of DF dtype to pyarrow...")
     
     try:
         # This handles the vast majority of "easy" columns (int, float, clean strings)
@@ -457,7 +457,7 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
         df = df.convert_dtypes(dtype_backend='pyarrow')
     except Exception as e:
         if verbose:
-            print(f"Batch conversion failed ({e}). Falling back to column-wise checks.")
+            print(f" [PYARROW dtypes] Batch conversion failed ({e}). Falling back to column-wise checks.")
 
     # ---------------------------------------------------------
     # 2. IDENTIFY AND FIX PROBLEMATIC COLUMNS
@@ -470,7 +470,7 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
     cols_to_check = [c for c in df.columns if df[c].dtype == "object"]
 
     if len(cols_to_check) > 0 and verbose:
-        print(f"Refining {len(cols_to_check)} columns that failed simple batch conversion...")
+        print(f" [PYARROW dtypes] Refining {len(cols_to_check)} columns that failed simple batch conversion...")
 
     for col in cols_to_check:
         # A) Try explicit conversion (sometimes works individually if batch had a holistic issue, though rare)
@@ -482,7 +482,7 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
         # If still object, it likely has issues (surrogates, mixed types, etc.)
         if df[col].dtype == "object":
             if verbose:
-                 print(f"Fixing surrogates in {col}...")
+                print(f" [PYARROW dtypes] Fixing surrogates in {col}...")
             
             # B) Fix surrogates
             try:
@@ -491,12 +491,12 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
                 df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
             except:
                 if verbose:
-                    print(f"Surrogate fix didn't fully resolve {col}.")
+                    print(f"    Surrogate fix didn't fully resolve {col}.")
 
         # If STILL object, it's likely complex types (lists, dicts, etc.)
         if df[col].dtype == "object":
             if verbose:
-                print(f"{col} is still object - fixing complex types...")
+                print(f" [PYARROW dtypes] {col} is still object - fixing complex types...")
             try:
                 # First, ensure contents are normalized (e.g. dicts -> json strings)
                 df[col] = fix_complex_types(df[col].copy(), verbose=verbose)
@@ -516,7 +516,7 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
                     # but if it's List<String>, convert_dtypes might miss it.
                     if pa.types.is_list(arrow_array.type) or pa.types.is_struct(arrow_array.type):
                          if verbose:
-                             print(f"Explicitly converting {col} to {arrow_array.type} via pyarrow.array...")
+                             print(f" [PYARROW dtypes] Explicitly converting {col} to {arrow_array.type} via pyarrow.array...")
                          df[col] = Series(
                              arrow_array, 
                              dtype=ArrowDtype(arrow_array.type),
@@ -528,18 +528,18 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
 
                 except Exception as e:
                     if verbose:
-                        print(f"Explicit pyarrow Array conversion failed for {col}: {e}")
+                        print(f" [PYARROW dtypes] Explicit pyarrow Array conversion failed for {col}: {e}")
                     # Fallback to standard 
                     df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
 
             except Exception as e:
                 # Last resort: if complex fix fails, force string conversion for anything not null
                 if verbose: 
-                    print(f"Failed to fix complex types for {col}: {e}. Forcing string conversion.")
+                    print(f" [PYARROW dtypes] Failed to fix complex types for {col}: {e}. Forcing string conversion.")
                 df[col] = df[col].astype("string[pyarrow]")
         
         if verbose and df[col].dtype != "object":
-             print(f"Successfully converted {col} to {df[col].dtype}")
+             print(f" [PYARROW dtypes] Successfully converted {col} to {df[col].dtype}")
 
     # ---------------------------------------------------------
     # 3. FINAL SAFETY CHECKS (NUMERICS)
@@ -551,11 +551,11 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
         # that would be rejected by explicit float-casting in describe's percentile calc.
         try:
             if verbose:
-                print(f"Found {len(numeric_cols_to_check)} numeric columns - checking all for overflows...")
+                print(f" [PYARROW dtypes] Found {len(numeric_cols_to_check)} numeric columns - checking all for overflows...")
             df[numeric_cols_to_check].describe()
         except Exception as e:
             if verbose:
-                print(f"Failed to describe numeric columns in one go - checking each column:")
+                print(f" [PYARROW dtypes] Failed to describe numeric columns in one go - checking each column:")
 
             # Iterate through all columns that claim to be numeric now
             for c in numeric_cols_to_check:
@@ -563,11 +563,11 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
                     df[c].describe()
                 except Exception as e:
                     if verbose:
-                        print(f"WARNING: {e} | {c} doesn't work well as a number - converting to string")
+                        print(f" [PYARROW dtypes] WARNING: {e} | {c} doesn't work well as a number - converting to string")
                     df[c] = df[c].astype("string[pyarrow]")
         
     if verbose:
-        print("...conversion complete.")
+        print(" [PYARROW dtypes] ...conversion complete.")
 
     return df
 

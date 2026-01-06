@@ -66,6 +66,24 @@ BASELINE_END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
 COL_MISSING_DATA_THRES = 0.5
 SPECIAL_DONATIONS = []
 INCLUDE_ZEESCHUIMER_DATA = true
+INCLUDE_DONATIONS = "all"  # "sample", "all", "special",or "none" (other values taken as 'none')
+#MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
+#AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
+#N_SAMPLED_DATES_FROM_EACH_DONATION = 35
+#N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
+
+
+[main_sample_paper1]
+TIME_ZONE = "Australia/Brisbane"
+MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
+MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
+DDP_START_DATE = "2023-01-01" # yyyy-mm-dd only keep events after this date
+DDP_END_DATE = "2025-12-31" # yyyy-mm-dd only keep events before this date
+BASELINE_START_DATE = "2024-05-15" # yyyy-mm-dd only keep events after this date
+BASELINE_END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
+COL_MISSING_DATA_THRES = 0.5
+SPECIAL_DONATIONS = []
+INCLUDE_ZEESCHUIMER_DATA = true
 INCLUDE_DONATIONS = "sample"  # "sample", "all", "special",or "none" (other values taken as 'none')
 MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
 AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]

@@ -506,6 +506,9 @@ def load_parquet(
 
     import pyarrow.parquet as pq
     import gcsfs
+    from datetime import datetime
+
+    t1 = datetime.now()
 
     # Initialize GCS filesystem
     fs = gcsfs.GCSFileSystem()
@@ -542,6 +545,10 @@ def load_parquet(
 
         # type management to be sure
         df = convert_dtypes_to_pyarrow(df, verbose=verbose)
+
+        if verbose:
+            t2 = datetime.now()
+            print(f" [DATA_IO] Loaded parquet(s) shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
 
         return df
 
@@ -580,10 +587,13 @@ def load_parquet(
         use_threads=True,
         columns=columns,
         filters=filters)
-    if verbose: print(f" ...done. Shape: {df.shape}")
 
     # type management to be sure
     df = convert_dtypes_to_pyarrow(df, verbose=verbose)
+
+    if verbose:
+        t2 = datetime.now()
+        print(f" [DATA_IO] ...done. Shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
 
     return df
 
