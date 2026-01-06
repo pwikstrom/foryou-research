@@ -508,6 +508,23 @@ def load_parquet(
     import gcsfs
     from datetime import datetime
 
+    def _renamed(s):
+        fixer_upper = [
+            ("B_local_","T_local_"),
+            ("D_local_","T_local_"),
+            (".","_"),
+            ("data_",""),
+            ("source_url_","source_"),
+            ("_collected",""),
+            ("framing_analysis_","FA_"),
+            ("cultural_representation_analysis_","CRA_"),
+            ("ideological_analysis_","IA_"),
+
+        ]
+        for fu in fixer_upper:
+            s = s.replace(fu[0],fu[1])
+        return s
+
     t1 = datetime.now()
 
     # Initialize GCS filesystem
@@ -527,7 +544,19 @@ def load_parquet(
             with fs.open(files[0]) as f: # assume all files have the same schema so it's enough to check the first one
                 parquet_schema = pq.read_schema(f)
             existing_cols = parquet_schema.names
-            columns = list(set([c for c in columns if c in existing_cols]))
+
+            # iterate over the parquet columns and check if they included in the requested columns list
+            # OR if a renamed version of the parquet columns are included in the requested columns list
+            # I have to do it this way since at some stage in the processing, I'm changing renaming the columns
+            # Yes - it's a bit confusing.  
+            confirmed_columns = []
+            for ec in existing_cols:
+                if ec in columns or _renamed(ec) in columns:
+                    confirmed_columns += [ec]
+                else:
+                    print(f" [DATA_IO] Parquet column '{ec}' not loaded since not requested")
+
+            columns = list(set(confirmed_columns))
             if verbose:
                 print(f" [DATA_IO] Column selection: {columns}")
 

@@ -528,8 +528,8 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
                 return x
         elif missing_data_policy == "zero":
             gg = x if not isinstance(x,list) else x[0]
-            if isinstance(gg,(int64,float64, int, float)):
-                gg_out = int64(0)
+            if isinstance(gg,"numeric"):
+                gg_out = 0
             else:
                 gg_out = "no"
             if isinstance(x,list):
@@ -577,7 +577,7 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 def recode_events_df(
     cf = None,
-    study_name = None,
+    #study_name = None,
     cool_events_in = None,
     verbose = False,
     save_it = True):
@@ -593,21 +593,21 @@ def recode_events_df(
     if cf is None:
         cf = init_config()
     
-    if study_name is None:
-        raise ValueError("study_name must be specified")
+    #if study_name is None:
+    #    raise ValueError("study_name must be specified")
     
-    print(f"Recoding variables, implementing missing data policy and a whole range of other things: Study:{study_name}")
+    print(f"Recoding variables, implementing missing data policy and a whole range of other things...")
 
 
-    if cool_events_in is None:
-        log_path = f"{study_name}_LOG{cf['misc']['file_format']}"
-        if data_io.exists(cf, "exports", log_path):
-            print(f"Loading events file in export folder...", end=" ", flush=True)
-            cool_events_in = data_io.load_parquet(cf, "exports", log_path, verbose=verbose)
-            print(f"Shape: {cool_events_in.shape}")
-        else:
-            print("This process required a LOG file to be generated first. Log file not found at: ", log_path)
-            return None
+    #if cool_events_in is None:
+    #    log_path = f"{study_name}_LOG{cf['misc']['file_format']}"
+    #    if data_io.exists(cf, "exports", log_path):
+    #        print(f"Loading events file in export folder...", end=" ", flush=True)
+    #        cool_events_in = data_io.load_parquet(cf, "exports", log_path, verbose=verbose)
+    #        print(f"Shape: {cool_events_in.shape}")
+    #    else:
+    #        print("This process required a LOG file to be generated first. Log file not found at: ", log_path)
+    #        return None
 
 
     cool_events = cool_events_in.copy()
@@ -624,28 +624,29 @@ def recode_events_df(
 
     variables_not_found_in_var_scheme = list(set(cool_events.columns) - set(var_scheme.index))
     if verbose:
-        join_str = "\n - "
-        print(f"Dropping {len(variables_not_found_in_var_scheme)} columns not found in the variable scheme:\n - {join_str.join(variables_not_found_in_var_scheme)}")
+        join_str = "\n  - "
+        print(f" 1. Dropping {len(variables_not_found_in_var_scheme)} columns not found in the variable scheme:\n  - {join_str.join(variables_not_found_in_var_scheme)}")
     cool_events = cool_events.drop(columns=variables_not_found_in_var_scheme).copy()
     if verbose:
-        print(cool_events.shape)
+        print(f" Shape: {cool_events.shape}")
 
     single_value_columns = [c for c in cool_events.columns if cool_events[c].nunique()==1 and c not in FYP_FACTORS]
     if verbose:
-        join_str = "\n - "
-        print(f"Dropping {len(single_value_columns)} single value columns:\n - {join_str.join(single_value_columns)}")
+        join_str = "\n  - "
+        print(f" 2. Dropping {len(single_value_columns)} single value columns:\n  - {join_str.join(single_value_columns)}")
     cool_events = cool_events.drop(columns=single_value_columns).copy()
     if verbose:
-        print(cool_events.shape)
+        print(f" Shape: {cool_events.shape}")
 
     if verbose:
-        print("Recoding variables")
-    
+        print(" 3. Recoding variables")
+
+
     cool_columns = copy(cool_events.columns)
     # iterate over the columns in the events df
-    for c in cool_columns:
+    for i,c in enumerate(cool_columns):
         if verbose:
-            print(c, end=f"{' '*(40-len(c))}")
+            print(f"    {(i+1):02}/{len(cool_columns):02}. {c}", end=f"{' '*(40-len(c))}", flush=True)
 
         # if this is in the var_scheme...
         if c in var_scheme.index:
@@ -671,7 +672,7 @@ def recode_events_df(
                 if n_types > 1:
                     raise ValueError(f" has {n_types} multiple types of values. Only a single type is allowed. {cool_types.to_dict()}")
 
-
+                # execute the recode function
                 if not pd.isna(this_var_scheme.get("recode_func", None)):
                     cool_events[c] = cool_events[c].map(lambda x:this_var_scheme["recode_func"](x,this_var_scheme))
                     if verbose: print(f"recoded successfully ({this_var_scheme.get('scale', 'unknown scale')})")
@@ -699,7 +700,7 @@ def recode_events_df(
                 cool_types = cool_events[c].dropna().map(lambda x:type(x)).value_counts()
                 top_type = cool_types.index[0]
                 n_types = len(cool_types)
-                if verbose: print(f"{c} has {n_types} types. The most common is {top_type}")
+                #if verbose: print(f"{c} has {n_types} types. The most common is {top_type}")
 
 
 
@@ -750,17 +751,23 @@ def recode_events_df(
             cool_events = cool_events.drop(columns=[c]).copy()
 
 
-    cool_events['plays_per_day'] = cool_events['S_stats_playCount'] / cool_events['T_days_since_created'].map(lambda x:max(1,x))
+
+    def safe_vector_divide(x, y):
+        return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
+
+    cool_events['plays_per_day'] = safe_vector_divide(cool_events['S_stats_playCount'],cool_events['T_days_since_created'])
 
 
     # Clean the recoded dataset - drop rows with NaN values and constant columns
-    if verbose:
-        print(cool_events.shape, "shape of recoded dataset before cleaning")
+    #if verbose:
+    #    print(cool_events.shape, "shape of recoded dataset before cleaning")
         
-    cool_events = cool_events.loc[~cool_events.isna().any(axis=1)]                      # drop rows with NaN values
-    if verbose:
-        print(cool_events.shape, "shape of recoded dataset after dropping rows with NaN values")
-        print("----------------------------------------------")
+    #cool_events = cool_events.loc[~cool_events.isna().any(axis=1)]                      # drop rows with NaN values
+    #if verbose:
+    #    print(cool_events.shape, "shape of recoded dataset after dropping rows with NaN values")
+    #    print("----------------------------------------------")
+
+    cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
 
     if verbose:
@@ -772,8 +779,6 @@ def recode_events_df(
         print(cool_events.shape)
 
     cool_events = cool_events[sorted(cool_events.columns)]
-
-    cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
     if save_it:
         recoded_filename = f"{study_name}_RECODED{cf['misc']['file_format']}"
@@ -855,6 +860,7 @@ def _replace_in_structure(L, filter_list, replacement):
     Returns a new list with identical structure,
     replacing any matching strings.
     """
+    from pandas import Series
     filt = set(filter_list)  # faster lookups
 
     out = []
@@ -866,13 +872,16 @@ def _replace_in_structure(L, filter_list, replacement):
             sub = []
             sub_append = sub.append
             for y in x:
-                if not y in filt:
+                if y not in filt:
                     sub_append(replacement)
                 else:
                     sub_append(y)
             append(sub)
         else:
-            append(replacement if not x in filt else x)
+            append(replacement if x not in filt else x)
+
+    if hasattr(L, "dtype") and hasattr(L, "index"):
+        return Series(out, index=L.index, dtype=L.dtype)
 
     return out
 
@@ -881,6 +890,8 @@ def clean_up_machine_annotations(some_events, verbose = False):
     
     from collections import Counter
     import numpy as np 
+    from pandas import Series
+
 
     some_cleaned_up_events = some_events.copy()
 
@@ -890,13 +901,13 @@ def clean_up_machine_annotations(some_events, verbose = False):
         # Step 1 of 3: Flatten and filter the column
         flattened_column = _flatten_and_filter(some_events[c], exclude=["DDP","BASELINE", UNABLE_TO_DETECT, "", OTHER_THINGS])
 
-        mean_length = np.mean(list(map(lambda x:len(x), flattened_column)))
-
+        mean_length = np.mean(list(map(lambda x:len(x), Series(flattened_column).dropna())))
         if mean_length < 60:
 
             # Step 2 of 3: Identify the smallest number of labels required to cover at least a certain share of the label space
             label_counts = Counter(flattened_column).most_common() # a list of tuples (label, count), ordered desc based on count
             okay_list = [i[0] for i in _cutoff_by_share(label_counts, 0.98, 3)]
+
 
             # replace the smallest labels with an OTHER_THINGS label
             some_cleaned_up_events[c] = _replace_in_structure(
@@ -905,6 +916,7 @@ def clean_up_machine_annotations(some_events, verbose = False):
                 OTHER_THINGS
             )
 
+
             if verbose:
                 print(
                     f"   {c}: Reduced {len(Counter(_flatten_and_filter(some_events[c])).most_common()):,} labels to"
@@ -912,6 +924,6 @@ def clean_up_machine_annotations(some_events, verbose = False):
                 )
         else:
             if verbose:
-                print(f"Avg string length > 60, not consolidating rare labels {c}")
+                print(f"   {c}: Avg string length > 60, not consolidating rare labels")
 
     return some_cleaned_up_events

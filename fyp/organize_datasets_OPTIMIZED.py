@@ -9,9 +9,7 @@ WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday"
 
 
 
-
-
-"""def _day_segment_from_hour(hour: int) -> str:
+def _day_segment_from_hour(hour: int) -> str:
     if not (0 <= hour <= 23):
         raise ValueError(f"hour must be in 0..23, got {hour}")
     if hour <= 5:
@@ -23,7 +21,9 @@ WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday"
     return "evening"
 
 
-def timestamp_to_local_parts(
+
+
+"""def timestamp_to_local_parts(
     ts: int | float,
     input_tz: str,
     output_tz: str,
@@ -94,7 +94,7 @@ def extract_local_time_features(
     
     Now integrates per-donation timezone offsets from persona_stats_cache.
     """
-    from pandas import concat, to_datetime, Categorical, notna as pd_notna, NaT as pd_NaT, to_timedelta
+    from pandas import concat, to_datetime, notna as pd_notna, NaT as pd_NaT, to_timedelta
     from numpy import select as np_select
     from fyp.fyp_main import init_config
     import fyp.data_io as data_io
@@ -260,7 +260,7 @@ def extract_local_time_features(
 
     df["local_hour"] = ts.dt.hour.astype("uint8")
 
-    # day segment via vectorised ranges, no Python helper needed
+    """# day segment via vectorised ranges, no Python helper needed
     hours = df["local_hour"].to_numpy()
 
     day_segment = np_select(
@@ -281,11 +281,13 @@ def extract_local_time_features(
         day_segment,
         categories=["night", "morning", "afternoon", "evening"],
         ordered=True,
-    )
+    )"""
+
+    df["local_day_segment"] = _day_segment_from_hour(df["local_hour"]).astype("string[pyarrow]")
 
     # Optimization: Use .dt.date directly (faster than map)
     df["local_date"] = ts.dt.date
-    df["local_date_str"] = df["local_date"].astype(str)
+    df["local_date_str"] = df["local_date"].astype("string[pyarrow]")
 
 
     print("...done")
@@ -330,7 +332,7 @@ def load_scrape_metadata(
     print("Loading scraped metadata...")
 
     # if we are consolidating, load all columns (otherwise data is lost)
-    if consolidate:
+    if True:#consolidate:
         scrape_metadata = data_io.load_parquet(cf, "scrape", "*", verbose=verbose)
     # if we are not consolidating, load only the useful variables
     else:
@@ -1603,8 +1605,10 @@ def _combine_all_logs(
             combined_log[one_baseline_col] = combined_log[one_baseline_col].fillna(pd_NA)
 
 
-    combined_log = convert_dtypes_to_pyarrow(combined_log, verbose=verbose)
+    # TODO: This is a horrible patch. I've probably fixed the cause by now...
+    combined_log['T_local_day_segment'] = combined_log['T_local_day_segment'].astype("string[pyarrow]")
 
+    combined_log = convert_dtypes_to_pyarrow(combined_log, verbose=verbose)
 
 
     return combined_log
@@ -1653,7 +1657,7 @@ def merge_all_study_datasets(
     outdata["scraped_ok"] = outdata["scraped_ok"].fillna(False)
     outdata["annotated_ok"] = outdata["annotated_ok"].fillna(False)
     outdata["annotated_fail"] = outdata["annotated_fail"].fillna(False)
-    outdata["scraped_fail"] = outdata["item_id"].isin(failed_scrapes)    
+    outdata["scraped_fail"] = outdata["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
 
 
     # Create a new column by calculating the difference between 'T_local_timestamp' and 'S_createTime'.

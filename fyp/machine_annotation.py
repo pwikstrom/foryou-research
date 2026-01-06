@@ -58,7 +58,7 @@ def load_machine_annotations(
 
 
     # if we are consolidating, load all columns (otherwise data is lost)
-    if consolidate:
+    if True:#consolidate:
         some_machine_annotations = data_io.load_parquet(cf, "machine_annotations_refined", "*", verbose=verbose)
     # if we are not consolidating, load only the useful variables
     else:
