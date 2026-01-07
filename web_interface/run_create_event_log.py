@@ -8,17 +8,17 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 
 def main():
-    import fyp.organize_datasets_OPTIMIZED as organize_datasets
-    from fyp.fyp_main import connect_to_google, init_config
+    import fyp.organize_datasets as organize_datasets
+    from fyp.fyp_main import connect_to_google, initialize
 
 
-    parser = argparse.ArgumentParser(description="Run organize_datasets_OPTIMIZED.create_study_main_dataset")
+    parser = argparse.ArgumentParser(description="Run organize_datasets.create_study_main_dataset")
     parser.add_argument("study_name", help="Name of the study")
     args = parser.parse_args()
 
     # Load CF
-    cf = init_config(verbose=False)
-    if cf['misc']['use_gcs_for_data']:
+    cf = initialize(verbose=False)
+    if cf['data_io']['use_gcs_for_data']:
         cf = connect_to_google(cf)
 
     try:

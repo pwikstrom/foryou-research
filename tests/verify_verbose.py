@@ -46,8 +46,8 @@ except ImportError:
     sys.modules['zoneinfo'] = MagicMock()
 
 
-file_path = '/Users/<user>/GitHub_main/fyp_main_v02/fyp/organize_datasets_OPTIMIZED.py'
-module_name = "organize_datasets_OPTIMIZED"
+file_path = '/Users/<user>/GitHub_main/fyp_main_v02/fyp/organize_datasets.py'
+module_name = "organize_datasets"
 
 try:
     spec = importlib.util.spec_from_file_location(module_name, file_path)

@@ -10,7 +10,7 @@ key = "<REDACTED_GEMINI_KEY>"
 model = "gemini-2.5-flash"
 
 # the prompt
-new_prompt = "new_prompt_002.txt"
+prompt = "new_prompt_002.txt"
 
 # vertexai settings
 vertexai = true

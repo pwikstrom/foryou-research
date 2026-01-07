@@ -176,10 +176,10 @@ def download_single_video(
 
     import fyp.mypyktok as pyk
     from os.path import join, exists, getsize
-    from fyp.fyp_main import init_config, connect_to_google
+    from fyp.fyp_main import initialize, connect_to_google
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     if cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
@@ -432,12 +432,12 @@ def download_video_threads(
     from os.path import join
     #from json import dump as json_dump
     import time
-    from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
+    from fyp.fyp_main import initialize, connect_to_google, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
 
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     if cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
@@ -496,7 +496,7 @@ def download_video_threads(
     
     if len(results)>0:
         
-        scrape_metadata_filename = f"scrape_metadata_{fine_ts}{cf['misc']['file_format']}"
+        scrape_metadata_filename = f"scrape_metadata_{fine_ts}.parquet"
         results = convert_dtypes_to_pyarrow(results, verbose=verbose)
         data_io.save_parquet(cf, results, "scrape", scrape_metadata_filename, verbose=verbose)
         print(f"Saved {len(results):,} rows to '{scrape_metadata_filename}'")
@@ -526,12 +526,12 @@ def download_videos_loop(
     verbose = False):
 
     from datetime import datetime
-    from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked
-    from fyp.fyp_main import init_config, connect_to_google
+    from fyp.organize_datasets import select_videos_from_half_baked
+    from fyp.fyp_main import initialize, connect_to_google
     from os import environ
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     if cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
@@ -586,3 +586,216 @@ def download_videos_loop(
 
 
     print(f"Loop ended: {datetime.now()}")
+
+
+
+
+
+
+
+
+
+
+def load_scrape_metadata(
+    cf = None,
+    consolidate=False,
+    verbose=False):
+    # load the scraped metadata dataframe
+
+
+    #import shutil
+    from os import listdir, rename
+    from os.path import join, basename, exists
+    from pandas import concat, NA as pd_NA
+    import fyp.data_io as data_io
+    from datetime import datetime
+    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
+
+    if cf is None:
+        cf = initialize()
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+    # -------------------------------------------------
+    # load the scrape_metadata dataframe
+    # -------------------------------------------------
+    print("Loading scraped metadata...")
+
+    # if we are consolidating, load all columns (otherwise data is lost)
+    if True:#consolidate:
+        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", verbose=verbose)
+    # if we are not consolidating, load only the useful variables
+    else:
+        import re
+        useful_variables = ["image_list", "video_downloaded", "createTime"]
+        for k in cf['var_schema'][cf['var_schema']['role']!='skip'].variable_name:
+            if re.match(r'^[A-Z]_', k):
+                useful_variables.append(k[2:])
+            useful_variables.append(k)
+
+        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", columns=useful_variables, verbose=verbose)
+
+
+    # -------------------------------------------------
+    # There may be some items listed twice - once as video_downloaded and once as not
+    # This code addresses that issue
+    # -------------------------------------------------
+
+    # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both
+    scrape_metadata = scrape_metadata.drop_duplicates(subset=["item_id","video_downloaded"]).copy()
+    if verbose:
+        print(f"Dropping duplicates based on items and whether the video is downloaded or not: {scrape_metadata.shape}")
+
+    # identify items with inconsistent video_downloaded status
+    items_w_inconsistent_video_download_status = scrape_metadata["item_id"].value_counts()
+    items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status>1].index.tolist()
+
+    # use the list generated above to separate items with consistent vs inconsistent video download status
+    items_w_consistent_video_download_status = scrape_metadata[~scrape_metadata['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
+    items_w_inconsistent_video_download_status = scrape_metadata[scrape_metadata['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
+    if verbose:
+        print(f"Identifying conflicting items in the dataset listed twice - once as video_downloaded and once as not")
+        print(
+            f"There are {len(items_w_inconsistent_video_download_status):,} items with such inconsistencies, "
+            f"and {len(items_w_consistent_video_download_status):,} that look alright.")
+
+    if len(items_w_inconsistent_video_download_status)>0:
+        # for items with inconsistent video download status, only keep the ones where video_downloaded is True
+        items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status['video_downloaded']].copy()
+        if verbose:
+            print(f"Fixed the inconsistencies by keeping the one of the pairs with video_download=True")
+            print(f"This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}")
+
+        # recombine the two dataframes
+        scrape_metadata = concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
+        if verbose:
+            print(f"After this procedure, the shape of the scrape DF is: {scrape_metadata.shape}")
+
+
+
+    # -------------------------------------------------
+
+
+    if verbose:
+        print(
+            f"{scrape_metadata['video_downloaded'].value_counts().loc[True]:,} items have downloaded videos and "
+            f"{scrape_metadata['video_downloaded'].value_counts().loc[False]:,} don't")
+
+
+    # fixing up some minor issues with the columns
+
+    # first, set item_id as index
+    scrape_metadata.set_index('item_id', inplace=True)
+
+    # remove do_not_modify column if it exists
+    scrape_metadata.drop(["do_not_modify"], axis=1, errors='ignore', inplace=True)
+
+    # fill NA values in image_list with empty strings
+    scrape_metadata['image_list'] = scrape_metadata['image_list'].fillna("")
+
+    # for items with non-empty image_list, set video_duration based on number of images * 2 seconds
+    scrape_metadata.loc[scrape_metadata[scrape_metadata['image_list']!=""].index,'video_duration'] = scrape_metadata.loc[scrape_metadata[scrape_metadata['image_list']!=""].index,'image_list'].map(lambda x: len(x.split(' | ')) * 2)
+
+    # video duration is never zero - set zero durations to pd_NA
+    scrape_metadata.loc[scrape_metadata[(scrape_metadata['video_duration']==0)].index,'video_duration'] = pd_NA
+
+    # move the item_id back from the index to a column
+    scrape_metadata.reset_index(inplace=True)
+
+
+
+    # fix up the types for pyarrow
+    scrape_metadata = convert_dtypes_to_pyarrow(scrape_metadata, verbose=verbose)
+ 
+
+    if consolidate:
+        scrape_metadata_filenames = [gg for gg in data_io.listdir(cf, "scrape", verbose=verbose) if gg.startswith("scrape_metadata") and gg.endswith('.parquet')]
+        scrape_metadata_filenames = list(set(scrape_metadata_filenames))
+
+
+        if len(scrape_metadata_filenames) > 1:
+
+            # consolidating the files to a single file using the latest filename
+            # the reason for using the old filename is to not kick off potential secondary processes that are monitoring the scrape folder
+            # for new files. I want such processes to ignore files that are consolidations of other files
+
+            latest_filename = sorted(scrape_metadata_filenames)[-1]
+            if verbose:
+                print(f"The scrape_metadata files will be consolidated into a single file: {basename(latest_filename)}.")
+
+            data_io.save_parquet(cf, scrape_metadata, "scrape", latest_filename, verbose=verbose)
+
+            for fn in scrape_metadata_filenames:
+                if not fn == latest_filename:
+                    data_io.move(cf, "scrape", "archive", fn, verbose=verbose)
+        else:
+            if verbose:
+                print(f"Only a single scrape_metadata file was found. No need to consolidate.")
+        
+
+    print(f"...done. Loaded scraped metadata - shape {scrape_metadata.shape}")
+    #print("--"*60)
+    
+    return scrape_metadata
+
+
+
+
+
+
+
+def load_failed_scrapes(
+    cf = None,
+    consolidate = False,
+    verbose = False,
+    super_verbose = False):
+    # Load list of failed scraped attempts.
+
+    from datetime import datetime
+    from fyp.fyp_main import initialize
+    import fyp.data_io as data_io
+
+    if cf is None:
+        cf = initialize()
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+    if verbose:
+        print("Loading failed scrapes...")
+
+    failed_scrape_fn_core = "scrape_failed_items"
+
+    failed_scrape_files = [gg for gg in data_io.listdir(cf, "scrape", verbose=verbose) if gg.startswith(failed_scrape_fn_core)]
+
+    failed_scrapes = []
+    for fn in failed_scrape_files:
+        if super_verbose:
+            print(fn)
+        some_dict = data_io.load_json(cf, "scrape", fn, verbose=verbose)
+        if some_dict is not None:
+            failed_scrapes += some_dict
+
+    failed_scrapes = list(set(map(lambda one_item_id:str(one_item_id), failed_scrapes)))
+
+
+    if consolidate and len(failed_scrape_files) > 1:
+        fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+        if verbose:
+            print(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {failed_scrape_fn_core}_{fine_ts}.json.")
+
+        data_io.save_json(cf, failed_scrapes, "scrape", f"{failed_scrape_fn_core}_{fine_ts}.json", verbose=verbose)
+
+        for fn in failed_scrape_files:
+            data_io.move(cf, "scrape", "archive", fn, verbose=verbose)
+            if verbose:
+                print(f"Moved {fn} to archive")
+
+
+    if verbose:
+        print(f"Loaded list of all failed scrapes: {len(failed_scrapes):,}")
+
+    return failed_scrapes
+
+
+
+

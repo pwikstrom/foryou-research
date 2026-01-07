@@ -45,30 +45,7 @@ def pairwise_matrix_for_categorical_groups(
             probs = np.divide(mat, sums, out=np.zeros_like(mat), where=sums > 0)
         return probs
 
-    """def _js_distance(p: np.ndarray, q: np.ndarray, eps: float = 1e-12) -> float:
-        p = p + eps; q = q + eps
-        p /= p.sum(); q /= q.sum()
-        m = 0.5 * (p + q)
-        kl_pm = np.sum(p * (np.log2(p) - np.log2(m)))
-        kl_qm = np.sum(q * (np.log2(q) - np.log2(m)))
-        return np.sqrt(max(0.0, 0.5 * (kl_pm + kl_qm)))  # in [0,1]
 
-    def _hellinger(p: np.ndarray, q: np.ndarray, eps: float = 1e-12) -> float:
-        p = p + eps; q = q + eps
-        p /= p.sum(); q /= q.sum()
-        return np.linalg.norm(np.sqrt(p) - np.sqrt(q)) / np.sqrt(2)  # in [0,1]
-
-    def _total_variation(p: np.ndarray, q: np.ndarray, eps: float = 0.0) -> float:
-        print(p)
-        print(q)
-        p = p + eps; q = q + eps
-        p /= p.sum(); q /= q.sum()
-        return 0.5 * np.abs(p - q).sum()  # in [0,1]
-
-    def _bray_curtis(x: np.ndarray, y: np.ndarray) -> float:
-        num = np.abs(x - y).sum()
-        den = (x + y).sum()
-        return 0.0 if den == 0 else num / den  # in [0,1]"""
 
     def _chi2_distance(x: np.ndarray, y: np.ndarray) -> float:
         den = x + y
@@ -226,10 +203,10 @@ def interpret_axes_with_categories(
     """
 
 
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
 
     from numpy import nan as np_nan, inf as np_inf, corrcoef
@@ -297,10 +274,10 @@ def interpret_pca_axes(
     scaled_pca_scores = None, 
     events_df_recoded = None):
 
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
     group_factors = cf["var_schema"][cf["var_schema"].role=="group_factor"].variable_name.tolist()
 
@@ -601,18 +578,18 @@ def calculate_scaled_pca_scores(
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.recode_variables import get_factors_and_features_from_var_schema
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow, is_list_like_col
+    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow, is_list_like_col
     import fyp.data_io as data_io
 
     if study_name is None:
         raise ValueError("study_name must be specified")
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
     selected_factors = cf["var_schema"][cf["var_schema"]["role"]=='group_factor'].variable_name.to_list()
 
-    file_format = cf['misc']['file_format']
+    file_format = '.parquet'
 
 
 
@@ -621,7 +598,7 @@ def calculate_scaled_pca_scores(
 
 
     if some_events_df is None:
-        recoded_path = f"{study_name}_RECODED{cf['misc']['file_format']}"
+        recoded_path = f"{study_name}_RECODED.parquet"
         if data_io.exists(cf, "exports", recoded_path):
             print("Loading recoded events file in export folder", end=" ", flush=True)
             some_events_df = data_io.load_parquet(cf, "exports", recoded_path, verbose=verbose)
@@ -721,40 +698,8 @@ def calculate_scaled_pca_scores(
         events_pca_scores += [wer.copy()]
 
 
-    """# then, run through the categorical features. This takes a while.
-    for i,c in enumerate(some_events_df[fyp_features].columns):
-        if c in ["G_notable_sounds"]:# some_events_df.select_dtypes(exclude=["number"]).columns:
-            counts_df = transform_category_column_to_counts_df_old(some_events_df, the_column=c, the_selected_factors=selected_factors)
 
-            if verbose:
-                print(f"({i+1}/{len(some_events_df[fyp_features].columns)}): {c}, {counts_df.shape}", end=": ", flush=True)
-            wer, the_pc_df, comp_interpretation = transform_categories_to_components_and_diversity(
-                counts_df,
-                metric="hellinger",#"jensen-shannon",
-                gamma=0.8,
-                max_components=15,
-                target_explained_variance=target_explained_variance,
-                drop_rare_globally_below=drop_rare_globally_below,
-                verbose=False)
-            wer.drop("top1", axis=1, inplace=True, errors="ignore")
-            wer.columns = [c+"_"+col for col in wer.columns]
-
-
-            if len(selected_factors) > 1:
-                wer.index = MultiIndex.from_tuples(wer.index, names=selected_factors)
-            else:
-                wer.index = wer.index.get_level_values(0)
-                wer.index.name = selected_factors[0]
-
-            
-            for cvb in comp_interpretation:
-                comp_interpretations[c+"_"+cvb] = comp_interpretation[cvb]
-
-            events_pca_scores += [wer.copy()]"""
-            
-
-
-    #return events_pca_scores
+        
 
     events_pca_scores = concat(events_pca_scores, axis=1)
 
@@ -790,7 +735,7 @@ def calculate_scaled_pca_scores(
 
 
     if save_it:
-        pca_filename = f"{study_name}_PCA{cf['misc']['file_format']}"
+        pca_filename = f"{study_name}_PCA.parquet"
         comp_inter_filename = f"{study_name}_COMP_INTERPRETATIONS.json"
 
         events_pca_scores_scaled = convert_dtypes_to_pyarrow(events_pca_scores_scaled, verbose=verbose)

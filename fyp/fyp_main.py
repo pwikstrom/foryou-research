@@ -10,174 +10,10 @@ from typing import Iterable, List
 
 
 ############################################################################################################
-###                     Initialize project
+###                     Initialize things
 ############################################################################################################
 
-"""def create_dirs(this_cf: dict, clear_temp_dir: bool = False) -> None:
-    from os import makedirs
-    from os.path import join
-    from os import listdir, remove
 
-    for k in ["local_data", "zeeschuimer_raw", "zeeschuimer_refined", "ddp", "temp", "backup", "scrape", "exports","archive","errors"]:
-        makedirs(this_cf["paths"][k], exist_ok=True)
-
-    if clear_temp_dir:
-        for fn in listdir(temp_path(this_cf)):
-            remove(join(temp_path(this_cf),fn))"""
-
-
-
-
-
-def init_config(
-    verbose=False,
-    abs_project_root_path=None
-    ) -> dict:
-
-    from os import environ, listdir, remove, makedirs
-    from os.path import join, abspath, relpath
-    import toml
-    import pandas as pd
-    
-    # NOTE: pd.options.mode.dtype_backend does not exist in 2.3.0
-    # Consistency is enforced via proper arguments in data_io execution functions.
-
-
-    if abs_project_root_path is None:
-
-        from os import getcwd
-        from os.path import exists
-        from sys import path as sys_path
-
-        here = getcwd().split("/")
-        while not exists(join("/".join(here),"__proj__.py")):
-            here.pop()
-
-        # this is the root folder for the project structure
-        abs_project_root_path = join("/".join(here))
-        if verbose:
-            print("Project root:",abs_project_root_path)
-
-        # add project root path to PATH since the modules are located in the project structure
-        sys_path.append(abs_project_root_path)
-
-
-    where_to_start = toml.load(join(abs_project_root_path,"config","core.toml"))
-    config_path = join(abs_project_root_path,"config",where_to_start["core"]["config_fn"])
-    study_defs_path = join(abs_project_root_path,"config",where_to_start["core"]["study_defs_fn"])
-    
-
-    cf = toml.load(config_path)
-    # Prefer env var for secrets; fall back to file if present (avoid committing real keys)
-    gcp_bucket_name = environ.get("FYP_GCS_BUCKET_NAME")
-    if gcp_bucket_name:
-        cf["data_io"]["GCS_bucket_name"] = gcp_bucket_name
-
-    # Prefer env var for secrets; fall back to file if present (avoid committing real keys)
-    gemini_env_key = environ.get("GEMINI_API_KEY")
-    if gemini_env_key:
-        cf["machine"]["key"] = gemini_env_key
-
-    # Load variable scheme
-    try:
-        import pandas as pd
-        from os.path import exists
-        var_schema_path = join(abs_project_root_path, "config", "var_schema.csv")
-        if exists(var_schema_path):
-             # Need to ensure exists is imported or just try/except
-             cf["var_schema"] = pd.read_csv(var_schema_path)
-        else:
-             print(f"Warning: var_schema.csv not found at {var_schema_path}")
-             cf["var_schema"] = pd.DataFrame()
-    except Exception as e:
-        if verbose:
-            print(f"Failed to load var_schema.csv: {e}")
-        cf["var_schema"] = pd.DataFrame()
-
-    study_defs = toml.load(study_defs_path)
-    for study_name in study_defs.keys():
-        study_defs[study_name]["STUDY_NAME"] = study_name
-    cf["study_defs"] = study_defs
-
-    cf["paths"]["project_root"] = abs_project_root_path
-
-    cf["machine"]["client"] = None
-    cf["machine"]["global_generation_config"] = None
-    cf["data_io"]["bucket"] = None
-
-    for p in cf["machine"].keys():
-        if "prompt" in p:
-            cf["machine"][p] = join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
-
-    # Resolve relative paths against the project root for consistent file access.
-    cf["paths"]["local_data"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
-    cf["paths"]["local_temp"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_temp"]))
-
-    # paths to folders
-    cf["paths"]["zeeschuimer"] = join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
-    cf["paths"]["zeeschuimer_raw"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")
-    cf["paths"]["zeeschuimer_refined"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
-    cf["paths"]["zeeschuimer_main"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_main")
-
-    cf["paths"]["ddp"] = join(cf["paths"]["local_data"],"activity_data", "ddp")
-    cf["paths"]["ddp_raw"] = join(cf["paths"]["ddp"], "ddp_raw")
-    cf["paths"]["ddp_processed"] = join(cf["paths"]["ddp"], "ddp_processed")
-    cf["paths"]["ddp_main"] = join(cf["paths"]["ddp"], "ddp_main")
-    cf["paths"]["ddp_participants"] = join(cf["paths"]["ddp"], "ddp_participants")
-
-    cf["paths"]["scrape"] = join(cf["paths"]["local_data"], "scrape")
-
-    cf["paths"]["machine_annotations"] = join(cf["paths"]["local_data"], "machine_annotations")
-    cf["paths"]["machine_annotations_raw"] = join(cf["paths"]["machine_annotations"], "machine_annotations_raw")
-    cf["paths"]["machine_annotations_refined"] = join(cf["paths"]["machine_annotations"], "machine_annotations_refined")
-
-    cf["paths"]["exports"] = join(cf["paths"]["local_data"], "exports")
-    cf["paths"]["archive"] = join(cf["paths"]["local_data"], "archive")
-    cf["paths"]["temp"] = join(cf["paths"]["local_temp"], "temp")
-    
-    # ------------------------------------------------------------------
-    # GCS Path Mapping
-    # Mirror the local data structure to GCS
-    # ------------------------------------------------------------------
-    cf["gcs_paths"] = {}
-    gcs_prefix = cf["paths"].get("gcs_data_prefix", "")
-    local_data_root = cf["paths"]["local_data"]
-
-    for k, v in cf["paths"].items():
-        if isinstance(v, str) and v.startswith(local_data_root) and k != "local_data":
-            # calculate relative path from local_data root
-            # e.g. /.../data/activity/zeeschuimer -> activity/zeeschuimer
-            rel = relpath(v, local_data_root)
-            
-            # Combine with GCS prefix
-            # Use forward slashes for GCS always, though on Mac os.path.join uses /
-            if rel == ".": 
-                gcs_path = gcs_prefix
-            else:
-                gcs_path = f"{gcs_prefix}/{rel}" if gcs_prefix else rel
-                
-            cf["gcs_paths"][k] = gcs_path
-    
-    # Explicitly ensure root is mapped if needed, or handled above (local_data itself)
-    cf["gcs_paths"]["local_data"] = gcs_prefix if gcs_prefix else ""
-
-
-    # create missing local folders if not using GCS
-    if not cf['misc']['use_gcs_for_data']:        
-        for k in cf["paths"].keys():
-            makedirs(cf["paths"][k], exist_ok=True)
-
-    # empty local temp folder
-    #for fn in listdir(cf["paths"]["temp"]):
-    #    remove(join(cf["paths"]["temp"],fn))
-
-
-    if verbose:
-        print(f"Initialised with main data directory: {cf['paths']['local_data']}")
-
-
-
-    return cf
 
 
 
@@ -210,14 +46,16 @@ def connect_to_google(cf_in, verbose=False):
             print(exep)
             return False
 
+    cf["data_io"]["bucket"] = None
 
     if not _checkInternetHttplib():
         print("No internet connection. Running local mode without connecting to Google services.")
+        cf['misc']['local_mode'] = True
         return cf
 
     try:
-        with open(cf['machine']['new_prompt'], 'r') as file:
-            machine_new_prompt = file.read()
+        with open(cf['machine']['prompt'], 'r') as file:
+            machine_prompt = file.read()
 
         cf["machine"]["client"] = genai.Client(
             vertexai=cf["machine"]["vertexai"],
@@ -230,7 +68,7 @@ def connect_to_google(cf_in, verbose=False):
         )
 
         cf["machine"]["global_generation_config"] = types.GenerateContentConfig(
-            system_instruction=machine_new_prompt,
+            system_instruction=machine_prompt,
             temperature=cf["machine"]["temperature"],
             max_output_tokens=cf["machine"]["max_output_tokens"],
             response_mime_type=cf["machine"]["response_mime_type"],
@@ -268,17 +106,181 @@ def connect_to_google(cf_in, verbose=False):
 
 
 
+def initialize(
+    verbose=False,
+    abs_project_root_path=None
+    ) -> dict:
 
-"""def init_project(clear_temp_dir=False, verbose=False) -> dict:
+    from os import environ, listdir, remove, makedirs, getcwd
+    from os.path import join, abspath, relpath, exists
+    import toml
+    import pandas as pd
+    from sys import path as sys_path
+    
 
+    # ------------------------------------------------------------------
+    # Locate the project root - I don't know what other people do - this works for me
+    # ------------------------------------------------------------------
+    if abs_project_root_path is None:
+
+        # I put an empty __proj__.py file in the root folder of the project structure
+        here = getcwd().split("/")
+        while not exists(join("/".join(here),"__proj__.py")):
+            here.pop()
+
+        # this is the root folder for the project structure
+        abs_project_root_path = join("/".join(here))
+
+        # add project root path to PATH since the modules are located in the project structure
+        sys_path.append(abs_project_root_path)
+
+
+    
+    # ------------------------------------------------------------------
+    # Load essential files - let it blow up if the files aren't found
+    # ------------------------------------------------------------------
+    where_to_start = toml.load(join(abs_project_root_path,"config","core.toml"))
+
+    config_path = join(abs_project_root_path,"config",where_to_start["core"]["config_fn"])
+    study_defs_path = join(abs_project_root_path,"config",where_to_start["core"]["study_defs_fn"])
+    var_schema_path = join(abs_project_root_path, "config", where_to_start["core"]["var_schema_fn"])
+
+    # Load main config
+    cf = toml.load(config_path)
+    cf["paths"]["project_root"] = abs_project_root_path
     if verbose:
-        print("\n\nInitializing...\n\n")
+        print("Project root:",abs_project_root_path)
 
-    cf = init_config(verbose=verbose, abs_project_root_path=None)
-    create_dirs(cf, clear_temp_dir)
+    # Load variable schema
+    cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+
+    # Load study definitions
+    study_defs = toml.load(study_defs_path)
+    for study_name in study_defs.keys():
+        study_defs[study_name]["STUDY_NAME"] = study_name
+    cf["study_defs"] = study_defs
+
+
+
+
+
+    # ------------------------------------------------------------------
+    # Use env var for secrets; fall back to config if present (avoid committing real keys)
+    # ------------------------------------------------------------------
+    gcp_bucket_name = environ.get("FYP_GCS_BUCKET_NAME")
+    if gcp_bucket_name:
+        cf["data_io"]["GCS_bucket_name"] = gcp_bucket_name
+
+    gemini_env_key = environ.get("GEMINI_API_KEY")
+    if gemini_env_key:
+        cf["machine"]["key"] = gemini_env_key
+
+
+
+    # ------------------------------------------------------------------
+    # prepare gen ai parameters for initialisation, which happens in 'connect_to_google'
+    # ------------------------------------------------------------------
+    cf["machine"]["client"] = None
+    cf["machine"]["global_generation_config"] = None
+
+    # I've used different prompts in the config. This allows for some flexibility.
+    # It is expected that the parameter in the config file is a filename to a text file
+    # that is located in a folder named 'prompts' in the project root. 
+    for p in cf["machine"].keys():
+        if "prompt" in p:
+            cf["machine"][p] = join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
+
+
+    # ------------------------------------------------------------------
+    # initialize paths
+    # ------------------------------------------------------------------
+    # Resolve relative paths against the project root for consistent file access.
+    cf["paths"]["local_data"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
+    cf["paths"]["local_temp"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_temp"]))
+
+    # paths to zeeschuimer data
+    cf["paths"]["zeeschuimer"] = join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
+    cf["paths"]["zeeschuimer_raw"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")
+    cf["paths"]["zeeschuimer_refined"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
+    cf["paths"]["zeeschuimer_main"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_main")
+
+    # paths to ddp data
+    cf["paths"]["ddp"] = join(cf["paths"]["local_data"],"activity_data", "ddp")
+    cf["paths"]["ddp_raw"] = join(cf["paths"]["ddp"], "ddp_raw")
+    cf["paths"]["ddp_processed"] = join(cf["paths"]["ddp"], "ddp_processed")
+    cf["paths"]["ddp_main"] = join(cf["paths"]["ddp"], "ddp_main")
+    cf["paths"]["ddp_participants"] = join(cf["paths"]["ddp"], "ddp_participants")
+
+    # paths to scrape data
+    cf["paths"]["scrape"] = join(cf["paths"]["local_data"], "scrape")
+
+    # paths to machine annotations
+    cf["paths"]["machine_annotations"] = join(cf["paths"]["local_data"], "machine_annotations")
+    cf["paths"]["machine_annotations_raw"] = join(cf["paths"]["machine_annotations"], "machine_annotations_raw")
+    cf["paths"]["machine_annotations_refined"] = join(cf["paths"]["machine_annotations"], "machine_annotations_refined")
+
+    # other paths
+    cf["paths"]["exports"] = join(cf["paths"]["local_data"], "exports")
+    cf["paths"]["archive"] = join(cf["paths"]["local_data"], "archive")
+    cf["paths"]["temp"] = join(cf["paths"]["local_temp"], "temp")
+    
+
+    # If using GCS for data, connect to Google and mirror the local data structure to GCS
+    cf["data_io"]["bucket"] = None
+
+
+    if cf['misc']['local_mode']:
+        print("Local mode is enabled. GCS data will not be used.")
+        cf['data_io']['use_gcs_for_data'] = False
+
+
+    if cf['data_io']['use_gcs_for_data']:
+
+        cf["gcs_paths"] = {}
+        gcs_prefix = cf["paths"].get("gcs_data_prefix", "")
+        local_data_root = cf["paths"]["local_data"]
+
+        for k, v in cf["paths"].items():
+            if isinstance(v, str) and v.startswith(local_data_root) and k != "local_data":
+                # calculate relative path from local_data root
+                # e.g. /.../data/activity/zeeschuimer -> activity/zeeschuimer
+                rel = relpath(v, local_data_root)
+                
+                # Combine with GCS prefix
+                # Use forward slashes for GCS always, though on Mac os.path.join uses /
+                if rel == ".": 
+                    gcs_path = gcs_prefix
+                else:
+                    gcs_path = f"{gcs_prefix}/{rel}" if gcs_prefix else rel
+                    
+                cf["gcs_paths"][k] = gcs_path
+        
+        # Explicitly ensure root is mapped if needed, or handled above (local_data itself)
+        cf["gcs_paths"]["local_data"] = gcs_prefix if gcs_prefix else ""
+
+        if verbose:
+            print(f"Metadata is stored in GCS at {cf['data_io']['GCS_bucket_name']}")
+        """else:
+            print("Tried to connect to bucket but failed. Local storage is used instead.")
+            cf['data_io']['use_gcs_for_data'] = False"""
+
+    else:
+        if verbose:
+            print(f"Metadata is stored locally at {cf['paths']['local_data']}")
+
+    # create missing local folders if not using GCS for data
+    if not cf['data_io']['use_gcs_for_data'] or cf['misc']['local_mode']:
+        if verbose:
+            print("Creating missing local folders")
+        for k in cf["paths"].keys():
+            makedirs(cf["paths"][k], exist_ok=True)
+
 
     return cf
-"""        
+
+
+
+
 
 
 
@@ -741,7 +743,7 @@ def DONT_USE_get_gcp_bucket(bucket_name, verbose = False):
 def DONT_USE_init_data_io(verbose=False):
     from os.path import join
 
-    #cf = init_config()
+    #cf = initialize()
 
     if cf["data_io"]["storage_type"]=="GC":
         if verbose:

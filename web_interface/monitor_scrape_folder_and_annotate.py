@@ -20,10 +20,10 @@ def main() -> None:
         current_dir = current_dir.parent
     sys.path.append(str(current_dir))
 
-    from fyp.fyp_main import init_config, connect_to_google
+    from fyp.fyp_main import initialize, connect_to_google
     import fyp.data_io as data_io
 
-    cf = init_config()
+    cf = initialize()
     cf = connect_to_google(cf)
 
 
@@ -31,7 +31,7 @@ def main() -> None:
     TRACE_STORAGE_LOCATION = "scrape"
     # Even if we use GCS, we keep the log file local in the mapped directory
     WATCH_DIR_LOCAL = Path(cf['paths'][TRACE_STORAGE_LOCATION]) 
-    PATTERN_SUFFIX = cf['misc']['file_format']                                      # final suffix to react to
+    PATTERN_SUFFIX = '.parquet'                                      # final suffix to react to
     PATTERN_PREFIX = "scrape_metadata_"                          # prefix to react to
     STATE_FILE = "watcher_state.json"                            # JSON file in GCS to track state
     POLL_INTERVAL = 10.0                                         # seconds between scans

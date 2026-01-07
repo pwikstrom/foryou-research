@@ -44,12 +44,12 @@ def load_machine_annotations(
     from os.path import basename
     import re
  
-    from fyp.fyp_main import init_config, connect_to_google
+    from fyp.fyp_main import initialize, connect_to_google
     import fyp.data_io as data_io
 
     if cf is None:
-        cf = init_config()
-    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = initialize()
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
     print("Loading machine annotations...")
@@ -83,7 +83,7 @@ def load_machine_annotations(
 
 
     if consolidate:
-        machine_file_names = [gg for gg in data_io.listdir(cf, "machine_annotations_refined", verbose=verbose) if gg.startswith("machine_annotations") and gg.endswith(cf["misc"]["file_format"])]
+        machine_file_names = [gg for gg in data_io.listdir(cf, "machine_annotations_refined", verbose=verbose) if gg.startswith("machine_annotations") and gg.endswith('.parquet')]
         machine_file_names = list(set(machine_file_names))
 
         if len(machine_file_names) > 1:
@@ -196,11 +196,11 @@ def call_machine(
     from random import randint
     from copy import copy
 
-    from fyp.fyp_main import init_config, connect_to_google, temp_path
+    from fyp.fyp_main import initialize, connect_to_google, temp_path
     import fyp.data_io as data_io
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     if cf["machine"]["client"] is None:
         cf = connect_to_google(cf)
 
@@ -216,7 +216,7 @@ def call_machine(
         "inference_ts" : int(times[-1].timestamp()),
         "inference_duration" : -1,
         "model" : cf['machine']['model'],
-        "prompt_fn" : basename(cf['machine']['new_prompt']),
+        "prompt_fn" : basename(cf['machine']['prompt']),
         "error" : "-",
         "finish_reason": "did not even start",
         "response" : "",
@@ -438,10 +438,10 @@ def call_machine_threads(
     from random import random
     from os import environ
 
-    from fyp.fyp_main import init_config, connect_to_google
+    from fyp.fyp_main import initialize, connect_to_google
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     if cf["machine"]["client"] is None:
         cf = connect_to_google(cf)
 
@@ -1226,18 +1226,18 @@ def post_process_raw_annotations(
 
     from datetime import datetime
     from os.path import join
-    from fyp.fyp_main import init_config, connect_to_google, temp_path, convert_dtypes_to_pyarrow
+    from fyp.fyp_main import initialize, connect_to_google, temp_path, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
 
     if raw_outputs_from_machine is None:
         raise ValueError("raw_outputs_from_machine cannot be None")
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     if cf["machine"]["client"] is None:
         cf = connect_to_google(cf)
     
-    file_format = cf['misc']['file_format']
+    file_format = '.parquet'
 
     print("Starting post-processing of raw annotations...")
     if verbose:
@@ -1294,10 +1294,10 @@ def annotate_from_list(
     """
 
     from os import environ
-    from fyp.fyp_main import init_config, connect_to_google, temp_path
+    from fyp.fyp_main import initialize, connect_to_google, temp_path
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     if cf["machine"]["client"] is None:
         cf = connect_to_google(cf)
     
@@ -1345,10 +1345,10 @@ def annotate_from_scrape_metadata_file(
     from os.path import exists
     import fyp.data_io as data_io
 
-    from fyp.fyp_main import init_config, connect_to_google
+    from fyp.fyp_main import initialize, connect_to_google
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     if cf["machine"]["client"] is None:
         cf = connect_to_google(cf)
 
@@ -1393,11 +1393,11 @@ def post_process_raw_annotations_from_json_file(
     #from json import load
     #from os.path import exists
 
-    from fyp.fyp_main import init_config, connect_to_google
+    from fyp.fyp_main import initialize, connect_to_google
     import fyp.data_io as data_io
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
 
     raw_outputs_from_machine = data_io.load_json(cf, "machine_annotations_raw", json_filename, verbose=verbose)
@@ -1438,11 +1438,11 @@ def annotate_videos_loop(
     from os.path import join
     import json
 
-    from fyp.fyp_main import init_config, connect_to_google
-    from fyp.organize_datasets_OPTIMIZED import select_videos_from_half_baked
+    from fyp.fyp_main import initialize, connect_to_google
+    from fyp.organize_datasets import select_videos_from_half_baked
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     if cf["machine"]["client"] is None:
         cf = connect_to_google(cf)
 

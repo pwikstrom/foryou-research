@@ -94,10 +94,10 @@ def _is_emoji(s: str) -> bool:
 def get_factors_and_features_from_var_schema(cf = None, some_events_df = None, verbose = False):
     import pandas as pd
     from os.path import join
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     
     var_schema = cf["var_schema"]
     
@@ -1196,12 +1196,12 @@ def recode_events_df(
     from os.path import join, exists
     from datetime import datetime
     from copy import copy
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
+    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
     from numpy import int64, float64
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     
     #if study_name is None:
     #    raise ValueError("study_name must be specified")
@@ -1210,7 +1210,7 @@ def recode_events_df(
 
 
     #if cool_events_in is None:
-    #    log_path = f"{study_name}_LOG{cf['misc']['file_format']}"
+    #    log_path = f"{study_name}_LOG.parquet"
     #    if data_io.exists(cf, "exports", log_path):
     #        print(f"Loading events file in export folder...", end=" ", flush=True)
     #        cool_events_in = data_io.load_parquet(cf, "exports", log_path, verbose=verbose)
@@ -1430,7 +1430,7 @@ def recode_events_df(
     cool_events = cool_events[sorted(cool_events.columns)]
 
     if save_it:
-        recoded_filename = f"{study_name}_RECODED{cf['misc']['file_format']}"
+        recoded_filename = f"{study_name}_RECODED.parquet"
         data_io.save_parquet(cf, cool_events, "exports", recoded_filename, verbose=verbose)
         print(f"Exported {len(cool_events):,} events in '{recoded_filename}'.")
     

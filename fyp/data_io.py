@@ -36,9 +36,9 @@ def _resolve_paths(cf, storage_location, filename):
         raise ValueError(f"Invalid storage location: '{storage_location}'. Use: {valid_locs}")
 
     # 2. Check GCS Configuration
-    use_gcs = cf.get("misc", {}).get("use_gcs_for_data", False)
-    gcs_base = cf.get("gcs_paths", {}).get(storage_location)
-    bucket_name = cf['data_io'].get('GCS_bucket_name')
+    use_gcs = cf['data_io']['use_gcs_for_data']
+    gcs_base = cf['gcs_paths'][storage_location]
+    bucket_name = cf['data_io']['GCS_bucket_name']
     
     # 3. Resolve
     if use_gcs and gcs_base:
@@ -61,7 +61,7 @@ def _resolve_paths(cf, storage_location, filename):
 
 def _get_bucket(cf):
     """Retrieve the bucket object from config."""
-    w = cf.get("data_io", {}).get("bucket")
+    w = cf['data_io']['bucket']
     return w
 
 
@@ -110,22 +110,15 @@ def getctime(cf, storage_location, filename, verbose=False):
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
     
     if mode == 'gcs':
-        try:
-            bucket = _get_bucket(cf)
-            if bucket:
-                blob = bucket.get_blob(blob_name)
-                if blob and blob.time_created:
-                    return blob.time_created.timestamp()
-                # If blob doesn't exist or time missing
-                raise FileNotFoundError(f"GCS Blob not found: {blob_name}")
-            else:
-                raise ValueError("GCS bucket not initialized")
-        except Exception as e:
-            use_fallback = cf.get("misc", {}).get("use_local_as_fallback", False)
-            if use_fallback and secondary:
-                 if verbose: print(f" [DATA_IO] getctime: Fallback ({e}). Checking {secondary}")
-                 return getctime(secondary)
-            raise e
+        bucket = cf['data_io']['bucket']
+        if bucket:
+            blob = bucket.get_blob(blob_name)
+            if blob and blob.time_created:
+                return blob.time_created.timestamp()
+            # If blob doesn't exist or time missing
+            raise FileNotFoundError(f"GCS Blob not found: {blob_name}")
+        else:
+            raise ValueError("GCS bucket not initialized")
     else:
         return getctime(primary)
 
@@ -142,21 +135,14 @@ def getmtime(cf, storage_location, filename, verbose=False):
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
 
     if mode == 'gcs':
-        try:
-            bucket = _get_bucket(cf)
-            if bucket:
-                blob = bucket.get_blob(blob_name)
-                if blob and blob.updated:
-                    return blob.updated.timestamp()
-                raise FileNotFoundError(f"GCS Blob not found: {blob_name}")
-            else:
-                raise ValueError("GCS bucket not initialized")
-        except Exception as e:
-            use_fallback = cf.get("misc", {}).get("use_local_as_fallback", False)
-            if use_fallback and secondary:
-                 if verbose: print(f" [DATA_IO] getmtime: Fallback ({e}). Checking {secondary}")
-                 return getmtime(secondary)
-            raise e
+        bucket = cf['data_io']['bucket']
+        if bucket:
+            blob = bucket.get_blob(blob_name)
+            if blob and blob.updated:
+                return blob.updated.timestamp()
+            raise FileNotFoundError(f"GCS Blob not found: {blob_name}")
+        else:
+            raise ValueError("GCS bucket not initialized")
     else:
         return getmtime(primary)
 
@@ -174,21 +160,14 @@ def getsize(cf, storage_location, filename, verbose=False):
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
 
     if mode == 'gcs':
-        try:
-            bucket = _get_bucket(cf)
-            if bucket:
-                 blob = bucket.get_blob(blob_name)
-                 if blob:
-                     return blob.size
-                 raise FileNotFoundError(f"GCS Blob not found: {blob_name}")
-            else:
-                 raise ValueError("GCS bucket not initialized")
-        except Exception as e:
-            use_fallback = cf.get("misc", {}).get("use_local_as_fallback", False)
-            if use_fallback and secondary:
-                 if verbose: print(f" [DATA_IO] getsize: Fallback ({e}). Checking {secondary}")
-                 return getsize(secondary)
-            raise e
+        bucket = cf['data_io']['bucket']
+        if bucket:
+                blob = bucket.get_blob(blob_name)
+                if blob:
+                    return blob.size
+                raise FileNotFoundError(f"GCS Blob not found: {blob_name}")
+        else:
+                raise ValueError("GCS bucket not initialized")
     else:
         return getsize(primary)
 
@@ -202,7 +181,6 @@ def getsize(cf, storage_location, filename, verbose=False):
 def remove(cf, storage_location, filename, verbose=False):
     """
     Remove the file filename from the given storage location.
-    In Parallel Mode (GCS enabled), attempts to remove from BOTH GCS and Local.
     """
     from os import remove as local_remove
     from os.path import exists as local_exists
@@ -211,7 +189,7 @@ def remove(cf, storage_location, filename, verbose=False):
 
     # 1. Remove from GCS if configured
     if mode == 'gcs':
-        bucket = _get_bucket(cf)
+        bucket = cf['data_io']['bucket']
         if bucket:
             try:
                 # delete() raises NotFound by default if missing, unless generic exception handling
@@ -221,7 +199,7 @@ def remove(cf, storage_location, filename, verbose=False):
                 # It's possible it didn't exist
                 if verbose: print(f" [DATA_IO] GCS remove note: {e}")
 
-    elif mode == 'local':
+    else:
         if local_exists(primary):
             local_remove(primary)
             if verbose: print(f" [DATA_IO] Removed local file '{primary}'")
@@ -243,16 +221,16 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
     # We can't use _resolve_paths directly for the dir itself because _resolve_paths expects a filename
     # But we can reuse the logic key parts.
     
-    use_gcs = cf.get("misc", {}).get("use_gcs_for_data", False)
-    gcs_base = cf.get("gcs_paths", {}).get(storage_location)
+    use_gcs = cf['data_io']['use_gcs_for_data']
+    gcs_base = cf['gcs_paths'][storage_location]
     
     files = []
     
     if use_gcs and gcs_base:
         # GCS Mode
         try:
-            bucket = _get_bucket(cf)
-            bucket_name = cf['data_io'].get('GCS_bucket_name')
+            bucket = cf['data_io']['bucket']
+            bucket_name = cf['data_io']['GCS_bucket_name']
             if bucket:
                 # Add trailing slash to treat as directory
                 prefix = gcs_base
@@ -260,8 +238,6 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
                 
                 if verbose: print(f" [DATA_IO] Listing GCS blobs with prefix: {prefix}")
                 
-                # Let's try to be simple:
-                # Just listing files? 
                 
                 iterator = bucket.list_blobs(prefix=prefix, delimiter='/')
                 for page in iterator.pages:
@@ -286,22 +262,8 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
                  raise ValueError("GCS bucket not initialized for listdir")
                  
         except Exception as e:
-            use_fallback = cf.get("misc", {}).get("use_local_as_fallback", False)
-            if use_fallback:
-                # Fallback to local
-                if verbose: print(f" [DATA_IO] listdir: Fallback ({e}). Listing local dir.")
-                # We need to manually do local listing here since we are inside the 'if use_gcs' block
-                try: 
-                     local_dir = cf['paths'][storage_location]
-                     files = local_listdir(local_dir)
-                     if return_absolute_path:
-                         files = [join(local_dir, f) for f in files]
-                except Exception as e2:
-                     print(f" [DATA_IO] ERROR listdir fallback failed: {e2}")
-                     raise e
-            else:
-                 if verbose: print(" [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
-                 files = [] # Or raise? Old code just warned and returned empty or had logic flow issues.
+            if verbose: print(" [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
+            files = [] # Or raise? Old code just warned and returned empty or had logic flow issues.
 
              
     else:
@@ -406,9 +368,9 @@ def load_json(cf, storage_location, filename, verbose = False):
                      content = blob.download_as_text()
                      return loads(content)
                 else:
-                     if verbose: print(f" [DATA_IO] WARN: GCS Blob not found: {blob_name}. Trying fallback...")
+                     if verbose: print(f" [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
             else:
-                 if verbose: print(" [DATA_IO] WARN: GCS bucket not initialized. Trying fallback...")
+                 if verbose: print(" [DATA_IO] WARN: GCS bucket not initialized.")
         else:
             # Local Primary
             with open(primary, 'r') as file:
@@ -421,27 +383,7 @@ def load_json(cf, storage_location, filename, verbose = False):
              print(f" [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
              return None
 
-    # Fallback to Secondary (Local) if GCS failed
-    # We reach here if mode='gcs' and (blob missing OR bucket missing OR download failed)
-    use_fallback = cf.get("misc", {}).get("use_local_as_fallback", False)
-    if mode == 'gcs' and secondary and use_fallback:
-        try:
-            if verbose: print(f" [DATA_IO] Fallback: Attempting to load local copy from {secondary}")
-            with open(secondary, 'r') as file:
-                return load(file)
-        except Exception as e2:
-             print(f" [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}' (GCS+Local Fallback failed): {e2}")
-             # Raise strictly? Or return None?
-             # User said: "If that also fails - raise"
-             # But original code returned None on error.
-             # User instruction: "If that also fails - raise"
-             # So I should raise.
-             # But I should probably raise the ORIGINAL error if secondary didn't exist?
-             # Or just a generic error.
-             raise e2
-    
-    # If we are here, we failed primary and had no secondary?
-    # Or mode was local and we returned None above.
+    # If we are here, things haven't gone very well have they
     return None
 
 
@@ -477,11 +419,6 @@ def save_json(cf, data, storage_location, filename, verbose = False):
         with open(primary, 'w') as file:
             dump(data, file)
             
-    # 2. Parallel Save (Secondary)
-    #if secondary:
-    #    if verbose: print(f" [DATA_IO] Parallel Save: Writing local JSON copy to {secondary}")
-    #    with open(secondary, 'w') as file:
-    #         dump(data, file)
 
 
 
@@ -532,7 +469,7 @@ def load_parquet(
 
 
     # if we are to load all parquet files in this location (and it is gcs)
-    if filename == "*" and cf['misc']['use_gcs_for_data']:
+    if filename == "*" and cf['data_io']['use_gcs_for_data']:
         gcs_base = cf.get("gcs_paths", {}).get(storage_location)
         bucket_name = cf['data_io'].get('GCS_bucket_name')
         files = fs.glob(f'gs://{bucket_name}/{gcs_base}/*.parquet')
@@ -695,12 +632,12 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
 def get_study_export_files(cf = None, study_name = None):
     #from os import listdir
     #from os.path import join, getmtime
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
     from numpy import mean as np_mean
     from datetime import datetime
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
     
     if study_name is None:
         raise ValueError("study_name is required")
@@ -708,7 +645,7 @@ def get_study_export_files(cf = None, study_name = None):
     export_file_categories = ["HALF_BAKED", "PCA", "LOG", "RECODED"]
     study_files = {category: [] for category in export_file_categories}
     for fn in listdir(cf, "exports"):
-        if fn.startswith(study_name) and fn.endswith(cf['misc']['file_format']):
+        if fn.startswith(study_name) and fn.endswith('.parquet'):
             for category in export_file_categories:
                 if category in fn:
                     study_files[category].append(getmtime(cf, "exports", fn))
@@ -731,11 +668,11 @@ def get_study_export_files(cf = None, study_name = None):
 def get_dataset_details(cf=None, study_name=None):
     #from os import listdir
     #from os.path import join, getsize
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
     import pandas as pd
     
     if cf is None:
-        cf = init_config()
+        cf = initialize()
         
     if study_name is None:
         raise ValueError("study_name is required")
@@ -745,7 +682,7 @@ def get_dataset_details(cf=None, study_name=None):
     details = []
 
     try:
-        files = [f for f in listdir(cf, "exports") if f.startswith(study_name) and f.endswith(cf['misc']['file_format'])]
+        files = [f for f in listdir(cf, "exports") if f.startswith(study_name) and f.endswith('.parquet')]
     except FileNotFoundError:
         return []
 

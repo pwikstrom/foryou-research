@@ -10,7 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import fyp.recode_variables as recode_new
 import fyp.recode_variables_old as recode_old
-from fyp.fyp_main import init_config
+from fyp.fyp_main import initialize
 
 def run_verification():
     print("Loading test data from test_data.parquet...")
@@ -25,7 +25,7 @@ def run_verification():
     
     # Initialize config
     # We might need to handle 'study_name' argument if recode_events_df requires it
-    cf = init_config()
+    cf = initialize()
     
     # 1. Run OLD
     print("\n" + "="*40)

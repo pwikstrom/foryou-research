@@ -8,11 +8,11 @@ sys.path.append(str(project_root))
 
 
 if __name__ == "__main__":
-    import fyp.organize_datasets_OPTIMIZED as organize_datasets
+    import fyp.organize_datasets as organize_datasets
     import argparse
     import json
     import base64
-    from fyp.fyp_main import connect_to_google, init_config
+    from fyp.fyp_main import connect_to_google, initialize
 
     
     # Argument Parser
@@ -23,8 +23,8 @@ if __name__ == "__main__":
     study_name = args.study_name
     
     # Load CF
-    cf = init_config(verbose=False)
-    if cf['misc']['use_gcs_for_data']:
+    cf = initialize(verbose=False)
+    if cf['data_io']['use_gcs_for_data']:
         cf = connect_to_google(cf)
 
     print(f"Starting dataset regeneration for study: {study_name}")

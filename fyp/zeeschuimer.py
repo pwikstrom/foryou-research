@@ -18,11 +18,11 @@ from numpy import int64 as np_int64
 # read a file with one json object per line and return a list of dictionaries
 def read_ndjson_file(cf = None, storage_location = None, file_name = None):
     from json import loads
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
     from os.path import join
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
     fine_fn = file_name.replace("/","").replace(".ndjson","").split('-')[0]
     data = []
@@ -42,12 +42,12 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
     from pandas import DataFrame, json_normalize, merge
     from datetime import datetime
     from copy import copy
-    from fyp.fyp_main import init_config, extract_and_join_subkeys, clean_url, convert_dtypes_to_pyarrow
+    from fyp.fyp_main import initialize, extract_and_join_subkeys, clean_url, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
     import numpy as np
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
     if isinstance(item_list_or_ndjson_path, str):
         item_list = read_ndjson_file(cf = cf, storage_location="zeeschuimer_raw", file_name = item_list_or_ndjson_path)
@@ -189,11 +189,11 @@ def move_and_refine_recent_file(
     from os.path import basename, join, exists
     import subprocess
     from datetime import datetime
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
     import fyp.data_io as data_io
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
     if the_recent_file is None:
         raise ValueError("the_recent_file must be a dictionary with a 'filename' key")
@@ -216,16 +216,16 @@ def move_and_refine_recent_file(
     refined_zee_log = refine_zeeschuimer_log(cf = cf, item_list_or_ndjson_path = raw_zee_log)
 
     # create a filename for the zeeschuimer processed file by just replacing the suffix
-    zee_processed_fn = better_zee_ndjson_fn.replace(".ndjson",cf['misc']['file_format'])
+    zee_processed_fn = better_zee_ndjson_fn.replace(".ndjson",'.parquet')
 
     # make sure the filename for the processed file is unique
     r = 0
     while data_io.exists(cf, "zeeschuimer_refined", zee_processed_fn):
         r += 1
         if r ==  1:
-            zee_processed_fn = zee_processed_fn.replace(cf['misc']['file_format'], f"_{r:04}{cf['misc']['file_format']}")
+            zee_processed_fn = zee_processed_fn.replace('.parquet', f"_{r:04}.parquet")
         else:
-            zee_processed_fn = zee_processed_fn.replace(f"_{r-1:04}{cf['misc']['file_format']}", f"_{r:04}{cf['misc']['file_format']}")
+            zee_processed_fn = zee_processed_fn.replace(f"_{r-1:04}.parquet", f"_{r:04}.parquet")
 
 
     # save the refined zeeschuimer log as a processed file
@@ -247,10 +247,10 @@ def get_baseline_log(cf = None,
     from os.path import basename, join
     import subprocess
     from datetime import datetime
-    from fyp.fyp_main import init_config, pretty_str_seconds, get_recent_files
+    from fyp.fyp_main import initialize, pretty_str_seconds, get_recent_files
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
     start_time = datetime.now()
     print("\n"+"*"*100)
@@ -316,7 +316,7 @@ def process_baseline_for_complete_dataset(
     verbose=False):
 
     from pandas import concat
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
+    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
 
     if baseline_log is None or len(baseline_log) == 0:
         if verbose:
@@ -324,7 +324,7 @@ def process_baseline_for_complete_dataset(
         return None, session_id_counter
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
     baseline_log_simple = baseline_log.rename(columns={c:"B_"+c if not c=="item_id" else c for c in baseline_log.columns}).copy()
     if verbose:
@@ -432,13 +432,13 @@ def ingest_zeeschuimer_data(
     from datetime import datetime
     from json import load as json_load
     from zoneinfo import ZoneInfo
-    from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
-    from fyp.organize_datasets_OPTIMIZED import extract_local_time_features
+    from fyp.fyp_main import initialize, connect_to_google, convert_dtypes_to_pyarrow
+    from fyp.organize_datasets import extract_local_time_features
     import fyp.data_io as data_io
 
     if cf is None:
-        cf = init_config()
-    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = initialize()
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
     
     
@@ -447,7 +447,7 @@ def ingest_zeeschuimer_data(
     list_of_zeeschuimer_logs = []
     okay_test_cases = []
 
-    zeeschuimer_refined_files = [fn for fn in data_io.listdir(cf, "zeeschuimer_refined", verbose=verbose) if fn.endswith(cf['misc']['file_format'])]
+    zeeschuimer_refined_files = [fn for fn in data_io.listdir(cf, "zeeschuimer_refined", verbose=verbose) if fn.endswith('.parquet')]
 
     # loop to load all separate zeeschuimer refined files
     for fn in zeeschuimer_refined_files:
@@ -549,15 +549,15 @@ def load_zeeschuimer_data(
     # load items from baseline logs
 
     from datetime import datetime
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
     import fyp.data_io as data_io
 
     if study_name is None:
         raise ValueError("study_name must be specified")
     
     if cf is None:
-        cf = init_config()
-    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = initialize()
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
     
 

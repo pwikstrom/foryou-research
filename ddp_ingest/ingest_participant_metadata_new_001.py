@@ -25,8 +25,8 @@ import fyp
 
 
 
-from fyp.fyp_main import init_config
-cf = init_config()
+from fyp.fyp_main import initialize
+cf = initialize()
 
 # # Function definitions
 

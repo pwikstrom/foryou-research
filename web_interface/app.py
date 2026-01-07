@@ -27,12 +27,12 @@ sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
 import fyp
 import fyp.data_io as data_io
 from fyp.calc_donation_stats import calculate_all_donation_stats, enrich_stats_with_metadata
-from fyp.organize_datasets_OPTIMIZED import load_ddp_events
+from fyp.organize_datasets import load_ddp_events
 
 
 # Initialize configuration to access paths
-fyp_cf = fyp.init_config(verbose=False)
-if fyp_cf['misc']['use_gcs_for_data']:
+fyp_cf = fyp.initialize(verbose=False)
+if fyp_cf['data_io']['use_gcs_for_data']:
     fyp_cf = fyp.connect_to_google(fyp_cf)
     
 
@@ -94,7 +94,7 @@ def get_explorer_data(study):
         return explorer_df, explorer_col_types
 
     # Resolve path
-    dataset_filename = f"{study}_RECODED{fyp_cf['misc']['file_format']}"
+    dataset_filename = f"{study}_RECODED{fyp_'.parquet'}"
     if data_io.exists(fyp_cf, "exports", dataset_filename):
         explorer_df, explorer_col_types = explorer.load_data(fyp_cf, dataset_filename, verbose=True)
         res = explorer.get_current_stats(explorer_df, explorer_col_types)
@@ -447,10 +447,10 @@ def api_config():
 def api_explorer_studies():
     
     studies = []
-    recoded_files = [fn for fn in data_io.listdir(fyp_cf, "exports") if fn.endswith(f"_RECODED{fyp_cf['misc']['file_format']}")]
+    recoded_files = [fn for fn in data_io.listdir(fyp_cf, "exports") if fn.endswith(f"_RECODED{fyp_'.parquet'}")]
     for fn in recoded_files:
         # Extract study name: filename is {study_name}_RECODED...
-        study_name = fn.replace(f"_RECODED{fyp_cf['misc']['file_format']}", "")
+        study_name = fn.replace(f"_RECODED{fyp_'.parquet'}", "")
         studies.append(study_name)
     
     return jsonify(sorted(studies))
@@ -493,7 +493,7 @@ def api_explorer_metadata():
 
     # Inject Source File Info
     try:
-        the_recoded_file = f"{study}_RECODED{fyp_cf['misc']['file_format']}"
+        the_recoded_file = f"{study}_RECODED{fyp_'.parquet'}"
         if data_io.exists(fyp_cf, "exports", the_recoded_file):
             metadata['source_file'] = the_recoded_file
             mtime = datetime.fromtimestamp(data_io.getmtime(fyp_cf, "exports", the_recoded_file))
@@ -510,7 +510,7 @@ def api_explorer_metadata():
     try:
         var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
         if var_schema_path.exists():
-            scheme_df = pd.read_csv(var_schema_path)
+            scheme_df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
             
             # 1. Display Priority (Viewer Metadata Sort)
             # Filter rows with numeric web_display_prio
@@ -589,7 +589,7 @@ def get_viz_config():
     try:
         var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
         if var_schema_path.exists():
-            df = pd.read_csv(var_schema_path)
+            df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
             
             # Check if columns exist
             has_log = 'web_viz_log' in df.columns
@@ -759,7 +759,7 @@ def get_pca_df(study_name):
         from os.path import join, exists
         import pandas as pd
         
-        pca_filename = f"{study_name}_PCA{fyp_cf['misc']['file_format']}"
+        pca_filename = f"{study_name}_PCA{fyp_'.parquet'}"
         
         if not data_io.exists(fyp_cf, "exports", pca_filename):
             return None
@@ -1342,7 +1342,7 @@ def api_check_datasets(study_name):
 @app.route('/api/check_video_counts/<study_name>', methods=['GET'])
 def api_check_video_counts(study_name):
     try:
-        counts = fyp.generate_and_check_unique_videos_for_scrape_and_annotate(fyp_cf, study_name)
+        counts = fyp.generate_and_check_unique_videos_to_scrape_and_annotate(fyp_cf, study_name)
         # Returns dict: {"annotate": (rows, cols), "scrape": (rows, cols)}
         return jsonify(counts)
     except ValueError as ve:

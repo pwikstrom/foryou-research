@@ -13,14 +13,14 @@ abs_project_root_path = join("/".join(here))
 sys_path.append(abs_project_root_path)
 
 import fyp
-from fyp.fyp_main import init_config, connect_to_google
+from fyp.fyp_main import initialize, connect_to_google
 import fyp.data_io as data_io
 import pandas as pd
 from os import listdir 
 from datetime import datetime
 
-fyp_cf = init_config()
-if fyp_cf['misc']['use_gcs_for_data']:
+fyp_cf = initialize()
+if fyp_cf['data_io']['use_gcs_for_data']:
     fyp_cf = connect_to_google(fyp_cf)
 
 

@@ -12,7 +12,7 @@
   - `pca.py`: distance/similarity matrices for categorical counts (JS, Hellinger, TV, Bray-Curtis, chi²) with smoothing/weighting/tempering; entropy/dominance helpers.
   - `stats.py`: ANOVA with effect sizes; PERMANOVA variants over PCA scores/features.
   - `recode_variables.py` and `machine_annotation.py`: recoding and LLM coding utilities.
-  - Other helpers: `download_videos.py`, `zeeschuimer.py`.
+  - Other helpers: `scrape.py`, `zeeschuimer.py`.
 - `analysis_notebooks/`: main analysis notebook (`main_analysis_notebook_004.ipynb`) plus variable scheme (`var_schema.csv`).
 - `baseline_ingest/`, `ddp_ingest/`, `enrich_tiktok_data/`, `organise_and_export_datasets/`: ingestion, enrichment, export notebooks and artifacts (e.g., `special_ids.pkl`).
 - `ddp_dashboard/`: small analytics app.
@@ -30,7 +30,7 @@
 
 ## Configuration
 - Edit `config/config.toml` for paths, Gemini model/prompt, GCS bucket, and local_mode toggle; pick active config via `config/core.toml`.
-- Study presets (date ranges, sampling, inclusion flags) live in `config/studies.toml`; `init_config` injects selected study into runtime config.
+- Study presets (date ranges, sampling, inclusion flags) live in `config/studies.toml`; `initialize` injects selected study into runtime config.
 - Set `GEMINI_API_KEY` in your environment; the config file leaves the key blank to avoid committing secrets.
 
 ## Typical workflows
@@ -44,8 +44,8 @@
 - Load config + ensure directories:
   ```bash
   python - <<'PY'
-  from fyp.fyp_main import init_config
-  cf = init_config(verbose=True)
+  from fyp.fyp_main import initialize
+  cf = initialize(verbose=True)
   print(cf["paths"]["local_data"])
   PY
   ```

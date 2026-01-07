@@ -8,7 +8,7 @@ def main():
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
     import fyp.pca as pca
-    from fyp.fyp_main import connect_to_google, init_config
+    from fyp.fyp_main import connect_to_google, initialize
 
 
     parser = argparse.ArgumentParser(description="Run pca.calculate_scaled_pca_scores")
@@ -16,8 +16,8 @@ def main():
     args = parser.parse_args()
 
     # Load CF
-    cf = init_config(verbose=False)
-    if cf['misc']['use_gcs_for_data']:
+    cf = initialize(verbose=False)
+    if cf['data_io']['use_gcs_for_data']:
         cf = connect_to_google(cf)
 
     try:

@@ -8,7 +8,7 @@ Date:
 """
 
 
-from .fyp_main import init_config
+from .fyp_main import initialize
 from . import data_io
 import json
 import os
@@ -160,7 +160,7 @@ def download_recent_donations(hours_back: int,
 
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
     # ------------------------------------------------------------------
     # 1) Figure out the time window and format it the way the table stores it
@@ -562,14 +562,14 @@ def load_special_donations(
 
     import fyp.data_io as data_io
     from datetime import datetime
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
 
     if study_name is None:
         raise ValueError("study_name must be specified")
 
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
     the_special_donations = cf["study_defs"][study_name]["SPECIAL_DONATIONS"]
 
@@ -582,7 +582,7 @@ def load_special_donations(
     donations_str = '; '.join(the_special_donations)
     
 
-    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
     DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
@@ -598,7 +598,7 @@ def load_special_donations(
 
     if all_data is None:
         sel = [("D_donation_id", "in", the_special_donations),("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
-        special_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2{cf['misc']['file_format']}", filters=sel,verbose=verbose)
+        special_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2.parquet", filters=sel,verbose=verbose)
     else:
         special_ddp_events_df = all_data.copy()
         special_ddp_events_df = special_ddp_events_df[(special_ddp_events_df.D_donation_id.isin(the_special_donations)) & (special_ddp_events_df.T_local_date>=DDP_START_DATE) & (special_ddp_events_df.T_local_date<=DDP_END_DATE)].copy()
@@ -626,11 +626,11 @@ def sample_ddp_events(
     all_ddp_events_df = None, 
     verbose=False):
 
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
 
     if cf is None:
-        cf = init_config()
-    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = initialize()
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
@@ -857,8 +857,8 @@ def process_ddp_log_for_complete_dataset(
     # combine the special DDP events with the all DDP events
 
     from pandas import DataFrame, concat
-    from fyp.fyp_main import init_config, convert_dtypes_to_pyarrow
-    from fyp.organize_datasets_OPTIMIZED import rename_columns
+    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
+    from fyp.organize_datasets import rename_columns
     from numpy import int64 as np_int64
     from pandas import NA as pd_NA
 
@@ -866,7 +866,7 @@ def process_ddp_log_for_complete_dataset(
         raise ValueError("all_ddp_events_df must be specified")
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
 
 
@@ -935,17 +935,17 @@ def ingest_ddp_events(
     from pandas import concat
     import fyp.data_io as data_io
     from datetime import datetime
-    from fyp.fyp_main import init_config, connect_to_google, convert_dtypes_to_pyarrow
-    from fyp.organize_datasets_OPTIMIZED import extract_local_time_features
+    from fyp.fyp_main import initialize, connect_to_google, convert_dtypes_to_pyarrow
+    from fyp.organize_datasets import extract_local_time_features
 
     if cf is None:
-        cf = init_config()
-    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = initialize()
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
 
     print("Loading all DDP events...", end=" ", flush=True)
-    all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events{cf['misc']['file_format']}", verbose=verbose)
+    all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events.parquet", verbose=verbose)
 
     # drop two columns
     all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
@@ -984,7 +984,7 @@ def ingest_ddp_events(
         cf,
         all_ddp_events_df,
         "ddp_main", 
-        f"all_participant_events_2{cf['misc']['file_format']}", 
+        f"all_participant_events_2.parquet", 
         verbose=verbose)
 
 
@@ -1005,14 +1005,14 @@ def load_ddp_events(
 
     import fyp.data_io as data_io
     from datetime import datetime
-    from fyp.fyp_main import init_config
+    from fyp.fyp_main import initialize
 
     if study_name is None:
         raise ValueError("study_name must be specified")
 
 
     if cf is None:
-        cf = init_config()
+        cf = initialize()
 
 
     if not cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() in ["sample","all"]:
@@ -1020,7 +1020,7 @@ def load_ddp_events(
             print("Not loading DDP events")
         return None
 
-    if cf['misc']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
     print(f"Loading all DDP events...")
@@ -1036,7 +1036,7 @@ def load_ddp_events(
 
     if all_data is None:
         sel = [("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
-        all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2{cf['misc']['file_format']}", filters=sel, verbose=verbose)
+        all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2.parquet", filters=sel, verbose=verbose)
     else:
         all_ddp_events_df = all_data.copy()
         all_ddp_events_df = all_ddp_events_df[(all_ddp_events_df.T_local_date>=DDP_START_DATE) & (all_ddp_events_df.T_local_date<=DDP_END_DATE)].copy()

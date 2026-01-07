@@ -11,7 +11,7 @@ import tempfile
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(PROJECT_ROOT)
 
-from fyp.organize_datasets_OPTIMIZED import extract_local_time_features
+from fyp.organize_datasets import extract_local_time_features
 
 class TestLocalTimeExtraction(unittest.TestCase):
     def setUp(self):
