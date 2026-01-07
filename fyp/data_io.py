@@ -740,7 +740,7 @@ def get_dataset_details(cf=None, study_name=None):
     if study_name is None:
         raise ValueError("study_name is required")
 
-    group_factors = cf['var_scheme'][cf['var_scheme']['role']=='group_factor']['variable_name'].tolist()
+    group_factors = cf['var_schema'][cf['var_schema']['role']=='group_factor']['variable_name'].tolist()
 
     details = []
 

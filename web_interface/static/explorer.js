@@ -132,8 +132,8 @@ function renderFilters(metadata) {
         // But user request implies: "If a variable is not given a value in this column, it should not be used in the filter."
         // So if filter_priority is empty/missing, maybe we show nothing? 
         // Or fallback to default behavior? User said "If ... not given a value ... not used".
-        // If the entire column is missing in var_scheme, likely priority list is empty.
-        // Let's assume if list is provided, we strictly follow it. If list is empty (e.g. var_scheme load failed or empty), fallback to all?
+        // If the entire column is missing in var_schema, likely priority list is empty.
+        // Let's assume if list is provided, we strictly follow it. If list is empty (e.g. var_schema load failed or empty), fallback to all?
         // Safe bet: Fallback to all if list is empty, otherwise strict. 
         colsToRender = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
     }

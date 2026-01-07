@@ -91,7 +91,7 @@ def _is_emoji(s: str) -> bool:
 
 
 
-def get_factors_and_features_from_var_scheme(cf = None, some_events_df = None, verbose = False):
+def get_factors_and_features_from_var_schema(cf = None, some_events_df = None, verbose = False):
     import pandas as pd
     from os.path import join
     from fyp.fyp_main import init_config
@@ -99,10 +99,10 @@ def get_factors_and_features_from_var_scheme(cf = None, some_events_df = None, v
     if cf is None:
         cf = init_config()
     
-    var_scheme = cf["var_scheme"]
+    var_schema = cf["var_schema"]
     
-    the_factors = list(set(var_scheme[var_scheme["role"].isin(['factor','group_factor'])].variable_name) & set(some_events_df.columns))
-    the_features = list(set(var_scheme[var_scheme["role"]=='feature'].variable_name) & set(some_events_df.columns))
+    the_factors = list(set(var_schema[var_schema["role"].isin(['factor','group_factor'])].variable_name) & set(some_events_df.columns))
+    the_features = list(set(var_schema[var_schema["role"]=='feature'].variable_name) & set(some_events_df.columns))
 
     if verbose:
         print("Factors:",", ".join(the_factors))
@@ -612,21 +612,21 @@ def recode_events_df(
 
     cool_events = cool_events_in.copy()
 
-    var_scheme = cf["var_scheme"].copy()
+    var_schema = cf["var_schema"].copy()
 
-    var_scheme.set_index("variable_name", inplace=True)
+    var_schema.set_index("variable_name", inplace=True)
 
-    var_scheme[['mapper','ignore_strings','recode_func']] = var_scheme[['mapper','ignore_strings','recode_func']].map(_try_eval)
+    var_schema[['mapper','ignore_strings','recode_func']] = var_schema[['mapper','ignore_strings','recode_func']].map(_try_eval)
 
-    FYP_FACTORS = list(set(var_scheme[var_scheme["scale"].isin(['factor','group_factor'])].index) & set(cool_events.columns))
+    FYP_FACTORS = list(set(var_schema[var_schema["scale"].isin(['factor','group_factor'])].index) & set(cool_events.columns))
     cool_events[FYP_FACTORS] = cool_events[FYP_FACTORS].astype("string[pyarrow]")
     cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int64(x):05}")
 
-    variables_not_found_in_var_scheme = list(set(cool_events.columns) - set(var_scheme.index))
+    variables_not_found_in_var_schema = list(set(cool_events.columns) - set(var_schema.index))
     if verbose:
         join_str = "\n  - "
-        print(f" 1. Dropping {len(variables_not_found_in_var_scheme)} columns not found in the variable scheme:\n  - {join_str.join(variables_not_found_in_var_scheme)}")
-    cool_events = cool_events.drop(columns=variables_not_found_in_var_scheme).copy()
+        print(f" 1. Dropping {len(variables_not_found_in_var_schema)} columns not found in the variable scheme:\n  - {join_str.join(variables_not_found_in_var_schema)}")
+    cool_events = cool_events.drop(columns=variables_not_found_in_var_schema).copy()
     if verbose:
         print(f" Shape: {cool_events.shape}")
 
@@ -648,14 +648,14 @@ def recode_events_df(
         if verbose:
             print(f"    {(i+1):02}/{len(cool_columns):02}. {c}", end=f"{' '*(40-len(c))}", flush=True)
 
-        # if this is in the var_scheme...
-        if c in var_scheme.index:
-            this_var_scheme = var_scheme.loc[c].to_dict() 
+        # if this is in the var_schema...
+        if c in var_schema.index:
+            this_var_schema = var_schema.loc[c].to_dict() 
 
-            if this_var_scheme.get("role", "undefined") != "skip":
+            if this_var_schema.get("role", "undefined") != "skip":
 
-                if this_var_scheme.get("scale", "undefined") == "raw":
-                    if c+"_raw" in var_scheme.index:
+                if this_var_schema.get("scale", "undefined") == "raw":
+                    if c+"_raw" in var_schema.index:
                         if verbose:
                             print(f"Copied raw variable: {c}")
                         cool_events[c+"_raw"] = cool_events[c].copy()
@@ -673,27 +673,27 @@ def recode_events_df(
                     raise ValueError(f" has {n_types} multiple types of values. Only a single type is allowed. {cool_types.to_dict()}")
 
                 # execute the recode function
-                if not pd.isna(this_var_scheme.get("recode_func", None)):
-                    cool_events[c] = cool_events[c].map(lambda x:this_var_scheme["recode_func"](x,this_var_scheme))
-                    if verbose: print(f"recoded successfully ({this_var_scheme.get('scale', 'unknown scale')})")
+                if not pd.isna(this_var_schema.get("recode_func", None)):
+                    cool_events[c] = cool_events[c].map(lambda x:this_var_schema["recode_func"](x,this_var_schema))
+                    if verbose: print(f"recoded successfully ({this_var_schema.get('scale', 'unknown scale')})")
                 else:
-                    if verbose: print(f"has no recode func, so no change ({this_var_scheme.get('scale', 'unknown scale')})")
+                    if verbose: print(f"has no recode func, so no change ({this_var_schema.get('scale', 'unknown scale')})")
 
 
                 # implement missing data and unable to detect policies
-                if (this_var_scheme.get('unable_to_detect_policy', 'unknown') == "median") or (this_var_scheme.get('missing_data_policy', 'unknown') == "median"):
+                if (this_var_schema.get('unable_to_detect_policy', 'unknown') == "median") or (this_var_schema.get('missing_data_policy', 'unknown') == "median"):
                     a_fine_median = cool_events[c].median()
                 else:
                     a_fine_median = None
 
                 cool_events[c] = cool_events[c].map(lambda x:implement_unable_to_detect_policy(
                     x,
-                    this_var_scheme.get("unable_to_detect_policy","No policy"),
+                    this_var_schema.get("unable_to_detect_policy","No policy"),
                     a_fine_median))
 
                 cool_events[c] = cool_events[c].map(lambda x:implement_missing_data_policy(
                     x,
-                    this_var_scheme.get("missing_data_policy","No policy"),
+                    this_var_schema.get("missing_data_policy","No policy"),
                     a_fine_median))
 
 
@@ -704,7 +704,7 @@ def recode_events_df(
 
 
 
-                if (this_var_scheme["scale"] in ["categorical","dichotomous","ordinal","ratio","interval"]) and top_type == list:
+                if (this_var_schema["scale"] in ["categorical","dichotomous","ordinal","ratio","interval"]) and top_type == list:
                     these_rows_have_multiple_values = cool_events[c].map(lambda x: isinstance(x,list) and len(x)>1)
                     if these_rows_have_multiple_values.sum() > 0:
                         print(f"{c} has {these_rows_have_multiple_values.sum()} values with more than one entry.")
@@ -715,7 +715,7 @@ def recode_events_df(
 
 
                 # for dichotomous variables, I only accept "yes" and "no" as values 
-                if (this_var_scheme["scale"] in ["dichotomous"]):
+                if (this_var_schema["scale"] in ["dichotomous"]):
 
                     if not set(cool_events[c].dropna().unique()) | {'yes','no'} == {'yes','no'}:
                         raise ValueError(f"{c} is a dichotomous variable. Only 'yes', 'no' are accepted values. {c} has {cool_events[c].dropna().unique()}")
@@ -731,13 +731,13 @@ def recode_events_df(
 
                     new_thing_cols = copy(new_thing.columns)
                     for new_thing_c in new_thing_cols:
-                        if not new_thing_c in var_scheme.index or var_scheme.loc[new_thing_c, "role"] == "skip":
+                        if not new_thing_c in var_schema.index or var_schema.loc[new_thing_c, "role"] == "skip":
                             if verbose:
                                 print(f"   - Skipping {new_thing_c}")
                             new_thing = new_thing.drop(columns=new_thing_c)
 
                     # drop the original column or not
-                    if var_scheme.loc[c,"role"] == "raw":
+                    if var_schema.loc[c,"role"] == "raw":
                         cool_events = pd.concat([cool_events.drop(columns=[c]), new_thing], axis=1)
                     else:
                         cool_events = pd.concat([cool_events, new_thing], axis=1)

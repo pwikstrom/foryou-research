@@ -45,7 +45,7 @@ def pairwise_matrix_for_categorical_groups(
             probs = np.divide(mat, sums, out=np.zeros_like(mat), where=sums > 0)
         return probs
 
-    """def _js_distance(p: np.ndarray, q: np.ndarray, eps: float = 1e-12) -> float:
+    def _js_distance(p: np.ndarray, q: np.ndarray, eps: float = 1e-12) -> float:
         p = p + eps; q = q + eps
         p /= p.sum(); q /= q.sum()
         m = 0.5 * (p + q)
@@ -68,7 +68,7 @@ def pairwise_matrix_for_categorical_groups(
     def _bray_curtis(x: np.ndarray, y: np.ndarray) -> float:
         num = np.abs(x - y).sum()
         den = (x + y).sum()
-        return 0.0 if den == 0 else num / den  # in [0,1]"""
+        return 0.0 if den == 0 else num / den  # in [0,1]
 
     def _chi2_distance(x: np.ndarray, y: np.ndarray) -> float:
         den = x + y
@@ -123,38 +123,22 @@ def pairwise_matrix_for_categorical_groups(
     P = _apply_tempering(P, gamma)
 
     # Compute pairwise
-    from scipy.spatial.distance import pdist, squareform
-
-    if metric == "jensen-shannon":
-        # Scipy's jensenshannon is sqrt(JS_divergence). base=2 puts it in [0,1]
-        D_condensed = pdist(P, metric='jensenshannon', base=2.0)
-        D = squareform(D_condensed)
-    
-    elif metric == "hellinger":
-        # Hellinger is 1/sqrt(2) * Euclidean distance of sqrt(probs)
-        D_condensed = pdist(np.sqrt(P), metric='euclidean')
-        D = squareform(D_condensed) / np.sqrt(2)
-    
-    elif metric == "total-variation":
-        # TV is 0.5 * L1 distance
-        D_condensed = pdist(P, metric='cityblock')
-        D = squareform(D_condensed) * 0.5
-    
-    elif metric == "bray-curtis":
-        # Built-in braycurtis
-        D_condensed = pdist(counts_smooth, metric='braycurtis')
-        D = squareform(D_condensed)
-    
-    elif metric == "chi2":
-        # Chi2 is harder to vectorise cleanly with pdist without massive memory usage
-        # Falling back to your loop for this one specific metric or using explicit expansion
-        D = np.zeros((G, G), dtype=float)
-        for i in range(G):
-            for j in range(i + 1, G):
+    D = np.zeros((G, G), dtype=float)
+    for i in range(G):
+        for j in range(i + 1, G):
+            if metric == "jensen-shannon":
+                d = _js_distance(P[i], P[j])
+            elif metric == "hellinger":
+                d = _hellinger(P[i], P[j])
+            elif metric == "total-variation":
+                d = _total_variation(P[i], P[j])
+            elif metric == "bray-curtis":
+                d = _bray_curtis(counts_smooth[i], counts_smooth[j])
+            elif metric == "chi2":
                 d = _chi2_distance(counts_smooth[i], counts_smooth[j])
-                D[i, j] = D[j, i] = d
-    else:
-        raise ValueError("Unsupported metric")
+            else:
+                raise ValueError("Unsupported metric")
+            D[i, j] = D[j, i] = d
 
     if mode == "distance":
         np.fill_diagonal(D, 0.0)
@@ -239,54 +223,19 @@ def interpret_axes_with_categories(
     probs = probs.loc[feat.index]  # align
 
     out = {}
-    
-    # --- Vectorized Correlation ---
-    # Convert feat (Principal Components) and probs (Category Proportions) to aligned matrices
-    # probs is N_groups x N_categories
-    # feat is N_groups x N_components
-    
-    # 1. Align indices strictly
-    common_index = probs.index.intersection(feat.index)
-    P = probs.loc[common_index]
-    F = feat.loc[common_index]
-
-    if len(P) < 2: 
-        # Not enough data for correlation
-        return {col: {"top_positive": [], "top_negative": []} for col in feat.columns}
-
-    # 2. Standardize both matrices (subtract mean, divide by std)
-    # This allows correlation to be a simple matrix multiplication: (1/N-1) * (X.T @ Y)
-    P_centered = P - P.mean(axis=0)
-    P_std = P.std(axis=0)
-    # Avoid division by zero for constant columns (std=0)
-    P_scaled = P_centered.divide(P_std.replace(0, np_nan), axis=1)
-
-    F_centered = F - F.mean(axis=0)
-    F_std = F.std(axis=0)
-    F_scaled = F_centered.divide(F_std.replace(0, np_nan), axis=1)
-
-    # 3. Matrix Multiplication: (Categories x Groups) @ (Groups x Components) -> (Categories x Components)
-    N = len(common_index)
-    # Result is a DataFrame where index=categories, columns=components, values=correlation
-    corr_matrix = (P_scaled.T @ F_scaled) / (N - 1)
-
-    # 4. Extract top correlations per component
     for col in feat.columns:
-        # Get correlations for this PC, drop NaNs (from constant columns)
-        corrs = corr_matrix[col].dropna()
-        
-        # Top Positive
+        corrs = probs.apply(lambda s: corrcoef(s.values, feat[col].values)[0,1], axis=0)
+        corrs = corrs.replace([np_inf, -np_inf], np_nan).dropna()
+        # top positive and negative
         top_pos = corrs.sort_values(ascending=False).head(top).items()
-        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat != cf["misc"]["OTHER_THINGS"]]
-        top_pos_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos])
-
-        # Top Negative
+        top_pos = [(cat,cor) for cat,cor in top_pos if cor>0.2 and cat!=cf["misc"]["OTHER_THINGS"]]
+        #top_pos = " | ".join([f"{cat.replace("  and  "," & ")}({cor:.2f})" for cat,cor in top_pos])
+        top_pos = "More likely: " + " | ".join([f"{cat.replace("  and  "," & ")}" for cat,cor in top_pos])
         top_neg = corrs.sort_values(ascending=True).head(top).items()
-        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat != cf["misc"]["OTHER_THINGS"]]
-        top_neg_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg])
-
-        out[col] = {"top_positive": top_pos_str, "top_negative": top_neg_str}
-        
+        top_neg = [(cat,cor) for cat,cor in top_neg if cor<-0.2 and cat!=cf["misc"]["OTHER_THINGS"]]
+        #top_neg = " | ".join([f"{cat.replace("  and  "," & ")}({cor:.2f})" for cat,cor in top_neg])
+        top_neg = "More likely: " + " | ".join([f"{cat.replace("  and  "," & ")}" for cat,cor in top_neg])
+        out[col] = {"top_positive": top_pos, "top_negative": top_neg}
     return out
 
 
@@ -327,7 +276,7 @@ def interpret_pca_axes(
 
 
 
-def transform_category_column_to_counts_df_old(
+def transform_category_column_to_counts_df(
     some_events,
     the_column = None,
     the_selected_factors: List = None,
@@ -340,12 +289,12 @@ def transform_category_column_to_counts_df_old(
     from pandas import Series, DataFrame, MultiIndex
     from collections import Counter
 
-    def _to_count_series(group) -> Series:
+    def _to_count_series(group: Group) -> Series:
         if isinstance(group, dict):
             return Series(group, dtype=float)
         return Series(group, dtype="object").value_counts().astype(float)
 
-    def _align_counts(groups: List) -> DataFrame:
+    def _align_counts(groups: List[Group]) -> DataFrame:
         ser_list = [_to_count_series(g) for g in groups]
         all_idx = sorted(set().union(*[s.index for s in ser_list]))
         counts = DataFrame({i: s.reindex(all_idx, fill_value=0.0) for i, s in enumerate(ser_list)}).T
@@ -371,10 +320,11 @@ def transform_category_column_to_counts_df_old(
         new_max_length = max([len(s) for s in new_list])
         return new_list
 
+
+
     group_labels = []
     groups = []
 
-    # Iterative approach (proven faster for this specific data structure than explode)
     for i,g in some_events[[the_column] + the_selected_factors].groupby(the_selected_factors):
         new_list = []
         for k in g[the_column].to_list():
@@ -403,78 +353,6 @@ def transform_category_column_to_counts_df_old(
         
 
 
-def transform_category_column_to_counts_df(
-    some_events,
-    the_column = None,
-    the_selected_factors: List = None,
-):
-    if the_column is None:
-        raise ValueError("No column provided") 
-    if the_selected_factors is None:
-        raise ValueError("No selected factors provided")
-
-    from pandas import crosstab, DataFrame
-
-    def _shorten_strings(
-        s_list,
-        min_length = 20):
-
-        for s in s_list:
-            if type(s)!=str:
-                return s_list
-
-        target_length = min_length
-        #original_max_length = max([len(s) for s in s_list])
-        new_list = [s[:target_length] for s in s_list]
-
-        while len(set(new_list)) != len(new_list):
-            target_length += 5
-            new_list = [s[:target_length] for s in s_list]
-
-        #new_max_length = max([len(s) for s in new_list])
-        return new_list
-
-    # 1. Subset & Explode
-    # Ensure we work on a copy to avoid SettingWithCopy warnings
-    df = some_events[[the_column] + the_selected_factors].copy()
-    
-    # Explode list-like elements. Scalars remain scalars.
-    df_exploded = df.explode(the_column)
-
-    # 2. Filter (Vectorized)
-    # Remove nulls and unwanted keywords
-    if df_exploded[the_column].empty:
-        # Handle case where column is empty or all null
-         return DataFrame(index=some_events.set_index(the_selected_factors).index.unique())
-
-    mask = (df_exploded[the_column].notna()) & \
-           (~df_exploded[the_column].isin(["DDP", "BASELINE"]))
-    df_filtered = df_exploded[mask]
-
-    if df_filtered.empty:
-         return DataFrame(index=some_events.set_index(the_selected_factors).index.unique())
-
-    # 3. Crosstab / Pivot
-    # groupby factors + category column -> size -> unstack
-    # Using crosstab is generally cleaner for frequency counts
-    counts_df = crosstab(
-        index=[df_filtered[c] for c in the_selected_factors],
-        columns=df_filtered[the_column]
-    )
-    
-    # Crosstab returns ints, convert to float as per original return type expectations
-    counts_df = counts_df.astype(float)
-
-    # 4. Shorten column names (keep existing logic helper)
-    counts_df.columns = _shorten_strings(counts_df.columns)
-    
-    return counts_df
-
-
-
-
-
-
 
 
 def transform_categories_to_components_and_diversity(
@@ -492,7 +370,6 @@ def transform_categories_to_components_and_diversity(
     from sklearn.manifold import MDS
     from sklearn.decomposition import PCA
     from pandas import concat, DataFrame
-    from datetime import datetime
 
     """
     groups: list of dicts {category: count} or sequences of labels
@@ -518,11 +395,15 @@ def transform_categories_to_components_and_diversity(
     # MDS to embed the distance matrix into a coordinate space
     mds = MDS(
         n_components=15, # consider reducing to 10 for performance
-        metric='precomputed',
         random_state=0,
         n_init=1,
+        #dissimilarity='precomputed',
+        metric='precomputed',
+
         init='random',
-    )
+        #max_iter=300, # might relax max iterations to 100 from default 300 for speed
+        #eps=1e-3 # might relax convergence threshold to 1e-2 from default 1e-3 for speed
+        )
     coords = mds.fit_transform(D)
 
     # PCA to see how many axes matter
@@ -594,10 +475,9 @@ def calculate_scaled_pca_scores(
     save_it = True
 
 ):
-    #from json import dump as json_dump
-    from concurrent.futures import ThreadPoolExecutor
+    from json import dump as json_dump
     from pandas import NamedAgg, MultiIndex, DataFrame, concat
-    #from os.path import join, exists
+    from os.path import join, getctime, exists
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.recode_variables import get_factors_and_features_from_var_schema
@@ -621,10 +501,12 @@ def calculate_scaled_pca_scores(
 
 
     if some_events_df is None:
-        recoded_path = f"{study_name}_RECODED{cf['misc']['file_format']}"
-        if data_io.exists(cf, "exports", recoded_path):
+        recoded_path = join(cf['paths']['exports'],f"{study_name}_RECODED")
+        if exists(recoded_path+".pkl") or exists(recoded_path+".parquet"):
+            #nice_time = datetime.fromtimestamp(getctime(recoded_path)).strftime('%Y-%m-%d %H:%M:%S')
+            #print(f"Loading recoded events file in export folder, created at: {nice_time}", end=" ", flush=True)
             print("Loading recoded events file in export folder", end=" ", flush=True)
-            some_events_df = data_io.load_parquet(cf, "exports", recoded_path, verbose=verbose)
+            some_events_df = data_io.load_dataset(recoded_path, verbose=verbose)
             print(f"  |  Shape: {some_events_df.shape}")
         else:
             print(f"ERROR: This process cannot be run until there is a RECODED dataset has been created.")
@@ -634,7 +516,7 @@ def calculate_scaled_pca_scores(
     fyp_factors, fyp_features = get_factors_and_features_from_var_schema(cf = cf, some_events_df = some_events_df, verbose=verbose)
     
     if verbose:
-        print(f"Dropping '{'-'.join(selected_factors)}' groups that are smaller than {minimum_group_size} rows")
+        print(f"Dropping {"-".join(selected_factors)}-groups that are smaller than {minimum_group_size} rows")
 
     group_sizes = some_events_df[selected_factors].groupby(selected_factors).agg(group_size = NamedAgg(column=selected_factors[0], aggfunc="count"))
 
@@ -669,62 +551,9 @@ def calculate_scaled_pca_scores(
 
     comp_interpretations = {}
 
-    # first, run through the numerical features. This doesn't take much time. Most of my features are categorical anyway...
     for i,c in enumerate(some_events_df[fyp_features].columns):
-        if c in some_events_df.select_dtypes(include=["number"]).columns:
-            the_pc_df = None
-            one_comp_interpretation = {}
-            wer = DataFrame(some_events_df[[c] + selected_factors].groupby(selected_factors).mean())
-
-            for cvb in one_comp_interpretation:
-                comp_interpretations[c+"_"+cvb] = one_comp_interpretation[cvb]
-
-            events_pca_scores += [wer.copy()]
-
-
-
-    # transform categorical features to a list of counts dataframes
-    def _f1(cc):
-        return transform_category_column_to_counts_df(some_events_df, the_column=cc, the_selected_factors=selected_factors)
-    categorical_features = some_events_df[fyp_features].select_dtypes(exclude=["number"]).columns
-    counts_list = list(map(_f1, categorical_features))
-
-
-    for i in range(len(counts_list)):
-
-        counts_df = counts_list[i]
-        col_name = categorical_features[i]
-        if verbose:
-            print(f"({i+1}/{len(counts_list)}): {col_name}, {counts_df.shape}", end=": ", flush=True)
-        wer, the_pc_df, comp_interpretation = transform_categories_to_components_and_diversity(
-            counts_df,
-            metric="hellinger",#"jensen-shannon",
-            gamma=0.8,
-            max_components=15,
-            target_explained_variance=target_explained_variance,
-            drop_rare_globally_below=drop_rare_globally_below,
-            verbose=False)
-        wer.drop("top1", axis=1, inplace=True, errors="ignore")
-        wer.columns = [col_name+"_"+col for col in wer.columns]
-
-
-        if len(selected_factors) > 1:
-            wer.index = MultiIndex.from_tuples(wer.index, names=selected_factors)
-        else:
-            wer.index = wer.index.get_level_values(0)
-            wer.index.name = selected_factors[0]
-
-        
-        for cvb in comp_interpretation:
-            comp_interpretations[col_name+"_"+cvb] = comp_interpretation[cvb]
-
-        events_pca_scores += [wer.copy()]
-
-
-    """# then, run through the categorical features. This takes a while.
-    for i,c in enumerate(some_events_df[fyp_features].columns):
-        if c in ["G_notable_sounds"]:# some_events_df.select_dtypes(exclude=["number"]).columns:
-            counts_df = transform_category_column_to_counts_df_old(some_events_df, the_column=c, the_selected_factors=selected_factors)
+        if c in some_events_df.select_dtypes(exclude=["number"]).columns:
+            counts_df = transform_category_column_to_counts_df(some_events_df, the_column=c, the_selected_factors=selected_factors)
 
             if verbose:
                 print(f"({i+1}/{len(some_events_df[fyp_features].columns)}): {c}, {counts_df.shape}", end=": ", flush=True)
@@ -745,14 +574,19 @@ def calculate_scaled_pca_scores(
             else:
                 wer.index = wer.index.get_level_values(0)
                 wer.index.name = selected_factors[0]
-
             
-            for cvb in comp_interpretation:
-                comp_interpretations[c+"_"+cvb] = comp_interpretation[cvb]
+        else:
+            the_pc_df = None
+            comp_interpretation = {}
+            wer = DataFrame(some_events_df[[c] + selected_factors].groupby(selected_factors).mean())
 
-            events_pca_scores += [wer.copy()]"""
-            
 
+        for cvb in comp_interpretation:
+            comp_interpretations[c+"_"+cvb] = comp_interpretation[cvb]
+
+        events_pca_scores += [wer.copy()]
+
+        
 
     #return events_pca_scores
 
@@ -790,16 +624,15 @@ def calculate_scaled_pca_scores(
 
 
     if save_it:
-        pca_filename = f"{study_name}_PCA{cf['misc']['file_format']}"
+        pca_filename = f"{study_name}_PCA"
         comp_inter_filename = f"{study_name}_COMP_INTERPRETATIONS.json"
+        export_sub_folder_name = cf["paths"]["exports"].replace(cf["paths"]["main"],"")
 
         events_pca_scores_scaled = convert_dtypes_to_pyarrow(events_pca_scores_scaled, verbose=verbose)
-        data_io.save_parquet(cf, events_pca_scores_scaled, "exports", pca_filename, verbose=verbose)
-        print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in '{pca_filename}'.")
-
-        data_io.save_json(cf, comp_interpretations, "exports", comp_inter_filename, verbose=verbose)
-        #with open(join(cf['paths']['exports'],comp_inter_filename), 'w') as f:
-        #    json_dump(comp_interpretations, f, indent=4)
+        data_io.save_dataset(events_pca_scores_scaled, join(cf['paths']['exports'],pca_filename))
+        print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in {join(export_sub_folder_name,pca_filename)}.")
+        with open(join(cf['paths']['exports'],comp_inter_filename), 'w') as f:
+            json_dump(comp_interpretations, f, indent=4)
 
     print(f"Now: {datetime.now()}")
     #print("--"*60)

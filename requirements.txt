@@ -26,6 +26,7 @@ debugpy==1.8.5
 decorator==4.4.2
 defusedxml==0.7.1
 distro==1.9.0
+emoji==2.14.1
 executing==2.0.1
 fastjsonschema==2.20.0
 Flask==3.1.2
@@ -94,14 +95,13 @@ nltk==3.8.1
 notebook==7.2.1
 notebook_shim==0.2.4
 numpy==2.0.1
-
 openai==1.40.0
 opencv-python==4.10.0.84
 overrides==7.7.0
 packaging==24.1
-pandas==2.2.2
+pandas==2.3.0
 pandocfilters==1.5.1
-parso==0.8.4
+parso==0.8.5
 pexpect==4.9.0
 pillow==10.4.0
 platformdirs==4.2.2
@@ -136,6 +136,9 @@ rfc3986-validator==0.1.1
 rpds-py==0.20.0
 rsa==4.9
 schedule==1.2.2
+scikit-bio==0.7.0
+scikit-learn==1.7.2
+scipy==1.16.0
 seaborn==0.13.2
 Send2Trash==1.8.3
 setuptools==73.0.0

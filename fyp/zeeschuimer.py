@@ -358,8 +358,8 @@ def process_baseline_for_complete_dataset(
         #print("--"*60)
 
 
-    if "var_scheme" in cf and not cf["var_scheme"].empty:
-        vs = cf["var_scheme"]
+    if "var_schema" in cf and not cf["var_schema"].empty:
+        vs = cf["var_schema"]
         # TODO - this has to be changed to be less connected to specific variable names
         #
         # Determine baseline vars: those with 'role'='standard' (like B_anchors) or starting with B_ ? 
@@ -385,7 +385,7 @@ def process_baseline_for_complete_dataset(
         # Remove duplicates just in case
         relevant_baseline_cols = list(dict.fromkeys(relevant_baseline_cols))
     else:
-        raise ValueError("var_scheme not found in config")
+        raise ValueError("var_schema not found in config")
 
 
     baseline_log_simple = rename_columns(baseline_log_simple)

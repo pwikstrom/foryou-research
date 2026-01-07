@@ -506,11 +506,11 @@ def api_explorer_metadata():
         metadata['source_file'] = "Error"
         metadata['source_file_modified'] = ""
 
-    # Inject priority lists from var_scheme.csv
+    # Inject priority lists from var_schema.csv
     try:
-        var_scheme_path = PROJECT_ROOT / "config" / "var_scheme.csv"
-        if var_scheme_path.exists():
-            scheme_df = pd.read_csv(var_scheme_path)
+        var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
+        if var_schema_path.exists():
+            scheme_df = pd.read_csv(var_schema_path)
             
             # 1. Display Priority (Viewer Metadata Sort)
             # Filter rows with numeric web_display_prio
@@ -577,7 +577,7 @@ def api_explorer_metadata():
 
 def get_viz_config():
     """
-    Reads var_scheme.csv and returns a dictionary of visualization settings.
+    Reads var_schema.csv and returns a dictionary of visualization settings.
     {
         var_name: {
             "log": bool,
@@ -587,9 +587,9 @@ def get_viz_config():
     """
     config = {}
     try:
-        var_scheme_path = PROJECT_ROOT / "config" / "var_scheme.csv"
-        if var_scheme_path.exists():
-            df = pd.read_csv(var_scheme_path)
+        var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
+        if var_schema_path.exists():
+            df = pd.read_csv(var_schema_path)
             
             # Check if columns exist
             has_log = 'web_viz_log' in df.columns
@@ -786,18 +786,18 @@ def api_pca_metadata():
 
     # Identify metadata
     # Numeric columns (for X/Y): float/int
-    # Factors (for Color/Filter): defined in var_scheme where role='factor'/'group_factor'
+    # Factors (for Color/Filter): defined in var_schema where role='factor'/'group_factor'
     # BUT we need to check if they exist in the DF.
     
     # 1. Numeric
     numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
     # Filter out boring ones? Keep all for flexibility.
     
-    # 2. Factors from var_scheme
-    # We can use 'fyp_cf' global to access var_scheme
+    # 2. Factors from var_schema
+    # We can use 'fyp_cf' global to access var_schema
     factors = []
-    if "var_scheme" in fyp_cf:
-        vs = fyp_cf["var_scheme"]
+    if "var_schema" in fyp_cf:
+        vs = fyp_cf["var_schema"]
         # role is 'factor' or 'group_factor'
         target_roles = ['factor', 'group_factor']
         potential_factors = vs[vs['role'].isin(target_roles)]['variable_name'].tolist()
@@ -805,9 +805,9 @@ def api_pca_metadata():
         # Intersect with df columns
         factors = [c for c in potential_factors if c in df.columns]
     
-    # Fallback if var_scheme not loaded or matching
+    # Fallback if var_schema not loaded or matching
     if not factors:
-        raise Exception("No factors found in var_scheme")
+        raise Exception("No factors found in var_schema")
 
     # Get unique values for factors (for filters)
     factor_values = {}

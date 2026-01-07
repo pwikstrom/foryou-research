@@ -82,17 +82,17 @@ def init_config(
     try:
         import pandas as pd
         from os.path import exists
-        var_scheme_path = join(abs_project_root_path, "config", "var_scheme.csv")
-        if exists(var_scheme_path):
+        var_schema_path = join(abs_project_root_path, "config", "var_schema.csv")
+        if exists(var_schema_path):
              # Need to ensure exists is imported or just try/except
-             cf["var_scheme"] = pd.read_csv(var_scheme_path)
+             cf["var_schema"] = pd.read_csv(var_schema_path)
         else:
-             print(f"Warning: var_scheme.csv not found at {var_scheme_path}")
-             cf["var_scheme"] = pd.DataFrame()
+             print(f"Warning: var_schema.csv not found at {var_schema_path}")
+             cf["var_schema"] = pd.DataFrame()
     except Exception as e:
         if verbose:
-            print(f"Failed to load var_scheme.csv: {e}")
-        cf["var_scheme"] = pd.DataFrame()
+            print(f"Failed to load var_schema.csv: {e}")
+        cf["var_schema"] = pd.DataFrame()
 
     study_defs = toml.load(study_defs_path)
     for study_name in study_defs.keys():

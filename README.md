@@ -13,7 +13,7 @@
   - `stats.py`: ANOVA with effect sizes; PERMANOVA variants over PCA scores/features.
   - `recode_variables.py` and `machine_annotation.py`: recoding and LLM coding utilities.
   - Other helpers: `download_videos.py`, `zeeschuimer.py`.
-- `analysis_notebooks/`: main analysis notebook (`main_analysis_notebook_004.ipynb`) plus variable scheme (`var_scheme.csv`).
+- `analysis_notebooks/`: main analysis notebook (`main_analysis_notebook_004.ipynb`) plus variable scheme (`var_schema.csv`).
 - `baseline_ingest/`, `ddp_ingest/`, `enrich_tiktok_data/`, `organise_and_export_datasets/`: ingestion, enrichment, export notebooks and artifacts (e.g., `special_ids.pkl`).
 - `ddp_dashboard/`: small analytics app.
   - `backend/` (FastAPI, Polars): loads `data/views.parquet` and serves `/views`, `/daily_counts`, `/top_videos`.
@@ -37,7 +37,7 @@
 - **Ingest (donations/baseline)**: notebooks in `ddp_ingest/` and `baseline_ingest/` pull raw logs/metadata; `fyp/donations.py` can scan/download recent donations via AWS CLI.
 - **Enrich**: notebooks in `enrich_tiktok_data/` scrape TikTok video metadata, run Gemini annotation, etc. `mypyktok.py` powers scraping/normalisation.
 - **Organise/export**: notebooks in `organise_and_export_datasets/` clean and package datasets; uses study presets from config.
-- **Analysis**: `analysis_notebooks/main_analysis_notebook_004.ipynb` leverages `fyp/pca.py`, `fyp/stats.py`, and `var_scheme.csv` for PCA/ANOVA/PERMANOVA and feature interpretation.
+- **Analysis**: `analysis_notebooks/main_analysis_notebook_004.ipynb` leverages `fyp/pca.py`, `fyp/stats.py`, and `var_schema.csv` for PCA/ANOVA/PERMANOVA and feature interpretation.
 - **Dashboard**: prepare `ddp_dashboard/backend/data/views.parquet` (or use `scripts/convert_csv_to_parquet.py`), start backend (`uvicorn app.main:app` from `ddp_dashboard/backend`), then frontend (`npm run dev` from `ddp_dashboard/frontend`).
 
 ## Quick start snippets

@@ -63,7 +63,7 @@ def load_machine_annotations(
     # if we are not consolidating, load only the useful variables
     else:
         useful_variables = []
-        for k in cf['var_scheme'][cf['var_scheme']['role']!='skip'].variable_name:
+        for k in cf['var_schema'][cf['var_schema']['role']!='skip'].variable_name:
             if re.match(r'^[A-Z]_', k):
                 useful_variables.append(k[2:])
             useful_variables.append(k)

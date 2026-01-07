@@ -169,3 +169,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.fypenv314/

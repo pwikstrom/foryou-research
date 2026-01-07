@@ -338,7 +338,7 @@ def load_scrape_metadata(
     else:
         import re
         useful_variables = ["image_list", "video_downloaded", "createTime"]
-        for k in cf['var_scheme'][cf['var_scheme']['role']!='skip'].variable_name:
+        for k in cf['var_schema'][cf['var_schema']['role']!='skip'].variable_name:
             if re.match(r'^[A-Z]_', k):
                 useful_variables.append(k[2:])
             useful_variables.append(k)
@@ -1697,7 +1697,7 @@ def merge_all_study_datasets(
 ):
 
     from pandas import merge, concat
-    from fyp.recode_variables import get_factors_and_features_from_var_scheme
+    from fyp.recode_variables import get_factors_and_features_from_var_schema
     from fyp.fyp_main import init_config
 
     if cf is None:
@@ -1716,7 +1716,7 @@ def merge_all_study_datasets(
 
 
 
-    fyp_factors, _ = get_factors_and_features_from_var_scheme(cf = cf, some_events_df = outdata, verbose=verbose)
+    fyp_factors, _ = get_factors_and_features_from_var_schema(cf = cf, some_events_df = outdata, verbose=verbose)
 
     outdata_filtered = outdata.copy()
     if verbose:

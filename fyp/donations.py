@@ -636,7 +636,7 @@ def sample_ddp_events(
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
 
-    group_factors = cf["var_scheme"][cf["var_scheme"]["role"]=='group_factor'].variable_name.to_list()
+    group_factors = cf["var_schema"][cf["var_schema"]["role"]=='group_factor'].variable_name.to_list()
 
     #t1 = []
     #for c in group_factors:
@@ -889,8 +889,8 @@ def process_ddp_log_for_complete_dataset(
         print(f"The dates of the DDP events range from {ddp_log.D_date.min()} -- {ddp_log.D_date.max()}")
 
 
-    if "var_scheme" in cf and not cf["var_scheme"].empty:
-        vs = cf["var_scheme"]
+    if "var_schema" in cf and not cf["var_schema"].empty:
+        vs = cf["var_schema"]
         # TODO: Keep an eye on this - I want it more dynamic. Structural columns
         structural_ddp_cols = [
             'item_id', 'D_sample_id',
@@ -908,7 +908,7 @@ def process_ddp_log_for_complete_dataset(
         relevant_ddp_cols = structural_ddp_cols + d_vars
         relevant_ddp_cols = list(dict.fromkeys(relevant_ddp_cols))
     else:
-        raise ValueError("var_scheme not found in config")
+        raise ValueError("var_schema not found in config")
 
 
     ddp_log, _ = add_session_stats_to_ddp_log(ddp_log, verbose=verbose)
