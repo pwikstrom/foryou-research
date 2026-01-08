@@ -562,24 +562,26 @@ def transform_categories_to_components_and_diversity(
 def calculate_scaled_pca_scores(
     cf = None,
     study_name = None,
-    some_events_df = None,
+    study_recoded_dataset = None,
     minimum_group_size = 10,
     target_explained_variance = 0.8,
     drop_rare_globally_below = 0.01,
     scale_it = True,
+    load_from_cache = True,
+    save_to_cache = True,
     verbose = False,
-    save_it = True
+    ):
 
-):
     #from json import dump as json_dump
     from concurrent.futures import ThreadPoolExecutor
-    from pandas import NamedAgg, MultiIndex, DataFrame, concat
-    #from os.path import join, exists
+    from pandas import NamedAgg, MultiIndex, DataFrame, concat, read_parquet as pd_read_parquet
+    from os.path import join as os_join, exists as os_exists
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
-    from fyp.recode_variables import get_factors_and_features_from_var_schema
+    from fyp.recode_variables import get_factors_and_features_from_var_schema, recode_events_df
     from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow, is_list_like_col
     import fyp.data_io as data_io
+    from json import dump as json_dump
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -589,29 +591,47 @@ def calculate_scaled_pca_scores(
 
     selected_factors = cf["var_schema"][cf["var_schema"]["role"]=='group_factor'].variable_name.to_list()
 
-    file_format = '.parquet'
+    print(
+        f"Performing Principal Component Analysis based on {' | '.join(selected_factors)}. Study: '{study_name}'"
+        f" | {datetime.now()}")
 
 
+    if study_name is None and study_recoded_dataset is None:
+        print("    ERROR: This process cannot run without a study name or a recoded study dataset as input. Process failed.")
+        return None
 
-    print(f"Performing Principal Component Analysis based on {' | '.join(selected_factors)}. Study: '{study_name}'")
-    print(f"Now: {datetime.now()}")
+    if cf is None:
+        cf = initialize()
 
+    if load_from_cache and study_name is not None:
+        recoded_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_recoded.parquet")
+        if os_exists(recoded_cache_path):
+            if verbose:
+                print("    Loading recoded events from cache", end=" ", flush=True)
+            some_events_df = pd_read_parquet(recoded_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+            if verbose:
+                print(f"  |  Shape: {some_events_df.shape}")
+        else:
+            print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
+            some_events_df = recode_events_df(
+                cf = cf,
+                study_name = study_name,
+                load_from_cache = True,
+                save_to_cache = True,
+                verbose = verbose
+            )
+            print("@@ Back after finalising the recoding process. I will now resume the PCA analysis.")
 
     if some_events_df is None:
-        recoded_path = f"{study_name}_RECODED.parquet"
-        if data_io.exists(cf, "exports", recoded_path):
-            print("Loading recoded events file in export folder", end=" ", flush=True)
-            some_events_df = data_io.load_parquet(cf, "exports", recoded_path, verbose=verbose)
-            print(f"  |  Shape: {some_events_df.shape}")
-        else:
-            print(f"ERROR: This process cannot be run until there is a RECODED dataset has been created.")
-            return None
+        print("    ERROR: This process cannot run without a study dataset as input or in cache. Process failed.")
+        return None
+
 
 
     fyp_factors, fyp_features = get_factors_and_features_from_var_schema(cf = cf, some_events_df = some_events_df, verbose=verbose)
     
     if verbose:
-        print(f"Dropping '{'-'.join(selected_factors)}' groups that are smaller than {minimum_group_size} rows")
+        print(f"    Dropping '{'-'.join(selected_factors)}' groups that are smaller than {minimum_group_size} rows")
 
     group_sizes = some_events_df[selected_factors].groupby(selected_factors).agg(group_size = NamedAgg(column=selected_factors[0], aggfunc="count"))
 
@@ -624,22 +644,22 @@ def calculate_scaled_pca_scores(
         n_groups = len(group_sizes)
         if verbose:
             print(
-                f"{len(too_small_groups):,} groups of {n_groups:,} have fewer than {minimum_group_size}"
+                f"    {len(too_small_groups):,} groups of {n_groups:,} have fewer than {minimum_group_size}"
                 f" elements and will be excluded from the analysis. {len(good_sized_groups):,} groups remain."
             )
-            print(f"This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.")
+            print(f"    This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.")
 
         some_events_df = some_events_df.set_index(selected_factors).loc[good_sized_groups.index].reset_index().copy()
 
         if verbose:
-            print(f"  --  Confirming new length of DF: {len(some_events_df):,}")
+            print(f"    Confirming new shape: {some_events_df.shape}")
     else:
         if verbose:
-            print("no groups were below the threshold")
+            print("    No groups were below the threshold")
 
 
     if verbose:
-        print("Consolidating events into groups and performing PCA transformation on categorical variables")
+        print("    Consolidating events into groups and performing PCA transformation on categorical variables")
 
     events_pca_scores = []
     
@@ -671,8 +691,7 @@ def calculate_scaled_pca_scores(
 
         counts_df = counts_list[i]
         col_name = categorical_features[i]
-        if verbose:
-            print(f"({i+1}/{len(counts_list)}): {col_name}, {counts_df.shape}", end=": ", flush=True)
+        print(f"    {(i+1):02}/{len(counts_list)}. {col_name}, {counts_df.shape}", end=": ", flush=True)
         wer, the_pc_df, comp_interpretation = transform_categories_to_components_and_diversity(
             counts_df,
             metric="hellinger",#"jensen-shannon",
@@ -698,21 +717,19 @@ def calculate_scaled_pca_scores(
         events_pca_scores += [wer.copy()]
 
 
-
-        
-
     events_pca_scores = concat(events_pca_scores, axis=1)
 
     if verbose:
-        print(f"Rows: {len(events_pca_scores):,} -- Cols: {len(events_pca_scores.columns):,}")
+        print(f"    Shape of PCA scores table: {events_pca_scores.shape}")
 
 
     if not scale_it:
-        print("Not scaling the scores and not saving them either")
+        if verbose:
+            print("    Not scaling the scores and not saving them either")
         return events_pca_scores
 
     if verbose:
-        print(f"Scaling pca scores and concatenating factors into the scaled table")
+        print("    Scaling pca scores and concatenating factors into the scaled table")
     events_pca_scores_scaled = DataFrame(
         StandardScaler().fit_transform(events_pca_scores), 
         index=events_pca_scores.index, 
@@ -727,26 +744,32 @@ def calculate_scaled_pca_scores(
     events_pca_scores_scaled["T_local_month"] = events_pca_scores_scaled["T_local_date"].map(lambda x:x[:7])
 
     if verbose:
-        print(f"Rows: {len(events_pca_scores_scaled):,} -- Cols: {len(events_pca_scores_scaled.columns):,}")
+        print(f"    Shape of scaled PCA scores table: {events_pca_scores_scaled.shape}")
 
     for c in events_pca_scores_scaled.columns:
         if not c in comp_interpretations.keys():
             comp_interpretations[c] = {'top_positive':'high', 'top_negative':'low'}
 
+    if verbose:
+        print("    Converting dtypes to pyarrow")
+    events_pca_scores_scaled = convert_dtypes_to_pyarrow(events_pca_scores_scaled, verbose=verbose)
 
-    if save_it:
-        pca_filename = f"{study_name}_PCA.parquet"
-        comp_inter_filename = f"{study_name}_COMP_INTERPRETATIONS.json"
 
-        events_pca_scores_scaled = convert_dtypes_to_pyarrow(events_pca_scores_scaled, verbose=verbose)
-        data_io.save_parquet(cf, events_pca_scores_scaled, "exports", pca_filename, verbose=verbose)
-        print(f"Exported {len(events_pca_scores_scaled):,} scaled PCA scores in '{pca_filename}'.")
+    if save_to_cache and study_name is not None:
+        pca_filename = f"CACHE_{study_name}_PCA.parquet"
+        comp_inter_filename = f"CACHE_{study_name}_comp_interpretations.json"
 
-        data_io.save_json(cf, comp_interpretations, "exports", comp_inter_filename, verbose=verbose)
-        #with open(join(cf['paths']['exports'],comp_inter_filename), 'w') as f:
-        #    json_dump(comp_interpretations, f, indent=4)
+        events_pca_scores_scaled.attrs['study_name'] = study_name
+        events_pca_scores_scaled.to_parquet(os_join(cf['paths']['temp'], pca_filename), engine="pyarrow")
+        if verbose:
+            print(f"    Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'.")
 
-    print(f"Now: {datetime.now()}")
+        with open(os_join(cf['paths']['temp'],comp_inter_filename), 'w') as f:
+            json_dump(comp_interpretations, f, indent=4)
+        if verbose:
+            print(f"    Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'.")
+
+    print(f"    Now: {datetime.now()}")
     #print("--"*60)
 
             

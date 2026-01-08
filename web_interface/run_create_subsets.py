@@ -17,11 +17,16 @@ if __name__ == "__main__":
 
     print(f"Starting Create Item Subsets for study: {study_name}")
     try:
-        cf = fyp.initialize()
-        tutti = fyp.load_datasets(cf, study_name)
-        subsets = fyp.calculate_all_unique_video_subsets(cf, study_name, tutti)
-        del subsets["completed_downloads"]
-        del subsets["machine_annotated_videos"]
+        #cf = fyp.initialize()
+        interesting_videos = fyp.generate_unique_videos_to_scrape_and_annotate(
+            cf = None,
+            study_name = study_name,
+            load_from_cache = True,
+            save_to_cache = True,
+            verbose = True)
+        subsets = {}
+        for k in interesting_videos:
+            subsets[k] = set(interesting_videos[k].index)
         
         # Calculate counts for valid sets
         import json
@@ -34,3 +39,19 @@ if __name__ == "__main__":
         print("\nProcess stopped by user.")
     except Exception as e:
         print(f"Process crashed: {e}")
+
+
+
+
+
+
+    """return {
+        'downloaded_and_annotated': downloaded_and_annotated,
+        'downloaded_not_annotated': downloaded_not_annotated,
+        'failed_annotations': failed_annotations,
+        'missing_downloads': missing_downloads,
+        'failed_scrapes': failed_scrapes,
+        'unseen_videos': unseen_videos,
+        'completed_downloads': completed_downloads,
+        'machine_annotated_videos': machine_annotated_videos,
+    }"""

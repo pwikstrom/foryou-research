@@ -40,8 +40,6 @@ class TestTimezoneInference(unittest.TestCase):
         mock_get_tf.return_value = mock_tf
 
         # Metadata with some variations
-        # 1: Complete
-        # 2: Complete
         # 3: Missing Country, 4-digit Postcode (Should trigger default to Australia)
         meta = pd.DataFrame({
             'donation_id': [1, 2, 3],

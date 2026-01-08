@@ -29,6 +29,11 @@ def _resolve_paths(cf, storage_location, filename):
         tuple: (primary_path, secondary_path, mode, blob_name)
     """
     from os.path import join, basename
+    from fyp.fyp_main import connect_to_google
+    
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
     
     # 1. Validate Location
     if storage_location not in cf['paths']:
@@ -75,6 +80,11 @@ def exists(cf, storage_location, filename, verbose=False) -> bool:
     Transparently handles local or GCS checks.
     """
     from os.path import exists as local_exists
+    from fyp.fyp_main import connect_to_google
+    
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
     
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
     #if verbose: 
@@ -106,6 +116,11 @@ def getctime(cf, storage_location, filename, verbose=False):
     Get the creation time of the file filename.
     """
     from os.path import getctime
+    from fyp.fyp_main import connect_to_google
+    
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
     
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
     
@@ -131,6 +146,11 @@ def getmtime(cf, storage_location, filename, verbose=False):
     Get the modification time of the file.
     """
     from os.path import getmtime
+    from fyp.fyp_main import connect_to_google
+    
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
     
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
 
@@ -156,6 +176,11 @@ def getsize(cf, storage_location, filename, verbose=False):
     Get the size of the file.
     """
     from os.path import getsize
+    from fyp.fyp_main import connect_to_google
+    
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
     
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
 
@@ -184,6 +209,11 @@ def remove(cf, storage_location, filename, verbose=False):
     """
     from os import remove as local_remove
     from os.path import exists as local_exists
+    from fyp.fyp_main import connect_to_google
+    
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
     
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
 
@@ -217,7 +247,13 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
     """
     from os import listdir as local_listdir
     from os.path import join
+    from fyp.fyp_main import connect_to_google
     
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+
+
     # We can't use _resolve_paths directly for the dir itself because _resolve_paths expects a filename
     # But we can reuse the logic key parts.
     
@@ -295,6 +331,11 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
     from shutil import move as local_move
     from os.path import exists as local_exists
     from os.path import join
+    from fyp.fyp_main import connect_to_google
+    
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
     
     # Resolve SRC
     src_primary, src_secondary, src_mode, src_blob_name = _resolve_paths(cf, src_storage_location, filename)
@@ -348,7 +389,12 @@ def load_json(cf, storage_location, filename, verbose = False):
     """
     from os.path import basename, splitext
     from json import load, loads
+    from fyp.fyp_main import connect_to_google
     
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+
     # Extension check
     bn = basename(filename)
     root, ext = splitext(bn)
@@ -397,7 +443,11 @@ def save_json(cf, data, storage_location, filename, verbose = False):
     """
     from os.path import basename, splitext
     from json import dump, dumps
-    
+    from fyp.fyp_main import connect_to_google
+
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
     bn = basename(filename)
     root, ext = splitext(bn)
     if ext != '.json':
@@ -437,7 +487,7 @@ def load_parquet(
     Load a dataframe from a given path.
     Supports GCS direct read (gs://).
     """
-    from fyp.fyp_main import convert_dtypes_to_pyarrow
+    from fyp.fyp_main import convert_dtypes_to_pyarrow, connect_to_google
     from os.path import basename
     import os
 
@@ -463,6 +513,10 @@ def load_parquet(
         return s
 
     t1 = datetime.now()
+
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
 
     # Initialize GCS filesystem
     fs = gcsfs.GCSFileSystem()
@@ -498,7 +552,7 @@ def load_parquet(
                 print(f" [DATA_IO] Column selection: {columns}")
 
 
-        if verbose: print(f" [DATA_IO] Loading: all parquet files from '{storage_location}' (gcs)... ", end="", flush=True)
+        if verbose: print(f" [DATA_IO] Loading: all parquet files from folder '{storage_location}' (gcs)... ", end="", flush=True)
         df = pd.read_parquet(
             files,
             filesystem=fs,
@@ -576,9 +630,13 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
 
     this_df = df.copy()
 
-    from fyp.fyp_main import convert_dtypes_to_pyarrow
+    from fyp.fyp_main import convert_dtypes_to_pyarrow, connect_to_google
     from os.path import join, basename
     import os
+
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
 
     # A) Resolve Paths (Primary = GCS if enabled, Secondary = Local)
     # Note: filename here might not have extension yet, logic below handles it

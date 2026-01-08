@@ -35,6 +35,7 @@ def load_machine_annotations(
         #include_failed_calls:bool = False,
         consolidate:bool = False,
         #all_columns:bool = False,
+        filters=None,
         verbose=False,
         notebook_mode = False):
 
@@ -59,7 +60,7 @@ def load_machine_annotations(
 
     # if we are consolidating, load all columns (otherwise data is lost)
     if True:#consolidate:
-        some_machine_annotations = data_io.load_parquet(cf, "machine_annotations_refined", "*", verbose=verbose)
+        some_machine_annotations = data_io.load_parquet(cf, "machine_annotations_refined", "*", filters=filters, verbose=verbose)
     # if we are not consolidating, load only the useful variables
     else:
         useful_variables = []
@@ -185,6 +186,8 @@ def call_machine(
         testing: bool = False,
         use_local_video_file = False,
         local_path: str = '/Users/<user>/Downloads/',
+        verbose = False,
+        dry_run = False,
     ) -> dict:
 
     from datetime import datetime
@@ -199,16 +202,24 @@ def call_machine(
     from fyp.fyp_main import initialize, connect_to_google, temp_path
     import fyp.data_io as data_io
 
-    if cf is None:
-        cf = initialize()
-    if cf["machine"]["client"] is None:
-        cf = connect_to_google(cf)
 
+    if dry_run:
+        from time import sleep
+        sleep(1)
+        if verbose:
+            print(f"Dry run: would have annotated video {video_id}")
+        return {
+            "item_id" : video_id,
+            "error" : "dry run",
+            "finish_reason": "dry run",
+            "response" : "dry run",
+        }
+    else:
+        if cf is None:
+            cf = initialize()
+        if cf["machine"]["client"] is None:
+            cf = connect_to_google(cf)
 
-
-    if not testing:
-        # The AI annotator doesn't like too many requests at once
-        sleep(randint(1,100)/50)
 
     times = [datetime.now()]
     output = {
@@ -229,7 +240,8 @@ def call_machine(
     # initialise the contents for the model
     try:
         if use_local_video_file:
-            print(f"Using local video file for video id {video_id}")
+            if verbose:
+                print(f"Using local video file for video id {video_id}")
             with open(join(local_path,f"{video_id}.mp4"),'rb') as f:
                 video_bytes = f.read()
             contents = [
@@ -312,7 +324,13 @@ def call_machine(
 
 
 
-def _start_monitor(futures, submit_times, interval=5, label="monitor", bar_width=30):
+def _start_monitor(
+    futures, 
+    submit_times, 
+    interval=5, 
+    label="monitor", 
+    bar_width=30,
+    ):
     """
     futures: list[Future]
     submit_times: dict[Future -> float]  time.time() at submission
@@ -427,7 +445,8 @@ def call_machine_threads(
         interesting_videos = None,
         max_workers=50,
         verbose=False,
-        notebook_mode = False):
+        notebook_mode = False,
+        dry_run = False):
 
     if notebook_mode:
         verbose = True
@@ -440,11 +459,11 @@ def call_machine_threads(
 
     from fyp.fyp_main import initialize, connect_to_google
 
-    if cf is None:
-        cf = initialize()
-    if cf["machine"]["client"] is None:
-        cf = connect_to_google(cf)
-
+    if not dry_run:
+        if cf is None:
+            cf = initialize()
+        if cf["machine"]["client"] is None:
+            cf = connect_to_google(cf)
 
 
     results_by_index = {}
@@ -462,12 +481,17 @@ def call_machine_threads(
             cf = cf,
             video_id = video,
             testing = False,
+            dry_run = dry_run,
+            verbose = verbose,
+
         )
 
         return idx, rr
 
 
     if verbose:
+        if dry_run:
+            print("  [dry run] - ", end="", flush=True)
         print(f"Calling {cf['machine']['model']} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -493,7 +517,7 @@ def call_machine_threads(
         print(f"Items processed: {len(results_by_index)}")
 
 
-    if len(results_by_index)>0:
+    if len(results_by_index)>0 and not dry_run:
         save_machine_annotations_json(
             cf,
             results_by_index,
@@ -511,7 +535,7 @@ def call_machine_threads(
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
-# I'm not using structured outputs because I believe that the machine is calling all the required bits
+# I'm not using structured outputs because I understand that the machine is calling all the required bits
 # and pieces in the request at the same time if I'd do that. I want it to think about it sequentially. So
 # as a result it happens that the json like output structure is wrong and introduces labels and keys that
 # I don't want. This funciton is trying to figure out which columns are rare and try to merge them back 
@@ -676,21 +700,8 @@ def flatten_one_machine_response(
                     flat_response['scene_sentiments'] = tt1[0][0]
             except Exception as e:
                 return None
-            #elif isinstance(flat_response['scenes'], str):
-            #    aa = re.sub(r"\{.*?\|", ' | ', flat_response['scenes'].replace("'description':"," | "))
-            #    aa = re.sub(r"\'sentiment.*?\|", ' |', aa)
-            #    aa = re.sub(r"\'sentiment.*?\}", ' ', aa)
-            #    keep_it = copy(flat_response['scenes']) 
-            #    flat_response['scenes'] = aa.replace("',  "," ").replace(" '"," ").replace("  "," ")[3:-3].strip()
-            #    tt1 = Counter(list(map(lambda x: x.split("'}")[0], keep_it.split("sentiment':'")[1:]))).most_common(1)
-            #    if len(tt1) == 0:
-            #        flat_response['scene_sentiments'] = ""
-            #    else:
-            #        flat_response['scene_sentiments'] = tt1[0][0]
         else:
             return None
-            #flat_response['scenes'] = ""
-            #flat_response['scene_sentiments'] = ""
 
     # #######################
     # transcript
@@ -1284,7 +1295,8 @@ def annotate_from_list(
     fine_list = None,
     max_workers = 50,
     verbose = False,
-    notebook_mode = False):
+    notebook_mode = False,
+    dry_run = False):
 
     if notebook_mode:
         verbose = True
@@ -1296,10 +1308,13 @@ def annotate_from_list(
     from os import environ
     from fyp.fyp_main import initialize, connect_to_google, temp_path
 
-    if cf is None:
-        cf = initialize()
-    if cf["machine"]["client"] is None:
-        cf = connect_to_google(cf)
+    if dry_run:
+        print("********* This is a dry run. It's all fake. No data io action at all. *********")
+    else:
+        if cf is None:
+            cf = initialize()
+        if cf["machine"]["client"] is None:
+            cf = connect_to_google(cf)
     
     if isinstance(fine_list, list) and len(fine_list) > 0:
 
@@ -1312,10 +1327,16 @@ def annotate_from_list(
                 cf = cf,
                 interesting_videos = fine_list,
                 max_workers=max_workers,
-                verbose = verbose, notebook_mode = notebook_mode
+                verbose = verbose, 
+                notebook_mode = notebook_mode,
+                dry_run = dry_run
             )
 
         print("...video annotation completed.")
+
+        if dry_run:
+            print("Since this is a dry run I'm skipping the post processing step.")
+            return None
 
         _ = post_process_raw_annotations(
             cf = cf,
@@ -1360,17 +1381,17 @@ def annotate_from_scrape_metadata_file(
 
     df = data_io.load_parquet(cf, "scrape", scrape_metadata_filename, columns=["item_id", "video_downloaded", "video_duration"], verbose=verbose)
 
-    #return df
 
     # we're only annotating the videos that are downloaded and shorter than a certain max duration
     work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"]<cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()
 
-
-
     annotate_from_list(
         cf = cf,
         fine_list = work_with_these_videos_list,
-        verbose = verbose, notebook_mode = notebook_mode)
+        verbose = verbose, 
+        notebook_mode = notebook_mode
+        )
+
 
 
 
@@ -1425,82 +1446,136 @@ def post_process_raw_annotations_from_json_file(
 def annotate_videos_loop(
     cf = None,
     study_name = None,
+    study_dataset = None,
+    load_from_cache = True,
     batch_size = 500,
     max_batches = None,
     verbose = False,
-    notebook_mode = False):
+    notebook_mode = False,
+    dry_run = False
+    ):
 
     if notebook_mode:
         verbose = True
 
     from datetime import datetime
     from os import environ
-    from os.path import join
+    from os.path import join as os_join, exists as os_exists
+    from pandas import read_parquet as pd_read_parquet
     import json
+    from fyp.fyp_main import initialize, connect_to_google, chunk_list
+    from fyp.organize_datasets import select_videos_from_study_dataset
+    from numpy import inf as np_inf
 
-    from fyp.fyp_main import initialize, connect_to_google
-    from fyp.organize_datasets import select_videos_from_half_baked
+    max_batches = max_batches if max_batches is not None else np_inf
+
+    if study_name is None and study_dataset is None:
+        print("    ERROR: This process cannot run without a study name or a study dataset as input. Process failed.")
+        return None
 
     if cf is None:
         cf = initialize()
-    if cf["machine"]["client"] is None:
-        cf = connect_to_google(cf)
+    
+    if load_from_cache and study_name is not None:
+        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_main.parquet")
+        if os_exists(study_dataset_cache_path):
+            if verbose:
+                print("    Loading study dataset from cache", end=" ", flush=True)
+            study_dataset = pd_read_parquet(study_dataset_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+            print(study_dataset.attrs['study_name'])
+            if verbose:
+                print(f"  |  Shape: {study_dataset.shape}")
+        else:
+            if verbose:
+                print("    No cached study dataset found. I must run the process to create it. Please wait a moment...")
+            study_dataset = create_study_main_dataset(
+                cf = cf,
+                study_name = study_name,
+                load_from_cache = True,
+                save_to_cache = True,
+                verbose = verbose
+            )
 
-    if study_name is None:
-        if verbose:
-            print("No study name provided. Cannot process without a study name...")
+    if study_dataset is None:
+        print("    ERROR: This process cannot run without a study dataset as input or in cache. Process failed.")
         return None
 
-    print(f"Annotating downloaded videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
 
+    print(f"    Annotating downloaded videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
+    print(f"    Now: {datetime.now()}")
 
+    selected_videos_df = select_videos_from_study_dataset(
+        cf = cf,
+        study_dataset = study_dataset,
+        query_string = "scraped_ok & ~annotated_ok & ~annotated_fail & duration_ok_to_annotate",
+        verbose = verbose,
+        notebook_mode = False
+    )
 
-    selected_videos = [0] # just a list that contains anything and that is longer than zero elements to get things started
     batch_number = 1
 
-    print()
-    print("Starting loop...")
-    while len(selected_videos)>0:
-        print(f"Now: {datetime.now()}")
-        print("--"*60)
-        selected_videos = select_videos_from_half_baked(
+    batch_target = min(max_batches, len(selected_videos_df.index) // batch_size + 1)
+
+    print(f"  Starting loop... There are {len(selected_videos_df):,} videos to process in {batch_target:,} batches")
+
+    for batch in chunk_list(selected_videos_df.index.to_list(), batch_size):
+
+        print(f"  Batch {batch_number} of {max_batches:,}")
+
+        _ = annotate_from_list(
             cf = cf,
-            study_name = study_name,
-            file_label = "ANNOTATE",
-            INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
-            INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
-            INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
-            INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
-            INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
-            INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            verbose = verbose, notebook_mode = notebook_mode
-        )
+            fine_list = batch,
+            verbose = verbose,
+            notebook_mode = notebook_mode,
+            dry_run = dry_run
+            )
 
-
-        if len(selected_videos) > 0:
-            work_with_these_videos_list_raw = [str(k) for k in selected_videos.item_id.to_list()]
-            work_with_these_videos_list = work_with_these_videos_list_raw.copy()
-
-            print(f"{len(work_with_these_videos_list):,} videos selected")
-
-            _ = annotate_from_list(
-                cf = cf,
-                fine_list = work_with_these_videos_list[:batch_size],
-                verbose = verbose, notebook_mode = notebook_mode)
-        
-        if selected_videos is None:
-            selected_videos = []
 
         if max_batches is not None and batch_number >= max_batches:
             break
 
         batch_number += 1
 
+        if dry_run:
+            break
+
 
 
     print(f"Loop ended: {datetime.now()}")
 
 
+"""print()
+print("Starting loop...")
+while len(selected_videos)>0:
+    print(f"Now: {datetime.now()}")
+    print("--"*60)
+    selected_videos = select_videos_from_half_baked(
+        cf = cf,
+        study_name = study_name,
+        file_label = "ANNOTATE",
+        INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
+        INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
+        INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
+        INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
+        INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
+        INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
+        verbose = verbose, notebook_mode = notebook_mode
+    )
+
+
+    if len(selected_videos) > 0:
+        work_with_these_videos_list_raw = [str(k) for k in selected_videos.item_id.to_list()]
+        work_with_these_videos_list = work_with_these_videos_list_raw.copy()
+
+        print(f"{len(work_with_these_videos_list):,} videos selected")
+
+        _ = annotate_from_list(
+            cf = cf,
+            fine_list = work_with_these_videos_list[:batch_size],
+            verbose = verbose, notebook_mode = notebook_mode)
+    
+    if selected_videos is None:
+        selected_videos = []"""
 
 
 

@@ -129,7 +129,11 @@ def main() -> None:
         """
         print(f"Starting annotation of {filename}")
         # annotate_from_scrape_metadata_file supports data_io and GCS
-        annotate_from_scrape_metadata_file(cf = cf, scrape_metadata_filename = filename, verbose = False)
+        annotate_from_scrape_metadata_file(
+            cf = cf, 
+            scrape_metadata_filename = filename, 
+            verbose = False
+            )
         print(f"Annotation finished for {filename}")
 
 

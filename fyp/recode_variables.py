@@ -1,6 +1,8 @@
 
 
 
+import pandas as pd
+
 
 NOT_CODED = "not coded"
 UNABLE_TO_DETECT = "unable to detect"
@@ -105,8 +107,8 @@ def get_factors_and_features_from_var_schema(cf = None, some_events_df = None, v
     the_features = list(set(var_schema[var_schema["role"]=='feature'].variable_name) & set(some_events_df.columns))
 
     if verbose:
-        print("Factors:",", ".join(the_factors))
-        print("Features:",", ".join(the_features))
+        print("    Factors:",", ".join(the_factors))
+        print("    Features:",", ".join(the_features))
 
     return the_factors, the_features
 
@@ -772,54 +774,11 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
         
         # Only do strict checks if object.
         if x.dtype == object:
-            # We can use the str accessors we prototyped!
-            # mask_list: elements that are lists of length 1, and element [0] is NOT_CODED.
-            # x.str.len() == 1
-            # x.str[0] == NOT_CODED
-            
-            # Accessors return NaN for non-array-likes (ints), but work for strings too.
-            # "not coded" (str) -> len=9 -> len!=1. Safe.
-            # ["not coded"] -> len=1 -> [0]="not coded". Safe.
-            
-            # What if NOT_CODED is scalar? 
-            # If NOT_CODED is "foo", ["foo"] matches.
-            
-            # What about scalar "foo"?
-            # len("foo")=3 != 1. So mask_list misses scalars.
-            
-            # So we need both logic.
-            
-            # To safetly check scalar equality on mixed object column without crashing on arrays:
-            # numpy equal?
-            # Or just catch the error?
-            
-            # Actually better:
-            # mask_list = (x.str.len() == 1) & (x.str[0] == NOT_CODED)
-            # This covers `[NOT_CODED]`.
-            
-            # How to cover scalar `NOT_CODED` safely?
-            # `mask_scalar = (x == NOT_CODED)` triggers error for arrays.
-            # How about `mask_scalar = x.map(lambda v: v == NOT_CODED if not isinstance(v, (list, np.ndarray)) else False)`?
-            # That brings back `map/apply`.
-            
-            # Wait, `x.values == NOT_CODED`?
-            # if x.values contains arrays, numpy might complain.
-            
-            # Optimization:
-            # Most columns are inferred as specific types or string[pyarrow].
-            # If object, iterate?
-            # Or assume lists are rare?
-            
-            # Let's try `x.astype(str) == str(NOT_CODED)` for the scalar check as a fallback if `x == NOT_CODED` crashes?
-            # Or better: `x.isin([NOT_CODED])`?
-            # `isin` handles mixed types gracefully!
+
             
             mask_scalar = x.isin([NOT_CODED])
             
             # Now list check:
-            # Prototype showed str.len() and str[0] work.
-            # But x.str[0] might fail if x contains only ints (no str accessor allowed)?
-            # "Can only use .str accessor with string values!"
             # We need to ensure we can use .str.
             
             try:
@@ -1117,7 +1076,9 @@ def clean_up_machine_annotations(some_events, verbose = False):
 
         # Check mean length
         # Vectorized string length based on a sample of 500 items
-        avg_len = valid_items.sample(500).astype(str).str.len().mean()
+
+        sample_size = min(500, len(valid_items))
+        avg_len = valid_items.sample(sample_size, replace = False).astype(str).str.len().mean()
         
         if avg_len < 60:
             # Step 2: Cutoff logic
@@ -1148,7 +1109,7 @@ def clean_up_machine_annotations(some_events, verbose = False):
             
             if (len(counts) > 1000) and (num_keep > len(counts) * 0.80):
                  if verbose:
-                     print(f"   {c}: Skipping consolidation. Tail is too thick/flat (would keep {num_keep}/{len(counts)}).")
+                     print(f"    {c}: Skipping consolidation. Tail is too thick/flat (would keep {num_keep}/{len(counts)}).")
                  continue
 
             
@@ -1172,11 +1133,11 @@ def clean_up_machine_annotations(some_events, verbose = False):
 
             if verbose:
                 # approximated stats
-                print(f"   {c}: Cleaned up rare labels (kept top {num_keep})")
+                print(f"    {c}: Cleaned up rare labels (kept top {num_keep})")
 
         else:
             if verbose:
-                print(f"   {c}: Avg string length > 60, not consolidating rare labels")
+                print(f"    {c}: Avg string length > 60, not consolidating rare labels")
 
     return some_cleaned_up_events
 
@@ -1187,46 +1148,62 @@ def clean_up_machine_annotations(some_events, verbose = False):
 
 def recode_events_df(
     cf = None,
-    #study_name = None,
-    cool_events_in = None,
-    verbose = False,
-    save_it = True):
+    study_name = None,
+    study_dataset = None,
+    load_from_cache = True,
+    save_to_cache = True,
+    verbose = False
+    ):
 
     import pandas as pd
-    from os.path import join, exists
+    from os.path import join as os_join, exists as os_exists
     from datetime import datetime
     from copy import copy
     from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
     from numpy import int64, float64
+    from pandas import read_parquet as pd_read_parquet
+    from fyp.organize_datasets import create_study_main_dataset
+
+
+    print(f"Recoding variables, implementing missing data policy and a whole range of other things...")
+
+    if study_name is None and study_dataset is None:
+        print("  This process cannot run without a study name or a study dataset as input. Process failed.")
+        return None
 
     if cf is None:
         cf = initialize()
-    
-    #if study_name is None:
-    #    raise ValueError("study_name must be specified")
-    
-    print(f"Recoding variables [NEW], implementing missing data policy and a whole range of other things...")
+
+    if load_from_cache and study_name is not None:
+        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_main.parquet")
+        if os_exists(study_dataset_cache_path):
+            if verbose:
+                print(f"    Loading study main dataset from cache...", end=" ", flush=True)
+            study_dataset = pd_read_parquet(study_dataset_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+            if verbose:
+                print(f"Shape: {study_dataset.shape}")
+        else:
+            print("@@ No cached study dataset found. I must run the process to create it. Please wait a moment...")
+            study_dataset = create_study_main_dataset(
+                cf = cf,
+                study_name = study_name,
+                load_from_cache = True,
+                save_to_cache = True,
+                verbose = verbose
+            )
+            print("@@ I'm back after having created the unified study dataset. I will now resume the recoding process.")
 
 
-    #if cool_events_in is None:
-    #    log_path = f"{study_name}_LOG.parquet"
-    #    if data_io.exists(cf, "exports", log_path):
-    #        print(f"Loading events file in export folder...", end=" ", flush=True)
-    #        cool_events_in = data_io.load_parquet(cf, "exports", log_path, verbose=verbose)
-    #        print(f"Shape: {cool_events_in.shape}")
-    #    else:
-    #        print("This process required a LOG file to be generated first. Log file not found at: ", log_path)
-    #        return None
+    if study_dataset is None:
+        print("    This process cannot run without a study dataset as input or in cache. Process failed.")
+        return None
 
-
-    cool_events = cool_events_in.copy()
+    cool_events = study_dataset.copy()
 
     var_schema = cf["var_schema"].copy()
 
     var_schema.set_index("variable_name", inplace=True)
-
-    print(f"Now: {datetime.now()}")
 
     var_schema[['mapper','ignore_strings','recode_func']] = var_schema[['mapper','ignore_strings','recode_func']].map(_try_eval)
 
@@ -1236,12 +1213,9 @@ def recode_events_df(
 
     variables_not_found_in_var_schema = list(set(cool_events.columns) - set(var_schema.index))
     if verbose:
-        join_str = "\n  - "
-        print(f" 1. Dropping {len(variables_not_found_in_var_schema)} columns not found in the variable scheme:\n  - {join_str.join(variables_not_found_in_var_schema)}")
+        join_str = "\n    - "
+        print(f"Step 1. Dropping {len(variables_not_found_in_var_schema)} columns not found in the variable scheme:\n    - {join_str.join(variables_not_found_in_var_schema)}")
     cool_events = cool_events.drop(columns=variables_not_found_in_var_schema).copy()
-    if verbose:
-        print(f" Shape: {cool_events.shape}")
-    print(f"Now: {datetime.now()}")
 
     # Safe nunique for lists
     def _safe_nunique(s):
@@ -1252,22 +1226,21 @@ def recode_events_df(
 
     single_value_columns = [c for c in cool_events.columns if _safe_nunique(cool_events[c])==1 and c not in FYP_FACTORS]
     if verbose:
-        join_str = "\n  - "
-        print(f" 2. Dropping {len(single_value_columns)} single value columns:\n  - {join_str.join(single_value_columns)}")
+        join_str = "\n    - "
+        print(f"Step 2. Dropping {len(single_value_columns)} single value columns:\n    - {join_str.join(single_value_columns)}. Shape: {cool_events.shape}")
     cool_events = cool_events.drop(columns=single_value_columns).copy()
-    if verbose:
-        print(f" Shape: {cool_events.shape}")
-    print(f"Now: {datetime.now()}")
 
     if verbose:
-        print(" 3. Recoding variables")
+        print(f"Step 3. Executing recode policies from variable schema. Shape: {cool_events.shape}")
 
 
     cool_columns = copy(cool_events.columns)
     # iterate over the columns in the events df
     for i,c in enumerate(cool_columns):
-        if verbose:
-            print(f"    {(i+1):02}/{len(cool_columns):02}. {c}", end=f"{' '*(40-len(c))}", flush=True)
+        preamble = f"    {(i+1):02}/{len(cool_columns):02}. {c}{' '*(40-len(c))}"
+        preamble2 = f"    {' '*6} {c}{' '*(40-len(c))}"
+        #if verbose: 
+        #    print(preamble, end="", flush=True)
 
         # if this is in the var_schema...
         if c in var_schema.index:
@@ -1275,30 +1248,37 @@ def recode_events_df(
 
             if this_var_schema.get("role", "undefined") != "skip":
 
-                if this_var_schema.get("scale", "undefined") == "raw":
-                    if c+"_raw" in var_schema.index:
-                        if verbose:
-                            print(f"Copied raw variable: {c}")
-                        cool_events[c+"_raw"] = cool_events[c].copy()
+                # ------------------------------------------------------
+                # 1.
+                # ------------------------------------------------------
+                if this_var_schema.get("scale", "undefined") == "raw" and c+"_raw" in var_schema.index:
+                    if verbose:
+                        print(f"{preamble}Copied raw. ", end="", flush=True)
+                    cool_events[c+"_raw"] = cool_events[c].copy()
+                else:
+                    if verbose:
+                        print(preamble, end="", flush=True)
 
-                # execute the recode function
-                # Now using vectorized functions
+                # ------------------------------------------------------
+                # 2. execute the recode function
+                # ------------------------------------------------------
                 func = this_var_schema.get("recode_func", None)
                 if not pd.isna(func):
                    # Pass the full series
                     try:
                         cool_events[c] = func(cool_events[c], this_var_schema)
-                        if verbose: print(f"recoded successfully ({this_var_schema.get('scale', 'unknown scale')})")
+                        if verbose: print(f"Recoded successfully ({this_var_schema.get('scale', 'unknown scale')})")
                     except Exception as e:
                          # Fallback
-                         print(f"\nWarning: Vectorized recode failed for {c}: {e}. Falling back to map.")
+                         print(f"Warning: Vectorized recode failed: ({e}). Falling back to map.")
                          cool_events[c] = cool_events[c].map(lambda x: func(x, this_var_schema))
                 else:
-                    if verbose: print(f"has no recode func, so no change ({this_var_schema.get('scale', 'unknown scale')})")
+                    if verbose: print(f"Has no recode func, so no change ({this_var_schema.get('scale', 'unknown scale')})")
 
 
-                # implement missing data and unable to detect policies
-                # Vectorized calls
+                # ------------------------------------------------------
+                # 3. implement missing data and unable to detect policies
+                # ------------------------------------------------------
                 if (this_var_schema.get('unable_to_detect_policy', 'unknown') == "median") or (this_var_schema.get('missing_data_policy', 'unknown') == "median"):
                     # Check if numeric before median
                     if pd.api.types.is_numeric_dtype(cool_events[c]):
@@ -1319,7 +1299,9 @@ def recode_events_df(
                     a_fine_median)
                 
                 
-                # Check for multiple values/types logic
+                # ------------------------------------------------------
+                # 4. Check for multiple values/types logic
+                # ------------------------------------------------------
                 
                 # If we expect single values (categorical, dichotomous, etc.), ensure no lists > 1
                 if this_var_schema.get("scale", "") in ["categorical","dichotomous","ordinal","ratio","interval"]:
@@ -1345,7 +1327,9 @@ def recode_events_df(
 
 
 
-                # for dichotomous variables, I only accept "yes" and "no" as values 
+                # ------------------------------------------------------
+                # 5. for dichotomous variables, I only accept "yes" and "no" as values 
+                # ------------------------------------------------------
                 if (this_var_schema["scale"] in ["dichotomous"]):
                     # Vectorized check with safe handling for unhashables (lists)
                     try:
@@ -1358,7 +1342,9 @@ def recode_events_df(
                         raise ValueError(f"{c} is a dichotomous variable. Only 'yes', 'no' are accepted values. Found: {uniques}")
                     
 
-                # for dict variables, I unpack the dicts into separate columns
+                # ------------------------------------------------------
+                # 6. for dict variables, I unpack the dicts into new separate columns
+                # ------------------------------------------------------
                 # Check if first valid element is dict
                 first_val = None
                 try:
@@ -1374,13 +1360,13 @@ def recode_events_df(
                     new_thing = new_thing.add_prefix(f"{c}_")
                     new_thing.index = cool_events.index
                     if verbose:
-                        print(f"   - {c} recoded to new variables {', '.join(new_thing.columns)}")
+                        print(f"{preamble2}Recoded to new variables {', '.join(new_thing.columns)}")
 
                     new_thing_cols = copy(new_thing.columns)
                     for new_thing_c in new_thing_cols:
                         if not new_thing_c in var_schema.index or var_schema.loc[new_thing_c, "role"] == "skip":
                             if verbose:
-                                print(f"   - Skipping {new_thing_c}")
+                                print(f"{preamble2}Skipping new variable: {new_thing_c}")
                             new_thing = new_thing.drop(columns=new_thing_c)
 
                     # drop the original column or not
@@ -1390,11 +1376,11 @@ def recode_events_df(
                         cool_events = pd.concat([cool_events, new_thing], axis=1)
             else:
                 if verbose:
-                    print(f"Skipping {c}")
+                    print(f"{preamble}Skipping")
                 cool_events = cool_events.drop(columns=[c]).copy()
         else:
             if verbose:
-                print(f"not found in the variable scheme, skipping")
+                print(f"{preamble}Not found in the variable scheme, skipping")
             cool_events = cool_events.drop(columns=[c]).copy()
 
     def _safe_vector_divide(x, y):
@@ -1402,40 +1388,27 @@ def recode_events_df(
     cool_events['plays_per_day'] = _safe_vector_divide(cool_events['S_stats_playCount'],cool_events['T_days_since_created'])
 
 
-    # Clean the recoded dataset - drop rows with NaN values and constant columns
-    #if verbose:
-    #    print(cool_events.shape, "shape of recoded dataset before cleaning")
-        
-    #cool_events = cool_events.loc[~cool_events.isna().any(axis=1)]                      # drop rows with NaN values
-    #if verbose:
-    #    print(cool_events.shape, "shape of recoded dataset after dropping rows with NaN values")
-    #    print("----------------------------------------------")
-
-    print(f"Now: {datetime.now()}")
-
+    if verbose:
+        print(f"Step 4. Converting dtypes to pyarrow. Shape: {cool_events.shape}")
     cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
-    print(f"Now: {datetime.now()}")
-    #return cool_events
-
 
     if verbose:
-        print("Cleaning up Gemini annotations - replacing categories/labels that are very rare")
-        print(f"Shape of the events DF: {cool_events.shape}")
+        print(f"Step 5. Cleaning up Machine annotations - replacing categories/labels that are very rare. Shape: {cool_events.shape}")
     cool_events = clean_up_machine_annotations(cool_events, verbose = verbose)
     if verbose:
-        print(f"Shape of the events DF: {cool_events.shape}")
-        print(cool_events.shape)
+        print(f"    Confirming shape after cleanup: {cool_events.shape}")
 
     cool_events = cool_events[sorted(cool_events.columns)]
 
-    if save_it:
-        recoded_filename = f"{study_name}_RECODED.parquet"
-        data_io.save_parquet(cf, cool_events, "exports", recoded_filename, verbose=verbose)
-        print(f"Exported {len(cool_events):,} events in '{recoded_filename}'.")
+    if save_to_cache and study_name is not None:
+        recoded_filename = f"CACHE_{study_name}_recoded.parquet"
+        cool_events.attrs['study_name'] = study_name
+        cool_events.to_parquet(os_join(cf['paths']['temp'], recoded_filename), engine="pyarrow")
+        if verbose:
+            print(f"    Saved dataset to '{recoded_filename}'. Shape: {cool_events.shape}")
     
-    print(f"Now: {datetime.now()}")
-    #print("--"*60)
+    print(f"...done recoding variables at {datetime.now()}")
 
     return cool_events 
 

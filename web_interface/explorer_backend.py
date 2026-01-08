@@ -3,16 +3,35 @@ import ast
 import numpy as np
 import fyp.data_io as data_io
 
-def load_data(fyp_cf, file_path, verbose=False):
+def load_data(fyp_cf, study, verbose=False):
     from numpy import ndarray as np_ndarray
-    try:
-        if file_path.endswith(fyp_'.parquet'):
-            df = data_io.load_parquet(fyp_cf, "exports", file_path, verbose=verbose)
-        else:
-            raise ValueError(f"Unsupported file format. Only {fyp_'.parquet'} is supported.")
-    except Exception as e:
-        print(f"Error loading data {file_path}: {e}")
+    from pandas import read_parquet as pd_read_parquet
+    from os.path import join as os_join, exists as os_exists
+    from fyp.recode_variables import recode_events_df
+
+    df = None
+    recoded_cache_path = os_join(fyp_cf['paths']['temp'], f"CACHE_{study}_recoded.parquet")
+    if os_exists(recoded_cache_path):
+        if verbose:
+            print("    Loading recoded events from cache", end=" ", flush=True)
+        df = pd_read_parquet(recoded_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+        if verbose:
+            print(f"  |  Shape: {df.shape}")
+    else:
+        print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
+        df = recode_events_df(
+            cf = fyp_cf,
+            study_name = study,
+            load_from_cache = True,
+            save_to_cache = True,
+            verbose = verbose
+        )
+        print("@@ Back after finalising the recoding process. I will now resume loading the data.")
+
+    if df is None:
+        print("    ERROR: This process cannot run without a study dataset as input or in cache. Process failed.")
         return None, {}
+
 
     column_types = {}
 

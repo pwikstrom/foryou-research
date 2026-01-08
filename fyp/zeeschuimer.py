@@ -309,7 +309,7 @@ def get_baseline_log(cf = None,
 
 
 
-def process_baseline_for_complete_dataset(
+def process_baseline_for_core_dataset(
     cf = None,
     baseline_log = None,
     session_id_counter = np_int64(0),
@@ -521,7 +521,7 @@ def ingest_zeeschuimer_data(
             kind_of_log = 'baseline',
             verbose = verbose)
 
-        baseline_log_simple, _ = process_baseline_for_complete_dataset(cf = cf, baseline_log = baseline_log, verbose=verbose)
+        baseline_log_simple, _ = process_baseline_for_core_dataset(cf = cf, baseline_log = baseline_log, verbose=verbose)
 
         if verbose:
             print("Saving half-baked baseline events...")    
@@ -549,7 +549,7 @@ def load_zeeschuimer_data(
     # load items from baseline logs
 
     from datetime import datetime
-    from fyp.fyp_main import initialize
+    from fyp.fyp_main import initialize, connect_to_google
     import fyp.data_io as data_io
 
     if study_name is None:
@@ -557,8 +557,6 @@ def load_zeeschuimer_data(
     
     if cf is None:
         cf = initialize()
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
     
 
     BASELINE_START_DATE = cf["study_defs"][study_name]["BASELINE_START_DATE"]

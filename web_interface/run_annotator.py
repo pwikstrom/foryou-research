@@ -11,7 +11,7 @@ if __name__ == "__main__":
     import argparse
     import traceback
     import fyp.machine_annotation as ma
-    from fyp.fyp_main import connect_to_google, initialize
+    #from fyp.fyp_main import connect_to_google, initialize
     
     parser = argparse.ArgumentParser(description="Run annotator")
     parser.add_argument("study_name", help="Name of the study")
@@ -25,16 +25,20 @@ if __name__ == "__main__":
     print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
 
     # Load CF
-    cf = initialize(verbose=False)
-    if cf['data_io']['use_gcs_for_data']:
-        cf = connect_to_google(cf)
+    #cf = initialize(verbose=False)
+    #if cf['data_io']['use_gcs_for_data']:
+    #    cf = connect_to_google(cf)
 
     try:
         ma.annotate_videos_loop(
-            cf = cf,
+            cf = None,
             study_name=args.study_name,
             batch_size=args.batch_size,
-            max_batches=args.max_batches
+            max_batches=args.max_batches,
+            study_dataset = None,
+            load_from_cache = True,
+            verbose = False,
+            dry_run = False
         )
         print("Annotator process completed.")
         print("-"*100)

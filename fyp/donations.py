@@ -582,9 +582,6 @@ def load_special_donations(
     donations_str = '; '.join(the_special_donations)
     
 
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
-
     DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
     if isinstance(DDP_START_DATE, str):
         DDP_START_DATE = datetime.strptime(DDP_START_DATE, "%Y-%m-%d").date()
@@ -630,8 +627,6 @@ def sample_ddp_events(
 
     if cf is None:
         cf = initialize()
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
@@ -849,7 +844,7 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(1_000
 
 
 
-def process_ddp_log_for_complete_dataset(
+def process_ddp_log_for_core_dataset(
     cf = None, 
     all_ddp_events_df = None, 
     session_id_counter = np_int64(1_000_000), 
@@ -974,7 +969,7 @@ def ingest_ddp_events(
         kind_of_log = 'ddp',
         verbose = verbose)
 
-    all_ddp_events_df = process_ddp_log_for_complete_dataset(
+    all_ddp_events_df = process_ddp_log_for_core_dataset(
         cf = cf, 
         all_ddp_events_df = all_ddp_events_df, 
         verbose=verbose)
@@ -1020,8 +1015,6 @@ def load_ddp_events(
             print("Not loading DDP events")
         return None
 
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
     print(f"Loading all DDP events...")
 

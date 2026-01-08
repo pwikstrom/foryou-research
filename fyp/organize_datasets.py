@@ -219,8 +219,8 @@ def load_datasets(
     study_name = None,
     all_datasets = {},
     consolidate = False,
-    load_from_cache = False,
-    save_to_cache = False,
+    load_from_cache = True,
+    save_to_cache = True,
     verbose=False
     ):
 
@@ -230,35 +230,50 @@ def load_datasets(
     from fyp.donations import load_special_donations, load_ddp_events
     from fyp.zeeschuimer import load_zeeschuimer_data
     from fyp.scrape import load_scrape_metadata
-    from fyp.fyp_main import initialize
+    from fyp.fyp_main import initialize, connect_to_google, find_key_value_in_pq_metadata
     import fyp.data_io as data_io
     from copy import deepcopy
     from datetime import datetime
     from pandas import read_parquet as pd_read_parquet
-
+    from pyarrow.parquet import read_metadata as pq_read_metadata
+    from json import loads as json_loads
 
     if study_name is None:
         raise ValueError("study_name must be specified")
+
     if cf is None:
         cf = initialize()
 
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+    if not study_name in cf["study_defs"].keys():
+        raise ValueError(f"study_name '{study_name}' not found in config")
+
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None and not load_from_cache:
         cf = connect_to_google(cf)
 
-    print(f"Loading datasets for study '{study_name}'...")
+    print(f"Loading core datasets for study '{study_name}'...")
 
+    # load core datasets from cache. This makes sense if the storage is remote. Since slow network connection makes loading of datasets 
+    # take a long time. If this is not a problem, there is really no need to use this option.
     if load_from_cache:
         tutti_data = {}
+        cached_core_datasets = {}
         for k in ['scraped','annotated','ddp','baseline']:
-            if os_exists(os_join(cf["paths"]["temp"], f"CACHE_complete_{k}.parquet")):
-                tutti_data[k] = pd_read_parquet(os_join(cf["paths"]["temp"], f"CACHE_complete_{k}.parquet"), engine='pyarrow', dtype_backend="pyarrow", use_threads=True)
-        print(f"  Using complete datasets from temp folder: {len(tutti_data)}")
+            if os_exists(os_join(cf["paths"]["temp"], f"CACHE_core_{k}.parquet")):
+
+                parquet_study_name = find_key_value_in_pq_metadata(os_join(cf["paths"]["temp"], f"CACHE_core_{k}.parquet"), 'study_name')
+                if parquet_study_name == study_name or parquet_study_name == 'everything':
+                    print(f"  Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
+                    cached_core_datasets[k] = parquet_study_name
+                    tutti_data[k] = pd_read_parquet(os_join(cf["paths"]["temp"], f"CACHE_core_{k}.parquet"), engine='pyarrow', dtype_backend="pyarrow", use_threads=True)
+                else:
+                    print(f"  Cached '{k}' core dataset for study '{parquet_study_name}' does not match requested study name '{study_name}'. Skipping.")
+                
     elif len(all_datasets) > 0:
         tutti_data = deepcopy(all_datasets)
-        print(f"  Using complete datasets provided as argument: {len(tutti_data)}")
+        print(f"  Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
     else:
         tutti_data = {}
-        print(f"  Starting without complete dataset. Building from scratch: {len(tutti_data)}")
+        print(f"  Starting without precomputed core datasets. Loading study core datasets from main storage. This might take a while.")
 
 
     if cf["study_defs"][study_name]["INCLUDE_ZEESCHUIMER_DATA"]:
@@ -266,6 +281,7 @@ def load_datasets(
             tutti_data["baseline"] = load_zeeschuimer_data(cf = cf, study_name = study_name, verbose=verbose)
         else:
             tutti_data["baseline"] = load_zeeschuimer_data(cf = cf, study_name = study_name, all_data = tutti_data["baseline"], verbose=verbose)
+        
     else:
         if "baseline" in tutti_data:
             del tutti_data["baseline"]
@@ -288,13 +304,26 @@ def load_datasets(
             del tutti_data["ddp"]
 
 
+    # I only want to download the videos that are needed for this particular study. So I check which videos are in the
+    # ddp and baseline datasets, and use that to filter the scraped metadata. If the study is the special 
+    # 'everything' study then 
+    if study_name == 'everything':
+        sel = None
+    else:
+        unique_videos = set()
+        if "baseline" in tutti_data:
+            unique_videos = unique_videos | set(tutti_data["baseline"]["item_id"].dropna().values.tolist())
+        if "ddp" in tutti_data:
+            unique_videos = unique_videos | set(tutti_data["ddp"]["item_id"].dropna().values.tolist())
+        sel = [("item_id", "in", list(unique_videos))]
+
     if tutti_data.get("scraped") is None:
-        tutti_data["scraped"] = load_scrape_metadata(cf = cf, consolidate=consolidate, verbose=verbose)
+        tutti_data["scraped"] = load_scrape_metadata(cf = cf, consolidate=consolidate, filters = sel, verbose=verbose)
     else:
         print("  Scraped metadata already loaded")
     
     if tutti_data.get("annotated") is None:
-        tutti_data["annotated"] = load_machine_annotations(cf = cf, consolidate=consolidate, verbose = verbose)
+        tutti_data["annotated"] = load_machine_annotations(cf = cf, consolidate=consolidate, filters = sel, verbose = verbose)
     else:
         print("  Video annotations already loaded")
 
@@ -308,15 +337,20 @@ def load_datasets(
     if save_to_cache:
         t1 = datetime.now()
         if verbose:
-            print("  Saving datasets to temp folder...")
+            print("  Saving datasets to cache...")
         for k in tutti_data:
-            tutti_data[k].to_parquet(os_join(cf["paths"]["temp"], f"CACHE_complete_{k}.parquet"), engine='pyarrow')
+            if k in cached_core_datasets and cached_core_datasets[k] == 'everything':
+                if verbose:
+                    print(f"    Cached 'everything' dataset for '{k}' already exists. No need to replace it with this dataset.")
+                continue
+            tutti_data[k].attrs["study_name"] = study_name
+            tutti_data[k].to_parquet(os_join(cf["paths"]["temp"], f"CACHE_core_{k}.parquet"), engine='pyarrow')
         if verbose:
-            print(f"  ...done. Time taken to save datasets to temp folder: {(datetime.now() - t1).total_seconds():.1f} seconds")
+            print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
 
     print(f"...done. Datasets loaded for study '{study_name}'")
     if verbose:
-        print(f"- {"\n - ".join([f"'{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)" for k in tutti_data])}")
+        print(f"   - {"\n   - ".join([f"'{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)" for k in tutti_data])}")
 
 
     return tutti_data
@@ -328,7 +362,7 @@ def load_datasets(
 
 def select_videos_from_study_dataset(
     cf = None,
-    study_data = None,
+    study_dataset = None,
     query_string = "",
     verbose = False,
     notebook_mode = False
@@ -337,24 +371,38 @@ def select_videos_from_study_dataset(
     from fyp.fyp_main import initialize
     from pandas import NamedAgg
 
-    if study_data is None:
-        raise ValueError("study_data must be specified")
+    if study_dataset is None:
+        raise ValueError("study_dataset must be specified")
     if cf is None:
         cf = initialize()
 
+    
     # group by video URL and count the number of unique users
-    video_stats = study_data.groupby('item_id').agg(
-        nunique_donations = NamedAgg(column="D_donation_id", aggfunc="nunique"),
-        total_observations = NamedAgg(column="D_donation_id", aggfunc="count"),
-        scraped_ok = NamedAgg(column="scraped_ok", aggfunc="first"),
-        scraped_fail = NamedAgg(column="scraped_fail", aggfunc="first"),
-        annotated_ok = NamedAgg(column="annotated_ok", aggfunc="first"),
-        annotated_fail = NamedAgg(column="annotated_fail", aggfunc="first"),
-        video_duration = NamedAgg(column="S_video_duration", aggfunc="max"),
-        )
+    # group by video URL and count the number of unique users
+    # Check that each columns exists and gradually build the aggregation based on what columns are available
+    agg_defs = {
+        "nunique_donations": ("D_donation_id", "nunique"),
+        "total_observations": ("D_donation_id", "count"),
+        "scraped_ok": ("scraped_ok", "first"),
+        "scraped_fail": ("scraped_fail", "first"),
+        "annotated_ok": ("annotated_ok", "first"),
+        "annotated_fail": ("annotated_fail", "first"),
+        "video_duration": ("S_video_duration", "max"),
+    }
 
-    video_stats['duration_ok_to_annotate'] = (video_stats['video_duration'] <= cf["machine"]["max_duration_for_annotation"]).fillna(False)
-    video_stats.drop(columns=["video_duration"], inplace=True)
+    agg_dict = {}
+    for target_col, (source_col, agg_func) in agg_defs.items():
+        if source_col in study_dataset.columns:
+            agg_dict[target_col] = NamedAgg(column=source_col, aggfunc=agg_func)
+
+    video_stats = study_dataset.groupby('item_id').agg(**agg_dict)
+
+    if "video_duration" in video_stats.columns:
+        video_stats['duration_ok_to_annotate'] = (video_stats['video_duration'] <= cf["machine"]["max_duration_for_annotation"]).fillna(False)
+        video_stats.drop(columns=["video_duration"], inplace=True)
+    else:
+        # If duration information is missing, default to False (safer not to annotate unknown duration)
+        video_stats['duration_ok_to_annotate'] = False
 
     video_stats.query(query_string, inplace=True)
 
@@ -367,38 +415,116 @@ def select_videos_from_study_dataset(
 
 
 
-def generate_and_check_unique_videos_to_scrape_and_annotate(
-    cf = None, 
-    study_data = None, 
+def generate_unique_videos_to_scrape_and_annotate(
+    cf = None,
+    study_name = None,
+    study_dataset = None,
+    load_from_cache = True,
+    save_to_cache = True,
     verbose = False
     ):
 
     from fyp.fyp_main import initialize
+    from datetime import datetime
+    from os.path import exists as os_exists, join as os_join
+    from pandas import read_parquet as pd_read_parquet
+
+
+    print(f"Generating unique videos to scrape and annotate...")
+
+    if study_name is None and study_dataset is None:
+        print("  This process cannot run without a study name or a study dataset as input. Process failed.")
+        return None
 
     if cf is None:
         cf = initialize()
-    if study_data is None:
-        raise ValueError("study_data must be specified")
+
+    if load_from_cache and study_name is not None:
+        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_main.parquet")
+        if os_exists(study_dataset_cache_path):
+            if verbose:
+                print(f"    Loading study main dataset from cache...", end=" ", flush=True)
+            study_dataset = pd_read_parquet(study_dataset_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+            if verbose:
+                print(f"Shape: {study_dataset.shape}")
+        else:
+            print("@@ No cached study dataset found. I must run the process to create it. Please wait a moment...")
+            study_dataset = create_study_main_dataset(
+                cf = cf,
+                study_name = study_name,
+                load_from_cache = True,
+                save_to_cache = True,
+                verbose = verbose
+            )
+            print("@@ I'm back after having created the unified study dataset. I will now resume generating unique videos to scrape and annotate.")
+
+
+
+    if study_dataset is None:
+        print("    This process cannot run without a study dataset as input or in cache. Process failed.")
+        return None
+
 
     selected_annotate_videos = select_videos_from_study_dataset(
         cf = cf,
-        study_data = study_data,
+        study_dataset = study_dataset,
         query_string = "scraped_ok & ~annotated_ok & ~annotated_fail & duration_ok_to_annotate",
         verbose = verbose,
         notebook_mode = False)
 
     selected_scrape_videos = select_videos_from_study_dataset(
         cf = cf,
-        study_data = study_data,
+        study_dataset = study_dataset,
         query_string = "~scraped_ok & ~scraped_fail",
         verbose = verbose,
         notebook_mode = False)
+    
+    if save_to_cache:
+        t1 = datetime.now()
+        if verbose:
+            print("  Saving datasets to cache...")
+        selected_annotate_videos.attrs['study_name'] = study_name
+        selected_scrape_videos.attrs['study_name'] = study_name
+        selected_annotate_videos.to_parquet(os_join(cf["paths"]["temp"], f"CACHE_{study_name}_unique_items_to_annotate.parquet"), engine='pyarrow')
+        selected_scrape_videos.to_parquet(os_join(cf["paths"]["temp"], f"CACHE_{study_name}_unique_items_to_scrape.parquet"), engine='pyarrow')
+        if verbose:
+            print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
 
     return {
-        "annotate": selected_annotate_videos.shape,
-        "scrape": selected_scrape_videos.shape
+        "annotate": selected_annotate_videos,
+        "scrape": selected_scrape_videos
     }
 
+
+
+
+def check_unique_videos_to_scrape_and_annotate(
+    cf = None,
+    study_name = None,
+    load_from_cache = True,
+    save_to_cache = True,
+    verbose = False
+    ):
+
+    from fyp.fyp_main import initialize
+    from os.path import exists as os_exists, join as os_join
+
+
+    print(f"Checking unique videos to scrape and annotate...")
+
+    interesting_videos = generate_unique_videos_to_scrape_and_annotate(
+        cf = cf,
+        study_name = study_name,
+        load_from_cache = load_from_cache,
+        save_to_cache = save_to_cache,
+        verbose = verbose)
+
+
+
+    return {
+        "annotate": interesting_videos["annotate"].shape,
+        "scrape": interesting_videos["scrape"].shape
+    }
 
 
 
@@ -546,7 +672,7 @@ def _process_machine_annotations_for_merge_w_logs(
 
 
 def _combine_all_logs(
-    cf = None,
+    #cf = None,
     all_datasets=None,
     verbose=False
     ):
@@ -558,8 +684,8 @@ def _combine_all_logs(
     import fyp.data_io as data_io
     from pandas import NA as pd_NA
 
-    if cf is None:
-        cf = initialize()
+    #if cf is None:
+    #    cf = initialize()
 
     #if study_name is None:
     #    raise ValueError("study_name must be specified")
@@ -580,27 +706,26 @@ def _combine_all_logs(
         raise ValueError("No DDP or baseline log found")
 
     if verbose:
-        print(f" [{__name__}] Combined all logs to shape {combined_log.shape}.")
+        print(f"    [{__name__}] Combined all logs to shape {combined_log.shape}.")
 
+
+
+    # this should never happen: Convert categorical columns to string to avoid fillna errors
+    for col in combined_log.select_dtypes(include=['category']).columns:
+        print(f" ----------------------- [{__name__}] Converting category column {col} to pyarrow string...")
+        combined_log[col] = combined_log[col].astype("string[pyarrow]")
 
 
 
     # when combining logs from zeeschuimer with data donations, some columns that are only
-    # relevant for one of the log types will obviously not be available for the other one. These columns
-    # are not really 'missing' in a data sense, but we need to fill them with something to keep the 
+    # relevant for one of the log types will not be present in the other one. These columns
+    # are not really 'missing' in a data sense, so I need to fill them with something to keep the 
     # data consistent. 
     ddp_cols_isna = [c for c in combined_log.columns if c.startswith("D_") and combined_log[c].isna().any()]
-
     baseline_cols_isna = [c for c in combined_log.columns if c.startswith("B_") and combined_log[c].isna().any()]
     if verbose:
-        print(f" [{__name__}] DDP cols with missing values: {ddp_cols_isna}")
-        print(f" [{__name__}] Baseline cols with missing values: {baseline_cols_isna}")
-
-
-    # Convert categorical columns to string to avoid fillna errors
-    for col in combined_log.select_dtypes(include=['category']).columns:
-        print(f" [{__name__}] Converting category column {col} to pyarrow string...")
-        combined_log[col] = combined_log[col].astype("string[pyarrow]")
+        print(f"    [{__name__}] DDP cols with missing values: {ddp_cols_isna}")
+        print(f"    [{__name__}] Baseline cols with missing values: {baseline_cols_isna}")
 
     for one_ddp_col in ddp_cols_isna:
         if combined_log[one_ddp_col].dtype == "string[pyarrow]":
@@ -619,7 +744,7 @@ def _combine_all_logs(
             combined_log[one_baseline_col] = combined_log[one_baseline_col].fillna(pd_NA)
 
 
-    # TODO: This is a horrible patch. I've probably fixed the cause by now...
+    # TODO: This is a horrible patch. I've hopefully fixed the cause by now...
     combined_log['T_local_day_segment'] = combined_log['T_local_day_segment'].astype("string[pyarrow]")
 
     combined_log = convert_dtypes_to_pyarrow(combined_log, verbose=verbose)
@@ -631,34 +756,48 @@ def _combine_all_logs(
 
 
 
-def merge_all_study_datasets(
+def _merge_all_study_datasets(
     cf = None,
-    all_datasets=None,   
-    verbose=False
+    study_name = None,
+    all_datasets = None,   
+    verbose = False,
+    save_to_cache = True,
     ):
     ### merge log with enriched metadata (scraped and annotated)
 
     from pandas import merge, to_datetime, Series
     from fyp.scrape import load_failed_scrapes
+    from os.path import join as os_join
+    from datetime import datetime
 
 
     print(f"Merging all datasets...")
 
+    if study_name is None:
+        raise ValueError("study_name must be specified")
 
-    combined_log = _combine_all_logs(cf = cf, all_datasets=all_datasets, verbose=verbose)
+    if cf is None:
+        cf = initialize()
 
+    if not study_name in cf["study_defs"].keys():
+        raise ValueError(f"study_name '{study_name}' not found in config")
+
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
+
+    # prepare datasets for merge
+    combined_log = _combine_all_logs(all_datasets=all_datasets, verbose=verbose)
     scrape_metadata_log = _process_scrape_metadata_for_merge_w_logs(all_datasets, combined_log, verbose=verbose)
     machine_annotations_for_log = _process_machine_annotations_for_merge_w_logs(all_datasets, combined_log, verbose=verbose)
 
     # load failed_scrapes as a set
     failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True))
 
+    # merge datasets
+    outdata = merge(left=combined_log, right=rename_columns(scrape_metadata_log), on='item_id',how='left')
+    outdata = merge(left=outdata, right=rename_columns(machine_annotations_for_log), on='item_id',how='left')
 
-    the_how = 'left'
-
-    outdata = merge(left=combined_log, right=rename_columns(scrape_metadata_log), on='item_id',how=the_how)
-    outdata = merge(left=outdata, right=rename_columns(machine_annotations_for_log), on='item_id',how=the_how)
-
+    # add flags to indicate success/failure of scrape and annotation
     outdata["scraped_ok"] = outdata["scraped_ok"].fillna(False)
     outdata["annotated_ok"] = outdata["annotated_ok"].fillna(False)
     outdata["annotated_fail"] = outdata["annotated_fail"].fillna(False)
@@ -666,7 +805,7 @@ def merge_all_study_datasets(
 
 
     # Create a new column by calculating the difference between 'T_local_timestamp' and 'S_createTime'.
-    # Ensure both are proper datetime types (not object) before subtraction
+    # Ensure both are proper datetime types  before subtraction
     # TODO: This needs to be more dynamic and not make direct references to variable name
     t_timestamp = outdata["T_local_timestamp"]
     s_createtime = outdata["S_createTime"]
@@ -683,6 +822,16 @@ def merge_all_study_datasets(
         print(f"Adding 'days_since_created' column. Resulting output log DF shape {outdata.shape}")
         #print("--"*60)
 
+    if save_to_cache:
+        t1 = datetime.now()
+        if verbose:
+            print("  Saving datasets to cache...")
+        outdata.attrs['study_name'] = study_name
+        outdata.to_parquet(os_join(cf["paths"]["temp"], f"CACHE_{study_name}_main.parquet"), engine='pyarrow')
+        if verbose:
+            print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
+
+
     print(f"...done. Merged all datasets. Shape: {outdata.shape}")
 
     return outdata
@@ -698,38 +847,46 @@ def merge_all_study_datasets(
 def create_study_main_dataset(
     cf = None,
     study_name = None,
-    all_datasets = None,
-    load_from_cache = False,
-    save_to_cache = False,
+    all_datasets = {},
+    load_from_cache = True,
+    save_to_cache = True,
     verbose = False
     ):
 
-    from fyp.fyp_main import initialize
-
-    if cf is None:
-        cf = initialize()
+    from fyp.fyp_main import initialize, connect_to_google
 
     if study_name is None:
         raise ValueError("study_name must be specified")
 
-    #print("--"*60)
+    if cf is None:
+        cf = initialize()
+
+    if not study_name in cf["study_defs"].keys():
+        raise ValueError(f"study_name '{study_name}' not found in config")
+
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None and not load_from_cache:
+        cf = connect_to_google(cf)
+
+
     print(f"Generating unified dataset for study '{study_name}'")
-    #print("--"*60)
 
     all_datasets = load_datasets(
         cf = cf,
         study_name = study_name,
         all_datasets = all_datasets,
-        load_from_cache = load_from_cache,
-        save_to_cache = save_to_cache,
+        load_from_cache = True,
+        save_to_cache = True,
         verbose = verbose)
 
 
-    study_main_dataset = merge_all_study_datasets(
+    study_main_dataset = _merge_all_study_datasets(
         cf = cf,
+        study_name = study_name,
         all_datasets = all_datasets,
-        verbose=verbose
+        save_to_cache = True,
+        verbose = verbose
     )
+
 
     memory_per_column = study_main_dataset.memory_usage(deep=True) 
     total_memory_bytes = memory_per_column.sum()

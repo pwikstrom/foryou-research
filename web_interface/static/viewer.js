@@ -82,10 +82,6 @@ async function loadViewerStudies() {
             selector.appendChild(opt);
         });
 
-        if (studies.length > 0) {
-            selector.value = studies[0];
-            changeViewerStudy(studies[0]);
-        }
 
     } catch (e) {
         console.error("Failed to load studies", e);

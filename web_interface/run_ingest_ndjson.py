@@ -89,14 +89,14 @@ def ingest_files(file_names, label):
             # Naming logic from move_and_refine_recent_file
             # It creates names like {script}{original_name_wo_zeeschuimer}.parquet)
             # simplified:
-            processed_fn = file_name.replace(".ndjson", fyp_'.parquet')
+            processed_fn = file_name.replace(".ndjson", '.parquet')
             
             # Check f there is already a file with this name in the zeeschuimer_refined - if so, append a number
             #r = 0
             #while data_io.exists(fyp_cf, "zeeshuimer_refined", processed_fn):
             #    r += 1
             #    stem = file_name.replace(".ndjson", "")
-            #    processed_fn = f"{stem}_{r:04}{fyp_'.parquet'}"
+            #    processed_fn = f"{stem}_{r:04}.parquet"
             
             #save_path = refined_dir / processed_fn
             df = fyp.convert_dtypes_to_pyarrow(df, verbose=False)

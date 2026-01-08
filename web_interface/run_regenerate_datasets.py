@@ -16,28 +16,25 @@ if __name__ == "__main__":
 
     
     # Argument Parser
-    parser = argparse.ArgumentParser(description=f"Regenerate datasets for a study.")
-    parser.add_argument('study_name', help="Name of the study")
+    parser = argparse.ArgumentParser(description=f"Regenerate the core dataset.")
     
     args = parser.parse_args()
-    study_name = args.study_name
     
     # Load CF
     cf = initialize(verbose=False)
     if cf['data_io']['use_gcs_for_data']:
         cf = connect_to_google(cf)
 
-    print(f"Starting dataset regeneration for study: {study_name}")
+    print(f"Starting regeneration of core dataset.")
     try:
         organize_datasets.load_datasets(
             cf = cf,
-            study_name = study_name,
-            use_half_baked=True,
-            delete_all_half_baked_files=True,
+            study_name = 'everything',
             consolidate=True,
+            save_to_cache=True,
             verbose=False
         )
-        print("Dataset regeneration completed successfully.")
+        print("core dataset generated successfully.")
     except KeyboardInterrupt:
         print("\nProcess stopped by user.")
         sys.exit(1) # Return non-zero for stop

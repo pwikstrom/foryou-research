@@ -172,14 +172,23 @@ def download_single_video(
     cf = None,
     video_id: str = None, 
     verbose: bool = True,
+    dry_run: bool = False,
     ):
 
     import fyp.mypyktok as pyk
     from os.path import join, exists, getsize
     from fyp.fyp_main import initialize, connect_to_google
 
+    if dry_run:
+        from time import sleep
+        sleep(1)
+        if verbose:
+            print(f"Dry run: would have downloaded video {video_id}")
+        return video_id
+
     if cf is None:
         cf = initialize()
+    
     if cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
@@ -187,6 +196,7 @@ def download_single_video(
         raise ValueError("No GCS bucket specified")
     if video_id is None:
         raise ValueError("No video id specified")
+
 
 
     gcs_media_prefix = cf['paths']['gcs_media_prefix']
@@ -424,7 +434,8 @@ def download_video_threads(
     cf = None,
     interesting_videos = None,
     max_workers=4,
-    verbose=False):
+    verbose=False,
+    dry_run=False):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from pandas import concat, DataFrame
     from datetime import datetime
@@ -438,16 +449,20 @@ def download_video_threads(
 
     if cf is None:
         cf = initialize()
-    if cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
-    if cf['data_io']['bucket'] is None:
-        raise ValueError("No GCS bucket specified")
-    if interesting_videos is None:
-        raise ValueError("No interesting videos specified")
+    if dry_run:
+        print("********* This is a dry run. It's all fake. No data io action at all. *********")
+    else:
+        if cf['data_io']['bucket'] is None:
+            cf = connect_to_google(cf)
 
-    if len(interesting_videos) == 0:
-        return DataFrame()
+        if cf['data_io']['bucket'] is None:
+            raise ValueError("No GCS bucket specified")
+        if interesting_videos is None:
+            raise ValueError("No interesting videos specified")
+
+        if len(interesting_videos) == 0:
+            return DataFrame()
 
     results_by_index = {}
 
@@ -456,9 +471,12 @@ def download_video_threads(
         return idx, download_single_video(
             cf = cf,
             video_id = video, 
-            verbose=verbose)
+            verbose=verbose,
+            dry_run=dry_run)
+
 
     if verbose:
+        print(f"dry_run: {dry_run}")
         print(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
 
 
@@ -490,11 +508,15 @@ def download_video_threads(
         else:
             failed_items += [results_by_index[idx]]
 
+    if len(results)==0:
+        print("The scrape procedure did not generate any useful results")
+        return DataFrame()
+
     results = concat(results)
 
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
-    if len(results)>0:
+    if not dry_run and len(results)>0:
         
         scrape_metadata_filename = f"scrape_metadata_{fine_ts}.parquet"
         results = convert_dtypes_to_pyarrow(results, verbose=verbose)
@@ -503,7 +525,7 @@ def download_video_threads(
         print(f"and saved media objects to the bucket for {len(results[results['video_downloaded']]):,} of these.")
 
 
-    if len(failed_items)>0:
+    if not dry_run and len(failed_items)>0:
         data_io.save_json(cf, failed_items, "scrape", f"scrape_failed_items_{fine_ts}.json", verbose=verbose)
         #with open(join(cf['paths']['scrape'],f"scrape_failed_items_{fine_ts}.json"), "w") as jf:
         #    json_dump(failed_items, jf)
@@ -516,76 +538,100 @@ def download_video_threads(
 
 
 
-
-
 def download_videos_loop(
     cf = None,
     study_name = None,
+    study_dataset = None,
+    load_from_cache = True,
     batch_size = 500,
     max_batches = None,
-    verbose = False):
+    verbose = False,
+    dry_run = False
+    ):
 
     from datetime import datetime
-    from fyp.organize_datasets import select_videos_from_half_baked
-    from fyp.fyp_main import initialize, connect_to_google
+    from fyp.organize_datasets import select_videos_from_study_dataset, create_study_main_dataset
+    from fyp.fyp_main import initialize, connect_to_google, chunk_list
     from os import environ
+    from os.path import join as os_join
+    from os.path import exists as os_exists
+    from pandas import read_parquet as pd_read_parquet
+    from numpy import inf as np_inf
+
+    max_batches = max_batches if max_batches is not None else np_inf
+
+    if study_name is None and study_dataset is None:
+        print("    ERROR: This process cannot run without a study name or a study dataset as input. Process failed.")
+        return None
 
     if cf is None:
         cf = initialize()
-    if cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
-    if study_name is None:
-        raise ValueError("No study name specified")
+    if load_from_cache and study_name is not None:
+        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_main.parquet")
+        if os_exists(study_dataset_cache_path):
+            if verbose:
+                print("    Loading study dataset from cache", end=" ", flush=True)
+            study_dataset = pd_read_parquet(study_dataset_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+            print(study_dataset.attrs['study_name'])
+            if verbose:
+                print(f"  |  Shape: {study_dataset.shape}")
+        else:
+            if verbose:
+                print("    No cached study dataset found. I must run the process to create it. Please wait a moment...")
+            study_dataset = create_study_main_dataset(
+                cf = cf,
+                study_name = study_name,
+                load_from_cache = True,
+                save_to_cache = True,
+                verbose = verbose
+            )
 
 
+    if study_dataset is None:
+        print("    ERROR: This process cannot run without a study dataset as input or in cache. Process failed.")
+        return None
 
-    print(f"Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
-    print(f"Now: {datetime.now()}")
+    print(f"    Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
+    print(f"    Now: {datetime.now()}")
     #print("--"*60)
 
+    selected_videos_df = select_videos_from_study_dataset(
+        cf = cf,
+        study_dataset = study_dataset,
+        query_string = "~scraped_ok & ~scraped_fail",
+        verbose = verbose,
+        notebook_mode = False
+    )
 
-    selected_videos = [0] # just a non-empty list to get things started
     batch_number = 1
 
-    print("Starting loop...")
-    while len(selected_videos)>0:
-        selected_videos = select_videos_from_half_baked(
-            cf = cf,
-            study_name = study_name,
-            file_label = "SCRAPE",
-            INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = True,
-            INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
-            INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
-            INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = False,
-            INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
-            INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-            verbose = verbose
-        )
+    batch_target = min(max_batches, len(selected_videos_df.index) // batch_size + 1)
 
+    print(f"  Starting loop... There are {len(selected_videos_df):,} videos to process in {batch_target:,} batches")
 
-        if len(selected_videos) > 0:
-            work_with_these_videos_list_raw = [str(k) for k in selected_videos.item_id.to_list()]
-            work_with_these_videos_list = work_with_these_videos_list_raw.copy()
-
-            print(f"{len(work_with_these_videos_list):,} videos to process for study '{study_name}'")
-
-            _ = download_video_threads(
-                cf = cf,
-                interesting_videos = work_with_these_videos_list[:batch_size], 
-                max_workers=4, 
-                verbose = verbose)
+    for batch in chunk_list(selected_videos_df.index.to_list(), batch_size):
         
-        if selected_videos is None:
-            selected_videos = []
+        print(f"  Batch {batch_number} of {max_batches:,}")
+
+        _ = download_video_threads(
+            cf = cf,
+            interesting_videos = batch, 
+            max_workers=4, 
+            verbose = verbose,
+            dry_run = dry_run)
+        
 
         if max_batches is not None and batch_number >= max_batches:
             break
 
         batch_number += 1
 
+        if dry_run:
+            break
 
-    print(f"Loop ended: {datetime.now()}")
+
+    print(f"  Loop ended: {datetime.now()}")
 
 
 
@@ -599,6 +645,7 @@ def download_videos_loop(
 def load_scrape_metadata(
     cf = None,
     consolidate=False,
+    filters=None,
     verbose=False):
     # load the scraped metadata dataframe
 
@@ -613,9 +660,6 @@ def load_scrape_metadata(
 
     if cf is None:
         cf = initialize()
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
-
     # -------------------------------------------------
     # load the scrape_metadata dataframe
     # -------------------------------------------------
@@ -623,7 +667,7 @@ def load_scrape_metadata(
 
     # if we are consolidating, load all columns (otherwise data is lost)
     if True:#consolidate:
-        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", verbose=verbose)
+        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", filters=filters, verbose=verbose)
     # if we are not consolidating, load only the useful variables
     else:
         import re
@@ -757,8 +801,6 @@ def load_failed_scrapes(
 
     if cf is None:
         cf = initialize()
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
     if verbose:
         print("Loading failed scrapes...")

@@ -53,12 +53,6 @@ async function loadExplorerStudies() {
             selector.appendChild(opt);
         });
 
-        // Auto-select first if available
-        if (studies.length > 0) {
-            selector.value = studies[0];
-            changeExplorerStudy(studies[0]);
-        }
-
     } catch (e) {
         console.error("Failed to load studies", e);
         selector.innerHTML = '<option disabled>Error loading studies</option>';

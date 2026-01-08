@@ -20,6 +20,32 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
+# --- Custom JSON Provider for Numpy/Pandas ---
+from flask.json.provider import DefaultJSONProvider
+
+class CustomJSONProvider(DefaultJSONProvider):
+    def default(self, obj):
+        if isinstance(obj, (np.integer, int)):
+            return int(obj)
+        if isinstance(obj, (np.floating, float)):
+            # Check for NaN/Inf
+            if np.isnan(obj) or np.isinf(obj):
+                return None
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.bool_, bool)):
+            return bool(obj)
+        if pd.isna(obj): # Handles pd.NA, np.nan, pd.NaT
+            return None
+        if isinstance(obj, (pd.Timestamp, datetime)):
+            return obj.isoformat()
+        
+        return super().default(obj)
+
+app.json = CustomJSONProvider(app)
+
+
 # --- Config ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
@@ -27,7 +53,7 @@ sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
 import fyp
 import fyp.data_io as data_io
 from fyp.calc_donation_stats import calculate_all_donation_stats, enrich_stats_with_metadata
-from fyp.organize_datasets import load_ddp_events
+from fyp.donations import load_ddp_events
 
 
 # Initialize configuration to access paths
@@ -94,17 +120,16 @@ def get_explorer_data(study):
         return explorer_df, explorer_col_types
 
     # Resolve path
-    dataset_filename = f"{study}_RECODED{fyp_'.parquet'}"
-    if data_io.exists(fyp_cf, "exports", dataset_filename):
-        explorer_df, explorer_col_types = explorer.load_data(fyp_cf, dataset_filename, verbose=True)
-        res = explorer.get_current_stats(explorer_df, explorer_col_types)
-        explorer_total_stats = res['stats']
-        active_explorer_study = study
-        #print("Total stats computed.")
-        return explorer_df, explorer_col_types
-    else:
-        print(f"Explorer Study dataset not found at {dataset_filename} in 'exports'")
+    explorer_df, explorer_col_types = explorer.load_data(fyp_cf, study, verbose=True)
+
+    if explorer_df is None:
+        print(f"The requested recoded study dataset was not found")
         return None, None
+
+    res = explorer.get_current_stats(explorer_df, explorer_col_types)
+    explorer_total_stats = res['stats']
+    active_explorer_study = study
+    return explorer_df, explorer_col_types
 
 
 
@@ -314,19 +339,7 @@ def api_start(name):
         if data.get("max_batches") and data["max_batches"].strip():
              args.extend(["--max-batches", str(data["max_batches"])])
 
-    # Pass testing flag if present
-    #if data.get("testing"):
-    #    args.append("--testing") # Or however the scripts handle it. 
-    #    # Wait, the other scripts might expect it differently? 
-    #    # downloader uses os.environ usually passed via env var, but previous code 
-    #    # had: if data.get("testing"): args.append({"testing": True}) <- wait, args must be strings for subprocess.
-    #    # Let's see how start_process handles args.
-    #    # Actually start_process does: cmd = [PYTHON_EXEC, script_path] + [str(a) for a in args]
-    #    # So passing a dict {"testing": True} would become string representation.
-    #    # But wait, looking at my previous read of app.py (Step 248? No, 353 and earlier).
-    #    # run_regenerate_datasets.py creates env var from CLI? No.
-    #    # run_downloader.py handles it?
-    #    # Let's look at `start_process` implementation if I can.
+
         
     study_name = data.get("study_name") 
 
@@ -445,12 +458,15 @@ def api_config():
 
 @app.route('/api/explorer/studies', methods=['GET'])
 def api_explorer_studies():
-    
+    from os import listdir as os_listdir
+    """
+    Look for precomputed recoded files in temp folder and extract list of study names.
+    """
     studies = []
-    recoded_files = [fn for fn in data_io.listdir(fyp_cf, "exports") if fn.endswith(f"_RECODED{fyp_'.parquet'}")]
+    recoded_files = [fn for fn in os_listdir(fyp_cf['paths']['temp']) if fn.endswith("_recoded.parquet")]
     for fn in recoded_files:
-        # Extract study name: filename is {study_name}_RECODED...
-        study_name = fn.replace(f"_RECODED{fyp_'.parquet'}", "")
+        # Extract study name: filename is {study_name}_recoded...
+        study_name = fn.replace("_recoded.parquet", "")
         studies.append(study_name)
     
     return jsonify(sorted(studies))
@@ -474,6 +490,8 @@ def api_get_study_defs():
 
 @app.route('/api/explorer/metadata', methods=['GET'])
 def api_explorer_metadata():
+    from os.path import exists as os_exists, getmtime as os_getmtime, join as os_join
+
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
@@ -493,10 +511,10 @@ def api_explorer_metadata():
 
     # Inject Source File Info
     try:
-        the_recoded_file = f"{study}_RECODED{fyp_'.parquet'}"
-        if data_io.exists(fyp_cf, "exports", the_recoded_file):
+        the_recoded_file = f"CACHE_{study}_recoded.parquet"
+        if os_exists(os_join(fyp_cf['paths']['temp'], the_recoded_file)):
             metadata['source_file'] = the_recoded_file
-            mtime = datetime.fromtimestamp(data_io.getmtime(fyp_cf, "exports", the_recoded_file))
+            mtime = datetime.fromtimestamp(os_getmtime(os_join(fyp_cf['paths']['temp'], the_recoded_file)))
             metadata['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
         else:
              metadata['source_file'] = "Unknown"
@@ -749,6 +767,11 @@ def api_viewer_ids():
 pca_df_cache = {}
 
 def get_pca_df(study_name):
+    from os.path import exists as os_exists, join as os_join
+    from pandas import read_parquet as pd_read_parquet
+    from fyp.pca import calculate_scaled_pca_scores
+
+
     global pca_df_cache
     if study_name in pca_df_cache:
         # Check freshness? Simple version: just return.
@@ -756,15 +779,19 @@ def get_pca_df(study_name):
 
     # Load file
     try:
-        from os.path import join, exists
-        import pandas as pd
         
-        pca_filename = f"{study_name}_PCA{fyp_'.parquet'}"
+        pca_filename = f"CACHE_{study_name}_PCA.parquet"
         
-        if not data_io.exists(fyp_cf, "exports", pca_filename):
-            return None
-        
-        df = data_io.load_parquet(fyp_cf, "exports", pca_filename)
+        if not os_exists(os_join(fyp_cf['paths']['temp'], pca_filename)):
+            calculate_scaled_pca_scores(
+                cf = fyp_cf,
+                study_name = study_name,
+                )
+
+
+
+
+        df = pd_read_parquet(os_join(fyp_cf['paths']['temp'], pca_filename))
         pca_df_cache[study_name] = df
         return df
     except Exception as e:
@@ -879,7 +906,7 @@ def api_pca_data():
     # x, y, color, text (metadata tooltip)
     
     # For tooltip, maybe include ID and Color val
-    # Assuming 'item_id' exists?
+    # Assuming 'item_id' exists
     
     result_data = []
     
@@ -926,8 +953,8 @@ def api_pca_data():
 
 
 
-LOCATION_CACHE_FILE = 'location_timezone_cache.json' # sits in 'ddp_main'
-PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet' # sits in 'ddp_main'
+LOCATION_CACHE_FILE = 'location_timezone_cache.json' # sits in 'temp'
+PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet' # sits in 'temp'
 
 
 
@@ -935,12 +962,10 @@ PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet' # sits in 'ddp_main'
 @app.route('/api/persona_stats_info', methods=['GET'])
 def api_persona_stats_info():
     """Get info about cached stats file (existence and timestamp)."""
+    from os.path import exists as os_exists, join as os_join, getmtime as os_getmtime
     try:
-        from os.path import join, exists, getmtime
-        #cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
-        
-        if data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
-            mtime = data_io.getmtime(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE)
+        if os_exists(os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE)):
+            mtime = os_getmtime(os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE))
             from datetime import datetime
             timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
             return jsonify({"exists": True, "timestamp": timestamp})
@@ -956,15 +981,14 @@ def api_persona_stats_info():
 @app.route('/api/persona_stats_cached', methods=['GET'])
 def api_persona_stats_cached():
     """Load pre-calculated stats from cache file."""
+    from os.path import exists as os_exists, join as os_join
+    from pandas import read_parquet as pd_read_parquet
     try:
-        #from os.path import join, exists
-        #cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
-        
-        if not data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
+        if not os_exists(os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE)):
             return jsonify({"error": "No cached stats found. Click 'Recalculate Stats' to generate."}), 404
         
         print(f"Loading cached persona stats from {PERSONA_STATS_CACHE_FILE}...")
-        stats_df = data_io.load_parquet(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE)
+        stats_df = pd_read_parquet(os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE))
         
         # Convert to JSON-safe records
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')
@@ -1342,7 +1366,8 @@ def api_check_datasets(study_name):
 @app.route('/api/check_video_counts/<study_name>', methods=['GET'])
 def api_check_video_counts(study_name):
     try:
-        counts = fyp.generate_and_check_unique_videos_to_scrape_and_annotate(fyp_cf, study_name)
+        print(f"--------------------Checking video counts for study: {study_name}")
+        counts = fyp.check_unique_videos_to_scrape_and_annotate(fyp_cf, study_name)
         # Returns dict: {"annotate": (rows, cols), "scrape": (rows, cols)}
         return jsonify(counts)
     except ValueError as ve:
