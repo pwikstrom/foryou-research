@@ -16,7 +16,7 @@ from numpy import int64 as np_int64
 ############################################################################################################
 
 # read a file with one json object per line and return a list of dictionaries
-def read_ndjson_file(cf = None, storage_location = None, file_name = None):
+def read_ndjson_file(cf = None, storage_location = None, filename = None):
     from json import loads
     from fyp.fyp_main import initialize
     from os.path import join
@@ -24,9 +24,9 @@ def read_ndjson_file(cf = None, storage_location = None, file_name = None):
     if cf is None:
         cf = initialize()
 
-    fine_fn = file_name.replace("/","").replace(".ndjson","").split('-')[0]
+    fine_fn = filename.replace("/","").replace(".ndjson","").split('-')[0]
     data = []
-    with open(join(cf["paths"][storage_location], file_name), 'r') as file:
+    with open(join(cf["paths"][storage_location], filename), 'r') as file:
         for line in file:
             line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
             line = '{"log_script":"' + fine_fn + '",' + line[1:]
@@ -50,7 +50,7 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
         cf = initialize()
 
     if isinstance(item_list_or_ndjson_path, str):
-        item_list = read_ndjson_file(cf = cf, storage_location="zeeschuimer_raw", file_name = item_list_or_ndjson_path)
+        item_list = read_ndjson_file(cf = cf, storage_location="zeeschuimer_raw", filename = item_list_or_ndjson_path)
     elif isinstance(item_list_or_ndjson_path, list):
         item_list = item_list_or_ndjson_path
     else:
@@ -570,17 +570,17 @@ def load_zeeschuimer_data(
     print("Loading baseline logs...")
 
     if all_data is None:
-        baseline_log = data_io.load_parquet(cf, "zeeschuimer_main", "all_zeeschuimer_events.parquet", verbose=verbose)
+        baseline_log = data_io.load_parquet(cf, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
     else:
         baseline_log = all_data.copy()
 
     if verbose:
-        print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.T_local_timestamp.min():%Y-%m-%d} -- {baseline_log.T_local_timestamp.max():%Y-%m-%d}")
+        print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.T_local_date.min():%Y-%m-%d} -- {baseline_log.T_local_date.max():%Y-%m-%d}")
     
 
-    baseline_log = baseline_log[(baseline_log.T_local_timestamp>=BASELINE_START_DATE) & (baseline_log.T_local_timestamp<=BASELINE_END_DATE)].copy()
+    baseline_log = baseline_log[(baseline_log.T_local_date>=BASELINE_START_DATE) & (baseline_log.T_local_date<=BASELINE_END_DATE)].copy()
     
-    print(f"...done. Selected date range: {baseline_log.T_local_timestamp.min():%Y-%m-%d} -- {baseline_log.T_local_timestamp.max():%Y-%m-%d} Observations: {baseline_log.shape[0]:,}")
+    print(f"...done. Selected date range: {baseline_log.T_local_date.min():%Y-%m-%d} -- {baseline_log.T_local_date.max():%Y-%m-%d} Observations: {baseline_log.shape[0]:,}")
     
 
     return baseline_log

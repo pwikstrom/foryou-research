@@ -220,6 +220,7 @@ def initialize(
     cf["paths"]["machine_annotations_refined"] = join(cf["paths"]["machine_annotations"], "machine_annotations_refined")
 
     # other paths
+    cf["paths"]["recoded"] = join(cf["paths"]["local_data"], "recoded")
     cf["paths"]["exports"] = join(cf["paths"]["local_data"], "exports")
     cf["paths"]["archive"] = join(cf["paths"]["local_data"], "archive")
     cf["paths"]["temp"] = join(cf["paths"]["local_temp"], "temp")

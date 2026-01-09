@@ -595,12 +595,14 @@ def load_special_donations(
 
     if all_data is None:
         sel = [("D_donation_id", "in", the_special_donations),("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
-        special_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2.parquet", filters=sel,verbose=verbose)
+        special_ddp_events_df = data_io.load_parquet(cf, "recoded", "donations_recoded.parquet", filters=sel,verbose=verbose)
     else:
         special_ddp_events_df = all_data.copy()
         special_ddp_events_df = special_ddp_events_df[(special_ddp_events_df.D_donation_id.isin(the_special_donations)) & (special_ddp_events_df.T_local_date>=DDP_START_DATE) & (special_ddp_events_df.T_local_date<=DDP_END_DATE)].copy()
         if verbose:
             print(f"Special DDP events - selected date range: {special_ddp_events_df.T_local_date.min():%Y-%m-%d} ---- {special_ddp_events_df.T_local_date.max():%Y-%m-%d} Shape: {special_ddp_events_df.shape}")
+
+    return special_ddp_events_df
 
     if verbose:
         print(f"Special DDP events dataframe loaded: {special_ddp_events_df.D_donation_id.nunique()} unique donations. Shape: {special_ddp_events_df.shape}")
@@ -627,19 +629,22 @@ def sample_ddp_events(
 
     if cf is None:
         cf = initialize()
+    
+    if all_ddp_events_df is None:
+        raise ValueError("[DD Sampling] all_ddp_events_df cannot be None")
 
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
 
     group_factors = cf["var_schema"][cf["var_schema"]["role"]=='group_factor'].variable_name.to_list()
+    group_factors = sorted(group_factors) # in case they are entered in different order...
 
-    #t1 = []
-    #for c in group_factors:
-    #    if c[:2] in ["D_","T_","S_","B_"]:
-    #        t1 += [c[2:]]
-    #    else:
-    #        t1 += [c]
-    #group_factors = t1
+    """all_ddp_events_df = data_io.load_parquet(
+        cf=cf,
+        storage_location="recoded",
+        filename="donations_recoded.parquet",
+        #columns = ["D_feature_name","dd_event_id"] + group_factors,
+        verbose=verbose)"""
 
     AGG_GROUP_SIZE_PERCENTILE_LIMITS = cf["study_defs"][study_name]["AGG_GROUP_SIZE_PERCENTILE_LIMITS"]
     MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = cf["study_defs"][study_name]["MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION"]
@@ -648,8 +653,10 @@ def sample_ddp_events(
 
     print("Sampling DDP events...")
 
-    # count the number of events in the donation-date groups
-    donation_date_groups = all_ddp_events_df[all_ddp_events_df['D_feature_name']=="watch"].groupby(group_factors)["D_sample_id"].count()
+    # count the number of watch events in the donation-date groups. I don't want groups without any watch events
+    donation_date_groups = all_ddp_events_df[all_ddp_events_df['D_feature_name']=="watch"].groupby(group_factors)["D_feature_name"].count()
+    if verbose:
+        print(f"    [DD Sampling] There {len(all_ddp_events_df):,} dd events in {len(donation_date_groups):,} groups before sampling")
 
 
     # this is transforming the donation-date group percentile limits to actual values
@@ -657,28 +664,33 @@ def sample_ddp_events(
     percentile_str = "-".join([f"{k:.0%}" for k in AGG_GROUP_SIZE_PERCENTILE_LIMITS])
     limits_str = "-".join([f"{k:,.0f}" for k in donation_date_group_size_limits])
     if verbose:
-        print(f"Percentile limits {percentile_str} translate to {limits_str} in actual event counts")
+        print(f"    [DD Sampling] The percentile limits {percentile_str} for this study translate to {limits_str} in actual event counts")
 
-
+    #return donation_date_groups
     # apply the size limits to the donation-date groups to get those that fit the criteria
     donation_date_groups_within_size_limits = donation_date_groups[(donation_date_groups>=donation_date_group_size_limits[0]) & (donation_date_groups<donation_date_group_size_limits[1])]
     if verbose:
-        print(f"There are {len(donation_date_groups_within_size_limits):,} donation-date groups with event counts within the limits")
+        print(f"    [DD Sampling] There are {len(donation_date_groups_within_size_limits):,} donation-date groups with event counts within the limits")
 
 
     # for each donation, count how many dates have event counts within the limits
     n_tiktok_dates_within_limits_per_donation = (~donation_date_groups_within_size_limits.unstack(level=0).isna()).sum()
 
+
     # I want donations who have a considerable number of dates within this range.
     donations_with_many_dates_within_limits = n_tiktok_dates_within_limits_per_donation[n_tiktok_dates_within_limits_per_donation>=MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION]
+
+
+    
     if verbose:
-        print(f"There are {len(donations_with_many_dates_within_limits):,} donations with at least {MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION} dates where the number of events is within the limits")
+        print(f"    [DD Sampling] There are {len(donations_with_many_dates_within_limits):,} donations with at least {MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION} dates where the number of events is within the limits")
 
 
     # use these identified donations to identify the donation-date groups that meet the events per date criteria
     donation_date_groups_by_regulars = donation_date_groups_within_size_limits.unstack(1).loc[donations_with_many_dates_within_limits.index,:].stack()
     if verbose:
-        print(f"These donations yield {len(donation_date_groups_by_regulars):,} donation-date groups meeting the criteria")
+        print(f"    [DD Sampling] These donations yield {len(donation_date_groups_by_regulars):,} donation-date groups meeting the criteria")
+
 
 
     # Sample step 1: sample a certain number of dates from each donation
@@ -692,22 +704,20 @@ def sample_ddp_events(
     # then I pick the top 'N_SAMPLED_DATES_FROM_EACH_DONATION' dates from each donation
     # this ensures that I keep the elements selected when 'N_SAMPLED_DATES_FROM_EACH_DONATION' is small,
     # also when I pick a higher 'N_SAMPLED_DATES_FROM_EACH_DONATION' value
-    # It's expensive to scrape and annotate videos, so I don't want to start from scratch
+    # It's $$$ to scrape and annotate videos, so I don't want to start from scratch
     # just because I increased the sample size
     sampled_donation_date_groups_by_regulars = ordered_groups.groupby(level=0).head(N_SAMPLED_DATES_FROM_EACH_DONATION)
-    del ordered_groups # clean up
 
     if verbose:
-        print(f"Sampling {N_SAMPLED_DATES_FROM_EACH_DONATION} dates from each donation, giving {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
+        print(f"    [DD Sampling] Sampling {N_SAMPLED_DATES_FROM_EACH_DONATION} dates from each donation, giving {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
 
-
-    # get the watch events in these sampled donation-date groups (nonb-watch events are just cream on top)
-    ddp_events_in_sampled_groups = all_ddp_events_df[all_ddp_events_df['D_feature_name']=="watch"]#.set_index(group_factors).loc[sampled_donation_date_groups_by_regulars.index].reset_index()
-    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.set_index(group_factors)#.loc[sampled_donation_date_groups_by_regulars.index].reset_index()
-    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.loc[sampled_donation_date_groups_by_regulars.index]#.reset_index()
+    # get all events in these sampled donation-date groups (non-watch events as well)
+    ddp_events_in_sampled_groups = all_ddp_events_df.set_index(group_factors)
+    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.loc[sampled_donation_date_groups_by_regulars.index]
     ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.reset_index()
     if verbose:
-        print(f"There are {len(ddp_events_in_sampled_groups):,} events in these {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
+        print(f"    [DD Sampling] There are {len(ddp_events_in_sampled_groups):,} events in these {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
+
 
 
     # Sample step 2: sample a certain number of events from each donation-date group
@@ -717,24 +727,23 @@ def sample_ddp_events(
         ddp_events_in_sampled_groups.groupby(group_factors)
           .apply(lambda g: g.sample(frac=1, replace=False, random_state=42), include_groups=False)
     )
-    del ddp_events_in_sampled_groups # clean up
 
     # then I pick the top 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' events from each donation-date group
     # this ensures that I keep the elements selected when 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' is small, 
     # also when I pick a higher 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' value
-    # It's expensive to scrape and annotate videos, so I don't want to start from scratch
+    # It's $$$ to annotate videos, so I don't want to start from scratch
     # just because I increased the sample size
     sampled_ddp_events_in_sampled_donation_date_groups = ordered_events_in_groups.groupby(group_factors).head(N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP)
-    del ordered_events_in_groups # clean up
 
     # push the grouping variables back from index into columns
     sampled_ddp_events_in_sampled_donation_date_groups.reset_index(level=[0,1], inplace=True)
 
     print(f"...done. Sampled {N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
 
+    sel = [
+        ("dd_event_id", "in", sampled_ddp_events_in_sampled_donation_date_groups["dd_event_id"].unique()),
+    ]
 
-    # check some stats of the sampling procedure
-    #print(sampled_ddp_events_in_sampled_donation_date_groups[sampled_ddp_events_in_sampled_donation_date_groups['feature_name']=="watch"].groupby(group_factors)["sample_id"].count().describe())
     
     return sampled_ddp_events_in_sampled_donation_date_groups
 
@@ -1029,7 +1038,7 @@ def load_ddp_events(
 
     if all_data is None:
         sel = [("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]
-        all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events_2.parquet", filters=sel, verbose=verbose)
+        all_ddp_events_df = data_io.load_parquet(cf, "recoded", f"donations_recoded.parquet", filters=sel, verbose=verbose)
     else:
         all_ddp_events_df = all_data.copy()
         all_ddp_events_df = all_ddp_events_df[(all_ddp_events_df.T_local_date>=DDP_START_DATE) & (all_ddp_events_df.T_local_date<=DDP_END_DATE)].copy()
@@ -1037,9 +1046,7 @@ def load_ddp_events(
             print(f"DDP events - selected date range: {all_ddp_events_df.T_local_date.min():%Y-%m-%d} ---- {all_ddp_events_df.T_local_date.max():%Y-%m-%d} Shape: {all_ddp_events_df.shape}")
 
 
-
     print(f"...done. DDP events dataframe loaded. {all_ddp_events_df.D_donation_id.nunique()} unique donations. {all_ddp_events_df.shape[0]:,} events.")
-
 
 
     if cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() == "all":

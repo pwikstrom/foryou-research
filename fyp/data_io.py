@@ -89,7 +89,7 @@ def exists(cf, storage_location, filename, verbose=False) -> bool:
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
     #if verbose: 
     if verbose:
-        print(f" [DATA_IO] exists: Checking {primary}")
+        print(f"    [DATA_IO] exists: Checking {primary}")
     
     if mode == 'gcs':
         bucket = _get_bucket(cf)
@@ -100,7 +100,7 @@ def exists(cf, storage_location, filename, verbose=False) -> bool:
             if gcs_exists:
                 return True
         else:
-            raise ValueError(" [DATA_IO]: GCS mode enabled but bucket missing.")
+            raise ValueError("    [DATA_IO]: GCS mode enabled but bucket missing.")
 
         return False
     else:
@@ -224,15 +224,15 @@ def remove(cf, storage_location, filename, verbose=False):
             try:
                 # delete() raises NotFound by default if missing, unless generic exception handling
                 bucket.blob(blob_name).delete()
-                if verbose: print(f" [DATA_IO] Removed GCS blob '{blob_name}'")
+                if verbose: print(f"    [DATA_IO] Removed GCS blob '{blob_name}'")
             except Exception as e:
                 # It's possible it didn't exist
-                if verbose: print(f" [DATA_IO] GCS remove note: {e}")
+                if verbose: print(f"    [DATA_IO] GCS remove note: {e}")
 
     else:
         if local_exists(primary):
             local_remove(primary)
-            if verbose: print(f" [DATA_IO] Removed local file '{primary}'")
+            if verbose: print(f"    [DATA_IO] Removed local file '{primary}'")
 
 
 
@@ -272,7 +272,7 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
                 prefix = gcs_base
                 if not prefix.endswith("/"): prefix += "/"
                 
-                if verbose: print(f" [DATA_IO] Listing GCS blobs with prefix: {prefix}")
+                if verbose: print(f"    [DATA_IO] Listing GCS blobs with prefix: {prefix}")
                 
                 
                 iterator = bucket.list_blobs(prefix=prefix, delimiter='/')
@@ -298,7 +298,7 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
                  raise ValueError("GCS bucket not initialized for listdir")
                  
         except Exception as e:
-            if verbose: print(" [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
+            if verbose: print("    [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
             files = [] # Or raise? Old code just warned and returned empty or had logic flow issues.
 
              
@@ -313,7 +313,7 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
         if return_absolute_path:
             files = [join(local_dir, f) for f in files]
 
-    if verbose: print(f" [DATA_IO] Listed {len(files)} files in '{storage_location}'")
+    if verbose: print(f"    [DATA_IO] Listed {len(files)} files in '{storage_location}'")
 
     return files
 
@@ -358,9 +358,9 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
                 
                 bucket.rename_blob(blob, dst_blob_name)
                 moved_gcs = True
-                if verbose: print(f" [DATA_IO] Moved GCS: '{src_blob_name}' -> '{dst_blob_name}'")
+                if verbose: print(f"    [DATA_IO] Moved GCS: '{src_blob_name}' -> '{dst_blob_name}'")
             except Exception as e:
-                if verbose: print(f" [DATA_IO] WARN: GCS Move failed (src likely missing): {e}")
+                if verbose: print(f"    [DATA_IO] WARN: GCS Move failed (src likely missing): {e}")
 
     # 2. Local Move
     # If GCS mode, we still try to move secondary (local) files to keep valid state
@@ -371,13 +371,13 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
          if local_exists(src_local):
              local_move(src_local, dst_local)
              moved_local = True
-             if verbose: print(f" [DATA_IO] Moved Local: '{filename}' from '{src_storage_location}' to '{dst_storage_location}'")
+             if verbose: print(f"    [DATA_IO] Moved Local: '{filename}' from '{src_storage_location}' to '{dst_storage_location}'")
          else:
              if verbose and src_mode == 'local': # Only error if local was the ONLY mode
-                 print(f" [DATA_IO] ERROR Couldn't find '{filename}' in '{src_storage_location}'")
+                 print(f"    [DATA_IO] ERROR Couldn't find '{filename}' in '{src_storage_location}'")
 
     if not moved_gcs and not moved_local and verbose:
-        print(f" [DATA_IO] WARN: Move operation completed but nothing seemed to move (files missing?).")
+        print(f"    [DATA_IO] WARN: Move operation completed but nothing seemed to move (files missing?).")
 
 
 
@@ -399,7 +399,7 @@ def load_json(cf, storage_location, filename, verbose = False):
     bn = basename(filename)
     root, ext = splitext(bn)
     if ext != '.json':
-        if verbose: print(f" [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
+        if verbose: print(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
     
@@ -414,19 +414,19 @@ def load_json(cf, storage_location, filename, verbose = False):
                      content = blob.download_as_text()
                      return loads(content)
                 else:
-                     if verbose: print(f" [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+                     if verbose: print(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
             else:
-                 if verbose: print(" [DATA_IO] WARN: GCS bucket not initialized.")
+                 if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
             # Local Primary
             with open(primary, 'r') as file:
                 return load(file)
                 
     except Exception as e:
-        if verbose: print(f" [DATA_IO] Primary load failed ({mode}): {e}")
+        if verbose: print(f"    [DATA_IO] Primary load failed ({mode}): {e}")
         # If we are in local mode, primary failed, no secondary. Raise/Return None.
         if mode == 'local':
-             print(f" [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
+             print(f"    [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
              return None
 
     # If we are here, things haven't gone very well have they
@@ -451,7 +451,7 @@ def save_json(cf, data, storage_location, filename, verbose = False):
     bn = basename(filename)
     root, ext = splitext(bn)
     if ext != '.json':
-        if verbose: print(f" [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
+        if verbose: print(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
 
@@ -461,7 +461,7 @@ def save_json(cf, data, storage_location, filename, verbose = False):
         if bucket:
              blob = bucket.blob(blob_name)
              blob.upload_from_string(dumps(data))
-             if verbose: print(f" [DATA_IO] Saved JSON to GCS: {blob_name}")
+             if verbose: print(f"    [DATA_IO] Saved JSON to GCS: {blob_name}")
         else:
              raise ValueError("GCS bucket not initialized")
     else:
@@ -545,14 +545,15 @@ def load_parquet(
                 if ec in columns or _renamed(ec) in columns:
                     confirmed_columns += [ec]
                 else:
-                    print(f" [DATA_IO] Parquet column '{ec}' not loaded since not requested")
+                    print(f"    [DATA_IO] Parquet column '{ec}' not loaded since not requested")
 
             columns = list(set(confirmed_columns))
             if verbose:
-                print(f" [DATA_IO] Column selection: {columns}")
+                print(f"    [DATA_IO] Column selection: {columns}")
 
 
-        if verbose: print(f" [DATA_IO] Loading: all parquet files from folder '{storage_location}' (gcs)... ", end="", flush=True)
+        if verbose: 
+            print(f"    [DATA_IO] Loading: all parquet files from folder '{storage_location}' (gcs)... ")
         df = pd.read_parquet(
             files,
             filesystem=fs,
@@ -561,14 +562,15 @@ def load_parquet(
             dtype_backend="pyarrow",
             columns=columns,
             filters=filters)
-        if verbose: print(f" ...done (shape: {df.shape})")
+        if verbose: 
+            print(f"    [DATA_IO] ...done (shape: {df.shape})")
 
         # type management to be sure
         df = convert_dtypes_to_pyarrow(df, verbose=verbose)
 
         if verbose:
             t2 = datetime.now()
-            print(f" [DATA_IO] Loaded parquet(s) shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
+            print(f"    [DATA_IO] Loaded parquet(s) shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
 
         return df
 
@@ -596,10 +598,10 @@ def load_parquet(
         existing_cols = parquet_schema.names
         columns = [c for c in columns if c in existing_cols]
         if verbose:
-            print(f" [DATA_IO] Column selection: {columns}")
+            print(f"    [DATA_IO] Column selection: {columns}")
 
 
-    if verbose: print(f" [DATA_IO] Loading: '{filename}' from '{storage_location}' ({mode})...", end="", flush=True)
+    if verbose: print(f"    [DATA_IO] Loading: '{filename}' from '{storage_location}' ({mode})...")
     df = pd.read_parquet(
         primary,
         engine='pyarrow',
@@ -613,7 +615,7 @@ def load_parquet(
 
     if verbose:
         t2 = datetime.now()
-        print(f" [DATA_IO] ...done. Shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
+        print(f"    [DATA_IO] ...done. Shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
 
     return df
 
@@ -654,7 +656,7 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
     this_df = convert_dtypes_to_pyarrow(this_df, verbose=verbose)
 
     # C) Save to Primary
-    if verbose: print(f" [DATA_IO] Saving: '{filename}' to '{storage_location}' ({mode})")
+    if verbose: print(f"    [DATA_IO] Saving: '{filename}' to '{storage_location}' ({mode})")
 
     # To get the total memory usage of the DataFrame in bytes:
     memory_per_column = this_df.memory_usage(deep=True) 
@@ -662,8 +664,8 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
     total_memory_mb = total_memory_bytes / (1024**2)
 
     if verbose:
-        print(f" [DATA_IO] Total DF memory usage: {total_memory_mb:.2f} MB.")
-        print(f" [DATA_IO] Saving '{filename}' to '{storage_location}' ({mode})...", end="", flush=True)
+        print(f"    [DATA_IO] Total DF memory usage: {total_memory_mb:.2f} MB.")
+        print(f"    [DATA_IO] Saving '{filename}' to '{storage_location}' ({mode})...")
 
     if total_memory_mb > 100:
         this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=7)
@@ -674,7 +676,7 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
     else:
         this_df.to_parquet(primary, engine='pyarrow')
     
-    if verbose: print(f" ...done. Shape: {this_df.shape}")
+    if verbose: print(f"    [DATA_IO] ...done. Shape: {this_df.shape}")
     
     return this_df
 

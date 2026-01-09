@@ -19,7 +19,7 @@ import fyp.data_io as data_io
 
 
 
-def ingest_files(file_names, label):
+def ingest_files(filenames, label):
     log_output = []
     summary_output = []
     
@@ -32,10 +32,10 @@ def ingest_files(file_names, label):
     
     processed_count = 0
     
-    for file_name in file_names:
+    for filename in filenames:
         try:
-            if not data_io.exists(fyp_cf, "firefox_downloads", file_name):
-                log(f"Error: File not found: {file_name}")
+            if not data_io.exists(fyp_cf, "firefox_downloads", filename):
+                log(f"Error: File not found: {filename}")
                 continue
             #original_path = Path(file_path)
             #if not original_path.exists():
@@ -52,18 +52,18 @@ def ingest_files(file_names, label):
             # existing naming convention in get_baseline_log uses script name as prefix.
             # We will use the label as "the_script" essentially.
             
-            #new_filename = f"{safe_label}_{file_name}"
+            #new_filename = f"{safe_label}_{filename}"
             #dest_path = raw_dir / new_filename
             
             # 2. Move File
             #if data_io.exists(fyp_cf, "zeeschuimer_raw", new_filename):
             #    # Handle collision by appending timestamp
             #    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            #    new_filename = f"{safe_label}_{timestamp}_{file_name}"
+            #    new_filename = f"{safe_label}_{timestamp}_{filename}"
             #    #dest_path = raw_dir / new_filename
                 
             
-            data_io.move(fyp_cf, "firefox_downloads", "zeeschuimer_raw", file_name)
+            data_io.move(fyp_cf, "firefox_downloads", "zeeschuimer_raw", filename)
             
             # 3. Read and Refine
             # The read_ndjson_file function expects the file to be in zeeschuimer_raw usually 
@@ -71,7 +71,7 @@ def ingest_files(file_names, label):
             # It uses fyp.cf["misc"]["label"] which is hardcoded in config... 
             # We need to overwrite the label column anyway.
             
-            raw_data = read_ndjson_file(fyp_cf, storage_location="zeeschuimer_raw", file_name=file_name)
+            raw_data = read_ndjson_file(fyp_cf, storage_location="zeeschuimer_raw", filename=filename)
             if not raw_data:
                 log("  Warning: Empty data found.")
                 continue
@@ -89,13 +89,13 @@ def ingest_files(file_names, label):
             # Naming logic from move_and_refine_recent_file
             # It creates names like {script}{original_name_wo_zeeschuimer}.parquet)
             # simplified:
-            processed_fn = file_name.replace(".ndjson", '.parquet')
+            processed_fn = filename.replace(".ndjson", '.parquet')
             
             # Check f there is already a file with this name in the zeeschuimer_refined - if so, append a number
             #r = 0
             #while data_io.exists(fyp_cf, "zeeshuimer_refined", processed_fn):
             #    r += 1
-            #    stem = file_name.replace(".ndjson", "")
+            #    stem = filename.replace(".ndjson", "")
             #    processed_fn = f"{stem}_{r:04}.parquet"
             
             #save_path = refined_dir / processed_fn
@@ -105,12 +105,12 @@ def ingest_files(file_names, label):
             
             # Generate summary
             summary = get_baseline_info_as_string(df)
-            summary_output.append(f"Summary for {file_name}:\n{summary}")
+            summary_output.append(f"Summary for {filename}:\n{summary}")
             
             processed_count += 1
             
         except Exception as e:
-            log(f"  Error processing {file_name}: {e}")
+            log(f"  Error processing {filename}: {e}")
             log(traceback.format_exc())
 
     return log_output, processed_count, "\n".join(summary_output)

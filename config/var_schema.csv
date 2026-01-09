@@ -63,8 +63,8 @@ B_source_app_language,categorical,{},[],,drop,,,skip,,,,,,Fine description of B_
 B_source_browser_language,categorical,{},[],,drop,,,skip,,,,,,Fine description of B_source_browser_language,four
 B_source_language,categorical,{},[],,drop,,,skip,,,,,,Fine description of B_source_language,four
 B_source_region,categorical,{},[],,drop,,,skip,,,,,,Fine description of B_source_region,four
-event_order_in_session,ordinal,{},[],,drop,,,skip,,,,,,Fine description of event_order_in_session,four
-event_pos_in_session,interval,{},[],,drop,,,skip,,,,,,Fine description of event_pos_in_session,four
+event_order_in_session,ordinal,{},[],,drop,,,standard,,,,,,Fine description of event_order_in_session,four
+event_pos_in_session,interval,{},[],,drop,,,standard,,,,,,Fine description of event_pos_in_session,four
 G_aussie_political_message,string,{},[],,drop,keep,recode_long_strings,skip,,,,,,Fine description of G_aussie_political_message,four
 G_aussie_political_positioning,string,{},[],,drop,keep,recode_long_strings,skip,,,,,,Fine description of G_aussie_political_positioning,four
 G_call_to_action,raw,{},"IRRELEVANT_WORDS + ['implicit', 'implicitly', 'encourages', 'viewers']",,drop,drop,recode_call_to_action,raw,,,,,,Fine description of G_call_to_action,four
@@ -74,7 +74,7 @@ G_scene_sentiments,raw,{},[],,drop,keep,recode_scene_sentiments,raw,,,,,,Fine de
 S_anchors,string,{},[],,drop,keep,recode_long_strings,skip,,,,,,Fine description of S_anchors,four
 S_author_nickname,string,{},[],,drop,keep,recode_long_strings,skip,,,,,,Fine description of S_author_nickname,four
 S_author_uniqueId,string,{},[],,drop,keep,recode_long_strings,skip,,,,,,Fine description of S_author_uniqueId,four
-S_createTime,datetime,{},[],,drop,,,skip,,,,,,Fine description of S_createTime,four
+S_createTime,datetime,{},[],,drop,,,standard,,,,,,Fine description of S_createTime,four
 S_desc,raw,{},[],,drop,,recode_descriptions,raw,,,,,,Fine description of S_desc,four
 S_desc_mentions,collection,{},[],,drop,,,skip,,,,,,Fine description of S_desc_mentions,four
 S_desc_not_hashtags,collection,{},[],,drop,,,skip,,,,,,Fine description of S_desc_not_hashtags,four
@@ -89,3 +89,7 @@ S_poi_province,string,{},[],,drop,keep,recode_long_strings,skip,,,,,,Fine descri
 S_poi_country,string,{},[],,drop,keep,recode_long_strings,skip,,,,,,Fine description of S_poi_country,four
 session_id,factor,{},[],,drop,,,factor,,,,,,Fine description of session_id,four
 T_local_hour,interval,{},[],,drop,,,skip,37,,,,,Fine description of T_local_hour,four
+D_primary_value,string,{},[],,drop,,recode_long_strings,standard,,,,,,Fine description of T_local_hour,four
+D_primary_label,string,{},[],,drop,,recode_long_strings,standard,,,,,,Fine description of T_local_hour,four
+D_feature_name,string,{},[],,drop,,recode_long_strings,standard,,,,,,Fine description of T_local_hour,four
+D_sample_id,interval,{},[],,drop,,,standard,,,,,,Fine description of T_local_hour,four

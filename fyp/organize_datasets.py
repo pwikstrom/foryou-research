@@ -252,7 +252,7 @@ def load_datasets(
 
     print(f"Loading core datasets for study '{study_name}'...")
 
-    # load core datasets from cache. This makes sense if the storage is remote. Since slow network connection makes loading of datasets 
+    # load core datasets from cache. This makes sense if the storage is remote. Since a slow network connection makes loading of datasets 
     # take a long time. If this is not a problem, there is really no need to use this option.
     if load_from_cache:
         tutti_data = {}
@@ -359,26 +359,9 @@ def load_datasets(
 
 
 
-
-def select_videos_from_study_dataset(
-    cf = None,
-    study_dataset = None,
-    query_string = "",
-    verbose = False,
-    notebook_mode = False
-    ):
-
-    from fyp.fyp_main import initialize
+def _build_agg_dict_to_generate_basic_video_stats(study_dataset = None):
     from pandas import NamedAgg
 
-    if study_dataset is None:
-        raise ValueError("study_dataset must be specified")
-    if cf is None:
-        cf = initialize()
-
-    
-    # group by video URL and count the number of unique users
-    # group by video URL and count the number of unique users
     # Check that each columns exists and gradually build the aggregation based on what columns are available
     agg_defs = {
         "nunique_donations": ("D_donation_id", "nunique"),
@@ -390,12 +373,41 @@ def select_videos_from_study_dataset(
         "video_duration": ("S_video_duration", "max"),
     }
 
+    if study_dataset is None:
+        source_cols = list(set(["item_id"] + [source_col for _, (source_col, _) in agg_defs.items()]))
+        return None, source_cols    
+
     agg_dict = {}
+    confirmed_cols = ["item_id"]
     for target_col, (source_col, agg_func) in agg_defs.items():
         if source_col in study_dataset.columns:
             agg_dict[target_col] = NamedAgg(column=source_col, aggfunc=agg_func)
+            confirmed_cols.append(source_col)
+    return agg_dict, confirmed_cols    
 
-    video_stats = study_dataset.groupby('item_id').agg(**agg_dict)
+
+
+
+def select_videos_from_study_dataset(
+    cf = None,
+    study_dataset = None,
+    query_string = "",
+    verbose = False,
+    notebook_mode = False
+    ):
+
+    from fyp.fyp_main import initialize
+
+    if study_dataset is None:
+        raise ValueError("study_dataset must be specified")
+    if cf is None:
+        cf = initialize()
+
+    
+    # group by video URL and count the number of unique users
+    agg_dict, confirmed_cols = _build_agg_dict_to_generate_basic_video_stats(study_dataset)
+
+    video_stats = study_dataset[confirmed_cols].groupby('item_id').agg(**agg_dict)
 
     if "video_duration" in video_stats.columns:
         video_stats['duration_ok_to_annotate'] = (video_stats['video_duration'] <= cf["machine"]["max_duration_for_annotation"]).fillna(False)
@@ -428,6 +440,7 @@ def generate_unique_videos_to_scrape_and_annotate(
     from datetime import datetime
     from os.path import exists as os_exists, join as os_join
     from pandas import read_parquet as pd_read_parquet
+    from pyarrow.parquet import read_schema as pq_read_schema
 
 
     print(f"Generating unique videos to scrape and annotate...")
@@ -444,7 +457,15 @@ def generate_unique_videos_to_scrape_and_annotate(
         if os_exists(study_dataset_cache_path):
             if verbose:
                 print(f"    Loading study main dataset from cache...", end=" ", flush=True)
-            study_dataset = pd_read_parquet(study_dataset_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+            
+            schema = pq_read_schema(study_dataset_cache_path)
+            confirmed_cols = list(set(schema.names) & set(_build_agg_dict_to_generate_basic_video_stats()[1]))
+
+            study_dataset = pd_read_parquet(
+                study_dataset_cache_path,
+                engine="pyarrow",
+                dtype_backend="pyarrow",
+                columns=confirmed_cols)
             if verbose:
                 print(f"Shape: {study_dataset.shape}")
         else:
@@ -456,8 +477,9 @@ def generate_unique_videos_to_scrape_and_annotate(
                 save_to_cache = True,
                 verbose = verbose
             )
+            confirmed_cols = list(set(study_dataset.columns) & set(_build_agg_dict_to_generate_basic_video_stats()[1]))
+            study_dataset = study_dataset[confirmed_cols].copy()
             print("@@ I'm back after having created the unified study dataset. I will now resume generating unique videos to scrape and annotate.")
-
 
 
     if study_dataset is None:
@@ -518,7 +540,6 @@ def check_unique_videos_to_scrape_and_annotate(
         load_from_cache = load_from_cache,
         save_to_cache = save_to_cache,
         verbose = verbose)
-
 
 
     return {
@@ -659,8 +680,8 @@ def _process_machine_annotations_for_merge_w_logs(
 
     #machine_annotations_for_log = _check_for_null_values_in_df(machine_annotations_for_log, verbose=verbose)
 
-    machine_annotations_for_log["annotated_ok"] = ~machine_annotations_for_log["G_transcript_no_repetitions"].isna()
-    machine_annotations_for_log["annotated_fail"] = machine_annotations_for_log["G_transcript_no_repetitions"].isna()
+    machine_annotations_for_log["annotated_ok"] = ~machine_annotations_for_log["G_type_of_story"].isna()
+    machine_annotations_for_log["annotated_fail"] = machine_annotations_for_log["G_type_of_story"].isna()
 
 
     machine_annotations_for_log = convert_dtypes_to_pyarrow(machine_annotations_for_log, verbose=verbose)
@@ -838,7 +859,90 @@ def _merge_all_study_datasets(
 
 
 
+def new_merge(
+    cf = None,
+    study_name = None,
+    all_datasets = {},
+    verbose = False,
+    save_to_cache = True,
+    ):
+    from pandas import merge, DataFrame, to_datetime, concat, NA as pd_NA
+    from fyp.scrape import load_failed_scrapes
+    from datetime import datetime
+    from os.path import join as os_join
 
+    print(f"Merging all datasets...")
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+
+    if cf is None:
+        cf = initialize()
+
+    if not study_name in cf["study_defs"].keys():
+        raise ValueError(f"study_name '{study_name}' not found in config")
+
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
+
+    print(all_datasets.keys())
+
+    if 'scraped' in all_datasets and 'annotated' in all_datasets:
+        enriched_data = merge(left=all_datasets['scraped'], right=all_datasets['annotated'], on='item_id', how='left')
+    elif 'scraped' in all_datasets and 'annotated' not in all_datasets:
+        enriched_data = all_datasets['scraped']
+    elif 'annotated' in all_datasets and 'scraped' not in all_datasets:
+        enriched_data = all_datasets['annotated']
+    else:
+        enriched_data = DataFrame()        
+    
+    if 'ddp' in all_datasets and 'baseline' in all_datasets:
+        activity_data = concat([all_datasets['ddp'], all_datasets['baseline']], ignore_index=True)
+    elif 'ddp' in all_datasets and 'baseline' not in all_datasets:
+        activity_data = all_datasets['ddp']
+    elif 'baseline' in all_datasets and 'ddp' not in all_datasets:
+        activity_data = all_datasets['baseline']
+    else:
+        activity_data = DataFrame()
+
+    if len(activity_data) == 0:
+        print("No activity data")
+        return enriched_data
+    if len(enriched_data) == 0:
+        print("No enriched data")
+        return activity_data
+    
+    shebang = merge(left=activity_data, right=enriched_data, on='item_id', how='left')
+
+    shebang["T_days_since_created"] = shebang["T_local_date"] - shebang["S_createTime"]
+    shebang["T_days_since_created"] = shebang["T_days_since_created"].map(lambda x: x.days if x is not pd_NA else pd_NA).astype("int64[pyarrow]")
+
+    if verbose:
+        print(f"Adding 'days_since_created' column. Resulting output log DF shape {shebang.shape}")
+
+    # load failed_scrapes as a set
+    failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True))
+    shebang["scraped_fail"] = shebang["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
+    
+    def _safe_vector_divide(x, y):
+        return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd_NA)
+    shebang['plays_per_day'] = _safe_vector_divide(shebang['S_stats_playCount'],shebang['T_days_since_created'])
+
+
+    if save_to_cache:
+        t1 = datetime.now()
+        if verbose:
+            print("  Saving datasets to cache...")
+        shebang.attrs['study_name'] = study_name
+        shebang.to_parquet(os_join(cf["paths"]["temp"], f"CACHE_{study_name}_recoded.parquet"), engine='pyarrow')
+        if verbose:
+            print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
+
+
+    print(f"...done. Merged all datasets. Shape: {shebang.shape}")
+
+
+    return shebang
 
 
 
@@ -879,7 +983,7 @@ def create_study_main_dataset(
         verbose = verbose)
 
 
-    study_main_dataset = _merge_all_study_datasets(
+    study_main_dataset = new_merge(
         cf = cf,
         study_name = study_name,
         all_datasets = all_datasets,

@@ -74,7 +74,7 @@ G_scene_sentiments,raw,{},[],,drop,keep,recode_scene_sentiments,raw,,,,,,Fine de
 S_anchors,string,{},[],,keep,keep,recode_long_strings,skip,,,,,,Fine description of S_anchors,four
 S_author_nickname,string,{},[],,keep,keep,recode_long_strings,skip,,,,,,Fine description of S_author_nickname,four
 S_author_uniqueId,string,{},[],,keep,keep,recode_long_strings,skip,,,,,,Fine description of S_author_uniqueId,four
-S_createTime,datetime,{},[],,drop,,,skip,,,,,,Fine description of S_createTime,four
+S_createTime,datetime,{},[],,drop,,,standard,,,,,,Fine description of S_createTime,four
 S_desc,raw,{},[],,keep,,recode_descriptions,raw,,,,,,Fine description of S_desc,four
 S_desc_mentions,collection,{},[],,,,,skip,,,,,,Fine description of S_desc_mentions,four
 S_desc_not_hashtags,collection,{},[],,,,,skip,,,,,,Fine description of S_desc_not_hashtags,four

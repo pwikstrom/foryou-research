@@ -667,9 +667,9 @@ def load_scrape_metadata(
 
     # if we are consolidating, load all columns (otherwise data is lost)
     if True:#consolidate:
-        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", filters=filters, verbose=verbose)
+        scrape_metadata = data_io.load_parquet(cf, "recoded", "scrape_recoded.parquet", filters=filters, verbose=verbose)
     # if we are not consolidating, load only the useful variables
-    else:
+    """else:
         import re
         useful_variables = ["image_list", "video_downloaded", "createTime"]
         for k in cf['var_schema'][cf['var_schema']['role']!='skip'].variable_name:
@@ -677,7 +677,10 @@ def load_scrape_metadata(
                 useful_variables.append(k[2:])
             useful_variables.append(k)
 
-        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", columns=useful_variables, verbose=verbose)
+        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", columns=useful_variables, verbose=verbose)"""
+
+
+    return scrape_metadata
 
 
     # -------------------------------------------------
@@ -752,7 +755,7 @@ def load_scrape_metadata(
     scrape_metadata = convert_dtypes_to_pyarrow(scrape_metadata, verbose=verbose)
  
 
-    if consolidate:
+    if False and consolidate:
         scrape_metadata_filenames = [gg for gg in data_io.listdir(cf, "scrape", verbose=verbose) if gg.startswith("scrape_metadata") and gg.endswith('.parquet')]
         scrape_metadata_filenames = list(set(scrape_metadata_filenames))
 
@@ -778,7 +781,7 @@ def load_scrape_metadata(
         
 
     print(f"...done. Loaded scraped metadata - shape {scrape_metadata.shape}")
-    #print("--"*60)
+    
     
     return scrape_metadata
 

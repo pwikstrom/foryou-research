@@ -531,7 +531,7 @@ def _get_timezone_finder():
 
 
 
-"""def load_tz_cache(cache_path: str) -> dict:
+def load_tz_cache(cache_path: str) -> dict:
     if cache_path and os.path.exists(cache_path):
         try:
             with open(cache_path, 'r') as f:
@@ -549,7 +549,7 @@ def save_tz_cache(cache: dict, cache_path: str):
         with open(cache_path, 'w') as f:
             json.dump(cache, f, indent=2)
     except Exception as e:
-        print(f"Warning: Could not save timezone cache: {e}")"""
+        print(f"Warning: Could not save timezone cache: {e}")
 
 
 
@@ -643,19 +643,33 @@ def infer_tz_from_location(postcode, country, cache: dict = None) -> float:
 
 
 
-def enrich_stats_with_metadata(cf, stats_df: pd.DataFrame, metadata_df: pd.DataFrame, cache_filename: str = None) -> pd.DataFrame:
+def enrich_stats_with_metadata(
+    cf, 
+    stats_df: pd.DataFrame, 
+    metadata_df: pd.DataFrame, 
+    tz_location_cache_filename: str = None
+    ) -> pd.DataFrame:
     """
     Merges metadata into stats_df and adds checking location-based timezone.
     """
     import fyp.data_io as data_io
+    #from os.path import join as os_join
+
+    def safe_get(row, col):
+        val = row.get(col)
+        # Basic cleaning
+        if val is None or pd.isna(val): return None
+        return str(val)
+
+
 
     if stats_df.empty:
         return stats_df
 
     # Load cache
-    #tz_cache = load_tz_cache(cache_path) if cache_filename else {}
-    tz_cache = data_io.load_json(cf, "ddp_main", cache_filename, verbose=False) if cache_filename else {}
-    initial_cache_size = len(tz_cache)
+    #tz_location_cache = load_tz_cache(tz_location_cache_path) if tz_location_cache_path else {}
+    tz_location_cache = data_io.load_json(cf, "ddp_main", tz_location_cache_filename) if tz_location_cache_filename else {}
+    initial_cache_size = len(tz_location_cache)
     
     # Merge Logic (taken from app.py)
     # Handle columns that might be lists
@@ -666,6 +680,7 @@ def enrich_stats_with_metadata(cf, stats_df: pd.DataFrame, metadata_df: pd.DataF
                 lambda x: ', '.join(str(v) for v in x) if hasattr(x, '__iter__') and not isinstance(x, str) else x
             )
 
+
     if 'donation_id' in metadata_df.columns:
         cols_to_merge = ['donation_id'] + [c for c in ['email', 'name', 'date', 'age', 'tiktokHandle', 'country', 'postCode'] if c in metadata_df.columns]
         # Drop duplicates in metadata just in case
@@ -675,16 +690,10 @@ def enrich_stats_with_metadata(cf, stats_df: pd.DataFrame, metadata_df: pd.DataF
         
         print("Inferring timezone from location data...")
         
-        def safe_get(row, col):
-            val = row.get(col)
-            # Basic cleaning
-            if val is None or pd.isna(val): return None
-            return str(val)
-
         # Apply inference
         offsets = []
         for idx, row in stats_df.iterrows():
-            off = infer_tz_from_location(safe_get(row, 'postCode'), safe_get(row, 'country'), cache=tz_cache)
+            off = infer_tz_from_location(safe_get(row, 'postCode'), safe_get(row, 'country'), cache=tz_location_cache)
             offsets.append(off)
             
         stats_df['location_tz_offset'] = offsets
@@ -692,8 +701,9 @@ def enrich_stats_with_metadata(cf, stats_df: pd.DataFrame, metadata_df: pd.DataF
         print(f"Location timezone inferred for {stats_df['location_tz_offset'].notna().sum()} donations")
         
     # Save cache if changed
-    if cache_filename and len(tz_cache) > initial_cache_size:
-        data_io.save_json(cf, "ddp_main", cache_filename, tz_cache)
-        print(f"Updated timezone cache saved to {cache_filename} (entries: {len(tz_cache)})")
+    if tz_location_cache_filename and len(tz_location_cache) > initial_cache_size:
+        #save_tz_cache(tz_location_cache, tz_location_cache_path)
+        data_io.save_json(cf, tz_location_cache, "ddp_main", tz_location_cache_filename)
+        print(f"Updated timezone location cache saved (entries: {len(tz_location_cache)})")
         
     return stats_df

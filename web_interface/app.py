@@ -953,8 +953,8 @@ def api_pca_data():
 
 
 
-LOCATION_CACHE_FILE = 'location_timezone_cache.json' # sits in 'temp'
-PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet' # sits in 'temp'
+LOCATION_CACHE_FILE = 'location_timezone_cache.json' # sits in 'ddp_main'
+PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet' # sits in 'ddp_main'
 
 
 
@@ -962,16 +962,17 @@ PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet' # sits in 'temp'
 @app.route('/api/persona_stats_info', methods=['GET'])
 def api_persona_stats_info():
     """Get info about cached stats file (existence and timestamp)."""
-    from os.path import exists as os_exists, join as os_join, getmtime as os_getmtime
-    try:
-        if os_exists(os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE)):
-            mtime = os_getmtime(os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE))
-            from datetime import datetime
+    import fyp.data_io as data_io
+    from datetime import datetime
+
+    if True:#try:
+        if data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
+            mtime = data_io.getmtime(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE)
             timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
             return jsonify({"exists": True, "timestamp": timestamp})
         else:
             return jsonify({"exists": False, "timestamp": None})
-    except Exception as e:
+    if False:#except Exception as e:
         return jsonify({"exists": False, "timestamp": None, "error": str(e)})
 
 
@@ -981,14 +982,18 @@ def api_persona_stats_info():
 @app.route('/api/persona_stats_cached', methods=['GET'])
 def api_persona_stats_cached():
     """Load pre-calculated stats from cache file."""
-    from os.path import exists as os_exists, join as os_join
-    from pandas import read_parquet as pd_read_parquet
+    #from os.path import exists as os_exists, join as os_join
+    #from pandas import read_parquet as pd_read_parquet
+    import fyp.data_io as data_io
     try:
-        if not os_exists(os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE)):
+        if not data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
             return jsonify({"error": "No cached stats found. Click 'Recalculate Stats' to generate."}), 404
         
         print(f"Loading cached persona stats from {PERSONA_STATS_CACHE_FILE}...")
-        stats_df = pd_read_parquet(os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE))
+        stats_df = data_io.load_parquet(
+            cf=fyp_cf,
+            storage_location="ddp_main",
+            filename=PERSONA_STATS_CACHE_FILE)
         
         # Convert to JSON-safe records
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')
@@ -1028,13 +1033,19 @@ def _make_serializable(obj):
 @app.route('/api/persona_stats', methods=['POST'])
 def api_persona_stats():
     """Recalculate all persona stats and save to cache file."""
+    import fyp.data_io as data_io
+    from fyp.calc_donation_stats import enrich_stats_with_metadata
+
     try:
-        from os.path import join
         
         #parquet_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_events.parquet')
-        print(f"Loading global DDP events...")
+        print(f"Loading global DDP dataset...")
         
-        events_df = data_io.load_parquet(fyp_cf, "ddp_main", "all_participant_events.parquet")
+        events_df = data_io.load_parquet(
+            cf=fyp_cf,
+            storage_location="ddp_main",
+            filename="all_participant_events.parquet"
+        )
         
         if events_df is None or events_df.empty:
             return jsonify({"error": "No DDP events found"}), 404
@@ -1050,9 +1061,9 @@ def api_persona_stats():
                 print(f"Loaded {len(metadata_df)} metadata records")
                 
                 # Cache file path
-                #tz_cache_path = join(fyp_cf['paths']['ddp_main'], LOCATION_CACHE_FILE)
+                #tz_location_cache_path = os_join(fyp_cf['paths']['temp'], LOCATION_CACHE_FILE)
                 
-                stats_df = enrich_stats_with_metadata(fyp_cf, stats_df, metadata_df, cache_filename=LOCATION_CACHE_FILE)
+                stats_df = enrich_stats_with_metadata(fyp_cf, stats_df, metadata_df, tz_location_cache_filename=LOCATION_CACHE_FILE)
             else:
                 print("Metadata file not found, skipping enrichment.")
                 
@@ -1062,10 +1073,15 @@ def api_persona_stats():
             traceback.print_exc()
         
         # Save stats to cache file
-        cache_path = join(fyp_cf['paths']['ddp_main'], PERSONA_STATS_CACHE_FILE)
+        #stats_cache_path = os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE)
         stats_df = stats_df.reset_index(drop=True)
-        stats_df.to_parquet(cache_path, engine='pyarrow', index=False)
-        print(f"Saved persona stats cache to '{PERSONA_STATS_CACHE_FILE}'")
+        data_io.save_parquet(
+            cf=fyp_cf,
+            df=stats_df,
+            storage_location="ddp_main",
+            filename=PERSONA_STATS_CACHE_FILE
+        )
+        print(f"Saved persona stats cache")
         
         # Convert to JSON-safe records
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')

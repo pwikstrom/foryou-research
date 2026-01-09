@@ -290,13 +290,13 @@ function pe_selectDonation(donationId) {
     document.getElementById('pe-stat-country').innerText = orNotProvided(donation.country);
     document.getElementById('pe-stat-postcode').innerText = orNotProvided(donation.postCode);
 
-    // Signup date formatting
+    // Donation date formatting
     const fmtDate = (ts) => {
         if (!ts) return 'not provided';
         const d = new Date(ts);
         return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
     };
-    document.getElementById('pe-stat-signup-date').innerText = fmtDate(donation.date);
+    document.getElementById('pe-stat-donation-date').innerText = fmtDate(donation.date);
 
     // Activity stats
     const tz = donation.inferred_tz_offset;

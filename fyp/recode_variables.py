@@ -128,6 +128,7 @@ def recode_descriptions(
     
     # Vectorized handling for Series
     if isinstance(a_description, pd.Series):
+        print('here')
         # We'll use a fast regex approach to extract all relevant tokens once
         # Token pattern: #word or @word or word
         # We need to exclude IRRELEVANT_WORDS and handle emojis
@@ -1209,7 +1210,8 @@ def recode_events_df(
 
     FYP_FACTORS = list(set(var_schema[var_schema["scale"].isin(['factor','group_factor'])].index) & set(cool_events.columns))
     cool_events[FYP_FACTORS] = cool_events[FYP_FACTORS].astype("string[pyarrow]")
-    cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int64(x):05}")
+    if "session_id" in cool_events.columns:
+        cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int64(x):05}")
 
     variables_not_found_in_var_schema = list(set(cool_events.columns) - set(var_schema.index))
     if verbose:
@@ -1383,6 +1385,10 @@ def recode_events_df(
                 print(f"{preamble}Not found in the variable scheme, skipping")
             cool_events = cool_events.drop(columns=[c]).copy()
 
+
+    return cool_events
+
+
     def _safe_vector_divide(x, y):
         return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
     cool_events['plays_per_day'] = _safe_vector_divide(cool_events['S_stats_playCount'],cool_events['T_days_since_created'])
@@ -1411,4 +1417,159 @@ def recode_events_df(
     print(f"...done recoding variables at {datetime.now()}")
 
     return cool_events 
+
+
+
+
+
+
+
+
+
+def recode_activity_data():
+    from fyp.fyp_main import initialize
+    import fyp.data_io as data_io
+    import fyp
+    import pandas as pd
+    from pandas.api.types import is_numeric_dtype
+    from fyp.zeeschuimer import load_zeeschuimer_data
+    from fyp.ddp import load_ddp_events
+    from fyp.fyp_main import convert_dtypes_to_pyarrow
+
+    
+    cf = initialize()
+    
+    zee = load_zeeschuimer_data(cf = cf, study_name = 'everything', verbose=True)
+
+    z1 = recode_events_df(
+        cf = cf,
+        study_dataset = zee,
+        load_from_cache = False,
+        save_to_cache = False,
+        verbose = True
+        )
+
+    z1 = convert_dtypes_to_pyarrow(z1)
+
+    z1.reset_index(drop=True, inplace=True)
+
+
+
+
+    donny = load_ddp_events(cf = cf, study_name = 'everything', verbose=True)
+
+    d1 = recode_events_df(
+        cf = cf,
+        study_dataset = donny,
+        load_from_cache = False,
+        save_to_cache = False,
+        verbose = True
+        )
+
+    d1 = convert_dtypes_to_pyarrow(d1)
+
+    d1.reset_index(drop=True, inplace=True)
+
+
+
+
+    for c in set(z1.columns) | set(d1.columns):
+        if not c in z1.columns:
+            if is_numeric_dtype(d1[c]):
+                print(f"Adding {c} to z1 | numeric")
+                z1[c] = pd.Series(-1, index=z1.index, dtype="int64[pyarrow]")
+            else:
+                print(f"Adding {c} to z1 | string")
+                z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
+        if not c in d1.columns:
+            if is_numeric_dtype(z1[c]):
+                print(f"Adding {c} to d1 | numeric")
+                d1[c] = pd.Series(-1, index=d1.index, dtype="int64[pyarrow]")
+            else:
+                print(f"Adding {c} to d1 | string")
+                d1[c] = pd.Series("DDP", index=d1.index, dtype="string[pyarrow]")
+
+
+    _ = data_io.save_parquet(cf, d1, "recoded", "donations_recoded.parquet")
+
+    _ = data_io.save_parquet(cf, z1, "recoded", "zeeschuimer_recoded.parquet")
+
+
+
+
+
+
+
+
+def recode_machine_annotations():
+    from fyp.fyp_main import initialize
+    import fyp.data_io as data_io
+    import fyp
+    import pandas as pd
+    from fyp.organize_datasets import rename_columns
+    from fyp.fyp_main import convert_dtypes_to_pyarrow
+
+    cf = initialize()
+
+    ma_df = data_io.load_parquet(cf=cf, storage_location="machine_annotations_refined", filename="*", verbose=True)
+
+    ma_df = rename_columns(ma_df.rename(columns={c:"G_"+c if not c=="item_id" and not c.startswith("G_") else c for c in ma_df.columns})).copy()
+
+    m1 = recode_events_df(
+        cf = cf,
+        study_dataset = ma_df,
+        load_from_cache = False,
+        save_to_cache = False,
+        verbose = True
+        )
+
+    m1 = clean_up_machine_annotations(m1, verbose=True)
+
+    m1["annotated_ok"] = ~m1.G_type_of_story.isna().astype("bool[pyarrow]")
+    m1["annotated_fail"] = m1.G_type_of_story.isna().astype("bool[pyarrow]")
+
+    m1 = convert_dtypes_to_pyarrow(m1, verbose=True)
+
+    m1.reset_index(drop=True, inplace=True)
+
+    m1.loc[m1[m1.annotated_fail].index,[c for c in m1.columns if c.startswith("G_")]] = pd.NA
+
+    _ = data_io.save_parquet(cf, m1, "recoded", "annotations_recoded.parquet")
+
+
+
+
+
+
+def recode_scrape_metadata():
+    from fyp.fyp_main import initialize
+    import fyp.data_io as data_io
+    import fyp
+    import pandas as pd
+    from fyp.organize_datasets import rename_columns
+    from fyp.fyp_main import convert_dtypes_to_pyarrow
+
+    cf = initialize()
+
+    scrape_df = data_io.load_parquet(cf=cf, storage_location="scrape", filename="*", verbose=True)
+
+    scrape_df = rename_columns(scrape_df.rename(columns={c:"S_"+c if not c=="item_id" and not c.startswith("S_") else c for c in scrape_df.columns})).copy()
+
+    s1 = recode_events_df(
+        cf = cf,
+        study_dataset = scrape_df,
+        load_from_cache = False,
+        save_to_cache = False,
+        verbose = True
+        )
+
+    s1["scraped_ok"] = pd.Series(True, index=s1.index, dtype="bool[pyarrow]")
+
+    s1 = convert_dtypes_to_pyarrow(s1, verbose=True)
+
+    s1.reset_index(drop=True, inplace=True)
+
+    s1.loc[s1[s1['S_video_duration']<1].index,'S_video_duration'] = pd.NA
+
+    _ = data_io.save_parquet(cf, s1, "recoded", "scrape_recoded.parquet")
 

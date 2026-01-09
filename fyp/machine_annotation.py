@@ -60,9 +60,9 @@ def load_machine_annotations(
 
     # if we are consolidating, load all columns (otherwise data is lost)
     if True:#consolidate:
-        some_machine_annotations = data_io.load_parquet(cf, "machine_annotations_refined", "*", filters=filters, verbose=verbose)
+        some_machine_annotations = data_io.load_parquet(cf, "recoded", "annotations_recoded.parquet", filters=filters, verbose=verbose)
     # if we are not consolidating, load only the useful variables
-    else:
+    """else:
         useful_variables = []
         for k in cf['var_schema'][cf['var_schema']['role']!='skip'].variable_name:
             if re.match(r'^[A-Z]_', k):
@@ -71,8 +71,11 @@ def load_machine_annotations(
 
         useful_variables.append("inference_ts")
 
-        some_machine_annotations = data_io.load_parquet(cf, "machine_annotations_refined", "*", columns=useful_variables, verbose=verbose)
+        some_machine_annotations = data_io.load_parquet(cf, "machine_annotations_refined", "*", columns=useful_variables, verbose=verbose)"""
 
+
+
+    return some_machine_annotations
 
 
 
@@ -83,11 +86,11 @@ def load_machine_annotations(
 
 
 
-    if consolidate:
-        machine_file_names = [gg for gg in data_io.listdir(cf, "machine_annotations_refined", verbose=verbose) if gg.startswith("machine_annotations") and gg.endswith('.parquet')]
-        machine_file_names = list(set(machine_file_names))
+    if False and consolidate:
+        machine_filenames = [gg for gg in data_io.listdir(cf, "machine_annotations_refined", verbose=verbose) if gg.startswith("machine_annotations") and gg.endswith('.parquet')]
+        machine_filenames = list(set(machine_filenames))
 
-        if len(machine_file_names) > 1:
+        if len(machine_filenames) > 1:
 
             # consolidating the files to a single file using the latest file name
             # the reason for this is to not kick off potential secondary processes that are monitoring the folder
@@ -95,7 +98,7 @@ def load_machine_annotations(
             # this has to happen before we potentially drop all failed annotations. We want to keep them in the
             # consolidated file  
 
-            latest_filename = sorted(machine_file_names)[-1]
+            latest_filename = sorted(machine_filenames)[-1]
             if verbose:
                 print(f"The machine annotation files will be consolidated into a single file: '{basename(latest_filename)}'")
                 print(f"The raw json files will remain untouched")
@@ -103,7 +106,7 @@ def load_machine_annotations(
             data_io.save_parquet(cf, some_machine_annotations, "machine_annotations_refined", latest_filename, verbose=verbose)
 
 
-            for fn in machine_file_names:
+            for fn in machine_filenames:
                 if not fn == latest_filename:
                     data_io.move(cf, "machine_annotations_refined", "archive", fn)
         else:
