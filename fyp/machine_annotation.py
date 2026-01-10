@@ -1480,7 +1480,7 @@ def annotate_videos_loop(
         cf = initialize()
     
     if load_from_cache and study_name is not None:
-        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_main.parquet")
+        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_recoded.parquet")
         if os_exists(study_dataset_cache_path):
             if verbose:
                 print("    Loading study dataset from cache", end=" ", flush=True)
@@ -1491,7 +1491,7 @@ def annotate_videos_loop(
         else:
             if verbose:
                 print("    No cached study dataset found. I must run the process to create it. Please wait a moment...")
-            study_dataset = create_study_main_dataset(
+            study_dataset = create_study_recoded_dataset(
                 cf = cf,
                 study_name = study_name,
                 load_from_cache = True,

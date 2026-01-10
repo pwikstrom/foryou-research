@@ -375,7 +375,7 @@ def _build_agg_dict_to_generate_basic_video_stats(study_dataset = None):
 
     if study_dataset is None:
         source_cols = list(set(["item_id"] + [source_col for _, (source_col, _) in agg_defs.items()]))
-        return None, source_cols    
+        return None, list(set(source_cols))
 
     agg_dict = {}
     confirmed_cols = ["item_id"]
@@ -383,7 +383,7 @@ def _build_agg_dict_to_generate_basic_video_stats(study_dataset = None):
         if source_col in study_dataset.columns:
             agg_dict[target_col] = NamedAgg(column=source_col, aggfunc=agg_func)
             confirmed_cols.append(source_col)
-    return agg_dict, confirmed_cols    
+    return agg_dict, list(set(confirmed_cols))
 
 
 
@@ -403,7 +403,7 @@ def select_videos_from_study_dataset(
     if cf is None:
         cf = initialize()
 
-    
+
     # group by video URL and count the number of unique users
     agg_dict, confirmed_cols = _build_agg_dict_to_generate_basic_video_stats(study_dataset)
 
@@ -415,6 +415,8 @@ def select_videos_from_study_dataset(
     else:
         # If duration information is missing, default to False (safer not to annotate unknown duration)
         video_stats['duration_ok_to_annotate'] = False
+
+    video_stats.fillna(False, inplace=True)
 
     video_stats.query(query_string, inplace=True)
 
@@ -453,24 +455,27 @@ def generate_unique_videos_to_scrape_and_annotate(
         cf = initialize()
 
     if load_from_cache and study_name is not None:
-        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_main.parquet")
+        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_recoded.parquet")
         if os_exists(study_dataset_cache_path):
             if verbose:
-                print(f"    Loading study main dataset from cache...", end=" ", flush=True)
+                print(f"    Loading study recoded dataset from cache...", end=" ", flush=True)
             
-            schema = pq_read_schema(study_dataset_cache_path)
-            confirmed_cols = list(set(schema.names) & set(_build_agg_dict_to_generate_basic_video_stats()[1]))
+            #schema = pq_read_schema(study_dataset_cache_path)
+            #confirmed_cols = list(set(schema.names) & set(_build_agg_dict_to_generate_basic_video_stats()[1]))
+            #print(study_dataset_cache_path)
 
             study_dataset = pd_read_parquet(
-                study_dataset_cache_path,
-                engine="pyarrow",
-                dtype_backend="pyarrow",
-                columns=confirmed_cols)
+                study_dataset_cache_path, 
+                engine="pyarrow", 
+                dtype_backend="pyarrow")
+                # TODO: I run into some error trying to load a few columns
+                # I need to investigate and fix it 
+                #, columns=confirmed_cols)
             if verbose:
                 print(f"Shape: {study_dataset.shape}")
         else:
             print("@@ No cached study dataset found. I must run the process to create it. Please wait a moment...")
-            study_dataset = create_study_main_dataset(
+            study_dataset = create_study_recoded_dataset(
                 cf = cf,
                 study_name = study_name,
                 load_from_cache = True,
@@ -486,17 +491,18 @@ def generate_unique_videos_to_scrape_and_annotate(
         print("    This process cannot run without a study dataset as input or in cache. Process failed.")
         return None
 
+    study_dataset_small = study_dataset[["item_id","S_video_duration","annotated_ok","annotated_fail","scraped_ok","scraped_fail"]].copy()
 
     selected_annotate_videos = select_videos_from_study_dataset(
         cf = cf,
-        study_dataset = study_dataset,
+        study_dataset = study_dataset_small,
         query_string = "scraped_ok & ~annotated_ok & ~annotated_fail & duration_ok_to_annotate",
         verbose = verbose,
         notebook_mode = False)
 
     selected_scrape_videos = select_videos_from_study_dataset(
         cf = cf,
-        study_dataset = study_dataset,
+        study_dataset = study_dataset_small,
         query_string = "~scraped_ok & ~scraped_fail",
         verbose = verbose,
         notebook_mode = False)
@@ -948,7 +954,7 @@ def new_merge(
 
 
 
-def create_study_main_dataset(
+def create_study_recoded_dataset(
     cf = None,
     study_name = None,
     all_datasets = {},
@@ -982,8 +988,8 @@ def create_study_main_dataset(
         save_to_cache = True,
         verbose = verbose)
 
-
-    study_main_dataset = new_merge(
+    # with new merge, the datasets are already recoded
+    study_recoded_dataset = new_merge(
         cf = cf,
         study_name = study_name,
         all_datasets = all_datasets,
@@ -992,13 +998,13 @@ def create_study_main_dataset(
     )
 
 
-    memory_per_column = study_main_dataset.memory_usage(deep=True) 
+    memory_per_column = study_recoded_dataset.memory_usage(deep=True) 
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
     print(f"...done. Unified dataset for study '{study_name}' generated. Total memory used: {total_memory_mb:.2f} MB")
 
 
-    return study_main_dataset
+    return study_recoded_dataset
 
 
 

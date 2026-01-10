@@ -1164,7 +1164,7 @@ def recode_events_df(
     import fyp.data_io as data_io
     from numpy import int64, float64
     from pandas import read_parquet as pd_read_parquet
-    from fyp.organize_datasets import create_study_main_dataset
+    from fyp.organize_datasets import create_study_recoded_dataset
 
 
     print(f"Recoding variables, implementing missing data policy and a whole range of other things...")

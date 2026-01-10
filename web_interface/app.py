@@ -585,7 +585,7 @@ def api_explorer_metadata():
         metadata['filter_priority'] = []
         metadata['schema_map'] = {}
 
-    return jsonify(metadata)
+    return jsonify(_make_serializable(metadata))
 
 
 
@@ -697,7 +697,7 @@ def api_explorer_filter():
         result['stats2'] = res2['stats']
         result['count2'] = res2['count']
     
-    return jsonify(result)
+    return jsonify(_make_serializable(result))
 
 
 
@@ -1014,14 +1014,33 @@ def api_persona_stats_cached():
 
 def _make_serializable(obj):
     """Helper to convert non-JSON-serializable types."""
-    if obj is None or pd.isna(obj):
+    if obj is None:
         return None
+        
+    # Check for containers FIRST to avoid pd.isna() returning an array
+    if isinstance(obj, dict):
+        return {str(k): _make_serializable(v) for k, v in obj.items()}
+
     if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    if hasattr(obj, 'tolist'):  # numpy scalars
-        return obj.tolist()
+        return [_make_serializable(x) for x in obj.tolist()]
+        
     if isinstance(obj, (list, tuple)):
         return [_make_serializable(x) for x in obj]
+    
+    # Check for scalar NAs (NaN, NaT, None)
+    # This is safe now because we've handled most containers
+    try:
+        if pd.isna(obj):
+            return None
+    except:
+        pass
+
+    if isinstance(obj, (pd.Timestamp, datetime)):
+        return obj.isoformat()
+        
+    if hasattr(obj, 'tolist'):  # generic numpy scalar fallback
+        return obj.tolist()
+        
     return obj
 
 
@@ -1385,7 +1404,7 @@ def api_check_video_counts(study_name):
         print(f"--------------------Checking video counts for study: {study_name}")
         counts = fyp.check_unique_videos_to_scrape_and_annotate(fyp_cf, study_name)
         # Returns dict: {"annotate": (rows, cols), "scrape": (rows, cols)}
-        return jsonify(counts)
+        return jsonify(_make_serializable(counts))
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400
     except Exception as e:
