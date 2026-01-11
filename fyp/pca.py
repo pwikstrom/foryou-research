@@ -275,11 +275,12 @@ def interpret_pca_axes(
     events_df_recoded = None):
 
     from fyp.fyp_main import initialize
+    from fyp.recode_variables import get_group_factors_from_var_schema
 
     if cf is None:
         cf = initialize()
 
-    group_factors = cf["var_schema"][cf["var_schema"].role=="group_factor"].variable_name.tolist()
+    group_factors = get_group_factors_from_var_schema(cf = cf)
 
     # this looks awkward but it makes the selection realy clear
     components_associated_w_this_feature = []
@@ -304,7 +305,7 @@ def interpret_pca_axes(
 
 
 
-def transform_category_column_to_counts_df_old(
+"""def transform_category_column_to_counts_df_old(
     some_events,
     the_column = None,
     the_selected_factors: List = None,
@@ -313,6 +314,8 @@ def transform_category_column_to_counts_df_old(
         raise ValueError("No column provided") 
     if the_selected_factors is None:
         raise ValueError("No selected factors provided")
+    
+    the_selected_factors = sorted(the_selected_factors)
 
     from pandas import Series, DataFrame, MultiIndex
     from collections import Counter
@@ -374,9 +377,10 @@ def transform_category_column_to_counts_df_old(
         counts_df.index = group_labels
 
     counts_df.index = MultiIndex.from_tuples(counts_df.index.tolist())
+    counts_df.index = convert_index_dtype_to_pyarrow(counts_df.index)
     counts_df.columns = _shorten_strings(counts_df.columns)
 
-    return counts_df
+    return counts_df"""
         
 
 
@@ -389,6 +393,8 @@ def transform_category_column_to_counts_df(
         raise ValueError("No column provided") 
     if the_selected_factors is None:
         raise ValueError("No selected factors provided")
+
+    the_selected_factors = sorted(the_selected_factors)
 
     from pandas import crosstab, DataFrame
 
@@ -576,12 +582,13 @@ def calculate_scaled_pca_scores(
 
     #from json import dump as json_dump
     from concurrent.futures import ThreadPoolExecutor
-    from pandas import NamedAgg, MultiIndex, DataFrame, concat, read_parquet as pd_read_parquet
+    from pandas import NamedAgg, MultiIndex, DataFrame, concat, read_parquet as pd_read_parquet, to_datetime
     from os.path import join as os_join, exists as os_exists
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
-    from fyp.recode_variables import get_factors_and_features_from_var_schema, recode_events_df
-    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow, is_list_like_col
+    from fyp.organize_datasets import create_study_recoded_dataset
+    from fyp.recode_variables import get_factors_and_features_from_var_schema, get_group_factors_from_var_schema
+    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow, convert_index_dtype_pyarrow
     import fyp.data_io as data_io
     from json import dump as json_dump
 
@@ -591,7 +598,7 @@ def calculate_scaled_pca_scores(
     if cf is None:
         cf = initialize()
 
-    selected_factors = cf["var_schema"][cf["var_schema"]["role"]=='group_factor'].variable_name.to_list()
+    selected_factors = get_group_factors_from_var_schema(cf = cf, some_events_df = study_recoded_dataset, verbose=verbose)
 
     print(
         f"Performing Principal Component Analysis based on {' | '.join(selected_factors)}. Study: '{study_name}'"
@@ -610,58 +617,59 @@ def calculate_scaled_pca_scores(
         if os_exists(recoded_cache_path):
             if verbose:
                 print("    [PCA] Loading recoded events from cache", end=" ", flush=True)
-            some_events_df = pd_read_parquet(recoded_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+            study_recoded_dataset = pd_read_parquet(recoded_cache_path, engine="pyarrow", dtype_backend="pyarrow")
             if verbose:
-                print(f" | Shape: {some_events_df.shape}")
-        else:
-            print("@@ No cached recoded study dataset found. I must create it. Please wait a moment...")
-            some_events_df = create_study_recoded_dataset(
-                cf = cf,
-                study_name = study_name,
-                load_from_cache = True,
-                save_to_cache = True,
-                verbose = verbose
-            )
-            print("@@ Back after created recoded dataset for this study. I will now resume the PCA analysis.")
+                print(f" | Shape: {study_recoded_dataset.shape}")
 
-    if some_events_df is None:
+    if study_name is not None and study_recoded_dataset is None:
+        print("@@ No cached recoded study dataset found. I must create it. Please wait a moment...")
+        study_recoded_dataset = create_study_recoded_dataset(
+            cf = cf,
+            study_name = study_name,
+            load_from_cache = True,
+            save_to_cache = True,
+            verbose = verbose
+        )
+        print("@@ Back after created recoded dataset for this study. I will now resume the PCA analysis.")
+
+    if study_recoded_dataset is None:
         print("    [PCA] ERROR: This process cannot run without a study dataset as input or in cache. Process failed.")
         return None
 
     # I was experimenting with this column during one stage - dropping it in case it lingers in the dataset somewhere
     # It is NA for zeeschuimer data and causes trouble
-    some_events_df.drop(columns=['dd_event_id'], errors='ignore', inplace=True)
+    study_recoded_dataset.drop(columns=['dd_event_id'], errors='ignore', inplace=True)
 
-    some_events_df = some_events_df[some_events_df.annotated_ok]
+    study_recoded_dataset = study_recoded_dataset[study_recoded_dataset.annotated_ok]
     if verbose:
-        print(f"    [PCA] Only keeping events that are successfully annotated -> Shape: {some_events_df.shape}")    
+        print(f"    [PCA] Only keeping events that are successfully annotated -> Shape: {study_recoded_dataset.shape}")    
 
-    some_events_df = some_events_df.dropna()
+    study_recoded_dataset = study_recoded_dataset.dropna()
     if verbose:
-        print(f"    [PCA] Dropping rows with missing values -> Shape: {some_events_df.shape}")
+        print(f"    [PCA] Dropping rows with missing values -> Shape: {study_recoded_dataset.shape}")
 
 
     
     if down_sample < 1:
-        down_sample_count = max(min_sample_size, int(down_sample*len(some_events_df)))
-        down_sample_count = min(down_sample_count, len(some_events_df))
-        if down_sample_count < len(some_events_df):
-            sampled_events_df = some_events_df.sample(n=down_sample_count)
+        down_sample_count = max(min_sample_size, int(down_sample*len(study_recoded_dataset)))
+        down_sample_count = min(down_sample_count, len(study_recoded_dataset))
+        if down_sample_count < len(study_recoded_dataset):
+            sampled_events_df = study_recoded_dataset.sample(n=down_sample_count)
             if verbose:
-                print(f"    [PCA] Down sampling to {down_sample_count/len(some_events_df):.0%} of the dataset -> Shape: {sampled_events_df.shape}")
+                print(f"    [PCA] Down sampling to {down_sample_count/len(study_recoded_dataset):.0%} of the dataset -> Shape: {sampled_events_df.shape}")
         else:
-            sampled_events_df = some_events_df.copy()
+            sampled_events_df = study_recoded_dataset.copy()
     else:
-        sampled_events_df = some_events_df.copy()
+        sampled_events_df = study_recoded_dataset.copy()
 
-    some_events_df = sampled_events_df.copy()
+    study_recoded_dataset = sampled_events_df.copy()
 
-    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(cf = cf, some_events_df = some_events_df, verbose=verbose)
+    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(cf = cf, some_events_df = study_recoded_dataset, verbose=verbose)
     
     if verbose:
         print(f"    [PCA] Dropping '{'-'.join(selected_factors)}' groups that are smaller than {minimum_group_size} rows")
 
-    group_sizes = some_events_df[selected_factors].groupby(selected_factors).agg(group_size = NamedAgg(column=selected_factors[0], aggfunc="count"))
+    group_sizes = study_recoded_dataset[selected_factors].groupby(selected_factors).agg(group_size = NamedAgg(column=selected_factors[0], aggfunc="count"))
 
     good_sized_groups = group_sizes[list((group_sizes>=minimum_group_size).to_dict()["group_size"].values())]
 
@@ -684,10 +692,10 @@ def calculate_scaled_pca_scores(
             )
             print(f"    [PCA] This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.")
 
-        some_events_df = some_events_df.set_index(selected_factors).loc[good_sized_groups.index].reset_index().copy()
+        study_recoded_dataset = study_recoded_dataset.set_index(selected_factors).loc[good_sized_groups.index].reset_index().copy()
 
         if verbose:
-            print(f"    [PCA] Confirming new shape: {some_events_df.shape}")
+            print(f"    [PCA] Confirming new shape: {study_recoded_dataset.shape}")
     else:
         if verbose:
             print("    [PCA] No groups were below the threshold")
@@ -697,16 +705,14 @@ def calculate_scaled_pca_scores(
         print("    [PCA] Consolidating events into groups and performing PCA transformation on categorical variables")
 
     events_pca_scores = []
-    
-
     comp_interpretations = {}
 
     # first, run through the numerical features. This doesn't take much time. Most of my features are categorical anyway...
-    for i,c in enumerate(some_events_df[fyp_features].columns):
-        if c in some_events_df.select_dtypes(include=["number"]).columns:
+    for i,c in enumerate(study_recoded_dataset[fyp_features].columns):
+        if c in study_recoded_dataset.select_dtypes(include=["number"]).columns:
             the_pc_df = None
             one_comp_interpretation = {}
-            wer = DataFrame(some_events_df[[c] + selected_factors].groupby(selected_factors).mean())
+            wer = DataFrame(study_recoded_dataset[[c] + selected_factors].groupby(selected_factors).mean())
 
             for cvb in one_comp_interpretation:
                 comp_interpretations[c+"_"+cvb] = one_comp_interpretation[cvb]
@@ -714,11 +720,10 @@ def calculate_scaled_pca_scores(
             events_pca_scores += [wer.copy()]
 
 
-
     # transform categorical features to a list of counts dataframes
     def _f1(cc):
-        return transform_category_column_to_counts_df(some_events_df, the_column=cc, the_selected_factors=selected_factors)
-    categorical_features = some_events_df[fyp_features].select_dtypes(exclude=["number"]).columns
+        return transform_category_column_to_counts_df(study_recoded_dataset, the_column=cc, the_selected_factors=selected_factors)
+    categorical_features = study_recoded_dataset[fyp_features].select_dtypes(exclude=["number"]).columns
     counts_list = list(map(_f1, categorical_features))
 
     # iterate over the counts dataframes
@@ -735,9 +740,9 @@ def calculate_scaled_pca_scores(
             target_explained_variance=target_explained_variance,
             drop_rare_globally_below=drop_rare_globally_below,
             verbose=False)
+
         wer.drop("top1", axis=1, inplace=True, errors="ignore")
         wer.columns = [col_name+"_"+col for col in wer.columns]
-
 
         if len(selected_factors) > 1:
             wer.index = MultiIndex.from_tuples(wer.index, names=selected_factors)
@@ -745,11 +750,14 @@ def calculate_scaled_pca_scores(
             wer.index = wer.index.get_level_values(0)
             wer.index.name = selected_factors[0]
 
+        wer.index = convert_index_dtype_pyarrow(wer.index)
         
         for cvb in comp_interpretation:
             comp_interpretations[col_name+"_"+cvb] = comp_interpretation[cvb]
 
         events_pca_scores += [wer.copy()]
+
+        
 
 
     events_pca_scores = concat(events_pca_scores, axis=1)
@@ -757,11 +765,10 @@ def calculate_scaled_pca_scores(
     if verbose:
         print(f"    [PCA] Shape of PCA scores table: {events_pca_scores.shape}")
 
-
     if not scale_it:
         if verbose:
             print("    [PCA] Not scaling the scores and not saving them either")
-        return events_pca_scores
+        
 
     if verbose:
         print("    [PCA] Scaling pca scores and concatenating factors into the scaled table")
@@ -769,11 +776,33 @@ def calculate_scaled_pca_scores(
         StandardScaler().fit_transform(events_pca_scores), 
         index=events_pca_scores.index, 
         columns=events_pca_scores.columns)
+
     events_pca_scores_scaled.reset_index(inplace=True)
 
     # TODO: avoid making direct references to column names
-    time_columns_to_put_back = some_events_df[["D_donation_id","T_local_weekday","T_local_date","T_local_week"]].sample(frac=1, random_state=42).drop_duplicates().set_index(selected_factors)
-    events_pca_scores_scaled = concat([time_columns_to_put_back,events_pca_scores_scaled.set_index(selected_factors)], axis=1).reset_index().copy()
+    # Ensure we don't select duplicate columns if selected_factors overlap with the time columns
+    cols_to_keep = ["D_donation_id","T_local_weekday","T_local_date","T_local_week"]
+    # Add selected factors only if not already present
+    for f in selected_factors:
+        if f not in cols_to_keep:
+            cols_to_keep.append(f)
+            
+    time_columns_to_put_back = study_recoded_dataset[cols_to_keep].sample(frac=1, random_state=42).drop_duplicates()
+    
+    # FIX: Ensure T_local_date is strictly datetime64[ns] (Numpy) on BOTH sides of the merge.
+    # PyArrow Timestamps vs Numpy Timestamps can cause index alignment failures in pd.concat.
+    if "T_local_date" in time_columns_to_put_back.columns:
+        time_columns_to_put_back["T_local_date"] = time_columns_to_put_back["T_local_date"]
+
+    if "T_local_date" in events_pca_scores_scaled.columns:
+        events_pca_scores_scaled["T_local_date"] = events_pca_scores_scaled["T_local_date"]
+
+
+    time_columns_to_put_back = time_columns_to_put_back.set_index(selected_factors)
+    pca_indexed = events_pca_scores_scaled.set_index(selected_factors)
+
+    events_pca_scores_scaled = concat([time_columns_to_put_back, pca_indexed], axis=1).reset_index().copy()
+
 
     # TODO: avoid making direct references to column names
     events_pca_scores_scaled["T_local_month"] = events_pca_scores_scaled["T_local_date"].map(lambda x:x.month)
@@ -784,6 +813,7 @@ def calculate_scaled_pca_scores(
     for c in events_pca_scores_scaled.columns:
         if not c in comp_interpretations.keys():
             comp_interpretations[c] = {'top_positive':'high', 'top_negative':'low'}
+
 
     if verbose:
         print("    [PCA] Converting dtypes to pyarrow")

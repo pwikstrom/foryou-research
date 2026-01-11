@@ -115,7 +115,7 @@ async function loadViewerMetadata() {
     filterContainer.innerHTML = '<div style="text-align:center; margin-top:20px;">Loading filters...</div>';
 
     try {
-        const res = await fetch(`/api/explorer/metadata?study=${encodeURIComponent(viewerData.activeStudy)}`);
+        const res = await fetch(`/api/explorer/metadata?study=${encodeURIComponent(viewerData.activeStudy)}&context=viewer`);
         const data = await res.json();
 
         if (data.error) {
@@ -198,6 +198,37 @@ function renderViewerFilters(metadata) {
         label.style.color = '#d4d4d4';
         wrapper.appendChild(label);
 
+        // -- NA Filter --
+        if (info.null_count && info.null_count > 0) {
+            const naDiv = document.createElement('div');
+            naDiv.style.marginBottom = '5px';
+            naDiv.style.display = 'flex';
+            naDiv.style.alignItems = 'center';
+
+            const naCb = document.createElement('input');
+            naCb.type = 'checkbox';
+            const safeCol = col.replace(/[^a-zA-Z0-9]/g, '_');
+            naCb.id = `v-na-${safeCol}`;
+            naCb.style.marginRight = '5px';
+
+            if (viewerData.filters[col] && viewerData.filters[col].na) {
+                naCb.checked = true;
+            }
+
+            naCb.onchange = (e) => setViewerFilter(col, info.type, 'na', e.target.checked);
+
+            const naLabel = document.createElement('label');
+            naLabel.htmlFor = naCb.id;
+            naLabel.innerText = `Include NA/Missing (${info.null_count.toLocaleString()})`;
+            naLabel.style.fontSize = '0.9em';
+            naLabel.style.color = '#aaa';
+            naLabel.style.cursor = 'pointer';
+
+            naDiv.appendChild(naCb);
+            naDiv.appendChild(naLabel);
+            wrapper.appendChild(naDiv);
+        }
+
         if (info.type === 'number') {
             const inputRow = document.createElement('div');
             inputRow.style.display = 'flex';
@@ -207,12 +238,23 @@ function renderViewerFilters(metadata) {
             minInput.type = 'number';
             minInput.placeholder = `Min (${info.min})`;
             minInput.style.width = '50%';
+
+            // Restore val
+            if (viewerData.filters[col] && viewerData.filters[col].value && viewerData.filters[col].value.min !== undefined) {
+                minInput.value = viewerData.filters[col].value.min;
+            }
+
             minInput.onchange = (e) => setViewerFilter(col, 'number', 'min', e.target.value);
 
             const maxInput = document.createElement('input');
             maxInput.type = 'number';
             maxInput.placeholder = `Max (${info.max})`;
             maxInput.style.width = '50%';
+
+            if (viewerData.filters[col] && viewerData.filters[col].value && viewerData.filters[col].value.max !== undefined) {
+                maxInput.value = viewerData.filters[col].value.max;
+            }
+
             maxInput.onchange = (e) => setViewerFilter(col, 'number', 'max', e.target.value);
 
             inputRow.appendChild(minInput);
@@ -279,14 +321,28 @@ function setViewerFilter(col, type, subtype, value) {
         viewerData.filters[col] = { type: type, value: (type === 'number' ? {} : []) };
     }
 
-    if (type === 'number') {
+    if (subtype === 'na') {
+        viewerData.filters[col].na = value;
+        if (!viewerData.filters[col].na) delete viewerData.filters[col].na;
+    } else if (type === 'number') {
         if (value === "") delete viewerData.filters[col].value[subtype];
         else viewerData.filters[col].value[subtype] = parseFloat(value);
-        if (Object.keys(viewerData.filters[col].value).length === 0) delete viewerData.filters[col];
     } else {
-        if (value.length === 0) delete viewerData.filters[col];
+        if (value.length === 0) viewerData.filters[col].value = [];
         else viewerData.filters[col].value = value;
     }
+
+    // Cleanup
+    const hasValue = (type === 'number') ?
+        (viewerData.filters[col].value && Object.keys(viewerData.filters[col].value).length > 0) :
+        (viewerData.filters[col].value && viewerData.filters[col].value.length > 0);
+
+    const hasNa = !!viewerData.filters[col].na;
+
+    if (!hasValue && !hasNa) {
+        delete viewerData.filters[col];
+    }
+
     // We do NOT auto-apply filters here to avoid constant reloading of ID list. 
     // User must click "Apply Filters".
 }

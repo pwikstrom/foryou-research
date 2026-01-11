@@ -626,6 +626,7 @@ def sample_ddp_events(
     verbose=False):
 
     from fyp.fyp_main import initialize
+    from fyp.recode_variables import get_group_factors_from_var_schema
 
     if cf is None:
         cf = initialize()
@@ -636,8 +637,7 @@ def sample_ddp_events(
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
 
-    group_factors = cf["var_schema"][cf["var_schema"]["role"]=='group_factor'].variable_name.to_list()
-    group_factors = sorted(group_factors) # in case they are entered in different order...
+    group_factors = get_group_factors_from_var_schema(cf = cf, some_events_df = all_ddp_events_df, verbose=verbose)
 
     """all_ddp_events_df = data_io.load_parquet(
         cf=cf,

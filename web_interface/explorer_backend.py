@@ -7,7 +7,7 @@ def load_data(fyp_cf, study, verbose=False):
     from numpy import ndarray as np_ndarray
     from pandas import read_parquet as pd_read_parquet
     from os.path import join as os_join, exists as os_exists
-    from fyp.recode_variables import recode_events_df
+    from fyp.organize_datasets import create_study_recoded_dataset
 
     df = None
     recoded_cache_path = os_join(fyp_cf['paths']['temp'], f"CACHE_{study}_recoded.parquet")
@@ -16,10 +16,10 @@ def load_data(fyp_cf, study, verbose=False):
             print("    Loading recoded events from cache", end=" ", flush=True)
         df = pd_read_parquet(recoded_cache_path, engine="pyarrow", dtype_backend="pyarrow")
         if verbose:
-            print(f"  |  Shape: {df.shape}")
+            print(f"  |  {len(df):,} rows")
     else:
         print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
-        df = recode_events_df(
+        df = create_study_recoded_dataset(
             cf = fyp_cf,
             study_name = study,
             load_from_cache = True,
@@ -121,18 +121,26 @@ def get_metadata(df, column_types):
     """
     Returns metadata for frontend:
     - columns: { name: type }
-    - stats: min/max for numbers, unique values for categories
+    - stats: min/max for numbers, unique values for categories, null_counts
     """
     from numpy import ndarray as np_ndarray
     metadata = {}
     for col, dtype in column_types.items():
+        # Calculate Null Count
+        null_count = int(df[col].isna().sum())
+        
+        base_meta = {
+            "null_count": null_count
+        }
+
         if dtype == "number":
             min_val, max_val = get_robust_bounds(df[col])
-            metadata[col] = {
+            base_meta.update({
                 "type": "number",
                 "min": min_val,
                 "max": max_val
-            }
+            })
+            metadata[col] = base_meta
         elif dtype == "category":
             # Strict limit for UI filters
             # Only send top 50 most frequent values for filtering to save DOM
@@ -143,10 +151,12 @@ def get_metadata(df, column_types):
             
             unique_vals = [{"value": str(x), "count": int(vc[x])} for x in top_50_keys]
             
-            metadata[col] = {
+            base_meta.update({
                 "type": "category",
                 "values": unique_vals
-            }
+            })
+            metadata[col] = base_meta
+
         elif dtype == "list":
             # Extract all unique items from lists
             # Flatten
@@ -165,10 +175,11 @@ def get_metadata(df, column_types):
             
             items_list = [{"value": str(k), "count": v} for k, v in top_50]
 
-            metadata[col] = {
+            base_meta.update({
                 "type": "list",
                 "values": items_list
-            }
+            })
+            metadata[col] = base_meta
         
         # Explicitly ignore long_text and identifier
         elif dtype in ["long_text", "identifier"]:
@@ -187,27 +198,56 @@ def filter_dataframe(df, column_types, filters, search_query=None):
             continue
         
         val = criteria.get("value")
-        if val is None or val == "":
+        include_na = criteria.get("na", False)
+        
+        # If neither value criteria nor NA inclusion is active, skip
+        if (val is None or val == "") and not include_na:
             continue
 
         dtype = column_types.get(col)
+        
+        # We need to construct a mask for this column that represents:
+        # (Matches Values) OR (Is NA if include_na)
+        
+        value_mask = pd.Series(False, index=filtered_df.index)
+        has_value_criteria = False
 
         if dtype == "number":
-            min_val = val.get("min")
-            max_val = val.get("max")
-            if min_val is not None:
-                filtered_df = filtered_df[filtered_df[col] >= float(min_val)]
-            if max_val is not None:
-                filtered_df = filtered_df[filtered_df[col] <= float(max_val)]
+            min_val = val.get("min") if val else None
+            max_val = val.get("max") if val else None
+            if min_val is not None or max_val is not None:
+                # Start with True (all valid for now)
+                temp_mask = pd.Series(True, index=filtered_df.index)
+                if min_val is not None:
+                     temp_mask &= (filtered_df[col] >= float(min_val))
+                if max_val is not None:
+                     temp_mask &= (filtered_df[col] <= float(max_val))
+                
+                value_mask = temp_mask
+                has_value_criteria = True
 
         elif dtype == "category":
             if isinstance(val, (list, np_ndarray)) and len(val) > 0:
-                filtered_df = filtered_df[filtered_df[col].astype(str).isin(val)]
+                value_mask = filtered_df[col].astype(str).isin(val)
+                has_value_criteria = True
         
         elif dtype == "list":
             if isinstance(val, (list, np_ndarray)) and len(val) > 0:
                 search_set = set(val)
-                filtered_df = filtered_df[filtered_df[col].apply(lambda x: bool(set(x) & search_set) if isinstance(x, (list, np_ndarray)) else False)]
+                value_mask = filtered_df[col].apply(lambda x: bool(set(x) & search_set) if isinstance(x, (list, np_ndarray)) else False)
+                has_value_criteria = True
+
+        # Combine with NA logic
+        final_col_mask = pd.Series(False, index=filtered_df.index)
+        
+        if include_na:
+             final_col_mask |= filtered_df[col].isna()
+        
+        if has_value_criteria:
+             final_col_mask |= value_mask
+
+        # Apply mask
+        filtered_df = filtered_df[final_col_mask]
 
     # Global Search Logic
     if search_query and isinstance(search_query, str):

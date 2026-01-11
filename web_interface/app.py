@@ -117,10 +117,12 @@ def get_explorer_data(study):
     
     # If requesting same study and already loaded, return it
     if study == active_explorer_study and explorer_df is not None:
+        print(f"    This study is already in memory. Accessing {len(explorer_df):,} rows")
         return explorer_df, explorer_col_types
 
     # Resolve path
     explorer_df, explorer_col_types = explorer.load_data(fyp_cf, study, verbose=True)
+    #print(f"    Received explorer data {len(explorer_df)} rows")
 
     if explorer_df is None:
         print(f"The requested recoded study dataset was not found")
@@ -498,6 +500,22 @@ def api_explorer_metadata():
 
     df, col_types = get_explorer_data(study)
     
+    # I only want the events where the has been downloaded and annotated
+    # Otherwise there is no data to explore!
+    # This is necessary since the dataset contains all events even those
+    # that have not been scraped/annotated yet.
+
+    # Context switch: Viewer needs unannotated rows (scraped only) to seeing missing annotations
+    context = request.args.get('context', 'explorer')
+    
+    if context == 'viewer':
+         df = df[df.scraped_ok].copy()
+         print(f"    Filtered to {len(df):,} scraped events")
+    else:
+         df = df[df.annotated_ok].copy()
+         print(f"    Filtered to {len(df):,} annotated events")
+
+    
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
@@ -670,7 +688,15 @@ def api_explorer_filter():
     df, col_types = get_explorer_data(study)
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
-    
+
+    # I only want the events where the has been downloaded and annotated
+    # Otherwise there is no data to explore!
+    # This is necessary since the dataset contains all events even those
+    # that have not been scraped/annotated yet.
+    df = df[df.annotated_ok].copy()
+    print(f"    Filtered to {len(df):,} annotated events")
+
+
     filters = data.get("filters", {})
     search_query = data.get("search_query")
     
@@ -717,6 +743,12 @@ def api_viewer_ids():
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
+    # I only want the events where there is a video to show
+    # This dataset contains all events even those that have not been
+    # scraped yet and hence do not have a video available.  
+    df = df[df.scraped_ok].copy()
+    print(f"    Filtered to {len(df):,} scraped events")
+
     filters = data.get("filters", {})
     search_query = data.get("search_query")
     sort_by = data.get("sort_by")
@@ -778,23 +810,34 @@ def get_pca_df(study_name):
         return pca_df_cache[study_name]
 
     # Load file
-    try:
+    if True:# try:
         
         pca_filename = f"CACHE_{study_name}_PCA.parquet"
         
         if not os_exists(os_join(fyp_cf['paths']['temp'], pca_filename)):
+            print("Calculating PCA scores for study: ", study_name)
             calculate_scaled_pca_scores(
                 cf = fyp_cf,
                 study_name = study_name,
+                study_recoded_dataset = None,
+                minimum_group_size = 10,
+                target_explained_variance = 0.8,
+                drop_rare_globally_below = 0.01,
+                scale_it = True,
+                down_sample = 1,
+                min_sample_size = 20000,
+                load_from_cache = False,
+                save_to_cache = True,
+                verbose = False,
                 )
-
+        
 
 
 
         df = pd_read_parquet(os_join(fyp_cf['paths']['temp'], pca_filename))
         pca_df_cache[study_name] = df
         return df
-    except Exception as e:
+    if False:#except Exception as e:
         print(f"Error loading PCA: {e}")
         return None
 
@@ -804,6 +847,9 @@ def get_pca_df(study_name):
 
 @app.route('/api/pca/metadata', methods=['POST'])
 def api_pca_metadata():
+
+    from fyp.recode_variables import get_factors_and_features_from_var_schema
+    
     data = request.json or {}
     study = data.get("study")
     if not study: return jsonify({"error": "No study"}), 400
@@ -822,7 +868,8 @@ def api_pca_metadata():
     
     # 2. Factors from var_schema
     # We can use 'fyp_cf' global to access var_schema
-    factors = []
+    factors, _ = get_factors_and_features_from_var_schema(cf = fyp_cf, some_events_df = df, verbose = False)
+    """factors = []
     if "var_schema" in fyp_cf:
         vs = fyp_cf["var_schema"]
         # role is 'factor' or 'group_factor'
@@ -830,7 +877,7 @@ def api_pca_metadata():
         potential_factors = vs[vs['role'].isin(target_roles)]['variable_name'].tolist()
         
         # Intersect with df columns
-        factors = [c for c in potential_factors if c in df.columns]
+        factors = [c for c in potential_factors if c in df.columns]"""
     
     # Fallback if var_schema not loaded or matching
     if not factors:
@@ -893,14 +940,15 @@ def api_pca_data():
     
     filtered_df = df[mask].copy()
 
+    # Need to handle NaN in X/Y
+    # Drop NaNs BEFORE sampling to ensure we don't sample rows that will drop later!
+    filtered_df = filtered_df.dropna(subset=[x_col, y_col])
+
     # Prepare response
     # Limit points? 
     MAX_POINTS = 5000
     if len(filtered_df) > MAX_POINTS:
         filtered_df = filtered_df.sample(MAX_POINTS)
-
-    # Need to handle NaN in X/Y
-    filtered_df = filtered_df.dropna(subset=[x_col, y_col])
     
     # Construct output list
     # x, y, color, text (metadata tooltip)
@@ -1128,6 +1176,13 @@ def api_viewer_item(study, item_id):
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
+    # I only want the events where there is a video to show
+    # This dataset contains all events even those that have not been
+    # scraped yet and hence do not have a video available.  
+    df = df[df.scraped_ok].copy()
+    print(f"    Filtered to {len(df):,} scraped events")
+
+
     # Find row
     # Assume 'item_id' column logic same as above
     id_col = 'item_id'

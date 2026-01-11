@@ -891,7 +891,7 @@ def new_merge(
     if all_datasets is None:
         raise ValueError("all_datasets must be specified")
 
-    print(all_datasets.keys())
+    #print(all_datasets.keys())
 
     if 'scraped' in all_datasets and 'annotated' in all_datasets:
         enriched_data = merge(left=all_datasets['scraped'], right=all_datasets['annotated'], on='item_id', how='left')

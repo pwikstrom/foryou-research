@@ -669,15 +669,6 @@ def load_scrape_metadata(
     if True:#consolidate:
         scrape_metadata = data_io.load_parquet(cf, "recoded", "scrape_recoded.parquet", filters=filters, verbose=verbose)
     # if we are not consolidating, load only the useful variables
-    """else:
-        import re
-        useful_variables = ["image_list", "video_downloaded", "createTime"]
-        for k in cf['var_schema'][cf['var_schema']['role']!='skip'].variable_name:
-            if re.match(r'^[A-Z]_', k):
-                useful_variables.append(k[2:])
-            useful_variables.append(k)
-
-        scrape_metadata = data_io.load_parquet(cf, "scrape", "*", columns=useful_variables, verbose=verbose)"""
 
 
     return scrape_metadata

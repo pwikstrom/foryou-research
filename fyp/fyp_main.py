@@ -446,6 +446,37 @@ def fix_complex_types(some_iterable, verbose=False):
 
 
 
+
+
+def convert_index_dtype_pyarrow(an_index):
+    from pandas import Series, Index, MultiIndex, api
+
+    # Handle MultiIndex recursively
+    if isinstance(an_index, MultiIndex):
+        new_levels = [convert_index_dtype_pyarrow(lvl) for lvl in an_index.levels]
+        return an_index.set_levels(new_levels)
+
+    # Use Series.convert_dtypes to handle int, float, string, datetime, etc.
+    # robustly mapping to pyarrow backends.
+    name = an_index.name
+
+    # Convert to Series to access convert_dtypes
+    s = Series(an_index)
+
+    # Attempt optimistic pyarrow conversion
+    s_pa = s.convert_dtypes(dtype_backend="pyarrow")
+    
+    # Reconstruct Index preserving name
+    new_index = Index(s_pa)
+    new_index.name = name
+    return new_index
+
+
+
+
+
+
+
 def convert_dtypes_to_pyarrow(df_in, verbose=False):
     from pandas import api, NA as pd_NA
     #import numpy as np
@@ -734,6 +765,10 @@ def flatten_list(nested_list):
     Flattens a nested list into a single list.
     """
     return [item for sublist in nested_list for item in sublist]
+
+
+
+
 
 
 

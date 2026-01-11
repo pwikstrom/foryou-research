@@ -23,7 +23,7 @@ def main():
 
     try:
         print(f"Starting process to create unified main dataset for study: {args.study_name}")
-        organize_datasets.create_study_main_dataset(
+        organize_datasets.create_study_recoded_dataset(
             cf = None,
             study_name = args.study_name,
             load_from_cache = True,

@@ -62,16 +62,6 @@ def load_machine_annotations(
     if True:#consolidate:
         some_machine_annotations = data_io.load_parquet(cf, "recoded", "annotations_recoded.parquet", filters=filters, verbose=verbose)
     # if we are not consolidating, load only the useful variables
-    """else:
-        useful_variables = []
-        for k in cf['var_schema'][cf['var_schema']['role']!='skip'].variable_name:
-            if re.match(r'^[A-Z]_', k):
-                useful_variables.append(k[2:])
-            useful_variables.append(k)
-
-        useful_variables.append("inference_ts")
-
-        some_machine_annotations = data_io.load_parquet(cf, "machine_annotations_refined", "*", columns=useful_variables, verbose=verbose)"""
 
 
 

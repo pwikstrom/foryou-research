@@ -729,6 +729,7 @@ def get_dataset_details(cf=None, study_name=None):
     #from os import listdir
     #from os.path import join, getsize
     from fyp.fyp_main import initialize
+    from fyp.recode_variables import get_group_factors_from_var_schema
     import pandas as pd
     
     if cf is None:
@@ -737,7 +738,7 @@ def get_dataset_details(cf=None, study_name=None):
     if study_name is None:
         raise ValueError("study_name is required")
 
-    group_factors = cf['var_schema'][cf['var_schema']['role']=='group_factor']['variable_name'].tolist()
+    group_factors = get_group_factors_from_var_schema(cf = cf)
 
     details = []
 

@@ -103,14 +103,39 @@ def get_factors_and_features_from_var_schema(cf = None, some_events_df = None, v
     
     var_schema = cf["var_schema"]
     
-    the_factors = list(set(var_schema[var_schema["role"].isin(['factor','group_factor'])].variable_name) & set(some_events_df.columns))
-    the_features = list(set(var_schema[var_schema["role"]=='feature'].variable_name) & set(some_events_df.columns))
+    the_factors = sorted(list(set(var_schema[var_schema["role"].isin(['factor','group_factor'])].variable_name)))
+    the_features = sorted(list(set(var_schema[var_schema["role"]=='feature'].variable_name)))
+    if some_events_df is not None:
+        the_factors = [c for c in the_factors if c in some_events_df.columns]
+        the_features = [c for c in the_features if c in some_events_df.columns]
 
-    if verbose:
+    if verbose and len(the_factors) > 0:
         print("    Factors:",", ".join(the_factors))
+    if verbose and len(the_features) > 0:
         print("    Features:",", ".join(the_features))
 
     return the_factors, the_features
+
+
+
+def get_group_factors_from_var_schema(cf = None, some_events_df = None, verbose = False):
+    import pandas as pd
+    from os.path import join
+    from fyp.fyp_main import initialize
+
+    if cf is None:
+        cf = initialize()
+    
+    var_schema = cf["var_schema"]
+    
+    the_group_factors = sorted(list(set(var_schema[var_schema["role"]=='group_factor'].variable_name)))
+    if some_events_df is not None:
+        the_group_factors = [c for c in the_group_factors if c in some_events_df.columns]
+    
+    if verbose  and len(the_group_factors) > 0:
+        print("    Group Factors:",", ".join(the_group_factors))
+
+    return the_group_factors
 
 
 
@@ -1165,6 +1190,7 @@ def recode_events_df(
     from numpy import int64, float64
     from pandas import read_parquet as pd_read_parquet
     from fyp.organize_datasets import create_study_recoded_dataset
+    from fyp.recode_variables import get_factors_and_features_from_var_schema
 
 
     print(f"Recoding variables, implementing missing data policy and a whole range of other things...")
@@ -1208,8 +1234,8 @@ def recode_events_df(
 
     var_schema[['mapper','ignore_strings','recode_func']] = var_schema[['mapper','ignore_strings','recode_func']].map(_try_eval)
 
-    FYP_FACTORS = list(set(var_schema[var_schema["scale"].isin(['factor','group_factor'])].index) & set(cool_events.columns))
-    cool_events[FYP_FACTORS] = cool_events[FYP_FACTORS].astype("string[pyarrow]")
+    fyp_factors, _ = get_factors_and_features_from_var_schema(cf = cf, some_events_df = cool_events, verbose = verbose)
+    cool_events[fyp_factors] = cool_events[fyp_factors].astype("string[pyarrow]")
     if "session_id" in cool_events.columns:
         cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int64(x):05}")
 
@@ -1226,7 +1252,7 @@ def recode_events_df(
         except TypeError:
             return s.astype(str).nunique()
 
-    single_value_columns = [c for c in cool_events.columns if _safe_nunique(cool_events[c])==1 and c not in FYP_FACTORS]
+    single_value_columns = [c for c in cool_events.columns if _safe_nunique(cool_events[c])==1 and c not in fyp_factors]
     if verbose:
         join_str = "\n    - "
         print(f"Step 2. Dropping {len(single_value_columns)} single value columns:\n    - {join_str.join(single_value_columns)}. Shape: {cool_events.shape}")
