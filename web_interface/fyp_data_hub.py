@@ -1,26 +1,74 @@
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context, redirect, url_for, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from cachetools import LRUCache
-import subprocess
-import threading
-import time
 import os
-import signal
 import sys
 import json
 from datetime import datetime
-from collections import deque
-from pathlib import Path
 import numpy as np
 import pandas as pd
-
-
 import logging
+
 # Silence the noisy HTTP request logs from Flask/Werkzeug
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
+
+# --- Script Execution Support ---
+# Allow running via `python web_interface/fyp_data_hub.py` by setting package context
+import sys
+from pathlib import Path
+if __name__ == "__main__" and __package__ is None:
+    file_path = Path(__file__).resolve()
+    project_root = file_path.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    __package__ = "web_interface"
+
+
+# --- Imports from new modules ---
+from .hub_config import (
+    PROJECT_ROOT, 
+    PYTHON_EXEC, 
+    fyp_cf,
+    DOWNLOADER_SCRIPT, 
+    INGEST_SCRIPT, 
+    ANNOTATOR_SCRIPT, 
+    MONITOR_SCRIPT, 
+    CREATE_SUBSETS_SCRIPT, 
+    REGENERATE_DATASETS_SCRIPT, 
+    CREATE_EVENT_LOG_SCRIPT, 
+    RECODE_EVENT_LOG_SCRIPT, 
+    CALCULATE_PCA_SCRIPT,
+    CONFIG_FILE_STUDIES,
+    CONFIG_FILE_CORE
+)
+
+from .process_manager import (
+    processes, 
+    process_stats, 
+    load_process_stats, 
+    save_process_stats, 
+    start_process, 
+    stop_process
+)
+
+from .data_service import (
+    study_cache, 
+    get_explorer_data, 
+    get_pca_df, 
+    get_viz_config, 
+    make_serializable as _make_serializable
+)
+
+# Initialize stats
+load_process_stats()
+
+import fyp
+import web_interface.auth as auth
+from . import explorer_backend as explorer
+import fyp.data_io as data_io
+from fyp.calc_donation_stats import calculate_all_donation_stats, enrich_stats_with_metadata
 
 # --- Custom JSON Provider for Numpy/Pandas ---
 from flask.json.provider import DefaultJSONProvider
@@ -45,309 +93,35 @@ class CustomJSONProvider(DefaultJSONProvider):
         
         return super().default(obj)
 
+
+
 app.json = CustomJSONProvider(app)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-me")
 
 
 
 
-# --- Config ---
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
-
-import fyp
-import web_interface.auth as auth # Import after sys.path fix
-
 # --- Auth Setup ---
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+
+
 # Initialize User Manager
 USERS_FILE = PROJECT_ROOT / "config" / "users.json"
 user_manager = auth.UserManager(USERS_FILE)
+
+
 
 @login_manager.user_loader
 def load_user(user_id):
     return user_manager.get_user(user_id)
 
-import fyp.data_io as data_io
-from fyp.calc_donation_stats import calculate_all_donation_stats, enrich_stats_with_metadata
-from fyp.donations import load_ddp_events
 
 
-# Initialize configuration to access paths
-fyp_cf = fyp.initialize(verbose=False)
-if fyp_cf['data_io']['use_gcs_for_data']:
-    fyp_cf = fyp.connect_to_google(fyp_cf)
-    
-
-DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
-INGEST_SCRIPT = PROJECT_ROOT / "web_interface" / "run_ingest_ndjson.py"
-ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_annotator.py"
-MONITOR_SCRIPT = PROJECT_ROOT / "web_interface" / "monitor_scrape_folder_and_annotate.py"
-CREATE_SUBSETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_subsets.py"
-REGENERATE_DATASETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_regenerate_datasets.py"
-CREATE_EVENT_LOG_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_event_log.py"
-RECODE_EVENT_LOG_SCRIPT = PROJECT_ROOT / "web_interface" / "run_recode_event_log.py"
-CALCULATE_PCA_SCRIPT = PROJECT_ROOT / "web_interface" / "run_calculate_pca.py"
-CONFIG_FILE_STUDIES = PROJECT_ROOT / "config" / "studies.toml"
-CONFIG_FILE_CORE = PROJECT_ROOT / "config" / "config.toml"
-PROCESS_STATS_FILE = PROJECT_ROOT / "web_interface" / "process_stats.json"
-PYTHON_EXEC = sys.executable
-
-# --- Global State ---
-# Store process handles and logs
-processes = {
-    "downloader": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "monitor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "create_subsets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "regenerate_datasets": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "create_event_log": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "recode_event_log": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "calculate_pca": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
-}
-
-
-
-
-
-process_stats = {}
-
-
-
-
-
-# --- Explorer State ---
-import explorer_backend as explorer
-# --- Explorer State (Refactored) ---
-import explorer_backend as explorer
-
-class StudyCache:
-    def __init__(self, maxsize=2):
-        self.cache = LRUCache(maxsize=maxsize)
-        self.lock = threading.Lock()
-
-    def get(self, study_name):
-        with self.lock:
-            return self.cache.get(study_name)
-
-    def put(self, study_name, data):
-        with self.lock:
-            self.cache[study_name] = data
-
-study_cache = StudyCache(maxsize=2)
-
-
-
-
-
-
-
-def get_explorer_data(study):
-    # Check cache
-    cached = study_cache.get(study)
-    if cached:
-        print(f"    Study {study} found in cache. Accessing {len(cached['df']):,} rows")
-        return cached['df'], cached['col_types']
-
-    # Resolve path
-    explorer_df, explorer_col_types = explorer.load_data(fyp_cf, study, verbose=True)
-
-    if explorer_df is None:
-        print(f"The requested recoded study dataset was not found")
-        return None, None
-
-    res = explorer.get_current_stats(explorer_df, explorer_col_types)
-    
-    # Store in cache
-    cache_item = {
-        "df": explorer_df, 
-        "col_types": explorer_col_types,
-        "total_stats": res['stats']
-    }
-    study_cache.put(study, cache_item)
-    
-    return explorer_df, explorer_col_types
-
-
-
-
-
-
-def load_process_stats():
-    global process_stats
-    if PROCESS_STATS_FILE.exists():
-        try:
-            with open(PROCESS_STATS_FILE, 'r') as f:
-                process_stats = json.load(f)
-        except Exception as e:
-            print(f"Failed to load process stats: {e}")
-            process_stats = {}
-    else:
-        process_stats = {}
-
-
-
-
-
-
-def save_process_stats():
-    try:
-        with open(PROCESS_STATS_FILE, 'w') as f:
-            json.dump(process_stats, f)
-    except Exception as e:
-        print(f"Failed to save process stats: {e}")
-
-
-
-
-
-# Load stats on startup
-load_process_stats()
-
-
-
-
-
-
-def enqueue_output(out, queue, process_state):
-    for line in iter(out.readline, b''):
-        line_str = line.decode('utf-8')
-        print(line_str, end='') # Mirror to console
-        
-        # Update last message for UI
-        process_state["last_message"] = line_str.strip()
-        
-        if "::PROGRESS::" in line_str:
-            try:
-                _, json_str = line_str.split("::PROGRESS::", 1)
-                data = json.loads(json_str.strip())
-                process_state["progress"].update(data)
-            except Exception:
-                queue.append(line_str)
-        elif "::DATA::" in line_str:
-            try:
-                _, json_str = line_str.split("::DATA::", 1)
-                data = json.loads(json_str.strip())
-                process_state["data"].update(data)
-            except Exception:
-                queue.append(line_str)
-        else:
-            queue.append(line_str)
-    out.close()
-
-
-
-
-
-
-
-def monitor_process_completion(name, proc):
-    """Waits for process to finish and updates stats."""
-    proc.wait()
-    
-    end_time = datetime.now()
-    start_time_str = processes[name].get("start_time")
-    duration = 0
-    if start_time_str:
-        start_time = datetime.fromisoformat(start_time_str)
-        duration = (end_time - start_time).total_seconds()
-
-    outcome = "Success" if proc.returncode == 0 else "Fail"
-    study_name = processes[name].get("study_name")
-
-    # Record stats
-    process_stats[name] = {
-        "last_success": end_time.isoformat() if outcome == "Success" else process_stats.get(name, {}).get("last_success"),
-        "last_run_end_time": end_time.isoformat(),
-        "last_run_duration": duration,
-        "last_run_outcome": outcome,
-        "last_run_study": study_name
-    }
-    save_process_stats()
-    
-    # Update global state to stopped
-    processes[name]["status"] = "stopped"
-    processes[name]["proc"] = None
-    processes[name]["start_time"] = None
-    # Keep study_name until next run? Or clear it? 
-    # Logic in frontend might need it if we are checking active study.
-    # But last_run_study in process_stats is the persistent record.
-    # We can clear processes[name]["study_name"] here.
-    processes[name]["study_name"] = None
-
-
-
-
-
-
-
-def start_process(name, script_path, args=[], study_name=None):
-    if processes[name]["proc"] is not None:
-        if processes[name]["proc"].poll() is None:
-            return False, "Process already running"
-    
-    env_vars = os.environ.copy()
-    env_vars["WEB_INTERFACE"] = "true"
-    
-    #if args and isinstance(args[-1], dict) and args[-1].get("testing"):
-    #    env_vars["FYP_TESTING"] = "true"
-    #    args.pop() # Remove the config dict from args if passed
-
-    cmd = [PYTHON_EXEC, "-u", str(script_path)] + args
-
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, # Merge stderr into stdout
-            cwd=str(PROJECT_ROOT), # Run from project root
-            env=env_vars
-        )
-        processes[name]["proc"] = proc
-        processes[name]["status"] = "running"
-        processes[name]["start_time"] = datetime.now().isoformat()
-        processes[name]["study_name"] = study_name
-        processes[name]["progress"] = {} # Reset progress
-        processes[name]["last_message"] = "" # Reset last message
-        
-        # Start logging thread
-        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]))
-        t.daemon = True
-        t.start()
-
-        # Start monitoring thread
-        t_mon = threading.Thread(target=monitor_process_completion, args=(name, proc))
-        t_mon.daemon = True
-        t_mon.start()
-        
-        return True, "Started"
-    except Exception as e:
-        return False, str(e)
-
-
-
-
-
-
-
-def stop_process(name):
-    proc = processes[name]["proc"]
-    if proc:
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-        processes[name]["proc"] = None
-        processes[name]["status"] = "stopped"
-        processes[name]["start_time"] = None
-        return True, "Stopped"
-    return False, "Not running"
-
+LOCATION_CACHE_FILE = 'location_timezone_cache.json' # sits in 'ddp_main'
+PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet' # sits in 'ddp_main'
 
 
 
@@ -379,6 +153,10 @@ def login():
     
     return render_template('login.html')
 
+
+
+
+
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if current_user.is_authenticated:
@@ -402,11 +180,19 @@ def signup():
             
     return render_template('signup.html')
 
+
+
+
+
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
     return redirect(url_for('login'))
+
+
+
+
 
 @app.route('/api/admin/users', methods=['GET', 'POST', 'PUT', 'DELETE'])
 @auth.admin_required
@@ -484,9 +270,6 @@ def index():
     return render_template('index.html', user=current_user)
 
 
-
-
-
 @app.route('/api/start/<name>', methods=['POST'])
 @auth.researcher_required
 def api_start(name):
@@ -506,8 +289,6 @@ def api_start(name):
         if data.get("max_batches") and data["max_batches"].strip():
              args.extend(["--max-batches", str(data["max_batches"])])
 
-
-        
     study_name = data.get("study_name") 
 
     script_map = {
@@ -528,9 +309,6 @@ def api_start(name):
         return jsonify({"status": "error", "message": msg}), 409
 
 
-
-
-
 @app.route('/api/stop/<name>', methods=['POST'])
 @auth.researcher_required
 def api_stop(name):
@@ -539,9 +317,6 @@ def api_stop(name):
     
     success, msg = stop_process(name)
     return jsonify({"status": "success" if success else "error", "message": msg})
-
-
-
 
 
 @app.route('/api/status', methods=['GET'])
@@ -562,7 +337,6 @@ def api_status():
             "data": p_data["data"],
             "start_time": p_data["start_time"],
             "last_message": p_data.get("last_message", ""),
-            "last_message": p_data.get("last_message", ""),
             "last_success": process_stats.get(name, {}).get("last_success"),
             "last_run_end_time": process_stats.get(name, {}).get("last_run_end_time"),
             "last_run_duration": process_stats.get(name, {}).get("last_run_duration"),
@@ -570,8 +344,6 @@ def api_status():
             "last_run_study": process_stats.get(name, {}).get("last_run_study")
         }
     return jsonify(status_data)
-
-
 
 
 @app.route('/api/logs/clear/<name>', methods=['POST'])
@@ -584,8 +356,6 @@ def api_clear_logs(name):
     return jsonify({"status": "success"})
 
 
-
-
 @app.route('/api/logs/<name>', methods=['GET'])
 @login_required
 def api_logs(name):
@@ -595,8 +365,6 @@ def api_logs(name):
     # Return last N lines
     logs = list(processes[name]["logs"])
     return jsonify({"logs": "".join(logs)})
-
-
 
 
 @app.route('/api/config', methods=['GET', 'POST'])
@@ -625,9 +393,6 @@ def api_config():
             return jsonify({"status": "error", "message": str(e)}), 500
 
 
-
-
-
 @app.route('/api/explorer/studies', methods=['GET'])
 @login_required
 def api_explorer_studies():
@@ -636,16 +401,15 @@ def api_explorer_studies():
     Look for precomputed recoded files in temp folder and extract list of study names.
     """
     studies = []
-    recoded_files = [fn for fn in os_listdir(fyp_cf['paths']['temp']) if fn.endswith("_recoded.parquet")]
-    for fn in recoded_files:
-        # Extract study name: filename is {study_name}_recoded...
-        study_name = fn.replace("_recoded.parquet", "")
-        studies.append(study_name)
+    # Using fyp_cf from hub_config
+    if os.path.exists(fyp_cf['paths']['temp']):
+        recoded_files = [fn for fn in os_listdir(fyp_cf['paths']['temp']) if fn.endswith("_recoded.parquet")]
+        for fn in recoded_files:
+            # Extract study name: filename is {study_name}_recoded...
+            study_name = fn.replace("_recoded.parquet", "")
+            studies.append(study_name)
     
     return jsonify(sorted(studies))
-
-
-
 
 
 @app.route('/api/studies/defined', methods=['GET'])
@@ -655,11 +419,6 @@ def api_get_study_defs():
     if 'study_defs' in fyp_cf:
         return jsonify(sorted(list(fyp_cf['study_defs'].keys())))
     return jsonify([])
-
-
-
-
-
 
 
 @app.route('/api/explorer/metadata', methods=['GET'])
@@ -675,10 +434,7 @@ def api_explorer_metadata():
     
     # I only want the events where the has been downloaded and annotated
     # Otherwise there is no data to explore!
-    # This is necessary since the dataset contains all events even those
-    # that have not been scraped/annotated yet.
-
-    # Context switch: Viewer needs unannotated rows (scraped only) to seeing missing annotations
+    
     context = request.args.get('context', 'explorer')
     
     if context == 'viewer':
@@ -688,14 +444,12 @@ def api_explorer_metadata():
          df = df[df.annotated_ok].copy()
          print(f"    Filtered to {len(df):,} annotated events")
 
-    
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
     metadata = explorer.get_metadata(df, col_types)
     
     # Inject total stats so frontend knows baseline
-    # Recompute total_stats dynamically to adhere to current viz_config
     viz_config = get_viz_config()
     res = explorer.get_current_stats(df, col_types, viz_config=viz_config)
     metadata['total_stats'] = res['stats']
@@ -722,7 +476,6 @@ def api_explorer_metadata():
             scheme_df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
             
             # 1. Display Priority (Viewer Metadata Sort)
-            # Filter rows with numeric web_display_prio
             scheme_df['web_display_prio'] = pd.to_numeric(scheme_df['web_display_prio'], errors='coerce')
             display_df = scheme_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')
             metadata['display_priority'] = display_df['variable_name'].tolist()
@@ -744,19 +497,14 @@ def api_explorer_metadata():
                 metadata['filter_priority'] = []
 
             # 3. Schema Map (Section & Description)
-            # Create a dictionary for section and description
-            # Ensure columns exist
             if 'section' not in scheme_df.columns:
                 scheme_df['section'] = 'General'
             if 'description' not in scheme_df.columns:
                 scheme_df['description'] = ''
             
-            # Fill NaNs
             scheme_df['section'] = scheme_df['section'].fillna('General')
             scheme_df['description'] = scheme_df['description'].fillna('')
             
-            # Create map: { var_name: { section: "...", description: "..." } }
-            # Only for variables present in scheme
             schema_map = {}
             for _, row in scheme_df.iterrows():
                 var_name = row['variable_name']
@@ -779,77 +527,6 @@ def api_explorer_metadata():
     return jsonify(_make_serializable(metadata))
 
 
-
-
-
-
-
-def get_viz_config():
-    """
-    Reads var_schema.csv and returns a dictionary of visualization settings.
-    {
-        var_name: {
-            "log": bool,
-            "bins": int or list of edges or None
-        }
-    }
-    """
-    config = {}
-    try:
-        var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
-        if var_schema_path.exists():
-            df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
-            
-            # Check if columns exist
-            has_log = 'web_viz_log' in df.columns
-            has_bins = 'web_viz_bins' in df.columns
-            
-            if not has_log and not has_bins:
-                return {}
-                
-            for _, row in df.iterrows():
-                var = row['variable_name']
-                cfg = {}
-                
-                # Log Setting
-                if has_log:
-                    val = str(row['web_viz_log']).lower().strip()
-                    cfg['log'] = (val == 'yes')
-                
-                # Bin Setting
-                if has_bins:
-                    val = row['web_viz_bins']
-                    if pd.notna(val):
-                        val_str = str(val).strip()
-                        if "|" in val_str:
-                            # Parse custom edges: "10|30|50"
-                            try:
-                                edges = [float(x) for x in val_str.split("|")]
-                                cfg['bins'] = sorted(edges)
-                                
-                            except:
-                                cfg['bins'] = None
-                        elif val_str.isdigit():
-                             cfg['bins'] = int(val_str)
-                        else:
-                             cfg['bins'] = None
-                    else:
-                        cfg['bins'] = None
-                
-                if cfg:
-                    config[var] = cfg
-                    
-    except Exception as e:
-        print(f"Error reading viz config: {e}")
-        
-    return config
-
-
-
-
-
-
-
 @app.route('/api/explorer/filter', methods=['POST'])
 @login_required
 def api_explorer_filter():
@@ -863,13 +540,8 @@ def api_explorer_filter():
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
 
-    # I only want the events where the has been downloaded and annotated
-    # Otherwise there is no data to explore!
-    # This is necessary since the dataset contains all events even those
-    # that have not been scraped/annotated yet.
     df = df[df.annotated_ok].copy()
     print(f"    Filtered to {len(df):,} annotated events")
-
 
     filters = data.get("filters", {})
     search_query = data.get("search_query")
@@ -887,10 +559,6 @@ def api_explorer_filter():
         filters2 = data.get("filters2", {})
         search_query2 = data.get("search_query2")
         
-        # If filters2 is empty and no search query, it equals the TOTAL dataset (unfiltered)
-        # But we must run it through filter_dataframe to be safe (e.g. if we add global filters later)
-        # Actually filter_dataframe handles empty filters by returning copy of df.
-        
         filtered_df2 = explorer.filter_dataframe(df, col_types, filters2, search_query2)
         res2 = explorer.get_current_stats(filtered_df2, col_types, viz_config=viz_config)
         
@@ -898,11 +566,6 @@ def api_explorer_filter():
         result['count2'] = res2['count']
     
     return jsonify(_make_serializable(result))
-
-
-
-
-
 
 
 @app.route('/api/viewer/ids', methods=['POST'])
@@ -918,9 +581,6 @@ def api_viewer_ids():
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
-    # I only want the events where there is a video to show
-    # This dataset contains all events even those that have not been
-    # scraped yet and hence do not have a video available.  
     df = df[df.scraped_ok].copy()
     print(f"    Filtered to {len(df):,} scraped events")
 
@@ -932,16 +592,11 @@ def api_viewer_ids():
     
     # Sort if requested
     if sort_by and sort_by in filtered_df.columns:
-        # Determine sort direction
-        # 1. Explicit request
         sort_order = data.get("sort_order") # 'asc' or 'desc'
         
         if sort_order:
             ascending = (sort_order == 'asc')
         else:
-            # 2. Fallback based on type
-            # numbers -> descending (highest first)
-            # others -> ascending (A-Z)
             dtype = col_types.get(sort_by)
             ascending = True
             if dtype == 'number':
@@ -949,80 +604,18 @@ def api_viewer_ids():
             
         filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending)
     
-    # Return list of item_ids. Assume column is 'item_id' or 'video_id'
-    # Based on csv head: 'item_id'
     id_col = 'item_id'
     if id_col not in filtered_df.columns:
-        # Fallback mechanisms?
         if 'video_id' in filtered_df.columns: id_col = 'video_id'
         elif 'G_id' in filtered_df.columns: id_col = 'G_id'
         else: return jsonify({"error": "No ID column found"}), 500
     
-    # Convert to string to ensure consistency
     ids = filtered_df[id_col].astype(str).tolist()
     return jsonify({"ids": ids, "count": len(ids)})
 
 
-
-
-
-
-
-# --- PCA Visualization Endpoints ---
-
-
-pca_df_cache = {}
-
-def get_pca_df(study_name):
-    from os.path import exists as os_exists, join as os_join
-    from pandas import read_parquet as pd_read_parquet
-    from fyp.pca import calculate_scaled_pca_scores
-
-
-    global pca_df_cache
-    if study_name in pca_df_cache:
-        # Check freshness? Simple version: just return.
-        return pca_df_cache[study_name]
-
-    # Load file
-    if True:# try:
-        
-        pca_filename = f"CACHE_{study_name}_PCA.parquet"
-        
-        if not os_exists(os_join(fyp_cf['paths']['temp'], pca_filename)):
-            print("Calculating PCA scores for study: ", study_name)
-            calculate_scaled_pca_scores(
-                cf = fyp_cf,
-                study_name = study_name,
-                study_recoded_dataset = None,
-                minimum_group_size = 10,
-                target_explained_variance = 0.8,
-                drop_rare_globally_below = 0.01,
-                scale_it = True,
-                down_sample = 1,
-                min_sample_size = 20000,
-                load_from_cache = False,
-                save_to_cache = True,
-                verbose = False,
-                )
-        
-
-
-
-        df = pd_read_parquet(os_join(fyp_cf['paths']['temp'], pca_filename))
-        pca_df_cache[study_name] = df
-        return df
-    if False:#except Exception as e:
-        print(f"Error loading PCA: {e}")
-        return None
-
-
-
-
-
 @app.route('/api/pca/metadata', methods=['POST'])
 def api_pca_metadata():
-
     from fyp.recode_variables import get_factors_and_features_from_var_schema
     
     data = request.json or {}
@@ -1032,29 +625,12 @@ def api_pca_metadata():
     df = get_pca_df(study)
     if df is None: return jsonify({"error": "PCA data not found"}), 404
 
-    # Identify metadata
-    # Numeric columns (for X/Y): float/int
-    # Factors (for Color/Filter): defined in var_schema where role='factor'/'group_factor'
-    # BUT we need to check if they exist in the DF.
-    
     # 1. Numeric
     numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-    # Filter out boring ones? Keep all for flexibility.
     
     # 2. Factors from var_schema
-    # We can use 'fyp_cf' global to access var_schema
     factors, _ = get_factors_and_features_from_var_schema(cf = fyp_cf, some_events_df = df, verbose = False)
-    """factors = []
-    if "var_schema" in fyp_cf:
-        vs = fyp_cf["var_schema"]
-        # role is 'factor' or 'group_factor'
-        target_roles = ['factor', 'group_factor']
-        potential_factors = vs[vs['role'].isin(target_roles)]['variable_name'].tolist()
-        
-        # Intersect with df columns
-        factors = [c for c in potential_factors if c in df.columns]"""
     
-    # Fallback if var_schema not loaded or matching
     if not factors:
         raise Exception("No factors found in var_schema")
 
@@ -1082,15 +658,6 @@ def api_pca_metadata():
     })
 
 
-
-
-
-
-
-
-
-
-
 @app.route('/api/pca/data', methods=['POST'])
 def api_pca_data():
     data = request.json or {}
@@ -1115,32 +682,17 @@ def api_pca_data():
     
     filtered_df = df[mask].copy()
 
-    # Need to handle NaN in X/Y
-    # Drop NaNs BEFORE sampling to ensure we don't sample rows that will drop later!
     filtered_df = filtered_df.dropna(subset=[x_col, y_col])
 
-    # Prepare response
-    # Limit points? 
     MAX_POINTS = 5000
     if len(filtered_df) > MAX_POINTS:
         filtered_df = filtered_df.sample(MAX_POINTS)
     
-    # Construct output list
-    # x, y, color, text (metadata tooltip)
-    
-    # For tooltip, maybe include ID and Color val
-    # Assuming 'item_id' exists
-    
     result_data = []
     
-    # Pre-fetch columns to numpy for speed?
-    # Or just itertuples
-    
-    # Ensure color column exists, else use default
     has_color = color_col and color_col in filtered_df.columns
     
     for row in filtered_df.itertuples():
-        # Get vals safely
         x_val = getattr(row, x_col)
         y_val = getattr(row, y_col)
         
@@ -1148,10 +700,6 @@ def api_pca_data():
         if has_color:
             c_val = str(getattr(row, color_col))
         
-        # Tooltip text
-        # Reuse 'item_id' if possible, else index?
-        # But 'itertuples' handles index as Index?
-        # Let's just put basic info
         txt = f"{color_col}: {c_val}"
         
         result_data.append({
@@ -1164,30 +712,9 @@ def api_pca_data():
     return jsonify({"data": result_data})
 
 
-
-
-
-
-
-
-# --- Persona Explorer Endpoints ---
-
-
-
-
-
-LOCATION_CACHE_FILE = 'location_timezone_cache.json' # sits in 'ddp_main'
-PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet' # sits in 'ddp_main'
-
-
-
-
 @app.route('/api/persona_stats_info', methods=['GET'])
 def api_persona_stats_info():
     """Get info about cached stats file (existence and timestamp)."""
-    import fyp.data_io as data_io
-    from datetime import datetime
-
     if True:#try:
         if data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
             mtime = data_io.getmtime(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE)
@@ -1199,15 +726,9 @@ def api_persona_stats_info():
         return jsonify({"exists": False, "timestamp": None, "error": str(e)})
 
 
-
-
-
 @app.route('/api/persona_stats_cached', methods=['GET'])
 def api_persona_stats_cached():
     """Load pre-calculated stats from cache file."""
-    #from os.path import exists as os_exists, join as os_join
-    #from pandas import read_parquet as pd_read_parquet
-    import fyp.data_io as data_io
     try:
         if not data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
             return jsonify({"error": "No cached stats found. Click 'Recalculate Stats' to generate."}), 404
@@ -1232,55 +753,11 @@ def api_persona_stats_cached():
         return jsonify({"error": str(e)}), 500
 
 
-
-
-
-def _make_serializable(obj):
-    """Helper to convert non-JSON-serializable types."""
-    if obj is None:
-        return None
-        
-    # Check for containers FIRST to avoid pd.isna() returning an array
-    if isinstance(obj, dict):
-        return {str(k): _make_serializable(v) for k, v in obj.items()}
-
-    if isinstance(obj, np.ndarray):
-        return [_make_serializable(x) for x in obj.tolist()]
-        
-    if isinstance(obj, (list, tuple)):
-        return [_make_serializable(x) for x in obj]
-    
-    # Check for scalar NAs (NaN, NaT, None)
-    # This is safe now because we've handled most containers
-    try:
-        if pd.isna(obj):
-            return None
-    except:
-        pass
-
-    if isinstance(obj, (pd.Timestamp, datetime)):
-        return obj.isoformat()
-        
-    if hasattr(obj, 'tolist'):  # generic numpy scalar fallback
-        return obj.tolist()
-        
-    return obj
-
-
-
-
-
-
-
 @app.route('/api/persona_stats', methods=['POST'])
 def api_persona_stats():
     """Recalculate all persona stats and save to cache file."""
-    import fyp.data_io as data_io
-    from fyp.calc_donation_stats import enrich_stats_with_metadata
-
+    
     try:
-        
-        #parquet_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_events.parquet')
         print(f"Loading global DDP dataset...")
         
         events_df = data_io.load_parquet(
@@ -1295,15 +772,10 @@ def api_persona_stats():
         print(f"Calculating persona stats for {len(events_df)} events...")
         stats_df = calculate_all_donation_stats(events_df)
         
-        # Try to load participant metadata and enrich
-        #metadata_path = join(fyp_cf['paths']['ddp_main'], 'all_participant_metadata.parquet')
         try:
             if data_io.exists(fyp_cf, "ddp_main", "all_participant_metadata.parquet"):
                 metadata_df = data_io.load_parquet(fyp_cf, "ddp_main", "all_participant_metadata.parquet")
                 print(f"Loaded {len(metadata_df)} metadata records")
-                
-                # Cache file path
-                #tz_location_cache_path = os_join(fyp_cf['paths']['temp'], LOCATION_CACHE_FILE)
                 
                 stats_df = enrich_stats_with_metadata(fyp_cf, stats_df, metadata_df, tz_location_cache_filename=LOCATION_CACHE_FILE)
             else:
@@ -1314,8 +786,6 @@ def api_persona_stats():
             import traceback
             traceback.print_exc()
         
-        # Save stats to cache file
-        #stats_cache_path = os_join(fyp_cf['paths']['temp'], PERSONA_STATS_CACHE_FILE)
         stats_df = stats_df.reset_index(drop=True)
         data_io.save_parquet(
             cf=fyp_cf,
@@ -1339,27 +809,16 @@ def api_persona_stats():
         return jsonify({"error": str(e)}), 500
 
 
-
-
-
-
-
-
 @app.route('/api/viewer/item/<study>/<item_id>', methods=['GET'])
 def api_viewer_item(study, item_id):
     df, col_types = get_explorer_data(study)
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
-    # I only want the events where there is a video to show
-    # This dataset contains all events even those that have not been
-    # scraped yet and hence do not have a video available.  
     df = df[df.scraped_ok].copy()
     print(f"    Filtered to {len(df):,} scraped events")
 
-
     # Find row
-    # Assume 'item_id' column logic same as above
     id_col = 'item_id'
     if id_col not in df.columns:
         if 'video_id' in df.columns: id_col = 'video_id'
@@ -1372,11 +831,6 @@ def api_viewer_item(study, item_id):
     # Convert row to dict. Handle NaNs
     record = row.iloc[0].replace({np.nan: None}).to_dict()
     return jsonify(record)
-
-
-
-
-
 
 
 @app.route('/api/video/<study>/<item_id>', methods=['GET'])
@@ -1393,17 +847,10 @@ def api_video_stream(study, item_id):
     if not bucket:
         return "GCS Bucket not available. Check credentials or internet connection.", 503
 
-    # Attempt to find the file
-    # Candidates: item_id.mp4, maybe in subfolders?
-    # Usually files are at root or study/video? 
-    # Let's assume root/{item_id}.mp4 based on "video associated with each row".
-    
     blob_name = f"{fyp_cf['paths']['gcs_media_prefix']}/{item_id}.mp4"
     blob = bucket.blob(blob_name)
     
     if not blob.exists():
-         # Try finding with list_blobs if needed? Too slow.
-         # Maybe user meant the `video_uri` column?
          return f"Video {blob_name} not found", 404
 
     # Stream the blob
@@ -1415,16 +862,11 @@ def api_video_stream(study, item_id):
     return Response(stream_with_context(generate()), mimetype="video/mp4")
 
 
-
-
-
-
 @app.route('/api/find_ndjson', methods=['POST'])
 def api_find_ndjson():
     data = request.json or {}
     directory = data.get('directory')
     
-    # Default to firefox downloads if not specified
     if not directory or not directory.strip():
         try:
             directory = fyp_cf["paths"]["firefox_downloads"]
@@ -1435,34 +877,15 @@ def api_find_ndjson():
     if not dir_path.exists():
          return jsonify({"error": f"Directory not found: {directory}"}), 404
          
-    # Use fyp.get_recent_files logic or simple glob
-    # The user asked to use fyp.fyp_main.get_recent_files
-    # get_recent_files(directory, suffix=None, how_recent=10)
-    # We probably want ALL files, not just recent 10? 
-    # User said "find the ndjson files in that folder. Use fyp.fyp_main.get_recent_files"
-    # I will call it with a large how_recent or filter manually if needed. 
-    # Actually get_recent_files returns list of dicts: {'filename': ..., 'modified': ...}
-    
     try:
-        files = fyp.get_recent_files(fyp_cf, directory, suffix=".ndjson", how_recent=525600) # Get files from last year
+        files = fyp.get_recent_files(fyp_cf, directory, suffix=".ndjson", how_recent=525600) 
         
-        # Add full path to result
         result_files = []
         for f in files:
             result_files.append({
-                "filename": f["filename"], # This is absolute path in get_recent_files return? No let's check.
-                # Looking at fyp_main.py, get_recent_files:
-                # files_path = os.path.join(directory, file)
-                # 'filename': files_path 
-                # So it returns absolute path in 'filename' key? 
-                # Wait, step 6 output:
-                # def get_recent_files(directory, suffix=None, how_recent=10):
-                # ...
-                # return [{'filename': os.path.join(directory, f), 'modified': ...}]
-                # Yes, it returns absolute path.
-                
+                "filename": f["filename"], 
                 "path": f["filename"],
-                "filename": Path(f["filename"]).name, # Just the name for display
+                "filename": Path(f["filename"]).name, 
                 "modified": f["mtime"].strftime('%Y-%m-%d %H:%M:%S')
             })
             
@@ -1470,10 +893,6 @@ def api_find_ndjson():
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-
-
 
 
 @app.route('/api/ingest_ndjson', methods=['POST'])
@@ -1487,11 +906,7 @@ def api_ingest_ndjson():
     if not label:
         return jsonify({"error": "No label provided"}), 400
 
-    # Run the ingestion script as a subprocess to keep main process clean/safe
-    # and reuse the script I wrote.
-    
     try:
-        # Pass input via stdin
         cmd = [PYTHON_EXEC, str(INGEST_SCRIPT)]
         
         proc = subprocess.Popen(
@@ -1512,7 +927,6 @@ def api_ingest_ndjson():
                  "log": stderr.decode('utf-8') + "\n" + stdout.decode('utf-8')
              })
              
-        # Parse output
         try:
             output_json = json.loads(stdout.decode('utf-8'))
             return jsonify(output_json)
@@ -1527,16 +941,9 @@ def api_ingest_ndjson():
         return jsonify({"error": str(e)}), 500
 
 
-
-
-
-
-
 @app.route('/api/browse_folder', methods=['POST'])
 def api_browse_folder():
     try:
-        # Use AppleScript to open a folder picker dialog
-        # 'POSIX path of (choose folder ...)' returns the slash-formatted path
         result = subprocess.run(
             ["osascript", "-e", 'POSIX path of (choose folder with prompt "Select Folder containing .ndjson files")'],
             capture_output=True,
@@ -1547,23 +954,16 @@ def api_browse_folder():
             path = result.stdout.strip()
             return jsonify({"path": path})
         else:
-            # User likely cancelled
             return jsonify({"error": "Selection cancelled"}), 400
             
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-
-
-
-
-
 @app.route('/api/upload_ndjson', methods=['POST'])
 def api_upload_ndjson():
     try:
         from werkzeug.utils import secure_filename
-        import os
         
         if 'file' not in request.files:
             return jsonify({"error": "No file part"}), 400
@@ -1574,7 +974,6 @@ def api_upload_ndjson():
             
         if file and file.filename.endswith('.ndjson'):
             filename = secure_filename(file.filename)
-            # Use /tmp or a specific upload folder
             upload_dir = Path("/tmp/fyp_uploads")
             upload_dir.mkdir(parents=True, exist_ok=True)
             
@@ -1595,55 +994,6 @@ def api_upload_ndjson():
         return jsonify({"error": str(e)}), 500
 
 
-
-
-
-
-@app.route('/api/study_files/<study_name>', methods=['GET'])
-def api_get_study_files(study_name):
-    try:
-        files_info = data_io.get_study_export_files(fyp_cf, study_name)
-        return jsonify(files_info)
-    except ValueError as ve:
-        return jsonify({"error": str(ve)}), 400
-    except Exception as e:
-        print(f"Error getting study files: {e}")
-        return jsonify({"error": "Failed to retrieve study files"}), 500
-
-
-
-
-
-@app.route('/api/check_datasets/<study_name>', methods=['GET'])
-def api_check_datasets(study_name):
-    try:
-        details = data_io.get_dataset_details(fyp_cf, study_name)
-        return jsonify(details)
-    except Exception as e:
-        print(f"Error checking datasets: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-
-
-
-
-@app.route('/api/check_video_counts/<study_name>', methods=['GET'])
-def api_check_video_counts(study_name):
-    try:
-        print(f"--------------------Checking video counts for study: {study_name}")
-        counts = fyp.check_unique_videos_to_scrape_and_annotate(fyp_cf, study_name)
-        # Returns dict: {"annotate": (rows, cols), "scrape": (rows, cols)}
-        return jsonify(_make_serializable(counts))
-    except ValueError as ve:
-        return jsonify({"error": str(ve)}), 400
-    except Exception as e:
-        print(f"Error checking video counts: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-
-
-
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5003)
+    # Initialize process stats on start (already happening at module level now)
+    app.run(host='0.0.0.0', port=5002, debug=True)
