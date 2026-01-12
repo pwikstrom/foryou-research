@@ -86,10 +86,18 @@ class UserManager:
             self.add_user("admin", "admin", ROLE_ADMIN, approved=True)
     
     def load_users(self):
-        """Loads users from local JSON, optionally syncing from GCS first."""
-        # TODO: Implement GCS sync if needed for Cloud Run persistence
-        # For now, we rely on local file or secrets volume
-        
+        """Loads users from local JSON, syncs from GCS if configured."""
+        if self.gcs_bucket and self.gcs_path:
+            try:
+                blob = self.gcs_bucket.blob(self.gcs_path)
+                if blob.exists():
+                    logger.info(f"Downloading users from GCS: gs://{self.gcs_bucket.name}/{self.gcs_path}")
+                    blob.download_to_filename(str(self.filepath))
+                else:
+                    logger.info(f"No remote users file found at gs://{self.gcs_bucket.name}/{self.gcs_path}. Using local default.")
+            except Exception as e:
+                logger.error(f"Failed to sync users from GCS: {e}")
+
         if self.filepath.exists():
             try:
                 with open(self.filepath, 'r') as f:
@@ -99,7 +107,7 @@ class UserManager:
                             username=user_data['username'],
                             role=user_data['role'],
                             password_hash=user_data['password_hash'],
-                            approved=user_data.get('approved', True) # Default to True for old users
+                            approved=user_data.get('approved', True)
                         )
                 logger.info(f"Loaded {len(self.users)} users from {self.filepath}")
             except Exception as e:
@@ -117,7 +125,13 @@ class UserManager:
                 json.dump(data, f, indent=4)
             logger.info("Saved user database.")
             
-            # TODO: Upload to GCS if configured
+            if self.gcs_bucket and self.gcs_path:
+                try:
+                     blob = self.gcs_bucket.blob(self.gcs_path)
+                     blob.upload_from_filename(str(self.filepath))
+                     logger.info(f"Uploaded users to GCS: gs://{self.gcs_bucket.name}/{self.gcs_path}")
+                except Exception as e:
+                     logger.error(f"Failed to upload users to GCS: {e}")
             
         except Exception as e:
             logger.error(f"Failed to save user database: {e}")

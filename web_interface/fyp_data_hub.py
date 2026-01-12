@@ -19,6 +19,9 @@ if __name__ == "__main__" and __package__ is None:
 # Imports
 from .process_manager import load_process_stats # Import load function
 from .security import login_manager, user_manager # Import shared auth objects
+from flask_wtf.csrf import CSRFProtect
+
+csrf = CSRFProtect()
 
 # Import Blueprints
 from .routes.auth_routes import auth_bp
@@ -60,10 +63,11 @@ class CustomJSONProvider(DefaultJSONProvider):
         return super().default(obj)
 
 app.json = CustomJSONProvider(app)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-me")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 
 # Init Auth
 login_manager.init_app(app)
+csrf.init_app(app)
 
 # Register Blueprints
 app.register_blueprint(auth_bp)

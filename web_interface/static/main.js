@@ -1,5 +1,28 @@
 // Poll intervals
 // The updateStatus interval is now handled within window.onload
+
+// --- Global CSRF Interaction ---
+(function () {
+    const originalFetch = window.fetch;
+    window.fetch = function (url, options) {
+        options = options || {};
+        const method = options.method ? options.method.toUpperCase() : 'GET';
+        if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            if (csrfToken) {
+                options.headers = options.headers || {};
+                // If headers is an instance of Headers, append; otherwise set property
+                if (options.headers instanceof Headers) {
+                    options.headers.append('X-CSRFToken', csrfToken);
+                } else {
+                    options.headers['X-CSRFToken'] = csrfToken;
+                }
+            }
+        }
+        return originalFetch.apply(this, arguments);
+    };
+})();
+
 let previousProcessStates = {};
 setInterval(updateLogs, 1000);
 

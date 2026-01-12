@@ -18,15 +18,21 @@ def login():
         user_obj = user_manager.get_user(username)
         
         if user_obj:
-            if not user_obj.approved:
-                flash('Your account is pending approval from an administrator.')
-            elif auth.verify_password(user_obj.password_hash, password):
-                login_user(user_obj)
-                next_page = request.args.get('next')
-                return redirect(next_page or url_for('index'))
+            # Verify password first (Mitigates timing attacks by always checking password)
+            if auth.verify_password(user_obj.password_hash, password):
+                if not user_obj.approved:
+                    flash('Your account is pending approval from an administrator.')
+                else:
+                    login_user(user_obj)
+                    next_page = request.args.get('next')
+                    return redirect(next_page or url_for('index'))
             else:
                 flash('Invalid username or password')
         else:
+            # Timing attack mitigation: Perform dummy hash check
+            # Use a dummy hash (random but consistent format)
+            dummy_hash = "77d9c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6" + "a" * 128
+            auth.verify_password(dummy_hash, "dummy_password")
             flash('Invalid username or password')
     
     return render_template('login.html')

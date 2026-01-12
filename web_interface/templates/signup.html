@@ -18,6 +18,7 @@
         {% endwith %}
 
         <form method="POST" action="{{ url_for('auth_bp.signup') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
             <div style="margin-bottom: 16px;">
                 <label for="username"
                     style="display: block; margin-bottom: 8px; font-weight: 500; color: #4b5563;">Username</label>
