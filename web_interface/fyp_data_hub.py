@@ -1,4 +1,6 @@
-from flask import Flask, render_template, jsonify, request, Response, stream_with_context
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context, redirect, url_for, flash
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from cachetools import LRUCache
 import subprocess
 import threading
 import time
@@ -44,6 +46,9 @@ class CustomJSONProvider(DefaultJSONProvider):
         return super().default(obj)
 
 app.json = CustomJSONProvider(app)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-me")
+
+
 
 
 # --- Config ---
@@ -51,6 +56,21 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
 
 import fyp
+import web_interface.auth as auth # Import after sys.path fix
+
+# --- Auth Setup ---
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# Initialize User Manager
+USERS_FILE = PROJECT_ROOT / "config" / "users.json"
+user_manager = auth.UserManager(USERS_FILE)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return user_manager.get_user(user_id)
+
 import fyp.data_io as data_io
 from fyp.calc_donation_stats import calculate_all_donation_stats, enrich_stats_with_metadata
 from fyp.donations import load_ddp_events
@@ -101,10 +121,23 @@ process_stats = {}
 
 # --- Explorer State ---
 import explorer_backend as explorer
-active_explorer_study = None # Store currently loaded study name
-explorer_df = None
-explorer_col_types = None
-explorer_total_stats = None
+# --- Explorer State (Refactored) ---
+import explorer_backend as explorer
+
+class StudyCache:
+    def __init__(self, maxsize=2):
+        self.cache = LRUCache(maxsize=maxsize)
+        self.lock = threading.Lock()
+
+    def get(self, study_name):
+        with self.lock:
+            return self.cache.get(study_name)
+
+    def put(self, study_name, data):
+        with self.lock:
+            self.cache[study_name] = data
+
+study_cache = StudyCache(maxsize=2)
 
 
 
@@ -113,24 +146,29 @@ explorer_total_stats = None
 
 
 def get_explorer_data(study):
-    global explorer_df, explorer_col_types, explorer_total_stats, active_explorer_study
-    
-    # If requesting same study and already loaded, return it
-    if study == active_explorer_study and explorer_df is not None:
-        print(f"    This study is already in memory. Accessing {len(explorer_df):,} rows")
-        return explorer_df, explorer_col_types
+    # Check cache
+    cached = study_cache.get(study)
+    if cached:
+        print(f"    Study {study} found in cache. Accessing {len(cached['df']):,} rows")
+        return cached['df'], cached['col_types']
 
     # Resolve path
     explorer_df, explorer_col_types = explorer.load_data(fyp_cf, study, verbose=True)
-    #print(f"    Received explorer data {len(explorer_df)} rows")
 
     if explorer_df is None:
         print(f"The requested recoded study dataset was not found")
         return None, None
 
     res = explorer.get_current_stats(explorer_df, explorer_col_types)
-    explorer_total_stats = res['stats']
-    active_explorer_study = study
+    
+    # Store in cache
+    cache_item = {
+        "df": explorer_df, 
+        "col_types": explorer_col_types,
+        "total_stats": res['stats']
+    }
+    study_cache.put(study, cache_item)
+    
     return explorer_df, explorer_col_types
 
 
@@ -313,17 +351,144 @@ def stop_process(name):
 
 
 
+# --- Auth Routes ---
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        # Check if user exists first to distinguish between "Wrong password" and "Not approved"
+        user_obj = user_manager.get_user(username)
+        
+        if user_obj:
+            if not user_obj.approved:
+                flash('Your account is pending approval from an administrator.')
+            elif auth.verify_password(user_obj.password_hash, password):
+                login_user(user_obj)
+                next_page = request.args.get('next')
+                return redirect(next_page or url_for('index'))
+            else:
+                flash('Invalid username or password')
+        else:
+            flash('Invalid username or password')
+    
+    return render_template('login.html')
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if current_user.is_authenticated:
+         return redirect(url_for('index'))
+         
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if password != confirm_password:
+            flash("Passwords do not match")
+            return render_template('signup.html')
+            
+        success, msg = user_manager.add_user(username, password, auth.ROLE_VIEWER, approved=False)
+        if success:
+            flash("Account created! Please wait for an administrator to approve your account.")
+            return redirect(url_for('login'))
+        else:
+            flash(msg)
+            
+    return render_template('signup.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+@app.route('/api/admin/users', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@auth.admin_required
+def api_admin_users():
+    if request.method == 'GET':
+        # Return list of users (excluding password hashes)
+        users_list = []
+        for u in user_manager.users.values():
+            ud = u.to_dict()
+            del ud['password_hash']
+            users_list.append(ud)
+        return jsonify(users_list)
+        
+    elif request.method == 'POST':
+        data = request.json
+        username = data.get('username')
+        password = data.get('password')
+        role = data.get('role', auth.ROLE_VIEWER)
+        
+        if not username or not password:
+            return jsonify({"error": "Missing username or password"}), 400
+            
+        success, msg = user_manager.add_user(username, password, role, approved=True)
+        if success:
+            return jsonify({"status": "success", "message": msg})
+        else:
+            return jsonify({"error": msg}), 400
+
+    elif request.method == 'PUT':
+        data = request.json
+        action = data.get('action')
+        username = data.get('username')
+        
+        if not username:
+             return jsonify({"error": "Missing username"}), 400
+             
+        if action == 'approve':
+             success, msg = user_manager.approve_user(username)
+             if success: return jsonify({"status": "success", "message": msg})
+             else: return jsonify({"error": msg}), 400
+             
+        elif action == 'reset_password':
+             new_password = data.get('new_password')
+             if not new_password: return jsonify({"error": "Missing new password"}), 400
+             
+             success, msg = user_manager.update_password(username, new_password)
+             if success: return jsonify({"status": "success", "message": msg})
+             else: return jsonify({"error": msg}), 400
+             
+        elif action == 'change_role':
+             new_role = data.get('role')
+             success, msg = user_manager.update_user_role(username, new_role)
+             if success: return jsonify({"status": "success", "message": msg})
+             else: return jsonify({"error": msg}), 400
+
+        return jsonify({"error": "Invalid action"}), 400
+
+    elif request.method == 'DELETE':
+        username = request.args.get('username')
+        if not username:
+             return jsonify({"error": "Missing username"}), 400
+             
+        success, msg = user_manager.delete_user(username)
+        if success:
+             return jsonify({"status": "success", "message": msg})
+        else:
+             return jsonify({"error": msg}), 400
+
+
 # --- Routes ---
 
 @app.route('/')
+@login_required
 def index():
-    return render_template('index.html')
+    return render_template('index.html', user=current_user)
 
 
 
 
 
 @app.route('/api/start/<name>', methods=['POST'])
+@auth.researcher_required
 def api_start(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
@@ -367,6 +532,7 @@ def api_start(name):
 
 
 @app.route('/api/stop/<name>', methods=['POST'])
+@auth.researcher_required
 def api_stop(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
@@ -379,6 +545,7 @@ def api_stop(name):
 
 
 @app.route('/api/status', methods=['GET'])
+@login_required
 def api_status():
     status_data = {}
     for name, p_data in processes.items():
@@ -408,6 +575,7 @@ def api_status():
 
 
 @app.route('/api/logs/clear/<name>', methods=['POST'])
+@auth.researcher_required
 def api_clear_logs(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
@@ -419,6 +587,7 @@ def api_clear_logs(name):
 
 
 @app.route('/api/logs/<name>', methods=['GET'])
+@login_required
 def api_logs(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
@@ -431,6 +600,7 @@ def api_logs(name):
 
 
 @app.route('/api/config', methods=['GET', 'POST'])
+@auth.admin_required
 def api_config():
     filename = request.args.get('file', 'studies.toml')
     target_file = CONFIG_FILE_STUDIES if filename == 'studies.toml' else CONFIG_FILE_CORE
@@ -459,6 +629,7 @@ def api_config():
 
 
 @app.route('/api/explorer/studies', methods=['GET'])
+@login_required
 def api_explorer_studies():
     from os import listdir as os_listdir
     """
@@ -478,6 +649,7 @@ def api_explorer_studies():
 
 
 @app.route('/api/studies/defined', methods=['GET'])
+@login_required
 def api_get_study_defs():
     """Return list of study keys defined in fyp_cf['study_defs']"""
     if 'study_defs' in fyp_cf:
@@ -491,6 +663,7 @@ def api_get_study_defs():
 
 
 @app.route('/api/explorer/metadata', methods=['GET'])
+@login_required
 def api_explorer_metadata():
     from os.path import exists as os_exists, getmtime as os_getmtime, join as os_join
 
@@ -678,6 +851,7 @@ def get_viz_config():
 
 
 @app.route('/api/explorer/filter', methods=['POST'])
+@login_required
 def api_explorer_filter():
     data = request.json or {}
     study = data.get("study")
@@ -732,6 +906,7 @@ def api_explorer_filter():
 
 
 @app.route('/api/viewer/ids', methods=['POST'])
+@login_required
 def api_viewer_ids():
     data = request.json or {}
     study = data.get("study")

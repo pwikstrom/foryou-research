@@ -1,0 +1,289 @@
+<div id="admin" class="tab-pane">
+    <div style="padding: 24px;">
+        <h2 style="margin-bottom: 24px; border-bottom: 2px solid #eee; padding-bottom: 12px;">Admin Dashboard</h2>
+
+        <div style="margin-bottom: 16px;">
+            <button onclick="loadUsers()"
+                style="background: white; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #374151;">
+                ↻ Refresh List
+            </button>
+        </div>
+
+        <!-- Pending Approvals Section -->
+        <div style="margin-bottom: 32px;">
+            <h3 style="color: #d97706; margin-bottom: 16px;">Pending Approvals</h3>
+            <div id="pendingUserList"
+                style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+                <p style="color: #92400e; font-style: italic;">Loading pending users...</p>
+            </div>
+        </div>
+
+        <!-- Add User Section -->
+        <div
+            style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 32px; border: 1px solid #e9ecef;">
+            <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 18px;">Add New User</h3>
+            <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+                <div>
+                    <label
+                        style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500;">Username</label>
+                    <input type="text" id="newUsername"
+                        style="padding: 8px; border: 1px solid #ced4da; border-radius: 4px; width: 200px;">
+                </div>
+                <div>
+                    <label
+                        style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500;">Password</label>
+                    <input type="password" id="newPassword"
+                        style="padding: 8px; border: 1px solid #ced4da; border-radius: 4px; width: 200px;">
+                </div>
+                <div>
+                    <label style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500;">Role</label>
+                    <select id="newRole"
+                        style="padding: 8px; border: 1px solid #ced4da; border-radius: 4px; width: 150px;">
+                        <option value="viewer">Viewer</option>
+                        <option value="researcher">Researcher</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <button onclick="addUser()"
+                    style="background: #10b981; color: white; border: none; padding: 9px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                    Add User
+                </button>
+            </div>
+        </div>
+
+        <!-- User List Section -->
+        <div>
+            <h3 style="margin-bottom: 16px; font-size: 18px;">Active Users</h3>
+            <div style="overflow-x: auto;">
+                <table
+                    style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <thead>
+                        <tr style="background: #f3f4f6;">
+                            <th
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 30%;">
+                                Username</th>
+                            <th
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 20%;">
+                                Role</th>
+                            <th
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 20%;">
+                                Approved</th>
+                            <th
+                                style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 30%;">
+                                Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userTableBody">
+                        <tr>
+                            <td colspan="4" style="padding: 16px; text-align: center; color: #6b7280;">Loading users...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function loadUsers() {
+        try {
+            const response = await fetch('/api/admin/users');
+            if (!response.ok) throw new Error('Failed to load users');
+            const users = await response.json();
+
+            renderUsers(users);
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error loading users: ' + error.message);
+        }
+    }
+
+    function renderUsers(users) {
+        const pendingContainer = document.getElementById('pendingUserList');
+        const tableBody = document.getElementById('userTableBody');
+
+        if (!pendingContainer || !tableBody) {
+            return; // UI not ready
+        }
+
+        // Split users
+        const pending = users.filter(u => !u.approved);
+        const active = users.filter(u => u.approved);
+
+        // Render Pending
+        if (pending.length === 0) {
+            pendingContainer.innerHTML = '<p style="color: #059669; margin: 0;">No pending approvals.</p>';
+            pendingContainer.style.background = '#ecfdf5';
+            pendingContainer.style.borderColor = '#6ee7b7';
+        } else {
+            pendingContainer.style.background = '#fffbeb';
+            pendingContainer.style.borderColor = '#fcd34d';
+            let pendingHtml = '<ul style="list-style: none; padding: 0; margin: 0;">';
+            pending.forEach(u => {
+                pendingHtml += `
+             <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #fcd34d;">
+                 <span><strong>${u.username}</strong> requested access as <em>${u.role}</em></span>
+                 <button onclick="approveUser('${u.username}')" style="background: #d97706; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Approve</button>
+             </li>`;
+            });
+            pendingHtml += '</ul>';
+            pendingContainer.innerHTML = pendingHtml;
+        }
+
+        // Render Active
+        if (active.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="4" style="padding: 16px; text-align: center; color: #6b7280;">No active users found.</td></tr>';
+            return;
+        }
+
+        tableBody.innerHTML = active.map(user => `
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding: 12px 16px;">
+                <span style="font-weight: 500; color: #111827;">${user.username}</span>
+            </td>
+            <td style="padding: 12px 16px;">
+                <span style="background: ${getRoleColor(user.role)}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">${user.role}</span>
+            </td>
+             <td style="padding: 12px 16px;">
+                <span style="color: #059669;">✔ Yes</span>
+            </td>
+            <td style="padding: 12px 16px; text-align: right;">
+                 <button onclick="resetPassword('${user.username}')" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 12px;">Reset Pwd</button>
+                 <select onchange="updateRole('${user.username}', this.value)" style="padding: 4px; border: 1px solid #d1d5db; border-radius: 4px; margin-right: 8px; font-size: 12px;">
+                    <option value="" disabled selected>Change Role</option>
+                    <option value="viewer">Viewer</option>
+                    <option value="researcher">Researcher</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <button onclick="deleteUser('${user.username}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+    }
+
+    function getRoleColor(role) {
+        switch (role) {
+            case 'admin': return '#ef4444';
+            case 'researcher': return '#3b82f6';
+            case 'viewer': return '#6b7280';
+            default: return '#6b7280';
+        }
+    }
+
+    async function approveUser(username) {
+        if (!confirm(`Approve user ${username}?`)) return;
+
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'approve', username: username })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to approve user');
+            }
+
+            loadUsers(); // Refresh list
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
+    async function resetPassword(username) {
+        const newPassword = prompt(`Enter new password for ${username}:`);
+        if (!newPassword) return;
+
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reset_password', username: username, new_password: newPassword })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to reset password');
+            }
+
+            alert('Password updated successfully');
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
+    async function addUser() {
+        const username = document.getElementById('newUsername').value;
+        const password = document.getElementById('newPassword').value;
+        const role = document.getElementById('newRole').value;
+
+        if (!username || !password) {
+            alert('Please enter both username and password');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, role })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to add user');
+            }
+
+            document.getElementById('newUsername').value = '';
+            document.getElementById('newPassword').value = '';
+            loadUsers();
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
+    async function deleteUser(username) {
+        if (!confirm(`Are you sure you want to delete user "${username}"?`)) return;
+
+        try {
+            const response = await fetch(`/api/admin/users?username=${username}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to delete user');
+            }
+
+            loadUsers();
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
+    async function updateRole(username, newRole) {
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'change_role',
+                    username: username,
+                    role: newRole
+                })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to update role');
+            }
+
+            loadUsers();
+        } catch (error) {
+            alert('Error: ' + error.message);
+            loadUsers(); // Reset UI
+        }
+    }
+</script>

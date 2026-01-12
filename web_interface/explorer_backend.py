@@ -512,13 +512,13 @@ def get_current_stats(df, column_types, viz_config=None):
             stats[col] = dict(Counter(all_items).most_common(20))
              
     # DEBUG LOGGING
-    try:
+    """try:
         with open("debug_explorer_stats.txt", "w") as f:
             f.write(f"Count: {count}\n")
             f.write(f"Columns in stats: {list(stats.keys())}\n")
             for k, v in stats.items():
                 f.write(f"{k}: Type={v.get('type', 'Category')}, Mean={v.get('mean')}, Error={v == {}}\n")
     except:
-        pass
+        pass"""
 
     return {"count": count, "stats": stats}
