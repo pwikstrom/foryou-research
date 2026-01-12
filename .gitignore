@@ -103,6 +103,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+.fypenv314/
 .fypenv
 .env
 .venv
@@ -174,4 +175,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-.fypenv314/
+

@@ -223,7 +223,9 @@ def initialize(
     cf["paths"]["recoded"] = join(cf["paths"]["local_data"], "recoded")
     cf["paths"]["exports"] = join(cf["paths"]["local_data"], "exports")
     cf["paths"]["archive"] = join(cf["paths"]["local_data"], "archive")
-    cf["paths"]["temp"] = join(cf["paths"]["local_temp"], "temp")
+    
+    cf["paths"]["temp"] = "/tmp/fyp/"#join(cf["paths"]["local_temp"], "temp")
+    makedirs(cf["paths"]["temp"], exist_ok=True)
     
 
     # If using GCS for data, connect to Google and mirror the local data structure to GCS

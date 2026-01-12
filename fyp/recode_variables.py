@@ -653,7 +653,7 @@ def recode_main_activity(
 
 
 def recode_timestamp(
-    timestamp : pd.Timestamp | pd.Series | any, 
+    timestamp : pd.Timestamp | pd.Series, 
     recoding_policy : dict = {}) -> int | pd.Series:
 
     import pandas as pd
