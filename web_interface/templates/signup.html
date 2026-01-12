@@ -17,7 +17,7 @@
         {% endif %}
         {% endwith %}
 
-        <form method="POST" action="{{ url_for('signup') }}">
+        <form method="POST" action="{{ url_for('auth_bp.signup') }}">
             <div style="margin-bottom: 16px;">
                 <label for="username"
                     style="display: block; margin-bottom: 8px; font-weight: 500; color: #4b5563;">Username</label>
@@ -47,7 +47,8 @@
         </form>
 
         <div style="text-align: center; margin-top: 16px; font-size: 14px; color: #6b7280;">
-            Already have an account? <a href="{{ url_for('login') }}" style="color: #2563eb; text-decoration: none;">Log
+            Already have an account? <a href="{{ url_for('auth_bp.login') }}"
+                style="color: #2563eb; text-decoration: none;">Log
                 in</a>
         </div>
     </div>
