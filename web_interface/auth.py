@@ -47,12 +47,13 @@ def verify_password(stored_password, provided_password):
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None):
         self.id = username
         self.username = username
         self.role = role
         self.password_hash = password_hash
         self.approved = approved
+        self.last_login = last_login
 
     def can_access_research_features(self):
         return self.role in [ROLE_ADMIN, ROLE_RESEARCHER] and self.approved
@@ -65,7 +66,8 @@ class User(UserMixin):
             "username": self.username,
             "role": self.role,
             "password_hash": self.password_hash,
-            "approved": self.approved
+            "approved": self.approved,
+            "last_login": self.last_login
         }
 
 # --- User Manager ---
@@ -83,7 +85,7 @@ class UserManager:
         # Create default admin if empty
         if not self.users:
             logger.info("No users found. Creating default admin.")
-            self.add_user("admin", "admin", ROLE_ADMIN, approved=True)
+            self.add_user("info@foryouresearch.net", "kelvingrove", ROLE_ADMIN, approved=True)
     
     def load_users(self):
         """Loads users from local JSON, syncs from GCS if configured."""
@@ -107,7 +109,8 @@ class UserManager:
                             username=user_data['username'],
                             role=user_data['role'],
                             password_hash=user_data['password_hash'],
-                            approved=user_data.get('approved', True)
+                            approved=user_data.get('approved', True),
+                            last_login=user_data.get('last_login')
                         )
                 logger.info(f"Loaded {len(self.users)} users from {self.filepath}")
             except Exception as e:
@@ -196,6 +199,12 @@ class UserManager:
         self.users[username].password_hash = password_hash
         self.save_users()
         return True, "Password updated"
+
+    def update_last_login(self, username):
+        if username in self.users:
+            import datetime
+            self.users[username].last_login = datetime.datetime.now().isoformat()
+            self.save_users()
 
     def verify_user(self, username, password):
         user = self.users.get(username)

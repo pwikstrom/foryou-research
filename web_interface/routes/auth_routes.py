@@ -2,6 +2,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_user, logout_user, login_required, current_user
 import web_interface.auth as auth
 from ..security import user_manager
+from email_validator import validate_email, EmailNotValidError
+from ..mail_utils import send_welcome_email_async
 
 auth_bp = Blueprint('auth_bp', __name__)
 
@@ -24,6 +26,7 @@ def login():
                     flash('Your account is pending approval from an administrator.')
                 else:
                     login_user(user_obj)
+                    user_manager.update_last_login(user_obj.username)
                     next_page = request.args.get('next')
                     return redirect(next_page or url_for('index'))
             else:
@@ -49,6 +52,12 @@ def signup():
         
         if password != confirm_password:
             flash("Passwords do not match")
+            return render_template('signup.html')
+            
+        try:
+            validate_email(username, check_deliverability=False)
+        except EmailNotValidError as e:
+            flash(f"Invalid email: {str(e)}")
             return render_template('signup.html')
             
         success, msg = user_manager.add_user(username, password, auth.ROLE_VIEWER, approved=False)
@@ -87,6 +96,11 @@ def api_admin_users():
         if not username or not password:
             return jsonify({"error": "Missing username or password"}), 400
             
+        try:
+            validate_email(username, check_deliverability=False)
+        except EmailNotValidError as e:
+            return jsonify({"error": f"Invalid email: {str(e)}"}), 400
+
         success, msg = user_manager.add_user(username, password, role, approved=True)
         if success:
             return jsonify({"status": "success", "message": msg})
@@ -103,7 +117,9 @@ def api_admin_users():
              
         if action == 'approve':
              success, msg = user_manager.approve_user(username)
-             if success: return jsonify({"status": "success", "message": msg})
+             if success: 
+                 send_welcome_email_async(username)
+                 return jsonify({"status": "success", "message": msg})
              else: return jsonify({"error": msg}), 400
              
         elif action == 'reset_password':

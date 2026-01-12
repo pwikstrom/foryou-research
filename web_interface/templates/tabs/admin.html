@@ -66,8 +66,11 @@
                                 style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 20%;">
                                 Role</th>
                             <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 20%;">
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 15%;">
                                 Approved</th>
+                            <th
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 15%;">
+                                Last Login</th>
                             <th
                                 style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 30%;">
                                 Actions</th>
@@ -148,6 +151,9 @@
              <td style="padding: 12px 16px;">
                 <span style="color: #059669;">✔ Yes</span>
             </td>
+            <td style="padding: 12px 16px;">
+                <span style="color: #6b7280; font-size: 12px;">${user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</span>
+            </td>
             <td style="padding: 12px 16px; text-align: right;">
                  <button onclick="resetPassword('${user.username}')" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 12px;">Reset Pwd</button>
                  <select onchange="updateRole('${user.username}', this.value)" style="padding: 4px; border: 1px solid #d1d5db; border-radius: 4px; margin-right: 8px; font-size: 12px;">
@@ -172,7 +178,7 @@
     }
 
     async function approveUser(username) {
-        if (!confirm(`Approve user ${username}?`)) return;
+        // if (!confirm(`Approve user ${username}?`)) return;
 
         try {
             const response = await fetch('/api/admin/users', {
