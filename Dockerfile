@@ -9,11 +9,11 @@ WORKDIR /app
 
 # 4. Install dependencies
 # We copy this first to leverage Docker caching (builds are faster later)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements312.txt .
+RUN pip install --no-cache-dir -r requirements312.txt
 
 # 5. Copy application code
 COPY . .
 
 # 6. The Launch Command
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 --chdir web_interface fyp_data_hub:app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 web_interface.fyp_data_hub:app
