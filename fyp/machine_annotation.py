@@ -1453,34 +1453,33 @@ def annotate_videos_loop(
 
     from datetime import datetime
     from os import environ
-    from os.path import join as os_join, exists as os_exists
-    from pandas import read_parquet as pd_read_parquet
-    import json
+    #from os.path import join as os_join, exists as os_exists
+    #from pandas import read_parquet as pd_read_parquet
+    #import json
     from fyp.fyp_main import initialize, connect_to_google, chunk_list
     from fyp.organize_datasets import select_videos_from_study_dataset
     from numpy import inf as np_inf
+    import fyp.data_io as data_io
 
     max_batches = max_batches if max_batches is not None else np_inf
 
     if study_name is None and study_dataset is None:
-        print("    ERROR: This process cannot run without a study name or a study dataset as input. Process failed.")
+        print("    ERROR: The annotation loop cannot run without a study name or a study dataset as input. Process failed.")
         return None
 
     if cf is None:
         cf = initialize()
     
-    if load_from_cache and study_name is not None:
-        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_recoded.parquet")
-        if os_exists(study_dataset_cache_path):
+    if study_name is not None:
+        if load_from_cache and data_io.exists(cf=cf, storage_location = "cache", filename = f"{study_name}_recoded.parquet"):
             if verbose:
                 print("    Loading study dataset from cache", end=" ", flush=True)
-            study_dataset = pd_read_parquet(study_dataset_cache_path, engine="pyarrow", dtype_backend="pyarrow")
-            print(study_dataset.attrs['study_name'])
+            study_dataset = data_io.load_parquet(cf=cf, storage_location="cache", filename=f"{study_name}_recoded.parquet", verbose=verbose)
+            #print(study_dataset.attrs['study_name'])
             if verbose:
-                print(f"  |  Shape: {study_dataset.shape}")
+                print(f" | Shape: {study_dataset.shape}")
         else:
-            if verbose:
-                print("    No cached study dataset found. I must run the process to create it. Please wait a moment...")
+            print("@@  No cached recoded study dataset found. I must run the process to create it. Please wait a moment...")
             study_dataset = create_study_recoded_dataset(
                 cf = cf,
                 study_name = study_name,
@@ -1488,9 +1487,10 @@ def annotate_videos_loop(
                 save_to_cache = True,
                 verbose = verbose
             )
+            print("@@  I'm back after creating the recoded study dataset. I'm now resuming the annotation loop.")
 
     if study_dataset is None:
-        print("    ERROR: This process cannot run without a study dataset as input or in cache. Process failed.")
+        print("    ERROR: This process cannot run without a study dataset. Process failed.")
         return None
 
 

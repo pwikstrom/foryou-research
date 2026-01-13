@@ -6,7 +6,12 @@ let explorerDataV2 = {
     filters2: {},
     searchQuery1: "",
     searchQuery2: "",
-    activeStudy: null
+    activeStudy: null,
+    // Cache for stats
+    stats1: null,
+    count1: 0,
+    stats2: null,
+    count2: 0
 };
 
 // Initialization
@@ -24,7 +29,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(() => {
                     explorerDataV2.searchQuery1 = val;
-                    updateExplorerV2Stats();
+                    updateExplorerV2Stats(1); // Trigger Slice 1
                 }, 500);
             });
         }
@@ -37,7 +42,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(() => {
                     explorerDataV2.searchQuery2 = val;
-                    updateExplorerV2Stats();
+                    updateExplorerV2Stats(2); // Trigger Slice 2
                 }, 500);
             });
         }
@@ -84,6 +89,12 @@ function changeExplorerV2Study(val) {
     explorerDataV2.activeStudy = studyName;
     explorerDataV2.filters1 = {}; // Reset filters
     explorerDataV2.filters2 = {};
+    // Reset Stats
+    explorerDataV2.stats1 = null;
+    explorerDataV2.count1 = 0;
+    explorerDataV2.stats2 = null;
+    explorerDataV2.count2 = 0;
+
     loadExplorerV2Metadata();
 }
 
@@ -324,7 +335,7 @@ function setFilterV2(sliceId, col, type, subtype, value) {
         delete filters[col];
     }
 
-    updateExplorerV2Stats();
+    updateExplorerV2Stats(sliceId);
 }
 
 function resetFiltersV2(sliceId) {
@@ -346,58 +357,72 @@ function resetFiltersV2(sliceId) {
     const checkboxes = container.querySelectorAll('input[type="checkbox"]');
     checkboxes.forEach(cb => cb.checked = false);
 
-    updateExplorerV2Stats();
+    updateExplorerV2Stats(sliceId);
 }
 
-async function updateExplorerV2Stats() {
+async function updateExplorerV2Stats(triggerSlice = null) {
     if (!explorerDataV2.activeStudy) return;
 
-    const statsContainer = document.getElementById('explorer-v2-stats');
     const countEl1 = document.getElementById('explorer-v2-count-1');
     const countEl2 = document.getElementById('explorer-v2-count-2');
 
+    // Show loading state for relevant slice
+    if (triggerSlice === 1 || triggerSlice === null) countEl1.innerText = "Loading...";
+    if (triggerSlice === 2 || triggerSlice === null) countEl2.innerText = "Loading...";
+
     try {
+        const payload = {
+            study: explorerDataV2.activeStudy,
+            filters: explorerDataV2.filters1,
+            filters2: explorerDataV2.filters2,
+            search_query: explorerDataV2.searchQuery1,
+            search_query2: explorerDataV2.searchQuery2,
+            trigger_slice: triggerSlice
+        };
+
         const res = await fetch('/api/explorer/filter', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                study: explorerDataV2.activeStudy,
-                filters: explorerDataV2.filters1,
-                filters2: explorerDataV2.filters2,
-                search_query: explorerDataV2.searchQuery1,
-                search_query2: explorerDataV2.searchQuery2
-            })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
 
         if (data.error) {
-            countEl1.innerText = "Error";
+            if (triggerSlice === 1 || triggerSlice === null) countEl1.innerText = "Error";
+            if (triggerSlice === 2 || triggerSlice === null) countEl2.innerText = "Error";
             return;
         }
 
-        countEl1.innerText = `Slice 1: ${data.count} items`;
+        // --- UPDATE STATE based on what returned ---
 
-        // Handle logic where if filters2 is empty, it might return count2 as total? 
-        // Backend logic: if filters2 is None, it won't be in data? 
-        // Or we should update backend to ALWAYS return stats2 if we ask for it?
-        // We will update backend to return stats2 if we pass filters2 key (even if empty).
+        // slice 1
+        if (data.stats !== undefined) {
+            explorerDataV2.stats1 = data.stats;
+            explorerDataV2.count1 = data.count;
+        }
 
-        let count2 = 0;
-        let stats2 = null;
+        // slice 2
+        // Make sure we handle if it exists in data
+        if (data.stats2 !== undefined) {
+            explorerDataV2.stats2 = data.stats2;
+            explorerDataV2.count2 = data.count2;
+        }
 
-        if (data.stats2) {
-            count2 = data.count2;
-            stats2 = data.stats2;
-            countEl2.innerText = `Slice 2: ${count2} items`;
+        // --- RENDER ---
+        countEl1.innerText = `Slice 1: ${explorerDataV2.count1} items`;
+
+        if (explorerDataV2.stats2) {
+            countEl2.innerText = `Slice 2: ${explorerDataV2.count2} items`;
         } else {
-            // Fallback if backend doesn't support v2 yet or error
             countEl2.innerText = `Slice 2: N/A`;
         }
 
-        renderStatsV2(data.stats, stats2);
+        renderStatsV2(explorerDataV2.stats1, explorerDataV2.stats2);
 
     } catch (e) {
         console.error(e);
+        if (triggerSlice === 1 || triggerSlice === null) countEl1.innerText = "Error";
+        if (triggerSlice === 2 || triggerSlice === null) countEl2.innerText = "Error";
     }
 }
 

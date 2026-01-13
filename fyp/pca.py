@@ -582,15 +582,15 @@ def calculate_scaled_pca_scores(
 
     #from json import dump as json_dump
     from concurrent.futures import ThreadPoolExecutor
-    from pandas import NamedAgg, MultiIndex, DataFrame, concat, read_parquet as pd_read_parquet, to_datetime
-    from os.path import join as os_join, exists as os_exists
+    from pandas import NamedAgg, MultiIndex, DataFrame, concat, to_datetime
+    #from os.path import join as os_join, exists as os_exists
     from datetime import datetime
     from sklearn.preprocessing import StandardScaler
     from fyp.organize_datasets import create_study_recoded_dataset
     from fyp.recode_variables import get_factors_and_features_from_var_schema, get_group_factors_from_var_schema
     from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow, convert_index_dtype_pyarrow
     import fyp.data_io as data_io
-    from json import dump as json_dump
+    #from json import dump as json_dump
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -613,13 +613,17 @@ def calculate_scaled_pca_scores(
         cf = initialize()
 
     if load_from_cache and study_name is not None:
-        recoded_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_recoded.parquet")
-        if os_exists(recoded_cache_path):
-            if verbose:
-                print("    [PCA] Loading recoded events from cache", end=" ", flush=True)
-            study_recoded_dataset = pd_read_parquet(recoded_cache_path, engine="pyarrow", dtype_backend="pyarrow")
-            if verbose:
-                print(f" | Shape: {study_recoded_dataset.shape}")
+        #recoded_cache_path = os_join(cf['paths']['cache'], f"{study_name}_recoded.parquet")
+        if data_io.exists(
+            cf=cf,
+            storage_location="cache",
+            filename=f"{study_name}_recoded.parquet",
+            ):
+            study_recoded_dataset = data_io.load_parquet(
+                cf=cf,
+                storage_location="cache",
+                filename=f"{study_name}_recoded.parquet",
+                verbose=verbose)
 
     if study_name is not None and study_recoded_dataset is None:
         print("@@ No cached recoded study dataset found. I must create it. Please wait a moment...")
@@ -633,7 +637,7 @@ def calculate_scaled_pca_scores(
         print("@@ Back after created recoded dataset for this study. I will now resume the PCA analysis.")
 
     if study_recoded_dataset is None:
-        print("    [PCA] ERROR: This process cannot run without a study dataset as input or in cache. Process failed.")
+        print("    [PCA] ERROR: This process cannot run without a study dataset. Process failed.")
         return None
 
     # I was experimenting with this column during one stage - dropping it in case it lingers in the dataset somewhere
@@ -821,16 +825,30 @@ def calculate_scaled_pca_scores(
 
 
     if save_to_cache and study_name is not None:
-        pca_filename = f"CACHE_{study_name}_PCA.parquet"
-        comp_inter_filename = f"CACHE_{study_name}_comp_interpretations.json"
+        pca_filename = f"{study_name}_PCA.parquet"
+        comp_inter_filename = f"{study_name}_comp_interpretations.json"
 
         events_pca_scores_scaled.attrs['study_name'] = study_name
-        events_pca_scores_scaled.to_parquet(os_join(cf['paths']['temp'], pca_filename), engine="pyarrow")
+        data_io.save_parquet(
+            cf=cf,
+            df=events_pca_scores_scaled,
+            storage_location="cache",
+            filename=pca_filename,
+            verbose=verbose,
+            )
+        #events_pca_scores_scaled.to_parquet(os_join(cf['paths']['cache'], pca_filename), engine="pyarrow")
         if verbose:
             print(f"    [PCA] Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'.")
 
-        with open(os_join(cf['paths']['temp'],comp_inter_filename), 'w') as f:
-            json_dump(comp_interpretations, f, indent=4)
+        data_io.save_json(
+            cf=cf,
+            data=comp_interpretations,
+            storage_location="cache",
+            filename=comp_inter_filename,
+            verbose=verbose,
+            )
+        #with open(os_join(cf['paths']['cache'],comp_inter_filename), 'w') as f:
+        #    json_dump(comp_interpretations, f, indent=4)
         if verbose:
             print(f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'.")
 

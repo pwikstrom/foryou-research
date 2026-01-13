@@ -21,10 +21,13 @@ PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
 @data_bp.route('/api/explorer/studies', methods=['GET'])
 @login_required
 def api_explorer_studies():
-    from os import listdir as os_listdir
     studies = []
-    if os.path.exists(fyp_cf['paths']['temp']):
-        recoded_files = [fn for fn in os_listdir(fyp_cf['paths']['temp']) if fn.endswith("_recoded.parquet")]
+    if data_io.exists(
+        cf=fyp_cf,
+        storage_location="cache",
+        filename="_recoded.parquet",
+        ):
+        recoded_files = [fn for fn in data_io.listdir(cf=fyp_cf, storage_location="cache") if fn.endswith("_recoded.parquet")]
         for fn in recoded_files:
             study_name = fn.replace("_recoded.parquet", "")
             studies.append(study_name)
@@ -43,16 +46,21 @@ def api_get_study_defs():
 @data_bp.route('/api/explorer/metadata', methods=['GET'])
 @login_required
 def api_explorer_metadata():
-    from os.path import exists as os_exists, getmtime as os_getmtime, join as os_join
+    #from os.path import exists as os_exists, getmtime as os_getmtime, join as os_join
+    from datetime import datetime
 
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
 
+    print("awesome")
+
     df, col_types = get_explorer_data(study)
-    
+
+ 
     context = request.args.get('context', 'explorer')
-    
+
+ 
     if context == 'viewer':
          df = df[df.scraped_ok].copy()
          print(f"    Filtered to {len(df):,} scraped events")
@@ -60,9 +68,17 @@ def api_explorer_metadata():
          df = df[df.annotated_ok].copy()
          print(f"    Filtered to {len(df):,} annotated events")
 
+ 
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
+ 
+    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study}_explorer_metadata.json"):
+        metadata = data_io.load_json(cf=fyp_cf, storage_location="cache", filename=f"{study}_explorer_metadata.json")
+        print(f"    Using cached metadata for {study}")
+        return jsonify(make_serializable(metadata))
+
+    print(f"    No cached metadata for {study}, calculating...")
     metadata = explorer.get_metadata(df, col_types)
     
     viz_config = get_viz_config()
@@ -70,10 +86,10 @@ def api_explorer_metadata():
     metadata['total_stats'] = res['stats']
 
     try:
-        the_recoded_file = f"CACHE_{study}_recoded.parquet"
-        if os_exists(os_join(fyp_cf['paths']['temp'], the_recoded_file)):
+        the_recoded_file = f"{study}_recoded.parquet"
+        if data_io.exists(cf=fyp_cf, storage_location="cache", filename=the_recoded_file):
             metadata['source_file'] = the_recoded_file
-            mtime = datetime.fromtimestamp(os_getmtime(os_join(fyp_cf['paths']['temp'], the_recoded_file)))
+            mtime = datetime.fromtimestamp(data_io.getmtime(cf=fyp_cf, storage_location="cache", filename=the_recoded_file))
             metadata['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
         else:
              metadata['source_file'] = "Unknown"
@@ -133,6 +149,8 @@ def api_explorer_metadata():
         metadata['filter_priority'] = []
         metadata['schema_map'] = {}
 
+    data_io.save_json(cf=fyp_cf, data=make_serializable(metadata), storage_location="cache", filename=f"{study}_explorer_metadata.json", verbose=True)
+
     return jsonify(make_serializable(metadata))
 
 
@@ -144,7 +162,7 @@ def api_explorer_filter():
     
     if not study:
          return jsonify({"error": "No study specified"}), 400
-
+    print("tjolahopp")
     df, col_types = get_explorer_data(study)
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
@@ -155,20 +173,66 @@ def api_explorer_filter():
     filters = data.get("filters", {})
     search_query = data.get("search_query")
     
-    filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
     
-    viz_config = get_viz_config()
-    result = explorer.get_current_stats(filtered_df, col_types, viz_config=viz_config)
+    # Selective Calculation Logic
+    trigger_slice = data.get("trigger_slice") # 1, 2, or None (both)
+
+    # Optimization: Load cached metadata to potentially reuse total_stats
+    cached_metadata = {}
+    try:
+        if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study}_explorer_metadata.json"):
+            cached_metadata = data_io.load_json(cf=fyp_cf, storage_location="cache", filename=f"{study}_explorer_metadata.json")
+    except Exception as e:
+        print(f"    Warning: Could not load cached metadata: {e}")
     
-    if "filters2" in data:
+    result = {}
+
+    # --- SLICE 1 ---
+    if trigger_slice is None or trigger_slice == 1:
+        # Check if filters are empty and we have cached stats
+        is_empty_filters = (not filters) and (not search_query)
+        
+        if is_empty_filters and 'total_stats' in cached_metadata:
+            print("    Optimization: Using cached total_stats for S1")
+            result['stats'] = cached_metadata['total_stats']
+            result['count'] = len(df)
+        else:
+            filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
+            viz_config = get_viz_config()
+            res1 = explorer.get_current_stats(filtered_df, col_types, viz_config=viz_config)
+            result['stats'] = res1['stats']
+            result['count'] = res1['count']
+    
+    # --- SLICE 2 ---
+    # --- SLICE 2 ---
+    if "filters2" in data and (trigger_slice is None or trigger_slice == 2):
         filters2 = data.get("filters2", {})
         search_query2 = data.get("search_query2")
         
-        filtered_df2 = explorer.filter_dataframe(df, col_types, filters2, search_query2)
-        res2 = explorer.get_current_stats(filtered_df2, col_types, viz_config=viz_config)
+        # Optimization: If filters are identical to S1 and S1 was just calculated, reuse result
+        # This handles the initial load case where both are empty/default
+        is_identical = (filters == filters2) and (search_query == search_query2)
+        s1_available = (trigger_slice is None or trigger_slice == 1) and 'stats' in result
         
-        result['stats2'] = res2['stats']
-        result['count2'] = res2['count']
+        if is_identical and s1_available:
+            print("    Optimization: S2 identical to S1, reusing stats")
+            result['stats2'] = result['stats']
+            result['count2'] = result['count']
+        else:
+            # Check if filters are empty (for S2 specific case if not identical/S1 not avail)
+            is_empty_filters2 = (not filters2) and (not search_query2)
+            
+            if is_empty_filters2 and 'total_stats' in cached_metadata:
+                 print("    Optimization: Using cached total_stats for S2")
+                 result['stats2'] = cached_metadata['total_stats']
+                 result['count2'] = len(df)
+            else:
+                filtered_df2 = explorer.filter_dataframe(df, col_types, filters2, search_query2)
+                viz_config = get_viz_config()
+                res2 = explorer.get_current_stats(filtered_df2, col_types, viz_config=viz_config)
+                
+                result['stats2'] = res2['stats']
+                result['count2'] = res2['count']
     
     return jsonify(make_serializable(result))
 
@@ -309,12 +373,10 @@ def api_pca_data():
 @data_bp.route('/api/persona_stats_info', methods=['GET'])
 def api_persona_stats_info():
     if True:
-        if data_io.exists(fyp_cf, "ddp_main", LOCATION_CACHE_FILE): # Typo in original? Check. 
-            # Oh wait original used PERSONA_STATS_CACHE_FILE
-            if data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
-                mtime = data_io.getmtime(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE)
-                timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
-                return jsonify({"exists": True, "timestamp": timestamp})
+        if data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
+            mtime = data_io.getmtime(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE)
+            timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
+            return jsonify({"exists": True, "timestamp": timestamp})
         return jsonify({"exists": False, "timestamp": None})
 
 

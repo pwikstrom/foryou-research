@@ -23,33 +23,53 @@ class StudyCache:
         with self.lock:
             self.cache[study_name] = data
 
+
+
+
 study_cache = StudyCache(maxsize=2)
 
+
+
+
 def get_explorer_data(study):
-    # Check cache
+    from datetime import datetime
+    # Check cache (First Check)
     cached = study_cache.get(study)
     if cached:
         print(f"    Study {study} found in cache. Accessing {len(cached['df']):,} rows")
         return cached['df'], cached['col_types']
 
-    # Resolve path
-    explorer_df, explorer_col_types = explorer.load_data(fyp_cf, study, verbose=True)
+    # Double-Checked Locking
+    # We will use a dedicated lock for the critical section of *checking and loading*
+    if not hasattr(study_cache, 'loading_lock'):
+         study_cache.loading_lock = threading.Lock()
+         
+    with study_cache.loading_lock:
+        # Check cache again (Second Check)
+        cached = study_cache.get(study)
+        if cached:
+            print(f"    Study {study} found in cache (after lock). Accessing {len(cached['df']):,} rows")
+            return cached['df'], cached['col_types']
+            
+        print(f"    Loading study {study} from disk (with lock)...")
+        # Resolve path
+        explorer_df, explorer_col_types = explorer.load_data(fyp_cf, study, verbose=True)
 
-    if explorer_df is None:
-        print(f"The requested recoded study dataset was not found")
-        return None, None
+        if explorer_df is None:
+            print(f"The requested recoded study dataset was not found")
+            return None, None
 
-    res = explorer.get_current_stats(explorer_df, explorer_col_types)
-    
-    # Store in cache
-    cache_item = {
-        "df": explorer_df, 
-        "col_types": explorer_col_types,
-        "total_stats": res['stats']
-    }
-    study_cache.put(study, cache_item)
+        # Store in cache
+        cache_item = {
+            "df": explorer_df, 
+            "col_types": explorer_col_types,
+        }
+        study_cache.put(study, cache_item)
     
     return explorer_df, explorer_col_types
+
+
+
 
 def get_viz_config():
     """
@@ -147,8 +167,9 @@ def make_serializable(obj):
 pca_df_cache = {}
 
 def get_pca_df(study_name):
-    from os.path import exists as os_exists, join as os_join
-    from pandas import read_parquet as pd_read_parquet
+    #from os.path import exists as os_exists, join as os_join
+    #from pandas import read_parquet as pd_read_parquet
+    import fyp.data_io as data_io
 
     global pca_df_cache
     if study_name in pca_df_cache:
@@ -158,11 +179,23 @@ def get_pca_df(study_name):
     # Load file
     if True:# try:
         
-        pca_filename = f"CACHE_{study_name}_PCA.parquet"
+        pca_filename = f"{study_name}_PCA.parquet"
         
-        if not os_exists(os_join(fyp_cf['paths']['temp'], pca_filename)):
+        if data_io.exists(
+            cf=fyp_cf,
+            storage_location="cache",
+            filename=pca_filename,
+            ):
+            
+            events_pca_scores_scaled = data_io.load_parquet(
+                cf=fyp_cf,
+                storage_location="cache",
+                filename=pca_filename,
+                )
+
+        else:
             print("Calculating PCA scores for study: ", study_name)
-            calculate_scaled_pca_scores(
+            events_pca_scores_scaled, _ = calculate_scaled_pca_scores(
                 cf = fyp_cf,
                 study_name = study_name,
                 study_recoded_dataset = None,
@@ -172,14 +205,13 @@ def get_pca_df(study_name):
                 scale_it = True,
                 down_sample = 1,
                 min_sample_size = 20000,
-                load_from_cache = False,
+                load_from_cache = True,
                 save_to_cache = True,
                 verbose = False,
                 )
         
-        df = pd_read_parquet(os_join(fyp_cf['paths']['temp'], pca_filename))
-        pca_df_cache[study_name] = df
-        return df
+        pca_df_cache[study_name] = events_pca_scores_scaled
+        return events_pca_scores_scaled
     if False:#except Exception as e:
         print(f"Error loading PCA: {e}")
         return None

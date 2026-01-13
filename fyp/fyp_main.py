@@ -196,7 +196,7 @@ def initialize(
     # ------------------------------------------------------------------
     # Resolve relative paths against the project root for consistent file access.
     cf["paths"]["local_data"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
-    cf["paths"]["local_temp"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_temp"]))
+    #cf["paths"]["local_temp"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_temp"]))
 
     # paths to zeeschuimer data
     cf["paths"]["zeeschuimer"] = join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
@@ -223,6 +223,7 @@ def initialize(
     cf["paths"]["recoded"] = join(cf["paths"]["local_data"], "recoded")
     cf["paths"]["exports"] = join(cf["paths"]["local_data"], "exports")
     cf["paths"]["archive"] = join(cf["paths"]["local_data"], "archive")
+    cf["paths"]["cache"] = join(cf["paths"]["local_data"], "cache")
     
     cf["paths"]["temp"] = "/tmp/fyp/"#join(cf["paths"]["local_temp"], "temp")
     makedirs(cf["paths"]["temp"], exist_ok=True)
@@ -235,19 +236,20 @@ def initialize(
     if cf['misc']['local_mode']:
         print("Local mode is enabled. GCS data will not be used.")
         cf['data_io']['use_gcs_for_data'] = False
+        cf['data_io']['use_gcs_for_cache'] = False
+        cf['data_io']['use_gcs_for_media'] = False
 
 
     if cf['data_io']['use_gcs_for_data']:
 
         cf["gcs_paths"] = {}
         gcs_prefix = cf["paths"].get("gcs_data_prefix", "")
-        local_data_root = cf["paths"]["local_data"]
 
         for k, v in cf["paths"].items():
-            if isinstance(v, str) and v.startswith(local_data_root) and k != "local_data":
+            if isinstance(v, str) and v.startswith(cf["paths"]["local_data"]) and k != "local_data":
                 # calculate relative path from local_data root
                 # e.g. /.../data/activity/zeeschuimer -> activity/zeeschuimer
-                rel = relpath(v, local_data_root)
+                rel = relpath(v, cf["paths"]["local_data"])
                 
                 # Combine with GCS prefix
                 # Use forward slashes for GCS always, though on Mac os.path.join uses /
@@ -259,17 +261,14 @@ def initialize(
                 cf["gcs_paths"][k] = gcs_path
         
         # Explicitly ensure root is mapped if needed, or handled above (local_data itself)
-        cf["gcs_paths"]["local_data"] = gcs_prefix if gcs_prefix else ""
+        #cf["gcs_paths"]["local_data"] = gcs_prefix if gcs_prefix else ""
 
         if verbose:
-            print(f"Metadata is stored in GCS at {cf['data_io']['GCS_bucket_name']}")
-        """else:
-            print("Tried to connect to bucket but failed. Local storage is used instead.")
-            cf['data_io']['use_gcs_for_data'] = False"""
+            print(f"Data is stored in GCS at {cf['data_io']['GCS_bucket_name']}")
 
     else:
         if verbose:
-            print(f"Metadata is stored locally at {cf['paths']['local_data']}")
+            print(f"Data is stored locally at {cf['paths']['local_data']}")
 
     # create missing local folders if not using GCS for data
     if not cf['data_io']['use_gcs_for_data'] or cf['misc']['local_mode']:
@@ -277,6 +276,11 @@ def initialize(
             print("Creating missing local folders")
         for k in cf["paths"].keys():
             makedirs(cf["paths"][k], exist_ok=True)
+    # create missing local folders if not using GCS for data
+    elif not cf['data_io']['use_gcs_for_cache']:
+        if verbose:
+            print("Creating missing local folder for cache")
+        makedirs(cf["paths"]["cache"], exist_ok=True)
 
 
     return cf
@@ -300,13 +304,13 @@ def initialize(
 
 
 
-def temp_path(cf: dict, filename: str = "") -> str:
-    #import toml
-    from os.path import join
+#def temp_path(cf: dict, filename: str = "") -> str:
+#    #import toml
+#    from os.path import join
 
-    #cf = toml.load(CONFIG_PATH)
-    temp_dir = join(cf["paths"]["local_temp"],"temp")
-    return join(temp_dir, filename)
+#    #cf = toml.load(CONFIG_PATH)
+#    temp_dir = join(cf["paths"]["local_temp"],"temp")
+#    return join(temp_dir, filename)
 
 
 
@@ -620,25 +624,6 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
 ############################################################################################################
 
 
-
-def find_key_value_in_pq_metadata(
-    parquet_filename,
-    the_key
-    ):
-    from pyarrow.parquet import read_metadata as pq_read_metadata
-    from json import loads as json_loads
-
-    meta = pq_read_metadata(parquet_filename)
-    file_metadata_dict = meta.metadata  # This is a dictionary of {bytes: bytes}
-
-    for k in file_metadata_dict:
-        try:
-            some_dict = json_loads(file_metadata_dict[k].decode('utf-8'))
-            if some_dict.get(the_key,None) is not None:
-                return some_dict.get(the_key)
-        except:
-            pass
-    return None
 
 
 

@@ -591,7 +591,7 @@ def load_special_donations(
         DDP_END_DATE = datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
 
     if verbose:
-        print(f"Trying to load all events from {len(the_special_donations)} donations", end=" ", flush=True)
+        print(f"Trying to load all events from {len(the_special_donations)} donations")
 
     if all_data is None:
         sel = [("D_donation_id", "in", the_special_donations),("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]

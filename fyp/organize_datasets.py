@@ -225,18 +225,18 @@ def load_datasets(
     ):
 
 
-    from os.path import join as os_join, exists as os_exists
+    #from os.path import join as os_join, exists as os_exists
     from fyp.machine_annotation import load_machine_annotations
     from fyp.donations import load_special_donations, load_ddp_events
     from fyp.zeeschuimer import load_zeeschuimer_data
     from fyp.scrape import load_scrape_metadata
-    from fyp.fyp_main import initialize, connect_to_google, find_key_value_in_pq_metadata
+    from fyp.fyp_main import initialize, connect_to_google
     import fyp.data_io as data_io
     from copy import deepcopy
     from datetime import datetime
-    from pandas import read_parquet as pd_read_parquet
-    from pyarrow.parquet import read_metadata as pq_read_metadata
-    from json import loads as json_loads
+    #from pandas import read_parquet as pd_read_parquet
+    #from pyarrow.parquet import read_metadata as pq_read_metadata
+    #from json import loads as json_loads
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -254,26 +254,26 @@ def load_datasets(
 
     # load core datasets from cache. This makes sense if the storage is remote. Since a slow network connection makes loading of datasets 
     # take a long time. If this is not a problem, there is really no need to use this option.
-    if load_from_cache:
+    if load_from_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         tutti_data = {}
         cached_core_datasets = {}
         for k in ['scraped','annotated','ddp','baseline']:
-            if os_exists(os_join(cf["paths"]["temp"], f"CACHE_core_{k}.parquet")):
+            if data_io.exists(cf, "cache", f"core_{k}.parquet"):
 
-                parquet_study_name = find_key_value_in_pq_metadata(os_join(cf["paths"]["temp"], f"CACHE_core_{k}.parquet"), 'study_name')
+                parquet_study_name = data_io.find_key_value_in_pq_metadata(cf=cf, storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
                 if parquet_study_name == study_name or parquet_study_name == 'everything':
-                    print(f"  Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
+                    print(f"    Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
                     cached_core_datasets[k] = parquet_study_name
-                    tutti_data[k] = pd_read_parquet(os_join(cf["paths"]["temp"], f"CACHE_core_{k}.parquet"), engine='pyarrow', dtype_backend="pyarrow", use_threads=True)
+                    tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="cache", filename=f"core_{k}.parquet")
                 else:
-                    print(f"  Cached '{k}' core dataset for study '{parquet_study_name}' does not match requested study name '{study_name}'. Skipping.")
+                    print(f"    Cached '{k}' core dataset for study '{parquet_study_name}' does not match requested study name '{study_name}'. Getting the data from the main storage instead.")
                 
     elif len(all_datasets) > 0:
         tutti_data = deepcopy(all_datasets)
-        print(f"  Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
+        print(f"    Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
     else:
         tutti_data = {}
-        print(f"  Starting without precomputed core datasets. Loading study core datasets from main storage. This might take a while.")
+        print(f"    Starting without precomputed core datasets. Loading study core datasets from main storage.")
 
 
     if cf["study_defs"][study_name]["INCLUDE_ZEESCHUIMER_DATA"]:
@@ -320,12 +320,12 @@ def load_datasets(
     if tutti_data.get("scraped") is None:
         tutti_data["scraped"] = load_scrape_metadata(cf = cf, consolidate=consolidate, filters = sel, verbose=verbose)
     else:
-        print("  Scraped metadata already loaded")
+        print("    Scraped metadata already loaded")
     
     if tutti_data.get("annotated") is None:
         tutti_data["annotated"] = load_machine_annotations(cf = cf, consolidate=consolidate, filters = sel, verbose = verbose)
     else:
-        print("  Video annotations already loaded")
+        print("    Video annotations already loaded")
 
 
     def _df_size(df):
@@ -334,19 +334,19 @@ def load_datasets(
         total_memory_mb = total_memory_bytes / (1024**2)
         return total_memory_mb
 
-    if save_to_cache:
+    if save_to_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         t1 = datetime.now()
         if verbose:
-            print("  Saving datasets to cache...")
+            print("    Saving datasets to cache...")
         for k in tutti_data:
             if k in cached_core_datasets and cached_core_datasets[k] == 'everything':
                 if verbose:
                     print(f"    Cached 'everything' dataset for '{k}' already exists. No need to replace it with this dataset.")
                 continue
             tutti_data[k].attrs["study_name"] = study_name
-            tutti_data[k].to_parquet(os_join(cf["paths"]["temp"], f"CACHE_core_{k}.parquet"), engine='pyarrow')
+            data_io.save_parquet(cf=cf, df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
         if verbose:
-            print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
+            print(f"    ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
 
     print(f"...done. Datasets loaded for study '{study_name}'")
     if verbose:
@@ -440,9 +440,10 @@ def generate_unique_videos_to_scrape_and_annotate(
 
     from fyp.fyp_main import initialize
     from datetime import datetime
-    from os.path import exists as os_exists, join as os_join
-    from pandas import read_parquet as pd_read_parquet
-    from pyarrow.parquet import read_schema as pq_read_schema
+    import fyp.data_io as data_io
+    #from os.path import exists as os_exists, join as os_join
+    #from pandas import read_parquet as pd_read_parquet
+    #from pyarrow.parquet import read_schema as pq_read_schema
 
 
     print(f"Generating unique videos to scrape and annotate...")
@@ -455,8 +456,8 @@ def generate_unique_videos_to_scrape_and_annotate(
         cf = initialize()
 
     if load_from_cache and study_name is not None:
-        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_recoded.parquet")
-        if os_exists(study_dataset_cache_path):
+        #study_dataset_cache_path = os_join(cf['paths']['cache'], f"{study_name}_recoded.parquet")
+        if data_io.exists(cf=cf, storage_location="cache", filename=f"{study_name}_recoded.parquet"):
             if verbose:
                 print(f"    Loading study recoded dataset from cache...", end=" ", flush=True)
             
@@ -464,13 +465,10 @@ def generate_unique_videos_to_scrape_and_annotate(
             #confirmed_cols = list(set(schema.names) & set(_build_agg_dict_to_generate_basic_video_stats()[1]))
             #print(study_dataset_cache_path)
 
-            study_dataset = pd_read_parquet(
-                study_dataset_cache_path, 
-                engine="pyarrow", 
-                dtype_backend="pyarrow")
-                # TODO: I run into some error trying to load a few columns
-                # I need to investigate and fix it 
-                #, columns=confirmed_cols)
+            study_dataset = data_io.load_parquet(
+                cf=cf, 
+                filename=f"{study_name}_recoded.parquet", 
+                storage_location="cache")
             if verbose:
                 print(f"Shape: {study_dataset.shape}")
         else:
@@ -488,7 +486,7 @@ def generate_unique_videos_to_scrape_and_annotate(
 
 
     if study_dataset is None:
-        print("    This process cannot run without a study dataset as input or in cache. Process failed.")
+        print("    This process cannot run without a study dataset. Process failed.")
         return None
 
     study_dataset_small = study_dataset[["item_id","S_video_duration","annotated_ok","annotated_fail","scraped_ok","scraped_fail"]].copy()
@@ -513,8 +511,18 @@ def generate_unique_videos_to_scrape_and_annotate(
             print("  Saving datasets to cache...")
         selected_annotate_videos.attrs['study_name'] = study_name
         selected_scrape_videos.attrs['study_name'] = study_name
-        selected_annotate_videos.to_parquet(os_join(cf["paths"]["temp"], f"CACHE_{study_name}_unique_items_to_annotate.parquet"), engine='pyarrow')
-        selected_scrape_videos.to_parquet(os_join(cf["paths"]["temp"], f"CACHE_{study_name}_unique_items_to_scrape.parquet"), engine='pyarrow')
+        data_io.save_parquet(
+            cf=cf,
+            df=selected_annotate_videos,
+            storage_location="cache",
+            filename=f"{study_name}_unique_items_to_annotate.parquet")
+        data_io.save_parquet(
+            cf=cf,
+            df=selected_scrape_videos,
+            storage_location="cache",
+            filename=f"{study_name}_unique_items_to_scrape.parquet")
+        #selected_annotate_videos.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_unique_items_to_annotate.parquet"), engine='pyarrow')
+        #selected_scrape_videos.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_unique_items_to_scrape.parquet"), engine='pyarrow')
         if verbose:
             print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
 
@@ -535,7 +543,7 @@ def check_unique_videos_to_scrape_and_annotate(
     ):
 
     from fyp.fyp_main import initialize
-    from os.path import exists as os_exists, join as os_join
+    #from os.path import exists as os_exists, join as os_join
 
 
     print(f"Checking unique videos to scrape and annotate...")
@@ -783,7 +791,7 @@ def _combine_all_logs(
 
 
 
-def _merge_all_study_datasets(
+"""def _merge_all_study_datasets(
     cf = None,
     study_name = None,
     all_datasets = None,   
@@ -794,8 +802,9 @@ def _merge_all_study_datasets(
 
     from pandas import merge, to_datetime, Series
     from fyp.scrape import load_failed_scrapes
-    from os.path import join as os_join
+    #from os.path import join as os_join
     from datetime import datetime
+    import fyp.data_io as data_io
 
 
     print(f"Merging all datasets...")
@@ -854,14 +863,14 @@ def _merge_all_study_datasets(
         if verbose:
             print("  Saving datasets to cache...")
         outdata.attrs['study_name'] = study_name
-        outdata.to_parquet(os_join(cf["paths"]["temp"], f"CACHE_{study_name}_main.parquet"), engine='pyarrow')
+        outdata.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_main.parquet"), engine='pyarrow')
         if verbose:
             print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
 
 
     print(f"...done. Merged all datasets. Shape: {outdata.shape}")
 
-    return outdata
+    return outdata"""
 
 
 
@@ -875,7 +884,8 @@ def new_merge(
     from pandas import merge, DataFrame, to_datetime, concat, NA as pd_NA
     from fyp.scrape import load_failed_scrapes
     from datetime import datetime
-    from os.path import join as os_join
+    import fyp.data_io as data_io
+    #from os.path import join as os_join
 
     print(f"Merging all datasets...")
 
@@ -940,7 +950,12 @@ def new_merge(
         if verbose:
             print("  Saving datasets to cache...")
         shebang.attrs['study_name'] = study_name
-        shebang.to_parquet(os_join(cf["paths"]["temp"], f"CACHE_{study_name}_recoded.parquet"), engine='pyarrow')
+        data_io.save_parquet(
+            cf=cf,
+            df=shebang,
+            storage_location="cache",
+            filename=f"{study_name}_recoded.parquet")
+        #shebang.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_recoded.parquet"), engine='pyarrow')
         if verbose:
             print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
 

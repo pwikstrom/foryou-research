@@ -553,9 +553,10 @@ def download_videos_loop(
     from fyp.organize_datasets import select_videos_from_study_dataset, create_study_recoded_dataset
     from fyp.fyp_main import initialize, connect_to_google, chunk_list
     from os import environ
-    from os.path import join as os_join
-    from os.path import exists as os_exists
-    from pandas import read_parquet as pd_read_parquet
+    import fyp.data_io as data_io
+    #from os.path import join as os_join
+    #from os.path import exists as os_exists
+    #from pandas import read_parquet as pd_read_parquet
     from numpy import inf as np_inf
 
     max_batches = max_batches if max_batches is not None else np_inf
@@ -568,11 +569,20 @@ def download_videos_loop(
         cf = initialize()
 
     if load_from_cache and study_name is not None:
-        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_recoded.parquet")
-        if os_exists(study_dataset_cache_path):
+        if data_io.exists(
+            cf=cf,
+            storage_location="cache",
+            filename=f"{study_name}_recoded.parquet",
+            verbose=verbose
+            ):
             if verbose:
                 print("    Loading study dataset from cache", end=" ", flush=True)
-            study_dataset = pd_read_parquet(study_dataset_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+            study_dataset = data_io.load_parquet(
+                cf=cf,
+                storage_location="cache",
+                filename=f"{study_name}_recoded.parquet",
+                verbose=verbose
+                )
             print(study_dataset.attrs['study_name'])
             if verbose:
                 print(f"  |  Shape: {study_dataset.shape}")
@@ -589,7 +599,7 @@ def download_videos_loop(
 
 
     if study_dataset is None:
-        print("    ERROR: This process cannot run without a study dataset as input or in cache. Process failed.")
+        print("    ERROR: This process cannot run without a study dataset. Process failed.")
         return None
 
     print(f"    Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")

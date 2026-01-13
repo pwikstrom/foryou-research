@@ -1176,21 +1176,22 @@ def recode_events_df(
     cf = None,
     study_name = None,
     study_dataset = None,
-    load_from_cache = True,
-    save_to_cache = True,
+    load_from_cache = False, # not used - always False
+    save_to_cache = False, # not used - always False
     verbose = False
     ):
 
-    import pandas as pd
-    from os.path import join as os_join, exists as os_exists
+    #import pandas as pd
+    #from os.path import join as os_join, exists as os_exists
     from datetime import datetime
     from copy import copy
     from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
     from numpy import int64, float64
-    from pandas import read_parquet as pd_read_parquet
+    #from pandas import read_parquet as pd_read_parquet
     from fyp.organize_datasets import create_study_recoded_dataset
     from fyp.recode_variables import get_factors_and_features_from_var_schema
+    import fyp.data_io as data_io
 
 
     print(f"Recoding variables, implementing missing data policy and a whole range of other things...")
@@ -1202,12 +1203,22 @@ def recode_events_df(
     if cf is None:
         cf = initialize()
 
-    if load_from_cache and study_name is not None:
-        study_dataset_cache_path = os_join(cf['paths']['temp'], f"CACHE_{study_name}_main.parquet")
-        if os_exists(study_dataset_cache_path):
+    # This thing now only works with a study dataset as input
+    # It is not used in the web interface but only in the offline data prep
+    # TODO it also needs to be rebuilt when refactoring the entire data prep pipeline
+    """if load_from_cache and study_name is not None:
+        if data_io.exists(
+            cf=cf,
+            storage_location="cache",
+            filename=f"{study_name}_main.parquet",
+            ):
             if verbose:
                 print(f"    Loading study main dataset from cache...", end=" ", flush=True)
-            study_dataset = pd_read_parquet(study_dataset_cache_path, engine="pyarrow", dtype_backend="pyarrow")
+            study_dataset = data_io.load_parquet(
+                cf=cf,
+                storage_location="cache",
+                filename=f"{study_name}_main.parquet",
+                )
             if verbose:
                 print(f"Shape: {study_dataset.shape}")
         else:
@@ -1219,7 +1230,7 @@ def recode_events_df(
                 save_to_cache = True,
                 verbose = verbose
             )
-            print("@@ I'm back after having created the unified study dataset. I will now resume the recoding process.")
+            print("@@ I'm back after having created the unified study dataset. I will now resume the recoding process.")"""
 
 
     if study_dataset is None:
@@ -1433,12 +1444,12 @@ def recode_events_df(
 
     cool_events = cool_events[sorted(cool_events.columns)]
 
-    if save_to_cache and study_name is not None:
-        recoded_filename = f"CACHE_{study_name}_recoded.parquet"
+    """if save_to_cache and study_name is not None:
+        recoded_filename = f"{study_name}_recoded.parquet"
         cool_events.attrs['study_name'] = study_name
-        cool_events.to_parquet(os_join(cf['paths']['temp'], recoded_filename), engine="pyarrow")
+        cool_events.to_parquet(os_join(cf['paths']['cache'], recoded_filename), engine="pyarrow")
         if verbose:
-            print(f"    Saved dataset to '{recoded_filename}'. Shape: {cool_events.shape}")
+            print(f"    Saved dataset to '{recoded_filename}'. Shape: {cool_events.shape}")"""
     
     print(f"...done recoding variables at {datetime.now()}")
 

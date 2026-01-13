@@ -31,7 +31,7 @@ def _resolve_paths(cf, storage_location, filename):
     from os.path import join, basename
     from fyp.fyp_main import connect_to_google
     
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+    if (cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None) or (storage_location == 'cache' and cf['data_io']['use_gcs_for_cache'] and cf['data_io']['bucket'] is None):
         cf = connect_to_google(cf)
 
     
@@ -41,7 +41,11 @@ def _resolve_paths(cf, storage_location, filename):
         raise ValueError(f"Invalid storage location: '{storage_location}'. Use: {valid_locs}")
 
     # 2. Check GCS Configuration
-    use_gcs = cf['data_io']['use_gcs_for_data']
+    if storage_location == 'cache':
+        use_gcs = cf['data_io']['use_gcs_for_cache']
+    else:
+        use_gcs = cf['data_io']['use_gcs_for_data']
+    
     gcs_base = cf['gcs_paths'][storage_location]
     bucket_name = cf['data_io']['GCS_bucket_name']
     
@@ -51,7 +55,6 @@ def _resolve_paths(cf, storage_location, filename):
             raise ValueError("GCS bucket name not found in config")
              
         # Construct Blob Name
-        # CAUTION: filename can only be: [basename].parquet
         blob_name = f"{gcs_base}/{filename}"
         blob_name = blob_name.replace("//", "/")
         gcs_uri = f"gs://{bucket_name}/{blob_name}"
@@ -74,6 +77,33 @@ def _get_bucket(cf):
 
 
 
+
+def find_key_value_in_pq_metadata(
+    cf,
+    storage_location,
+    filename,
+    the_key
+    ):
+    from pyarrow.parquet import read_metadata as pq_read_metadata
+    from json import loads as json_loads
+
+    meta = pq_read_metadata(_resolve_paths(cf, storage_location, filename)[0])
+    file_metadata_dict = meta.metadata  # This is a dictionary of {bytes: bytes}
+
+    for k in file_metadata_dict:
+        try:
+            some_dict = json_loads(file_metadata_dict[k].decode('utf-8'))
+            if some_dict.get(the_key,None) is not None:
+                return some_dict.get(the_key)
+        except:
+            pass
+    return None
+
+
+
+
+
+
 def exists(cf, storage_location, filename, verbose=False) -> bool:
     """
     Check if the file filename exists in the given storage location.
@@ -81,10 +111,11 @@ def exists(cf, storage_location, filename, verbose=False) -> bool:
     """
     from os.path import exists as local_exists
     from fyp.fyp_main import connect_to_google
-    
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
+
+    if (cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None) or (storage_location == 'cache' and cf['data_io']['use_gcs_for_cache'] and cf['data_io']['bucket'] is None):
+        cf = connect_to_google(cf)
+    
     
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
     #if verbose: 
@@ -249,15 +280,15 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
     from os.path import join
     from fyp.fyp_main import connect_to_google
     
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+    # I can't use _resolve_paths directly for the dir itself because _resolve_paths expects a filename
+
+    if (cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None) or (storage_location == 'cache' and cf['data_io']['use_gcs_for_cache'] and cf['data_io']['bucket'] is None):
         cf = connect_to_google(cf)
-
-
-
-    # We can't use _resolve_paths directly for the dir itself because _resolve_paths expects a filename
-    # But we can reuse the logic key parts.
     
-    use_gcs = cf['data_io']['use_gcs_for_data']
+    if storage_location == 'cache':
+        use_gcs = cf['data_io']['use_gcs_for_cache']
+    else:
+        use_gcs = cf['data_io']['use_gcs_for_data']
     gcs_base = cf['gcs_paths'][storage_location]
     
     files = []
@@ -621,8 +652,11 @@ def load_parquet(
 
 
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
-
+# Create a global lock object
+file_lock = threading.Lock()
 
 def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = False):
     """
@@ -668,15 +702,42 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
         print(f"    [DATA_IO] Saving '{filename}' to '{storage_location}' ({mode})...")
 
     if total_memory_mb > 100:
-        this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=7)
+        my_compression_level = 7
     elif total_memory_mb > 10:
-        this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=5)
+        my_compression_level = 5
     elif total_memory_mb > 1:
-        this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=3)
+        my_compression_level = 3
     else:
-        this_df.to_parquet(primary, engine='pyarrow')
+        my_compression_level = 0
     
-    if verbose: print(f"    [DATA_IO] ...done. Shape: {this_df.shape}")
+    if storage_location == "cache":
+        def alert_finished(future):
+            if future.exception():
+                if verbose:
+                    print(f"   [DATA_IO ASYNC] Parquet save failed: {future.exception()}")
+            else:
+                if verbose:
+                    print("    [DATA_IO ASYNC] Parquet save succeeded.")
+                    
+        def safe_save(df, path):
+            # This 'with' block ensures only one thread can execute the save at a time
+            with file_lock:
+                if verbose:
+                    print(f"    [DATA_IO ASYNC] Starting save to {path}... (locked)")
+                df.to_parquet(path, engine='pyarrow', compression="zstd", compression_level=my_compression_level)
+                if verbose:
+                    print(f"    [DATA_IO ASYNC] Finished save to {path}. (unlocked)")
+
+        executor = ThreadPoolExecutor(max_workers=2)
+
+        future = executor.submit(safe_save, this_df.copy(), primary)
+        future.add_done_callback(alert_finished)
+
+    else:
+        this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=my_compression_level)
+    
+    
+    if verbose: print(f"    [DATA_IO] ...moving on. Shape: {this_df.shape}")
     
     return this_df
 

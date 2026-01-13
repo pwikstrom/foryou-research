@@ -3,20 +3,30 @@ import ast
 import numpy as np
 import fyp.data_io as data_io
 
-def load_data(fyp_cf, study, verbose=False):
+
+
+
+
+def load_data_old(fyp_cf, study, verbose=False):
     from numpy import ndarray as np_ndarray
-    from pandas import read_parquet as pd_read_parquet
-    from os.path import join as os_join, exists as os_exists
+    #from pandas import read_parquet as pd_read_parquet
+    #from os.path import join as os_join, exists as os_exists
     from fyp.organize_datasets import create_study_recoded_dataset
 
     df = None
-    recoded_cache_path = os_join(fyp_cf['paths']['temp'], f"CACHE_{study}_recoded.parquet")
-    if os_exists(recoded_cache_path):
-        if verbose:
-            print("    Loading recoded events from cache", end=" ", flush=True)
-        df = pd_read_parquet(recoded_cache_path, engine="pyarrow", dtype_backend="pyarrow")
-        if verbose:
-            print(f"  |  {len(df):,} rows")
+    #recoded_cache_path = os_join(fyp_cf['paths']['cache'], f"{study}_recoded.parquet")
+    if data_io.exists(
+        cf=fyp_cf,
+        storage_location = "cache",
+        filename = f"{study}_recoded.parquet",
+        verbose=verbose
+        ):
+        df = data_io.load_parquet(
+            cf=fyp_cf,
+            storage_location="cache",
+            filename=f"{study}_recoded.parquet",
+            verbose=verbose,
+            )
     else:
         print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
         df = create_study_recoded_dataset(
@@ -29,9 +39,8 @@ def load_data(fyp_cf, study, verbose=False):
         print("@@ Back after finalising the recoding process. I will now resume loading the data.")
 
     if df is None:
-        print("    ERROR: This process cannot run without a study dataset as input or in cache. Process failed.")
+        print("    ERROR: This process cannot run without a study dataset. Process failed.")
         return None, {}
-
 
     column_types = {}
 
@@ -95,7 +104,11 @@ def load_data(fyp_cf, study, verbose=False):
             else:
                 column_types[col] = "category"
 
+
     return df, column_types
+
+
+
 
 
 def get_robust_bounds(series):
@@ -117,12 +130,18 @@ def get_robust_bounds(series):
     return float(low), float(high)
 
 
+
+
+
 def get_metadata(df, column_types):
     """
     Returns metadata for frontend:
     - columns: { name: type }
     - stats: min/max for numbers, unique values for categories, null_counts
     """
+    from datetime import datetime
+    t1 = datetime.now()
+    print("&&&&& doing the metadata thing", t1)
     from numpy import ndarray as np_ndarray
     metadata = {}
     for col, dtype in column_types.items():
@@ -184,8 +203,12 @@ def get_metadata(df, column_types):
         # Explicitly ignore long_text and identifier
         elif dtype in ["long_text", "identifier"]:
             continue
-            
+    
+    print(f"&&&&& done with the metadata thing. Time: {datetime.now()-t1}")
     return metadata
+
+
+
 
 
 def filter_dataframe(df, column_types, filters, search_query=None):
@@ -272,6 +295,9 @@ def filter_dataframe(df, column_types, filters, search_query=None):
     return filtered_df
 
 
+
+
+
 def calculate_adaptive_histogram(data, min_val, max_val, bins=50, max_empty_ratio=0.1):
     """
     Recursively reduces bin count if too many bins are empty.
@@ -294,7 +320,11 @@ def calculate_adaptive_histogram(data, min_val, max_val, bins=50, max_empty_rati
     return counts, bin_centers
 
 
-def get_current_stats(df, column_types, viz_config=None):
+
+
+
+
+def get_current_stats_old(df, column_types, viz_config=None):
     from pandas import set_option
     from numpy import ndarray as np_ndarray
     set_option('future.no_silent_downcasting', True)
@@ -520,5 +550,294 @@ def get_current_stats(df, column_types, viz_config=None):
                 f.write(f"{k}: Type={v.get('type', 'Category')}, Mean={v.get('mean')}, Error={v == {}}\n")
     except:
         pass"""
+
+    return {"count": count, "stats": stats}
+
+
+
+
+
+def load_data(fyp_cf, study, verbose=False):
+    from numpy import ndarray as np_ndarray
+    #from pandas import read_parquet as pd_read_parquet
+    #from os.path import join as os_join, exists as os_exists
+    from fyp.organize_datasets import create_study_recoded_dataset
+    print("Running Optimized Load Data")
+    df = None
+    #recoded_cache_path = os_join(fyp_cf['paths']['cache'], f"{study}_recoded.parquet")
+    if data_io.exists(
+        cf=fyp_cf,
+        storage_location = "cache",
+        filename = f"{study}_recoded.parquet",
+        verbose=verbose
+        ):
+        df = data_io.load_parquet(
+            cf=fyp_cf,
+            storage_location="cache",
+            filename=f"{study}_recoded.parquet",
+            verbose=verbose,
+            )
+    else:
+        print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
+        df = create_study_recoded_dataset(
+            cf = fyp_cf,
+            study_name = study,
+            load_from_cache = True,
+            save_to_cache = True,
+            verbose = verbose
+        )
+        print("@@ Back after finalising the recoding process. I will now resume loading the data.")
+
+    if df is None:
+        print("    ERROR: This process cannot run without a study dataset. Process failed.")
+        return None, {}
+    
+    
+    column_types = {}
+    
+    # Bulk type inspection
+    for col in df.columns:
+        dtype = df[col].dtype
+        is_list = False
+        is_numeric = pd.api.types.is_numeric_dtype(dtype)
+        
+        if not is_numeric:
+            # Check for actual lists
+            if isinstance(dtype, pd.ArrowDtype) and 'list' in str(dtype):
+                 is_list = True
+            
+            if not is_list:
+                # Heuristic: Check first valid value
+                first_idx = df[col].first_valid_index()
+                if first_idx is not None:
+                    first_val = df[col].loc[first_idx]
+                    if isinstance(first_val, (list, np_ndarray)):
+                        is_list = True
+                    elif isinstance(first_val, str):
+                        s_val = first_val.strip()
+                        if s_val.startswith('[') and s_val.endswith(']'):
+                           try: 
+                               # Convert to object to use python apply? or string accessor?
+                               # Only apply if it actually looks like a list
+                               df[col] = df[col].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) and x.strip().startswith('[') else (x if isinstance(x, (list, np_ndarray)) else []))
+                               is_list = True
+                           except:
+                               pass
+
+        if is_list:
+            column_types[col] = "list"
+            continue
+
+        if is_numeric:
+             try:
+                 max_val = df[col].max()
+                 if pd.isna(max_val): 
+                     column_types[col] = "number" 
+                 elif max_val > 1e15:
+                     column_types[col] = "identifier"
+                 else:
+                     column_types[col] = "number"
+             except:
+                 column_types[col] = "number"
+             continue
+        
+        # Check for Long Text / Category / Identifier
+        series_sample = df[col].dropna()
+        if len(series_sample) > 1000:
+            series_sample = series_sample.head(1000)
+            
+        series_sample = series_sample[series_sample != "oThEr tHiNgS-+-"]
+        
+        if series_sample.empty:
+            column_types[col] = "category"
+            continue
+            
+        lengths = series_sample.astype(str).str.len()
+        lengths = lengths[lengths > 0]
+        
+        if not lengths.empty and lengths.mean() > 60:
+             column_types[col] = "long_text"
+        else:
+             n_rows = len(df[col].dropna()) 
+             if n_rows > 100:
+                 n_unique = df[col].nunique()
+                 if n_unique > 0.9 * n_rows:
+                     column_types[col] = "identifier"
+                 else:
+                     column_types[col] = "category"
+             else:
+                 column_types[col] = "category"
+    
+    return df, column_types
+
+
+
+
+
+def get_current_stats(df, column_types, viz_config=None):
+    from pandas import set_option
+    from numpy import ndarray as np_ndarray
+    from datetime import datetime
+    set_option('future.no_silent_downcasting', True)
+    t1 = datetime.now()
+    print("Doing the stats thing", len(df), t1)
+
+    count = len(df)
+    stats = {}
+    if viz_config is None: viz_config = {}
+
+    if count == 0:
+        return {"count": 0, "stats": {}}
+
+    for col, dtype in column_types.items():
+        if dtype == "number":
+             col_data = df[col]
+             
+             if pd.api.types.is_integer_dtype(col_data):
+                  if col_data.nunique() < 20: 
+                      vc = col_data.value_counts().sort_index().to_dict()
+                      stats[col] = {str(k): v for k, v in vc.items()}
+                      continue
+
+             series = col_data.dropna()
+             series = series[series >= 0]
+             
+             if series.empty:
+                 stats[col] = {"type": "density", "x": [], "y": []}
+                 continue
+             
+             count_val = len(series)
+             mean_val = float(series.mean())
+             std_val = float(series.std())
+             min_val = float(series.min())
+             max_val = float(series.max())
+             
+             transform = "linear"
+             use_log = False
+             if col in viz_config and viz_config[col].get('log'):
+                 use_log = True
+             if use_log: transform = "log10"
+             
+             clamped_series = series
+
+             try:
+                 if min_val == max_val:
+                     x_val = np.log10(min_val + 1) if transform == "log10" else min_val
+                     stats[col] = {
+                        "type": "density",
+                        "x": [float(x_val)],
+                        "y": [float(count_val)],
+                        "transform": transform,
+                        "min": min_val,
+                        "max": max_val,
+                        "mean": mean_val,
+                        "std": std_val,
+                        "count": count_val
+                    }
+                     continue
+
+                 bins_arg = 10 
+                 adaptive = True
+                 if col in viz_config and viz_config[col].get('bins') is not None:
+                      bins_arg = viz_config[col]['bins']
+                      adaptive = False
+                 
+                 if transform == "log10":
+                     # Log Transform
+                     if isinstance(clamped_series.dtype, pd.ArrowDtype):
+                         log_data = np.log10(clamped_series.to_numpy() + 1)
+                     else:
+                         log_data = np.log10(clamped_series + 1)
+                         
+                     log_min = np.log10(min_val + 1)
+                     log_max = np.log10(max_val + 1)
+                     
+                     if adaptive and isinstance(bins_arg, int):
+                          counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max, bins=bins_arg)
+                     else:
+                          chosen_bins = bins_arg
+                          if isinstance(chosen_bins, (list, np_ndarray)):
+                              chosen_bins = [np.log10(b + 1) for b in chosen_bins]
+                          
+                          counts, bin_edges = np.histogram(log_data, bins=chosen_bins, range=(log_min, log_max) if isinstance(chosen_bins, int) else None, density=True)
+                          bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                     
+                     tick_vals = []
+                     tick_text = []
+                     if 0 >= min_val and 0 <= max_val:
+                        tick_vals.append(np.log10(1))
+                        tick_text.append("0")
+                     p = 0
+                     while True:
+                        v = 10**p
+                        if v > max_val: break
+                        if v >= min_val:
+                            tick_vals.append(np.log10(v + 1))
+                            tick_text.append(f"{v:,}")
+                        p += 1
+                     
+                     stats[col] = {
+                        "type": "density",
+                        "x": bin_centers.tolist(),
+                        "y": counts.tolist(),
+                        "transform": transform,
+                        "min": min_val,
+                        "max": max_val,
+                        "tick_vals": tick_vals,
+                        "tick_text": tick_text,
+                        "mean": mean_val,
+                        "std": std_val,
+                        "count": count_val
+                     }
+                 
+                 else:
+                     arr_data = clamped_series.to_numpy()
+                     
+                     if adaptive and isinstance(bins_arg, int):
+                         counts, bin_centers = calculate_adaptive_histogram(arr_data, min_val, max_val, bins=bins_arg)
+                     else:
+                         counts, bin_edges = np.histogram(arr_data, bins=bins_arg, range=(min_val, max_val) if isinstance(bins_arg, int) else None, density=True)
+                         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                         
+                     stats[col] = {
+                        "type": "density",
+                        "x": bin_centers.tolist(),
+                        "y": counts.tolist(),
+                        "transform": transform,
+                        "min": min_val,
+                        "max": max_val,
+                        "mean": mean_val,
+                        "std": std_val,
+                        "count": count_val
+                     }
+             
+             except Exception as e:
+                 print(f"Error stats {col}: {e}")
+                 stats[col] = {}
+
+        elif dtype == "category":
+            vc = df[col].value_counts().head(20).to_dict()
+            stats[col] = vc
+
+        elif dtype == "list":
+             if isinstance(df[col].dtype, pd.ArrowDtype) and 'list' in str(df[col].dtype):
+                  try:
+                      exploded = df[col].explode().dropna()
+                      vc = exploded.value_counts().head(20).to_dict()
+                      stats[col] = vc
+                      continue
+                  except:
+                      pass
+             
+             all_items = []
+             s = df[col].dropna()
+             for row in s:
+                  if isinstance(row, (list, np_ndarray)):
+                      all_items.extend(row)
+             from collections import Counter
+             stats[col] = dict(Counter(all_items).most_common(20))
+
+    print(f"done with the stats thing. Time: {datetime.now()-t1}")
+
 
     return {"count": count, "stats": stats}
