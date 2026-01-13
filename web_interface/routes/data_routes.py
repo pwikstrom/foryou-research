@@ -43,6 +43,9 @@ def api_get_study_defs():
     return jsonify([])
 
 
+
+
+
 @data_bp.route('/api/explorer/metadata', methods=['GET'])
 @login_required
 def api_explorer_metadata():
@@ -53,28 +56,24 @@ def api_explorer_metadata():
     if not study:
         return jsonify({"error": "No study specified"}), 400
 
-    print("awesome")
-
-    df, col_types = get_explorer_data(study)
-
- 
     context = request.args.get('context', 'explorer')
 
- 
-    if context == 'viewer':
+    df, col_types = get_explorer_data(study, context=context)
+  
+    """if context == 'viewer':
          df = df[df.scraped_ok].copy()
          print(f"    Filtered to {len(df):,} scraped events")
     else:
          df = df[df.annotated_ok].copy()
-         print(f"    Filtered to {len(df):,} annotated events")
+         print(f"    Filtered to {len(df):,} annotated events")"""
 
  
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
  
-    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study}_explorer_metadata.json"):
-        metadata = data_io.load_json(cf=fyp_cf, storage_location="cache", filename=f"{study}_explorer_metadata.json")
+    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study}_{context}_metadata.json"):
+        metadata = data_io.load_json(cf=fyp_cf, storage_location="cache", filename=f"{study}_{context}_metadata.json")
         print(f"    Using cached metadata for {study}")
         return jsonify(make_serializable(metadata))
 
@@ -149,9 +148,12 @@ def api_explorer_metadata():
         metadata['filter_priority'] = []
         metadata['schema_map'] = {}
 
-    data_io.save_json(cf=fyp_cf, data=make_serializable(metadata), storage_location="cache", filename=f"{study}_explorer_metadata.json", verbose=True)
+    data_io.save_json(cf=fyp_cf, data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=True)
 
     return jsonify(make_serializable(metadata))
+
+
+
 
 
 @data_bp.route('/api/explorer/filter', methods=['POST'])
@@ -162,13 +164,13 @@ def api_explorer_filter():
     
     if not study:
          return jsonify({"error": "No study specified"}), 400
-    print("tjolahopp")
-    df, col_types = get_explorer_data(study)
+
+    df, col_types = get_explorer_data(study, context="explorer")
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
 
-    df = df[df.annotated_ok].copy()
-    print(f"    Filtered to {len(df):,} annotated events")
+    """df = df[df.annotated_ok].copy()
+    print(f"    Filtered to {len(df):,} annotated events")"""
 
     filters = data.get("filters", {})
     search_query = data.get("search_query")
@@ -237,21 +239,24 @@ def api_explorer_filter():
     return jsonify(make_serializable(result))
 
 
+
+
+
 @data_bp.route('/api/viewer/ids', methods=['POST'])
 @login_required
 def api_viewer_ids():
     data = request.json or {}
     study = data.get("study")
-    
+
     if not study:
          return jsonify({"error": "No study specified"}), 400
 
-    df, col_types = get_explorer_data(study)
+    df, col_types = get_explorer_data(study, context="viewer")
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
-    df = df[df.scraped_ok].copy()
-    print(f"    Filtered to {len(df):,} scraped events")
+    """df = df[df.scraped_ok].copy()
+    print(f"    Filtered to {len(df):,} scraped events")"""
 
     filters = data.get("filters", {})
     search_query = data.get("search_query")
@@ -278,7 +283,11 @@ def api_viewer_ids():
         else: return jsonify({"error": "No ID column found"}), 500
     
     ids = filtered_df[id_col].astype(str).tolist()
+
     return jsonify({"ids": ids, "count": len(ids)})
+
+
+
 
 
 @data_bp.route('/api/pca/metadata', methods=['POST'])
@@ -457,12 +466,14 @@ def api_persona_stats():
 
 @data_bp.route('/api/viewer/item/<study>/<item_id>', methods=['GET'])
 def api_viewer_item(study, item_id):
-    df, col_types = get_explorer_data(study)
+
+
+    df, col_types = get_explorer_data(study, context="viewer")
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
-    df = df[df.scraped_ok].copy()
-    print(f"    Filtered to {len(df):,} scraped events")
+    """df = df[df.scraped_ok].copy()
+    print(f"    Filtered to {len(df):,} scraped events")"""
 
     id_col = 'item_id'
     if id_col not in df.columns:

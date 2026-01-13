@@ -31,12 +31,12 @@ study_cache = StudyCache(maxsize=2)
 
 
 
-def get_explorer_data(study):
+def get_explorer_data(study, context = None):
     from datetime import datetime
     # Check cache (First Check)
     cached = study_cache.get(study)
     if cached:
-        print(f"    Study {study} found in cache. Accessing {len(cached['df']):,} rows")
+        print(f"    Study {study} found in RAM cache. Accessing {len(cached['df']):,} rows")
         return cached['df'], cached['col_types']
 
     # Double-Checked Locking
@@ -48,12 +48,22 @@ def get_explorer_data(study):
         # Check cache again (Second Check)
         cached = study_cache.get(study)
         if cached:
-            print(f"    Study {study} found in cache (after lock). Accessing {len(cached['df']):,} rows")
+            print(f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows")
             return cached['df'], cached['col_types']
             
         print(f"    Loading study {study} from disk (with lock)...")
         # Resolve path
         explorer_df, explorer_col_types = explorer.load_data(fyp_cf, study, verbose=True)
+
+        if context == "viewer":
+            print(f"    Filtering for scraped_ok. Reducing rows from {len(explorer_df):,} to ", end="")
+            explorer_df = explorer_df[explorer_df.scraped_ok].copy()
+            print(f"{len(explorer_df):,}")
+        elif context == "explorer":
+            print(f"    Filtering for annotated_ok. Reducing rows from {len(explorer_df):,} to ", end="")
+            explorer_df = explorer_df[explorer_df.annotated_ok].copy()
+            print(f"{len(explorer_df):,}")
+
 
         if explorer_df is None:
             print(f"The requested recoded study dataset was not found")

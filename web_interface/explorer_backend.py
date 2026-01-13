@@ -141,7 +141,7 @@ def get_metadata(df, column_types):
     """
     from datetime import datetime
     t1 = datetime.now()
-    print("&&&&& doing the metadata thing", t1)
+    print("    Calculating things for viewer and explorer...")
     from numpy import ndarray as np_ndarray
     metadata = {}
     for col, dtype in column_types.items():
@@ -204,7 +204,7 @@ def get_metadata(df, column_types):
         elif dtype in ["long_text", "identifier"]:
             continue
     
-    print(f"&&&&& done with the metadata thing. Time: {datetime.now()-t1}")
+    print(f"    ...done calculating things for viewer and explorer. Time: {datetime.now()-t1}")
     return metadata
 
 
@@ -559,12 +559,11 @@ def get_current_stats_old(df, column_types, viz_config=None):
 
 def load_data(fyp_cf, study, verbose=False):
     from numpy import ndarray as np_ndarray
-    #from pandas import read_parquet as pd_read_parquet
-    #from os.path import join as os_join, exists as os_exists
     from fyp.organize_datasets import create_study_recoded_dataset
-    print("Running Optimized Load Data")
+
+    print("    Loading study data for viewer and explorer...")
     df = None
-    #recoded_cache_path = os_join(fyp_cf['paths']['cache'], f"{study}_recoded.parquet")
+
     if data_io.exists(
         cf=fyp_cf,
         storage_location = "cache",
@@ -680,7 +679,7 @@ def get_current_stats(df, column_types, viz_config=None):
     from datetime import datetime
     set_option('future.no_silent_downcasting', True)
     t1 = datetime.now()
-    print("Doing the stats thing", len(df), t1)
+    print("    Calculating stats for viewer and explorer...")
 
     count = len(df)
     stats = {}
@@ -837,7 +836,7 @@ def get_current_stats(df, column_types, viz_config=None):
              from collections import Counter
              stats[col] = dict(Counter(all_items).most_common(20))
 
-    print(f"done with the stats thing. Time: {datetime.now()-t1}")
+    print(f"    ...done calculating stats for viewer and explorer. Time: {datetime.now()-t1}")
 
 
     return {"count": count, "stats": stats}
