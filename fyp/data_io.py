@@ -664,6 +664,8 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
     Supports GCS direct write and Parallel Save (GCS + Local).
     """
 
+    verbose = True
+
     this_df = df.copy()
 
     from fyp.fyp_main import convert_dtypes_to_pyarrow, connect_to_google

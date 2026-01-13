@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request, Response, stream_with_context
-from flask_login import login_required
+from flask_login import login_required, current_user
 import os
 import pandas as pd
 import numpy as np
@@ -39,7 +39,42 @@ def api_explorer_studies():
 @login_required
 def api_get_study_defs():
     if 'study_defs' in fyp_cf:
-        return jsonify(sorted(list(fyp_cf['study_defs'].keys())))
+        studies = []
+        for study_name, study_config in fyp_cf['study_defs'].items():
+            # 1. Admin Override: Admins see everything
+            if current_user.is_admin():
+                studies.append(study_name)
+                continue
+
+            user_access = study_config.get('USER_ACCESS')
+
+            # 2. Missing or Empty => Default Allow (Backward Compatibility)
+            if not user_access:
+                studies.append(study_name)
+                continue
+
+            # Ensure it is a list for subsequent checks
+            if not isinstance(user_access, list):
+                # Should not happen given TOML encoding but safe fallback
+                studies.append(study_name)
+                continue
+
+            # 3. 'all' keyword
+            if 'all' in user_access:
+                studies.append(study_name)
+                continue
+
+            # 4. Role Match
+            if current_user.role in user_access:
+                studies.append(study_name)
+                continue
+
+            # 5. Username Match
+            if current_user.username in user_access:
+                studies.append(study_name)
+                continue
+                
+        return jsonify(sorted(studies))
     return jsonify([])
 
 

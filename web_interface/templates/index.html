@@ -17,39 +17,38 @@
 <div class="tab-nav">
     <button class="tab-button active" onclick="openTab(event, 'home')">Home</button>
 
+
     {% if user.can_access_research_features() %}
+    {% endif %}
+
+    {% if user.is_admin() %}
+    <button class="tab-button" onclick="openTab(event, 'dataset_explorer')">Dataset Explorer Basic</button>
+    <button class="tab-button" onclick="openTab(event, 'ingest_ndjson')">Ingest Zeeschuimer</button>
     <button class="tab-button" onclick="openTab(event, 'scrape_annotate')">Scrape & Annotate</button>
     <button class="tab-button" onclick="openTab(event, 'build_datasets')">Build Datasets</button>
     {% endif %}
 
-    <button class="tab-button" onclick="openTab(event, 'dataset_explorer')">Dataset Explorer</button>
-    <button class="tab-button" onclick="openTab(event, 'data_explorer_v2')">Data Explorer v2</button>
+    <button class="tab-button" onclick="openTab(event, 'persona_explorer')">Persona Explorer</button>
+    <button class="tab-button" onclick="openTab(event, 'data_explorer_v2')">Data Explorer</button>
     <button class="tab-button" onclick="openTab(event, 'video_viewer')">Video Viewer</button>
     <button class="tab-button" onclick="openTab(event, 'pca_viz')">PCA Viz</button>
 
-    {% if user.can_access_research_features() %}
-    <button class="tab-button" onclick="openTab(event, 'ingest_ndjson')">Ingest Zeeschuimer</button>
-    {% endif %}
-
-    <button class="tab-button" onclick="openTab(event, 'persona_explorer')">Persona Explorer</button>
-    <button class="tab-button" onclick="openTab(event, 'settings_tab_v2')">Settings</button>
-
     {% if user.is_admin() %}
-    <button class="tab-button"
-        onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
+    <button class="tab-button" onclick="openTab(event, 'settings_tab_v2')">Settings</button>
+    <button class="tab-button" onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
     {% endif %}
 </div>
 
 <div class="tab-content">
     {% include 'tabs/home.html' %}
+    {% include 'tabs/dataset_explorer.html' %}
+    {% include 'tabs/ingest_ndjson.html' %}
     {% include 'tabs/scrape_annotate.html' %}
     {% include 'tabs/build_datasets.html' %}
-    {% include 'tabs/dataset_explorer.html' %}
+    {% include 'tabs/persona_explorer.html' %}
     {% include 'tabs/data_explorer_v2.html' %}
     {% include 'tabs/video_viewer.html' %}
     {% include 'tabs/pca_viz.html' %}
-    {% include 'tabs/ingest_ndjson.html' %}
-    {% include 'tabs/persona_explorer.html' %}
     {% include 'tabs/settings_v2.html' %}
 
     {% if user.is_admin() %}
