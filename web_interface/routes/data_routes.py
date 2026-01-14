@@ -18,6 +18,71 @@ data_bp = Blueprint('data_bp', __name__)
 LOCATION_CACHE_FILE = 'location_timezone_cache.json'
 PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
 
+
+def _load_schema_metadata(metadata):
+    """Helper to load and inject schema metadata (priorities, descriptions, accepted_labels) from CSV."""
+    try:
+        var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
+        if var_schema_path.exists():
+            scheme_df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+            
+            scheme_df['web_display_prio'] = pd.to_numeric(scheme_df['web_display_prio'], errors='coerce')
+            display_df = scheme_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')
+            metadata['display_priority'] = display_df['variable_name'].tolist()
+
+            if 'web_viz_prio' in scheme_df.columns:
+                scheme_df['web_viz_prio'] = pd.to_numeric(scheme_df['web_viz_prio'], errors='coerce')
+                viz_df = scheme_df.dropna(subset=['web_viz_prio']).sort_values('web_viz_prio')
+                metadata['viz_priority'] = viz_df['variable_name'].tolist()
+            else:
+                 metadata['viz_priority'] = []
+            
+            if 'web_filter_prio' in scheme_df.columns:  
+                scheme_df['web_filter_prio'] = pd.to_numeric(scheme_df['web_filter_prio'], errors='coerce')
+                filter_df = scheme_df.dropna(subset=['web_filter_prio']).sort_values('web_filter_prio')
+                metadata['filter_priority'] = filter_df['variable_name'].tolist()
+            else:
+                metadata['filter_priority'] = []
+
+            if 'section' not in scheme_df.columns:
+                scheme_df['section'] = 'General'
+            if 'description' not in scheme_df.columns:
+                scheme_df['description'] = ''
+            
+            scheme_df['section'] = scheme_df['section'].fillna('General')
+            scheme_df['description'] = scheme_df['description'].fillna('')
+            
+            schema_map = {}
+            for _, row in scheme_df.iterrows():
+                var_name = row['variable_name']
+                schema_map[var_name] = {
+                    "section": str(row['section']),
+                    "description": str(row['description'])
+                }
+                
+                # Parse Accepted Labels for Closed Coding
+                if 'accepted_labels' in row:
+                    accepted = str(row['accepted_labels'])
+                    if accepted and accepted.lower() != 'nan' and accepted.startswith('[') and accepted.endswith(']'):
+                        content = accepted[1:-1]
+                        if content.strip():
+                            labels = [x.strip() for x in content.split(',')]
+                            schema_map[var_name]['accepted_labels'] = labels
+            metadata['schema_map'] = schema_map
+                
+        else:
+            # Only reset if keys missing? Or always reset? 
+            # If CSV missing, we might want to keep existing if available?
+            # But here we assume CSV is source of truth.
+            metadata['display_priority'] = []
+            metadata['filter_priority'] = []
+            metadata['schema_map'] = {}
+    except Exception as e:
+        print(f"Error loading priority list: {e}")
+        # Don't overwrite with empty if error?
+        pass
+    return metadata
+
 @data_bp.route('/api/explorer/studies', methods=['GET'])
 @login_required
 def api_explorer_studies():
@@ -127,6 +192,9 @@ def api_explorer_metadata():
             if 'User Tags' in metadata['filter_priority']:
                 metadata['filter_priority'].remove('User Tags')
             metadata['filter_priority'].insert(0, 'User Tags')
+        
+        # Always refresh schema metadata (accepted_labels, priorities) from CSV
+        metadata = _load_schema_metadata(metadata)
 
         return jsonify(make_serializable(metadata))
 
@@ -157,55 +225,7 @@ def api_explorer_metadata():
         metadata['source_file'] = "Error"
         metadata['source_file_modified'] = ""
 
-    try:
-        var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
-        if var_schema_path.exists():
-            scheme_df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
-            
-            scheme_df['web_display_prio'] = pd.to_numeric(scheme_df['web_display_prio'], errors='coerce')
-            display_df = scheme_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')
-            metadata['display_priority'] = display_df['variable_name'].tolist()
-
-            if 'web_viz_prio' in scheme_df.columns:
-                scheme_df['web_viz_prio'] = pd.to_numeric(scheme_df['web_viz_prio'], errors='coerce')
-                viz_df = scheme_df.dropna(subset=['web_viz_prio']).sort_values('web_viz_prio')
-                metadata['viz_priority'] = viz_df['variable_name'].tolist()
-            else:
-                 metadata['viz_priority'] = []
-            
-            if 'web_filter_prio' in scheme_df.columns:  
-                scheme_df['web_filter_prio'] = pd.to_numeric(scheme_df['web_filter_prio'], errors='coerce')
-                filter_df = scheme_df.dropna(subset=['web_filter_prio']).sort_values('web_filter_prio')
-                metadata['filter_priority'] = filter_df['variable_name'].tolist()
-            else:
-                metadata['filter_priority'] = []
-
-            if 'section' not in scheme_df.columns:
-                scheme_df['section'] = 'General'
-            if 'description' not in scheme_df.columns:
-                scheme_df['description'] = ''
-            
-            scheme_df['section'] = scheme_df['section'].fillna('General')
-            scheme_df['description'] = scheme_df['description'].fillna('')
-            
-            schema_map = {}
-            for _, row in scheme_df.iterrows():
-                var_name = row['variable_name']
-                schema_map[var_name] = {
-                    "section": str(row['section']),
-                    "description": str(row['description'])
-                }
-            metadata['schema_map'] = schema_map
-                
-        else:
-            metadata['display_priority'] = []
-            metadata['filter_priority'] = []
-            metadata['schema_map'] = {}
-    except Exception as e:
-        print(f"Error loading priority list: {e}")
-        metadata['display_priority'] = []
-        metadata['filter_priority'] = []
-        metadata['schema_map'] = {}
+    metadata = _load_schema_metadata(metadata)
 
     data_io.save_json(cf=fyp_cf, data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=True)
 
@@ -394,9 +414,12 @@ def api_save_tags():
     item_id = str(data.get("item_id")) # Ensure string for consistency
     variable = data.get("variable")
     tags = data.get("tags") # List of tags
+    notes = data.get("notes") # Optional free text notes
+    closed_coding = data.get("closed_coding") # Optional closed coding value
     
     username = current_user.username
-    print(f"[TAGS] Saving tags for {username}: {item_id} / {variable} -> {tags}")
+    username = current_user.username
+    print(f"[TAGS] Saving tags for {username}: {item_id} / {variable} -> {tags} (Notes: {len(notes) if notes else 0} chars, CC: {closed_coding})")
 
     if not item_id or not variable:
         return jsonify({"error": "Missing required fields"}), 400
@@ -411,22 +434,43 @@ def api_save_tags():
     # Update structure (Global Item ID centric)
     if item_id not in user_data: user_data[item_id] = {}
     
+    # Save Tags
     user_data[item_id][variable] = tags
+    
+    # Save Notes (using suffix convention)
+    notes_key = f"{variable}__NOTES"
+    if notes and str(notes).strip():
+        user_data[item_id][notes_key] = str(notes).strip()
+    else:
+        # Remove if empty / deleted
+        if notes_key in user_data[item_id]:
+            del user_data[item_id][notes_key]
+            
+    # Save Closed Coding (using suffix convention)
+    cc_key = f"{variable}__CLOSED_CODING"
+    if closed_coding and str(closed_coding).strip():
+        user_data[item_id][cc_key] = str(closed_coding).strip()
+    else:
+        # Remove if empty / deleted
+        if cc_key in user_data[item_id]:
+             del user_data[item_id][cc_key]
     
     # Prune empty
     if not tags:
         # If variable exists, delete it
         if variable in user_data[item_id]:
             del user_data[item_id][variable]
-    
+            
+    # Check if item_id is now completely empty (no tags AND no notes)
+    # We need to check if there are ANY keys left in user_data[item_id]
     if not user_data[item_id]:
         del user_data[item_id]
         
     # Save
-    print(f"[TAGS] User data after update: {user_data}")
+    # print(f"[TAGS] User data after update: {user_data}")
     data_io.save_json(fyp_cf, user_data, "users", tag_filename)
     
-    return jsonify({"status": "success", "tags": tags})
+    return jsonify({"status": "success", "tags": tags, "notes": notes, "closed_coding": closed_coding})
 
 
 @data_bp.route('/api/viewer/tags/<path:tag_name>', methods=['DELETE'])
@@ -457,6 +501,10 @@ def api_delete_tag(tag_name):
     for item_id, item_vars in user_data.items():
         vars_to_prune = []
         for var, tags in item_vars.items():
+            # SKIP NOTES AND CLOSED CODING
+            if var.endswith("__NOTES") or var.endswith("__CLOSED_CODING"):
+                continue
+                
             if tag_name in tags:
                 tags.remove(tag_name)
                 modified = True
@@ -466,6 +514,7 @@ def api_delete_tag(tag_name):
         for var in vars_to_prune:
             del item_vars[var]
             
+        # Only prune item if it's completely empty (no tags AND no notes)
         if not item_vars:
             items_to_prune.append(item_id)
             

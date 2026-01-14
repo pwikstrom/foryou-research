@@ -593,10 +593,30 @@ function renderMetadata(item) {
                 tdKey.innerText = key;
             }
 
+            // Check for Notes
+            const notesKey = `${key}__NOTES`;
+            const itemNotes = viewerData.userTags[itemIdStr]?.[notesKey];
+
+            // Check for Closed Coding
+            const ccKey = `${key}__CLOSED_CODING`;
+            const itemCC = viewerData.userTags[itemIdStr]?.[ccKey];
+
+            // Marker for Notes (e.g. underline or little icon)
+            if (itemNotes || itemCC) {
+                tdKey.style.textDecoration = 'underline dotted #4CAF50';
+                if (!itemTags.length) tdKey.style.color = '#81C784'; // Lighter green if only notes/cc
+            }
+
             // Construct Tooltip (Tags + Description)
             let tooltipParts = [];
             if (itemTags.length > 0) {
                 tooltipParts.push(`Tags: ${itemTags.join(', ')}`);
+            }
+            if (itemCC) {
+                tooltipParts.push(`Closed Coding: ${itemCC}`);
+            }
+            if (itemNotes) {
+                tooltipParts.push(`Notes: ${itemNotes}`);
             }
             if (schemaMap[key] && schemaMap[key].description) {
                 tooltipParts.push(schemaMap[key].description);
@@ -741,8 +761,48 @@ function pauseViewerVideo() {
 // --- Tagging Logic ---
 function openTaggingModal(itemId, variable, currentTags) {
     viewerData.activeModal = { item_id: itemId, variable: variable, currentTags: [...currentTags] };
-    document.getElementById('tagging-modal-title').innerText = `Tags for ${variable}`;
+    document.getElementById('tagging-modal-title').innerText = `Tags and Notes for ${variable}`;
     document.getElementById('tagging-input').value = "";
+
+    // Load Notes
+    const notesKey = `${variable}__NOTES`;
+    const notes = viewerData.userTags[itemId]?.[notesKey] || "";
+    const notesArea = document.getElementById('tagging-notes');
+    if (notesArea) notesArea.value = notes;
+
+    // Closed Coding Setup
+    const ccContainer = document.getElementById('tagging-closed-coding-container');
+    const ccSelect = document.getElementById('tagging-closed-coding');
+
+    if (ccContainer && ccSelect) {
+        // Check metadata for accepted_labels
+        const schema = viewerData.metadata?.schema_map?.[variable];
+        const acceptedLabels = schema?.accepted_labels; // Array of strings if present
+
+        if (acceptedLabels && Array.isArray(acceptedLabels) && acceptedLabels.length > 0) {
+            ccContainer.style.display = 'block';
+            ccSelect.innerHTML = '<option value="" disabled selected>Select an option...</option>'; // Reset
+
+            acceptedLabels.forEach(label => {
+                const opt = document.createElement('option');
+                opt.value = label;
+                opt.innerText = label;
+                ccSelect.appendChild(opt);
+            });
+
+            // Set existing value if any
+            const ccKey = `${variable}__CLOSED_CODING`;
+            const existingCC = viewerData.userTags[itemId]?.[ccKey];
+            if (existingCC) {
+                ccSelect.value = existingCC;
+            } else {
+                ccSelect.selectedIndex = 0; // Select placeholder
+            }
+
+        } else {
+            ccContainer.style.display = 'none';
+        }
+    }
 
     // Calculate global available tags
     let allTags = new Set();
@@ -823,6 +883,18 @@ async function saveTaggingModal() {
         });
     }
 
+    // Get Notes
+    const notesInput = document.getElementById('tagging-notes');
+    const notesVal = notesInput ? notesInput.value : "";
+
+    // Get Closed Coding
+    const ccSelect = document.getElementById('tagging-closed-coding');
+    const ccContainer = document.getElementById('tagging-closed-coding-container');
+    let ccVal = null;
+    if (ccContainer && ccContainer.style.display !== 'none' && ccSelect) {
+        if (ccSelect.value) ccVal = ccSelect.value;
+    }
+
     const { item_id, variable, currentTags } = viewerData.activeModal;
     // console.log("Saving tags:", { study: viewerData.activeStudy, item_id, variable, tags: currentTags });
 
@@ -836,7 +908,9 @@ async function saveTaggingModal() {
                 study: viewerData.activeStudy, // Optional now
                 item_id: item_id,
                 variable: variable,
-                tags: currentTags
+                tags: currentTags,
+                notes: notesVal,
+                closed_coding: ccVal
             })
         });
 
@@ -844,6 +918,22 @@ async function saveTaggingModal() {
             // Update local state (Global structure)
             if (!viewerData.userTags[item_id]) viewerData.userTags[item_id] = {};
             viewerData.userTags[item_id][variable] = currentTags;
+
+            // Update local Notes state
+            const notesKey = `${variable}__NOTES`;
+            if (notesVal && notesVal.trim()) {
+                viewerData.userTags[item_id][notesKey] = notesVal.trim();
+            } else {
+                delete viewerData.userTags[item_id][notesKey];
+            }
+
+            // Update local Closed Coding state
+            const ccKey = `${variable}__CLOSED_CODING`;
+            if (ccVal) {
+                viewerData.userTags[item_id][ccKey] = ccVal;
+            } else {
+                delete viewerData.userTags[item_id][ccKey];
+            }
 
             loadViewerItem(viewerData.currentIndex); // Re-render
             closeTaggingModal();
