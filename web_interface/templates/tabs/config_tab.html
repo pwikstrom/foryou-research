@@ -1,4 +1,4 @@
-<div id="settings_tab_v2" class="tab-pane">
+<div id="config_tab" class="tab-pane">
 
     <div class="container" style="display: flex; gap: 20px; height: calc(100vh - 100px); min-height: 500px;">
         <!-- Left Sidebar: File Menu -->
@@ -7,9 +7,9 @@
             <h3
                 style="color: #9cdcfe; margin-top: 0; font-size: 1.1em; border-bottom: 1px solid #3e3e42; padding-bottom: 10px; margin-bottom: 10px;">
                 Configuration Files</h3>
-            <button class="settings-menu-btn" onclick="openSettingsFile('studies.toml')"
+            <button class="config-menu-btn" onclick="openConfigFile('studies.toml')"
                 style="text-align: left; background: none; border: none; color: #d4d4d4; padding: 8px; cursor: pointer; border-radius: 3px; font-family: inherit;">studies.toml</button>
-            <button class="settings-menu-btn" onclick="openSettingsFile('config.toml')"
+            <button class="config-menu-btn" onclick="openConfigFile('config.toml')"
                 style="text-align: left; background: none; border: none; color: #d4d4d4; padding: 8px; cursor: pointer; border-radius: 3px; font-family: inherit;">config.toml</button>
         </div>
 
@@ -18,15 +18,15 @@
             style="flex: 1; background: #252526; border: 1px solid #3e3e42; display: flex; flex-direction: column; padding: 10px;">
             <div class="header"
                 style="justify-content: space-between; display: flex; margin-bottom: 10px; align-items: center;">
-                <h2 id="settings-file-title" style="color: #9cdcfe; margin: 0;">studies.toml</h2>
+                <h2 id="config-file-title" style="color: #9cdcfe; margin: 0;">studies.toml</h2>
                 <div class="controls">
-                    <button class="btn-save" onclick="saveCurrentSettings()"
+                    <button class="btn-save" onclick="saveCurrentConfig()"
                         style="background: #ce9178; color: #1e1e1e; padding: 5px 15px; border: none; cursor: pointer; font-weight: bold; font-family: inherit;">Save
                         Changes</button>
                 </div>
             </div>
-            <textarea id="settings-editor-v2"
+            <textarea id="config-editor"
                 style="width: 100%; flex: 1; background: #1e1e1e; color: #d4d4d4; border: 1px solid #3e3e42; font-family: monospace; padding: 10px; resize: none; min-height: 300px; display: block;">Select a file from the menu...</textarea>
         </div>
     </div>
-</div> <!-- End of Settings V2 Tab -->
+</div> <!-- End of Config Tab -->

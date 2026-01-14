@@ -223,7 +223,8 @@ def initialize(
     cf["paths"]["recoded"] = join(cf["paths"]["local_data"], "recoded")
     cf["paths"]["exports"] = join(cf["paths"]["local_data"], "exports")
     cf["paths"]["archive"] = join(cf["paths"]["local_data"], "archive")
-    cf["paths"]["cache"] = join(cf["paths"]["local_data"], "cache")
+    cf["paths"]["users"] = join(cf["paths"]["local_data"], "users") 
+    cf["paths"]["cache"] = join(cf["paths"]["local_data"], "cache") 
     
     cf["paths"]["temp"] = "/tmp/fyp/"#join(cf["paths"]["local_temp"], "temp")
     makedirs(cf["paths"]["temp"], exist_ok=True)
@@ -366,7 +367,7 @@ def fix_complex_types(some_iterable, verbose=False):
 
     if verbose:
         tc_for_display = type_counts.to_dict()
-        tc_for_display = " | ".join([f"{a.split("'")[1].upper()}: {tc_for_display[a]}" for a in tc_for_display])           
+        tc_for_display = " | ".join([f"{a.split(chr(39))[1].upper()}: {tc_for_display[a]}" for a in tc_for_display])
         print("    [PYARROW dtypes - complex] Type counts:", tc_for_display)
 
     # check if there are dicts in the iterable - if yes, convert them to json strings
@@ -384,7 +385,7 @@ def fix_complex_types(some_iterable, verbose=False):
 
         if verbose:
             tc_for_display = type_counts.to_dict()
-            tc_for_display = " | ".join([f"{a.split("'")[1].upper()}: {tc_for_display[a]}" for a in tc_for_display])           
+            tc_for_display = " | ".join([f"{a.split(chr(39))[1].upper()}: {tc_for_display[a]}" for a in tc_for_display])
             print("    [PYARROW dtypes - complex] Type counts after dict conversion:", tc_for_display)
 
     # check if elements in lists in the iterable have a single type

@@ -34,6 +34,9 @@ window.onload = function () {
     // Load study definitions for dropdowns
     loadDefinedStudies();
 
+    // Load User Settings
+    loadUserSettings();
+
     // Listener for build study name change
     const buildStudySelect = document.getElementById('build-study-name');
     if (buildStudySelect) {
@@ -42,6 +45,131 @@ window.onload = function () {
         });
     }
 };
+
+// --- User Settings Logic ---
+window.userSettings = {};
+
+async function loadUserSettings() {
+    try {
+        const res = await fetch('/api/user/settings');
+        if (res.ok) {
+            window.userSettings = await res.json();
+            // Trigger UI update if settings tab is open (or just generic event)
+            if (typeof renderSettingsUI === 'function') {
+                renderSettingsUI();
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load user settings", e);
+    }
+}
+
+async function saveUserSettings(newSettings) {
+    try {
+        const res = await fetch('/api/user/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newSettings)
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            window.userSettings = { ...window.userSettings, ...newSettings }; // Update local state
+            alert("Settings saved.");
+        } else {
+            alert("Error saving settings: " + data.error);
+        }
+    } catch (e) {
+        console.error("Failed to save settings", e);
+        alert("Error saving settings");
+    }
+}
+
+// --- Tag Management ---
+async function loadAndRenderUserTags() {
+    const container = document.getElementById('settings-tags-container');
+    if (!container) return;
+
+    container.innerHTML = '<span style="color: #aaa;">Loading...</span>';
+
+    try {
+        const res = await fetch('/api/viewer/tags');
+        const tagsData = await res.json();
+
+        // Flatten and Count
+        const tagCounts = {};
+        Object.values(tagsData).forEach(item => {
+            Object.values(item).forEach(tagList => {
+                if (Array.isArray(tagList)) {
+                    tagList.forEach(t => {
+                        tagCounts[t] = (tagCounts[t] || 0) + 1;
+                    });
+                }
+            });
+        });
+
+        // Sort by Count Descending
+        const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+
+        if (sortedTags.length === 0) {
+            container.innerHTML = '<span style="color: #666; font-style: italic;">No tags found.</span>';
+            return;
+        }
+
+        container.innerHTML = '';
+        sortedTags.forEach(([tag, count]) => {
+            const chip = document.createElement('div');
+            chip.style.cssText = `
+                background: #333; 
+                color: #fff; 
+                border: 1px solid #555; 
+                padding: 4px 10px; 
+                border-radius: 12px; 
+                display: flex; 
+                gap: 8px; 
+                align-items: center; 
+                font-size: 0.9em;
+            `;
+
+            chip.innerHTML = `
+                <span>${tag} <span style="color: #888; font-size: 0.8em;">(${count})</span></span>
+                <span class="delete-tag-btn" style="cursor: pointer; color: #ff6b6b; font-weight: bold;" title="Delete Tag">×</span>
+            `;
+
+            chip.querySelector('.delete-tag-btn').onclick = () => deleteUserTag(tag);
+            container.appendChild(chip);
+        });
+
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = '<span style="color: #ff6b6b;">Error loading tags.</span>';
+    }
+}
+
+async function deleteUserTag(tagName) {
+    if (!confirm(`Are you sure you want to delete the tag "${tagName}"? This will remove it from all videos and cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        // Tag name needs to be URL encoded properly, but Flask path param handles basic, 
+        // explicit encodeURIComponent is safer for special chars.
+        const res = await fetch(`/api/viewer/tags/${encodeURIComponent(tagName)}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+
+        if (data.status === 'success') {
+            // Reload tags
+            loadAndRenderUserTags();
+        } else {
+            alert("Error deleting tag: " + (data.message || "Unknown error"));
+        }
+
+    } catch (e) {
+        console.error(e);
+        alert("Failed to delete tag.");
+    }
+}
 
 async function loadDefinedStudies() {
     try {
@@ -438,7 +566,7 @@ async function loadConfig(filename, targetIdOverride = null) {
 
         let targetId = targetIdOverride;
         if (!targetId) {
-            targetId = filename === 'studies.toml' ? 'config-editor-studies' : 'config-editor-core';
+            targetId = filename === 'studies.toml' ? 'config-editor' : 'config-editor';
         }
 
         const el = document.getElementById(targetId);
@@ -451,7 +579,7 @@ async function loadConfig(filename, targetIdOverride = null) {
 async function saveConfig(filename, sourceIdOverride = null) {
     let sourceId = sourceIdOverride;
     if (!sourceId) {
-        sourceId = filename === 'studies.toml' ? 'config-editor-studies' : 'config-editor-core';
+        sourceId = filename === 'studies.toml' ? 'config-editor' : 'config-editor';
     }
 
     const el = document.getElementById(sourceId);
@@ -488,15 +616,15 @@ async function clearLogs(name) {
     }
 }
 
-// --- Settings 2 Sidebar Logic ---
-let currentSettingsFile = 'studies.toml';
+// --- Config Tab Sidebar Logic ---
+let currentConfigFile = 'studies.toml';
 
-async function openSettingsFile(filename) {
-    currentSettingsFile = filename;
-    document.getElementById('settings-file-title').innerText = filename;
+async function openConfigFile(filename) {
+    currentConfigFile = filename;
+    document.getElementById('config-file-title').innerText = filename;
 
     // Highlight active button
-    const buttons = document.querySelectorAll('#settings_tab_v2 .settings-menu-btn');
+    const buttons = document.querySelectorAll('#config_tab .config-menu-btn');
     buttons.forEach(btn => {
         if (btn.innerText.trim() === filename) {
             btn.style.background = '#37373d';
@@ -507,11 +635,11 @@ async function openSettingsFile(filename) {
         }
     });
 
-    await loadConfig(filename, 'settings-editor-v2');
+    await loadConfig(filename, 'config-editor');
 }
 
-async function saveCurrentSettings() {
-    await saveConfig(currentSettingsFile, 'settings-editor-v2');
+async function saveCurrentConfig() {
+    await saveConfig(currentConfigFile, 'config-editor');
 }
 
 
@@ -541,17 +669,23 @@ function openTab(evt, tabName) {
     if (tabName !== 'video_viewer') {
         if (typeof pauseViewerVideo === 'function') pauseViewerVideo();
     } else {
-        if (typeof playViewerVideo === 'function') playViewerVideo();
+        if (typeof playViewerVideo === 'function') {
+            // Check User Settings for Autostart
+            // If undefined, default to false (as requested "default unchecked")
+            if (window.userSettings && window.userSettings.video_autostart) {
+                playViewerVideo();
+            }
+        }
     }
 
-    // Force reload of config when settings tab is opened
-    if (tabName === 'settings') {
-        loadConfig('studies.toml');
-        loadConfig('config.toml');
+    // Config Tab Logic
+    if (tabName === 'config_tab') {
+        openConfigFile('studies.toml');
     }
 
-    if (tabName === 'settings_tab_v2') {
-        openSettingsFile('studies.toml');
+    // Settings Tab Logic
+    if (tabName === 'settings' && typeof renderSettingsUI === 'function') {
+        renderSettingsUI();
     }
 
     // Persona Explorer - init on first open

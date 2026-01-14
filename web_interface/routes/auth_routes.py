@@ -148,3 +148,17 @@ def api_admin_users():
              return jsonify({"status": "success", "message": msg})
         else:
              return jsonify({"error": msg}), 400
+
+@auth_bp.route('/api/user/settings', methods=['GET', 'POST'])
+@login_required
+def api_user_settings():
+    if request.method == 'GET':
+        return jsonify(current_user.settings or {})
+    
+    elif request.method == 'POST':
+        settings = request.json
+        success, msg = user_manager.update_user_settings(current_user.username, settings)
+        if success:
+            return jsonify({"status": "success", "message": msg})
+        else:
+            return jsonify({"error": msg}), 400

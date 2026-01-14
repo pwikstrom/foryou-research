@@ -6,7 +6,7 @@ import numpy as np
 from datetime import datetime
 from ..hub_config import fyp_cf, PROJECT_ROOT
 from ..data_service import (
-    get_explorer_data, get_pca_df, get_viz_config, make_serializable
+    get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags
 )
 from .. import explorer_backend as explorer
 import fyp
@@ -94,6 +94,10 @@ def api_explorer_metadata():
     context = request.args.get('context', 'explorer')
 
     df, col_types = get_explorer_data(study, context=context)
+    
+    # Enrich with User Tags
+    username = current_user.username
+    df, col_types = enrich_with_user_tags(df, col_types, username)
   
     """if context == 'viewer':
          df = df[df.scraped_ok].copy()
@@ -110,10 +114,30 @@ def api_explorer_metadata():
     if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study}_{context}_metadata.json"):
         metadata = data_io.load_json(cf=fyp_cf, storage_location="cache", filename=f"{study}_{context}_metadata.json")
         print(f"    Using cached metadata for {study}")
+        
+        # Inject dynamic User Tags metadata if missing from cache
+        if 'User Tags' in col_types and 'User Tags' not in metadata:
+             print("    Injecting dynamic User Tags metadata")
+             if 'User Tags' in df.columns:
+                 dynamic_meta = explorer.get_metadata(df[['User Tags']], {'User Tags': 'list'})
+                 metadata.update(dynamic_meta)
+                 
+        # Ensure User Tags is in filter_priority if it exists
+        if 'User Tags' in metadata and 'filter_priority' in metadata:
+            if 'User Tags' in metadata['filter_priority']:
+                metadata['filter_priority'].remove('User Tags')
+            metadata['filter_priority'].insert(0, 'User Tags')
+
         return jsonify(make_serializable(metadata))
 
     print(f"    No cached metadata for {study}, calculating...")
     metadata = explorer.get_metadata(df, col_types)
+    
+    # Ensure User Tags is in filter_priority if it exists (for non-cached path)
+    if 'User Tags' in metadata and 'filter_priority' in metadata:
+        if 'User Tags' in metadata['filter_priority']:
+            metadata['filter_priority'].remove('User Tags')
+        metadata['filter_priority'].insert(0, 'User Tags')
     
     viz_config = get_viz_config()
     res = explorer.get_current_stats(df, col_types, viz_config=viz_config)
@@ -204,6 +228,10 @@ def api_explorer_filter():
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
 
+    # Enrich with User Tags
+    username = current_user.username
+    df, col_types = enrich_with_user_tags(df, col_types, username)
+    
     """df = df[df.annotated_ok].copy()
     print(f"    Filtered to {len(df):,} annotated events")"""
 
@@ -233,6 +261,13 @@ def api_explorer_filter():
             print("    Optimization: Using cached total_stats for S1")
             result['stats'] = cached_metadata['total_stats']
             result['count'] = len(df)
+            
+            # Inject User Tags stats if missing
+            if 'User Tags' in col_types and 'User Tags' not in result['stats']:
+                 if 'User Tags' in df.columns:
+                     res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'}, viz_config=get_viz_config())
+                     result['stats'].update(res_tags['stats'])
+
         else:
             filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
             viz_config = get_viz_config()
@@ -290,6 +325,10 @@ def api_viewer_ids():
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
+    # Enrich with User Tags
+    username = current_user.username
+    df, col_types = enrich_with_user_tags(df, col_types, username)
+    
     """df = df[df.scraped_ok].copy()
     print(f"    Filtered to {len(df):,} scraped events")"""
 
@@ -317,9 +356,128 @@ def api_viewer_ids():
         elif 'G_id' in filtered_df.columns: id_col = 'G_id'
         else: return jsonify({"error": "No ID column found"}), 500
     
+    
+    
+    # Hide Duplicate Videos if requested
+    if data.get("hide_duplicates"):
+        dedup_col = 'video_id'
+        if dedup_col not in filtered_df.columns:
+            if 'G_id' in filtered_df.columns: dedup_col = 'G_id'
+            else: dedup_col = id_col
+            
+        filtered_df = filtered_df.drop_duplicates(subset=[dedup_col], keep='first')
+
+    
     ids = filtered_df[id_col].astype(str).tolist()
 
     return jsonify({"ids": ids, "count": len(ids)})
+
+
+@data_bp.route('/api/viewer/tags', methods=['GET'])
+@login_required
+def api_get_tags():
+    username = current_user.username
+    tag_filename = f"{username}_tags.json"
+    
+    if data_io.exists(fyp_cf, "users", tag_filename):
+        tags = data_io.load_json(fyp_cf, "users", tag_filename)
+        return jsonify(tags)
+    else:
+        return jsonify({})
+
+
+@data_bp.route('/api/viewer/tags/save', methods=['POST'])
+@login_required
+def api_save_tags():
+    data = request.json or {}
+    # study = data.get("study") # Deprecated for storage
+    item_id = str(data.get("item_id")) # Ensure string for consistency
+    variable = data.get("variable")
+    tags = data.get("tags") # List of tags
+    
+    username = current_user.username
+    print(f"[TAGS] Saving tags for {username}: {item_id} / {variable} -> {tags}")
+
+    if not item_id or not variable:
+        return jsonify({"error": "Missing required fields"}), 400
+        
+    tag_filename = f"{username}_tags.json"
+    
+    # Load existing
+    user_data = {}
+    if data_io.exists(fyp_cf, "users", tag_filename):
+        user_data = data_io.load_json(fyp_cf, "users", tag_filename)
+        
+    # Update structure (Global Item ID centric)
+    if item_id not in user_data: user_data[item_id] = {}
+    
+    user_data[item_id][variable] = tags
+    
+    # Prune empty
+    if not tags:
+        # If variable exists, delete it
+        if variable in user_data[item_id]:
+            del user_data[item_id][variable]
+    
+    if not user_data[item_id]:
+        del user_data[item_id]
+        
+    # Save
+    print(f"[TAGS] User data after update: {user_data}")
+    data_io.save_json(fyp_cf, user_data, "users", tag_filename)
+    
+    return jsonify({"status": "success", "tags": tags})
+
+
+@data_bp.route('/api/viewer/tags/<path:tag_name>', methods=['DELETE'])
+@login_required
+def api_delete_tag(tag_name):
+    # Decode tag name (it might contain slashes or spaces, though path parameter handles slashes)
+    # If tag name has slashes, flask might interpret it as path segments. <path:tag_name> handles this.
+    
+    username = current_user.username
+    tag_filename = f"{username}_tags.json"
+    
+    print(f"[TAGS] Deleting tag '{tag_name}' for user {username}")
+    
+    if not data_io.exists(fyp_cf, "users", tag_filename):
+        return jsonify({"status": "success", "message": "No tags found"}), 200
+        
+    user_data = data_io.load_json(fyp_cf, "users", tag_filename)
+    modified = False
+    
+    # Iterate and remove
+    # user_data structure: { item_id: { variable: [tags...] } }
+    
+    # We need to collect keys to delete to avoid modifying dict while iterating if we were deleting keys,
+    # but here we are modifying lists inside.
+    
+    items_to_prune = []
+    
+    for item_id, item_vars in user_data.items():
+        vars_to_prune = []
+        for var, tags in item_vars.items():
+            if tag_name in tags:
+                tags.remove(tag_name)
+                modified = True
+                if not tags:
+                    vars_to_prune.append(var)
+        
+        for var in vars_to_prune:
+            del item_vars[var]
+            
+        if not item_vars:
+            items_to_prune.append(item_id)
+            
+    for item_id in items_to_prune:
+        del user_data[item_id]
+        
+    if modified:
+        data_io.save_json(fyp_cf, user_data, "users", tag_filename)
+        return jsonify({"status": "success", "message": f"Tag '{tag_name}' deleted"})
+    else:
+        return jsonify({"status": "success", "message": "Tag not found in any item"}), 200
+
 
 
 

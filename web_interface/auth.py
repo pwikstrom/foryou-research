@@ -47,13 +47,14 @@ def verify_password(stored_password, provided_password):
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None):
         self.id = username
         self.username = username
         self.role = role
         self.password_hash = password_hash
         self.approved = approved
         self.last_login = last_login
+        self.settings = settings if settings is not None else {}
 
     def can_access_research_features(self):
         return self.role in [ROLE_ADMIN, ROLE_RESEARCHER] and self.approved
@@ -67,7 +68,8 @@ class User(UserMixin):
             "role": self.role,
             "password_hash": self.password_hash,
             "approved": self.approved,
-            "last_login": self.last_login
+            "last_login": self.last_login,
+            "settings": self.settings
         }
 
 # --- User Manager ---
@@ -110,7 +112,8 @@ class UserManager:
                             role=user_data['role'],
                             password_hash=user_data['password_hash'],
                             approved=user_data.get('approved', True),
-                            last_login=user_data.get('last_login')
+                            last_login=user_data.get('last_login'),
+                            settings=user_data.get('settings', {})
                         )
                 logger.info(f"Loaded {len(self.users)} users from {self.filepath}")
             except Exception as e:
@@ -205,6 +208,20 @@ class UserManager:
             import datetime
             self.users[username].last_login = datetime.datetime.now().isoformat()
             self.save_users()
+
+    def update_user_settings(self, username, settings):
+        if username not in self.users:
+            return False, "User not found"
+        
+        # Merge or replace? Let's generic replace for top-level keys, but maybe merge is safer?
+        # For now, strict replacement of the settings dict provided
+        # Or better: update existing dict with new keys
+        if self.users[username].settings is None:
+             self.users[username].settings = {}
+             
+        self.users[username].settings.update(settings)
+        self.save_users()
+        return True, "Settings updated"
 
     def verify_user(self, username, password):
         user = self.users.get(username)

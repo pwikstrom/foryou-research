@@ -34,8 +34,8 @@ from .data_service import study_cache # Re-export for tests
 load_process_stats()
 
 # Silence the noisy HTTP request logs from Flask/Werkzeug
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR)
+#log = logging.getLogger('werkzeug')
+#log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 

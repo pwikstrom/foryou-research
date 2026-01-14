@@ -9,7 +9,9 @@ let viewerData = {
     searchQuery: "",
     sortBy: null,
     sortOrder: 'asc',
-    currentIndex: -1
+    currentIndex: -1,
+    userTags: {},
+    activeModal: { item_id: null, variable: null, currentTags: [] }
 };
 
 // Initialization
@@ -17,6 +19,34 @@ document.addEventListener('DOMContentLoaded', function () {
     // Only init if tab exists
     if (document.getElementById('video_viewer')) {
         loadViewerStudies();
+        loadUserTags();
+
+        // Tagging Input Listener
+        const tagInput = document.getElementById('tagging-input');
+        if (tagInput) {
+            tagInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    const val = tagInput.value.trim();
+                    if (!val) return;
+
+                    // Split by semicolon
+                    const tags = val.split(';').map(t => t.trim()).filter(t => t.length > 0);
+
+                    let added = false;
+                    tags.forEach(tag => {
+                        if (!viewerData.activeModal.currentTags.includes(tag)) {
+                            viewerData.activeModal.currentTags.push(tag);
+                            added = true;
+                        }
+                    });
+
+                    if (added) {
+                        renderModalChips();
+                        tagInput.value = "";
+                    }
+                }
+            });
+        }
 
         // Search Input Listener
         const searchInput = document.getElementById('viewer-search-input');
@@ -57,6 +87,15 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 });
+
+async function loadUserTags() {
+    try {
+        const res = await fetch('/api/viewer/tags');
+        if (res.ok) {
+            viewerData.userTags = await res.json();
+        }
+    } catch (e) { console.error("Failed to load tags", e); }
+}
 
 async function loadViewerStudies() {
     const selector = document.getElementById('viewer-study-select');
@@ -198,36 +237,7 @@ function renderViewerFilters(metadata) {
         label.style.color = '#d4d4d4';
         wrapper.appendChild(label);
 
-        // -- NA Filter --
-        if (info.null_count && info.null_count > 0) {
-            const naDiv = document.createElement('div');
-            naDiv.style.marginBottom = '5px';
-            naDiv.style.display = 'flex';
-            naDiv.style.alignItems = 'center';
-
-            const naCb = document.createElement('input');
-            naCb.type = 'checkbox';
-            const safeCol = col.replace(/[^a-zA-Z0-9]/g, '_');
-            naCb.id = `v-na-${safeCol}`;
-            naCb.style.marginRight = '5px';
-
-            if (viewerData.filters[col] && viewerData.filters[col].na) {
-                naCb.checked = true;
-            }
-
-            naCb.onchange = (e) => setViewerFilter(col, info.type, 'na', e.target.checked);
-
-            const naLabel = document.createElement('label');
-            naLabel.htmlFor = naCb.id;
-            naLabel.innerText = `Include NA/Missing (${info.null_count.toLocaleString()})`;
-            naLabel.style.fontSize = '0.9em';
-            naLabel.style.color = '#aaa';
-            naLabel.style.cursor = 'pointer';
-
-            naDiv.appendChild(naCb);
-            naDiv.appendChild(naLabel);
-            wrapper.appendChild(naDiv);
-        }
+        // -- NA Filter Removed per user request --
 
         if (info.type === 'number') {
             const inputRow = document.createElement('div');
@@ -378,6 +388,8 @@ function updateSortBtnUI() {
 async function applyViewerFilters() {
     if (!viewerData.activeStudy) return;
 
+    const hideDuplicates = document.getElementById('viewer-hide-duplicates')?.checked || false;
+
     try {
         const res = await fetch('/api/viewer/ids', {
             method: 'POST',
@@ -387,7 +399,8 @@ async function applyViewerFilters() {
                 filters: viewerData.filters,
                 search_query: viewerData.searchQuery,
                 sort_by: viewerData.sortBy,
-                sort_order: viewerData.sortOrder
+                sort_order: viewerData.sortOrder,
+                hide_duplicates: hideDuplicates
             })
         });
         const data = await res.json();
@@ -449,7 +462,11 @@ async function loadViewerItem(index) {
         // Check if tab is visible before playing
         const viewerTab = document.getElementById('video_viewer');
         if (viewerTab && viewerTab.classList.contains('active')) {
-            videoEl.play().catch(e => console.log("Auto-play blocked or failed:", e));
+            // Check User Settings for Autostart
+            // If undefined, default to false (as requested "default unchecked")
+            if (window.userSettings && window.userSettings.video_autostart) {
+                videoEl.play().catch(e => console.log("Auto-play blocked or failed:", e));
+            }
         }
 
         updateNavUI();
@@ -458,6 +475,23 @@ async function loadViewerItem(index) {
         console.error(e);
         document.getElementById('viewer-status').innerText = "Error";
     }
+}
+
+function linkify(text) {
+    if (!text) return '';
+    // Simple escape to prevent XSS before inserting as HTML
+    const escaped = String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+
+    // URL Regex
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    return escaped.replace(urlRegex, function (url) {
+        return `<a href="${url}" target="_blank" style="color: #4daafc; text-decoration: underline;">${url}</a>`;
+    });
 }
 
 function renderMetadata(item) {
@@ -545,17 +579,42 @@ function renderMetadata(item) {
         keys.forEach(key => {
             const tr = document.createElement('tr');
             const tdKey = document.createElement('td');
-            tdKey.innerText = key;
+            // --- Tagging & Tooltip ---
+            tdKey.style.cursor = 'pointer';
+            const itemIdStr = String(item['item_id']);
+            const itemTags = (viewerData.userTags[itemIdStr]?.[key]) || [];
 
-            // Tooltip
-            if (schemaMap[key] && schemaMap[key].description) {
-                // Remove title attribute to prevent native tooltip
-                tdKey.removeAttribute('title');
-
-                // Use custom CSS tooltip
-                tdKey.classList.add('meta-tooltip');
-                tdKey.setAttribute('data-tooltip', schemaMap[key].description);
+            // Set Display Text
+            if (itemTags.length > 0) {
+                tdKey.style.color = '#4CAF50';
+                tdKey.style.fontWeight = 'bold';
+                tdKey.innerText = `${key} [${itemTags.length}]`;
+            } else {
+                tdKey.innerText = key;
             }
+
+            // Construct Tooltip (Tags + Description)
+            let tooltipParts = [];
+            if (itemTags.length > 0) {
+                tooltipParts.push(`Tags: ${itemTags.join(', ')}`);
+            }
+            if (schemaMap[key] && schemaMap[key].description) {
+                tooltipParts.push(schemaMap[key].description);
+            }
+
+            if (tooltipParts.length > 0) {
+                tdKey.classList.add('meta-tooltip');
+                tdKey.setAttribute('data-tooltip', tooltipParts.join('\n\n'));
+                tdKey.removeAttribute('title');
+            } else {
+                tdKey.title = "Click to add tags";
+            }
+
+            tdKey.onclick = (e) => {
+                e.stopPropagation();
+                openTaggingModal(itemIdStr, key, itemTags);
+            };
+            // ---------------
 
             const tdVal = document.createElement('td');
 
@@ -604,7 +663,7 @@ function renderMetadata(item) {
                 displayVal = String(val);
             }
 
-            tdVal.innerText = displayVal;
+            tdVal.innerHTML = linkify(displayVal);
 
             tr.appendChild(tdKey);
             tr.appendChild(tdVal);
@@ -676,4 +735,118 @@ function pauseViewerVideo() {
     if (video && !video.paused) {
         video.pause();
     }
+}
+
+// --- Tagging Logic ---
+// --- Tagging Logic ---
+function openTaggingModal(itemId, variable, currentTags) {
+    viewerData.activeModal = { item_id: itemId, variable: variable, currentTags: [...currentTags] };
+    document.getElementById('tagging-modal-title').innerText = `Tags for ${variable}`;
+    document.getElementById('tagging-input').value = "";
+
+    // Calculate global available tags
+    let allTags = new Set();
+    // userTags structure is now { item_id: { variable: [tags...] } }
+    Object.values(viewerData.userTags || {}).forEach(itemVars => {
+        Object.values(itemVars).forEach(tagList => {
+            if (Array.isArray(tagList)) tagList.forEach(t => allTags.add(t));
+        });
+    });
+    viewerData.activeModal.allTags = Array.from(allTags).sort();
+
+    renderModalChips();
+    document.getElementById('tagging-modal').style.display = "flex";
+    document.getElementById('tagging-input').focus();
+}
+
+function closeTaggingModal() {
+    document.getElementById('tagging-modal').style.display = "none";
+}
+
+function renderModalChips() {
+    const container = document.getElementById('tagging-quick-select');
+    container.innerHTML = "";
+
+    const { currentTags, allTags } = viewerData.activeModal;
+
+    // Merge current tags with all historical tags
+    const displayTags = new Set([...currentTags, ...(allTags || [])]);
+    const sortedTags = Array.from(displayTags).sort();
+
+    sortedTags.forEach(tag => {
+        const isSelected = currentTags.includes(tag);
+        const chip = document.createElement('div');
+
+        // Style: Blue if selected, Gray if available
+        const bg = isSelected ? '#007acc' : '#444';
+        const color = '#fff';
+        const border = isSelected ? '1px solid #009ce6' : '1px solid #555';
+
+        chip.style.cssText = `background:${bg};color:${color};border:${border};padding:4px 10px;border-radius:12px;display:flex;gap:5px;align-items:center;cursor:pointer;user-select:none;font-size:0.9em;transition:all 0.1s;`;
+
+        // Chip content
+        if (isSelected) {
+            chip.innerHTML = `<span>${tag}</span><span style="font-weight:bold;margin-left:4px;">×</span>`;
+            chip.onclick = () => removeTag(tag);
+        } else {
+            chip.innerHTML = `<span>${tag}</span>`;
+            chip.onclick = () => addTag(tag);
+        }
+
+        container.appendChild(chip);
+    });
+}
+
+function addTag(tag) {
+    if (!viewerData.activeModal.currentTags.includes(tag)) {
+        viewerData.activeModal.currentTags.push(tag);
+        renderModalChips();
+    }
+}
+
+function removeTag(tag) {
+    viewerData.activeModal.currentTags = viewerData.activeModal.currentTags.filter(t => t !== tag);
+    renderModalChips();
+}
+
+async function saveTaggingModal() {
+    // Check for pending input and add it if present
+    const tagInput = document.getElementById('tagging-input');
+    if (tagInput && tagInput.value.trim()) {
+        const val = tagInput.value.trim();
+        const tags = val.split(';').map(t => t.trim()).filter(t => t.length > 0);
+
+        tags.forEach(tag => {
+            if (!viewerData.activeModal.currentTags.includes(tag)) {
+                viewerData.activeModal.currentTags.push(tag);
+            }
+        });
+    }
+
+    const { item_id, variable, currentTags } = viewerData.activeModal;
+    // console.log("Saving tags:", { study: viewerData.activeStudy, item_id, variable, tags: currentTags });
+
+    if (!item_id) return; // Study not strictly required for key, but good to have active
+
+    try {
+        const res = await fetch('/api/viewer/tags/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                study: viewerData.activeStudy, // Optional now
+                item_id: item_id,
+                variable: variable,
+                tags: currentTags
+            })
+        });
+
+        if (res.ok) {
+            // Update local state (Global structure)
+            if (!viewerData.userTags[item_id]) viewerData.userTags[item_id] = {};
+            viewerData.userTags[item_id][variable] = currentTags;
+
+            loadViewerItem(viewerData.currentIndex); // Re-render
+            closeTaggingModal();
+        }
+    } catch (e) { console.error(e); alert("Error saving tags"); }
 }

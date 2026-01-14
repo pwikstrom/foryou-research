@@ -350,7 +350,8 @@ def load_datasets(
 
     print(f"...done. Datasets loaded for study '{study_name}'")
     if verbose:
-        print(f"   - {"\n   - ".join([f"'{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)" for k in tutti_data])}")
+        dataset_info = "\n   - ".join([f"'{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)" for k in tutti_data])
+    print(f"   - {dataset_info}")
 
 
     return tutti_data
@@ -641,8 +642,9 @@ def _process_scrape_metadata_for_merge_w_logs(
     scrape_metadata_log['video_duration'] = scrape_metadata_log['video_duration'].fillna(pd_NA).replace(-1, pd_NA).replace(0, pd_NA)
 
 
-    scrape_metadata_log.drop(columns=[
-        "image_list","video_url","video_downloaded","audio_extracted","cover_downloaded","do_not_modify","last_modified","video_cover"], inplace=True, errors="ignore")
+    #scrape_metadata_log.drop(columns=[
+    #    "image_list","video_url","video_downloaded","audio_extracted","cover_downloaded","do_not_modify","last_modified","video_cover"], inplace=True, errors="ignore")
+    scrape_metadata_log.drop(columns=["audio_extracted","cover_downloaded","do_not_modify","last_modified","video_cover"], inplace=True, errors="ignore")
 
 
     scrape_metadata_log = scrape_metadata_log.rename(columns={c:"S_"+c if not c=="item_id" else c for c in scrape_metadata_log.columns}).copy()

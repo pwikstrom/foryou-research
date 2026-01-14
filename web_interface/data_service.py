@@ -79,6 +79,71 @@ def get_explorer_data(study, context = None):
     return explorer_df, explorer_col_types
 
 
+def enrich_with_user_tags(df, col_types, username):
+    """
+    Injects a 'User Tags' column into the DataFrame based on the user's tag file.
+    Returns (enriched_df, enriched_col_types).
+    If no tags found, returns original.
+    """
+    tag_filename = f"{username}_tags.json"
+    if not data_io.exists(fyp_cf, "users", tag_filename):
+        return df, col_types
+
+    user_tags = data_io.load_json(fyp_cf, "users", tag_filename)
+    if not user_tags:
+        return df, col_types
+
+    # user_tags: { item_id: { var: [tags...] } }
+    # We want a map: item_id -> unique list of tags (flattened across variables)
+    
+    # Pre-calculate map
+    id_to_tags = {}
+    for item_id, var_map in user_tags.items():
+        all_tags = set()
+        for tags in var_map.values():
+            if isinstance(tags, list):
+                all_tags.update(tags)
+        if all_tags:
+            id_to_tags[str(item_id)] = list(all_tags)
+            
+    if not id_to_tags:
+        return df, col_types
+        
+    # Create the column
+    # Ensure ID matching
+    id_col = 'item_id'
+    if id_col not in df.columns:
+        if 'video_id' in df.columns: id_col = 'video_id'
+        elif 'G_id' in df.columns: id_col = 'G_id'
+        else: return df, col_types
+
+    # Copy to avoid modifying cache
+    df = df.copy()
+    col_types = col_types.copy()
+    
+    # Vectorized mapping
+    # df[id_col] might be int. Convert to str for lookup.
+    
+    # Map using the pre-calculated dictionary
+    # Rows not in id_to_tags will get NaN (or None)
+    df['User Tags'] = df[id_col].astype(str).map(id_to_tags)
+    
+    # user_tags_series is now object type containing lists or NaNs
+    
+    # Check if we actually have any tags for THIS dataset
+    # count() counts non-NA cells.
+    if df['User Tags'].count() == 0:
+        # No tags found for any item in this study
+        # Drop the column so it doesn't appear in metadata/filters
+        df.drop(columns=['User Tags'], inplace=True, errors='ignore')
+        return df, col_types
+    
+    # Set Metadata
+    col_types['User Tags'] = 'list'
+    
+    return df, col_types
+
+
 
 
 def get_viz_config():

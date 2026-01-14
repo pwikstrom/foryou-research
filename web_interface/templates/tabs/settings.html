@@ -1,0 +1,68 @@
+<div id="settings" class="tab-pane">
+    <div style="background: #252526; padding: 20px; border-radius: 8px;">
+        <h2>User Settings</h2>
+
+        <div class="setting-group" style="margin-bottom: 20px;">
+            <h3>Video Player</h3>
+            <div style="margin-top: 10px;">
+                <label style="display: flex; align-items: center; cursor: pointer; color: #d4d4d4;">
+                    <input type="checkbox" id="setting-video-autostart" style="margin-right: 10px;">
+                    Video autostart
+                </label>
+                <p style="margin-left: 23px; color: #888; font-size: 0.9em; margin-top: 5px;">
+                    If checked, videos in the Video Viewer will start playing automatically when loaded.
+                </p>
+            </div>
+        </div>
+
+        <button class="action-btn" onclick="saveSettingsTab()">Save Settings</button>
+
+        <hr style="border: 0; border-top: 1px solid #3e3e42; margin: 30px 0;">
+
+        <h2>User Tags Manager</h2>
+
+        <div class="setting-group" style="margin-bottom: 20px;">
+            <p style="color: #888; font-size: 0.9em; margin-bottom: 15px;">
+                Manage your custom tags. Deleting a tag removes it from all videos where it is applied.
+            </p>
+            <div id="settings-tags-container"
+                style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 300px; overflow-y: auto; background: #1e1e1e; padding: 10px; border-radius: 4px; border: 1px solid #3e3e42;">
+                <span style="color: #666; font-style: italic;">Loading tags...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Called when the tab is opened or settings loaded
+    function renderSettingsUI() {
+        const autostart = document.getElementById('setting-video-autostart');
+        if (autostart) {
+            // Default to false if not set, or true? User said "default unchecked".
+            // If key doesn't exist, it's undefined (falsy).
+            autostart.checked = !!(window.userSettings && window.userSettings.video_autostart);
+
+            // Load tags
+            if (typeof loadAndRenderUserTags === 'function') {
+                loadAndRenderUserTags();
+            }
+        }
+    }
+
+    // Inject hook to call render when tab opens (if not already handled by loadUserSettings recursion)
+    // Main.js openTab logic doesn't explicitly call renderSettingsUI, but we can add it there or here.
+    // simpler: rely on user clicking tab.
+
+    // Actually, openTab in main.js handles tab switching. 
+    // We can add a listener or hack it:
+    const originalOpenTabSettings = window.openTab;
+    // But modifying main.js is cleaner.
+
+    function saveSettingsTab() {
+        const autostart = document.getElementById('setting-video-autostart').checked;
+        const s = {
+            video_autostart: autostart
+        };
+        saveUserSettings(s);
+    }
+</script>
