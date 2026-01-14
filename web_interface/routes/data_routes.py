@@ -60,7 +60,7 @@ def _load_schema_metadata(metadata):
                     "description": str(row['description'])
                 }
                 
-                # Parse Accepted Labels for Closed Coding
+                # Parse Accepted Labels for Closed Tags
                 if 'accepted_labels' in row:
                     accepted = str(row['accepted_labels'])
                     if accepted and accepted.lower() != 'nan' and accepted.startswith('[') and accepted.endswith(']'):
@@ -68,6 +68,13 @@ def _load_schema_metadata(metadata):
                         if content.strip():
                             labels = [x.strip() for x in content.split(',')]
                             schema_map[var_name]['accepted_labels'] = labels
+                
+                # Add Display Name
+                if 'display_name' in row:
+                    dname = str(row['display_name'])
+                    if dname and dname.lower() != 'nan' and dname.strip():
+                        schema_map[var_name]['display_name'] = dname.strip()
+            
             metadata['schema_map'] = schema_map
                 
         else:
@@ -415,11 +422,11 @@ def api_save_tags():
     variable = data.get("variable")
     tags = data.get("tags") # List of tags
     notes = data.get("notes") # Optional free text notes
-    closed_coding = data.get("closed_coding") # Optional closed coding value
+    closed_tagging = data.get("closed_tagging") # Optional closed tagging value
     
     username = current_user.username
     username = current_user.username
-    print(f"[TAGS] Saving tags for {username}: {item_id} / {variable} -> {tags} (Notes: {len(notes) if notes else 0} chars, CC: {closed_coding})")
+    print(f"[TAGS] Saving tags for {username}: {item_id} / {variable} -> {tags} (Notes: {len(notes) if notes else 0} chars, CC: {closed_tagging})")
 
     if not item_id or not variable:
         return jsonify({"error": "Missing required fields"}), 400
@@ -446,10 +453,10 @@ def api_save_tags():
         if notes_key in user_data[item_id]:
             del user_data[item_id][notes_key]
             
-    # Save Closed Coding (using suffix convention)
-    cc_key = f"{variable}__CLOSED_CODING"
-    if closed_coding and str(closed_coding).strip():
-        user_data[item_id][cc_key] = str(closed_coding).strip()
+    # Save Closed Tags (using suffix convention)
+    cc_key = f"{variable}__CLOSED_TAGGING"
+    if closed_tagging and str(closed_tagging).strip():
+        user_data[item_id][cc_key] = str(closed_tagging).strip()
     else:
         # Remove if empty / deleted
         if cc_key in user_data[item_id]:
@@ -470,7 +477,7 @@ def api_save_tags():
     # print(f"[TAGS] User data after update: {user_data}")
     data_io.save_json(fyp_cf, user_data, "users", tag_filename)
     
-    return jsonify({"status": "success", "tags": tags, "notes": notes, "closed_coding": closed_coding})
+    return jsonify({"status": "success", "tags": tags, "notes": notes, "closed_tagging": closed_tagging})
 
 
 @data_bp.route('/api/viewer/tags/<path:tag_name>', methods=['DELETE'])
@@ -501,8 +508,8 @@ def api_delete_tag(tag_name):
     for item_id, item_vars in user_data.items():
         vars_to_prune = []
         for var, tags in item_vars.items():
-            # SKIP NOTES AND CLOSED CODING
-            if var.endswith("__NOTES") or var.endswith("__CLOSED_CODING"):
+            # SKIP NOTES AND CLOSED TAGGING
+            if var.endswith("__NOTES") or var.endswith("__CLOSED_TAGGING"):
                 continue
                 
             if tag_name in tags:

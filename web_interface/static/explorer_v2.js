@@ -162,7 +162,13 @@ function renderFiltersV2(metadata, sliceId) {
         wrapper.style.paddingBottom = '10px';
 
         const label = document.createElement('label');
-        label.innerText = col;
+
+        let displayName = col;
+        if (metadata.schema_map && metadata.schema_map[col] && metadata.schema_map[col].display_name) {
+            displayName = metadata.schema_map[col].display_name;
+        }
+
+        label.innerText = displayName;
         label.style.fontWeight = 'bold';
         label.style.display = 'block';
         label.style.marginBottom = '5px';
@@ -466,6 +472,9 @@ function renderStatsV2(stats1, stats2) {
 
         const title = document.createElement('h3');
         let titleText = col;
+        if (metadata.schema_map && metadata.schema_map[col] && metadata.schema_map[col].display_name) {
+            titleText = metadata.schema_map[col].display_name;
+        }
 
         // Means
         let meanHtml = '';

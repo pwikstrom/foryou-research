@@ -230,7 +230,13 @@ function renderViewerFilters(metadata) {
         wrapper.style.paddingBottom = '10px';
 
         const label = document.createElement('label');
-        label.innerText = col;
+
+        let displayName = col;
+        if (metadata.schema_map && metadata.schema_map[col] && metadata.schema_map[col].display_name) {
+            displayName = metadata.schema_map[col].display_name;
+        }
+
+        label.innerText = displayName;
         label.style.fontWeight = 'bold';
         label.style.display = 'block';
         label.style.marginBottom = '5px';
@@ -584,21 +590,27 @@ function renderMetadata(item) {
             const itemIdStr = String(item['item_id']);
             const itemTags = (viewerData.userTags[itemIdStr]?.[key]) || [];
 
+            // Determine Display Name
+            let displayName = key;
+            if (schemaMap[key] && schemaMap[key].display_name) {
+                displayName = schemaMap[key].display_name;
+            }
+
             // Set Display Text
             if (itemTags.length > 0) {
                 tdKey.style.color = '#4CAF50';
                 tdKey.style.fontWeight = 'bold';
-                tdKey.innerText = `${key} [${itemTags.length}]`;
+                tdKey.innerText = `${displayName} [${itemTags.length}]`;
             } else {
-                tdKey.innerText = key;
+                tdKey.innerText = displayName;
             }
 
             // Check for Notes
             const notesKey = `${key}__NOTES`;
             const itemNotes = viewerData.userTags[itemIdStr]?.[notesKey];
 
-            // Check for Closed Coding
-            const ccKey = `${key}__CLOSED_CODING`;
+            // Check for Closed Tagging
+            const ccKey = `${key}__CLOSED_TAGGING`;
             const itemCC = viewerData.userTags[itemIdStr]?.[ccKey];
 
             // Marker for Notes (e.g. underline or little icon)
@@ -613,7 +625,7 @@ function renderMetadata(item) {
                 tooltipParts.push(`Tags: ${itemTags.join(', ')}`);
             }
             if (itemCC) {
-                tooltipParts.push(`Closed Coding: ${itemCC}`);
+                tooltipParts.push(`Closed Tagging: ${itemCC}`);
             }
             if (itemNotes) {
                 tooltipParts.push(`Notes: ${itemNotes}`);
@@ -758,10 +770,17 @@ function pauseViewerVideo() {
 }
 
 // --- Tagging Logic ---
-// --- Tagging Logic ---
 function openTaggingModal(itemId, variable, currentTags) {
     viewerData.activeModal = { item_id: itemId, variable: variable, currentTags: [...currentTags] };
-    document.getElementById('tagging-modal-title').innerText = `Tags and Notes for ${variable}`;
+
+    // Determine Display Name for Title
+    let displayName = variable;
+    const schemaMap = viewerData.metadata && viewerData.metadata.schema_map ? viewerData.metadata.schema_map : {};
+    if (schemaMap[variable] && schemaMap[variable].display_name) {
+        displayName = schemaMap[variable].display_name;
+    }
+
+    document.getElementById('tagging-modal-title').innerText = `Tags and Notes for ${displayName}`;
     document.getElementById('tagging-input').value = "";
 
     // Load Notes
@@ -770,9 +789,9 @@ function openTaggingModal(itemId, variable, currentTags) {
     const notesArea = document.getElementById('tagging-notes');
     if (notesArea) notesArea.value = notes;
 
-    // Closed Coding Setup
-    const ccContainer = document.getElementById('tagging-closed-coding-container');
-    const ccSelect = document.getElementById('tagging-closed-coding');
+    // Closed Tagging Setup
+    const ccContainer = document.getElementById('tagging-closed-tagging-container');
+    const ccSelect = document.getElementById('tagging-closed-tagging');
 
     if (ccContainer && ccSelect) {
         // Check metadata for accepted_labels
@@ -791,7 +810,7 @@ function openTaggingModal(itemId, variable, currentTags) {
             });
 
             // Set existing value if any
-            const ccKey = `${variable}__CLOSED_CODING`;
+            const ccKey = `${variable}__CLOSED_TAGGING`;
             const existingCC = viewerData.userTags[itemId]?.[ccKey];
             if (existingCC) {
                 ccSelect.value = existingCC;
@@ -887,9 +906,9 @@ async function saveTaggingModal() {
     const notesInput = document.getElementById('tagging-notes');
     const notesVal = notesInput ? notesInput.value : "";
 
-    // Get Closed Coding
-    const ccSelect = document.getElementById('tagging-closed-coding');
-    const ccContainer = document.getElementById('tagging-closed-coding-container');
+    // Get Closed Tagging
+    const ccSelect = document.getElementById('tagging-closed-tagging');
+    const ccContainer = document.getElementById('tagging-closed-tagging-container');
     let ccVal = null;
     if (ccContainer && ccContainer.style.display !== 'none' && ccSelect) {
         if (ccSelect.value) ccVal = ccSelect.value;
@@ -910,7 +929,7 @@ async function saveTaggingModal() {
                 variable: variable,
                 tags: currentTags,
                 notes: notesVal,
-                closed_coding: ccVal
+                closed_tagging: ccVal
             })
         });
 
@@ -927,8 +946,8 @@ async function saveTaggingModal() {
                 delete viewerData.userTags[item_id][notesKey];
             }
 
-            // Update local Closed Coding state
-            const ccKey = `${variable}__CLOSED_CODING`;
+            // Update local Closed Tagging state
+            const ccKey = `${variable}__CLOSED_TAGGING`;
             if (ccVal) {
                 viewerData.userTags[item_id][ccKey] = ccVal;
             } else {

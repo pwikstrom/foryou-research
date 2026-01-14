@@ -166,7 +166,9 @@ def get_metadata(df, column_types):
             vc = df[col].value_counts().head(50)
             
             # Sort alphabetically for consistency
-            top_50_keys = sorted(vc.index.tolist(), key=lambda x: str(x))
+            #top_50_keys = sorted(vc.index.tolist(), key=lambda x: str(x))
+            # Sort by frequency (default from value_counts)
+            top_50_keys = vc.index.tolist()
             
             unique_vals = [{"value": str(x), "count": int(vc[x])} for x in top_50_keys]
             
@@ -190,7 +192,7 @@ def get_metadata(df, column_types):
             top_50 = c.most_common(50)
             
             # Sort alphabetically
-            top_50.sort(key=lambda x: str(x[0]))
+            #top_50.sort(key=lambda x: str(x[0]))
             
             items_list = [{"value": str(k), "count": v} for k, v in top_50]
 

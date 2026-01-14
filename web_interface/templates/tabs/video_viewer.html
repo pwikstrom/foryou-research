@@ -41,33 +41,35 @@
         style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center;">
         <div
             style="background: #252526; padding: 20px; border: 1px solid #3e3e42; width: 600px; border-radius: 5px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
-            <h3 id="tagging-modal-title" style="margin-top: 0; color: #fff;">Tags</h3>
+            <h3 id="tagging-modal-title" style="margin-top: 0; color: #fff;">Tags and Notes</h3>
 
             <div style="margin-bottom: 15px;">
-                <input type="text" id="tagging-input" placeholder="Type new tag and press Enter"
+                <div style="font-size: 0.9em; color: #aaa; margin-bottom: 5px;">Open Tags</div>
+                <input type="text" id="tagging-input"
+                    placeholder="Add a tag and press Enter (and multiple separated by semi-colon)"
                     style="width: 100%; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;">
             </div>
 
             <div style="margin-bottom: 15px;">
-                <div style="font-size: 0.9em; color: #aaa; margin-bottom: 5px;">Notes</div>
-                <textarea id="tagging-notes" placeholder="Add optional notes..."
-                    style="width: 100%; height: 100px; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white; resize: vertical; font-family: inherit;"></textarea>
+                <div style="font-size: 0.9em; color: #aaa; margin-bottom: 5px;">Select among the open tags you've
+                    already used:</div>
+                <div id="tagging-quick-select" style="display: flex; flex-wrap: wrap; gap: 5px; overflow-y: auto;">
+                    <!-- Chips injected here -->
+                </div>
             </div>
 
-            <div id="tagging-closed-coding-container" style="display: none; margin-bottom: 15px;">
-                <div style="font-size: 0.9em; color: #aaa; margin-bottom: 5px;">Closed coding:</div>
-                <select id="tagging-closed-coding"
+            <div id="tagging-closed-tagging-container" style="display: none; margin-bottom: 15px;">
+                <div style="font-size: 0.9em; color: #aaa; margin-bottom: 5px;">Closed Tags</div>
+                <select id="tagging-closed-tagging"
                     style="width: 100%; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;">
                     <option value="" disabled selected></option>
                 </select>
             </div>
 
             <div style="margin-bottom: 15px;">
-                <div style="font-size: 0.9em; color: #aaa; margin-bottom: 5px;">Quick Select (Your Tags):</div>
-                <div id="tagging-quick-select"
-                    style="display: flex; flex-wrap: wrap; gap: 5px; max-height: 100px; overflow-y: auto;">
-                    <!-- Chips injected here -->
-                </div>
+                <div style="font-size: 0.9em; color: #aaa; margin-bottom: 5px;">Notes</div>
+                <textarea id="tagging-notes" placeholder="Add optional notes..."
+                    style="width: 100%; height: 100px; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white; resize: vertical; font-family: inherit;"></textarea>
             </div>
 
             <div
