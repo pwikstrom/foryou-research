@@ -40,13 +40,19 @@ def _resolve_paths(cf, storage_location, filename):
         valid_locs = ', '.join(list(cf['paths'].keys()))
         raise ValueError(f"Invalid storage location: '{storage_location}'. Use: {valid_locs}")
 
+
+
     # 2. Check GCS Configuration
+    gcs_base = False
+    use_gcs = False
     if storage_location == 'cache':
         use_gcs = cf['data_io']['use_gcs_for_cache']
     else:
         use_gcs = cf['data_io']['use_gcs_for_data']
-    
-    gcs_base = cf['gcs_paths'][storage_location]
+
+    if use_gcs:
+        gcs_base = cf['gcs_paths'][storage_location]
+
     bucket_name = cf['data_io']['GCS_bucket_name']
     
     # 3. Resolve
@@ -285,14 +291,19 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
     if (cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None) or (storage_location == 'cache' and cf['data_io']['use_gcs_for_cache'] and cf['data_io']['bucket'] is None):
         cf = connect_to_google(cf)
     
+    gcs_base = False
+    use_gcs = False
     if storage_location == 'cache':
         use_gcs = cf['data_io']['use_gcs_for_cache']
     else:
         use_gcs = cf['data_io']['use_gcs_for_data']
-    gcs_base = cf['gcs_paths'][storage_location]
-    
+
+    if use_gcs:
+        gcs_base = cf['gcs_paths'][storage_location]
+
+
     files = []
-    
+
     if use_gcs and gcs_base:
         # GCS Mode
         try:
@@ -337,14 +348,16 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
         # Local Mode
         if storage_location not in cf['paths']:
             raise ValueError(f"Invalid storage location: '{storage_location}'.")
-            
         local_dir = cf['paths'][storage_location]
+
+        if verbose: print(f"    [DATA_IO] Listing files in local storage: {local_dir}")
+
         files = local_listdir(local_dir)
 
         if return_absolute_path:
             files = [join(local_dir, f) for f in files]
 
-    if verbose: print(f"    [DATA_IO] Listed {len(files)} files in '{storage_location}'")
+    if verbose: print(f"    [DATA_IO] Listed {len(files)} files in local storage '{storage_location}'")
 
     return files
 
@@ -413,6 +426,71 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
 
 
 
+
+
+
+# read a file with one json object per line and return a list of dictionaries
+def read_ndjson_file(cf, storage_location, filename, verbose=False):
+    from os.path import basename, splitext
+    from json import load, loads
+    from fyp.fyp_main import connect_to_google
+
+
+    # Extension check
+    bn = basename(filename)
+    root, ext = splitext(bn)
+    if ext != '.ndjson':
+        if verbose: 
+            print(f"    [DATA_IO] WARN: File extension is not '.ndjson': '{ext}' (filename: {bn})")
+        
+    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
+    
+    # Attempt Primary Load
+    data = []
+    if True:#try:
+        if mode == 'gcs':
+            bucket = _get_bucket(cf)
+            if bucket:
+                blob = bucket.blob(blob_name)
+                # Check existence to avoid generic 404 error masked as something else
+                if blob.exists():
+                    with blob.open("r") as file:
+                        for line in file:
+                            line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
+                            line = '{"log_script":"' + root + '",' + line[1:]
+                            data.append(loads(line))
+                    return data
+                else:
+                     if verbose: print(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+            else:
+                 if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized.")
+        else:
+            # Local Primary
+            with open(primary, 'r') as file:
+                for line in file:
+                    line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
+                    line = '{"log_script":"' + root + '",' + line[1:]
+                    data.append(loads(line))
+            return data
+                
+    if False:#except Exception as e:
+        if verbose: print(f"    [DATA_IO] Primary load failed ({mode}): {e}")
+        # If we are in local mode, primary failed, no secondary. Raise/Return None.
+        if mode == 'local':
+             print(f"    [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
+             return None
+
+    # If we are here, things haven't gone very well have they
+    return None
+
+
+
+
+
+
+
+
+
 def load_json(cf, storage_location, filename, verbose = False):
     """
     Load a json from a given path.
@@ -454,7 +532,7 @@ def load_json(cf, storage_location, filename, verbose = False):
                 return load(file)
                 
     except Exception as e:
-        if verbose: print(f"    [DATA_IO] Primary load failed ({mode}): {e}")
+        if verbose: print(f"    [DATA_IO] Loading json failed ({mode}): {e}")
         # If we are in local mode, primary failed, no secondary. Raise/Return None.
         if mode == 'local':
              print(f"    [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
@@ -548,9 +626,8 @@ def load_parquet(
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
-
-    # Initialize GCS filesystem
-    fs = gcsfs.GCSFileSystem()
+        # Initialize GCS filesystem
+        fs = gcsfs.GCSFileSystem()
 
 
     # if we are to load all parquet files in this location (and it is gcs)
@@ -663,8 +740,6 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
     Save a dataframe to the given path.
     Supports GCS direct write and Parallel Save (GCS + Local).
     """
-
-    verbose = True
 
     this_df = df.copy()
 

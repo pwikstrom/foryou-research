@@ -7,7 +7,29 @@ Author: Patrik
 Date: 
 """
 
-from numpy import int64 as np_int64
+#from numpy import int64 as np_int64
+import pandas as pd
+from datetime import datetime
+from copy import copy
+from fyp.fyp_main import initialize, extract_and_join_subkeys, clean_url, convert_dtypes_to_pyarrow
+import fyp.data_io as data_io
+import numpy as np
+
+from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow, pretty_str_seconds, get_recent_files
+
+from datetime import datetime
+import subprocess
+
+
+#from os import remove, listdir
+from datetime import datetime
+#from json import load as json_load
+from zoneinfo import ZoneInfo
+from fyp.fyp_main import initialize, connect_to_google, convert_dtypes_to_pyarrow
+from fyp.organize_datasets import extract_local_time_features, rename_columns
+from fyp.recode_variables import recode_events_df
+import fyp.data_io as data_io
+import textwrap
 
 
 
@@ -15,65 +37,109 @@ from numpy import int64 as np_int64
 ###                     Process Zeeschuimer metadata
 ############################################################################################################
 
-# read a file with one json object per line and return a list of dictionaries
-def read_ndjson_file(cf = None, storage_location = None, filename = None):
-    from json import loads
-    from fyp.fyp_main import initialize
-    from os.path import join
+
+
+
+"""def process_baseline_for_core_dataset(
+    cf:dict = None,
+    baseline_log:pd.DataFrame = None,
+    session_id_counter:np.int64 = 0,
+    verbose:bool = False):
+
+
+    if baseline_log is None or len(baseline_log) == 0:
+        if verbose:
+            print("No baseline log data available --> skipping baseline log processing. Returning None.")
+        return None, session_id_counter
 
     if cf is None:
         cf = initialize()
 
-    fine_fn = filename.replace("/","").replace(".ndjson","").split('-')[0]
-    data = []
-    with open(join(cf["paths"][storage_location], filename), 'r') as file:
-        for line in file:
-            line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
-            line = '{"log_script":"' + fine_fn + '",' + line[1:]
-            data.append(loads(line))
-    return data
+    baseline_log_simple = baseline_log.rename(columns={c:"B_"+c if not c=="item_id" else c for c in baseline_log.columns}).copy()
+    if verbose:
+        print(f"The baseline log has shape: {baseline_log_simple.shape}")
+
+
+    if len(baseline_log_simple) and ("item_id" in baseline_log_simple.columns):
+        # Sort by script and timestamp
+        baseline_log_simple = baseline_log_simple.sort_values(["B_log_script", "B_local_timestamp"]).copy()
+        
+        # Assign session IDs: each script gets a unique session ID
+        baseline_log_simple["session_id"] = session_id_counter + baseline_log_simple.groupby("B_log_script").ngroup() + 1
+        session_id_counter = baseline_log_simple["session_id"].max() + 1
+        
+        # Event order within each session
+        baseline_log_simple["event_order_in_session"] = baseline_log_simple.groupby("session_id").cumcount()
+        
+        # Event position
+        n_videos_per_session = baseline_log_simple.groupby("session_id")["event_order_in_session"].transform("max")
+        baseline_log_simple["event_pos_in_session"] = baseline_log_simple["event_order_in_session"] / n_videos_per_session.replace(0, 1)
+        
+        if verbose:
+            print("Adding session stats to baseline data",baseline_log_simple.shape)
+    else:
+        if verbose:
+            print("no baseline data available --> skipping session stats attachment. Returning None.")
+        return None, session_id_counter
+
+
+    baseline_log_simple = rename_columns(baseline_log_simple)
+
+    print(set(cf['var_schema'].variable_name))
+    print("\n")
+    print(set(baseline_log_simple.columns))
+    print("\n")
+    print(set(cf['var_schema'].variable_name) & set(baseline_log_simple.columns))
 
 
 
 
+    relevant_baseline_cols = [c for c in cf['var_schema'].variable_name if c in baseline_log_simple.columns]
+
+    baseline_log_simple = baseline_log_simple[relevant_baseline_cols].copy()
 
 
-def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict] = None):
-    from pandas import DataFrame, json_normalize, merge
-    from datetime import datetime
-    from copy import copy
-    from fyp.fyp_main import initialize, extract_and_join_subkeys, clean_url, convert_dtypes_to_pyarrow
-    import fyp.data_io as data_io
-    import numpy as np
+
+
+    if verbose:
+        print("Processed baseline for log export - shape:", baseline_log_simple.shape)
+    return baseline_log_simple#, session_id_counter"""
+
+  
+
+
+
+
+def refine_one_raw_zeeschuimer_log(
+    cf: dict = None,
+    item_list_or_ndjson_path: str | list[dict] = None,
+    verbose: bool = False):
 
     if cf is None:
         cf = initialize()
 
     if isinstance(item_list_or_ndjson_path, str):
-        item_list = read_ndjson_file(cf = cf, storage_location="zeeschuimer_raw", filename = item_list_or_ndjson_path)
+        item_list = data_io.read_ndjson_file(cf = cf, storage_location="zeeschuimer_raw", filename = item_list_or_ndjson_path)
     elif isinstance(item_list_or_ndjson_path, list):
         item_list = item_list_or_ndjson_path
     else:
         print("Input must be a list of dictionaries or a path to an ndjson file.")
-        return DataFrame()
+        return pd.DataFrame()
         
     # if the list is empty, return an empty dataframe
     if len(item_list) == 0:
-        return DataFrame()
+        return pd.DataFrame()
 
     # normalize the list of dictionaries into a dataframe and convert the item_id to an integer
-    zeeschuimer_logs_df = json_normalize(item_list)
+    zeeschuimer_logs_df = pd.json_normalize(item_list)
 
     # drop the items with corrupt item_ids
     zeeschuimer_logs_df = copy(zeeschuimer_logs_df[zeeschuimer_logs_df.item_id.map(lambda x:all([u in "0123456789" for u in x]) and len(x) == 19)])
 
     zeeschuimer_logs_df.item_id = zeeschuimer_logs_df.item_id.astype("string[pyarrow]")
 
-    # drop these columns
-    zeeschuimer_logs_df.drop(columns=["avatar", "secUid", "data.contents", "music.cover", "music.playUrl", "data.video"], errors="ignore", inplace=True)
 
-
-    # the dataframe based zeeschuimer data has a lot of variables that we don't
+    # the TikTok data has a lot of variables that we don't
     # need or need to simplify. This dict is used to iterate over the columns in the DF
     # and indicate that the data should be simplified into a string (or dropped). 
     # The utility function extract_and_join_subkeys
@@ -95,6 +161,12 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
     'data.imagePost.shareCover.imageURL.urlList': []
     }
 
+
+    if verbose:
+        print(f"All observations in the zeeschuimer log. Shape: {zeeschuimer_logs_df.shape}")
+
+
+
     # iterate over the columns_in columns_to_fix
     for a_column_to_fix in columns_to_fix:
         # if the column is in the DF, apply the extract_and_join_subkeys function
@@ -113,10 +185,10 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
     source_details = []
     for ii in zeeschuimer_logs_df.index:
         source_details += [clean_url(zeeschuimer_logs_df['source_url'][ii])]        
-    source_details = DataFrame(source_details)
+    source_details = pd.DataFrame(source_details)
 
     # merge the source_details dataframe with the zeeschuimer_logs_df dataframe and drop the source_url column
-    zeeschuimer_logs_df = merge(left=zeeschuimer_logs_df, right=source_details, left_index=True, right_index=True)
+    zeeschuimer_logs_df = pd.merge(left=zeeschuimer_logs_df, right=source_details, left_index=True, right_index=True)
     del zeeschuimer_logs_df["source_url"]
 
     # convert the 'data.createTime' and 'timestamp_collected' columns to datetime
@@ -130,10 +202,186 @@ def refine_zeeschuimer_log(cf = None, item_list_or_ndjson_path: str | list[dict]
     zeeschuimer_logs_df[object_cols] = zeeschuimer_logs_df[object_cols].map(lambda x: x.replace(","," ") if type(x)==str else x)
     zeeschuimer_logs_df[object_cols] = zeeschuimer_logs_df[object_cols].map(lambda x: x.replace("\n"," ") if type(x) == str else x)
 
+    # drop columns with mostly NAs.
+    zeeschuimer_logs_df.dropna(axis='columns', thresh=int(len(zeeschuimer_logs_df)*0.95), inplace=True)
 
-    zeeschuimer_logs_df = convert_dtypes_to_pyarrow(zeeschuimer_logs_df)
+    # calculate local time features such as hour, day segment, weekday, etc
+    zeeschuimer_logs_df = extract_local_time_features(
+        cf = cf,
+        some_events_df_in = zeeschuimer_logs_df,
+        kind_of_log = 'baseline',
+        verbose = verbose)
+
+
+    # only keeping videos from the FYP page not the explore page
+    zeeschuimer_logs_df = zeeschuimer_logs_df[zeeschuimer_logs_df.source_platform_url.isin(['https://www.tiktok.com/en','https://www.tiktok.com/','https://www.tiktok.com/foryou'])].copy()
+    if verbose:
+        print(f"Only keeping observations from TikTok's ForYou page, yielding shape {zeeschuimer_logs_df.shape}")
+
+
+    # rename columns
+    zeeschuimer_logs_df = zeeschuimer_logs_df.rename(columns={c:"B_"+c if not c=="item_id" else c for c in zeeschuimer_logs_df.columns}).copy()
+    zeeschuimer_logs_df = rename_columns(zeeschuimer_logs_df)
+
+
+    # Sort by timestamp and reset index
+    zeeschuimer_logs_df.sort_values("T_local_timestamp", inplace=True)
+    zeeschuimer_logs_df.reset_index(drop=True, inplace=True)
+
+
+    # Assign session IDs: each script gets a unique session ID at merge - this is just a place holder
+    if verbose:
+        print("Adding session details to zeeschuimer data")
+    zeeschuimer_logs_df["session_id"] = 1
+    zeeschuimer_logs_df["event_order_in_session"] = zeeschuimer_logs_df.index
+    zeeschuimer_logs_df["event_pos_in_session"] = (zeeschuimer_logs_df["event_order_in_session"]) / (len(zeeschuimer_logs_df)-1)
+    
+
+    if verbose:
+        print(f"Current shape: {zeeschuimer_logs_df.shape}")
+
+    # only keep columns as defined by the variable schema
+    dropped_vars_str = textwrap.wrap(", ".join(list(set(zeeschuimer_logs_df.columns) - set(cf['var_schema'].variable_name))), width=120)
+    relevant_baseline_cols = [c for c in cf['var_schema'].variable_name if c in zeeschuimer_logs_df.columns]
+    zeeschuimer_logs_df = zeeschuimer_logs_df[relevant_baseline_cols].copy()
+
+    if verbose:
+        print(f"Dropped these columns, which are not in the variable schema:\n{"\n".join(dropped_vars_str)}\nCurrent shape: {zeeschuimer_logs_df.shape}")
+    
+
+    zeeschuimer_logs_df = recode_events_df(
+        cf = cf,
+        study_dataset = zeeschuimer_logs_df,
+        drop_single_value_cols = False,
+        load_from_cache = False,
+        save_to_cache = False,
+        verbose = verbose
+        )
+    
+    if verbose:
+        print(f"Final shape: {zeeschuimer_logs_df.shape}")
+        print("------------------------------------------------\n\n")
 
     return zeeschuimer_logs_df
+
+
+
+
+
+
+
+
+
+def refine_and_save_all_raw_zeeschuimer_logs(cf = None, verbose=False):
+
+    if cf is None:
+        cf = initialize()
+    result = {}
+    
+    raw_zeeschuimer_files = data_io.listdir(
+        cf=cf,
+        storage_location="zeeschuimer_raw",
+        return_absolute_path=False,
+        verbose=False)
+    raw_zeeschuimer_files = [u for u in raw_zeeschuimer_files if u.endswith(".ndjson")]
+    result["raw_files"] = len(raw_zeeschuimer_files)
+
+    refined_zeeschuimer_files = data_io.listdir(
+        cf=cf,
+        storage_location="zeeschuimer_refined",
+        return_absolute_path=False,
+        verbose=False)
+    refined_zeeschuimer_files = [u for u in refined_zeeschuimer_files if u.endswith(".parquet")]
+    result["refined_files_before"] = len(refined_zeeschuimer_files)
+
+    #ff = []
+    for u in raw_zeeschuimer_files:
+        if u.endswith(".ndjson"):
+            if u.replace(".ndjson",".parquet") in refined_zeeschuimer_files:
+                #print("    [DATA_IO] Skipping already refined file: {}".format(u))
+                continue
+            if verbose:
+                print(f"Refining: {u}")
+            new_flat = refine_one_raw_zeeschuimer_log(
+                cf = cf,
+                item_list_or_ndjson_path = u,
+                verbose=verbose)
+            #ff += [new_flat.copy()]
+            data_io.save_parquet(cf=cf, df=new_flat, filename=u.replace(".ndjson",".parquet"), storage_location="zeeschuimer_refined", verbose=verbose)
+
+    refined_zeeschuimer_files = data_io.listdir(
+        cf=cf,
+        storage_location="zeeschuimer_refined",
+        return_absolute_path=False,
+        verbose=False)
+    refined_zeeschuimer_files = [u for u in refined_zeeschuimer_files if u.endswith(".parquet")]
+    result["refined_files_after"] = len(refined_zeeschuimer_files)
+
+    return result
+
+
+
+
+
+
+
+
+
+
+
+
+
+def combine_zeeschuimer_logs(cf = None, verbose = False):
+
+    if cf is None:
+        cf = initialize()
+
+    top_verbose = True
+
+    if top_verbose:
+        print("Checking for new raw zeeschuimer logs that needs refining...")
+    result = refine_and_save_all_raw_zeeschuimer_logs(cf=cf, verbose=verbose)
+    if top_verbose:
+        if result["refined_files_after"] == result["refined_files_before"]:
+            print("...all files already refined.")
+        else:
+            print(f"...refined {result["refined_files_after"] - result["refined_files_before"]} files.")
+
+    refined_zeeschuimer_files = data_io.listdir(
+        cf=cf,
+        storage_location="zeeschuimer_refined",
+        return_absolute_path=False,
+        verbose=False)
+    refined_zeeschuimer_files = [u for u in refined_zeeschuimer_files if u.endswith(".parquet")]
+
+    if top_verbose:
+        print(f"Combining refined zeeschuimer logs. Found {len(refined_zeeschuimer_files)} files...")
+
+    # load and combine all refined files
+    allofit = [data_io.load_parquet(cf=cf, storage_location="zeeschuimer_refined", filename=u) for u in refined_zeeschuimer_files]
+    combined = pd.concat(allofit).drop_duplicates(subset=["item_id","T_local_timestamp","B_source_tz_name"])
+
+    # reset index
+    combined.reset_index(drop=True, inplace=True)
+
+    # recalculate session_id to ensure that session IDs are unique
+    session_id_mapper = {u:(i+100) for i,u in enumerate(combined.B_log_script.unique())} # the number 100 is not important - it just didn't feel right to start at session zero
+    combined["session_id"] = combined.B_log_script.map(session_id_mapper)
+    combined["session_id"] = combined["session_id"].map(lambda x:f"SZ{x:05}").convert_dtypes(dtype_backend="pyarrow") # SZ kind of indicates that this is a S-ession and Z-eeschuimer
+
+    if top_verbose:
+        print(f"...done. Combined all logs into shape: {combined.shape}")
+    
+    return combined
+
+
+
+
+
+
+
+
+
 
 
 
@@ -185,12 +433,6 @@ def move_and_refine_recent_file(
     verbose=False,
     move_it = True
     ):
-    #from shutil import move
-    from os.path import basename, join, exists
-    import subprocess
-    from datetime import datetime
-    from fyp.fyp_main import initialize
-    import fyp.data_io as data_io
 
     if cf is None:
         cf = initialize()
@@ -244,10 +486,6 @@ def get_baseline_log(cf = None,
                      the_script=None, 
                      how_recent=30,
                      verbose=False):
-    from os.path import basename, join
-    import subprocess
-    from datetime import datetime
-    from fyp.fyp_main import initialize, pretty_str_seconds, get_recent_files
 
     if cf is None:
         cf = initialize()
@@ -309,106 +547,6 @@ def get_baseline_log(cf = None,
 
 
 
-def process_baseline_for_core_dataset(
-    cf = None,
-    baseline_log = None,
-    session_id_counter = np_int64(0),
-    verbose=False):
-
-    from pandas import concat
-    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
-
-    if baseline_log is None or len(baseline_log) == 0:
-        if verbose:
-            print("No baseline log data available --> skipping baseline log processing. Returning None.")
-        return None, session_id_counter
-
-    if cf is None:
-        cf = initialize()
-
-    baseline_log_simple = baseline_log.rename(columns={c:"B_"+c if not c=="item_id" else c for c in baseline_log.columns}).copy()
-    if verbose:
-        print(f"The baseline log has shape: {baseline_log_simple.shape}")
-
-
-    # VECTORIZED: No loop needed, use groupby operations directly
-    if len(baseline_log_simple) and ("item_id" in baseline_log_simple.columns):
-        # Sort by script and timestamp
-        baseline_log_simple = baseline_log_simple.sort_values(["B_log_script", "B_local_timestamp"]).copy()
-        
-        # Assign session IDs: each script gets a unique session ID
-        baseline_log_simple["session_id"] = session_id_counter + baseline_log_simple.groupby("B_log_script").ngroup() + 1
-        session_id_counter = baseline_log_simple["session_id"].max() + 1
-        
-        # Event order within each session (vectorized)
-        baseline_log_simple["event_order_in_session"] = baseline_log_simple.groupby("session_id").cumcount()
-        
-        # Event position (vectorized)
-        n_videos_per_session = baseline_log_simple.groupby("session_id")["event_order_in_session"].transform("max")
-        baseline_log_simple["event_pos_in_session"] = baseline_log_simple["event_order_in_session"] / n_videos_per_session.replace(0, 1)
-        
-        if verbose:
-            print("Adding session stats to baseline data",baseline_log_simple.shape)
-    else:
-        if verbose:
-            print("no baseline data available --> skipping session stats attachment. Returning None.")
-        return None, session_id_counter
-
-    #if verbose:
-        #print("--"*60)
-
-
-    if "var_schema" in cf and not cf["var_schema"].empty:
-        vs = cf["var_schema"]
-        # TODO - this has to be changed to be less connected to specific variable names
-        #
-        # Determine baseline vars: those with 'role'='standard' (like B_anchors) or starting with B_ ? 
-        # The original list had B_ challenges etc. In CSV they are defined.
-        # Original List: item_id, T_local_timestamp... T_local_date, session_id, event_order..., event_pos...
-        # AND B_challenges, B_anchors, ..., B_source_tz_name
-        
-        # We want: 
-        # 1. Standard structural cols (item_id, T_..., session_..., event_...)
-        # 2. All variables in scheme that start with B_
-        
-        structural_cols = [
-            'item_id',
-            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
-            'T_local_hour', 'T_local_day_segment', 'T_local_date',
-            'session_id', 'event_order_in_session',
-            'event_pos_in_session'
-        ]
-        
-        b_vars = vs[vs['variable_name'].str.startswith('B_', na=False)]['variable_name'].tolist()
-        relevant_baseline_cols = structural_cols + b_vars
-        
-        # Remove duplicates just in case
-        relevant_baseline_cols = list(dict.fromkeys(relevant_baseline_cols))
-    else:
-        raise ValueError("var_schema not found in config")
-
-
-    baseline_log_simple = rename_columns(baseline_log_simple)
-
-    relevant_baseline_cols = [c for c in relevant_baseline_cols if c in baseline_log_simple.columns]
-
-    baseline_log_simple = baseline_log_simple[relevant_baseline_cols].copy()
-    
-    # Convert categorical columns to string to avoid fillna errors with categoricals
-    #for col in baseline_log_simple.select_dtypes(include=['category']).columns:
-    #    baseline_log_simple[col] = baseline_log_simple[col].astype(str)
-    
-    #baseline_log_simple = baseline_log_simple.fillna("").copy()
-    #baseline_log_simple = _check_for_null_values_in_df(baseline_log_simple, verbose=verbose)
-
-
-    #baseline_log_simple = convert_dtypes_to_pyarrow(baseline_log_simple, verbose=verbose)
-
-    if verbose:
-        print("Processed baseline for log export - shape:", baseline_log_simple.shape)
-    return baseline_log_simple#, session_id_counter
-
-  
 
 
 
@@ -420,21 +558,10 @@ def process_baseline_for_core_dataset(
 
 
 
-
-def ingest_zeeschuimer_data(
+"""def ingest_zeeschuimer_data(
     cf = None,
     verbose=False):
     # load items from baseline logs
-
-    from pandas import concat, DataFrame
-    from os.path import exists, join
-    from os import remove, listdir
-    from datetime import datetime
-    from json import load as json_load
-    from zoneinfo import ZoneInfo
-    from fyp.fyp_main import initialize, connect_to_google, convert_dtypes_to_pyarrow
-    from fyp.organize_datasets import extract_local_time_features
-    import fyp.data_io as data_io
 
     if cf is None:
         cf = initialize()
@@ -453,17 +580,7 @@ def ingest_zeeschuimer_data(
     for fn in zeeschuimer_refined_files:
         
         zeeschuimer_candidate = data_io.load_parquet(cf, "zeeschuimer_refined", fn, verbose=verbose)
-
-        empty_columns = []
-        for c in zeeschuimer_candidate.columns:
-            if zeeschuimer_candidate[c].isna().sum() / len(zeeschuimer_candidate) > 0.95:
-                empty_columns.append(c)
-
-        zeeschuimer_candidate.drop(empty_columns, axis=1, inplace=True)
-
-        zeeschuimer_candidate = zeeschuimer_candidate.convert_dtypes(dtype_backend="pyarrow") # to be sure
         
-
         test_cols = zeeschuimer_candidate[["item_id","timestamp_collected"]].reset_index(drop=True).sort_values("timestamp_collected").copy()
         duplicate_found = False
         for zl in okay_test_cases:
@@ -489,14 +606,14 @@ def ingest_zeeschuimer_data(
         zl["session_id"] = i
 
     if len(list_of_zeeschuimer_logs)>0:
-        baseline_log = concat(list_of_zeeschuimer_logs)
+        baseline_log = pd.concat(list_of_zeeschuimer_logs)
 
         if verbose:
             print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.timestamp_collected.min()} -- {baseline_log.timestamp_collected.max()}")
         
         baseline_log = baseline_log.drop_duplicates(subset=["item_id","timestamp_collected","source_url.tz_name"]).copy()
         if verbose:
-            print(f"Dropped duplicates based on item_id, timestamp and location, yielding {baseline_log.shape[0]:,} rows")
+            print(f"Dropped duplicates based on item_id, timestamp and collection timezone, yielding {baseline_log.shape[0]:,} rows")
 
 
         # only keeping videos from the FYP page not the explore page
@@ -508,12 +625,6 @@ def ingest_zeeschuimer_data(
         baseline_log.reset_index(drop=True, inplace=True)
 
 
-        empty_columns = []
-        for c in baseline_log.columns:
-            if baseline_log[c].isna().sum() / len(baseline_log) > 0.8:
-                empty_columns.append(c)
-
-        baseline_log.drop(empty_columns, axis=1, inplace=True)
 
         baseline_log = extract_local_time_features(
             cf = cf,
@@ -528,9 +639,9 @@ def ingest_zeeschuimer_data(
         baseline_log_simple = data_io.save_parquet(cf, baseline_log_simple, "zeeschuimer_main", "all_zeeschuimer_events.parquet", verbose=verbose)
     
     else:
-        baseline_log_simple = DataFrame()
+        baseline_log_simple = pd.DataFrame()
 
-    return baseline_log_simple
+    return baseline_log_simple"""
 
 
 

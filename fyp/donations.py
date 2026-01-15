@@ -14,7 +14,16 @@ import json
 import os
 import shutil
 from numpy import int64 as np_int64
+import textwrap
+import pandas as pd
 
+from fyp.fyp_main import convert_dtypes_to_pyarrow
+from fyp.recode_variables import recode_events_df
+from fyp.organize_datasets import extract_local_time_features, rename_columns
+
+from collections import deque
+import numpy as np
+from datetime import datetime
 
 
 
@@ -251,7 +260,382 @@ def download_recent_donations(hours_back: int,
 
 
 
-def identify_similar_donations(
+
+def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(10_000_000), verbose=False):
+    # attach session stats to donation events
+
+    from pandas import isna as pd_isna, concat
+    import numpy as np
+
+    ddp_log = ddp_log_in.copy()
+
+    all_sessions = []
+    if len(ddp_log) and ("D_donation_id" in ddp_log.columns):
+
+        
+        # Collect all updates, then apply in bulk at the end
+        updates_list = []
+
+
+        for one_donation_id,one_donation in ddp_log.groupby("D_donation_id"):
+
+            watch = (one_donation.sort_values(['T_local_timestamp','event_order_in_session'])).copy()
+
+            watch['delta'] = watch['T_local_timestamp'].shift(-1) - watch['T_local_timestamp']
+            # timedelta conversion to seconds
+            #print(watch[['delta','T_local_timestamp','event_order_in_session','session_id']].head(10))
+            #watch['delta'] = watch['delta'].dt.total_seconds()
+
+            # A new session starts when delta is >15 minutes or is NaN
+            session_breaks = (watch['delta'].isna()) | (watch['delta'] > 15*60)
+            # Cumsum creates incrementing session IDs at each break
+            session_nums = session_breaks.astype(bool).cumsum()
+            # Add the counter offset and assign
+            watch['session_id'] = session_id_counter + session_nums
+            
+            # Update counter for next donation
+            session_id_counter = watch['session_id'].max() + 1
+            
+            # groupby().cumcount() gives sequential numbering within each session
+            watch['event_order_in_session'] = watch.groupby('session_id').cumcount()
+            # events at session breaks get -1, others keep their count
+            watch.loc[session_breaks, 'event_order_in_session'] = 0
+
+            session_stats = watch.groupby('session_id').agg(
+                session_duration=('delta', 'sum'),
+                session_start_ts=('T_local_timestamp', 'min'),
+                n_videos_in_session=('event_order_in_session', 'max'),
+            )
+
+            session_stats = session_stats.astype(int)
+            session_stats["session_end_ts"] = session_stats["session_start_ts"] + session_stats["session_duration"]
+            session_stats["D_donation_id"] = one_donation_id
+
+            watch['n_videos_in_session'] = watch['session_id'].map(session_stats['n_videos_in_session'].to_dict())
+            watch['event_pos_in_session'] = watch['event_order_in_session'] / watch['n_videos_in_session']
+            #watch['event_pos_in_session'] = watch['event_pos_in_session'].fillna(-1).astype(float)
+
+            session_stats["n_videos_in_session"] = session_stats["n_videos_in_session"]+1
+
+            short = watch.loc[watch['delta'].between(0, 15*60), ['delta', 'session_id', 'event_order_in_session', 'event_pos_in_session']]
+
+            # Store updates
+            if len(short) > 0:
+                updates_list.append(short)
+
+            all_sessions += [session_stats]
+
+        # Apply all updates at once
+        ddp_log['session_id'] = pd.NA
+        ddp_log['event_order_in_session'] = pd.NA
+        ddp_log['event_pos_in_session'] = pd.NA
+        if updates_list:
+            all_updates = concat(updates_list)
+            ddp_log.loc[all_updates.index, 'session_id'] = all_updates['session_id'].astype(int).convert_dtypes(dtype_backend="pyarrow")
+            ddp_log.loc[all_updates.index, 'event_order_in_session'] = all_updates['event_order_in_session'].convert_dtypes(dtype_backend="pyarrow")
+            ddp_log.loc[all_updates.index, 'event_pos_in_session'] = all_updates['event_pos_in_session'].astype(float).convert_dtypes(dtype_backend="pyarrow")
+            ddp_log.loc[all_updates.index, 'D_watch_duration'] = all_updates['delta'].convert_dtypes(dtype_backend="pyarrow")
+        
+        if verbose:
+            print("Adding session stats to DDP data",ddp_log.shape)
+        
+
+    else:
+        if verbose:
+            print("no ddp data")
+
+    return ddp_log
+
+
+
+
+
+
+
+
+
+def refine_one_raw_ddp_log(
+    cf: dict = None, 
+    donation_id: str = None,
+    verbose: bool = False):
+
+    if cf is None:
+        cf = initialize()
+
+    # loading a json with the name == donation id
+    donation_dict = data_io.load_json(
+        cf=cf, 
+        storage_location="ddp_raw",
+        filename=donation_id,
+        verbose=verbose
+    )
+
+    mod_time_timestamp = data_io.getmtime(cf=cf, storage_location="ddp_raw", filename=donation_id)
+    mod_time_timestamp = datetime.fromtimestamp(mod_time_timestamp)
+
+
+    raw_data_donation_top_keys = list(donation_dict.keys())
+    if 'ad_preferences' in raw_data_donation_top_keys or 'CONTENT_INTERACTION' in raw_data_donation_top_keys:
+        if verbose:
+            print(f"{donation_id} is not TikTok data, cannot process this one")
+        return "[ERROR]: Not TikTok data"
+
+
+    donation_items = []
+
+    # --- find list of dicts -------------
+    stack = deque([(None, donation_dict)])       # (feature_name, current_obj)
+    while stack:
+        feature, obj = stack.pop()
+        if isinstance(obj, list):          # this is an event list
+            for item in obj:
+                if isinstance(item, dict) and item:           # non-empty dict
+                    donation_items.append({
+                        "donation_id":       donation_id,
+                        "feature_name":      (feature or '').replace('xxx','').lower(),
+                        "variable_list":     [k.lower() for k in item.keys()],
+                        "value_list":        list(item.values())
+                    })
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                stack.append((k, v))
+
+    # --- nothing found? bail out early ------------------------
+    if not donation_items:
+        return ["ERROR: No donation items found in file", donation_id]
+
+    all_ddp_events_df = pd.DataFrame.from_records(donation_items)
+
+
+
+    # --- post-processing ---------------------------
+    # keep rows that have at least one variable and contain 'date'
+    mask_date = all_ddp_events_df['variable_list'].map(lambda lst: 'date' in lst)
+    all_ddp_events_df = all_ddp_events_df[mask_date & (all_ddp_events_df['variable_list'].map(len) > 0)].copy()
+
+    all_ddp_events_df['date']          = pd.to_datetime(all_ddp_events_df['value_list'].str[0])
+    all_ddp_events_df['primary_label'] = all_ddp_events_df['variable_list'].str[1]
+    all_ddp_events_df['primary_value'] = all_ddp_events_df['value_list'].str[1]
+
+    # to ns → s int
+    all_ddp_events_df['timestamp'] = (all_ddp_events_df['date'].astype('int64') // 1_000_000_000).astype(int)
+    all_ddp_events_df['ts_jiggled'] = all_ddp_events_df['date'].astype('int64') + np.random.randint(-10_000, 10_000,
+                                                                   size=len(all_ddp_events_df))
+
+
+    # Extract sample_id
+    all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype(int)
+    all_ddp_events_df.loc[all_ddp_events_df[all_ddp_events_df["primary_label"]=="ip"].index,"feature_name"] = "login_event"
+
+    # identify post events
+    post_events = [k for k in all_ddp_events_df.index if "whocanview" in all_ddp_events_df.loc[k,"variable_list"]]
+    all_ddp_events_df.loc[post_events,"feature_name"] = "post"
+    all_ddp_events_df.loc[post_events,"primary_label"] = "post_link"
+
+    all_ddp_events_df["feature_name"] = all_ddp_events_df["feature_name"].map(
+        {
+            'videolist':'watch',
+            'commentslist':'comment',
+            'post':'post',
+            'searchlist':'search',
+            'fanslist':'followed_by',
+            'following':'following',
+            'itemfavoritelist':'fave_item',
+            'favoritevideolist':'fave_video'
+        }
+    ).copy()
+
+
+    print(f"Current shape: {all_ddp_events_df.shape}")
+    print(f"The DDP events range from {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()}")
+
+
+    all_ddp_events_df = extract_local_time_features(
+        cf = cf,
+        some_events_df_in = all_ddp_events_df,
+        kind_of_log = 'ddp',
+        verbose = verbose)
+
+
+
+    # rename columns
+    all_ddp_events_df = all_ddp_events_df.rename(columns={c:"D_"+c if not c in ["item_id"] else c for c in all_ddp_events_df.columns}).copy()
+    all_ddp_events_df = rename_columns(all_ddp_events_df)
+
+    # Sort by timestamp and reset index
+    all_ddp_events_df.sort_values("T_local_timestamp", inplace=True)
+    all_ddp_events_df.reset_index(drop=True, inplace=True)
+
+
+    # assign session IDs etc. These are just placeholders for now,
+    # Session IDs will be updated when donations are merged.
+    all_ddp_events_df = add_session_stats_to_ddp_log(all_ddp_events_df, verbose=verbose)
+
+
+    if verbose:
+        print(f"Current shape: {all_ddp_events_df.shape}")
+
+    # only keep columns as defined by the variable schema
+    dropped_vars_str = textwrap.wrap(", ".join(list(set(all_ddp_events_df.columns) - set(cf['var_schema'].variable_name))), width=120)
+    relevant_cols = [c for c in cf['var_schema'].variable_name if c in all_ddp_events_df.columns]
+    all_ddp_events_df = all_ddp_events_df[relevant_cols].copy()
+
+    if verbose:
+        print(f"Dropped these columns, which are not in the variable schema:\n{"\n".join(dropped_vars_str)}\nCurrent shape: {all_ddp_events_df.shape}")
+    
+
+    all_ddp_events_df = recode_events_df(
+        cf = cf,
+        study_dataset = all_ddp_events_df,
+        drop_single_value_cols = False,
+        load_from_cache = False,
+        save_to_cache = False,
+        verbose = verbose
+        )
+
+    all_ddp_events_df["D_donation_date"] = mod_time_timestamp
+
+
+
+
+    if verbose:
+        print(f"Final shape: {all_ddp_events_df.shape}")
+        print("------------------------------------------------\n\n")
+
+
+    return all_ddp_events_df
+
+
+
+
+
+
+
+
+def refine_and_save_all_raw_ddp_logs(cf = None, verbose=False):
+
+    if cf is None:
+        cf = initialize()
+    result = {}
+    
+    raw_ddp_files = data_io.listdir(
+        cf=cf,
+        storage_location="ddp_raw",
+        return_absolute_path=False,
+        verbose=False)
+    raw_ddp_files = [u for u in raw_ddp_files if not u.startswith(".")]
+
+
+
+    result["raw_files"] = len(raw_ddp_files)
+
+    refined_ddp_files = data_io.listdir(
+        cf=cf,
+        storage_location="ddp_processed",
+        return_absolute_path=False,
+        verbose=False)
+    refined_ddp_files = [u for u in refined_ddp_files if u.endswith(".parquet")]
+    result["refined_files_before"] = len(refined_ddp_files)
+
+    for u in raw_ddp_files:
+        if u+".parquet" in refined_ddp_files:
+            continue
+
+
+        if verbose:
+            print(f"Refining: {u}")
+        new_flat = refine_one_raw_ddp_log(
+            cf=cf,
+            donation_id=u,
+            verbose=verbose
+            )
+        if isinstance(new_flat, pd.DataFrame):
+            data_io.save_parquet(cf=cf, df=new_flat, filename=u+".parquet", storage_location="ddp_processed", verbose=verbose)
+        else:
+            pass
+    
+    refined_ddp_files = data_io.listdir(
+        cf=cf,
+        storage_location="ddp_processed",
+        return_absolute_path=False,
+        verbose=False)
+    refined_ddp_files = [u for u in refined_ddp_files if u.endswith(".parquet")]
+    result["refined_files_after"] = len(refined_ddp_files)
+
+    return result
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def calc_donated_items_stats(edf, sort_by=None, verbose=False):
+    """
+    Calculate statistics for donated items, specifically counting feature occurrences per donation.
+
+    Parameters
+    ----------
+    edf : pandas.DataFrame
+        Events DataFrame containing 'donation_id' and 'feature_name' columns.
+    sort_by : str, optional
+        Column name to sort the resulting DataFrame by. If None, sorts by 'total'.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame with donation IDs as index and counts of each feature as columns.
+        Includes a 'total' column and 'donation_date' (if available).
+    """
+    
+    import pandas as pd
+
+    if not isinstance(edf, pd.DataFrame):
+        raise ValueError("edf must be a pandas DataFrame")
+    if 'D_donation_id' not in edf.columns:
+        print("Shape of the donation stats DF: (0,0)")
+        return pd.DataFrame()
+        
+    df1 = edf.groupby('D_donation_id')["D_feature_name"].value_counts().unstack().fillna(0).astype(int)
+    df1['total'] = df1.sum(axis=1)
+    if sort_by is None:
+        df1 = df1.sort_values("total").copy()
+    else:
+        df1 = df1.sort_values(sort_by).copy()
+    if verbose:
+        print(f"Shape of the donation stats DF: {df1.shape}")
+
+    df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
+
+    these_donation_dates = edf[["D_donation_id","D_donation_date"]].set_index("D_donation_id", inplace=False).to_dict()["D_donation_date"]
+
+    df1["other","D_donation_date"] = df1.index.map(lambda x: these_donation_dates[x])
+
+    return df1
+
+
+
+
+# -----------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+def _identify_similar_donations(
     new_events=None,
     old_events=None,
     dont_check_these_cols=[],
@@ -289,15 +673,15 @@ def identify_similar_donations(
     if new_events is None:
         raise ValueError("new_events cannot be None")
     new_events_ts_dict = {}
-    fine_events_df = new_events[~new_events.feature_name.isin(dont_check_these_cols)].copy()
-    for d,i in fine_events_df.groupby('donation_id'):
-        new_events_ts_dict[d] = set([int(j) for j in i['timestamp'].values])
+    fine_events_df = new_events[~new_events["D_feature_name"].isin(dont_check_these_cols)].copy()
+    for d,i in fine_events_df.groupby('D_donation_id'):
+        new_events_ts_dict[d] = set([int(j) for j in i['T_local_timestamp'].values])
     
     if old_events is not None:
         old_events_ts_dict = {}
-        fine_events_df = old_events[~old_events.feature_name.isin(dont_check_these_cols)].copy()
-        for d,i in fine_events_df.groupby('donation_id'):
-            old_events_ts_dict[d] = set([int(j) for j in i['timestamp'].values])
+        fine_events_df = old_events[~old_events["D_feature_name"].isin(dont_check_these_cols)].copy()
+        for d,i in fine_events_df.groupby('D_donation_id'):
+            old_events_ts_dict[d] = set([int(j) for j in i['T_local_timestamp'].values])
     else:
         old_events_ts_dict = new_events_ts_dict.copy()
 
@@ -339,11 +723,11 @@ def identify_similar_donations(
 
 
 
-# identify exact duplicates among the donated JSONs and remove these
+"""# identify exact duplicates among the donated JSONs and remove these
 # the filtered JSONs go inte the new variable 'no_duplicate_donations'
 
 def drop_duplicates_donations(donation_data, no_duplicate_donations = {}):
-    """
+    "-""
     Identify and remove exact duplicate donations from the raw data.
 
     Parameters
@@ -357,7 +741,7 @@ def drop_duplicates_donations(donation_data, no_duplicate_donations = {}):
     -------
     dict
         A dictionary containing only the unique donations.
-    """
+    "-""
     # iterate over all donation IDs
     print(f"Number of donations before dropping duplicates: {len(donation_data)}")
     for donation_id in donation_data.keys():
@@ -371,128 +755,7 @@ def drop_duplicates_donations(donation_data, no_duplicate_donations = {}):
         else:
             no_duplicate_donations[donation_id] = donation_data[donation_id].copy()
     
-    return no_duplicate_donations.copy()
-
-
-
-
-
-
-
-def transform_data_to_df(data_input, donation_item_id=0):
-    """
-    Transform raw donation dictionary into a structured pandas DataFrame.
-
-    This function flattens the nested dictionary structure of donations, extracts relevant events,
-    and performs initial cleaning and feature engineering.
-
-    Parameters
-    ----------
-    data_input : dict
-        Dictionary of raw donation data.
-    donation_item_id : int, default 0
-        Starting ID for donation items.
-
-    Returns
-    -------
-    tuple
-        - pandas.DataFrame: DataFrame containing the processed events.
-        - dict: Unchanged donated variables (currently empty).
-    """
-
-
-    from collections import deque
-    import pandas as pd
-    import numpy as np
-
-
-    donation_items = []
-
-    # --- 1. recurse once per donation to recode & clean ----------
-    for donation_id, donation_dict in data_input.items():
-        #cleaned = _recode_recursive(donation_dict, recode_the_donation_keys)
-
-        # --- 2. single pass: find *any* list of dicts -------------
-        stack = deque([(None, donation_dict)])       # (feature_name, current_obj)
-        while stack:
-            feature, obj = stack.pop()
-            if isinstance(obj, list):          # this is an event list
-                for item in obj:
-                    if isinstance(item, dict) and item:           # non-empty dict
-                        donation_items.append({
-                            "donation_id":       donation_id,
-                            "donation_item_id":  donation_item_id,
-                            "feature_name":      (feature or '').replace('xxx','').lower(),
-                            "variable_list":     [k.lower() for k in item.keys()],
-                            "value_list":        list(item.values())
-                        })
-                        donation_item_id += 1
-            elif isinstance(obj, dict):
-                for k, v in obj.items():
-                    stack.append((k, v))
-
-    # --- 3. nothing found? bail out early ------------------------
-    if not donation_items:
-        return pd.DataFrame(), {}
-
-    events = pd.DataFrame.from_records(donation_items)
-
-    # --- 4. vectorised post-processing ---------------------------
-    # keep rows that have at least one variable and contain 'date'
-    mask_date = events['variable_list'].map(lambda lst: 'date' in lst)
-    events = events[mask_date & (events['variable_list'].map(len) > 0)].copy()
-
-    events['date']          = pd.to_datetime(events['value_list'].str[0])
-    events['primary_label'] = events['variable_list'].str[1]
-    events['primary_value'] = events['value_list'].str[1]
-
-    # to ns → s int
-    events['timestamp'] = (events['date'].astype('int64') // 1_000_000_000).astype(int)
-    events['ts_jiggled'] = events['date'].astype('int64') + np.random.randint(-10_000, 10_000,
-                                                                   size=len(events))
-
-    events['secondary_label'] = pd.NA
-    events['secondary_value'] = pd.NA
-
-
-    # --- identify posts made by the donor
-    post_events = [k for k in events.index if "whocanview" in events.loc[k,"variable_list"]]
-    events.loc[post_events,"feature_name"] = "post"
-    events.loc[post_events,"primary_label"] = "post_link"
-
-    events["feature_name"] = events["feature_name"].map(
-        {
-            'videolist':'watch',
-            'commentslist':'comment',
-            'post':'post',
-            'searchlist':'search',
-            'fanslist':'followed_by',
-            'following':'following',
-            'itemfavoritelist':'fave_item',
-            'favoritevideolist':'fave_video'
-        }
-    ).copy()
-
-    #return events.set_index('donation_item_id'), {}   # donated_variables unchanged
-
-    # --- 5. watch-duration delta (vectorised, but with 2-step assignment)
-    watch = (events.query("feature_name == 'watch'")
-                .sort_values(['donation_id', 'ts_jiggled']))
-
-    watch['delta'] = (watch.groupby('donation_id')['timestamp']
-                            .shift(-1) - watch['timestamp'])
-
-    short = watch.loc[watch['delta'].between(0, 15*60), ['donation_item_id', 'delta']]
-    short = short.set_index('donation_item_id')
-    #return short, events
-
-    events = events.set_index('donation_item_id')
-
-    events.loc[short.index, 'secondary_label'] = 'watch_duration'
-    events.loc[short.index, 'secondary_value'] = short['delta']
-
-
-    return events, {}   # donated_variables unchanged
+    return no_duplicate_donations.copy()"""
 
 
 
@@ -503,47 +766,117 @@ def transform_data_to_df(data_input, donation_item_id=0):
 
 
 
-def calc_donated_items_stats(edf, sort_by=None):
-    """
-    Calculate statistics for donated items, specifically counting feature occurrences per donation.
 
-    Parameters
-    ----------
-    edf : pandas.DataFrame
-        Events DataFrame containing 'donation_id' and 'feature_name' columns.
-    sort_by : str, optional
-        Column name to sort the resulting DataFrame by. If None, sorts by 'total'.
 
-    Returns
-    -------
-    pandas.DataFrame
-        A DataFrame with donation IDs as index and counts of each feature as columns.
-        Includes a 'total' column and 'donation_date' (if available).
-    """
+
+def combine_ddp_logs(cf = None, verbose = False):
+
+    if cf is None:
+        cf = initialize()
+
+    top_verbose = True
+
+    if top_verbose:
+        print("Checking for new raw DDP logs that needs refining...")
+    result = refine_and_save_all_raw_ddp_logs(cf=cf, verbose=verbose)
+    if top_verbose:
+        if result["refined_files_after"] == result["refined_files_before"]:
+            print("...all files already refined.")
+        else:
+            print(f"...refined {result["refined_files_after"] - result["refined_files_before"]} files.")
+
+    refined_ddp_files = data_io.listdir(
+        cf=cf,
+        storage_location="ddp_processed",
+        return_absolute_path=False,
+        verbose=False)
+    refined_ddp_files = [u for u in refined_ddp_files if u.endswith(".parquet")]
+
+    if top_verbose:
+        print(f"Combining refined DDP logs. Found {len(refined_ddp_files)} files...")
+
+    allofit = [data_io.load_parquet(cf=cf, storage_location="ddp_processed", filename=u) for u in refined_ddp_files]
+
+    combined = pd.concat(allofit)
+    if top_verbose:
+        print(f"...done - initial shape of the combined dataframe: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
+
+    # naive drop_dupes based on these three columns
+    combined = combined.drop_duplicates(subset=["D_donation_id","T_local_timestamp","item_id"], keep="first").copy()
+    if top_verbose:
+        print(f"Shape after naive drop_dupes: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
+
+    # calculate the donation stats
+    if top_verbose:
+        print("Calculating donation stats...")
+    new_donation_stats = calc_donated_items_stats(combined, verbose=verbose)
+    if top_verbose:
+        print("...done calculating donation stats")
+
     
-    import pandas as pd
+    # create list of donations to be dropped and drop donations which has a very small number of watched videos
+    donations_to_drop = []
+    donations_to_drop += list(new_donation_stats["counts"][(new_donation_stats["counts","watch"]<5)].index)
+    combined = combined[~combined.D_donation_id.isin(donations_to_drop)].copy()
+    if top_verbose:
+        print(f"Shape after dropping donations with fewer than 5 watch events: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
+    
 
-    if not isinstance(edf, pd.DataFrame):
-        raise ValueError("edf must be a pandas DataFrame")
-    if 'donation_id' not in edf.columns:
-        print("Shape of the donation stats DF: (0,0)")
-        return pd.DataFrame()
-        
-    df1 = edf.groupby('donation_id').feature_name.value_counts().unstack().fillna(0).astype(int)
-    df1['total'] = df1.sum(axis=1)
-    if sort_by is None:
-        df1 = df1.sort_values("total").copy()
-    else:
-        df1 = df1.sort_values(sort_by).copy()
-    print(f"Shape of the donation stats DF: {df1.shape}")
+    if top_verbose:
+        print(f"Only keeping one of multiple overlapping (similar) donations...")
 
-    df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
+    # check for similarities between the new donations by looking for the same timestamps in the donations. 
+    # The assumption is that if two donations have a lot of the same timestamps, they are likely to be duplicates
+    # first include all kinds of events, then exclude the watch events
 
-    these_donation_dates = edf[["donation_id","donation_date"]].set_index("donation_id", inplace=False).to_dict()["donation_date"]
+    a1 = _identify_similar_donations(new_events=combined, old_events=combined, dont_check_these_cols=[])
+    a2 = _identify_similar_donations(new_events=combined, old_events=combined, dont_check_these_cols=["watch"])
+    new_donations_to_drop = (a1["new_drops"] | a2["new_drops"])
+    old_donations_to_drop = (a1["old_drops"] | a2["old_drops"])
+    donations_to_drop = new_donations_to_drop | old_donations_to_drop
 
-    df1["other","donation_date"] = df1.index.map(lambda x: these_donation_dates[x])
+    # drop the events in these donations
+    combined = combined[~combined["D_donation_id"].isin(donations_to_drop)].copy()
+    if top_verbose:
+        print(f"...done. Shape after dropping overlapping donations: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
 
-    return df1
+    # reset index
+    combined.reset_index(drop=True, inplace=True)
+
+    if top_verbose:
+        print("Recalculate session details to ensure that the session IDs are unique.")
+    combined = add_session_stats_to_ddp_log(combined, verbose=verbose)
+    if "session_id" in combined.columns:
+        combined["session_id"] = combined["session_id"].map(lambda x:f"SD{x:05}" if pd.notna(x) else pd.NA) # SD kind of indicates that this is a S-ession and D-onation
+    
+
+    # I will concatenate this column with data where this is NA. And for various reasons
+    # it makes my life easier to turn it into str. I'm not going to use it for calculation
+    # anyway.  
+    combined["D_donation_date"] = combined["D_donation_date"].dt.strftime('%Y-%m-%d')
+    combined = convert_dtypes_to_pyarrow(combined)
+
+    if top_verbose:
+        print(f"...done. Combined all logs into shape: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
+
+    return combined
+
+
+
+
+
+
+
+
+
+
+
+
+# -----------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------
 
 
 
@@ -751,96 +1084,6 @@ def sample_ddp_events(
 
 
 
-def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(1_000_000), verbose=False):
-    # attach session stats to donation events
-
-    from pandas import isna as pd_isna, concat
-    import numpy as np
-
-    ddp_log = ddp_log_in.copy()
-
-    all_sessions = []
-    if len(ddp_log) and ("D_donation_id" in ddp_log.columns):
-
-        ddp_log['session_id'] = -1
-        ddp_log['event_order_in_session'] = -1
-        ddp_log['event_pos_in_session'] = -1.0
-        
-        # Collect all updates, then apply in bulk at the end
-        updates_list = []
-
-
-        for one_donation_id,one_donation in ddp_log.groupby("D_donation_id"):
-
-            watch = (one_donation.sort_values(['D_ts_jiggled'])).copy()
-
-            watch['delta'] = watch['D_local_timestamp'].shift(-1) - watch['D_local_timestamp']
-            # Vectorized timedelta conversion to seconds
-            watch['delta'] = watch['delta'].dt.total_seconds()
-
-            # VECTORIZED SESSION ID ASSIGNMENT (replaces slow for loop)
-            # A new session starts when delta is >15 minutes or is NaN
-            session_breaks = (watch['delta'].isna()) | (watch['delta'] > 15*60)
-            # Cumsum creates incrementing session IDs at each break
-            session_nums = session_breaks.astype(bool).cumsum()
-            # Add the counter offset and assign
-            watch['session_id'] = session_id_counter + session_nums
-            
-            # Update counter for next donation
-            session_id_counter = watch['session_id'].max() + 1
-            
-            # VECTORIZED EVENT ORDER (replaces loop)
-            # groupby().cumcount() gives sequential numbering within each session
-            watch['event_order_in_session'] = watch.groupby('session_id').cumcount()
-            # Adjust: events at session breaks get -1, others keep their count
-            watch.loc[session_breaks, 'event_order_in_session'] = -1
-
-            session_stats = watch.groupby('session_id').agg(
-                session_duration=('delta', 'sum'),
-                session_start_ts=('D_local_timestamp', 'min'),
-                n_videos_in_session=('event_order_in_session', 'max'),
-            )
-
-            session_stats = session_stats.astype(int)
-            session_stats["session_end_ts"] = session_stats["session_start_ts"] + session_stats["session_duration"]
-            session_stats["donation_id"] = one_donation_id
-
-            watch['n_videos_in_session'] = watch['session_id'].map(session_stats['n_videos_in_session'].to_dict())
-            watch['event_pos_in_session'] = watch['event_order_in_session'] / watch['n_videos_in_session']
-            watch['event_pos_in_session'] = watch['event_pos_in_session'].fillna(-1).astype(float)
-
-            session_stats["n_videos_in_session"] = session_stats["n_videos_in_session"]+1
-
-            short = watch.loc[watch['delta'].between(0, 15*60), ['delta', 'session_id', 'event_order_in_session', 'event_pos_in_session']]
-
-            # OPTIMIZATION: Store updates instead of applying immediately
-            if len(short) > 0:
-                updates_list.append(short)
-
-            all_sessions += [session_stats]
-
-        # Apply all updates at once
-        if updates_list:
-            all_updates = concat(updates_list)
-            ddp_log.loc[all_updates.index, 'session_id'] = all_updates['session_id']
-            ddp_log.loc[all_updates.index, 'event_order_in_session'] = all_updates['event_order_in_session']
-            ddp_log.loc[all_updates.index, 'event_pos_in_session'] = all_updates['event_pos_in_session'].astype(float)
-            ddp_log.loc[all_updates.index, 'D_secondary_value'] = all_updates['delta']
-        
-        # Set first event in each session to -1
-        ddp_log.loc[ddp_log[ddp_log["event_order_in_session"]==0].index, "D_secondary_value"] = -1
-
-        if verbose:
-            print("Adding session stats to DDP data",ddp_log.shape)
-        
-
-    else:
-        if verbose:
-            print("no ddp data")
-
-    #if verbose:
-        #print("--"*60)
-    return ddp_log, session_id_counter
 
 
 
@@ -848,12 +1091,7 @@ def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(1_000
 
 
 
-
-
-
-
-
-def process_ddp_log_for_core_dataset(
+"""def process_ddp_log_for_core_dataset(
     cf = None, 
     all_ddp_events_df = None, 
     session_id_counter = np_int64(1_000_000), 
@@ -879,55 +1117,46 @@ def process_ddp_log_for_core_dataset(
     ddp_log.loc[ddp_log[ddp_log["primary_label"]=="ip"].index,"feature_name"] = "login_event"
 
 
-    ddp_log["secondary_label"] = ddp_log["secondary_label"].fillna("")
-    ddp_log["secondary_value"] = ddp_log["secondary_value"].fillna(np_int64(-1))
+    #ddp_log["secondary_label"] = ddp_log["secondary_label"].fillna("")
+    #ddp_log["secondary_value"] = ddp_log["secondary_value"].fillna(np_int64(-1))
 
-    #ddp_log = ddp_log.drop(columns=[
-    #    "sample_id", "donation_date"], errors="ignore").copy()
 
 
     ddp_log = ddp_log.rename(columns={c:"D_"+c if not c in ["item_id"] else c for c in ddp_log.columns}).copy()
+    ddp_log = rename_columns(ddp_log)
+
+
 
     if verbose:
         print(f"Shape of all DDP events DF: {ddp_log.shape} from {ddp_log.D_donation_id.nunique()} donations")
         print(f"The dates of the DDP events range from {ddp_log.D_date.min()} -- {ddp_log.D_date.max()}")
 
-
-    if "var_schema" in cf and not cf["var_schema"].empty:
-        vs = cf["var_schema"]
-        # TODO: Keep an eye on this - I want it more dynamic. Structural columns
-        structural_ddp_cols = [
-            'item_id', 'D_sample_id',
-            'T_local_timestamp', 'T_local_weekday', 'T_local_week',
-            'T_local_hour', 'T_local_day_segment', 'T_local_date',
-            'session_id', 'event_order_in_session',
-            'event_pos_in_session',
-            'D_donation_id',
-            'D_feature_name','D_primary_label',
-            'D_primary_value',
-            'D_secondary_label', 'D_secondary_value',
-        ]
-                
-        d_vars = vs[vs['variable_name'].str.startswith('D_', na=False)]['variable_name'].tolist()
-        relevant_ddp_cols = structural_ddp_cols + d_vars
-        relevant_ddp_cols = list(dict.fromkeys(relevant_ddp_cols))
-    else:
-        raise ValueError("var_schema not found in config")
-
+    if verbose:
+        print(f"Current shape: {ddp_log.shape}")
 
     ddp_log, _ = add_session_stats_to_ddp_log(ddp_log, verbose=verbose)
-    ddp_log = rename_columns(ddp_log)
-    ddp_log = ddp_log[relevant_ddp_cols].copy()
+
+
+
+    # only keep columns as defined by the variable schema
+    dropped_vars_str = textwrap.wrap(", ".join(list(set(ddp_log.columns) - set(cf['var_schema'].variable_name))), width=120)
+    relevant_cols = [c for c in cf['var_schema'].variable_name if c in ddp_log.columns]
+    ddp_log = ddp_log[relevant_cols].copy()
+
+    if verbose:
+        print(f"Dropped these columns, which are not in the variable schema:\n{"\n".join(dropped_vars_str)}\nCurrent shape: {ddp_log.shape}")
+    
+
 
     
-    return ddp_log
+    return ddp_log"""
 
 
 
 
 
 
-
+"""
 def ingest_ddp_events(
     cf = None, 
     verbose=False):
@@ -992,7 +1221,7 @@ def ingest_ddp_events(
         verbose=verbose)
 
 
-    return all_ddp_events_df
+    return all_ddp_events_df"""
 
 
 

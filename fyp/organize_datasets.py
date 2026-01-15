@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 from numpy import int64 as np_int64
 
 
+WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 
 
 
@@ -195,15 +196,14 @@ def extract_local_time_features(
 
     df["local_hour"] = ts.dt.hour.astype("uint8")
 
-
-    df["local_day_segment"] = _day_segment_from_hour(df["local_hour"]).astype("string[pyarrow]")
+    df["local_day_segment"] = df["local_hour"].map(_day_segment_from_hour).astype("string[pyarrow]")
 
     # Optimization: Use .dt.date directly (faster than map)
-    df["local_date"] = ts.dt.date
+    df["local_date"] = ts.dt.date.astype("timestamp[ns][pyarrow]")
     df["local_date_str"] = df["local_date"].astype("string[pyarrow]")
 
-
-    print("...done")
+    if verbose:
+        print("...done")
 
     return df
 

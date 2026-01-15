@@ -1176,6 +1176,7 @@ def recode_events_df(
     cf = None,
     study_name = None,
     study_dataset = None,
+    drop_single_value_cols = True,
     load_from_cache = False, # not used - always False
     save_to_cache = False, # not used - always False
     verbose = False
@@ -1245,16 +1246,20 @@ def recode_events_df(
 
     var_schema[['mapper','ignore_strings','recode_func']] = var_schema[['mapper','ignore_strings','recode_func']].map(_try_eval)
 
+
+
     fyp_factors, _ = get_factors_and_features_from_var_schema(cf = cf, some_events_df = cool_events, verbose = verbose)
-    cool_events[fyp_factors] = cool_events[fyp_factors].astype("string[pyarrow]")
+    #cool_events[fyp_factors] = cool_events[fyp_factors].astype("string[pyarrow]")
+    
     if "session_id" in cool_events.columns:
-        cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int64(x):05}")
+        cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int64(x):05}" if pd.notna(x) else pd.NA)
 
     variables_not_found_in_var_schema = list(set(cool_events.columns) - set(var_schema.index))
-    if verbose:
-        join_str = "\n    - "
-        print(f"Step 1. Dropping {len(variables_not_found_in_var_schema)} columns not found in the variable scheme:\n    - {join_str.join(variables_not_found_in_var_schema)}")
-    cool_events = cool_events.drop(columns=variables_not_found_in_var_schema).copy()
+    if len(variables_not_found_in_var_schema) > 0:
+        if verbose:
+            join_str = "\n    - "
+            print(f"Step 1. Dropping {len(variables_not_found_in_var_schema)} columns not found in the variable scheme:\n    - {join_str.join(variables_not_found_in_var_schema)}")
+        cool_events = cool_events.drop(columns=variables_not_found_in_var_schema).copy()
 
     # Safe nunique for lists
     def _safe_nunique(s):
@@ -1263,11 +1268,12 @@ def recode_events_df(
         except TypeError:
             return s.astype(str).nunique()
 
-    single_value_columns = [c for c in cool_events.columns if _safe_nunique(cool_events[c])==1 and c not in fyp_factors]
-    if verbose:
-        join_str = "\n    - "
-        print(f"Step 2. Dropping {len(single_value_columns)} single value columns:\n    - {join_str.join(single_value_columns)}. Shape: {cool_events.shape}")
-    cool_events = cool_events.drop(columns=single_value_columns).copy()
+    if drop_single_value_cols:
+        single_value_columns = [c for c in cool_events.columns if _safe_nunique(cool_events[c])==1 and c not in fyp_factors]
+        if verbose:
+            join_str = "\n    - "
+            print(f"Step 2. Dropping {len(single_value_columns)} single value columns:\n    - {join_str.join(single_value_columns)}. Shape: {cool_events.shape}")
+        cool_events = cool_events.drop(columns=single_value_columns).copy()
 
     if verbose:
         print(f"Step 3. Executing recode policies from variable schema. Shape: {cool_events.shape}")
@@ -1343,15 +1349,14 @@ def recode_events_df(
                 # ------------------------------------------------------
                 
                 # If we expect single values (categorical, dichotomous, etc.), ensure no lists > 1
-                if this_var_schema.get("scale", "") in ["categorical","dichotomous","ordinal","ratio","interval"]:
+                if this_var_schema.get("scale", "") in ["categorical","dichotomous","ordinal","ratio","interval","datetime"]:
                     # Fast check: if object type, might contain lists
                     if cool_events[c].dtype == object:
-                        from pandas import NA as pd_NA
-                        # Vectorized 'get first if list' logic normalization
+                        # 'get first if list' logic normalization
                         def _normalize_single(x):
                             if isinstance(x, list):
                                 if len(x) > 1: return x # leave as list for validation
-                                return x[0] if x else pd_NA
+                                return x[0] if x else pd.NA
                             return x
                             
                         # apply normalization
@@ -1422,18 +1427,22 @@ def recode_events_df(
                 print(f"{preamble}Not found in the variable scheme, skipping")
             cool_events = cool_events.drop(columns=[c]).copy()
 
+    cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
     return cool_events
 
 
-    def _safe_vector_divide(x, y):
+
+
+
+
+    """def _safe_vector_divide(x, y):
         return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
     cool_events['plays_per_day'] = _safe_vector_divide(cool_events['S_stats_playCount'],cool_events['T_days_since_created'])
 
 
     if verbose:
         print(f"Step 4. Converting dtypes to pyarrow. Shape: {cool_events.shape}")
-    cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
 
     if verbose:
@@ -1442,7 +1451,12 @@ def recode_events_df(
     if verbose:
         print(f"    Confirming shape after cleanup: {cool_events.shape}")
 
-    cool_events = cool_events[sorted(cool_events.columns)]
+    cool_events = cool_events[sorted(cool_events.columns)]"""
+
+
+
+
+
 
     """if save_to_cache and study_name is not None:
         recoded_filename = f"{study_name}_recoded.parquet"
@@ -1463,73 +1477,48 @@ def recode_events_df(
 
 
 
-def recode_activity_data():
+def combine_and_save_activity_data(cf = None, verbose=False):
     from fyp.fyp_main import initialize
     import fyp.data_io as data_io
-    import fyp
     import pandas as pd
     from pandas.api.types import is_numeric_dtype
-    from fyp.zeeschuimer import load_zeeschuimer_data
-    from fyp.ddp import load_ddp_events
-    from fyp.fyp_main import convert_dtypes_to_pyarrow
+    from fyp.zeeschuimer import combine_zeeschuimer_logs
+    from fyp.donations import combine_ddp_logs
 
+    if cf is None:
+        cf = initialize()
     
-    cf = initialize()
-    
-    zee = load_zeeschuimer_data(cf = cf, study_name = 'everything', verbose=True)
+    z1 = combine_zeeschuimer_logs(cf = cf, verbose=verbose)
+    d1 = combine_ddp_logs(cf = cf, verbose = verbose)
 
-    z1 = recode_events_df(
-        cf = cf,
-        study_dataset = zee,
-        load_from_cache = False,
-        save_to_cache = False,
-        verbose = True
-        )
-
-    z1 = convert_dtypes_to_pyarrow(z1)
-
-    z1.reset_index(drop=True, inplace=True)
-
-
-
-
-    donny = load_ddp_events(cf = cf, study_name = 'everything', verbose=True)
-
-    d1 = recode_events_df(
-        cf = cf,
-        study_dataset = donny,
-        load_from_cache = False,
-        save_to_cache = False,
-        verbose = True
-        )
-
-    d1 = convert_dtypes_to_pyarrow(d1)
-
-    d1.reset_index(drop=True, inplace=True)
-
-
-
-
+    print("Matching columns between zeeschuimer and donation data...")
     for c in set(z1.columns) | set(d1.columns):
         if not c in z1.columns:
             if is_numeric_dtype(d1[c]):
-                print(f"Adding {c} to z1 | numeric")
-                z1[c] = pd.Series(-1, index=z1.index, dtype="int64[pyarrow]")
+                if verbose:
+                    print(f"    Adding {c} to z1 | numeric")
+                z1[c] = pd.Series(pd.NA, index=z1.index, dtype="int64[pyarrow]")
             else:
-                print(f"Adding {c} to z1 | string")
+                if verbose:
+                    print(f"    Adding {c} to z1 | string")
                 z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
         if not c in d1.columns:
             if is_numeric_dtype(z1[c]):
-                print(f"Adding {c} to d1 | numeric")
-                d1[c] = pd.Series(-1, index=d1.index, dtype="int64[pyarrow]")
+                if verbose:
+                    print(f"    Adding {c} to d1 | numeric")
+                d1[c] = pd.Series(pd.NA, index=d1.index, dtype="int64[pyarrow]")
             else:
-                print(f"Adding {c} to d1 | string")
+                if verbose:
+                    print(f"    Adding {c} to d1 | string")
                 d1[c] = pd.Series("DDP", index=d1.index, dtype="string[pyarrow]")
+    print("...done matching columns")
 
 
-    _ = data_io.save_parquet(cf, d1, "recoded", "donations_recoded.parquet")
+    print("Saving datasets...")
+    _ = data_io.save_parquet(cf, d1, "recoded", "donations_recoded.parquet", verbose=verbose)
 
-    _ = data_io.save_parquet(cf, z1, "recoded", "zeeschuimer_recoded.parquet")
+    _ = data_io.save_parquet(cf, z1, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
+    print("...done saving datasets")
 
 
 

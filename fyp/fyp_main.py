@@ -7,6 +7,23 @@ Date:
 """
 
 from typing import Iterable, List
+from copy import copy
+from google import genai
+from google.genai import types as gemini_types
+from google.api_core.exceptions import Forbidden as google_Forbidden
+from google.cloud import storage as gcs_storage
+import http.client
+import os
+import toml
+import pandas as pd
+from sys import path as sys_path
+from datetime import datetime, timedelta
+import fyp.data_io as data_io
+from json import dumps as json_dumps
+import numpy as np
+import pyarrow as pa
+from difflib import SequenceMatcher
+from urllib.parse import unquote
 
 
 ############################################################################################################
@@ -15,90 +32,119 @@ from typing import Iterable, List
 
 
 
+# check internet connectivity
+def _checkInternetHttplib(url="www.qut.edu.au",
+                        timeout=3):
+    connection = http.client.HTTPConnection(url,
+                                        timeout=timeout)
+    try:
+        # only header requested for fast operation
+        connection.request("HEAD", "/")
+        connection.close()  # connection closed
+        return True
+    except Exception as exep:
+        print(exep)
+        return False
+
+
+
+def _create_local_dirs(cf: dict, verbose: bool = False):
+    # create missing local folders if not using GCS for data
+    if not cf['data_io']['use_gcs_for_data'] or cf['misc']['local_mode']:
+        if verbose:
+            print(f"Data is stored in locally")
+            print(f"Cache is stored in locally")
+        for k in cf["paths"].keys():
+            os.makedirs(cf["paths"][k], exist_ok=True)
+    # create missing local folders if not using GCS for data
+    elif not cf['data_io']['use_gcs_for_cache']:
+        if verbose:
+            print(f"Cache is stored in locally")
+        if not os.path.exists(cf["paths"]["cache"]):
+            if verbose:
+                print("Creating missing local folder for cache")
+            os.makedirs(cf["paths"]["cache"], exist_ok=True)
+
 
 
 
 def connect_to_google(cf_in, verbose=False):
-
-    from copy import copy
-
-    from google import genai
-    from google.genai import types
-    from google.api_core.exceptions import Forbidden
-    from google.cloud import storage as gcs_storage
-    import http.client as httplib
-
     cf = copy(cf_in)
-
-
-    # function to check internet connectivity
-    def _checkInternetHttplib(url="www.qut.edu.au",
-                            timeout=3):
-        connection = httplib.HTTPConnection(url,
-                                            timeout=timeout)
-        try:
-            # only header requested for fast operation
-            connection.request("HEAD", "/")
-            connection.close()  # connection closed
-            print("Internet On")
-            return True
-        except Exception as exep:
-            print(exep)
-            return False
 
     cf["data_io"]["bucket"] = None
 
-    if not _checkInternetHttplib():
-        print("No internet connection. Running local mode without connecting to Google services.")
-        cf['misc']['local_mode'] = True
-        return cf
+    if verbose:
+        print("Checking internet connection...")
+    online_ok = _checkInternetHttplib()
 
-    try:
-        with open(cf['machine']['prompt'], 'r') as file:
-            machine_prompt = file.read()
+    if online_ok:
+        print("...I'm online")
+        try:
+            with open(cf['machine']['prompt'], 'r') as file:
+                machine_prompt = file.read()
 
-        cf["machine"]["client"] = genai.Client(
-            vertexai=cf["machine"]["vertexai"],
-            project=cf["machine"]["project"],
-            location=cf["machine"]["location"],
-            http_options=types.HttpOptions(
-                api_version=cf["machine"]["http_options_api_version"],
-                timeout=cf["machine"]["http_options_timeout"]
+            cf["machine"]["client"] = genai.Client(
+                vertexai=cf["machine"]["vertexai"],
+                project=cf["machine"]["project"],
+                location=cf["machine"]["location"],
+                http_options=gemini_types.HttpOptions(
+                    api_version=cf["machine"]["http_options_api_version"],
+                    timeout=cf["machine"]["http_options_timeout"]
+                )
             )
-        )
 
-        cf["machine"]["global_generation_config"] = types.GenerateContentConfig(
-            system_instruction=machine_prompt,
-            temperature=cf["machine"]["temperature"],
-            max_output_tokens=cf["machine"]["max_output_tokens"],
-            response_mime_type=cf["machine"]["response_mime_type"],
-            presence_penalty=cf["machine"]["presence_penalty"],
-            frequency_penalty=cf["machine"]["frequency_penalty"],
-            thinking_config=types.ThinkingConfig(thinking_budget=cf["machine"]["thinking_budget"]),
-        )
+            cf["machine"]["global_generation_config"] = gemini_types.GenerateContentConfig(
+                system_instruction=machine_prompt,
+                temperature=cf["machine"]["temperature"],
+                max_output_tokens=cf["machine"]["max_output_tokens"],
+                response_mime_type=cf["machine"]["response_mime_type"],
+                presence_penalty=cf["machine"]["presence_penalty"],
+                frequency_penalty=cf["machine"]["frequency_penalty"],
+                thinking_config=gemini_types.ThinkingConfig(thinking_budget=cf["machine"]["thinking_budget"]),
+            )
 
-        print("Google Gemini initialized successfully")
+            print("Google Gemini initialized successfully")
 
-    except Exception as e:
-        print(f"Error Gemini API key. Gemini won't be available. {e}")
+        except Exception as e:
+            print(f"Error Gemini API key. Gemini won't be available. {e}")
 
 
-    # Initialize a GCS storage client
-    try:
-        bucket_client = gcs_storage.Client()
+        # Initialize a GCS storage client
+        try:
+            bucket_client = gcs_storage.Client()
 
-        # Get the GCS bucket
-        bucket = bucket_client.get_bucket(cf["data_io"]["GCS_bucket_name"])
+            # Get the GCS bucket
+            bucket = bucket_client.get_bucket(cf["data_io"]["GCS_bucket_name"])
 
-        # Try to access the GCS bucket's metadata
-        bucket.reload()
-        cf["data_io"]["bucket"] = bucket
-        print(f"Access to the project Google Cloud Storage bucket {bucket.name} located at {bucket.location} is authorized.")
-    except Forbidden:
-        print(f"You don't have access to the project Google Cloud Storage bucket.")
-    except Exception as e:
-        print(f"A Google Cloud Storage error occurred: {e}")
+            # Try to access the GCS bucket's metadata
+            bucket.reload()
+            cf["data_io"]["bucket"] = bucket
+            print(f"Access to the project Google Cloud Storage bucket {bucket.name} located at {bucket.location} is authorized.")
+            if verbose:
+                if cf['data_io']['use_gcs_for_data']:
+                    print(f"Data is stored in GCS")
+                if cf['data_io']['use_gcs_for_cache']:
+                    print(f"Cache is stored in GCS")
+                if cf['data_io']['use_gcs_for_media']:
+                    print(f"Media is stored in GCS")
+
+
+            return cf
+        
+        except google_Forbidden:
+            print(f"I don't have access to the Google Cloud Storage.")
+        except Exception as e:
+            print(f"A Google Cloud Storage error occurred: {e}")
+
+    else:
+        print("...No internet connection. Running local mode without connecting to Google services.")
+        cf['misc']['local_mode'] = True
     
+
+    cf['data_io']['use_gcs_for_data'] = False
+    cf['data_io']['use_gcs_for_cache'] = False
+    cf['data_io']['use_gcs_for_media'] = False
+    _create_local_dirs(cf, verbose=verbose)
     return cf
 
 
@@ -111,11 +157,6 @@ def initialize(
     abs_project_root_path=None
     ) -> dict:
 
-    from os import environ, listdir, remove, makedirs, getcwd
-    from os.path import join, abspath, relpath, exists
-    import toml
-    import pandas as pd
-    from sys import path as sys_path
     
 
     # ------------------------------------------------------------------
@@ -124,12 +165,14 @@ def initialize(
     if abs_project_root_path is None:
 
         # I put an empty __proj__.py file in the root folder of the project structure
-        here = getcwd().split("/")
-        while not exists(join("/".join(here),"__proj__.py")):
+        here = os.getcwd().split("/")
+        while not os.path.exists(os.path.join("/".join(here),"__proj__.py")):
             here.pop()
 
         # this is the root folder for the project structure
-        abs_project_root_path = join("/".join(here))
+        abs_project_root_path = os.path.join("/".join(here))
+        if verbose:
+            print("Project root:",abs_project_root_path)
 
         # add project root path to PATH since the modules are located in the project structure
         sys_path.append(abs_project_root_path)
@@ -139,17 +182,15 @@ def initialize(
     # ------------------------------------------------------------------
     # Load essential files - let it blow up if the files aren't found
     # ------------------------------------------------------------------
-    where_to_start = toml.load(join(abs_project_root_path,"config","core.toml"))
+    where_to_start = toml.load(os.path.join(abs_project_root_path,"config","core.toml"))
 
-    config_path = join(abs_project_root_path,"config",where_to_start["core"]["config_fn"])
-    study_defs_path = join(abs_project_root_path,"config",where_to_start["core"]["study_defs_fn"])
-    var_schema_path = join(abs_project_root_path, "config", where_to_start["core"]["var_schema_fn"])
+    config_path = os.path.join(abs_project_root_path,"config",where_to_start["core"]["config_fn"])
+    study_defs_path = os.path.join(abs_project_root_path,"config",where_to_start["core"]["study_defs_fn"])
+    var_schema_path = os.path.join(abs_project_root_path, "config", where_to_start["core"]["var_schema_fn"])
 
     # Load main config
     cf = toml.load(config_path)
     cf["paths"]["project_root"] = abs_project_root_path
-    if verbose:
-        print("Project root:",abs_project_root_path)
 
     # Load variable schema
     cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
@@ -167,11 +208,11 @@ def initialize(
     # ------------------------------------------------------------------
     # Use env var for secrets; fall back to config if present (avoid committing real keys)
     # ------------------------------------------------------------------
-    gcp_bucket_name = environ.get("FYP_GCS_BUCKET_NAME")
+    gcp_bucket_name = os.environ.get("FYP_GCS_BUCKET_NAME")
     if gcp_bucket_name:
         cf["data_io"]["GCS_bucket_name"] = gcp_bucket_name
 
-    gemini_env_key = environ.get("GEMINI_API_KEY")
+    gemini_env_key = os.environ.get("GEMINI_API_KEY")
     if gemini_env_key:
         cf["machine"]["key"] = gemini_env_key
 
@@ -188,52 +229,52 @@ def initialize(
     # that is located in a folder named 'prompts' in the project root. 
     for p in cf["machine"].keys():
         if "prompt" in p:
-            cf["machine"][p] = join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
+            cf["machine"][p] = os.path.join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
 
 
     # ------------------------------------------------------------------
     # initialize paths
     # ------------------------------------------------------------------
     # Resolve relative paths against the project root for consistent file access.
-    cf["paths"]["local_data"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
-    #cf["paths"]["local_temp"] = abspath(join(cf["paths"]["project_root"], cf["paths"]["local_temp"]))
+    cf["paths"]["local_data"] = os.path.abspath(os.path.join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
+    #cf["paths"]["local_temp"] = os.path.abspath(os.path.join(cf["paths"]["project_root"], cf["paths"]["local_temp"]))
 
     # paths to zeeschuimer data
-    cf["paths"]["zeeschuimer"] = join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
-    cf["paths"]["zeeschuimer_raw"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")
-    cf["paths"]["zeeschuimer_refined"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
-    cf["paths"]["zeeschuimer_main"] = join(cf["paths"]["zeeschuimer"], "zeeschuimer_main")
+    cf["paths"]["zeeschuimer"] = os.path.join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
+    cf["paths"]["zeeschuimer_raw"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")
+    cf["paths"]["zeeschuimer_refined"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
+    cf["paths"]["zeeschuimer_main"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_main")
 
     # paths to ddp data
-    cf["paths"]["ddp"] = join(cf["paths"]["local_data"],"activity_data", "ddp")
-    cf["paths"]["ddp_raw"] = join(cf["paths"]["ddp"], "ddp_raw")
-    cf["paths"]["ddp_processed"] = join(cf["paths"]["ddp"], "ddp_processed")
-    cf["paths"]["ddp_main"] = join(cf["paths"]["ddp"], "ddp_main")
-    cf["paths"]["ddp_participants"] = join(cf["paths"]["ddp"], "ddp_participants")
+    cf["paths"]["ddp"] = os.path.join(cf["paths"]["local_data"],"activity_data", "ddp")
+    cf["paths"]["ddp_raw"] = os.path.join(cf["paths"]["ddp"], "ddp_raw")
+    cf["paths"]["ddp_processed"] = os.path.join(cf["paths"]["ddp"], "ddp_processed")
+    cf["paths"]["ddp_main"] = os.path.join(cf["paths"]["ddp"], "ddp_main")
+    cf["paths"]["ddp_participants"] = os.path.join(cf["paths"]["ddp"], "ddp_participants")
 
     # paths to scrape data
-    cf["paths"]["scrape"] = join(cf["paths"]["local_data"], "scrape")
+    cf["paths"]["scrape"] = os.path.join(cf["paths"]["local_data"], "scrape")
 
     # paths to machine annotations
-    cf["paths"]["machine_annotations"] = join(cf["paths"]["local_data"], "machine_annotations")
-    cf["paths"]["machine_annotations_raw"] = join(cf["paths"]["machine_annotations"], "machine_annotations_raw")
-    cf["paths"]["machine_annotations_refined"] = join(cf["paths"]["machine_annotations"], "machine_annotations_refined")
+    cf["paths"]["machine_annotations"] = os.path.join(cf["paths"]["local_data"], "machine_annotations")
+    cf["paths"]["machine_annotations_raw"] = os.path.join(cf["paths"]["machine_annotations"], "machine_annotations_raw")
+    cf["paths"]["machine_annotations_refined"] = os.path.join(cf["paths"]["machine_annotations"], "machine_annotations_refined")
 
     # other paths
-    cf["paths"]["recoded"] = join(cf["paths"]["local_data"], "recoded")
-    cf["paths"]["exports"] = join(cf["paths"]["local_data"], "exports")
-    cf["paths"]["archive"] = join(cf["paths"]["local_data"], "archive")
-    cf["paths"]["users"] = join(cf["paths"]["local_data"], "users") 
-    cf["paths"]["cache"] = join(cf["paths"]["local_data"], "cache") 
+    cf["paths"]["recoded"] = os.path.join(cf["paths"]["local_data"], "recoded")
+    cf["paths"]["exports"] = os.path.join(cf["paths"]["local_data"], "exports")
+    cf["paths"]["archive"] = os.path.join(cf["paths"]["local_data"], "archive")
+    cf["paths"]["users"] = os.path.join(cf["paths"]["local_data"], "users") 
+    cf["paths"]["cache"] = os.path.join(cf["paths"]["local_data"], "cache") 
     
     cf["paths"]["temp"] = "/tmp/fyp/"#join(cf["paths"]["local_temp"], "temp")
-    makedirs(cf["paths"]["temp"], exist_ok=True)
+    os.makedirs(cf["paths"]["temp"], exist_ok=True)
     
 
-    # If using GCS for data, connect to Google and mirror the local data structure to GCS
+    # This is not set by the config so I'm setting it to None
     cf["data_io"]["bucket"] = None
 
-
+    # If local mode is enabled, set the GCS flags to False
     if cf['misc']['local_mode']:
         print("Local mode is enabled. GCS data will not be used.")
         cf['data_io']['use_gcs_for_data'] = False
@@ -250,7 +291,7 @@ def initialize(
             if isinstance(v, str) and v.startswith(cf["paths"]["local_data"]) and k != "local_data":
                 # calculate relative path from local_data root
                 # e.g. /.../data/activity/zeeschuimer -> activity/zeeschuimer
-                rel = relpath(v, cf["paths"]["local_data"])
+                rel = os.path.relpath(v, cf["paths"]["local_data"])
                 
                 # Combine with GCS prefix
                 # Use forward slashes for GCS always, though on Mac os.path.join uses /
@@ -261,32 +302,13 @@ def initialize(
                     
                 cf["gcs_paths"][k] = gcs_path
         
-        # Explicitly ensure root is mapped if needed, or handled above (local_data itself)
-        #cf["gcs_paths"]["local_data"] = gcs_prefix if gcs_prefix else ""
 
-        if verbose:
-            print(f"Data is stored in GCS at {cf['data_io']['GCS_bucket_name']}")
 
-    else:
-        if verbose:
-            print(f"Data is stored locally at {cf['paths']['local_data']}")
-
-    # create missing local folders if not using GCS for data
-    if not cf['data_io']['use_gcs_for_data'] or cf['misc']['local_mode']:
-        if verbose:
-            print("Creating missing local folders")
-        for k in cf["paths"].keys():
-            makedirs(cf["paths"][k], exist_ok=True)
-    # create missing local folders if not using GCS for data
-    elif not cf['data_io']['use_gcs_for_cache']:
-        if verbose:
-            print("Creating missing local folder for cache")
-        makedirs(cf["paths"]["cache"], exist_ok=True)
-
+    # create missing local folders - note that this function first checks relevant flags and
+    # only creates folders if needed 
+    _create_local_dirs(cf, verbose=verbose)
 
     return cf
-
-
 
 
 
@@ -305,22 +327,11 @@ def initialize(
 
 
 
-#def temp_path(cf: dict, filename: str = "") -> str:
-#    #import toml
-#    from os.path import join
-
-#    #cf = toml.load(CONFIG_PATH)
-#    temp_dir = join(cf["paths"]["local_temp"],"temp")
-#    return join(temp_dir, filename)
 
 
 
 
 def get_recent_files(cf, storage_location, suffix=None, how_recent=10):
-    #from os import listdir
-    #from os.path import isfile, join, getmtime, getctime
-    from datetime import datetime, timedelta
-    import fyp.data_io as data_io
 
     current_time = datetime.now()
     recent_files = []
@@ -348,8 +359,6 @@ def fix_surrogates(text):
 
 
 def fix_complex_types(some_iterable, verbose=False):
-    from pandas import NA as pd_NA
-    from json import dumps as json_dumps
 
     if not len(some_iterable.shape) == 1:
         raise ValueError("Input must be a 1D iterable")
@@ -359,7 +368,7 @@ def fix_complex_types(some_iterable, verbose=False):
         print("    [PYARROW dtypes - complex] Input iterable length:", some_iterable.shape[0])
     
     # replace nans with pd.NA
-    some_iterable[some_iterable.isna()] = pd_NA
+    some_iterable[some_iterable.isna()] = pd.NA
 
     # I think I have to convert the types to strings to count them
     row_types = some_iterable.dropna().map(lambda x:str(type(x)))
@@ -456,10 +465,9 @@ def fix_complex_types(some_iterable, verbose=False):
 
 
 def convert_index_dtype_pyarrow(an_index):
-    from pandas import Series, Index, MultiIndex, api
 
     # Handle MultiIndex recursively
-    if isinstance(an_index, MultiIndex):
+    if isinstance(an_index, pd.MultiIndex):
         new_levels = [convert_index_dtype_pyarrow(lvl) for lvl in an_index.levels]
         return an_index.set_levels(new_levels)
 
@@ -468,13 +476,13 @@ def convert_index_dtype_pyarrow(an_index):
     name = an_index.name
 
     # Convert to Series to access convert_dtypes
-    s = Series(an_index)
+    s = pd.Series(an_index)
 
     # Attempt optimistic pyarrow conversion
     s_pa = s.convert_dtypes(dtype_backend="pyarrow")
     
     # Reconstruct Index preserving name
-    new_index = Index(s_pa)
+    new_index = pd.Index(s_pa)
     new_index.name = name
     return new_index
 
@@ -485,8 +493,6 @@ def convert_index_dtype_pyarrow(an_index):
 
 
 def convert_dtypes_to_pyarrow(df_in, verbose=False):
-    from pandas import api, NA as pd_NA
-    #import numpy as np
 
     df = df_in.copy()
     
@@ -549,8 +555,6 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
                 # Now, standard convert_dtypes often fails on lists of strings, leaving them as object.
                 # We try to explicitly convert to a pyarrow array and back again.
                 try:
-                    import pyarrow as pa
-                    from pandas import Series, ArrowDtype
                     
                     # Create pyarrow array from the series
                     # type_inference=True is default, but explicit casting can help if we know it's string
@@ -562,9 +566,9 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
                     if pa.types.is_list(arrow_array.type) or pa.types.is_struct(arrow_array.type):
                          if verbose:
                              print(f"    [PYARROW dtypes] {col} - Explicitly converting to {arrow_array.type} via pyarrow.array...")
-                         df[col] = Series(
+                         df[col] = pd.Series(
                              arrow_array, 
-                             dtype=ArrowDtype(arrow_array.type),
+                             dtype=pd.ArrowDtype(arrow_array.type),
                              index=df[col].index
                          )
                     else:
@@ -589,7 +593,7 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
     # ---------------------------------------------------------
     # 3. FINAL SAFETY CHECKS (NUMERICS)
     # ---------------------------------------------------------
-    numeric_cols_to_check = [c for c in df.columns if api.types.is_numeric_dtype(df[c])]
+    numeric_cols_to_check = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
 
     if len(numeric_cols_to_check) > 0:
         # trying to calculate describe() to catch overflow issues (integers > 2^53)
@@ -639,12 +643,10 @@ def chunk_list(lst, n):
 
 
 def is_list_like_col(s):
-    from pyarrow import types as pa_types
-    from pandas import ArrowDtype
     # Check for the Arrow List type (your original code)
     is_arrow_list = (
-        isinstance(s.dtype, ArrowDtype) and 
-        pa_types.is_list(s.dtype.pyarrow_dtype)
+        isinstance(s.dtype, pd.ArrowDtype) and 
+        pa.types.is_list(s.dtype.pyarrow_dtype)
     )
     # Check for the "good old" object type
     is_object = s.dtype == "object"
@@ -658,7 +660,6 @@ def sort_by_similarity(reference: str, candidates: Iterable[str]) -> List[str]:
     Return the candidates sorted from most to least similar to the reference string.
     Similarity is measured via difflib.SequenceMatcher ratio (0.0–1.0).
     """
-    from difflib import SequenceMatcher
 
     return sorted(
         candidates,
@@ -714,7 +715,6 @@ def extract_and_join_subkeys(data, sub_keys: list):
     >>> print(result)
     'John__30 | Jane__25 | Bob__35'
     """
-    from numpy import nan as np_nan
     joined_values = []
     if isinstance(data, list) and len(sub_keys) > 0:
         for item in data:
@@ -726,13 +726,12 @@ def extract_and_join_subkeys(data, sub_keys: list):
                 joined_values.append("__".join(subkey_values))
         return " | ".join(joined_values)
     else:
-        return np_nan
+        return pd.NA
 
 
 
 
 def clean_url(the_url: str) -> dict:
-    from urllib.parse import unquote
     outout = {}
     if "?" not in the_url or "&" not in the_url:
         return outout
@@ -766,13 +765,11 @@ def flatten_list(nested_list):
 ###                     manage data storage
 ############################################################################################################
 
-def DONT_USE_get_gcp_bucket(bucket_name, verbose = False):
-    from google.api_core.exceptions import Forbidden
-    from google.cloud import storage
+"""def DONT_USE_get_gcp_bucket(bucket_name, verbose = False):
 
     try:
         # Initialize a client
-        client = storage.Client()
+        client = gcs_storage.Client()
 
         # Get the bucket
         bucket = client.get_bucket(bucket_name)
@@ -782,7 +779,7 @@ def DONT_USE_get_gcp_bucket(bucket_name, verbose = False):
         if verbose:
             print(f"Access to the bucket '{bucket_name}' is authorized.")
         return bucket
-    except Forbidden:
+    except google_Forbidden:
         if verbose:
             print(f"You don't have access to the bucket '{bucket_name}'.")
         return None
@@ -794,7 +791,6 @@ def DONT_USE_get_gcp_bucket(bucket_name, verbose = False):
 
 
 def DONT_USE_init_data_io(verbose=False):
-    from os.path import join
 
     #cf = initialize()
 
@@ -816,11 +812,9 @@ def DONT_USE_init_data_io(verbose=False):
 
 
 def DONT_USE_list_files_in_storage(storage_location, prefix="", include_sub_prefixes=True, suffix=""):
-    from os.path import join
-    from os import listdir
 
     if isinstance(storage_location,str): # if it's a string, it's a local directory
-        files_in_storage = [fn for fn in listdir(join(storage_location,prefix)) if fn.endswith(suffix)]
+        files_in_storage = [fn for fn in listdir(os.path.join(storage_location,prefix)) if fn.endswith(suffix)]
     else:
         if suffix != "" and not suffix.startswith("."):
             suffix = "."+suffix
@@ -836,29 +830,25 @@ def DONT_USE_list_files_in_storage(storage_location, prefix="", include_sub_pref
 
 
 def DONT_USE_save_blob_to_storage(storage_location, filename, source_dir="", prefix=""):
-    from os.path import join, exists
-    from shutil import copyfile
     if isinstance(storage_location,str): # if it's a string, it's a local directory
-        if exists(join(source_dir,filename)):
-            copyfile(join(source_dir,filename), join(storage_location,prefix,filename))
+        if exists(os.path.join(source_dir,filename)):
+            copyfile(os.path.join(source_dir,filename), os.path.join(storage_location,prefix,filename))
         else:
             print(f"File '{filename}' not found in '{source_dir}'")
     else:
-        blob = storage_location.blob(join(prefix,filename))
-        blob.upload_from_filename(join(source_dir,filename))
+        blob = storage_location.blob(os.path.join(prefix,filename))
+        blob.upload_from_filename(os.path.join(source_dir,filename))
 
 
 def DONT_USE_load_blob_from_storage(storage_location, filename, prefix="", dest_dir=""):
-    from os.path import join, exists
-    from shutil import copyfile
     if isinstance(storage_location,str): # if it's a string, it's a local directory
-        if exists(join(storage_location,prefix,filename)):
-            copyfile(join(storage_location,prefix,filename), join(dest_dir,filename))
+        if exists(os.path.join(storage_location,prefix,filename)):
+            copyfile(os.path.join(storage_location,prefix,filename), os.path.join(dest_dir,filename))
         else:
             print(f"File '{filename}' not found in '{join(storage_location,prefix)}'")
     else:
-        blob = storage_location.blob(join(prefix,filename))
-        blob.download_to_filename(join(dest_dir,filename))
+        blob = storage_location.blob(os.path.join(prefix,filename))
+        blob.download_to_filename(os.path.join(dest_dir,filename))"""
 
 
 
