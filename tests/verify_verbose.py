@@ -73,7 +73,7 @@ functions_to_check = [
     "save_selected_unique_video_subsets",
     "_check_for_null_values_in_df",
     "process_baseline_for_log_export",
-    "add_session_stats_to_ddp_log",
+    "add_session_info_to_ddp_log",
     "process_ddp_log_for_log_export",
     "process_scrape_metadata_for_log_export",
     "process_machine_annotations_for_log_export",

@@ -8,22 +8,26 @@ Date:
 """
 
 
-from .fyp_main import initialize
-from . import data_io
 import json
-import os
-import shutil
-from numpy import int64 as np_int64
 import textwrap
 import pandas as pd
 
-from fyp.fyp_main import convert_dtypes_to_pyarrow
-from fyp.recode_variables import recode_events_df
-from fyp.organize_datasets import extract_local_time_features, rename_columns
+from fyp.fyp_main import convert_dtypes_to_pyarrow, initialize
+from fyp.recode_variables import recode_events_df, extract_local_time_features, rename_columns
+import fyp.data_io as data_io
 
 from collections import deque
 import numpy as np
-from datetime import datetime
+
+import datetime as _dt
+from pathlib import Path
+import subprocess
+from shlex import quote as shlex_quote
+from shutil import rmtree as shutil_rmtree
+from os.path import join as local_join
+from os import listdir as local_listdir
+from pathlib import Path
+
 
 
 
@@ -31,7 +35,6 @@ from datetime import datetime
 
 def _remove_link_events_with_corrupt_links(some_events_df):
     """Optimized: uses vectorized string length calculation instead of map(lambda)"""
-    from pandas import concat
 
     non_video_ddp_events_df = some_events_df[some_events_df["primary_label"] != "link"].copy()
     video_ddp_events_df = some_events_df[some_events_df["primary_label"] == "link"].copy()
@@ -41,7 +44,7 @@ def _remove_link_events_with_corrupt_links(some_events_df):
     most_common_url_length = int(url_lengths.value_counts().index[0])
     
     video_ddp_events_df = video_ddp_events_df[url_lengths == most_common_url_length].copy()
-    some_events_df = concat([video_ddp_events_df, non_video_ddp_events_df])
+    some_events_df = pd.concat([video_ddp_events_df, non_video_ddp_events_df])
 
     return some_events_df
 
@@ -53,55 +56,37 @@ def _remove_link_events_with_corrupt_links(some_events_df):
 
 
 
-def download_recent_metadata(hours_back: int,
-                         output_dir: str,
-                         *,
-                         prefix: str = "metadata",
-                         table_name: str = (
-                             "data-donation-stack-"
-                             "donationtablesmetadatatable1526CA1C-J3HP8RPY7RRW"
-                         ),
-                         campaign_name: str = "qut",
-                         use_local_time: bool = False):
+def get_donation_metadata_from_aio_aws(
+                        cf = None,
+                        storage_location: str = "ddp_participants",
+                        table_name: str = (
+                            "data-donation-stack-"
+                            "donationtablesmetadatatable1526CA1C-J3HP8RPY7RRW"
+                        ),
+                        use_local_time: bool = False,
+                        verbose: bool = False):
 
 
     """
-    Scan *hours_back* into the past and save the raw DynamoDB JSON
-    into ``output_dir/filename``.
-
-    Returns
-    -------
-    Path
-        The absolute path to the written JSON file.
+    Save the raw DynamoDB JSON into the project's local temp and
+    the move to the ddp_participants' storage location (local or GCS depending on config).
+    Requires AWS CLI to be installed and configured. *duh*
     """
 
-    import datetime as _dt
-    from pathlib import Path
-    import subprocess
-    from shlex import quote as shlex_quote
+    if cf is None:
+        cf = initialize()
 
-
-    # ---------------------------------------------------------------
-    # 1) Compute cut‑off time in ISO‑8601 (no microseconds)
-    # ---------------------------------------------------------------
+    # Compute cut‑off time
     now = (_dt.datetime.now(_dt.timezone.utc)
            if not use_local_time
-           else _dt.datetime.now().astimezone())          # Brisbane local
-
+           else _dt.datetime.now().astimezone())
     file_stamp = now.strftime("%Y%m%d%H%M%S") 
 
+    # Prepare destination
+    filename = f"ddp_metadata_{file_stamp}.json"
+    temp_file = local_join(cf["paths"]["temp"], filename)
 
-
-    # ---------------------------------------------------------------
-    # 2) Prepare destination file
-    # ---------------------------------------------------------------
-    dest_dir = Path(output_dir).expanduser().resolve()
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    outfile = dest_dir / f"{prefix}_{file_stamp}.json"
-
-    # ---------------------------------------------------------------
-    # 3) Assemble the AWS CLI command
-    # ---------------------------------------------------------------
+    # Assemble the AWS CLI command
     scan_cmd = (
         "aws dynamodb scan "
         f"--table-name {shlex_quote(table_name)} "
@@ -110,34 +95,44 @@ def download_recent_metadata(hours_back: int,
         "--max-items 100000 "
         "--output json"
     )
+    full_cmd = f"{scan_cmd} > {shlex_quote(str(temp_file))}"
 
-    full_cmd = f"{scan_cmd} > {shlex_quote(str(outfile))}"
+    # Run it
+    try:
+        subprocess.run(full_cmd, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error downloading participant metadata running AWS CLI command: {e}")
+        return None
 
-    # ---------------------------------------------------------------
-    # 4) Run it
-    # ---------------------------------------------------------------
-    subprocess.run(full_cmd, shell=True, check=True)
-
-    return outfile
-
-
-
-
+    # move to permanent storage
+    data_io.move(
+        cf=cf,
+        src_storage_location="temp",
+        dst_storage_location=storage_location,
+        filename=filename,
+        verbose=verbose
+    )
 
 
-def download_recent_donations(hours_back: int,
-                              cf: dict = None,
-                              *,
-                              table_name: str = (
-                                  "data-donation-stack-"
-                                  "donationtablesmetadatatable1526CA1C-J3HP8RPY7RRW"
-                              ),
-                              bucket: str = (
-                                  "data-donation-stack-"
-                                  "donationbucket71125dbb-woyvcojrhlcw"
-                              ),
-                              campaign_name: str = "qut",
-                              use_local_time: bool = False) -> None:
+
+
+
+
+
+
+def get_recent_data_donations_from_aio_aws(
+                    cf: dict = None,
+                    hours_back: int = 24,
+                    table_name: str = (
+                        "data-donation-stack-"
+                        "donationtablesmetadatatable1526CA1C-J3HP8RPY7RRW"
+                    ),
+                    bucket: str = (
+                        "data-donation-stack-"
+                        "donationbucket71125dbb-woyvcojrhlcw"
+                    ),
+                    #campaign_name: str = "qut",
+                    use_local_time: bool = False) -> None:
     """
     Scan the Donations metadata table for items whose *date* ("shareDate")
     is within the last ``hours_back`` hours and download the associated files
@@ -161,11 +156,6 @@ def download_recent_donations(hours_back: int,
         If any of the shell commands exit with a non‑zero status.
     """
 
-    import datetime as _dt
-    from pathlib import Path
-    import subprocess
-    from shlex import quote as shlex_quote
-    from shutil import rmtree
 
 
     if cf is None:
@@ -184,7 +174,8 @@ def download_recent_donations(hours_back: int,
     # 2) Prepare temporary destination
     # ------------------------------------------------------------------
     # Use a specific temp folder for this batch
-    temp_dir_path = os.path.join(cf["paths"]["temp"], "download_batch_" + now.strftime("%Y%m%d%H%M%S"))
+
+    temp_dir_path = local_join(cf["paths"]["temp"], f"download_batch_{now.strftime('%Y%m%d%H%M%S')}")
     dest = Path(temp_dir_path).expanduser().resolve()
     dest.mkdir(parents=True, exist_ok=True)
 
@@ -224,7 +215,7 @@ def download_recent_donations(hours_back: int,
     # ------------------------------------------------------------------
     # 5) Move/Upload files to ddp_raw storage
     # ------------------------------------------------------------------
-    downloaded_files = os.listdir(dest)
+    downloaded_files = local_listdir(dest)
     print(f"Transferring {len(downloaded_files)} files to ddp_raw storage...")
     
     count = 0
@@ -249,7 +240,7 @@ def download_recent_donations(hours_back: int,
     # 6) Cleanup Temp
     # ------------------------------------------------------------------
     try:
-        rmtree(dest)
+        shutil_rmtree(dest)
     except Exception as e:
         print(f"Warning: Failed to clean up temp directory {dest}: {e}")
 
@@ -261,7 +252,7 @@ def download_recent_donations(hours_back: int,
 
 
 
-def add_session_stats_to_ddp_log(ddp_log_in, session_id_counter = np_int64(10_000_000), verbose=False):
+def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_000_000), verbose=False):
     # attach session stats to donation events
 
     from pandas import isna as pd_isna, concat
@@ -371,7 +362,7 @@ def refine_one_raw_ddp_log(
     )
 
     mod_time_timestamp = data_io.getmtime(cf=cf, storage_location="ddp_raw", filename=donation_id)
-    mod_time_timestamp = datetime.fromtimestamp(mod_time_timestamp)
+    mod_time_timestamp = _dt.datetime.fromtimestamp(mod_time_timestamp)
 
 
     raw_data_donation_top_keys = list(donation_dict.keys())
@@ -469,7 +460,7 @@ def refine_one_raw_ddp_log(
 
     # assign session IDs etc. These are just placeholders for now,
     # Session IDs will be updated when donations are merged.
-    all_ddp_events_df = add_session_stats_to_ddp_log(all_ddp_events_df, verbose=verbose)
+    all_ddp_events_df = _add_session_info_to_ddp_log(all_ddp_events_df, verbose=verbose)
 
 
     if verbose:
@@ -494,8 +485,6 @@ def refine_one_raw_ddp_log(
         )
 
     all_ddp_events_df["D_donation_date"] = mod_time_timestamp
-
-
 
 
     if verbose:
@@ -570,14 +559,30 @@ def refine_and_save_all_raw_ddp_logs(cf = None, verbose=False):
 
 
 
+def _deser(value):
+    # Convert DynamoDB JSON value → native Python.
+    if "S" in value:          # string
+        return value["S"]
+    if "N" in value:          # number
+        num = value["N"]
+        return int(num) if num.isdigit() else float(num)
+    if "BOOL" in value:       # boolean
+        return bool(value["BOOL"])
+    if "NULL" in value:       # explicit null
+        return None
+    if "L" in value:          # list
+        return [_deser(v) for v in value["L"]]
+    if "M" in value:          # map
+        return {k: _deser(v) for k, v in value["M"].items()}
+    # Anything else is kept verbatim
+    return value
 
 
 
 
 
 
-
-def calc_donated_items_stats(edf, sort_by=None, verbose=False):
+def generate_donation_metadata(cf, ddp_events_df, sort_by=None, verbose=False):
     """
     Calculate statistics for donated items, specifically counting feature occurrences per donation.
 
@@ -595,15 +600,37 @@ def calc_donated_items_stats(edf, sort_by=None, verbose=False):
         Includes a 'total' column and 'donation_date' (if available).
     """
     
-    import pandas as pd
-
-    if not isinstance(edf, pd.DataFrame):
-        raise ValueError("edf must be a pandas DataFrame")
-    if 'D_donation_id' not in edf.columns:
+    if not isinstance(ddp_events_df, pd.DataFrame):
+        raise ValueError("ddp_events_df must be a pandas DataFrame")
+    if 'D_donation_id' not in ddp_events_df.columns:
         print("Shape of the donation stats DF: (0,0)")
         return pd.DataFrame()
-        
-    df1 = edf.groupby('D_donation_id')["D_feature_name"].value_counts().unstack().fillna(0).astype(int)
+    
+
+    if data_io.exists(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet"):
+        old_metadata_df = data_io.load_parquet(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet")
+        if verbose:
+            print(f"Loaded existing metadata from storage. Shape: {old_metadata_df.shape}")
+    else:
+        if verbose:
+            print("No calculated metadata found in storage")
+        old_metadata_df = pd.DataFrame()
+    
+    donation_ids_in_the_incoming_df = set(ddp_events_df.D_donation_id.unique())
+    donation_ids_in_the_old_metadata_df = set(old_metadata_df.index)
+    new_donations = donation_ids_in_the_incoming_df - donation_ids_in_the_old_metadata_df
+
+    if len(new_donations) == 0:
+        if verbose:
+            print(f"No new donations found. Returning the existing metadata. Shape: {old_metadata_df.shape}")
+        return old_metadata_df
+
+    if verbose:
+        print(f"Calculating metadata for {len(new_donations)} new donations")
+
+    ddp_events_df_new = ddp_events_df[ddp_events_df.D_donation_id.isin(new_donations)].copy()
+            
+    df1 = ddp_events_df_new.groupby('D_donation_id')["D_feature_name"].value_counts().unstack().fillna(0).astype(int)
     df1['total'] = df1.sum(axis=1)
     if sort_by is None:
         df1 = df1.sort_values("total").copy()
@@ -614,11 +641,40 @@ def calc_donated_items_stats(edf, sort_by=None, verbose=False):
 
     df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
 
-    these_donation_dates = edf[["D_donation_id","D_donation_date"]].set_index("D_donation_id", inplace=False).to_dict()["D_donation_date"]
+    these_donation_dates = ddp_events_df_new[["D_donation_id","D_donation_date"]].set_index("D_donation_id", inplace=False).to_dict()["D_donation_date"]
 
     df1["other","D_donation_date"] = df1.index.map(lambda x: these_donation_dates[x])
 
-    return df1
+
+    if verbose:
+        print("Checking all participant metadata files ")
+    participant_metadata = {}
+    for participant_data_file in data_io.listdir(cf=cf, storage_location="ddp_participants"):
+        if participant_data_file.endswith(".json"):
+            participant_metadata_raw = data_io.load_json(cf=cf, storage_location="ddp_participants", filename=participant_data_file)
+            if verbose:
+                print(f"P {len(participant_metadata_raw['Items'])} items in the file {participant_data_file}")
+            for item in participant_metadata_raw.get("Items", []):
+                    py_item = {k: _deser(v) for k, v in item.items()}
+                    participant_metadata[py_item['id']] = py_item
+
+    participant_metadata_df = pd.DataFrame(participant_metadata).T
+    participant_metadata_df.drop(["url","iat","pk","id","exp","profile","schemaChanged","appliedSchema"],axis=1, inplace=True)
+    participant_metadata_df.columns = pd.MultiIndex.from_product([['participants'], participant_metadata_df.columns])
+
+    combined_ddp_metadata = pd.merge(df1, participant_metadata_df, left_index=True, right_index=True, how="left")
+
+    if verbose:
+        print(f"Adding {len(combined_ddp_metadata)} rows to the existing metadata DF")
+    if old_metadata_df is not None:
+        combined_ddp_metadata = pd.concat([old_metadata_df, combined_ddp_metadata], axis=0)
+        
+    data_io.save_parquet(cf=cf, df=combined_ddp_metadata, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
+
+    if verbose:
+        print(f"Shape of the combined metadata DF: {combined_ddp_metadata.shape}")
+
+    return combined_ddp_metadata
 
 
 
@@ -723,53 +779,10 @@ def _identify_similar_donations(
 
 
 
-"""# identify exact duplicates among the donated JSONs and remove these
-# the filtered JSONs go inte the new variable 'no_duplicate_donations'
-
-def drop_duplicates_donations(donation_data, no_duplicate_donations = {}):
-    "-""
-    Identify and remove exact duplicate donations from the raw data.
-
-    Parameters
-    ----------
-    donation_data : dict
-        Dictionary of raw donation data where keys are donation IDs and values are donation content.
-    no_duplicate_donations : dict, optional
-        Dictionary to store unique donations. If provided, checks against these as well.
-
-    Returns
-    -------
-    dict
-        A dictionary containing only the unique donations.
-    "-""
-    # iterate over all donation IDs
-    print(f"Number of donations before dropping duplicates: {len(donation_data)}")
-    for donation_id in donation_data.keys():
-        already_donated = None
-        for nd in no_duplicate_donations.keys():
-            if donation_data[donation_id] == no_duplicate_donations[nd]:
-                already_donated = nd
-                break
-        if already_donated:
-            pass
-        else:
-            no_duplicate_donations[donation_id] = donation_data[donation_id].copy()
-    
-    return no_duplicate_donations.copy()"""
 
 
 
-
-
-
-
-
-
-
-
-
-
-def combine_ddp_logs(cf = None, verbose = False):
+def consolidate_ddp_logs(cf = None, verbose = False):
 
     if cf is None:
         cf = initialize()
@@ -809,7 +822,7 @@ def combine_ddp_logs(cf = None, verbose = False):
     # calculate the donation stats
     if top_verbose:
         print("Calculating donation stats...")
-    new_donation_stats = calc_donated_items_stats(combined, verbose=verbose)
+    new_donation_stats = generate_donation_metadata(cf=cf, ddp_events_df=combined, verbose=verbose)
     if top_verbose:
         print("...done calculating donation stats")
 
@@ -845,7 +858,7 @@ def combine_ddp_logs(cf = None, verbose = False):
 
     if top_verbose:
         print("Recalculate session details to ensure that the session IDs are unique.")
-    combined = add_session_stats_to_ddp_log(combined, verbose=verbose)
+    combined = _add_session_info_to_ddp_log(combined, verbose=verbose)
     if "session_id" in combined.columns:
         combined["session_id"] = combined["session_id"].map(lambda x:f"SD{x:05}" if pd.notna(x) else pd.NA) # SD kind of indicates that this is a S-ession and D-onation
     
@@ -893,9 +906,6 @@ def load_special_donations(
     # sometimes it is useful to select events in a specific donation.
 
 
-    import fyp.data_io as data_io
-    from datetime import datetime
-    from fyp.fyp_main import initialize
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -917,11 +927,11 @@ def load_special_donations(
 
     DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
     if isinstance(DDP_START_DATE, str):
-        DDP_START_DATE = datetime.strptime(DDP_START_DATE, "%Y-%m-%d").date()
+        DDP_START_DATE = _dt.datetime.strptime(DDP_START_DATE, "%Y-%m-%d").date()
     
     DDP_END_DATE = cf["study_defs"][study_name]["DDP_END_DATE"]
     if isinstance(DDP_END_DATE, str):
-        DDP_END_DATE = datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
+        DDP_END_DATE = _dt.datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
 
     if verbose:
         print(f"Trying to load all events from {len(the_special_donations)} donations")
@@ -1091,144 +1101,6 @@ def sample_ddp_events(
 
 
 
-"""def process_ddp_log_for_core_dataset(
-    cf = None, 
-    all_ddp_events_df = None, 
-    session_id_counter = np_int64(1_000_000), 
-    verbose=False):
-    # combine the special DDP events with the all DDP events
-
-    from pandas import DataFrame, concat
-    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
-    from fyp.organize_datasets import rename_columns
-    from numpy import int64 as np_int64
-    from pandas import NA as pd_NA
-
-    if all_ddp_events_df is None:
-        raise ValueError("all_ddp_events_df must be specified")
-
-    if cf is None:
-        cf = initialize()
-
-
-
-    ddp_log = all_ddp_events_df.copy()
-
-    ddp_log.loc[ddp_log[ddp_log["primary_label"]=="ip"].index,"feature_name"] = "login_event"
-
-
-    #ddp_log["secondary_label"] = ddp_log["secondary_label"].fillna("")
-    #ddp_log["secondary_value"] = ddp_log["secondary_value"].fillna(np_int64(-1))
-
-
-
-    ddp_log = ddp_log.rename(columns={c:"D_"+c if not c in ["item_id"] else c for c in ddp_log.columns}).copy()
-    ddp_log = rename_columns(ddp_log)
-
-
-
-    if verbose:
-        print(f"Shape of all DDP events DF: {ddp_log.shape} from {ddp_log.D_donation_id.nunique()} donations")
-        print(f"The dates of the DDP events range from {ddp_log.D_date.min()} -- {ddp_log.D_date.max()}")
-
-    if verbose:
-        print(f"Current shape: {ddp_log.shape}")
-
-    ddp_log, _ = add_session_stats_to_ddp_log(ddp_log, verbose=verbose)
-
-
-
-    # only keep columns as defined by the variable schema
-    dropped_vars_str = textwrap.wrap(", ".join(list(set(ddp_log.columns) - set(cf['var_schema'].variable_name))), width=120)
-    relevant_cols = [c for c in cf['var_schema'].variable_name if c in ddp_log.columns]
-    ddp_log = ddp_log[relevant_cols].copy()
-
-    if verbose:
-        print(f"Dropped these columns, which are not in the variable schema:\n{"\n".join(dropped_vars_str)}\nCurrent shape: {ddp_log.shape}")
-    
-
-
-    
-    return ddp_log"""
-
-
-
-
-
-
-"""
-def ingest_ddp_events(
-    cf = None, 
-    verbose=False):
-    # load DF with all donations previously ingested
-
-    from os import listdir, remove
-    from os.path import join, exists
-    from json import load as json_load
-    from pandas import concat
-    import fyp.data_io as data_io
-    from datetime import datetime
-    from fyp.fyp_main import initialize, connect_to_google, convert_dtypes_to_pyarrow
-    from fyp.organize_datasets import extract_local_time_features
-
-    if cf is None:
-        cf = initialize()
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
-
-
-    print("Loading all DDP events...", end=" ", flush=True)
-    all_ddp_events_df = data_io.load_parquet(cf, "ddp_main", f"all_participant_events.parquet", verbose=verbose)
-
-    # drop two columns
-    all_ddp_events_df = all_ddp_events_df.drop(["value_list","variable_list"], axis=1).copy()
-
-    # Extract date
-    all_ddp_events_df['simple_date'] = all_ddp_events_df['date'].dt.date
-    
-    # Extract sample_id
-    all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype(int)
-    
-    print(f"...DDP events dataframe loaded")
-    print(f"The DF contains {all_ddp_events_df.donation_id.nunique()} unique donations and a total of {all_ddp_events_df.shape[0]:,} logged events.")
-
-    if verbose:
-        print(f"The DDP events range from {all_ddp_events_df.date.min()} -- {all_ddp_events_df.date.max()}")
-
-
-    # dropping some corrupt URLs simply by calculating the most common length of the URLs and dropping those that doesn't match
-    all_ddp_events_df = _remove_link_events_with_corrupt_links(all_ddp_events_df)
-    if verbose:
-        print(f"Dropping DDP events with corrupt TikTok URLs. New shape: {all_ddp_events_df.shape}")
-
-    all_ddp_events_df = extract_local_time_features(
-        cf = cf,
-        some_events_df_in = all_ddp_events_df,
-        kind_of_log = 'ddp',
-        verbose = verbose)
-
-    all_ddp_events_df = process_ddp_log_for_core_dataset(
-        cf = cf, 
-        all_ddp_events_df = all_ddp_events_df, 
-        verbose=verbose)
-
-
-    all_ddp_events_df = data_io.save_parquet(
-        cf,
-        all_ddp_events_df,
-        "ddp_main", 
-        f"all_participant_events_2.parquet", 
-        verbose=verbose)
-
-
-    return all_ddp_events_df"""
-
-
-
-
-
-
-
 def load_ddp_events(
     cf = None, 
     study_name = None, 
@@ -1236,9 +1108,6 @@ def load_ddp_events(
     verbose=False):
     # load DF with all donations previously ingested
 
-    import fyp.data_io as data_io
-    from datetime import datetime
-    from fyp.fyp_main import initialize
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -1259,11 +1128,11 @@ def load_ddp_events(
 
     DDP_START_DATE = cf["study_defs"][study_name]["DDP_START_DATE"]
     if isinstance(DDP_START_DATE, str):
-        DDP_START_DATE = datetime.strptime(DDP_START_DATE, "%Y-%m-%d").date()
+        DDP_START_DATE = _dt.datetime.strptime(DDP_START_DATE, "%Y-%m-%d").date()
     
     DDP_END_DATE = cf["study_defs"][study_name]["DDP_END_DATE"]
     if isinstance(DDP_END_DATE, str):
-        DDP_END_DATE = datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
+        DDP_END_DATE = _dt.datetime.strptime(DDP_END_DATE, "%Y-%m-%d").date()
 
     if all_data is None:
         sel = [("T_local_date", ">=", DDP_START_DATE),("T_local_date", "<=", DDP_END_DATE)]

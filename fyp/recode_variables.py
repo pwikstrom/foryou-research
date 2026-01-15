@@ -2,6 +2,8 @@
 
 
 import pandas as pd
+from fyp.fyp_main import initialize
+import fyp.data_io as data_io
 
 
 NOT_CODED = "not coded"
@@ -72,6 +74,240 @@ GENERIC_MAPPER = {
     "no clear positioning":UNABLE_TO_DETECT,
     "no clear position":UNABLE_TO_DETECT,
 }
+
+
+
+
+
+
+
+def rename_columns(
+    some_events
+    ):
+    
+    some_eventsC = some_events.copy()
+
+    fixer_upper = [
+        ("B_local_","T_local_"),
+        ("D_local_","T_local_"),
+        (".","_"),
+        ("data_",""),
+        ("source_url_","source_"),
+        ("_collected",""),
+        ("framing_analysis_","FA_"),
+        ("cultural_representation_analysis_","CRA_"),
+        ("ideological_analysis_","IA_"),
+
+        ]
+
+    from pandas import set_option
+    set_option('future.no_silent_downcasting', True)
+
+    for fu in fixer_upper:
+        mapper = {c:c.replace(fu[0],fu[1]) for c in some_eventsC.columns if (c != c.replace(fu[0],fu[1])) and (not c.replace(fu[0],fu[1]) in some_eventsC.columns)}
+        some_eventsC = some_eventsC.rename(columns=mapper).copy()
+    
+    return some_eventsC
+
+
+
+
+
+
+
+
+
+
+
+def extract_local_time_features(
+    cf = None,
+    some_events_df_in = None,
+    kind_of_log = None,
+    verbose = False):
+    """
+    Integrates per-donation timezone offsets from persona_stats_cache.
+    """
+    from pandas import concat, to_datetime, notna as pd_notna, NaT as pd_NaT, to_timedelta
+    from numpy import select as np_select
+    from fyp.fyp_main import initialize
+    import fyp.data_io as data_io
+    from os.path import join, exists
+    from datetime import datetime
+
+    if cf is None:
+        cf = initialize()
+
+
+
+    df = some_events_df_in.copy()
+
+    if verbose:
+        print(f"Processing timestamps in dataset to extract local time features... ")
+
+    # ---------------------------------------------------------------------
+    # 1. Build local_timestamp depending on log type
+    # ---------------------------------------------------------------------
+    if kind_of_log == "baseline":
+        # the 'baseline' timestamp is not utc - it is in the timezone of the device
+        tz_col = "source_url.tz_name"
+        ts_col = "timestamp_collected"
+
+        unique_tz = df[tz_col].dropna().unique()
+        if len(unique_tz) == 1:
+            # Fast path: everything in same tz
+            tz = ZoneInfo(unique_tz[0])
+            df["local_timestamp"] = df[ts_col].dt.tz_localize(tz)
+        else:
+            # Slower path: per-timezone blocks
+            local_parts = []
+            for tz_name, block in df.groupby(tz_col, sort=False):
+                tz = ZoneInfo(tz_name)
+                part = block[ts_col].dt.tz_localize(tz)
+                local_parts.append(part)
+            df["local_timestamp"] = concat(local_parts).sort_index()
+
+        df = df.drop(columns=[ts_col])
+        
+        # Convert baseline timestamps to naive local (remove timezone info but keep local wall clock)
+        # This aligns with the new DDP strategy below
+        df["local_timestamp"] = df["local_timestamp"].dt.tz_localize(None)
+
+    elif kind_of_log == "ddp":
+        # the 'ddp' timestamp is utc
+
+        # Build item_id if missing
+        if "item_id" not in df.columns:
+            print("WARNING: item_id not found in ddp events df. Building it now...")
+            # rsplit is cheaper than full split, only looks from the right
+            extracted = (
+                df["primary_value"]
+                .astype("string")
+                .str.rsplit("/", n=2)
+                .str[-2]
+            )
+
+            # SAFE INTEGER PARSING: avoid float64 / to_numeric
+            # keep only pure digit strings, everything else -> <NA>
+            digits = extracted.str.fullmatch(r"\d+")
+            ints = extracted.where(digits).astype("string[pyarrow]")
+
+            mask = (
+                df["primary_label"].eq("link")
+                & df["feature_name"].notna()
+            )
+            df["item_id"] = ints.where(mask)
+            # later we will convert it to string. One day I will make this more efficient.
+
+
+        # normalise timestamp column name
+        if "utc_timestamp" not in df.columns:
+            print("WARNING: utc_timestamp not found in ddp events df. Renaming timestamp to utc_timestamp now...")
+            df = df.rename(columns={"timestamp": "utc_timestamp"})
+
+
+        # NEW LOGIC: Use per-donation timezone offsets
+        
+        # 1. Calculate Default Offset from static TIME_ZONE (as fallback)
+        time_zone = cf["misc"]["TIME_ZONE"]
+        try:
+            now_local = datetime.now(ZoneInfo(time_zone))
+            default_offset_hours = now_local.utcoffset().total_seconds() / 3600.0
+        except Exception as e:
+            if verbose: print(f"Warning: Could not determine offset for {time_zone}, defaulting to 0. {e}")
+            default_offset_hours = 0.0
+            
+        # 2. Load Offsets from Cache
+        stats_cache_path = "persona_stats_cache.parquet"
+        
+        df['tz_offset_hours'] = default_offset_hours # Initialize with default
+        
+        if data_io.exists(cf, "ddp_main", stats_cache_path):
+            try:
+                # Load only necessary columns
+                stats_df = data_io.load_parquet(cf, "ddp_main", stats_cache_path, columns=['donation_id', 'inferred_tz_offset'])
+                
+                # Map offsets to main df
+                # stats_df needs unique donation_ids. It should be unique per previous logic.
+                if not stats_df['donation_id'].is_unique:
+                    stats_df = stats_df.drop_duplicates(subset=['donation_id'])
+                    
+                offset_map = stats_df.set_index('donation_id')['inferred_tz_offset']
+                
+                # Map using donation_id column in df
+                if 'donation_id' in df.columns:
+                    mapped_offsets = df['donation_id'].map(offset_map)
+                    # Update where not null
+                    df.loc[mapped_offsets.notna(), 'tz_offset_hours'] = mapped_offsets[mapped_offsets.notna()]
+                    if verbose:
+                        print(f"Applied individual timezones to {mapped_offsets.notna().sum():,} events.")
+                else:
+                    if verbose: print("Warning: donation_id column missing, using default timezone.")
+                    
+            except Exception as e:
+                print(f"Warning: Failed to load/apply timezone cache: {e}. Using default {TIME_ZONE}")
+        else:
+            if verbose: print("Timezone cache not found. Using default study timezone.")
+
+        # 3. Calculate Local Timestamp (Naive Wall Clock)
+        
+        # Ensure utc_timestamp is numeric (seconds)
+        utc_seconds = df["utc_timestamp"].astype("float64")
+        
+        # Add offset (hours * 3600)
+        local_seconds = utc_seconds + (df['tz_offset_hours'] * 3600.0)
+        
+        # Convert to Naive Datetime
+        df["local_timestamp"] = to_datetime(local_seconds, unit='s', utc=False)
+        
+        # Cleanup temp column
+        df = df.drop(columns=['tz_offset_hours'], errors='ignore')
+        
+        # Pyarrow conversion
+        df["local_timestamp"] = df["local_timestamp"].convert_dtypes(dtype_backend="pyarrow")
+
+
+    else:
+        raise ValueError("kind_of_log can only be 'baseline' or 'ddp'")
+
+    # ---------------------------------------------------------------------
+    # 2. Derive local time features
+    # ---------------------------------------------------------------------
+    ts = df["local_timestamp"]
+    
+    # Check if we still have timezone awareness (should be none for DDP, but maybe for baseline if not stripped)
+    # The new logic strips it for baseline too.
+    
+    # If stored as object dtype, force conversion (should handle naive correctly)
+    if ts.dtype == 'object':
+        df["local_timestamp"] = to_datetime(ts)
+        ts = df["local_timestamp"]
+
+    iso = ts.dt.isocalendar()  # DataFrame: year, week, day
+    iso["day"] = iso["day"].map(WEEKDAY_MAPPER)
+    iso["year_week"] = iso["year"].astype("uint16").astype("string[pyarrow]") + "-" + iso["week"].astype("uint8").astype("string[pyarrow]")
+
+    df["local_weekday"] = iso["day"].to_list()
+    df["local_week"] = iso["year_week"].to_list()
+
+    df["local_hour"] = ts.dt.hour.astype("uint8")
+
+    df["local_day_segment"] = df["local_hour"].map(_day_segment_from_hour).astype("string[pyarrow]")
+
+    # Optimization: Use .dt.date directly (faster than map)
+    df["local_date"] = ts.dt.date.astype("timestamp[ns][pyarrow]")
+    df["local_date_str"] = df["local_date"].astype("string[pyarrow]")
+
+    if verbose:
+        print("...done")
+
+    return df
+
+
+
+
+
+
+
 
 
 
@@ -1477,54 +1713,6 @@ def recode_events_df(
 
 
 
-def combine_and_save_activity_data(cf = None, verbose=False):
-    from fyp.fyp_main import initialize
-    import fyp.data_io as data_io
-    import pandas as pd
-    from pandas.api.types import is_numeric_dtype
-    from fyp.zeeschuimer import combine_zeeschuimer_logs
-    from fyp.donations import combine_ddp_logs
-
-    if cf is None:
-        cf = initialize()
-    
-    z1 = combine_zeeschuimer_logs(cf = cf, verbose=verbose)
-    d1 = combine_ddp_logs(cf = cf, verbose = verbose)
-
-    print("Matching columns between zeeschuimer and donation data...")
-    for c in set(z1.columns) | set(d1.columns):
-        if not c in z1.columns:
-            if is_numeric_dtype(d1[c]):
-                if verbose:
-                    print(f"    Adding {c} to z1 | numeric")
-                z1[c] = pd.Series(pd.NA, index=z1.index, dtype="int64[pyarrow]")
-            else:
-                if verbose:
-                    print(f"    Adding {c} to z1 | string")
-                z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
-        if not c in d1.columns:
-            if is_numeric_dtype(z1[c]):
-                if verbose:
-                    print(f"    Adding {c} to d1 | numeric")
-                d1[c] = pd.Series(pd.NA, index=d1.index, dtype="int64[pyarrow]")
-            else:
-                if verbose:
-                    print(f"    Adding {c} to d1 | string")
-                d1[c] = pd.Series("DDP", index=d1.index, dtype="string[pyarrow]")
-    print("...done matching columns")
-
-
-    print("Saving datasets...")
-    _ = data_io.save_parquet(cf, d1, "recoded", "donations_recoded.parquet", verbose=verbose)
-
-    _ = data_io.save_parquet(cf, z1, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
-    print("...done saving datasets")
-
-
-
-
-
-
 
 
 def recode_machine_annotations():
@@ -1532,7 +1720,6 @@ def recode_machine_annotations():
     import fyp.data_io as data_io
     import fyp
     import pandas as pd
-    from fyp.organize_datasets import rename_columns
     from fyp.fyp_main import convert_dtypes_to_pyarrow
 
     cf = initialize()
@@ -1572,7 +1759,6 @@ def recode_scrape_metadata():
     import fyp.data_io as data_io
     import fyp
     import pandas as pd
-    from fyp.organize_datasets import rename_columns
     from fyp.fyp_main import convert_dtypes_to_pyarrow
 
     cf = initialize()

@@ -7,28 +7,17 @@ Author: Patrik
 Date: 
 """
 
-#from numpy import int64 as np_int64
 import pandas as pd
-from datetime import datetime
 from copy import copy
-from fyp.fyp_main import initialize, extract_and_join_subkeys, clean_url, convert_dtypes_to_pyarrow
+from fyp.fyp_main import initialize, extract_and_join_subkeys, clean_url, pretty_str_seconds, get_recent_files
+from fyp.recode_variables import recode_events_df, extract_local_time_features, rename_columns
 import fyp.data_io as data_io
 import numpy as np
 
-from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow, pretty_str_seconds, get_recent_files
 
 from datetime import datetime
 import subprocess
 
-
-#from os import remove, listdir
-from datetime import datetime
-#from json import load as json_load
-from zoneinfo import ZoneInfo
-from fyp.fyp_main import initialize, connect_to_google, convert_dtypes_to_pyarrow
-from fyp.organize_datasets import extract_local_time_features, rename_columns
-from fyp.recode_variables import recode_events_df
-import fyp.data_io as data_io
 import textwrap
 
 
@@ -331,7 +320,7 @@ def refine_and_save_all_raw_zeeschuimer_logs(cf = None, verbose=False):
 
 
 
-def combine_zeeschuimer_logs(cf = None, verbose = False):
+def consolidate_zeeschuimer_logs(cf = None, verbose = False):
 
     if cf is None:
         cf = initialize()

@@ -370,58 +370,83 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
 def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=False):
     """
     Move the file filename from src_storage_location to dst_storage_location.
-    In Parallel Mode (GCS enabled): Moves on GCS AND moves Locally to keep sync.
     """
     from shutil import move as local_move
     from os.path import exists as local_exists
-    from os.path import join
+    from os.path import join as local_join
     from fyp.fyp_main import connect_to_google
-    
+    from os import remove as local_remove
+
+
+
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
     
-    # Resolve SRC
-    src_primary, src_secondary, src_mode, src_blob_name = _resolve_paths(cf, src_storage_location, filename)
     # Resolve DST
-    dst_primary, dst_secondary, dst_mode, dst_blob_name = _resolve_paths(cf, dst_storage_location, filename)
+    dst_primary, _, dst_mode, dst_blob_name = _resolve_paths(cf, dst_storage_location, filename)
 
-    moved_gcs = False
-    moved_local = False
-    
-    # 1. GCS Move
+
+    # temp to storage_location
+    if src_storage_location == "temp":
+        
+        src_path = local_join(cf['paths']['temp'], filename)
+        if not local_exists(src_path):
+             if verbose: print(f"    [DATA_IO] ERROR: Source file not found in temp: '{src_path}'")
+             return
+
+        if dst_mode == 'gcs':
+            bucket = _get_bucket(cf)
+            if bucket:
+                try:
+                    blob = bucket.blob(dst_blob_name)
+                    blob.upload_from_filename(src_path)
+                    if verbose: print(f"    [DATA_IO] Uploaded from temp to GCS: '{src_path}' -> '{dst_blob_name}'")
+                    # Remove local temp file after successful upload
+                    local_remove(src_path)
+                except Exception as e:
+                    if verbose: print(f"    [DATA_IO] WARN: Failed to upload/move from temp to GCS: {e}")
+            else:
+                 if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized for temp move.")
+
+        elif dst_mode == 'local':
+             if dst_primary:
+                local_move(src_path, dst_primary)
+                if verbose: print(f"    [DATA_IO] Moved from temp to local: '{src_path}' -> '{dst_primary}'")
+             else:
+                 if verbose: print(f"    [DATA_IO] ERROR: Destination path resolution failed for local move.")
+        
+        return
+
+    # Resolve SRC
+    src_primary, _, src_mode, src_blob_name = _resolve_paths(cf, src_storage_location, filename)
+
+    # GCS Move
     if src_mode == 'gcs' and dst_mode == 'gcs':
         bucket = _get_bucket(cf)
         if bucket:
             try:
                 blob = bucket.blob(src_blob_name)
                 # GCS 'rename' is a move (copy + delete)
-                # target name is just the name string, not the blob object?
-                # bucket.rename_blob(blob, new_name)
-                # new_name should be the new blob_name (full path)
                 
                 bucket.rename_blob(blob, dst_blob_name)
-                moved_gcs = True
                 if verbose: print(f"    [DATA_IO] Moved GCS: '{src_blob_name}' -> '{dst_blob_name}'")
             except Exception as e:
                 if verbose: print(f"    [DATA_IO] WARN: GCS Move failed (src likely missing): {e}")
 
-    # 2. Local Move
-    # If GCS mode, we still try to move secondary (local) files to keep valid state
-    src_local = src_secondary if src_mode == 'gcs' else src_primary
-    dst_local = dst_secondary if dst_mode == 'gcs' else dst_primary
+    # Local Move
+    elif src_mode == 'local' and dst_mode == 'local':
     
-    if src_local and dst_local:
-         if local_exists(src_local):
-             local_move(src_local, dst_local)
-             moved_local = True
-             if verbose: print(f"    [DATA_IO] Moved Local: '{filename}' from '{src_storage_location}' to '{dst_storage_location}'")
-         else:
-             if verbose and src_mode == 'local': # Only error if local was the ONLY mode
-                 print(f"    [DATA_IO] ERROR Couldn't find '{filename}' in '{src_storage_location}'")
+        if src_primary and dst_primary:
+            local_move(src_primary, dst_primary)
+            if verbose: print(f"    [DATA_IO] Moved Local: '{filename}' from '{src_storage_location}' to '{dst_storage_location}'")
+        else:
+            if verbose and src_mode == 'local':
+                print(f"    [DATA_IO] ERROR Couldn't find '{filename}' in '{src_storage_location}'")
+    
+        
 
-    if not moved_gcs and not moved_local and verbose:
-        print(f"    [DATA_IO] WARN: Move operation completed but nothing seemed to move (files missing?).")
+
 
 
 
