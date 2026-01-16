@@ -96,3 +96,5 @@ D_sample_id,Donation sample id,interval,{},[],,drop,,,standard,,,,,,Fine descrip
 B_label,Zeeschuimer label,string,{},[],,drop,,,standard,,,,,,Fine description of T_local_hour,,
 B_log_script,Zeescuimer log script,string,{},[],,drop,,,standard,,,,,,Fine description of T_local_hour,,
 D_watch_duration,Watch duration,ratio,,,,drop,,,standard,,,,,,,,
+S_video_downloaded,,,,,,,,,,,,,,,,,
+S_image_list,,,,,,,,,,,,,,,,,

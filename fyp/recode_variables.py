@@ -2,7 +2,11 @@
 
 
 import pandas as pd
-from fyp.fyp_main import initialize
+from datetime import datetime
+from copy import copy
+import numpy as np
+
+from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
 import fyp.data_io as data_io
 
 
@@ -100,8 +104,8 @@ def rename_columns(
 
         ]
 
-    from pandas import set_option
-    set_option('future.no_silent_downcasting', True)
+    #from pandas import set_option
+    pd.set_option('future.no_silent_downcasting', True)
 
     for fu in fixer_upper:
         mapper = {c:c.replace(fu[0],fu[1]) for c in some_eventsC.columns if (c != c.replace(fu[0],fu[1])) and (not c.replace(fu[0],fu[1]) in some_eventsC.columns)}
@@ -127,12 +131,7 @@ def extract_local_time_features(
     """
     Integrates per-donation timezone offsets from persona_stats_cache.
     """
-    from pandas import concat, to_datetime, notna as pd_notna, NaT as pd_NaT, to_timedelta
-    from numpy import select as np_select
-    from fyp.fyp_main import initialize
-    import fyp.data_io as data_io
-    from os.path import join, exists
-    from datetime import datetime
+
 
     if cf is None:
         cf = initialize()
@@ -330,9 +329,9 @@ def _is_emoji(s: str) -> bool:
 
 
 def get_factors_and_features_from_var_schema(cf = None, some_events_df = None, verbose = False):
-    import pandas as pd
-    from os.path import join
-    from fyp.fyp_main import initialize
+    #import pandas as pd
+    #from os.path import join
+    #from fyp.fyp_main import initialize
 
     if cf is None:
         cf = initialize()
@@ -355,9 +354,9 @@ def get_factors_and_features_from_var_schema(cf = None, some_events_df = None, v
 
 
 def get_group_factors_from_var_schema(cf = None, some_events_df = None, verbose = False):
-    import pandas as pd
-    from os.path import join
-    from fyp.fyp_main import initialize
+    #import pandas as pd
+    #from os.path import join
+    #from fyp.fyp_main import initialize
 
     if cf is None:
         cf = initialize()
@@ -385,11 +384,9 @@ def recode_descriptions(
     """
     Extract hashtags, mentions, and other words from a description string or Series.
     """
-    import pandas as pd
     
     # Vectorized handling for Series
     if isinstance(a_description, pd.Series):
-        print('here')
         # We'll use a fast regex approach to extract all relevant tokens once
         # Token pattern: #word or @word or word
         # We need to exclude IRRELEVANT_WORDS and handle emojis
@@ -477,7 +474,7 @@ def recode_call_to_action(
     a_text: str | pd.Series, 
     recoding_policy: dict = {}) -> dict | pd.Series:
     
-    import pandas as pd
+    #import pandas as pd
     
     if isinstance(a_text, pd.Series):
         def _fast_parse_cta(text):
@@ -519,22 +516,22 @@ def recode_speech_vs_music(
     a_string: str | pd.Series, 
     recoding_policy: dict = {}) -> float | pd.Series | None:
     
-    import pandas as pd
+    #import pandas as pd
     
     if isinstance(a_string, pd.Series):
         extracted = a_string.astype(str).str.extract(r'(\d+)% speech')[0]
         return pd.to_numeric(extracted, errors='coerce') / 100.0
 
-    from numpy import array, int64, float64
+    #from numpy import array, int64, float64
 
     if not isinstance(a_string, str):
         return a_string
 
     some_list = a_string.split(",")
     some_list_check = [[1 * ("speech" in h), 1 * ("music" in h)] for h in some_list]
-    if len(some_list) == 2 and all(array(some_list_check).sum(axis=0) == 1):
+    if len(some_list) == 2 and all(np.array(some_list_check).sum(axis=0) == 1):
         try:
-            some_list = [{h.split("%")[1].strip(): int64(h.split("%")[0])} for h in some_list]
+            some_list = [{h.split("%")[1].strip(): np.int64(h.split("%")[0])} for h in some_list]
         except Exception:
             return None
 
@@ -557,9 +554,9 @@ def recode_scores(
     """
     takes a string of this template: "<numeral><, ><text>" and returns the numeral split by 100
     """
-    import pandas as pd
-    from pandas import NA as pd_NA
-    from numpy import int64
+    #import pandas as pd
+    #from pandas import NA as pd.NA
+    #from numpy import int64
     
     if isinstance(a_string, pd.Series):
         val_str = a_string.astype(str).str.split(", ", n=1).str[0]
@@ -568,10 +565,10 @@ def recode_scores(
     if isinstance(a_string,str):
         the_val = a_string.split(", ")[0]
         try:
-            the_val = int64(the_val)
+            the_val = np.int64(the_val)
             return the_val / 100
         except:
-            return pd_NA
+            return pd.NA
     else:
         return a_string
 
@@ -582,8 +579,8 @@ def recode_long_strings(
     s: str | list | pd.Series, 
     recoding_policy) -> str | pd.Series:
 
-    import pandas as pd
-    from copy import copy
+    #import pandas as pd
+    #from copy import copy
     
     if isinstance(s, pd.Series):
         def _get_first_if_list(x):
@@ -624,13 +621,13 @@ def recode_scene_sentiments(
     TODO: check the word lists. They are probably not exhaustive.
     """
 
-    #from numpy import nan as np_nan
-    from pandas import NA as pd_NA
+    #from numpy import nan as np.nan
+    #from pandas import NA as pd.NA
 
 
 
     if not isinstance(a_string,str):
-        return {"valence":pd_NA,"energy":pd_NA}
+        return {"valence":pd.NA,"energy":pd.NA}
 
     a_string = a_string.lower().replace("-","").replace(" ","")
     valence = 0
@@ -661,10 +658,33 @@ def recode_faces_age_estimate(
     an_age_range_list: str | pd.Series, 
     recoding_policy : dict = {}) -> float | pd.Series:
     
-    import pandas as pd
-    import numpy as np
-    from pandas import NA as pd_NA
-    
+    #import pandas as pd
+    #import numpy as np
+    #from pandas import NA as pd.NA
+
+    def _single_age_range_str_to_float(an_age_range: str) -> float:
+        if pd.isna(an_age_range):
+            return pd.NA
+
+        try:
+            return np.float64(an_age_range)
+        except:
+            pass
+
+        if isinstance(an_age_range,str) and an_age_range.count("-")==1:
+            try:
+                age_limits = [np.int64(i) for i in an_age_range.split("-")]
+                if age_limits[1]<age_limits[0]:
+                    return pd.NA
+                return np.float64(np.mean(age_limits))
+            except:
+                return pd.NA
+        return pd.NA
+
+
+
+
+
     if isinstance(an_age_range_list, pd.Series):
         # Explode, parse range to mean, groupby index mean.
         # "20-30 | 40-50" -> ["20-30", "40-50"]
@@ -691,32 +711,10 @@ def recode_faces_age_estimate(
         # Align with original index to ensure size
         return final_means.reindex(an_age_range_list.index)
 
-    from pandas import isna
-    from numpy import mean as np_mean
-    from pandas import NA as pd_NA
-    from numpy import int64, float64
 
-    def single_age_range_str_to_float(an_age_range: str) -> float:
-        if isna(an_age_range):
-            return pd_NA
-
-        try:
-            return float64(an_age_range)
-        except:
-            pass
-
-        if isinstance(an_age_range,str) and an_age_range.count("-")==1:
-            try:
-                age_limits = [int64(i) for i in an_age_range.split("-")]
-                if age_limits[1]<age_limits[0]:
-                    return pd_NA
-                return float64(np_mean(age_limits))
-            except:
-                return pd_NA
-        return pd_NA
 
     if isinstance(an_age_range_list,str):
-        return np_mean(list(map(single_age_range_str_to_float, an_age_range_list.split(" | "))))
+        return np.mean(list(map(_single_age_range_str_to_float, an_age_range_list.split(" | "))))
     else:
         return an_age_range_list
 
@@ -727,7 +725,7 @@ def recode_challenges(
     challenges : str | pd.Series,
     recoding_policy : dict = {}) -> list | pd.Series:
 
-    import pandas as pd
+    #import pandas as pd
     
     if isinstance(challenges, pd.Series):
         # Result should be list of strings
@@ -775,8 +773,8 @@ def recode_main_activity(
     fine_actitivies_string : str | pd.Series, 
     recoding_policy : dict = {}):
     
-    import pandas as pd
-    from pandas import NA as pd_NA
+    #import pandas as pd
+    #from pandas import NA as pd.NA
     
     if isinstance(fine_actitivies_string, pd.Series):
         # Parse stringified list
@@ -892,8 +890,8 @@ def recode_timestamp(
     timestamp : pd.Timestamp | pd.Series, 
     recoding_policy : dict = {}) -> int | pd.Series:
 
-    import pandas as pd
-    from numpy import int64
+    #import pandas as pd
+    #from numpy import int64
     
     if isinstance(timestamp, pd.Series):
         # Optimize for datetime series
@@ -903,7 +901,7 @@ def recode_timestamp(
            # coerce
            return pd.to_datetime(timestamp, errors='coerce').astype('int64') // 10**9
 
-    return int64(timestamp.timestamp())
+    return np.int64(timestamp.timestamp())
     
 
 
@@ -912,20 +910,20 @@ def recode_stringified_list(
     recoding_policy
     ) -> list | pd.Series:
 
-    import pandas as pd
-    from pandas import isna, NA as pd_NA
+    #import pandas as pd
+    #from pandas import isna, NA as pd.NA
     
     if isinstance(a_string_representing_a_list, pd.Series):
         # This function is the heavy lifter for parsing stringified lists.
         # Vectorizing:
         # If straightforward split:
-        splitter = recoding_policy.get("splitter", pd_NA)
+        splitter = recoding_policy.get("splitter", pd.NA)
         mapper = recoding_policy.get("mapper", {})
         ignore_strings = recoding_policy.get("ignore_strings", [])
         
         # Helper for apply
         def _parse(val):
-            if isna(val): return [NOT_CODED]
+            if pd.isna(val): return [NOT_CODED]
             s_val = str(val)
             if len(s_val) < 1 or s_val in ["-", " "]: return [UNABLE_TO_DETECT] # no_data_fallback
             
@@ -933,7 +931,7 @@ def recode_stringified_list(
             # The original code has `mini_mapper`.
             
             out = []
-            if not isna(splitter):
+            if not pd.isna(splitter):
                 parts = s_val.lower().split(splitter)
                 for an_element in parts:
                     if len(an_element) > 0:
@@ -975,7 +973,7 @@ def recode_stringified_list(
     list_of_the_words = [] 
 
     # if the string that is representing a list is na, assume that it hasn't been coded
-    if isna(a_string_representing_a_list):
+    if pd.isna(a_string_representing_a_list):
         list_of_the_words += [NOT_CODED]
 
     # if there is a string, but the length is zero
@@ -985,7 +983,7 @@ def recode_stringified_list(
     else:
         a_string_representing_a_list = mini_mapper.get(a_string_representing_a_list,a_string_representing_a_list)
 
-        if not isna(splitter):
+        if not pd.isna(splitter):
             for an_element in str(a_string_representing_a_list).lower().split(splitter):
                 if len(an_element)>0:
                     an_element = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
@@ -1005,12 +1003,12 @@ def recode_stringified_list(
 
 def implement_missing_data_policy(x, missing_data_policy, the_median=0):
 
-    import numpy as np
-    import pandas as pd
-    from pandas import isna, NA as pd_NA, Series
-    from numpy import int64, float64
+    #import numpy as np
+    #import pandas as pd
+    #from pandas import isna, NA as pd.NA, Series
+    #from numpy import int64, float64
     
-    if isinstance(x, Series):
+    if isinstance(x, pd.Series):
         # Vectorized implementation
         # Vectorized implementation
         # Replace apply(_is_missing) with vectorized mask
@@ -1067,7 +1065,7 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
         if missing_data_policy == "empty":
             result.loc[mask] = pd.Series([[] for _ in range(mask.sum())], index=result.index[mask])
         elif missing_data_policy == "drop":
-            result[mask] = pd_NA
+            result[mask] = pd.NA
         elif missing_data_policy == "median":
             result[mask] = the_median
         elif missing_data_policy == "keep":
@@ -1100,21 +1098,21 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
         
         return result
 
-    if (isinstance(x,list) and len(x)==1 and x[0]==NOT_CODED) or (isinstance(x,str) and x==NOT_CODED) or ((not isinstance(x,list)) and isna(x)):
+    if (isinstance(x,list) and len(x)==1 and x[0]==NOT_CODED) or (isinstance(x,str) and x==NOT_CODED) or ((not isinstance(x,list)) and pd.isna(x)):
         if missing_data_policy == "empty":
             return []
         elif missing_data_policy == "drop":
-            return pd_NA
+            return pd.NA
         elif missing_data_policy == "median":
             return the_median
         elif missing_data_policy == "keep":
-            if isna(x):
+            if pd.isna(x):
                 return [NOT_CODED]
             else:
                 return x
         elif missing_data_policy == "zero":
             gg = x if not isinstance(x,list) else x[0]
-            if isinstance(gg,(int, float, int64, float64)):
+            if isinstance(gg,(int, float, np.int64, np.float64)):
                 gg_out = 0
             else:
                 gg_out = "no"
@@ -1130,13 +1128,13 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
 
 
 def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
-    import numpy as np
-    import pandas as pd
-    from pandas import isna, Series
-    from numpy import nan as np_nan, int64, float64
-    from pandas import NA as pd_NA
+    #import numpy as np
+    #import pandas as pd
+    #from pandas import isna, Series
+    #from numpy import nan as np.nan, int64, float64
+    #from pandas import NA as pd.NA
 
-    if isinstance(x, Series):
+    if isinstance(x, pd.Series):
         # Vectorized implementation
         mask_basic = x.isna()
         
@@ -1160,7 +1158,7 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
         if unable_to_detect_policy == "empty":
             result.loc[mask] = pd.Series([[] for _ in range(mask.sum())], index=result.index[mask])
         elif unable_to_detect_policy == "drop":
-            result[mask] = np_nan # or pd_NA
+            result[mask] = pd.NA
         elif unable_to_detect_policy == "median":
             result[mask] = the_median
         elif unable_to_detect_policy == "keep":
@@ -1175,22 +1173,22 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
              
         return result
 
-    if (isinstance(x,list) and len(x)==1 and x[0]==UNABLE_TO_DETECT) or (isinstance(x,str) and x==UNABLE_TO_DETECT) or ((not isinstance(x,list)) and isna(x)):
+    if (isinstance(x,list) and len(x)==1 and x[0]==UNABLE_TO_DETECT) or (isinstance(x,str) and x==UNABLE_TO_DETECT) or ((not isinstance(x,list)) and pd.isna(x)):
         if unable_to_detect_policy == "empty":
             return []
         elif unable_to_detect_policy == "drop":
-            return np_nan
+            return pd.NA
         elif unable_to_detect_policy == "median":
             return the_median
         elif unable_to_detect_policy == "keep":
-            if isna(x):
+            if pd.isna(x):
                 return [UNABLE_TO_DETECT]
             else:
                 return x
         elif unable_to_detect_policy == "zero":
             gg = x if not isinstance(x,list) else x[0]
-            if isinstance(gg,(int, float, int64, float64)):
-                gg_out = int64(0)
+            if isinstance(gg,(int, float, np.int64, np.float64)):
+                gg_out = np.int64(0)
             else:
                 gg_out = "no"
             if isinstance(x,list):
@@ -1204,11 +1202,11 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 
 
-def _flatten_and_filter(items, exclude = []):
-    """
+"""def _flatten_and_filter(items, exclude = []):
+    ""-"
     items: list containing strings and/or lists of strings
     exclude: set or list of strings to remove
-    """
+    "-""
     excl = set(exclude)
     out = []
 
@@ -1229,11 +1227,11 @@ def _flatten_and_filter(items, exclude = []):
 
 
 def _cutoff_by_share(tuples_list, share, min_count=1):
-    """
+    "-""
     tuples_list: list of (item, count), sorted descending by count.
     share: float in (0,1], cumulative proportion required.
     min_count: minimum number of tuples to return.
-    """
+    "-""
 
     if not 0 < share <= 1:
         raise ValueError("share must be in (0,1].")
@@ -1263,14 +1261,14 @@ def _cutoff_by_share(tuples_list, share, min_count=1):
 
 
 def _replace_in_structure(L, filter_list, replacement):
-    """
+    "-""
     L: list containing strings and/or sublists of strings
     filter_list: list of strings to keep
     replacement: string to use as substitute if not in filter
     
     Returns a new list with identical structure,
     replacing any matching strings.
-    """
+    "-""
     from pandas import Series
     filt = set(filter_list)  # faster lookups
 
@@ -1294,7 +1292,7 @@ def _replace_in_structure(L, filter_list, replacement):
     if hasattr(L, "dtype") and hasattr(L, "index"):
         return Series(out, index=L.index, dtype=L.dtype)
 
-    return out
+    return out"""
 
 
 
@@ -1303,10 +1301,10 @@ def _replace_in_structure(L, filter_list, replacement):
 
 def clean_up_machine_annotations(some_events, verbose = False):
     
-    import pandas as pd
-    import numpy as np 
-    from pandas import Series
-    from datetime import datetime
+    #import pandas as pd
+    #import numpy as np 
+    #from pandas import Series
+    #from datetime import datetime
 
 
     some_cleaned_up_events = some_events.copy()
@@ -1413,66 +1411,33 @@ def recode_events_df(
     study_name = None,
     study_dataset = None,
     drop_single_value_cols = True,
-    load_from_cache = False, # not used - always False
-    save_to_cache = False, # not used - always False
     verbose = False
     ):
 
-    #import pandas as pd
-    #from os.path import join as os_join, exists as os_exists
-    from datetime import datetime
-    from copy import copy
-    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
-    import fyp.data_io as data_io
-    from numpy import int64, float64
-    #from pandas import read_parquet as pd_read_parquet
-    from fyp.organize_datasets import create_study_recoded_dataset
-    from fyp.recode_variables import get_factors_and_features_from_var_schema
-    import fyp.data_io as data_io
+
+    # Safe nunique for lists
+    def _safe_nunique(s):
+        try:
+            return s.nunique()
+        except TypeError:
+            return s.astype(str).nunique()
+
 
 
     print(f"Recoding variables, implementing missing data policy and a whole range of other things...")
+
+    # This thing now only works with a study dataset as input
+    # It is not used in the web interface but only in the offline data prep
 
     if study_name is None and study_dataset is None:
         print("  This process cannot run without a study name or a study dataset as input. Process failed.")
         return None
 
+
     if cf is None:
         cf = initialize()
 
-    # This thing now only works with a study dataset as input
-    # It is not used in the web interface but only in the offline data prep
-    # TODO it also needs to be rebuilt when refactoring the entire data prep pipeline
-    """if load_from_cache and study_name is not None:
-        if data_io.exists(
-            cf=cf,
-            storage_location="cache",
-            filename=f"{study_name}_main.parquet",
-            ):
-            if verbose:
-                print(f"    Loading study main dataset from cache...", end=" ", flush=True)
-            study_dataset = data_io.load_parquet(
-                cf=cf,
-                storage_location="cache",
-                filename=f"{study_name}_main.parquet",
-                )
-            if verbose:
-                print(f"Shape: {study_dataset.shape}")
-        else:
-            print("@@ No cached study dataset found. I must run the process to create it. Please wait a moment...")
-            study_dataset = create_study_main_dataset(
-                cf = cf,
-                study_name = study_name,
-                load_from_cache = True,
-                save_to_cache = True,
-                verbose = verbose
-            )
-            print("@@ I'm back after having created the unified study dataset. I will now resume the recoding process.")"""
 
-
-    if study_dataset is None:
-        print("    This process cannot run without a study dataset as input or in cache. Process failed.")
-        return None
 
     cool_events = study_dataset.copy()
 
@@ -1482,14 +1447,18 @@ def recode_events_df(
 
     var_schema[['mapper','ignore_strings','recode_func']] = var_schema[['mapper','ignore_strings','recode_func']].map(_try_eval)
 
-
-
     fyp_factors, _ = get_factors_and_features_from_var_schema(cf = cf, some_events_df = cool_events, verbose = verbose)
-    #cool_events[fyp_factors] = cool_events[fyp_factors].astype("string[pyarrow]")
-    
-    if "session_id" in cool_events.columns:
-        cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int64(x):05}" if pd.notna(x) else pd.NA)
 
+
+    # this will be overwritten in at a later stage - I just want to turn it into a string for now
+    try:
+        if "session_id" in cool_events.columns:
+            cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int(x):05}" if pd.notna(x) else pd.NA)
+    except Exception as e:
+        # it's not vital that this goes well
+        pass
+
+    # this is a bit redundant too - these variables checked (are dropped again if necessary) at another stage
     variables_not_found_in_var_schema = list(set(cool_events.columns) - set(var_schema.index))
     if len(variables_not_found_in_var_schema) > 0:
         if verbose:
@@ -1497,12 +1466,7 @@ def recode_events_df(
             print(f"Step 1. Dropping {len(variables_not_found_in_var_schema)} columns not found in the variable scheme:\n    - {join_str.join(variables_not_found_in_var_schema)}")
         cool_events = cool_events.drop(columns=variables_not_found_in_var_schema).copy()
 
-    # Safe nunique for lists
-    def _safe_nunique(s):
-        try:
-            return s.nunique()
-        except TypeError:
-            return s.astype(str).nunique()
+
 
     if drop_single_value_cols:
         single_value_columns = [c for c in cool_events.columns if _safe_nunique(cool_events[c])==1 and c not in fyp_factors]
@@ -1511,8 +1475,10 @@ def recode_events_df(
             print(f"Step 2. Dropping {len(single_value_columns)} single value columns:\n    - {join_str.join(single_value_columns)}. Shape: {cool_events.shape}")
         cool_events = cool_events.drop(columns=single_value_columns).copy()
 
+
+
     if verbose:
-        print(f"Step 3. Executing recode policies from variable schema. Shape: {cool_events.shape}")
+        print(f"Executing recode policies from variable schema. Shape: {cool_events.shape}")
 
 
     cool_columns = copy(cool_events.columns)
@@ -1665,41 +1631,6 @@ def recode_events_df(
 
     cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
-    return cool_events
-
-
-
-
-
-
-    """def _safe_vector_divide(x, y):
-        return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
-    cool_events['plays_per_day'] = _safe_vector_divide(cool_events['S_stats_playCount'],cool_events['T_days_since_created'])
-
-
-    if verbose:
-        print(f"Step 4. Converting dtypes to pyarrow. Shape: {cool_events.shape}")
-
-
-    if verbose:
-        print(f"Step 5. Cleaning up Machine annotations - replacing categories/labels that are very rare. Shape: {cool_events.shape}")
-    cool_events = clean_up_machine_annotations(cool_events, verbose = verbose)
-    if verbose:
-        print(f"    Confirming shape after cleanup: {cool_events.shape}")
-
-    cool_events = cool_events[sorted(cool_events.columns)]"""
-
-
-
-
-
-
-    """if save_to_cache and study_name is not None:
-        recoded_filename = f"{study_name}_recoded.parquet"
-        cool_events.attrs['study_name'] = study_name
-        cool_events.to_parquet(os_join(cf['paths']['cache'], recoded_filename), engine="pyarrow")
-        if verbose:
-            print(f"    Saved dataset to '{recoded_filename}'. Shape: {cool_events.shape}")"""
     
     print(f"...done recoding variables at {datetime.now()}")
 
@@ -1716,11 +1647,11 @@ def recode_events_df(
 
 
 def recode_machine_annotations():
-    from fyp.fyp_main import initialize
-    import fyp.data_io as data_io
-    import fyp
-    import pandas as pd
-    from fyp.fyp_main import convert_dtypes_to_pyarrow
+    #from fyp.fyp_main import initialize
+    #import fyp.data_io as data_io
+    #import fyp
+    #import pandas as pd
+    #from fyp.fyp_main import convert_dtypes_to_pyarrow
 
     cf = initialize()
 
@@ -1754,34 +1685,4 @@ def recode_machine_annotations():
 
 
 
-def recode_scrape_metadata():
-    from fyp.fyp_main import initialize
-    import fyp.data_io as data_io
-    import fyp
-    import pandas as pd
-    from fyp.fyp_main import convert_dtypes_to_pyarrow
-
-    cf = initialize()
-
-    scrape_df = data_io.load_parquet(cf=cf, storage_location="scrape", filename="*", verbose=True)
-
-    scrape_df = rename_columns(scrape_df.rename(columns={c:"S_"+c if not c=="item_id" and not c.startswith("S_") else c for c in scrape_df.columns})).copy()
-
-    s1 = recode_events_df(
-        cf = cf,
-        study_dataset = scrape_df,
-        load_from_cache = False,
-        save_to_cache = False,
-        verbose = True
-        )
-
-    s1["scraped_ok"] = pd.Series(True, index=s1.index, dtype="bool[pyarrow]")
-
-    s1 = convert_dtypes_to_pyarrow(s1, verbose=True)
-
-    s1.reset_index(drop=True, inplace=True)
-
-    s1.loc[s1[s1['S_video_duration']<1].index,'S_video_duration'] = pd.NA
-
-    _ = data_io.save_parquet(cf, s1, "recoded", "scrape_recoded.parquet")
 

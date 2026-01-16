@@ -747,7 +747,7 @@ def api_video_stream(study, item_id):
     if not bucket:
         return "GCS Bucket not available. Check credentials or internet connection.", 503
 
-    blob_name = f"{fyp_cf['paths']['gcs_media_prefix']}/{item_id}.mp4"
+    blob_name = f"{fyp_cf['data_io']['gcs_media_prefix']}/{item_id}.mp4"
     blob = bucket.blob(blob_name)
     
     if not blob.exists():

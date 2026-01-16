@@ -394,13 +394,13 @@ def _process_scrape_metadata_for_merge_w_logs(
     verbose=False
     ):
 
-    from pandas import isna as pd_isna, Timestamp, DataFrame, to_datetime, Series, NA as pd_NA
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
+    #from pandas import isna as pd_isna, Timestamp, DataFrame, to_datetime, Series, NA as pd_NA
+    #from datetime import datetime
+    #from zoneinfo import ZoneInfo
+    #from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
 
     if len(combined_log) == 0:
-        return DataFrame()
+        return pd.DataFrame()
 
 
     # polishing the scraped metadata dataset for merging with the log
@@ -414,7 +414,7 @@ def _process_scrape_metadata_for_merge_w_logs(
     scrape_metadata_log[object_cols] = scrape_metadata_log[object_cols].replace('nan', '').infer_objects(copy=False)
 
 
-    scrape_metadata_log["createTime"] = to_datetime(
+    scrape_metadata_log["createTime"] = pd.to_datetime(
         scrape_metadata_log["createTime"], 
         errors='coerce',
         utc=True
@@ -422,7 +422,7 @@ def _process_scrape_metadata_for_merge_w_logs(
 
 
     # it is not possible to have videos that are negative or zero duration. Replace with NA
-    scrape_metadata_log['video_duration'] = scrape_metadata_log['video_duration'].fillna(pd_NA).replace(-1, pd_NA).replace(0, pd_NA)
+    scrape_metadata_log['video_duration'] = scrape_metadata_log['video_duration'].fillna(pd_NA).replace(-1, pd.NA).replace(0, pd.NA)
 
 
     #scrape_metadata_log.drop(columns=[
@@ -436,7 +436,7 @@ def _process_scrape_metadata_for_merge_w_logs(
 
 
 
-    scrape_metadata_log["scraped_ok"] = Series(True, index=scrape_metadata_log.index, dtype="bool[pyarrow]")
+    scrape_metadata_log["scraped_ok"] = pd.Series(True, index=scrape_metadata_log.index, dtype="bool[pyarrow]")
 
 
     scrape_metadata_log = convert_dtypes_to_pyarrow(scrape_metadata_log, verbose=verbose)

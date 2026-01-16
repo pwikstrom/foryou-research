@@ -37,7 +37,6 @@ max_duration_for_annotation = 300
 # Path for all project data except for media files
 # Change this to an absolute path on your machine or use an env var.
 local_data = "./data/main"
-local_temp = "./data/temp"
 
 # Path to your Firefox Downloads folder (used by baseline ingestion)
 firefox_downloads = "~/Downloads"

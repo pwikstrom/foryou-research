@@ -237,7 +237,6 @@ def initialize(
     # ------------------------------------------------------------------
     # Resolve relative paths against the project root for consistent file access.
     cf["paths"]["local_data"] = os.path.abspath(os.path.join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
-    #cf["paths"]["local_temp"] = os.path.abspath(os.path.join(cf["paths"]["project_root"], cf["paths"]["local_temp"]))
 
     # paths to zeeschuimer data
     cf["paths"]["zeeschuimer"] = os.path.join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
@@ -267,7 +266,7 @@ def initialize(
     cf["paths"]["users"] = os.path.join(cf["paths"]["local_data"], "users") 
     cf["paths"]["cache"] = os.path.join(cf["paths"]["local_data"], "cache") 
     
-    cf["paths"]["temp"] = "/tmp/fyp/"#join(cf["paths"]["local_temp"], "temp")
+    cf["paths"]["temp"] = "/tmp/fyp/"
     os.makedirs(cf["paths"]["temp"], exist_ok=True)
     
 
@@ -285,7 +284,7 @@ def initialize(
     if cf['data_io']['use_gcs_for_data']:
 
         cf["gcs_paths"] = {}
-        gcs_prefix = cf["paths"].get("gcs_data_prefix", "")
+        gcs_prefix = cf["data_io"].get("gcs_data_prefix", "")
 
         for k, v in cf["paths"].items():
             if isinstance(v, str) and v.startswith(cf["paths"]["local_data"]) and k != "local_data":
