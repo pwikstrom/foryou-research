@@ -7,13 +7,27 @@ Author: Patrik
 Date: 
 """
 
+from datetime import datetime
+import fyp.data_io as data_io
+import pandas as pd
+import numpy as np
+from fyp.recode_variables import rename_columns, recode_events_df
+from fyp.fyp_main import initialize, connect_to_google
+from os.path import basename
+import re
+ 
+import google.genai
+from time import sleep
+from random import randint
+from copy import copy
+import collections
+
+
+
 
 REQUIRED_KEYS = [
-    'transcript', 'objects', 'content_category', 'symbols_and_brands',
-    'text_overlays', 'scenes',
-]
-
-
+    "transcript", "objects", "content_category", "symbols_and_brands",
+    "text_overlays", "scenes"]
 
 # *********************************************************************************************************
 # *********************************************************************************************************
@@ -42,11 +56,6 @@ def load_machine_annotations(
     if notebook_mode:
         verbose = True
 
-    from os.path import basename
-    import re
- 
-    from fyp.fyp_main import initialize, connect_to_google
-    import fyp.data_io as data_io
 
     if cf is None:
         cf = initialize()
@@ -133,28 +142,6 @@ def load_machine_annotations(
 
 
 
-def save_machine_annotations_json(
-    cf,
-    json_list: list, 
-    verbose=False,
-    notebook_mode = False):
-
-    if notebook_mode:
-        verbose = True
-
-    #from os.path import join
-    #from json import dump
-    from datetime import datetime
-    from fyp.data_io import save_json
-
-    fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-
-    save_json(cf, json_list, "machine_annotations_raw", f"machine_annotations_{fine_ts}.json", verbose=verbose)
-    if verbose:
-        print(f"Saved raw machine annotations to 'machine_annotations_{fine_ts}.json'")
-
-
-
 
 
 
@@ -183,17 +170,6 @@ def call_machine(
         dry_run = False,
     ) -> dict:
 
-    from datetime import datetime
-    #from json import dump
-    #import json
-    from os.path import join, basename
-    from google.genai import types
-    from time import sleep
-    from random import randint
-    from copy import copy
-
-    from fyp.fyp_main import initialize, connect_to_google, temp_path
-    import fyp.data_io as data_io
 
 
     if dry_run:
@@ -221,12 +197,11 @@ def call_machine(
         "inference_duration" : -1,
         "model" : cf['machine']['model'],
         "prompt_fn" : basename(cf['machine']['prompt']),
-        "error" : "-",
+        "error" : "unknown error",
         "finish_reason": "did not even start",
         "response" : "",
     }
 
-    #temp_fn = temp_path(cf, f"temp_machine_annotations_{output['item_id']}_{output['inference_ts']}.json")
     temp_fn = f"temp_machine_annotations_{output['item_id']}_{output['inference_ts']}.json"
 
 
@@ -238,19 +213,19 @@ def call_machine(
             with open(join(local_path,f"{video_id}.mp4"),'rb') as f:
                 video_bytes = f.read()
             contents = [
-                types.Part(
-                    inline_data=types.Blob(data=video_bytes, 
+                google.genai.types.Part(
+                    inline_data=google.genai.types.Blob(data=video_bytes, 
                     mime_type='video/mp4')
                 ),
-                types.Part.from_text(text="Analyze this video")
+                google.genai.types.Part.from_text(text="Analyze this video")
             ]
         else:
             contents = [
-                types.Part.from_uri(
+                google.genai.types.Part.from_uri(
                     file_uri=f"gs://{cf['data_io']['GCS_bucket_name']}/{cf['data_io']['gcs_media_prefix']}/{video_id}.mp4",
                     mime_type="video/mp4"
                 ),
-                types.Part.from_text(text="Analyze this video")
+                google.genai.types.Part.from_text(text="Analyze this video")
             ]
     
     except Exception as e:
@@ -511,14 +486,18 @@ def call_machine_threads(
 
 
     if len(results_by_index)>0 and not dry_run:
-        save_machine_annotations_json(
-            cf,
-            results_by_index,
-            verbose=verbose,
-            notebook_mode=notebook_mode
-        )
 
-    return results_by_index
+        fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+
+        filename = f"machine_annotations_{fine_ts}.json"
+
+        data_io.save_json(cf, results_by_index, "machine_annotations_raw", filename, verbose=verbose)
+        if verbose:
+            print(f"Saved raw machine annotations to '{filename}'")
+
+
+
+    return results_by_index, filename
 
 
 
@@ -733,7 +712,8 @@ def flatten_one_machine_response(
                 try:
                     flat_response[res_key] = loads(flat_response[res_key])
                 except Exception as e:
-                    print(flat_response[res_key])
+                    if verbose:
+                        print(flat_response[res_key])
                     return None
             if isinstance(flat_response[res_key], list):
                 try:
@@ -761,14 +741,16 @@ def flatten_one_machine_response(
             try:
                 flat_response['audio_summary'] = loads(flat_response['audio_summary'])
             except Exception as e:
-                print(flat_response['audio_summary'])
+                if verbose:
+                    print(flat_response['audio_summary'])
                 return None
         
         for k in flat_response['audio_summary']:
             try:
                 audio_detail = flat_response['audio_summary'][k]
             except Exception as e:
-                print(e,"|",k,"|",flat_response['audio_summary'])
+                if verbose:
+                    print(e,"|",k,"|",flat_response['audio_summary'])
                 return None
             if isinstance(audio_detail,list):
                 flat_response[k] = " | ".join([s for s in audio_detail if type(s)==str])
@@ -786,7 +768,8 @@ def flatten_one_machine_response(
             try:
                 flat_response['faces'] = loads(flat_response['faces'])
             except Exception as e:
-                print(flat_response['faces'])
+                if verbose:
+                    print(flat_response['faces'])
                 return None
 
         if isinstance(flat_response['faces'], list):
@@ -814,7 +797,8 @@ def flatten_one_machine_response(
     # get rid of pesky lists that are still lingering - just pick the first element. This is a bit of a hack, but it works.
     for k in flat_response:
         if isinstance(flat_response[k],list):
-            print(flat_response[k])
+            if verbose:
+                print(flat_response[k])
             flat_response[k] = flat_response[k][0]
 
     return flat_response
@@ -978,8 +962,6 @@ def flatten_and_fix_machine_outputs(
     ...
     """
 
-    from pandas import DataFrame
-    from copy import copy
 
     bad_count = 0
     good_count = 0
@@ -990,25 +972,34 @@ def flatten_and_fix_machine_outputs(
         flattened_outputs_from_machine[h] = copy(raw_outputs_from_machine[h])
         if raw_outputs_from_machine[h]['response'] is None or raw_outputs_from_machine[h]['response']=='':
             bad_count += 1
+            print("!", end="", flush=True)
         else:
             json_response = fuzzy_load_of_json_from_string(raw_outputs_from_machine[h]['response'], notebook_mode = notebook_mode)
-            flattened_response = flatten_one_machine_response(json_response, verbose = verbose, notebook_mode = notebook_mode)
+            flattened_response = flatten_one_machine_response(json_response, verbose = False, notebook_mode = notebook_mode)
             if type(flattened_response)==dict:
                 good_count += 1
+                print(".", end="", flush=True)
                 for rk in flattened_response:
                     flattened_outputs_from_machine[h][rk] = copy(flattened_response[rk])
             else:
                 bad_count += 1
-                if verbose:
-                    print("Error when postprocessing response -> bad response")
+                print("X", end="", flush=True)
                 if notebook_mode:
+                    print("Error when postprocessing response -> bad response")
                     print(raw_outputs_from_machine[h])
-    
-    print(f"Flattened and fixed {good_count} good responses, {bad_count} bad responses")
+        if (good_count + bad_count) % 100 == 0:
+            print()
 
+    if (good_count + bad_count) % 100 != 0:
+        print()
+
+    print(f"...extracted {good_count} good responses from the file. Unable to use {bad_count} responses.")
+
+    if good_count == 0:
+        return None
 
     # convert the dict to a DF, reset the index and drop the old response structure 
-    outputs_from_machine_df = DataFrame(flattened_outputs_from_machine).T
+    outputs_from_machine_df = pd.DataFrame(flattened_outputs_from_machine).T
     outputs_from_machine_df.reset_index(drop=True, inplace=True)
     outputs_from_machine_df.drop("response", axis=1, inplace=True)
 
@@ -1049,7 +1040,6 @@ def _check_repetitive_patterns(
     Check for repetitive patterns in a string
     """
 
-    from collections import defaultdict
 
     if not isinstance(text,str):
         return "Not a string"
@@ -1060,7 +1050,7 @@ def _check_repetitive_patterns(
     words = text.split()
     n = len(words)
     
-    pattern_counts = defaultdict(int)
+    pattern_counts = collections.defaultdict(int)
     
     # Check for all possible pattern lengths from min_pattern_length to half of the total number of words
     for length in range(min_pattern_length, n // 2 + 1):
@@ -1210,6 +1200,120 @@ def remove_repetitions_from_transcripts(
 
 
 
+
+
+
+
+
+def clean_up_machine_annotations(cf, some_events, verbose = False):
+    
+
+
+
+    if cf is None:
+        cf = initialize()
+
+    some_cleaned_up_events = some_events.copy()
+
+    # iterate over all object type columns in the events DF that starts w G_, i.e. are machine annotations
+    g_cols = [k for k in some_events.select_dtypes(exclude=["number"]).columns if k.startswith("G_")]
+    
+    exclude_set = {"DDP", "BASELINE", cf['labels']['UNABLE_TO_DETECT'], "", cf['labels']['OTHER_THINGS']}
+
+    for c in g_cols:
+        # Step 1: Flatten and filter efficiently
+        series = some_events[c]
+        
+        # explode lists to rows
+        exploded = series.explode().dropna()
+        
+        if exploded.empty:
+            continue
+
+
+        # exclude set filtering
+        # check against set is fast
+        valid_mask = ~exploded.isin(exclude_set)
+        valid_items = exploded[valid_mask]
+        
+        if valid_items.empty:
+            continue
+
+
+        # Check mean length
+        # Vectorized string length based on a sample of 500 items
+
+        sample_size = min(500, len(valid_items))
+        avg_len = valid_items.sample(sample_size, replace = False).astype(str).str.len().mean()
+        
+        if avg_len < 60:
+            # Step 2: Cutoff logic
+            # frequency of unique valid items
+            counts = valid_items.value_counts()
+
+            total_count = counts.sum()
+            target = total_count * 0.98
+            
+            # cumulative sum
+            cum_counts = counts.cumsum()
+            
+            # find how many labels needed to cross 98%
+            # we keep labels where cumsum < target, plus the one that crosses it
+            cutoff_idx = cum_counts.searchsorted(target)
+            # ensure at least 3 if possible?
+            num_keep = max(3, cutoff_idx + 1)
+            # clamp to length
+            num_keep = min(num_keep, len(counts))
+
+
+
+            # Heuristic: If we are keeping a huge portion of the labels to satisfy the coverage, 
+            # or the absolute number of kept labels is huge (e.g. 90k out of 100k), then consolidation is inefficient/useless.
+            # User guideline: "if the sum of occurrences of top X labels constitute more than y% ... and there still are a lot of small labels" -> consolidate.
+            # But "100k rare labels -> 90k" -> don't consolidate.
+            # Logic: If num_keep is > 80% of len(counts) and len(counts) > 1000, skip.
+            
+            if (len(counts) > 1000) and (num_keep > len(counts) * 0.80):
+                 if verbose:
+                     print(f"    {c}: Skipping consolidation. Tail is too thick/flat (would keep {num_keep}/{len(counts)}).")
+                 continue
+
+            
+            okay_list = counts.index[:num_keep].tolist()
+            
+            # fast lookup set
+            keep_set = set(okay_list).union(exclude_set)
+
+            # Step 3: Replacement
+            # We need to iterate rows since we want to preserve list structure [[a, b], [c]] -> [[a, OTHER], [c]]
+            # A simple map with set lookup is fastest for object columns with lists
+            def _fast_replace(x):
+                if isinstance(x, list):
+                    return [y if y in keep_set else cf['labels']['OTHER_THINGS'] for y in x]
+                if isinstance(x, str):
+                    return x if x in keep_set else cf['labels']['OTHER_THINGS']
+                return x # keep NA or other
+                
+            some_cleaned_up_events[c] = series.apply(_fast_replace)
+
+
+            if verbose:
+                # approximated stats
+                print(f"    {c}: Cleaned up rare labels (kept top {num_keep})")
+
+        else:
+            if verbose:
+                print(f"    {c}: Avg string length > 60, not consolidating rare labels")
+
+    return some_cleaned_up_events
+
+
+
+
+
+
+
+
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
@@ -1219,9 +1323,10 @@ def remove_repetitions_from_transcripts(
 # *********************************************************************************************************
 
 
-def post_process_raw_annotations(
+def refine_one_raw_annotation_batch(
     cf = None,
     raw_outputs_from_machine = None,
+    raw_json_filename = None,
     verbose = False,
     notebook_mode = False):
 
@@ -1230,51 +1335,107 @@ def post_process_raw_annotations(
 
     from datetime import datetime
     from os.path import join
-    from fyp.fyp_main import initialize, connect_to_google, temp_path, convert_dtypes_to_pyarrow
+    from fyp.fyp_main import initialize, connect_to_google, convert_dtypes_to_pyarrow
     import fyp.data_io as data_io
 
-    if raw_outputs_from_machine is None:
-        raise ValueError("raw_outputs_from_machine cannot be None")
+    if raw_json_filename is None:
+        raise ValueError("raw_json_filename cannot be None")
 
     if cf is None:
         cf = initialize()
     if cf["machine"]["client"] is None:
         cf = connect_to_google(cf)
-    
-    file_format = '.parquet'
 
-    print("Starting post-processing of raw annotations...")
-    if verbose:
-        print("Flattening raw machine annotations")
+    if raw_outputs_from_machine is None:
+        if verbose:
+            print(f"Loading raw annotations from {raw_json_filename}")
+        raw_outputs_from_machine = data_io.load_json(cf, "machine_annotations_raw", raw_json_filename, verbose=verbose)
+
+    if raw_outputs_from_machine is None:
+        raise ValueError("raw_outputs_from_machine cannot be None")
+
+
+    print(f"Refining {len(raw_outputs_from_machine):,} raw annotations in this file...")
+
+    # ---------------------------------------------------------------
+    # 1. Flatten the json to a dataframe. Using fuzzy json for this
+    # ---------------------------------------------------------------
+    print("Transforming the messy json into a flat dataframe")
     outputs_from_machine_df = flatten_and_fix_machine_outputs(raw_outputs_from_machine, verbose = verbose, notebook_mode = notebook_mode)
 
+    if outputs_from_machine_df is None:
+        print("I was unable to extract a single good response from this file. Returning None.")
+        print("Consider deleting this raw file from the raw_annotations folder.")
+        return None
 
-    # check if required keys are present
+    # ---------------------------------------------------------------
+    # 2. Check if required keys are present
+    # ---------------------------------------------------------------
     found_all_required_keys = True
     for rk in REQUIRED_KEYS:
         if not rk in outputs_from_machine_df.columns:
             print(f"WARNING: Essential column '{rk}' is missing in machine output")
             found_all_required_keys = False
 
-    if verbose:
-        print("Consolidating rare columns from machine annotations")
+    # ---------------------------------------------------------------
+    # 3. Consolidate rare columns
+    # ---------------------------------------------------------------
+    print("Consolidating rare columns from machine annotations.")
     outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose = verbose, notebook_mode = notebook_mode)
+    print("...done")
 
+    # ---------------------------------------------------------------
+    # 4. Remove repetitions from transcripts
+    # ---------------------------------------------------------------
     if 'transcript' in outputs_from_machine_df.columns:
-        if verbose:
-            print("Removing repetitions from machine annotation transcripts")
+        print("Removing repetitions from machine annotation transcripts...")
         outputs_from_machine_df = remove_repetitions_from_transcripts(outputs_from_machine_df, verbose = verbose, notebook_mode = notebook_mode)
+        print("...done")
+
+    
+
+    # ---------------------------------------------------------------
+    # implement the rules from the variable scheme - recoding lists, strings and other complex data
+    # ---------------------------------------------------------------
+    # (and a simple renaming of columns to make them easier to identify and read)
+    outputs_from_machine_df = rename_columns(outputs_from_machine_df.rename(columns={c:"G_"+c if not c=="item_id" and not c.startswith("G_") else c for c in outputs_from_machine_df.columns})).copy()
+    outputs_from_machine_df = recode_events_df(
+            cf = cf,
+            study_dataset = outputs_from_machine_df,
+            drop_single_value_cols = False,
+            verbose = verbose
+            )
+
+
+    # ---------------------------------------------------------------
+    # consolidate some labels in non-numeric columns where that makes sense 
+    # ---------------------------------------------------------------
+    outputs_from_machine_df = clean_up_machine_annotations(cf=cf, some_events=outputs_from_machine_df, verbose=verbose)
+
+
+    # ---------------------------------------------------------------
+    # add flags for annotated ok and fail
+    # ---------------------------------------------------------------
+    outputs_from_machine_df["annotated_ok"] = ~outputs_from_machine_df.G_type_of_story.isna().astype("bool[pyarrow]")
+    outputs_from_machine_df["annotated_fail"] = outputs_from_machine_df.G_type_of_story.isna().astype("bool[pyarrow]")
+    outputs_from_machine_df.loc[outputs_from_machine_df[outputs_from_machine_df.annotated_fail].index,[c for c in outputs_from_machine_df.columns if c.startswith("G_")]] = pd.NA
+
+
+    # ---------------------------------------------------------------
+    # Convert dtypes to pyarrow and reset index
+    # ---------------------------------------------------------------
+    outputs_from_machine_df.reset_index(drop=True, inplace=True)
+    outputs_from_machine_df = convert_dtypes_to_pyarrow(outputs_from_machine_df, verbose=verbose)
+
 
     if verbose:
         print("Ready to save processed results")
-        
-    fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-    file_prefix = "machine_annotations"
 
-    outputs_from_machine_df = convert_dtypes_to_pyarrow(outputs_from_machine_df, verbose=verbose)
-    data_io.save_parquet(cf, outputs_from_machine_df, "machine_annotations_refined", f"{file_prefix}_{fine_ts}{file_format}", verbose=verbose)
-    if verbose:
-        print(f"Saved processed results to '{file_prefix}_{fine_ts}{file_format}'")
+    parquet_filename = raw_json_filename.replace(".json", ".parquet")
+
+    data_io.save_parquet(cf, outputs_from_machine_df, "machine_annotations_refined", parquet_filename, verbose=verbose)
+    print(f"Saved processed the df - shape {outputs_from_machine_df.shape} - results to '{parquet_filename}'")
+    print("--"*60)
     
     return outputs_from_machine_df
     
@@ -1282,8 +1443,150 @@ def post_process_raw_annotations(
 
 
 
+def refine_and_save_all_raw_annotation_files(cf = None, verbose = False, notebook_mode = False):
 
-def annotate_from_list(
+    if cf is None:
+        cf = initialize()
+    result = {}
+    
+    raw_annotation_files = [fn for fn in data_io.listdir(cf=cf, storage_location="machine_annotations_raw") if fn.startswith("machine_annotations") and fn.endswith(".json")]
+    result["raw_files"] = len(raw_annotation_files)
+
+    refined_annotation_files = [fn for fn in data_io.listdir(cf=cf, storage_location="machine_annotations_refined") if fn.startswith("machine_annotations") and fn.endswith(".parquet")]
+    result["refined_files_before"] = len(refined_annotation_files)
+
+    raw_files_up_for_refinement = [g for g in raw_annotation_files if not g.replace(".json",".parquet") in refined_annotation_files]
+    if verbose:
+        print(f"{len(refined_annotation_files)} raw annotation files have already been refined")
+        print(f"{len(raw_files_up_for_refinement)} files are up for refinement")
+
+    for i,fn in enumerate(raw_files_up_for_refinement):
+        if verbose:
+            print(f"\n{i+1}/{len(raw_files_up_for_refinement)} {fn}")
+        refine_one_raw_annotation_batch(
+            cf = cf,
+            raw_outputs_from_machine = None,
+            raw_json_filename = fn,
+            verbose = verbose,
+            notebook_mode = notebook_mode
+            )
+
+    refined_annotation_files = data_io.listdir(
+        cf=cf,
+        storage_location="machine_annotations_refined",
+        return_absolute_path=False,
+        verbose=False)
+    refined_annotation_files = [u for u in refined_annotation_files if u.endswith(".parquet")]
+    result["refined_files_after"] = len(refined_annotation_files)
+
+    return result
+
+
+
+
+
+
+
+
+
+
+def consolidate_and_save_refined_annotations(
+    cf = None,
+    force_consolidation = False,
+    verbose = False,
+    ):
+
+    if cf is None:
+        cf = initialize()
+
+    top_verbose = True
+
+    # ---------------------------------------------------------------
+    if top_verbose:
+        print("Checking for raw annotation batches that needs refining...")
+    # check if there are any raw files that need refining and refine those
+    result = refine_and_save_all_raw_annotation_files(cf = cf, verbose = verbose, notebook_mode = False)
+    if top_verbose:
+        if result["refined_files_after"] == result["refined_files_before"]:
+            print("    ...all files already refined.")
+        else:
+            print(f"    ...refined {result["refined_files_after"] - result["refined_files_before"]} files.")
+
+
+    # ---------------------------------------------------------------
+    # check if there are any changes in the relevant folder compared to last time this process was run.    
+    if data_io.exists(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
+        dataset_meta = data_io.load_json(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
+        if verbose:
+            print("Dataset meta loaded")
+    else:
+        dataset_meta = {"machine_annotations": {"filenames": []}}
+
+    files_to_concatenate = []
+    for fn in data_io.listdir(cf=cf, storage_location="machine_annotations_refined"):
+        if fn.startswith("machine_annotations_") and fn.endswith(".parquet"):
+            files_to_concatenate.append(fn)
+
+    latest_filename_list = dataset_meta.get("machine_annotations", {}).get("filenames", [])
+    if not force_consolidation and latest_filename_list == files_to_concatenate:
+        if top_verbose:
+            print("No new refined machine annotations files found. No need to consolidate. Returning existing file.")
+        return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="machine_annotations_recoded.parquet")
+    
+ 
+    # ---------------------------------------------------------------
+    # load all refined files
+    if top_verbose:
+        print("Loading refined annotation files...")
+    refined_annotation_dfs = []
+    for fn in files_to_concatenate:
+        df = data_io.load_parquet(cf=cf, storage_location="machine_annotations_refined", filename=fn)
+        refined_annotation_dfs.append(df)
+        if verbose:
+            print(fn, df.shape)
+
+    
+    # ---------------------------------------------------------------
+    if top_verbose:
+        print(f"Consolidating {len(refined_annotation_dfs):,} refined files (keeping latest version of each item_id)...")
+    consolidated_annotations = pd.concat(refined_annotation_dfs, ignore_index=True)
+
+    # ---------------------------------------------------------------
+    # dropping duplicates, only keeping the most recent annotation for each item_id
+    consolidated_annotations = consolidated_annotations.drop_duplicates(subset=["item_id"], keep="last").reset_index(drop=True)
+
+    memory_per_column = consolidated_annotations.memory_usage(deep=True) 
+    total_memory_bytes = memory_per_column.sum()
+    total_memory_mb = total_memory_bytes / (1024**2)
+    if top_verbose:
+        print(f"Shape: {consolidated_annotations.shape} | Memory usage: {total_memory_mb:.2f} MB")
+
+    # ---------------------------------------------------------------
+    # save the consolidated annotations
+    if top_verbose:
+        print("Saving consolidated annotations...")
+    data_io.save_parquet(
+        cf=cf,
+        df=consolidated_annotations, 
+        storage_location="recoded", filename="machine_annotations_recoded.parquet", verbose=verbose)   
+    if top_verbose:
+        print("...done")
+
+    # ---------------------------------------------------------------
+    # update the dataset meta file
+    if not "machine_annotations" in dataset_meta:
+        dataset_meta["machine_annotations"] = {}
+    dataset_meta["machine_annotations"]["filenames"] = files_to_concatenate
+    _ = data_io.save_json(cf, dataset_meta, "recoded", "dataset_meta.json")
+
+    return True, consolidated_annotations
+
+
+
+
+
+
+def annotate_from_video_id_list(
     cf = None,
     fine_list = None,
     max_workers = 50,
@@ -1299,7 +1602,7 @@ def annotate_from_list(
     """
 
     from os import environ
-    from fyp.fyp_main import initialize, connect_to_google, temp_path
+    from fyp.fyp_main import initialize, connect_to_google
 
     if dry_run:
         print("********* This is a dry run. It's all fake. No data io action at all. *********")
@@ -1316,7 +1619,7 @@ def annotate_from_list(
 
         print("Annotating videos...")
 
-        raw_outputs_from_machine = call_machine_threads(
+        raw_outputs_from_machine, raw_json_fn = call_machine_threads(
                 cf = cf,
                 interesting_videos = fine_list,
                 max_workers=max_workers,
@@ -1328,12 +1631,13 @@ def annotate_from_list(
         print("...video annotation completed.")
 
         if dry_run:
-            print("Since this is a dry run I'm skipping the post processing step.")
+            print("Since this is a dry run I'm skipping the refinement step.")
             return None
 
-        _ = post_process_raw_annotations(
+        _ = refine_one_raw_annotation_batch(
             cf = cf,
             raw_outputs_from_machine = raw_outputs_from_machine,
+            raw_json_filename = raw_json_fn,
             verbose = verbose, notebook_mode = notebook_mode)
 
     else:
@@ -1344,9 +1648,12 @@ def annotate_from_list(
 
 
 
-def annotate_from_scrape_metadata_file(
+
+
+
+def annotate_from_scrape_data_file(
     cf = None,
-    scrape_metadata_filename = None,
+    scrape_data_filename = None,
     verbose = False,
     notebook_mode = False):
 
@@ -1354,12 +1661,8 @@ def annotate_from_scrape_metadata_file(
         verbose = True
     """
     This is a wrapper that is reading a scrape metadata file and extracts a list of video IDs
-    to process. It then calls annotate_from_list.
+    to process. It then calls annotate_from_video_id_list.
     """
-    from os.path import exists
-    import fyp.data_io as data_io
-
-    from fyp.fyp_main import initialize, connect_to_google
 
     if cf is None:
         cf = initialize()
@@ -1367,18 +1670,18 @@ def annotate_from_scrape_metadata_file(
         cf = connect_to_google(cf)
 
 
-    if scrape_metadata_filename is None or not data_io.exists(cf, "scrape", scrape_metadata_filename):
+    if scrape_data_filename is None or not data_io.exists(cf, "scrape", scrape_data_filename):
         if verbose:
-            print(f"File {scrape_metadata_filename} does not exist. Cannot process this file.")
+            print(f"File {scrape_data_filename} does not exist. Cannot process this file.")
         return None
 
-    df = data_io.load_parquet(cf, "scrape", scrape_metadata_filename, columns=["item_id", "video_downloaded", "video_duration"], verbose=verbose)
+    df = data_io.load_parquet(cf, "scrape", scrape_data_filename, columns=["item_id", "video_downloaded", "video_duration"], verbose=verbose)
 
 
     # we're only annotating the videos that are downloaded and shorter than a certain max duration
     work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"]<cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()
 
-    annotate_from_list(
+    annotate_from_video_id_list(
         cf = cf,
         fine_list = work_with_these_videos_list,
         verbose = verbose, 
@@ -1387,46 +1690,6 @@ def annotate_from_scrape_metadata_file(
 
 
 
-
-
-
-
-def post_process_raw_annotations_from_json_file(
-    cf = None,
-    json_filename = None,
-    verbose = False,
-    notebook_mode = False):
-
-    if notebook_mode:
-        verbose = True
-    """
-    This is useful when the post_processing crashes. It's expensive to call the machine so
-    it's preferrable to use the raw json and try to fix whatever might be causing the trouble
-    """
-    from datetime import datetime
-    #from json import load
-    #from os.path import exists
-
-    from fyp.fyp_main import initialize, connect_to_google
-    import fyp.data_io as data_io
-
-    if cf is None:
-        cf = initialize()
-
-
-    raw_outputs_from_machine = data_io.load_json(cf, "machine_annotations_raw", json_filename, verbose=verbose)
-
-
-    #if json_file is None or not exists(json_file):
-    #    if verbose:
-    #        print(f"File {json_file} does not exist. Cannot process this file.")
-    #    return None
-
-    #with open(json_file, 'r') as f:
-    #    raw_outputs_from_machine = load(f)
-
-    #process raw_outputs_from_machine
-    _ = post_process_raw_annotations(cf = cf, raw_outputs_from_machine = raw_outputs_from_machine, verbose = verbose, notebook_mode = notebook_mode)
 
 
 
@@ -1515,7 +1778,7 @@ def annotate_videos_loop(
 
         print(f"  Batch {batch_number} of {max_batches:,}")
 
-        _ = annotate_from_list(
+        _ = annotate_from_video_id_list(
             cf = cf,
             fine_list = batch,
             verbose = verbose,
@@ -1537,38 +1800,7 @@ def annotate_videos_loop(
     print(f"Loop ended: {datetime.now()}")
 
 
-"""print()
-print("Starting loop...")
-while len(selected_videos)>0:
-    print(f"Now: {datetime.now()}")
-    print("--"*60)
-    selected_videos = select_videos_from_half_baked(
-        cf = cf,
-        study_name = study_name,
-        file_label = "ANNOTATE",
-        INCLUDE_UNSEEN_VIDEOS_IN_EXPORT = False,
-        INCLUDE_FAILED_SCRAPES_IN_EXPORT = False,
-        INCLUDE_SCRAPED_BUT_NOT_DOWNLOADED_IN_EXPORT = False,
-        INCLUDE_DOWNLOADED_BUT_NOT_ANNOTATED_IN_EXPORT = True,
-        INCLUDE_FAILED_ANNOTATIONS_IN_EXPORT = False,
-        INCLUDE_DOWNLOADED_AND_ANNOTATED_IN_EXPORT = False,
-        verbose = verbose, notebook_mode = notebook_mode
-    )
 
-
-    if len(selected_videos) > 0:
-        work_with_these_videos_list_raw = [str(k) for k in selected_videos.item_id.to_list()]
-        work_with_these_videos_list = work_with_these_videos_list_raw.copy()
-
-        print(f"{len(work_with_these_videos_list):,} videos selected")
-
-        _ = annotate_from_list(
-            cf = cf,
-            fine_list = work_with_these_videos_list[:batch_size],
-            verbose = verbose, notebook_mode = notebook_mode)
-    
-    if selected_videos is None:
-        selected_videos = []"""
 
 
 

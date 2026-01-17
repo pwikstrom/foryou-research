@@ -9,77 +9,18 @@ import numpy as np
 from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
 import fyp.data_io as data_io
 
-
-NOT_CODED = "not coded"
-UNABLE_TO_DETECT = "unable to detect"
-OTHER_THINGS = "oThEr tHiNgS-+-"
+from fyp.fyp_main import initialize
 
 
 
+fyp_cf = initialize()
+WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
+GENERIC_MAPPER = fyp_cf["labels"]["GENERIC_MAPPER"]
+IRRELEVANT_WORDS = fyp_cf["labels"]["IRRELEVANT_WORDS"]
 
-POSITIVE_WORDS = ["positive"]
-NEGATIVE_WORDS = ["negative"]
-HIGH_ENERGY_WORDS = ["highenergy","reflective","playful"]
-LOW_ENERGY_WORDS = ["lowenergy","calm","serene"]
-
-
-
-
-CONTENT_CATEGORIES_FROM_CODEBOOK = ['comedy', 'daily life', 'film  and  tv', 'performance', 'drama',
-       'art  and  creativity', 'society', 'news',
-       'interpersonal relationships', 'technology design  and  reviews',
-       'education', 'finance', 'diy  and  life hacks',
-       'mental health  and  wellbeing', 'fashion  and  beauty', 'food',
-       'travel', 'games', 'sports', 'animals', 
-       'fitness  and  physical health',
-       'anime  and  comics']
-
-
-
-
-IRRELEVANT_WORDS = ['-year-old', 'about', 'actually', 'ad', 'add', 'after', 'all', 'also', 'always', 'am', 'an', 'and', 'any', 'are', 'as', 'at', 'back', 'be', 
-'been', 'before', 'being', 'best', 'better', 'bio', 'blowthisup', 'but', 'by', 'can', 'cant', 'come', 'comment', 'could', 'day', 'de', 
-'dear', 'did', 'didnt', 'do', 'doesnt', 'dont', 'during', 'edit', 'el', 'end', 'even', 'ever', 'every', 'evryone', 'everyone', 'find', 'first', 'follow', 
-'for', 'foryou', 'foryoupage', 'foryourpage', 'free', 'from', 'full', 'funny', 'funnyvideos', 'fy', 'fyp', 'fypage', 'fyppppppppppppppppppppppp', 'fypシ', 
-'fypシ゚viral', 'get', 'give', 'go', 'going', 'good', 'got', 'goviral', 'had', 'has', 'have', 'having', 'he', 'her', 'here', 'him', 'his', 'how', 
-'ib', 'if', 'ill', 'im', 'in', 'into', 'is', 'it', 'its', 'ive', 'just', 'keep', 'know', 'last', 'left', 'let', 'lets', 'life', 'like', 'link', 
-'look', 'love', 'made', 'make', 'many', 'may', 'me', 'meme', 'more', 'most', 'much', 'my', 'nan', 'need', 'never', 'new', 'next', 'no', 'not', 
-'now', 'of', 'off', 'on', 'one', 'only', 'or', 'our', 'out', 'over', 'part', 'people', 'please', 'png', 'post', 'pov', 'real', 'replying', 
-'right', 'room', 'run', 'say', 'see', 'she', 'should', 'so', 'some', 'someone', 'something', 'start', 'stay', 'still', 'stop', 'sure', 'take', 
-'tbsp', 'text', 'than', 'thank', 'that', 'thats', 'the', 'their', 'them', 'then', 'there', 'these', 'they', 'things', 'think', 'this', 'tho', 
-'through', 'tiktok', 'time', 'to', 'today', 'too', 'trend', 'trending', 'try', 'tsp', 'two', 'up', 'ur', 'us', 'use', 'various', 'very', 'vid', 
-'video', 'viral', 'viralvideo', 'vs', 'want', 'wanted', 'was', 'way', 'we', 'were', 'what', 'whats', 'when', 'which', 'while', 'who', 'why', 
-'will', 'with', 'without', 'wont', 'wontbeen', 'would', 'xyzbca', 'you', 'your', 'youre']
-
-
-
-GENERIC_MAPPER = {
-    "" : UNABLE_TO_DETECT,
-    "-" : UNABLE_TO_DETECT,
-    "/" : "or",
-    "&" : "and",
-    "none": UNABLE_TO_DETECT,
-    "multiple" : UNABLE_TO_DETECT,
-    "mixed" : UNABLE_TO_DETECT,
-    "undefined" : UNABLE_TO_DETECT,
-    "mixed-race" : UNABLE_TO_DETECT,
-    "polynesian" : "pacific islander",
-    "middle eastern or caucasian" : "middle eastern",
-    "middle eastern or south asian" : "middle eastern",
-    "polynesian or pacific islander" : "pacific islander",
-    "southeast asian or pacific islander" : "pacific islander",
-    "indigenous australian or pacific islander": "indigenous australian",
-    "hispanic or latina" : "latinx",
-    "hispanic or latino" : "latinx",
-    "hispanic" : "latinx",
-    "latino" : "latinx",
-    "latina" : "latinx",
-    "indigenous" : "indigenous australian",
-    "no clear positioning":UNABLE_TO_DETECT,
-    "no clear position":UNABLE_TO_DETECT,
-}
-
-
+NOT_CODED =  fyp_cf["labels"]["NOT_CODED"]
+UNABLE_TO_DETECT = fyp_cf["labels"]["UNABLE_TO_DETECT"]
+OTHER_THINGS = fyp_cf["labels"]["OTHER_THINGS"]
 
 
 
@@ -104,7 +45,6 @@ def rename_columns(
 
         ]
 
-    #from pandas import set_option
     pd.set_option('future.no_silent_downcasting', True)
 
     for fu in fixer_upper:
@@ -117,7 +57,16 @@ def rename_columns(
 
 
 
-
+def _day_segment_from_hour(hour: int) -> str:
+    if not (0 <= hour <= 23):
+        raise ValueError(f"hour must be in 0..23, got {hour}")
+    if hour <= 5:
+        return "night"
+    if hour <= 11:
+        return "morning"
+    if hour <= 17:
+        return "afternoon"
+    return "evening"
 
 
 
@@ -308,26 +257,6 @@ def extract_local_time_features(
 
 
 
-
-
-
-def _try_eval(s):
-    try:
-        return eval(s)
-    except:
-        return s
-
-
-
-def _is_emoji(s: str) -> bool:
-    from emoji import EMOJI_DATA
-
-    """Return True if the string is a valid emoji (including multi-char ones)."""
-    return s in EMOJI_DATA
-
-
-
-
 def get_factors_and_features_from_var_schema(cf = None, some_events_df = None, verbose = False):
     #import pandas as pd
     #from os.path import join
@@ -350,6 +279,30 @@ def get_factors_and_features_from_var_schema(cf = None, some_events_df = None, v
         print("    Features:",", ".join(the_features))
 
     return the_factors, the_features
+
+
+
+
+
+
+
+def _try_eval(s):
+
+    try:
+        return eval(s)
+    except:
+        return s
+
+
+
+def _is_emoji(s: str) -> bool:
+    from emoji import EMOJI_DATA
+
+    """Return True if the string is a valid emoji (including multi-char ones)."""
+    return s in EMOJI_DATA
+
+
+
 
 
 
@@ -621,9 +574,6 @@ def recode_scene_sentiments(
     TODO: check the word lists. They are probably not exhaustive.
     """
 
-    #from numpy import nan as np.nan
-    #from pandas import NA as pd.NA
-
 
 
     if not isinstance(a_string,str):
@@ -631,17 +581,17 @@ def recode_scene_sentiments(
 
     a_string = a_string.lower().replace("-","").replace(" ","")
     valence = 0
-    for w in POSITIVE_WORDS:
+    for w in cf['labels']['POSITIVE_WORDS']:
         if w in a_string:
             valence = 1
-    for w in NEGATIVE_WORDS:
+    for w in cf['labels']['NEGATIVE_WORDS']:
         if w in a_string:
             valence = -1
     energy = 0
-    for w in HIGH_ENERGY_WORDS:
+    for w in cf['labels']['HIGH_ENERGY_WORDS']:
         if w in a_string:
             energy = 1
-    for w in LOW_ENERGY_WORDS:
+    for w in cf['labels']['LOW_ENERGY_WORDS']:
         if w in a_string:
             energy = -1
     
@@ -658,10 +608,6 @@ def recode_faces_age_estimate(
     an_age_range_list: str | pd.Series, 
     recoding_policy : dict = {}) -> float | pd.Series:
     
-    #import pandas as pd
-    #import numpy as np
-    #from pandas import NA as pd.NA
-
     def _single_age_range_str_to_float(an_age_range: str) -> float:
         if pd.isna(an_age_range):
             return pd.NA
@@ -680,8 +626,6 @@ def recode_faces_age_estimate(
             except:
                 return pd.NA
         return pd.NA
-
-
 
 
 
@@ -1002,11 +946,6 @@ def recode_stringified_list(
 
 
 def implement_missing_data_policy(x, missing_data_policy, the_median=0):
-
-    #import numpy as np
-    #import pandas as pd
-    #from pandas import isna, NA as pd.NA, Series
-    #from numpy import int64, float64
     
     if isinstance(x, pd.Series):
         # Vectorized implementation
@@ -1128,11 +1067,7 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
 
 
 def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
-    #import numpy as np
-    #import pandas as pd
-    #from pandas import isna, Series
-    #from numpy import nan as np.nan, int64, float64
-    #from pandas import NA as pd.NA
+
 
     if isinstance(x, pd.Series):
         # Vectorized implementation
@@ -1202,207 +1137,6 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 
 
-"""def _flatten_and_filter(items, exclude = []):
-    ""-"
-    items: list containing strings and/or lists of strings
-    exclude: set or list of strings to remove
-    "-""
-    excl = set(exclude)
-    out = []
-
-    append = out.append  # local binding for speed
-
-    for x in items:
-        if isinstance(x, list):
-            for y in x:
-                if y not in excl:
-                    append(y)
-        else:
-            if x not in excl:
-                append(x)
-
-    return out
-
-
-
-
-def _cutoff_by_share(tuples_list, share, min_count=1):
-    "-""
-    tuples_list: list of (item, count), sorted descending by count.
-    share: float in (0,1], cumulative proportion required.
-    min_count: minimum number of tuples to return.
-    "-""
-
-    if not 0 < share <= 1:
-        raise ValueError("share must be in (0,1].")
-
-    n = len(tuples_list)
-    if min_count > n:
-        min_count = n
-
-    total = sum(count for _, count in tuples_list)
-    target = total * share
-
-    out = []
-    cum = 0
-    append = out.append
-
-    for idx, (item, count) in enumerate(tuples_list):
-        append((item, count))
-        cum += count
-
-        # meet share AND minimum count
-        if cum >= target and idx + 1 >= min_count:
-            break
-
-    return out
-
-
-
-
-def _replace_in_structure(L, filter_list, replacement):
-    "-""
-    L: list containing strings and/or sublists of strings
-    filter_list: list of strings to keep
-    replacement: string to use as substitute if not in filter
-    
-    Returns a new list with identical structure,
-    replacing any matching strings.
-    "-""
-    from pandas import Series
-    filt = set(filter_list)  # faster lookups
-
-    out = []
-    append = out.append
-
-    for x in L:
-        if isinstance(x, list):
-            # preserve nested list shape
-            sub = []
-            sub_append = sub.append
-            for y in x:
-                if y not in filt:
-                    sub_append(replacement)
-                else:
-                    sub_append(y)
-            append(sub)
-        else:
-            append(replacement if x not in filt else x)
-
-    if hasattr(L, "dtype") and hasattr(L, "index"):
-        return Series(out, index=L.index, dtype=L.dtype)
-
-    return out"""
-
-
-
-
-
-
-def clean_up_machine_annotations(some_events, verbose = False):
-    
-    #import pandas as pd
-    #import numpy as np 
-    #from pandas import Series
-    #from datetime import datetime
-
-
-    some_cleaned_up_events = some_events.copy()
-
-    # iterate over all object type columns in the events DF that starts w G_, i.e. are machine annotations
-    g_cols = [k for k in some_events.select_dtypes(exclude=["number"]).columns if k.startswith("G_")]
-    
-    exclude_set = {"DDP", "BASELINE", UNABLE_TO_DETECT, "", OTHER_THINGS}
-
-    for c in g_cols:
-        # Step 1: Flatten and filter efficiently
-        series = some_events[c]
-        
-        # explode lists to rows
-        exploded = series.explode().dropna()
-        
-        if exploded.empty:
-            continue
-
-
-        # exclude set filtering
-        # check against set is fast
-        valid_mask = ~exploded.isin(exclude_set)
-        valid_items = exploded[valid_mask]
-        
-        if valid_items.empty:
-            continue
-
-
-        # Check mean length
-        # Vectorized string length based on a sample of 500 items
-
-        sample_size = min(500, len(valid_items))
-        avg_len = valid_items.sample(sample_size, replace = False).astype(str).str.len().mean()
-        
-        if avg_len < 60:
-            # Step 2: Cutoff logic
-            # frequency of unique valid items
-            counts = valid_items.value_counts()
-
-            total_count = counts.sum()
-            target = total_count * 0.98
-            
-            # cumulative sum
-            cum_counts = counts.cumsum()
-            
-            # find how many labels needed to cross 98%
-            # we keep labels where cumsum < target, plus the one that crosses it
-            cutoff_idx = cum_counts.searchsorted(target)
-            # ensure at least 3 if possible?
-            num_keep = max(3, cutoff_idx + 1)
-            # clamp to length
-            num_keep = min(num_keep, len(counts))
-
-
-
-            # Heuristic: If we are keeping a huge portion of the labels to satisfy the coverage, 
-            # or the absolute number of kept labels is huge (e.g. 90k out of 100k), then consolidation is inefficient/useless.
-            # User guideline: "if the sum of occurrences of top X labels constitute more than y% ... and there still are a lot of small labels" -> consolidate.
-            # But "100k rare labels -> 90k" -> don't consolidate.
-            # Logic: If num_keep is > 80% of len(counts) and len(counts) > 1000, skip.
-            
-            if (len(counts) > 1000) and (num_keep > len(counts) * 0.80):
-                 if verbose:
-                     print(f"    {c}: Skipping consolidation. Tail is too thick/flat (would keep {num_keep}/{len(counts)}).")
-                 continue
-
-            
-            okay_list = counts.index[:num_keep].tolist()
-            
-            # fast lookup set
-            keep_set = set(okay_list).union(exclude_set)
-
-            # Step 3: Replacement
-            # We need to iterate rows since we want to preserve list structure [[a, b], [c]] -> [[a, OTHER], [c]]
-            # A simple map with set lookup is fastest for object columns with lists
-            def _fast_replace(x):
-                if isinstance(x, list):
-                    return [y if y in keep_set else OTHER_THINGS for y in x]
-                if isinstance(x, str):
-                    return x if x in keep_set else OTHER_THINGS
-                return x # keep NA or other
-                
-            some_cleaned_up_events[c] = series.apply(_fast_replace)
-
-
-            if verbose:
-                # approximated stats
-                print(f"    {c}: Cleaned up rare labels (kept top {num_keep})")
-
-        else:
-            if verbose:
-                print(f"    {c}: Avg string length > 60, not consolidating rare labels")
-
-    return some_cleaned_up_events
-
-
-
 
 
 
@@ -1445,6 +1179,8 @@ def recode_events_df(
 
     var_schema.set_index("variable_name", inplace=True)
 
+
+    # this is where evaluation of the test based variables in the csv takes place
     var_schema[['mapper','ignore_strings','recode_func']] = var_schema[['mapper','ignore_strings','recode_func']].map(_try_eval)
 
     fyp_factors, _ = get_factors_and_features_from_var_schema(cf = cf, some_events_df = cool_events, verbose = verbose)
@@ -1646,7 +1382,7 @@ def recode_events_df(
 
 
 
-def recode_machine_annotations():
+"""def recode_machine_annotations():
     #from fyp.fyp_main import initialize
     #import fyp.data_io as data_io
     #import fyp
@@ -1678,11 +1414,104 @@ def recode_machine_annotations():
 
     m1.loc[m1[m1.annotated_fail].index,[c for c in m1.columns if c.startswith("G_")]] = pd.NA
 
-    _ = data_io.save_parquet(cf, m1, "recoded", "annotations_recoded.parquet")
+    _ = data_io.save_parquet(cf, m1, "recoded", "annotations_recoded.parquet")"""
 
 
 
 
+
+
+"""def _flatten_and_filter(items, exclude = []):
+    ""-"
+    items: list containing strings and/or lists of strings
+    exclude: set or list of strings to remove
+    "-""
+    excl = set(exclude)
+    out = []
+
+    append = out.append  # local binding for speed
+
+    for x in items:
+        if isinstance(x, list):
+            for y in x:
+                if y not in excl:
+                    append(y)
+        else:
+            if x not in excl:
+                append(x)
+
+    return out
+
+
+
+
+def _cutoff_by_share(tuples_list, share, min_count=1):
+    "-""
+    tuples_list: list of (item, count), sorted descending by count.
+    share: float in (0,1], cumulative proportion required.
+    min_count: minimum number of tuples to return.
+    "-""
+
+    if not 0 < share <= 1:
+        raise ValueError("share must be in (0,1].")
+
+    n = len(tuples_list)
+    if min_count > n:
+        min_count = n
+
+    total = sum(count for _, count in tuples_list)
+    target = total * share
+
+    out = []
+    cum = 0
+    append = out.append
+
+    for idx, (item, count) in enumerate(tuples_list):
+        append((item, count))
+        cum += count
+
+        # meet share AND minimum count
+        if cum >= target and idx + 1 >= min_count:
+            break
+
+    return out
+
+
+
+
+def _replace_in_structure(L, filter_list, replacement):
+    "-""
+    L: list containing strings and/or sublists of strings
+    filter_list: list of strings to keep
+    replacement: string to use as substitute if not in filter
+    
+    Returns a new list with identical structure,
+    replacing any matching strings.
+    "-""
+    from pandas import Series
+    filt = set(filter_list)  # faster lookups
+
+    out = []
+    append = out.append
+
+    for x in L:
+        if isinstance(x, list):
+            # preserve nested list shape
+            sub = []
+            sub_append = sub.append
+            for y in x:
+                if y not in filt:
+                    sub_append(replacement)
+                else:
+                    sub_append(y)
+            append(sub)
+        else:
+            append(replacement if x not in filt else x)
+
+    if hasattr(L, "dtype") and hasattr(L, "index"):
+        return Series(out, index=L.index, dtype=L.dtype)
+
+    return out"""
 
 
 

@@ -602,6 +602,8 @@ def save_json(cf, data, storage_location, filename, verbose = False):
         # Local
         with open(primary, 'w') as file:
             dump(data, file)
+    
+    return 0
             
 
 

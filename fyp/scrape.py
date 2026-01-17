@@ -17,7 +17,7 @@ from datetime import datetime
 import time
 
 import fyp.data_io as data_io
-from fyp.organize_datasets import select_videos_from_study_dataset, create_study_recoded_dataset
+#from fyp.organize_datasets import select_videos_from_study_dataset, create_study_recoded_dataset
 from fyp.fyp_main import initialize, connect_to_google, chunk_list, convert_dtypes_to_pyarrow
 import fyp.mypyktok as pyk
 from fyp.recode_variables import rename_columns, recode_events_df
@@ -713,7 +713,7 @@ def download_videos_loop(
 
 
 
-def load_scrape_data(
+"""def load_scrape_data(
     cf = None,
     filters=None,
     verbose=False):
@@ -726,7 +726,7 @@ def load_scrape_data(
 
     scrape_data = data_io.load_parquet(cf, "recoded", "scrape_recoded.parquet", filters=filters, verbose=verbose)
 
-    return scrape_data
+    return scrape_data"""
 
 
 
@@ -736,25 +736,55 @@ def load_scrape_data(
 
 
 
-def consolidate_scrape_data(cf: dict = None, verbose: bool = False):
-    from fyp.fyp_main import initialize
-    import fyp.data_io as data_io
-    import fyp
-    import pandas as pd
-    from fyp.fyp_main import convert_dtypes_to_pyarrow
+def consolidate_and_save_scrape_data(
+    cf: dict = None, 
+    force_consolidation: bool = False,
+    verbose: bool = False,
+    ):
+    if cf is None:
+        cf = initialize()
 
-    cf = initialize()
 
-    many_scrape_dfs = []
+    top_verbose = True
+
+    # There is no need to look for raw scrape files. Contrary to zeeschuimer, donations,
+    # and annotations, the scrape files are recoded and immediately after the scrape 
+
+    if top_verbose:
+        print("Checking for new scrape files for consolidation...")
+
+    # check if there are any changes in the relevant folder compared to last time this process was run.    
+    if data_io.exists(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
+        dataset_meta = data_io.load_json(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
+        if verbose:
+            print("Dataset meta loaded")
+    else:
+        dataset_meta = {"scrape": {"filenames": []}}
+
+    files_to_concatenate = []
     for fn in data_io.listdir(cf=cf, storage_location="scrape"):
         if fn.startswith("scrape_") and fn.endswith(".parquet"):
-            df = data_io.load_parquet(cf=cf, storage_location="scrape", filename=fn)
-            many_scrape_dfs.append(df)
-            if verbose:
-                print(fn, df.shape)
+            files_to_concatenate.append(fn)
 
+    latest_filename_list = dataset_meta.get("scrape", {}).get("filenames", [])
+    if not force_consolidation and latest_filename_list == files_to_concatenate:
+        if top_verbose:
+            print("No new scrape files found. No need to consolidate. Returning existing file.")
+        return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="scrape_recoded.parquet")
+    
+    # ---------------------------------------------------------------
+    if top_verbose:
+        print("Loading scrape files...")
+    many_scrape_dfs = []
+    for fn in files_to_concatenate:
+        df = data_io.load_parquet(cf=cf, storage_location="scrape", filename=fn)
+        many_scrape_dfs.append(df)
+        if verbose:
+            print(fn, df.shape)
+
+    if top_verbose:
+        print(f"Consolidating {len(many_scrape_dfs):,} scrape files (dropping duplicate items)...")
     scrape_df = pd.concat(many_scrape_dfs, ignore_index=True)
-
 
 
     # -------------------------------------------------
@@ -765,7 +795,7 @@ def consolidate_scrape_data(cf: dict = None, verbose: bool = False):
     # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both
     scrape_df = scrape_df.drop_duplicates(subset=["item_id","S_video_downloaded"]).copy()
     if verbose:
-        print(f"Dropping duplicates based on items and whether the video is downloaded or not: {scrape_df.shape}")
+        print(f"    Dropping duplicates based on items and whether the video is downloaded or not: {scrape_df.shape}")
 
     # identify items with inconsistent video_downloaded status
     items_w_inconsistent_video_download_status = scrape_df["item_id"].value_counts()
@@ -775,29 +805,44 @@ def consolidate_scrape_data(cf: dict = None, verbose: bool = False):
     items_w_consistent_video_download_status = scrape_df[~scrape_df['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
     items_w_inconsistent_video_download_status = scrape_df[scrape_df['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
     if verbose:
-        print(f"Identifying conflicting items in the dataset listed twice - once as video_downloaded and once as not")
+        print(f"    Identifying conflicting items in the dataset listed twice - once as video_downloaded and once as not")
         print(
-            f"There are {len(items_w_inconsistent_video_download_status):,} items with such inconsistencies, "
+            f"    There are {len(items_w_inconsistent_video_download_status):,} items with such inconsistencies, "
             f"and {len(items_w_consistent_video_download_status):,} that look alright.")
 
     if len(items_w_inconsistent_video_download_status)>0:
         # for items with inconsistent video download status, only keep the ones where video_downloaded is True
         items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status['S_video_downloaded']].copy()
         if verbose:
-            print(f"Fixed the inconsistencies by keeping the one of the pairs with video_download=True")
-            print(f"This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}")
+            print(f"    Fixed the inconsistencies by keeping the one of the pairs with video_download=True")
+            print(f"    This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}")
 
         # recombine the two dataframes
         scrape_df = pd.concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
-        if verbose:
-            print(f"After this procedure, the shape of the scrape DF is: {scrape_df.shape}")
 
 
-    if verbose:
-        print(f"Consolidating scrape data into a single file...")
+    memory_per_column = scrape_df.memory_usage(deep=True) 
+    total_memory_bytes = memory_per_column.sum()
+    total_memory_mb = total_memory_bytes / (1024**2)
+    if top_verbose:
+        print(f"Shape: {scrape_df.shape} | Memory usage: {total_memory_mb:.2f} MB")
+
+
+    if top_verbose:
+        print("Saving consolidated scrape data...")
     _ = data_io.save_parquet(cf, scrape_df, "recoded", "scrape_recoded.parquet")
-    if verbose:
-        print(f"Consolidated scrape data into a single file. Shape: {scrape_df.shape}")
+
+
+    # update the dataset meta file
+    if not "scrape" in dataset_meta:
+        dataset_meta["scrape"] = {}
+    dataset_meta["scrape"]["filenames"] = files_to_concatenate
+    _ = data_io.save_json(cf, dataset_meta, "recoded", "dataset_meta.json")
+
+    if top_verbose:
+        print("...done")
+
+    return True, scrape_df
 
 
 
@@ -810,14 +855,10 @@ def consolidate_scrape_data(cf: dict = None, verbose: bool = False):
 
 def load_failed_scrapes(
     cf = None,
-    consolidate = True,
     verbose = False,
     super_verbose = False):
     # Load list of failed scraped attempts.
 
-    from datetime import datetime
-    from fyp.fyp_main import initialize
-    import fyp.data_io as data_io
 
     if cf is None:
         cf = initialize()
@@ -839,19 +880,18 @@ def load_failed_scrapes(
 
     failed_scrapes = list(set(map(lambda one_item_id:str(one_item_id), failed_scrapes)))
 
-
-    if consolidate and len(failed_scrape_files) > 1:
+    if len(failed_scrape_files) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
             print(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {failed_scrape_fn_core}_{fine_ts}.json.")
 
-        data_io.save_json(cf, failed_scrapes, "scrape", f"{failed_scrape_fn_core}_{fine_ts}.json", verbose=verbose)
+        result = data_io.save_json(cf, failed_scrapes, "scrape", f"{failed_scrape_fn_core}_{fine_ts}.json", verbose=verbose)
 
-        for fn in failed_scrape_files:
-            data_io.move(cf, "scrape", "archive", fn, verbose=verbose)
-            if verbose:
-                print(f"Moved {fn} to archive")
-
+        if result == 0:
+            for fn in failed_scrape_files:
+                data_io.move(cf, "scrape", "archive", fn, verbose=verbose)
+                if verbose:
+                    print(f"Moved {fn} to archive")
 
     if verbose:
         print(f"Loaded list of all failed scrapes: {len(failed_scrapes):,}")

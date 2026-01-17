@@ -254,12 +254,12 @@ def interpret_axes_with_categories(
         
         # Top Positive
         top_pos = corrs.sort_values(ascending=False).head(top).items()
-        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat != cf["misc"]["OTHER_THINGS"]]
+        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat != cf["labels"]["OTHER_THINGS"]]
         top_pos_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos])
 
         # Top Negative
         top_neg = corrs.sort_values(ascending=True).head(top).items()
-        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat != cf["misc"]["OTHER_THINGS"]]
+        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat != cf["labels"]["OTHER_THINGS"]]
         top_neg_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg])
 
         out[col] = {"top_positive": top_pos_str, "top_negative": top_neg_str}

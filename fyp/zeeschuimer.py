@@ -320,7 +320,10 @@ def refine_and_save_all_raw_zeeschuimer_logs(cf = None, verbose=False):
 
 
 
-def consolidate_zeeschuimer_logs(cf = None, verbose = False):
+def consolidate_zeeschuimer_logs(
+    cf = None,
+    force_consolidation: bool = False,
+    verbose = False):
 
     if cf is None:
         cf = initialize()
@@ -332,9 +335,18 @@ def consolidate_zeeschuimer_logs(cf = None, verbose = False):
     result = refine_and_save_all_raw_zeeschuimer_logs(cf=cf, verbose=verbose)
     if top_verbose:
         if result["refined_files_after"] == result["refined_files_before"]:
-            print("...all files already refined.")
+            print("    ...all files already refined.")
         else:
-            print(f"...refined {result["refined_files_after"] - result["refined_files_before"]} files.")
+            print(f"    ...refined {result["refined_files_after"] - result["refined_files_before"]} files.")
+
+
+    # check if there are any changes in the relevant folder compared to last time this process was run.    
+    if data_io.exists(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
+        dataset_meta = data_io.load_json(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
+        if verbose:
+            print("Dataset meta loaded")
+    else:
+        dataset_meta = {"zeeschuimer": {"filenames": []}}
 
     refined_zeeschuimer_files = data_io.listdir(
         cf=cf,
@@ -343,25 +355,46 @@ def consolidate_zeeschuimer_logs(cf = None, verbose = False):
         verbose=False)
     refined_zeeschuimer_files = [u for u in refined_zeeschuimer_files if u.endswith(".parquet")]
 
-    if top_verbose:
-        print(f"Combining refined zeeschuimer logs. Found {len(refined_zeeschuimer_files)} files...")
 
-    # load and combine all refined files
-    allofit = [data_io.load_parquet(cf=cf, storage_location="zeeschuimer_refined", filename=u) for u in refined_zeeschuimer_files]
-    combined = pd.concat(allofit).drop_duplicates(subset=["item_id","T_local_timestamp","B_source_tz_name"])
+    latest_filename_list = dataset_meta.get("zeeschuimer", {}).get("filenames", [])
+    if not force_consolidation and latest_filename_list == refined_zeeschuimer_files:
+        if top_verbose:
+            print("No new refined zeeschuimer files found. No need to consolidate. Returning existing file.")
+        return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="zeeschuimer_recoded.parquet")
+    
+ 
+
+    # load and concatenate all refined files
+    if top_verbose:
+        print(f"Loading refined zeeschuimer logs. Found {len(refined_zeeschuimer_files)} files...")
+    many_zeeschuimer_logs = [data_io.load_parquet(cf=cf, storage_location="zeeschuimer_refined", filename=u) for u in refined_zeeschuimer_files]
+
+    if top_verbose:
+        print(f"Concatenating refined zeeschuimer logs...")
+    concatenated_zeeschuimer_logs = pd.concat(many_zeeschuimer_logs).drop_duplicates(subset=["item_id","T_local_timestamp","B_source_tz_name"])
 
     # reset index
-    combined.reset_index(drop=True, inplace=True)
+    concatenated_zeeschuimer_logs.reset_index(drop=True, inplace=True)
 
     # recalculate session_id to ensure that session IDs are unique
-    session_id_mapper = {u:(i+100) for i,u in enumerate(combined.B_log_script.unique())} # the number 100 is not important - it just didn't feel right to start at session zero
-    combined["session_id"] = combined.B_log_script.map(session_id_mapper)
-    combined["session_id"] = combined["session_id"].map(lambda x:f"SZ{x:05}").convert_dtypes(dtype_backend="pyarrow") # SZ kind of indicates that this is a S-ession and Z-eeschuimer
+    session_id_mapper = {u:(i+100) for i,u in enumerate(concatenated_zeeschuimer_logs.B_log_script.unique())} # the number 100 is not important - it just didn't feel right to start at session zero
+    concatenated_zeeschuimer_logs["session_id"] = concatenated_zeeschuimer_logs.B_log_script.map(session_id_mapper)
+    concatenated_zeeschuimer_logs["session_id"] = concatenated_zeeschuimer_logs["session_id"].map(lambda x:f"SZ{x:05}").convert_dtypes(dtype_backend="pyarrow") # SZ kind of indicates that this is a S-ession and Z-eeschuimer
+
+    memory_per_column = concatenated_zeeschuimer_logs.memory_usage(deep=True) 
+    total_memory_bytes = memory_per_column.sum()
+    total_memory_mb = total_memory_bytes / (1024**2)
 
     if top_verbose:
-        print(f"...done. Combined all logs into shape: {combined.shape}")
-    
-    return combined
+        print(f"...done. Concatenated all logs into shape: {concatenated_zeeschuimer_logs.shape} and memory usage: {total_memory_mb:.2f} MB")
+
+    # update the dataset meta file
+    if not "zeeschuimer" in dataset_meta:
+        dataset_meta["zeeschuimer"] = {}
+    dataset_meta["zeeschuimer"]["filenames"] = refined_zeeschuimer_files
+    _ = data_io.save_json(cf, dataset_meta, "recoded", "dataset_meta.json")
+
+    return True, concatenated_zeeschuimer_logs
 
 
 

@@ -5,6 +5,18 @@ from fyp.fyp_main import initialize
 import fyp.data_io as data_io
 from fyp.donations import consolidate_ddp_logs
 from fyp.zeeschuimer import consolidate_zeeschuimer_logs
+from fyp.machine_annotation import consolidate_and_save_refined_annotations
+from fyp.scrape import consolidate_and_save_scrape_data
+#from fyp.machine_annotation import load_machine_annotations
+#from fyp.donations import load_special_donations, load_ddp_events
+#from fyp.zeeschuimer import load_zeeschuimer_data
+#from fyp.scrape import load_scrape_data
+from fyp.fyp_main import initialize, connect_to_google
+import fyp.data_io as data_io
+from copy import deepcopy
+from datetime import datetime
+
+
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 
@@ -12,25 +24,12 @@ WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday"
 
 
 
-def _day_segment_from_hour(hour: int) -> str:
-    if not (0 <= hour <= 23):
-        raise ValueError(f"hour must be in 0..23, got {hour}")
-    if hour <= 5:
-        return "night"
-    if hour <= 11:
-        return "morning"
-    if hour <= 17:
-        return "afternoon"
-    return "evening"
 
 
 
 
 
-
-
-
-def load_datasets(
+"""def load_datasets(
     cf = None,
     study_name = None,
     all_datasets = {},
@@ -41,18 +40,6 @@ def load_datasets(
     ):
 
 
-    #from os.path import join as os_join, exists as os_exists
-    from fyp.machine_annotation import load_machine_annotations
-    from fyp.donations import load_special_donations, load_ddp_events
-    from fyp.zeeschuimer import load_zeeschuimer_data
-    from fyp.scrape import load_scrape_metadata
-    from fyp.fyp_main import initialize, connect_to_google
-    import fyp.data_io as data_io
-    from copy import deepcopy
-    from datetime import datetime
-    #from pandas import read_parquet as pd_read_parquet
-    #from pyarrow.parquet import read_metadata as pq_read_metadata
-    #from json import loads as json_loads
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -134,7 +121,7 @@ def load_datasets(
         sel = [("item_id", "in", list(unique_videos))]
 
     if tutti_data.get("scraped") is None:
-        tutti_data["scraped"] = load_scrape_metadata(cf = cf, consolidate=consolidate, filters = sel, verbose=verbose)
+        tutti_data["scraped"] = load_scrape_data(cf = cf, consolidate=consolidate, filters = sel, verbose=verbose)
     else:
         print("    Scraped metadata already loaded")
     
@@ -171,7 +158,7 @@ def load_datasets(
 
 
     return tutti_data
-
+"""
 
 
 
@@ -351,6 +338,11 @@ def generate_unique_videos_to_scrape_and_annotate(
 
 
 
+
+
+
+
+
 def check_unique_videos_to_scrape_and_annotate(
     cf = None,
     study_name = None,
@@ -388,324 +380,71 @@ def check_unique_videos_to_scrape_and_annotate(
 
 
 
-def _process_scrape_metadata_for_merge_w_logs(
-    all_datasets,
-    combined_log,
-    verbose=False
-    ):
 
-    #from pandas import isna as pd_isna, Timestamp, DataFrame, to_datetime, Series, NA as pd_NA
-    #from datetime import datetime
-    #from zoneinfo import ZoneInfo
-    #from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
 
-    if len(combined_log) == 0:
-        return pd.DataFrame()
 
-
-    # polishing the scraped metadata dataset for merging with the log
-    scrape_metadata_log = all_datasets["scraped"][all_datasets["scraped"].item_id.isin(combined_log.item_id.unique())].copy()
-
-    if verbose:
-        print(f"Processing scraped metadata {scrape_metadata_log.shape} for merge w logs. Combined log has shape:{combined_log.shape}...")
-
-
-    object_cols = scrape_metadata_log.select_dtypes(exclude=['number']).columns
-    scrape_metadata_log[object_cols] = scrape_metadata_log[object_cols].replace('nan', '').infer_objects(copy=False)
-
-
-    scrape_metadata_log["createTime"] = pd.to_datetime(
-        scrape_metadata_log["createTime"], 
-        errors='coerce',
-        utc=True
-    ).fillna(pd_NA)#.fillna(Timestamp(year=2100, month=1, day=1, tz='UTC'))
-
-
-    # it is not possible to have videos that are negative or zero duration. Replace with NA
-    scrape_metadata_log['video_duration'] = scrape_metadata_log['video_duration'].fillna(pd_NA).replace(-1, pd.NA).replace(0, pd.NA)
-
-
-    #scrape_metadata_log.drop(columns=[
-    #    "image_list","video_url","video_downloaded","audio_extracted","cover_downloaded","do_not_modify","last_modified","video_cover"], inplace=True, errors="ignore")
-    scrape_metadata_log.drop(columns=["audio_extracted","cover_downloaded","do_not_modify","last_modified","video_cover"], inplace=True, errors="ignore")
-
-
-    scrape_metadata_log = scrape_metadata_log.rename(columns={c:"S_"+c if not c=="item_id" else c for c in scrape_metadata_log.columns}).copy()
-    if verbose:
-        print(f"...processed scraped metadata shape {scrape_metadata_log.shape}")
-
-
-
-    scrape_metadata_log["scraped_ok"] = pd.Series(True, index=scrape_metadata_log.index, dtype="bool[pyarrow]")
-
-
-    scrape_metadata_log = convert_dtypes_to_pyarrow(scrape_metadata_log, verbose=verbose)
-
-    
-    return scrape_metadata_log
-
-
-
-
-
-def _process_machine_annotations_for_merge_w_logs(
-    all_datasets,
-    combined_log,
-    verbose=False
-    ):
-
-    from pandas import DataFrame
-    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
-
-    if len(combined_log) == 0:
-        return DataFrame()
-
-
-    # polishing the machine results data for merging with the log
-    machine_annotations_for_log = all_datasets["annotated"][all_datasets["annotated"].item_id.isin(combined_log.item_id.unique())].copy()
-    if verbose:
-        print(f"Processing machine annotations {machine_annotations_for_log.shape} for log export. Log shape: {combined_log.shape}")
-
-    machine_annotations_for_log.drop(columns=[
-        "inference_ts","inference_duration","model","prompt_fn","error","finish_reason"], inplace=True, errors="ignore")
-
-    #machine_annotations_for_log = machine_annotations_for_log.fillna("").copy()
-
-    machine_annotations_for_log = machine_annotations_for_log.rename(columns={c:"G_"+c if not c=="item_id" else c for c in machine_annotations_for_log.columns}).copy()
-
-    if verbose:
-        print(f"Resulting machine_annotations_for_log shape {machine_annotations_for_log.shape}")
-
-
-    #machine_annotations_for_log = _check_for_null_values_in_df(machine_annotations_for_log, verbose=verbose)
-
-    machine_annotations_for_log["annotated_ok"] = ~machine_annotations_for_log["G_type_of_story"].isna()
-    machine_annotations_for_log["annotated_fail"] = machine_annotations_for_log["G_type_of_story"].isna()
-
-
-    machine_annotations_for_log = convert_dtypes_to_pyarrow(machine_annotations_for_log, verbose=verbose)
-
-    return machine_annotations_for_log
-
-
-
-
-
-def _combine_all_logs(
-    #cf = None,
-    all_datasets=None,
-    verbose=False
-    ):
-    
-
-    from pandas import concat
-    from os.path import exists, join
-    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
-    import fyp.data_io as data_io
-    from pandas import NA as pd_NA
-
-    #if cf is None:
-    #    cf = initialize()
-
-    #if study_name is None:
-    #    raise ValueError("study_name must be specified")
-    if all_datasets is None:
-        raise ValueError("all_datasets must be specified")
-    
-
-    baseline_log_simple = all_datasets.get("baseline")
-    ddp_log = all_datasets.get("ddp")
-
-    if not ddp_log is None and not baseline_log_simple is None:
-        combined_log = concat([ddp_log,baseline_log_simple])
-    elif not ddp_log is None:
-        combined_log = ddp_log
-    elif not baseline_log_simple is None:
-        combined_log = baseline_log_simple
-    else:
-        raise ValueError("No DDP or baseline log found")
-
-    if verbose:
-        print(f"    [{__name__}] Combined all logs to shape {combined_log.shape}.")
-
-
-
-    # this should never happen: Convert categorical columns to string to avoid fillna errors
-    for col in combined_log.select_dtypes(include=['category']).columns:
-        print(f" ----------------------- [{__name__}] Converting category column {col} to pyarrow string...")
-        combined_log[col] = combined_log[col].astype("string[pyarrow]")
-
-
-
-    # when combining logs from zeeschuimer with data donations, some columns that are only
-    # relevant for one of the log types will not be present in the other one. These columns
-    # are not really 'missing' in a data sense, so I need to fill them with something to keep the 
-    # data consistent. 
-    ddp_cols_isna = [c for c in combined_log.columns if c.startswith("D_") and combined_log[c].isna().any()]
-    baseline_cols_isna = [c for c in combined_log.columns if c.startswith("B_") and combined_log[c].isna().any()]
-    if verbose:
-        print(f"    [{__name__}] DDP cols with missing values: {ddp_cols_isna}")
-        print(f"    [{__name__}] Baseline cols with missing values: {baseline_cols_isna}")
-
-    for one_ddp_col in ddp_cols_isna:
-        if combined_log[one_ddp_col].dtype == "string[pyarrow]":
-            combined_log[one_ddp_col] = combined_log[one_ddp_col].fillna("BASELINE")
-        elif combined_log[one_ddp_col].dtype in ["double[pyarrow]","int64[pyarrow]"]:
-            combined_log[one_ddp_col] = combined_log[one_ddp_col].fillna(-1)
-        else:
-            combined_log[one_ddp_col] = combined_log[one_ddp_col].fillna(pd_NA)
-
-    for one_baseline_col in baseline_cols_isna:
-        if combined_log[one_baseline_col].dtype == "string[pyarrow]":
-            combined_log[one_baseline_col] = combined_log[one_baseline_col].fillna("DDP")
-        elif combined_log[one_baseline_col].dtype in ["double[pyarrow]","int64[pyarrow]"]:
-            combined_log[one_baseline_col] = combined_log[one_baseline_col].fillna(-1)
-        else:
-            combined_log[one_baseline_col] = combined_log[one_baseline_col].fillna(pd_NA)
-
-
-    # TODO: This is a horrible patch. I've hopefully fixed the cause by now...
-    combined_log['T_local_day_segment'] = combined_log['T_local_day_segment'].astype("string[pyarrow]")
-
-    combined_log = convert_dtypes_to_pyarrow(combined_log, verbose=verbose)
-
-
-    return combined_log
-
-
-
-
-
-"""def _merge_all_study_datasets(
-    cf = None,
-    study_name = None,
-    all_datasets = None,   
-    verbose = False,
-    save_to_cache = True,
-    ):
-    ### merge log with enriched metadata (scraped and annotated)
-
-    from pandas import merge, to_datetime, Series
-    from fyp.scrape import load_failed_scrapes
-    #from os.path import join as os_join
-    from datetime import datetime
-    import fyp.data_io as data_io
-
-
-    print(f"Merging all datasets...")
-
-    if study_name is None:
-        raise ValueError("study_name must be specified")
-
-    if cf is None:
-        cf = initialize()
-
-    if not study_name in cf["study_defs"].keys():
-        raise ValueError(f"study_name '{study_name}' not found in config")
-
-    if all_datasets is None:
-        raise ValueError("all_datasets must be specified")
-
-    # prepare datasets for merge
-    combined_log = _combine_all_logs(all_datasets=all_datasets, verbose=verbose)
-    scrape_metadata_log = _process_scrape_metadata_for_merge_w_logs(all_datasets, combined_log, verbose=verbose)
-    machine_annotations_for_log = _process_machine_annotations_for_merge_w_logs(all_datasets, combined_log, verbose=verbose)
-
-    # load failed_scrapes as a set
-    failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True))
-
-    # merge datasets
-    outdata = merge(left=combined_log, right=rename_columns(scrape_metadata_log), on='item_id',how='left')
-    outdata = merge(left=outdata, right=rename_columns(machine_annotations_for_log), on='item_id',how='left')
-
-    # add flags to indicate success/failure of scrape and annotation
-    outdata["scraped_ok"] = outdata["scraped_ok"].fillna(False)
-    outdata["annotated_ok"] = outdata["annotated_ok"].fillna(False)
-    outdata["annotated_fail"] = outdata["annotated_fail"].fillna(False)
-    outdata["scraped_fail"] = outdata["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
-
-
-    # Create a new column by calculating the difference between 'T_local_timestamp' and 'S_createTime'.
-    # Ensure both are proper datetime types  before subtraction
-    # TODO: This needs to be more dynamic and not make direct references to variable name
-    t_timestamp = outdata["T_local_timestamp"]
-    s_createtime = outdata["S_createTime"]
-    
-    t_timestamp = to_datetime(t_timestamp, utc=True).convert_dtypes(dtype_backend="pyarrow")
-    s_createtime = to_datetime(s_createtime, utc=True).convert_dtypes(dtype_backend="pyarrow")
-    
-    # Now we can subtract them
-    # TODO: This needs to be more dynamic and not make direct references to variable name
-    outdata["T_days_since_created"] = (t_timestamp - s_createtime).dt.days
-    outdata["T_days_since_created"] = outdata["T_days_since_created"].convert_dtypes(dtype_backend="pyarrow")
-
-    if verbose:
-        print(f"Adding 'days_since_created' column. Resulting output log DF shape {outdata.shape}")
-        #print("--"*60)
-
-    if save_to_cache:
-        t1 = datetime.now()
-        if verbose:
-            print("  Saving datasets to cache...")
-        outdata.attrs['study_name'] = study_name
-        outdata.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_main.parquet"), engine='pyarrow')
-        if verbose:
-            print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
-
-
-    print(f"...done. Merged all datasets. Shape: {outdata.shape}")
-
-    return outdata"""
-
-
-
-
-
-
-
-
-
-def consolidate_and_save_activity_logs(cf = None, verbose=False):
+def consolidate_and_save_activity_logs(cf = None, force_consolidation=False, verbose=False):
 
     if cf is None:
         cf = initialize()
     
-    print("\nConsolidating zeeschuimer data...")
-    z1 = consolidate_zeeschuimer_logs(cf = cf, verbose=verbose)
-    print("\nConsolidating donation data...")
-    d1 = consolidate_ddp_logs(cf = cf, verbose = verbose)
+    print("\n*** Zeeschuimer")
+    new_z, z1 = consolidate_zeeschuimer_logs(cf = cf, force_consolidation=force_consolidation, verbose=verbose)
+    print("\n*** Donations")
+    new_d, d1 = consolidate_ddp_logs(cf = cf, force_consolidation=force_consolidation, verbose = verbose)
 
-    print("\nMatching up columns between zeeschuimer and donation data...")
-    for c in set(z1.columns) | set(d1.columns):
-        if not c in z1.columns:
-            if pd.api.types.is_numeric_dtype(d1[c]):
-                if verbose:
-                    print(f"    Adding {c} to z1 | numeric")
-                z1[c] = pd.Series(pd.NA, index=z1.index, dtype="int64[pyarrow]")
-            else:
-                if verbose:
-                    print(f"    Adding {c} to z1 | string")
-                z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
-        if not c in d1.columns:
-            if pd.api.types.is_numeric_dtype(z1[c]):
-                if verbose:
-                    print(f"    Adding {c} to d1 | numeric")
-                d1[c] = pd.Series(pd.NA, index=d1.index, dtype="int64[pyarrow]")
-            else:
-                if verbose:
-                    print(f"    Adding {c} to d1 | string")
-                d1[c] = pd.Series("DDP", index=d1.index, dtype="string[pyarrow]")
-    print(f"...done matching columns Zeeshuimer shape {z1.shape} and DDP shape {d1.shape}")
+    if new_z or new_d:
+        print("\nMatching up columns between zeeschuimer and donation data...")
+        for c in set(z1.columns) | set(d1.columns):
+            if not c in z1.columns:
+                if pd.api.types.is_numeric_dtype(d1[c]):
+                    if verbose:
+                        print(f"    Adding {c} to z1 | numeric")
+                    z1[c] = pd.Series(pd.NA, index=z1.index, dtype="int64[pyarrow]")
+                else:
+                    if verbose:
+                        print(f"    Adding {c} to z1 | string")
+                    z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
+            if not c in d1.columns:
+                if pd.api.types.is_numeric_dtype(z1[c]):
+                    if verbose:
+                        print(f"    Adding {c} to d1 | numeric")
+                    d1[c] = pd.Series(pd.NA, index=d1.index, dtype="int64[pyarrow]")
+                else:
+                    if verbose:
+                        print(f"    Adding {c} to d1 | string")
+                    d1[c] = pd.Series("DDP", index=d1.index, dtype="string[pyarrow]")
+        print(f"...done matching columns Zeeshuimer shape {z1.shape} and DDP shape {d1.shape}")
+
+    if new_z:
+        print(f"Saving Zeeschuimer dataset. Shape {z1.shape} to 'recoded' folder")
+        _ = data_io.save_parquet(cf, z1, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
+
+    if new_d:
+        print(f"Saving DDP dataset. Shape {d1.shape} to 'recoded' folder")
+        _ = data_io.save_parquet(cf, d1, "recoded", "donations_recoded.parquet", verbose=verbose)
+    
+    if new_z or new_d:
+        print("...done saving datasets")
+    
+    return (new_z, z1), (new_d, d1)
 
 
-    print(f"Saving both datasets. Zeeshuimer shape {z1.shape} and DDP shape {d1.shape} to 'recoded' folder")
-    _ = data_io.save_parquet(cf, d1, "recoded", "donations_recoded.parquet", verbose=verbose)
-
-    _ = data_io.save_parquet(cf, z1, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
-    print("...done saving datasets")
 
 
 
+
+
+def consolidate_fyp_core_data(cf = None, force_consolidation=False, verbose=False):
+
+    if cf is None:
+        cf = initialize()
+
+    consolidate_and_save_activity_logs(cf=cf, force_consolidation=force_consolidation, verbose=verbose)
+    print("\n*** Annotations")
+    consolidate_and_save_refined_annotations(cf=cf, force_consolidation=force_consolidation, verbose=verbose)
+    print("\n*** Scrape")
+    consolidate_and_save_scrape_data(cf=cf, force_consolidation=force_consolidation, verbose=verbose)
 
 
 
@@ -744,21 +483,21 @@ def new_merge(
 
     #print(all_datasets.keys())
 
-    if 'scraped' in all_datasets and 'annotated' in all_datasets:
-        enriched_data = merge(left=all_datasets['scraped'], right=all_datasets['annotated'], on='item_id', how='left')
-    elif 'scraped' in all_datasets and 'annotated' not in all_datasets:
-        enriched_data = all_datasets['scraped']
-    elif 'annotated' in all_datasets and 'scraped' not in all_datasets:
-        enriched_data = all_datasets['annotated']
+    if 'scrape' in all_datasets and 'machine_annotations' in all_datasets:
+        enriched_data = merge(left=all_datasets['scrape'], right=all_datasets['machine_annotations'], on='item_id', how='left')
+    elif 'scrape' in all_datasets and 'machine_annotations' not in all_datasets:
+        enriched_data = all_datasets['scrape']
+    elif 'machine_annotations' in all_datasets and 'scrape' not in all_datasets:
+        enriched_data = all_datasets['machine_annotations']
     else:
         enriched_data = DataFrame()        
     
-    if 'ddp' in all_datasets and 'baseline' in all_datasets:
-        activity_data = concat([all_datasets['ddp'], all_datasets['baseline']], ignore_index=True)
-    elif 'ddp' in all_datasets and 'baseline' not in all_datasets:
-        activity_data = all_datasets['ddp']
-    elif 'baseline' in all_datasets and 'ddp' not in all_datasets:
-        activity_data = all_datasets['baseline']
+    if 'donations' in all_datasets and 'zeeschuimer' in all_datasets:
+        activity_data = concat([all_datasets['donations'], all_datasets['zeeschuimer']], ignore_index=True)
+    elif 'donations' in all_datasets and 'zeeschuimer' not in all_datasets:
+        activity_data = all_datasets['donations']
+    elif 'zeeschuimer' in all_datasets and 'donations' not in all_datasets:
+        activity_data = all_datasets['zeeschuimer']
     else:
         activity_data = DataFrame()
 
@@ -789,7 +528,7 @@ def new_merge(
     if save_to_cache:
         t1 = datetime.now()
         if verbose:
-            print("  Saving datasets to cache...")
+            print("  Saving the '{study_name}' dataset to cache...")
         shebang.attrs['study_name'] = study_name
         data_io.save_parquet(
             cf=cf,
@@ -805,6 +544,58 @@ def new_merge(
 
 
     return shebang
+
+
+
+
+
+
+
+
+
+################################################################################################################################################
+## Saturday morning, I need to build a cache refresh!
+################################################################################################################################################
+
+
+
+def refresh_cache(cf = None, study_name = "chenglong"):
+    if cf is None:
+        cf = initialize()
+    
+    fyp_core = {}
+    for fn in data_io.listdir(cf=cf, storage_location="recoded"):
+        if fn.endswith("_recoded.parquet"):
+            dataset_name = fn.replace("_recoded.parquet","")
+            print(f"Found one core dataset: {dataset_name}")
+            fyp_core[dataset_name] = data_io.load_parquet(
+                cf=cf,
+                storage_location="recoded",
+                filename=fn)
+    
+
+        
+    # with new merge, the datasets are already recoded
+    study_recoded_dataset = new_merge(
+        cf = cf,
+        study_name = study_name,
+        all_datasets = fyp_core,
+        save_to_cache = True,
+        verbose = True
+    )
+
+
+    memory_per_column = study_recoded_dataset.memory_usage(deep=True) 
+    total_memory_bytes = memory_per_column.sum()
+    total_memory_mb = total_memory_bytes / (1024**2)
+    print(f"...done. Unified dataset for study '{study_name}' generated. Total memory used: {total_memory_mb:.2f} MB")
+
+
+
+
+
+
+
 
 
 
@@ -971,5 +762,285 @@ def save_logs_as_csv(
             print(f"Now: {datetime.now()}")
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+"""def _process_scrape_metadata_for_merge_w_logs(
+    all_datasets,
+    combined_log,
+    verbose=False
+    ):
+
+    #from pandas import isna as pd_isna, Timestamp, DataFrame, to_datetime, Series, NA as pd_NA
+    #from datetime import datetime
+    #from zoneinfo import ZoneInfo
+    #from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
+
+    if len(combined_log) == 0:
+        return pd.DataFrame()
+
+
+    # polishing the scraped metadata dataset for merging with the log
+    scrape_metadata_log = all_datasets["scraped"][all_datasets["scraped"].item_id.isin(combined_log.item_id.unique())].copy()
+
+    if verbose:
+        print(f"Processing scraped metadata {scrape_metadata_log.shape} for merge w logs. Combined log has shape:{combined_log.shape}...")
+
+
+    object_cols = scrape_metadata_log.select_dtypes(exclude=['number']).columns
+    scrape_metadata_log[object_cols] = scrape_metadata_log[object_cols].replace('nan', '').infer_objects(copy=False)
+
+
+    scrape_metadata_log["createTime"] = pd.to_datetime(
+        scrape_metadata_log["createTime"], 
+        errors='coerce',
+        utc=True
+    ).fillna(pd_NA)#.fillna(Timestamp(year=2100, month=1, day=1, tz='UTC'))
+
+
+    # it is not possible to have videos that are negative or zero duration. Replace with NA
+    scrape_metadata_log['video_duration'] = scrape_metadata_log['video_duration'].fillna(pd_NA).replace(-1, pd.NA).replace(0, pd.NA)
+
+
+    #scrape_metadata_log.drop(columns=[
+    #    "image_list","video_url","video_downloaded","audio_extracted","cover_downloaded","do_not_modify","last_modified","video_cover"], inplace=True, errors="ignore")
+    scrape_metadata_log.drop(columns=["audio_extracted","cover_downloaded","do_not_modify","last_modified","video_cover"], inplace=True, errors="ignore")
+
+
+    scrape_metadata_log = scrape_metadata_log.rename(columns={c:"S_"+c if not c=="item_id" else c for c in scrape_metadata_log.columns}).copy()
+    if verbose:
+        print(f"...processed scraped metadata shape {scrape_metadata_log.shape}")
+
+
+
+    scrape_metadata_log["scraped_ok"] = pd.Series(True, index=scrape_metadata_log.index, dtype="bool[pyarrow]")
+
+
+    scrape_metadata_log = convert_dtypes_to_pyarrow(scrape_metadata_log, verbose=verbose)
+
+    
+    return scrape_metadata_log"""
+
+
+
+
+"""
+def _process_machine_annotations_for_merge_w_logs(
+    all_datasets,
+    combined_log,
+    verbose=False
+    ):
+
+    from pandas import DataFrame
+    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
+
+    if len(combined_log) == 0:
+        return DataFrame()
+
+
+    # polishing the machine results data for merging with the log
+    machine_annotations_for_log = all_datasets["annotated"][all_datasets["annotated"].item_id.isin(combined_log.item_id.unique())].copy()
+    if verbose:
+        print(f"Processing machine annotations {machine_annotations_for_log.shape} for log export. Log shape: {combined_log.shape}")
+
+    machine_annotations_for_log.drop(columns=[
+        "inference_ts","inference_duration","model","prompt_fn","error","finish_reason"], inplace=True, errors="ignore")
+
+    #machine_annotations_for_log = machine_annotations_for_log.fillna("").copy()
+
+    machine_annotations_for_log = machine_annotations_for_log.rename(columns={c:"G_"+c if not c=="item_id" else c for c in machine_annotations_for_log.columns}).copy()
+
+    if verbose:
+        print(f"Resulting machine_annotations_for_log shape {machine_annotations_for_log.shape}")
+
+
+    #machine_annotations_for_log = _check_for_null_values_in_df(machine_annotations_for_log, verbose=verbose)
+
+    machine_annotations_for_log["annotated_ok"] = ~machine_annotations_for_log["G_type_of_story"].isna()
+    machine_annotations_for_log["annotated_fail"] = machine_annotations_for_log["G_type_of_story"].isna()
+
+
+    machine_annotations_for_log = convert_dtypes_to_pyarrow(machine_annotations_for_log, verbose=verbose)
+
+    return machine_annotations_for_log"""
+
+
+"""
+
+
+def _combine_all_logs(
+    #cf = None,
+    all_datasets=None,
+    verbose=False
+    ):
+    
+
+    from pandas import concat
+    from os.path import exists, join
+    from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
+    import fyp.data_io as data_io
+    from pandas import NA as pd_NA
+
+    #if cf is None:
+    #    cf = initialize()
+
+    #if study_name is None:
+    #    raise ValueError("study_name must be specified")
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
+    
+
+    baseline_log_simple = all_datasets.get("baseline")
+    ddp_log = all_datasets.get("ddp")
+
+    if not ddp_log is None and not baseline_log_simple is None:
+        combined_log = concat([ddp_log,baseline_log_simple])
+    elif not ddp_log is None:
+        combined_log = ddp_log
+    elif not baseline_log_simple is None:
+        combined_log = baseline_log_simple
+    else:
+        raise ValueError("No DDP or baseline log found")
+
+    if verbose:
+        print(f"    [{__name__}] Combined all logs to shape {combined_log.shape}.")
+
+
+
+    # this should never happen: Convert categorical columns to string to avoid fillna errors
+    for col in combined_log.select_dtypes(include=['category']).columns:
+        print(f" ----------------------- [{__name__}] Converting category column {col} to pyarrow string...")
+        combined_log[col] = combined_log[col].astype("string[pyarrow]")
+
+
+
+    # when combining logs from zeeschuimer with data donations, some columns that are only
+    # relevant for one of the log types will not be present in the other one. These columns
+    # are not really 'missing' in a data sense, so I need to fill them with something to keep the 
+    # data consistent. 
+    ddp_cols_isna = [c for c in combined_log.columns if c.startswith("D_") and combined_log[c].isna().any()]
+    baseline_cols_isna = [c for c in combined_log.columns if c.startswith("B_") and combined_log[c].isna().any()]
+    if verbose:
+        print(f"    [{__name__}] DDP cols with missing values: {ddp_cols_isna}")
+        print(f"    [{__name__}] Baseline cols with missing values: {baseline_cols_isna}")
+
+    for one_ddp_col in ddp_cols_isna:
+        if combined_log[one_ddp_col].dtype == "string[pyarrow]":
+            combined_log[one_ddp_col] = combined_log[one_ddp_col].fillna("BASELINE")
+        elif combined_log[one_ddp_col].dtype in ["double[pyarrow]","int64[pyarrow]"]:
+            combined_log[one_ddp_col] = combined_log[one_ddp_col].fillna(-1)
+        else:
+            combined_log[one_ddp_col] = combined_log[one_ddp_col].fillna(pd_NA)
+
+    for one_baseline_col in baseline_cols_isna:
+        if combined_log[one_baseline_col].dtype == "string[pyarrow]":
+            combined_log[one_baseline_col] = combined_log[one_baseline_col].fillna("DDP")
+        elif combined_log[one_baseline_col].dtype in ["double[pyarrow]","int64[pyarrow]"]:
+            combined_log[one_baseline_col] = combined_log[one_baseline_col].fillna(-1)
+        else:
+            combined_log[one_baseline_col] = combined_log[one_baseline_col].fillna(pd_NA)
+
+
+    # TODO: This is a horrible patch. I've hopefully fixed the cause by now...
+    combined_log['T_local_day_segment'] = combined_log['T_local_day_segment'].astype("string[pyarrow]")
+
+    combined_log = convert_dtypes_to_pyarrow(combined_log, verbose=verbose)
+
+
+    return combined_log"""
+
+
+
+
+
+"""def _merge_all_study_datasets(
+    cf = None,
+    study_name = None,
+    all_datasets = None,   
+    verbose = False,
+    save_to_cache = True,
+    ):
+    ### merge log with enriched metadata (scraped and annotated)
+
+    from pandas import merge, to_datetime, Series
+    from fyp.scrape import load_failed_scrapes
+    #from os.path import join as os_join
+    from datetime import datetime
+    import fyp.data_io as data_io
+
+
+    print(f"Merging all datasets...")
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+
+    if cf is None:
+        cf = initialize()
+
+    if not study_name in cf["study_defs"].keys():
+        raise ValueError(f"study_name '{study_name}' not found in config")
+
+    if all_datasets is None:
+        raise ValueError("all_datasets must be specified")
+
+    # prepare datasets for merge
+    combined_log = _combine_all_logs(all_datasets=all_datasets, verbose=verbose)
+    scrape_metadata_log = _process_scrape_metadata_for_merge_w_logs(all_datasets, combined_log, verbose=verbose)
+    machine_annotations_for_log = _process_machine_annotations_for_merge_w_logs(all_datasets, combined_log, verbose=verbose)
+
+    # load failed_scrapes as a set
+    failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True))
+
+    # merge datasets
+    outdata = merge(left=combined_log, right=rename_columns(scrape_metadata_log), on='item_id',how='left')
+    outdata = merge(left=outdata, right=rename_columns(machine_annotations_for_log), on='item_id',how='left')
+
+    # add flags to indicate success/failure of scrape and annotation
+    outdata["scraped_ok"] = outdata["scraped_ok"].fillna(False)
+    outdata["annotated_ok"] = outdata["annotated_ok"].fillna(False)
+    outdata["annotated_fail"] = outdata["annotated_fail"].fillna(False)
+    outdata["scraped_fail"] = outdata["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
+
+
+    # Create a new column by calculating the difference between 'T_local_timestamp' and 'S_createTime'.
+    # Ensure both are proper datetime types  before subtraction
+    # TODO: This needs to be more dynamic and not make direct references to variable name
+    t_timestamp = outdata["T_local_timestamp"]
+    s_createtime = outdata["S_createTime"]
+    
+    t_timestamp = to_datetime(t_timestamp, utc=True).convert_dtypes(dtype_backend="pyarrow")
+    s_createtime = to_datetime(s_createtime, utc=True).convert_dtypes(dtype_backend="pyarrow")
+    
+    # Now we can subtract them
+    # TODO: This needs to be more dynamic and not make direct references to variable name
+    outdata["T_days_since_created"] = (t_timestamp - s_createtime).dt.days
+    outdata["T_days_since_created"] = outdata["T_days_since_created"].convert_dtypes(dtype_backend="pyarrow")
+
+    if verbose:
+        print(f"Adding 'days_since_created' column. Resulting output log DF shape {outdata.shape}")
+        #print("--"*60)
+
+    if save_to_cache:
+        t1 = datetime.now()
+        if verbose:
+            print("  Saving datasets to cache...")
+        outdata.attrs['study_name'] = study_name
+        outdata.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_main.parquet"), engine='pyarrow')
+        if verbose:
+            print(f"  ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
+
+
+    print(f"...done. Merged all datasets. Shape: {outdata.shape}")
+
+    return outdata"""
 
 

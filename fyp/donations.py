@@ -782,7 +782,11 @@ def _identify_similar_donations(
 
 
 
-def consolidate_ddp_logs(cf = None, verbose = False):
+def consolidate_ddp_logs(
+    cf = None,
+    force_consolidation = False,
+    verbose = False,
+    ):
 
     if cf is None:
         cf = initialize()
@@ -794,10 +798,12 @@ def consolidate_ddp_logs(cf = None, verbose = False):
     result = refine_and_save_all_raw_ddp_logs(cf=cf, verbose=verbose)
     if top_verbose:
         if result["refined_files_after"] == result["refined_files_before"]:
-            print("...all files already refined.")
+            print("    ...all files already refined.")
         else:
-            print(f"...refined {result["refined_files_after"] - result["refined_files_before"]} files.")
+            print(f"    ...refined {result["refined_files_after"] - result["refined_files_before"]} files.")
 
+
+    # --------------------------------------------------------------------------------------
     refined_ddp_files = data_io.listdir(
         cf=cf,
         storage_location="ddp_processed",
@@ -805,36 +811,60 @@ def consolidate_ddp_logs(cf = None, verbose = False):
         verbose=False)
     refined_ddp_files = [u for u in refined_ddp_files if u.endswith(".parquet")]
 
+
+    # ---------------------------------------------------------------
+    # check if there are any changes in the relevant folder compared to last time this process was run.    
+    if data_io.exists(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
+        dataset_meta = data_io.load_json(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
+        if verbose:
+            print("Dataset meta loaded")
+    else:
+        dataset_meta = {"donations": {"filenames": []}}
+
+
+    latest_filename_list = dataset_meta.get("donations", {}).get("filenames", [])
+    if not force_consolidation and latest_filename_list == refined_ddp_files:
+        if top_verbose:
+            print("No new refined DDP files found. No need to consolidate. Returning existing file.")
+        return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="donations_recoded.parquet")
+    
+ 
+
+    # --------------------------------------------------------------------------------------
     if top_verbose:
-        print(f"Combining refined DDP logs. Found {len(refined_ddp_files)} files...")
+        print("Loading refined DDP logs...")
+    many_ddp_logs = [data_io.load_parquet(cf=cf, storage_location="ddp_processed", filename=u) for u in refined_ddp_files]
 
-    allofit = [data_io.load_parquet(cf=cf, storage_location="ddp_processed", filename=u) for u in refined_ddp_files]
-
-    combined = pd.concat(allofit)
     if top_verbose:
-        print(f"...done - initial shape of the combined dataframe: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
+        print(f"Concatenating {len(refined_ddp_files)} refined DDP logs...")
+    concatenated_ddp_logs = pd.concat(many_ddp_logs)
+    if top_verbose:
+        print(f"    ...done - initial shape of the concatenated dataframe: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
 
+    # --------------------------------------------------------------------------------------
     # naive drop_dupes based on these three columns
-    combined = combined.drop_duplicates(subset=["D_donation_id","T_local_timestamp","item_id"], keep="first").copy()
+    concatenated_ddp_logs = concatenated_ddp_logs.drop_duplicates(subset=["D_donation_id","T_local_timestamp","item_id"], keep="first").copy()
     if top_verbose:
-        print(f"Shape after naive drop_dupes: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
+        print(f"Shape after naive duplication drop: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
 
+    # --------------------------------------------------------------------------------------
     # calculate the donation stats
     if top_verbose:
         print("Calculating donation stats...")
-    new_donation_stats = generate_donation_metadata(cf=cf, ddp_events_df=combined, verbose=verbose)
+    new_donation_stats = generate_donation_metadata(cf=cf, ddp_events_df=concatenated_ddp_logs, verbose=verbose)
     if top_verbose:
-        print("...done calculating donation stats")
+        print("    ...done updating donation stats")
 
     
+    # --------------------------------------------------------------------------------------
     # create list of donations to be dropped and drop donations which has a very small number of watched videos
     donations_to_drop = []
     donations_to_drop += list(new_donation_stats["counts"][(new_donation_stats["counts","watch"]<5)].index)
-    combined = combined[~combined.D_donation_id.isin(donations_to_drop)].copy()
+    concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs.D_donation_id.isin(donations_to_drop)].copy()
     if top_verbose:
-        print(f"Shape after dropping donations with fewer than 5 watch events: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
+        print(f"Shape after dropping donations with fewer than 5 watch events: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
     
-
+    # --------------------------------------------------------------------------------------
     if top_verbose:
         print(f"Only keeping one of multiple overlapping (similar) donations...")
 
@@ -842,37 +872,50 @@ def consolidate_ddp_logs(cf = None, verbose = False):
     # The assumption is that if two donations have a lot of the same timestamps, they are likely to be duplicates
     # first include all kinds of events, then exclude the watch events
 
-    a1 = _identify_similar_donations(new_events=combined, old_events=combined, dont_check_these_cols=[])
-    a2 = _identify_similar_donations(new_events=combined, old_events=combined, dont_check_these_cols=["watch"])
+    a1 = _identify_similar_donations(new_events=concatenated_ddp_logs, old_events=concatenated_ddp_logs, dont_check_these_cols=[])
+    a2 = _identify_similar_donations(new_events=concatenated_ddp_logs, old_events=concatenated_ddp_logs, dont_check_these_cols=["watch"])
     new_donations_to_drop = (a1["new_drops"] | a2["new_drops"])
     old_donations_to_drop = (a1["old_drops"] | a2["old_drops"])
     donations_to_drop = new_donations_to_drop | old_donations_to_drop
 
     # drop the events in these donations
-    combined = combined[~combined["D_donation_id"].isin(donations_to_drop)].copy()
+    concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs["D_donation_id"].isin(donations_to_drop)].copy()
     if top_verbose:
-        print(f"...done. Shape after dropping overlapping donations: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
+        print(f"    ...done. Shape after dropping overlapping donations: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
 
+    # --------------------------------------------------------------------------------------
     # reset index
-    combined.reset_index(drop=True, inplace=True)
+    concatenated_ddp_logs.reset_index(drop=True, inplace=True)
 
     if top_verbose:
         print("Recalculate session details to ensure that the session IDs are unique.")
-    combined = _add_session_info_to_ddp_log(combined, verbose=verbose)
-    if "session_id" in combined.columns:
-        combined["session_id"] = combined["session_id"].map(lambda x:f"SD{x:05}" if pd.notna(x) else pd.NA) # SD kind of indicates that this is a S-ession and D-onation
+    concatenated_ddp_logs = _add_session_info_to_ddp_log(concatenated_ddp_logs, verbose=verbose)
+    if "session_id" in concatenated_ddp_logs.columns:
+        concatenated_ddp_logs["session_id"] = concatenated_ddp_logs["session_id"].map(lambda x:f"SD{x:05}" if pd.notna(x) else pd.NA) # SD kind of indicates that this is a S-ession and D-onation
     
+    # --------------------------------------------------------------------------------------
+    # I will concatenate this df with anohter df where this column is missing. It makes
+    # my life easier to turn it into str. I'm not using it for calculations anyway.  
+    concatenated_ddp_logs["D_donation_date"] = concatenated_ddp_logs["D_donation_date"].dt.strftime('%Y-%m-%d')
+    concatenated_ddp_logs = convert_dtypes_to_pyarrow(concatenated_ddp_logs)
 
-    # I will concatenate this column with data where this is NA. And for various reasons
-    # it makes my life easier to turn it into str. I'm not going to use it for calculation
-    # anyway.  
-    combined["D_donation_date"] = combined["D_donation_date"].dt.strftime('%Y-%m-%d')
-    combined = convert_dtypes_to_pyarrow(combined)
+    memory_per_column = concatenated_ddp_logs.memory_usage(deep=True) 
+    total_memory_bytes = memory_per_column.sum()
+    total_memory_mb = total_memory_bytes / (1024**2)
+
 
     if top_verbose:
-        print(f"...done. Combined all logs into shape: {combined.shape}. Unique donations: {combined.D_donation_id.nunique()}")
+        print(f"...done. Combined all logs into shape: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()} (memory usage: {total_memory_mb:.2f} MB)")
 
-    return combined
+    # ---------------------------------------------------------------
+    # update the dataset meta file
+    if not "donations" in dataset_meta:
+        dataset_meta["donations"] = {}
+    dataset_meta["donations"]["filenames"] = refined_ddp_files
+    _ = data_io.save_json(cf, dataset_meta, "recoded", "dataset_meta.json")
+
+
+    return True, concatenated_ddp_logs
 
 
 

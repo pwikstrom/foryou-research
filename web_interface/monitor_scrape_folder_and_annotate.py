@@ -123,13 +123,13 @@ def main() -> None:
 
 
     def handle_new_file(filename: str) -> None:
-        from fyp.machine_annotation import annotate_from_scrape_metadata_file
+        from fyp.machine_annotation import annotate_from_scrape_data_file
         """
         Doing the hard work.
         """
         print(f"Starting annotation of {filename}")
-        # annotate_from_scrape_metadata_file supports data_io and GCS
-        annotate_from_scrape_metadata_file(
+        # annotate_from_scrape_data_file supports data_io and GCS
+        annotate_from_scrape_data_file(
             cf = cf, 
             scrape_metadata_filename = filename, 
             verbose = False
