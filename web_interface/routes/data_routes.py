@@ -688,7 +688,12 @@ def api_persona_stats():
             # Case 1: Real Tuple (from pandas load)
             if isinstance(col, tuple):
                 group, name = col
-                col_name = name if name else group
+                if group == 'other' and name == 'accepted':
+                    col_name = 'accepted'
+                elif group == 'other' and name == 'D_id':
+                     col_name = 'D_id'
+                else:
+                    col_name = name if name else group
 
             # Case 2: String representation of Tuple (from pyarrow fallback)
             elif isinstance(col, str) and col.startswith("(") and col.endswith(")"):
@@ -696,13 +701,18 @@ def api_persona_stats():
                     val = ast.literal_eval(col)
                     if isinstance(val, tuple):
                         group, name = val
-                        col_name = name if name else group
+                        if group == 'other' and name == 'accepted':
+                            col_name = 'accepted'
+                        elif group == 'other' and name == 'D_id':
+                             col_name = 'D_id'
+                        else:
+                            col_name = name if name else group
                 except:
                     pass
             
             # Renaming for consistency
-            if col_name == 'D_donation_id':
-                col_name = 'donation_id'
+            # if col_name == 'D_donation_id':
+            #     col_name = 'donation_id'
                 
             new_columns.append(col_name)
             
@@ -710,6 +720,11 @@ def api_persona_stats():
         
         # Handle duplicated columns (keep first)
         stats_df = stats_df.loc[:, ~stats_df.columns.duplicated()]
+
+        # Filter by Accepted
+        if 'accepted' in stats_df.columns:
+            stats_df = stats_df[stats_df['accepted'] == True].copy()
+            # print(f"Filtered to {len(stats_df)} accepted donations")
 
         # Frontend Compatibility Aliases
         if 'consistency_top_2_hours' in stats_df.columns and 'consistency' not in stats_df.columns:
@@ -721,8 +736,18 @@ def api_persona_stats():
         for rec in records:
             for key, val in rec.items():
                 rec[key] = make_serializable(val)
+        response = jsonify(records)
         
-        return jsonify(records)
+        try:
+            mtime = data_io.getmtime(fyp_cf, "ddp_main", filename)
+            # Format as ISO string or similar for frontend parsing
+            from datetime import datetime
+            dt = datetime.fromtimestamp(mtime)
+            response.headers['X-Metadata-MTime'] = dt.isoformat()
+        except Exception as e:
+            print(f"Could not get mtime for {filename}: {e}")
+
+        return response
         
     except Exception as e:
         import traceback

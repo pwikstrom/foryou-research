@@ -59,7 +59,21 @@ function pe_loadCachedStats() {
     if (container) container.innerHTML = '<p style="text-align:center; color:#999;">Loading cached stats...</p>';
 
     fetch('/api/persona_stats_cached')
-        .then(response => response.json())
+        .then(response => {
+            // Extract MTime header
+            const mtimeHeader = response.headers.get('X-Metadata-MTime');
+            if (mtimeHeader) {
+                const mtime = new Date(mtimeHeader);
+                const timestampEl = document.getElementById('pe-stats-timestamp');
+                if (timestampEl) {
+                    timestampEl.innerText = `Stats from: ${mtime.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })} ${mtime.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`;
+                }
+            } else {
+                const timestampEl = document.getElementById('pe-stats-timestamp');
+                if (timestampEl) timestampEl.innerText = '';
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.error) {
                 container.innerHTML = `<p style="text-align:center; color:#999;">${data.error}</p>`;
@@ -70,36 +84,6 @@ function pe_loadCachedStats() {
         .catch(err => {
             console.error('Fetch error:', err);
             container.innerHTML = '<p style="text-align:center; color:#e63946;">Failed to load cached stats.</p>';
-        });
-}
-
-function pe_refreshStats() {
-    console.log('Refreshing stats...');
-
-    const container = document.getElementById('pe-strips-container');
-    if (container) container.innerHTML = '<p style="text-align:center; color:#999;">Refreshing stats...</p>';
-
-    fetch('/api/persona_stats', { method: 'POST' })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                alert(`Error: ${data.error}`);
-                if (container) container.innerHTML = `<p style="text-align:center; color:#e63946;">Error: ${data.error}</p>`;
-                return;
-            }
-            pe_handleStatsData(data);
-
-            // Update timestamp display
-            const now = new Date();
-            const timestampEl = document.getElementById('pe-stats-timestamp');
-            if (timestampEl) {
-                timestampEl.innerText = `Stats loaded: ${now.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })} ${now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`;
-            }
-        })
-        .catch(err => {
-            console.error('Fetch error:', err);
-            alert('Failed to refresh stats.');
-            if (container) container.innerHTML = '<p style="text-align:center; color:#e63946;">Failed to refresh stats.</p>';
         });
 }
 
@@ -121,8 +105,16 @@ function pe_handleStatsData(data) {
     select.innerHTML = '';
     data.forEach(d => {
         const option = document.createElement('option');
-        option.value = d.donation_id;
-        option.text = d.donation_id;
+        option.value = d.D_donation_id;
+
+        // Format D_id as D00000 if available
+        let label = d.D_donation_id;
+        if (d.D_id !== undefined && d.D_id !== null) {
+            const idStr = String(d.D_id).padStart(5, '0');
+            label = `D${idStr}`;
+        }
+
+        option.text = label;
         select.appendChild(option);
     });
 
@@ -131,7 +123,7 @@ function pe_handleStatsData(data) {
 
     // Select first donation
     if (data.length > 0) {
-        pe_selectDonation(data[0].donation_id);
+        pe_selectDonation(data[0].D_donation_id);
     }
 }
 
@@ -209,15 +201,15 @@ function pe_createStrip(metric) {
     sortedData.forEach(d => {
         const box = document.createElement('div');
         box.className = 'strip-box';
-        box.dataset.donationId = d.donation_id;
-        box.title = `${d.donation_id}\nValue: ${pe_formatValue(d[metric])}`;
+        box.dataset.donationId = d.D_donation_id;
+        box.title = `${d.D_donation_id}\nValue: ${pe_formatValue(d[metric])}`;
 
-        if (d.donation_id === pe_selectedId) {
+        if (d.D_donation_id === pe_selectedId) {
             box.classList.add('selected');
         }
 
         box.addEventListener('click', () => {
-            pe_selectDonation(d.donation_id);
+            pe_selectDonation(d.D_donation_id);
         });
 
         boxesContainer.appendChild(box);
@@ -264,7 +256,7 @@ function pe_updateStripSelection() {
 
     // Update selected value display for each metric
     if (pe_selectedId) {
-        const donation = pe_data.find(d => d.donation_id === pe_selectedId);
+        const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
         if (donation) {
             PE_METRICS.forEach(metric => {
                 const valueEl = document.getElementById(`pe-strip-value-${metric}`);
@@ -280,7 +272,7 @@ function pe_updateStripSelection() {
 function pe_selectDonation(donationId) {
     if (!pe_data) return;
 
-    const donation = pe_data.find(d => d.donation_id === donationId);
+    const donation = pe_data.find(d => d.D_donation_id === donationId);
     if (!donation) return;
 
     pe_selectedId = donationId;
@@ -348,7 +340,7 @@ function pe_onDonationSelect() {
 function pe_renderRadar(d) {
     const labels = PE_RADAR_METRICS.map(m => PE_RADAR_INFO[m]?.label || m);
     const percentileValues = PE_RADAR_METRICS.map(m =>
-        pe_percentileRanks[m] ? (pe_percentileRanks[m][d.donation_id] || 0) : 0
+        pe_percentileRanks[m] ? (pe_percentileRanks[m][d.D_donation_id] || 0) : 0
     );
     const hoverTexts = PE_RADAR_METRICS.map(m => PE_RADAR_INFO[m]?.tooltip || '');
 

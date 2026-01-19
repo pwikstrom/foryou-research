@@ -631,34 +631,40 @@ def _deser(value):
 
 
 
-def generate_donation_metadata(cf, ddp_events_df, sort_by=None, verbose=False):
+def generate_donation_metadata(
+    cf: dict | None = None, 
+    ddp_events_df: pd.DataFrame | None = None,
+    update_col: pd.Series | None = None,
+    sort_by: str | None = None, 
+    verbose: bool = False
+    ) -> pd.DataFrame:
     """
-    Calculate statistics for donated items, specifically counting feature occurrences per donation.
+    Generate or update donation metadata, either by calculating statistics from events 
+    or by merging a specific column into existing metadata.
 
     Parameters
     ----------
-    edf : pandas.DataFrame
-        Events DataFrame containing 'D_donation_id' and 'D_feature_name' columns.
+    cf : dict, optional
+        Configuration dictionary. If None, initializes via initialize().
+    ddp_events_df : pandas.DataFrame, optional
+        Events DataFrame used to calculate metadata statistics.
+    update_col : pandas.Series, optional
+        A Series representing a single column to update or add to existing metadata.
+        The index must be 'D_donation_id'.
     sort_by : str, optional
-        Column name to sort the resulting DataFrame by. If None, sorts by 'total'.
+        Column name to sort the resulting DataFrame by.
+    verbose : bool, default False
+        Whether to print progress and status messages.
 
     Returns
     -------
     pandas.DataFrame
-        A DataFrame with donation IDs as index and counts of each feature as columns.
-        Includes a 'total' column and 'donation_date' (if available).
+        The resulting metadata DataFrame with donation IDs as index.
     """
 
-    donation_ids_in_the_incoming_df = set(ddp_events_df.D_donation_id.unique())
-    old_metadata_df = None
+    if cf is None:
+        cf = initialize()
 
-
-    if not isinstance(ddp_events_df, pd.DataFrame):
-        raise ValueError("ddp_events_df must be a pandas DataFrame")
-    if 'D_donation_id' not in ddp_events_df.columns:
-        print("Shape of the donation stats DF: (0,0)")
-        return pd.DataFrame()
-    
 
     if data_io.exists(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet"):
         old_metadata_df = data_io.load_parquet(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet")
@@ -668,6 +674,40 @@ def generate_donation_metadata(cf, ddp_events_df, sort_by=None, verbose=False):
         if verbose:
             print("No calculated metadata found in storage")
         old_metadata_df = pd.DataFrame()
+
+
+    # if no events df is provided, check if there is an update column
+    if ddp_events_df is None:
+        if isinstance(update_col, pd.Series):
+            print("Updating a single column | ", end="", flush=True)
+            if update_col.index.name != "D_donation_id":
+                update_col.index.name = "D_donation_id"
+            if set(update_col.index) != set(old_metadata_df.index):
+                print("Error: Update column index don't match the index of the existing metadata DF. Exiting.")
+                return old_metadata_df
+            if update_col.name in old_metadata_df.columns:
+                print(f"Dropping existing column: {update_col.name} | ", end="", flush=True)
+                old_metadata_df = old_metadata_df.drop(columns=[update_col.name])
+
+            new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
+            new_metadata_df = new_metadata_df.sort_index(axis='columns').sort_values(('other','D_id')).copy()
+            data_io.save_parquet(cf=cf, df=new_metadata_df, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
+            print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
+            return new_metadata_df
+
+        else:
+            print("No new data provided or update column is not a matching pandas Series. Returning old metadata.")
+            return old_metadata_df
+
+
+    donation_ids_in_the_incoming_df = set(ddp_events_df.D_donation_id.unique())
+
+
+    if 'D_donation_id' not in ddp_events_df.columns:
+        print("Shape of the donation stats DF: (0,0)")
+        return pd.DataFrame()
+    
+
     
     donation_ids_in_the_old_metadata_df = set(old_metadata_df.index)
     new_donations = donation_ids_in_the_incoming_df - donation_ids_in_the_old_metadata_df
@@ -733,13 +773,12 @@ def generate_donation_metadata(cf, ddp_events_df, sort_by=None, verbose=False):
     combined_ddp_metadata = pd.merge(combined_ddp_metadata, donation_personas, left_index=True, right_index=True, how="left")
 
 
-
-
     if old_metadata_df is not None:
         if verbose:
             print(f"Adding {len(combined_ddp_metadata)} rows to the existing metadata DF")
         combined_ddp_metadata = pd.concat([old_metadata_df, combined_ddp_metadata], axis=0)
         
+    combined_ddp_metadata = combined_ddp_metadata.sort_index(axis='columns').sort_values(('other','D_id')).copy()
     data_io.save_parquet(cf=cf, df=combined_ddp_metadata, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
 
     if verbose:
@@ -763,10 +802,11 @@ def generate_donation_metadata(cf, ddp_events_df, sort_by=None, verbose=False):
 
 
 def _identify_similar_donations(
-    new_events=None,
-    old_events=None,
-    dont_check_these_cols=[],
-    overlap_threshold=0.5):
+    new_events: pd.DataFrame = None,
+    old_events: pd.DataFrame = None,
+    dont_check_these_cols: list = [],
+    overlap_threshold: float = 0.5
+) -> dict:
     """
     Identify similar donations based on timestamp overlap.
 
@@ -854,10 +894,32 @@ def _identify_similar_donations(
 
 
 def consolidate_ddp_logs(
-    cf = None,
-    force_consolidation = False,
-    verbose = False,
-    ):
+    cf: dict | None = None,
+    force_consolidation: bool = False,
+    verbose: bool = False,
+) -> tuple[bool, pd.DataFrame]:
+    """
+    Consolidate and refine raw DDP logs into a processed format.
+
+    This function orchestrates the refinement of raw logs and returns the consolidated df. 
+    Note that it does not save the df to disk. It also updates the donation metadata df. This function
+    is the singular place in the code where this dataframe is updated.
+
+    Parameters
+    ----------
+    cf : dict | None, optional
+        Configuration dictionary. If None, initializes a new configuration.
+    force_consolidation : bool, default False
+        Flag to force the consolidation process.
+    verbose : bool, default False
+        If True, prints progress updates to the console.
+
+    Returns
+    -------
+    tuple[bool, pd.DataFrame]
+        A tuple containing a boolean indicating whether updates were performed
+        and the resulting consolidated DataFrame.
+    """
 
     if cf is None:
         cf = initialize()
@@ -912,6 +974,8 @@ def consolidate_ddp_logs(
     if top_verbose:
         print(f"    ...done - initial shape of the concatenated dataframe: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
 
+
+
     # --------------------------------------------------------------------------------------
     # naive drop_dupes based on these three columns
     concatenated_ddp_logs = concatenated_ddp_logs.drop_duplicates(subset=["D_donation_id","T_local_timestamp","item_id"], keep="first").copy()
@@ -921,24 +985,29 @@ def consolidate_ddp_logs(
 
 
 
-
     # --------------------------------------------------------------------------------------
     # calculate the donation stats
     if top_verbose:
-        print("Calculating donation stats...")
-    new_donation_stats = generate_donation_metadata(cf=cf, ddp_events_df=concatenated_ddp_logs, verbose=verbose)
+        print("Calculating donation metadata for the new donations...")
+    donation_metadata = generate_donation_metadata(
+        cf=cf, 
+        ddp_events_df=concatenated_ddp_logs, 
+        update_col=None,
+        verbose=verbose
+        )
     if top_verbose:
-        print("    ...done updating donation stats")
+        print("    ...done updating donation metadata")
 
     
     # --------------------------------------------------------------------------------------
     # create list of donations to be dropped and drop donations which has a very small number of watched videos
     donations_to_drop = []
-    donations_to_drop += list(new_donation_stats["counts"][(new_donation_stats["counts","watch"]<5)].index)
+    donations_to_drop += list(donation_metadata["counts"][(donation_metadata["counts","watch"]<5)].index)
     concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs.D_donation_id.isin(donations_to_drop)].copy()
     if top_verbose:
         print(f"Shape after dropping donations with fewer than 5 watch events: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
     
+
     # --------------------------------------------------------------------------------------
     if top_verbose:
         print(f"Only keeping one of multiple overlapping (similar) donations...")
@@ -957,6 +1026,29 @@ def consolidate_ddp_logs(
     concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs["D_donation_id"].isin(donations_to_drop)].copy()
     if top_verbose:
         print(f"    ...done. Shape after dropping overlapping donations: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
+
+
+
+
+
+    # --------------------------------------------------------------------------------------
+    # update the donation metadata with a column to signify which donations are accepted
+    # and included in the dataset. This is necessary since the donation metadata df contains
+    # all donations, even those that are overlapping or are too small to be included in the dataset.  
+    if top_verbose:
+        print("Updating donation metadata with a column to signify which donations are accepted...")
+    accepted_donation_ids = concatenated_ddp_logs["D_donation_id"].unique()
+    accepted_col = pd.Series(donation_metadata.index.isin(accepted_donation_ids), index=donation_metadata.index, name=("other", "accepted"))
+    donation_metadata = generate_donation_metadata(
+        cf=cf, 
+        ddp_events_df=None, 
+        update_col=accepted_col,
+        verbose=verbose
+        )
+    if top_verbose:
+        print("    ...done updating donation metadata")
+
+    
 
     # --------------------------------------------------------------------------------------
     # reset index
