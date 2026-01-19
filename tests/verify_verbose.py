@@ -67,7 +67,7 @@ functions_to_check = [
     "sample_ddp_events",
     "load_ddp_events",
     "load_special_donations",
-    "load_datasets",
+    "load_study_datasets",
     "identify_unique_videos",
     "calculate_all_unique_video_subsets",
     "save_selected_unique_video_subsets",

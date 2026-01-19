@@ -700,7 +700,7 @@ def load_zeeschuimer_data(
     if isinstance(BASELINE_END_DATE, str):
         BASELINE_END_DATE = datetime.strptime(BASELINE_END_DATE, "%Y-%m-%d")
 
-    print("Loading baseline logs...")
+    print("    [Zeeschuimer] Loading data for study...")
 
     if all_data is None:
         baseline_log = data_io.load_parquet(cf, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
@@ -708,12 +708,12 @@ def load_zeeschuimer_data(
         baseline_log = all_data.copy()
 
     if verbose:
-        print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.T_local_date.min():%Y-%m-%d} -- {baseline_log.T_local_date.max():%Y-%m-%d}")
+        print(f"    [Zeeschuimer] Data loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.T_local_timestamp.min():%Y-%m-%d} -- {baseline_log.T_local_timestamp.max():%Y-%m-%d}")
     
 
-    baseline_log = baseline_log[(baseline_log.T_local_date>=BASELINE_START_DATE) & (baseline_log.T_local_date<=BASELINE_END_DATE)].copy()
+    baseline_log = baseline_log[(baseline_log.T_local_timestamp>=BASELINE_START_DATE) & (baseline_log.T_local_timestamp<=BASELINE_END_DATE)].copy()
     
-    print(f"...done. Selected date range: {baseline_log.T_local_date.min():%Y-%m-%d} -- {baseline_log.T_local_date.max():%Y-%m-%d} Observations: {baseline_log.shape[0]:,}")
+    print(f"    [Zeeschuimer] ...done. Selected date range: {baseline_log.T_local_timestamp.min():%Y-%m-%d} -- {baseline_log.T_local_timestamp.max():%Y-%m-%d}. Observations: {baseline_log.shape[0]:,}")
     
 
     return baseline_log

@@ -41,7 +41,7 @@ REQUIRED_KEYS = [
 
 
 
-
+"""
 
 
 def load_machine_annotations(
@@ -135,7 +135,7 @@ def load_machine_annotations(
     return some_machine_annotations
 
 
-
+"""
 
 
 

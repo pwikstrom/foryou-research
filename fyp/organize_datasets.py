@@ -6,11 +6,9 @@ import fyp.data_io as data_io
 from fyp.donations import consolidate_ddp_logs
 from fyp.zeeschuimer import consolidate_zeeschuimer_logs
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
+from fyp.donations import load_special_donations, load_ddp_events
 from fyp.scrape import consolidate_and_save_scrape_data
-#from fyp.machine_annotation import load_machine_annotations
-#from fyp.donations import load_special_donations, load_ddp_events
-#from fyp.zeeschuimer import load_zeeschuimer_data
-#from fyp.scrape import load_scrape_data
+from fyp.zeeschuimer import load_zeeschuimer_data
 from fyp.fyp_main import initialize, connect_to_google
 import fyp.data_io as data_io
 from copy import deepcopy
@@ -29,7 +27,7 @@ WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday"
 
 
 
-"""def load_datasets(
+def load_study_datasets(
     cf = None,
     study_name = None,
     all_datasets = {},
@@ -38,8 +36,6 @@ WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday"
     save_to_cache = True,
     verbose=False
     ):
-
-
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -60,75 +56,91 @@ WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday"
     if load_from_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         tutti_data = {}
         cached_core_datasets = {}
-        for k in ['scraped','annotated','ddp','baseline']:
+        for k in ['scrape','machine_annotations','donations','zeeschuimer']:
             if data_io.exists(cf, "cache", f"core_{k}.parquet"):
 
                 parquet_study_name = data_io.find_key_value_in_pq_metadata(cf=cf, storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
                 if parquet_study_name == study_name or parquet_study_name == 'everything':
-                    print(f"    Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
+                    print(f"    [Core datasets] Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
                     cached_core_datasets[k] = parquet_study_name
                     tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="cache", filename=f"core_{k}.parquet")
                 else:
-                    print(f"    Cached '{k}' core dataset for study '{parquet_study_name}' does not match requested study name '{study_name}'. Getting the data from the main storage instead.")
+                    pass
+                    #print(f"    [Core datasets] Cached '{k}' core dataset for study '{parquet_study_name}' does not match requested study name '{study_name}'. Getting the data from the main storage instead.")
                 
     elif len(all_datasets) > 0:
         tutti_data = deepcopy(all_datasets)
-        print(f"    Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
+        print(f"    [Core datasets] Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
     else:
         tutti_data = {}
-        print(f"    Starting without precomputed core datasets. Loading study core datasets from main storage.")
+        print(f"    [Core datasets] Starting without precomputed core datasets. Loading study core datasets from main storage.")
+
+
 
 
     if cf["study_defs"][study_name]["INCLUDE_ZEESCHUIMER_DATA"]:
-        if tutti_data.get("baseline") is None:
-            tutti_data["baseline"] = load_zeeschuimer_data(cf = cf, study_name = study_name, verbose=verbose)
+        if tutti_data.get("zeeschuimer") is None:
+            tutti_data["zeeschuimer"] = load_zeeschuimer_data(cf = cf, study_name = study_name, verbose=verbose)
         else:
-            tutti_data["baseline"] = load_zeeschuimer_data(cf = cf, study_name = study_name, all_data = tutti_data["baseline"], verbose=verbose)
+            tutti_data["zeeschuimer"] = load_zeeschuimer_data(cf = cf, study_name = study_name, all_data = tutti_data["zeeschuimer"], verbose=verbose)
         
     else:
-        if "baseline" in tutti_data:
-            del tutti_data["baseline"]
+        if "zeeschuimer" in tutti_data:
+            del tutti_data["zeeschuimer"]
 
 
     if cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() in ['all','sample']:
-        if tutti_data.get("ddp") is None:
-            tutti_data["ddp"] = load_ddp_events(cf = cf, study_name = study_name, verbose=verbose)
+        if tutti_data.get("donations") is None:
+            tutti_data["donations"] = load_ddp_events(cf = cf, study_name = study_name, verbose=verbose)
         else:
-            tutti_data["ddp"] = load_ddp_events(cf = cf, study_name = study_name, all_data = tutti_data["ddp"], verbose=verbose)
+            tutti_data["donations"] = load_ddp_events(cf = cf, study_name = study_name, all_data = tutti_data["donations"], verbose=verbose)
 
     elif cf["study_defs"][study_name]["INCLUDE_DONATIONS"].lower() == "special" and len(cf["study_defs"][study_name]["SPECIAL_DONATIONS"])>0:
-        if tutti_data.get("ddp") is None:
-            tutti_data["ddp"] = load_special_donations(cf = cf, study_name = study_name, verbose=verbose)
+        if tutti_data.get("donations") is None:
+            tutti_data["donations"] = load_special_donations(cf = cf, study_name = study_name, verbose=verbose)
         else:
-            tutti_data["ddp"] = load_special_donations(cf = cf, study_name = study_name, all_data = tutti_data["ddp"], verbose=verbose)
+            tutti_data["donations"] = load_special_donations(cf = cf, study_name = study_name, all_data = tutti_data["donations"], verbose=verbose)
 
     else:
-        if "ddp" in tutti_data:
-            del tutti_data["ddp"]
+        if "donations" in tutti_data:
+            del tutti_data["donations"]
+
 
 
     # I only want to download the videos that are needed for this particular study. So I check which videos are in the
     # ddp and baseline datasets, and use that to filter the scraped metadata. If the study is the special 
-    # 'everything' study then 
+    # 'everything' study then I don't need to do this.
+    unique_videos = set()
+    if "zeeschuimer" in tutti_data:
+        unique_videos = unique_videos | set(tutti_data["zeeschuimer"]["item_id"].dropna().values.tolist())
+    if "donations" in tutti_data:
+        unique_videos = unique_videos | set(tutti_data["donations"]["item_id"].dropna().values.tolist())
+    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in donation and zeeschuimer datasets")
     if study_name == 'everything':
         sel = None
     else:
-        unique_videos = set()
-        if "baseline" in tutti_data:
-            unique_videos = unique_videos | set(tutti_data["baseline"]["item_id"].dropna().values.tolist())
-        if "ddp" in tutti_data:
-            unique_videos = unique_videos | set(tutti_data["ddp"]["item_id"].dropna().values.tolist())
         sel = [("item_id", "in", list(unique_videos))]
 
-    if tutti_data.get("scraped") is None:
-        tutti_data["scraped"] = load_scrape_data(cf = cf, consolidate=consolidate, filters = sel, verbose=verbose)
+    if tutti_data.get("scrape") is None:
+        print("    [Scrape] Loading scraped data from main storage...", end="", flush=True)
+        if verbose: print()
+        tutti_data["scrape"] = data_io.load_parquet(cf=cf, storage_location="recoded", filename="scrape_recoded.parquet", filters=sel, verbose=verbose)
+        if not verbose:print(" ...done")
     else:
-        print("    Scraped metadata already loaded")
-    
-    if tutti_data.get("annotated") is None:
-        tutti_data["annotated"] = load_machine_annotations(cf = cf, consolidate=consolidate, filters = sel, verbose = verbose)
+        print(f"    [Scrape] There are {len(tutti_data['scrape']):,} scraped data items in the cache", end="", flush=True)
+        tutti_data["scrape"] = tutti_data["scrape"][tutti_data["scrape"]["item_id"].isin(unique_videos)].copy()
+        print(f" and {len(tutti_data['scrape']):,} of those overlap with the activity datasets for this study.")    
+
+    if tutti_data.get("machine_annotations") is None:
+        print("    [Machine annotations] Loading machine annotations from main storage...", end="", flush=True)
+        if verbose: print()
+        tutti_data["machine_annotations"] = data_io.load_parquet(cf=cf, storage_location="recoded", filename="machine_annotations_recoded.parquet", filters=sel, verbose=verbose)
+        if not verbose: print(" ...done")
+
     else:
-        print("    Video annotations already loaded")
+        print(f"    [Machine annotations] There are {len(tutti_data['machine_annotations']):,} annotations in the cache", end="", flush=True)
+        tutti_data["machine_annotations"] = tutti_data["machine_annotations"][tutti_data["machine_annotations"]["item_id"].isin(unique_videos)].copy()
+        print(f" and {len(tutti_data['machine_annotations']):,} of those overlap with the activity datasets for this study.")
 
 
     def _df_size(df):
@@ -140,25 +152,28 @@ WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday"
     if save_to_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         t1 = datetime.now()
         if verbose:
-            print("    Saving datasets to cache...")
+            print("    [Core datasets] Saving datasets to cache...")
         for k in tutti_data:
             if k in cached_core_datasets and cached_core_datasets[k] == 'everything':
                 if verbose:
-                    print(f"    Cached 'everything' dataset for '{k}' already exists. No need to replace it with this dataset.")
+                    print(f"    [Core datasets] Cached 'everything' dataset for '{k}' already exists. No need to replace it with this dataset.")
                 continue
             tutti_data[k].attrs["study_name"] = study_name
             data_io.save_parquet(cf=cf, df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
         if verbose:
-            print(f"    ...done. Time taken to save datasets to cache: {(datetime.now() - t1).total_seconds():.1f} seconds")
+            print(f"    [Core datasets] ...done. (Took me {(datetime.now() - t1).total_seconds():.1f} seconds)")
 
-    print(f"...done. Datasets loaded for study '{study_name}'")
     if verbose:
-        dataset_info = "\n   - ".join([f"'{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)" for k in tutti_data])
-    print(f"   - {dataset_info}")
+        print("    [Core datasets] Datasets:")
+        dataset_info = "\n    [Core datasets] - ".join([f"'{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)" for k in tutti_data])
+        print(f"    [Core datasets] - {dataset_info}")
+
+
+    print(f"...done. Core datasets loaded for study '{study_name}'")
 
 
     return tutti_data
-"""
+
 
 
 
@@ -510,7 +525,7 @@ def new_merge(
     
     shebang = merge(left=activity_data, right=enriched_data, on='item_id', how='left')
 
-    shebang["T_days_since_created"] = shebang["T_local_date"] - shebang["S_createTime"]
+    shebang["T_days_since_created"] = shebang["T_local_timestamp"] - shebang["S_createTime"]
     shebang["T_days_since_created"] = shebang["T_days_since_created"].map(lambda x: x.days if x is not pd_NA else pd_NA).astype("int64[pyarrow]")
 
     if verbose:
@@ -627,7 +642,7 @@ def create_study_recoded_dataset(
 
     print(f"Generating unified dataset for study '{study_name}'")
 
-    all_datasets = load_datasets(
+    all_datasets = load_study_datasets(
         cf = cf,
         study_name = study_name,
         all_datasets = all_datasets,
@@ -758,7 +773,7 @@ def save_logs_as_csv(
         outdata_for_csv_export.to_csv(join(cf['paths']['exports'],log_as_csv_filename), errors='replace')
         if verbose:
             print(f"Exported {len(outdata_for_csv_export):,} observations in {log_as_csv_filename}.")
-            print(f"The date of the observations in the log range from {outdata_filtered.T_local_date.min()} -- {outdata_filtered.T_local_date.max()}")
+            print(f"The date of the observations in the log range from {outdata_filtered.T_local_timestamp.min()} -- {outdata_filtered.T_local_timestamp.max()}")
             print(f"Now: {datetime.now()}")
 
 

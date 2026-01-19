@@ -26,15 +26,17 @@ OTHER_THINGS = fyp_cf["labels"]["OTHER_THINGS"]
 
 
 
-def rename_columns(
-    some_events
-    ):
-    
+def rename_columns(some_events):
+    """
+    This function is indempotent
+    """
     some_eventsC = some_events.copy()
 
     fixer_upper = [
         ("B_local_","T_local_"),
+        ("B_source_tz_name","T_tz_name"),
         ("D_local_","T_local_"),
+        #("D_utc_timestamp","T_utc_timestamp"),
         (".","_"),
         ("data_",""),
         ("source_url_","source_"),
@@ -72,6 +74,105 @@ def _day_segment_from_hour(hour: int) -> str:
 
 
 
+
+
+def infer_timezone_offset(timestamps: pd.Series) -> float:
+    """
+    Infers timezone offset by finding the 4-hour window with minimum activity.
+    Assumes this quietest window centers around 04:00 local time.
+    
+    Args:
+        timestamps: Series of UTC timestamps
+        
+    Returns:
+        Offset in hours (float) from UTC. e.g. +10.0 for Brisbane.
+    """
+    if len(timestamps) < 10:
+        return 0.0 # Not enough data to infer
+        
+    # Create a DataFrame to aggregate by hour
+    df_ts = pd.DataFrame({'ts': timestamps})
+    df_ts['hour'] = df_ts['ts'].dt.hour
+    
+    # Count activity per UTC hour (0-23)
+    hourly_counts = df_ts.groupby('hour').size().reindex(range(24), fill_value=0)
+    
+    # We want a rolling 4-hour window sum. 
+    # To handle wrap-around (e.g. 23:00 -> 02:00), we concat the counts 
+    hourly_counts_ext = pd.concat([hourly_counts, hourly_counts.iloc[:3]], ignore_index=True)
+    
+    # Calculate rolling sum
+    rolling_sum = hourly_counts_ext.rolling(window=4).sum()
+    
+    # We strip the first 3 (NaNs/partial from standard rolling if not min_periods=0) 
+    # but we used concat so we have valid range. 
+    # The result has length 24 + 3 = 27.
+    # Indices 0,1,2 are NaNs (window size 4).
+    # Valid indices start at 3.
+    # Index 3 corresponds to window [0,1,2,3] of extended array = [0,1,2,3] of original.
+    # Index 26 corresponds to window [23,0,1,2].
+    
+    # Extract only the 24 valid windows representing starts 0..23 (wrapped)
+    # Window ending at i (where i >= 3) corresponds to hours ...?
+    # Let's map rolling_sum index to "Center Hour".
+    # We want indices 3 to 26 inclusive (24 values).
+    valid_sums = rolling_sum.iloc[3:].reset_index(drop=True)
+    # valid_sums now has indices 0 to 23.
+    # Index k in valid_sums came from rolling_sum index k+3.
+    # rolling_sum index k+3 sums extended array [k, k+1, k+2, k+3].
+    # Which corresponds to hours [k%24, (k+1)%24, (k+2)%24, (k+3)%24].
+    # Center is roughly k + 1.5.
+    
+    min_val = valid_sums.min()
+    min_indices = valid_sums[valid_sums == min_val].index.tolist()
+    
+    # Calculate circular mean of these indices
+    # Convert hours (indices) to angles, mean vector, convert back
+    angles = [2 * np.pi * idx / 24.0 for idx in min_indices]
+    y = np.sum(np.sin(angles))
+    x = np.sum(np.cos(angles))
+    avg_angle = np.arctan2(y, x)
+    avg_idx = avg_angle * 24.0 / (2 * np.pi)
+    
+    if avg_idx < 0:
+        avg_idx += 24
+        
+    # avg_idx represents the "Start Hour" of the window (k).
+    # Center of window is k + 2.0 (Midpoint of 4 discrete hour buckets [k, k+3]).
+    # e.g. Window [2,3,4,5] -> Center is 4.0.
+    # We assume this center is 03:00 Local (Shifted -1 from original 04:00).
+    
+    center_utc = avg_idx + 2.0
+    if center_utc >= 24:
+        center_utc -= 24
+        
+    # Offset = Local - UTC = 3.0 - Center (Shifted -1 from 4.0)
+    offset = 3.0 - center_utc
+    
+    # Normalize to -9 to 15 (User specified range to handle date line wrap)
+    # "Add 24 hours to timezones calculated to UTC-11" -> Map -11 to +13.
+    # Standard range [-9, 15] covers West Coast US (-8) to NZ (+12/13).
+    while offset < -9:
+        offset += 24
+    while offset > 15:
+        offset -= 24
+        
+    return round(offset) # Round to nearest hour for simplicity (or keeping half hours?)
+                         # User said rough guess. 
+                         
+
+
+
+
+
+
+
+
+
+
+
+
+
 def extract_local_time_features(
     cf = None,
     some_events_df_in = None,
@@ -100,119 +201,72 @@ def extract_local_time_features(
         tz_col = "source_url.tz_name"
         ts_col = "timestamp_collected"
 
+        from zoneinfo import ZoneInfo
+
         unique_tz = df[tz_col].dropna().unique()
+
+        # 1. Rename to Local Timestamp (avoid copy)
+        df = df.rename(columns={ts_col: "local_timestamp"})
+
+        # 2. Derive UTC Timestamp using the renamed column
         if len(unique_tz) == 1:
             # Fast path: everything in same tz
             tz = ZoneInfo(unique_tz[0])
-            df["local_timestamp"] = df[ts_col].dt.tz_localize(tz)
+            # Localize -> Convert to UTC
+            df["T_utc_timestamp"] = (
+                df["local_timestamp"]
+                .dt.tz_localize(tz, ambiguous='NaT', nonexistent='NaT')
+                .dt.tz_convert("UTC")
+            )
         else:
+            print("slow extraction of local time based features")
             # Slower path: per-timezone blocks
-            local_parts = []
+            utc_parts = []
             for tz_name, block in df.groupby(tz_col, sort=False):
                 tz = ZoneInfo(tz_name)
-                part = block[ts_col].dt.tz_localize(tz)
-                local_parts.append(part)
-            df["local_timestamp"] = concat(local_parts).sort_index()
+                # Localize -> Convert to UTC immediately
+                part = (
+                    block["local_timestamp"]
+                    .dt.tz_localize(tz, ambiguous='NaT', nonexistent='NaT')
+                    .dt.tz_convert("UTC")
+                )
+                utc_parts.append(part)
+            # Concatenate identical Dtypes (all UTC)
+            df["T_utc_timestamp"] = pd.concat(utc_parts).sort_index()
 
-        df = df.drop(columns=[ts_col])
-        
-        # Convert baseline timestamps to naive local (remove timezone info but keep local wall clock)
-        # This aligns with the new DDP strategy below
-        df["local_timestamp"] = df["local_timestamp"].dt.tz_localize(None)
+        # 3. Enforce PyArrow dtypes
+        df["local_timestamp"] = df["local_timestamp"].astype("timestamp[ns][pyarrow]")
+        df["T_utc_timestamp"] = df["T_utc_timestamp"].astype("timestamp[ns][pyarrow]")
+        df["T_tz_offset"] = df["local_timestamp"] - df["T_utc_timestamp"]
+        df["T_tz_offset"] = df["T_tz_offset"].astype("int64[pyarrow]")
+
 
     elif kind_of_log == "ddp":
-        # the 'ddp' timestamp is utc
 
-        # Build item_id if missing
-        if "item_id" not in df.columns:
-            print("WARNING: item_id not found in ddp events df. Building it now...")
-            # rsplit is cheaper than full split, only looks from the right
-            extracted = (
-                df["primary_value"]
-                .astype("string")
-                .str.rsplit("/", n=2)
-                .str[-2]
-            )
-
-            # SAFE INTEGER PARSING: avoid float64 / to_numeric
-            # keep only pure digit strings, everything else -> <NA>
-            digits = extracted.str.fullmatch(r"\d+")
-            ints = extracted.where(digits).astype("string[pyarrow]")
-
-            mask = (
-                df["primary_label"].eq("link")
-                & df["feature_name"].notna()
-            )
-            df["item_id"] = ints.where(mask)
-            # later we will convert it to string. One day I will make this more efficient.
-
-
-        # normalise timestamp column name
-        if "utc_timestamp" not in df.columns:
-            print("WARNING: utc_timestamp not found in ddp events df. Renaming timestamp to utc_timestamp now...")
-            df = df.rename(columns={"timestamp": "utc_timestamp"})
-
-
-        # NEW LOGIC: Use per-donation timezone offsets
+        # rename timestamp to T_utc_timestamp
+        if "T_utc_timestamp" not in df.columns:
+            df = df.rename(columns={"timestamp": "T_utc_timestamp"})
         
-        # 1. Calculate Default Offset from static TIME_ZONE (as fallback)
-        time_zone = cf["misc"]["TIME_ZONE"]
-        try:
-            now_local = datetime.now(ZoneInfo(time_zone))
-            default_offset_hours = now_local.utcoffset().total_seconds() / 3600.0
-        except Exception as e:
-            if verbose: print(f"Warning: Could not determine offset for {time_zone}, defaulting to 0. {e}")
-            default_offset_hours = 0.0
-            
-        # 2. Load Offsets from Cache
-        stats_cache_path = "persona_stats_cache.parquet"
-        
-        df['tz_offset_hours'] = default_offset_hours # Initialize with default
-        
-        if data_io.exists(cf, "ddp_main", stats_cache_path):
-            try:
-                # Load only necessary columns
-                stats_df = data_io.load_parquet(cf, "ddp_main", stats_cache_path, columns=['donation_id', 'inferred_tz_offset'])
-                
-                # Map offsets to main df
-                # stats_df needs unique donation_ids. It should be unique per previous logic.
-                if not stats_df['donation_id'].is_unique:
-                    stats_df = stats_df.drop_duplicates(subset=['donation_id'])
-                    
-                offset_map = stats_df.set_index('donation_id')['inferred_tz_offset']
-                
-                # Map using donation_id column in df
-                if 'donation_id' in df.columns:
-                    mapped_offsets = df['donation_id'].map(offset_map)
-                    # Update where not null
-                    df.loc[mapped_offsets.notna(), 'tz_offset_hours'] = mapped_offsets[mapped_offsets.notna()]
-                    if verbose:
-                        print(f"Applied individual timezones to {mapped_offsets.notna().sum():,} events.")
-                else:
-                    if verbose: print("Warning: donation_id column missing, using default timezone.")
-                    
-            except Exception as e:
-                print(f"Warning: Failed to load/apply timezone cache: {e}. Using default {TIME_ZONE}")
-        else:
-            if verbose: print("Timezone cache not found. Using default study timezone.")
+        # 2. Ensure UTC Timestamp is valid Datetime
+        if not pd.api.types.is_datetime64_any_dtype(df['T_utc_timestamp']):
+            df["T_utc_timestamp"] = pd.to_datetime(df["T_utc_timestamp"], unit='s', utc=True)
 
-        # 3. Calculate Local Timestamp (Naive Wall Clock)
+        # 3. Infer Timezone Offset
+        df["T_tz_offset"] = infer_timezone_offset(df["T_utc_timestamp"])
+        df["T_tz_offset"] = df["T_tz_offset"].astype("int64[pyarrow]")
         
-        # Ensure utc_timestamp is numeric (seconds)
-        utc_seconds = df["utc_timestamp"].astype("float64")
+        # 4. Calculate Local Timestamp
+        # Add offset (hours) to UTC time
+        offset_timedelta = pd.to_timedelta(df['T_tz_offset'], unit='h')
+        df["local_timestamp"] = df["T_utc_timestamp"] + offset_timedelta
         
-        # Add offset (hours * 3600)
-        local_seconds = utc_seconds + (df['tz_offset_hours'] * 3600.0)
-        
-        # Convert to Naive Datetime
-        df["local_timestamp"] = to_datetime(local_seconds, unit='s', utc=False)
-        
-        # Cleanup temp column
-        df = df.drop(columns=['tz_offset_hours'], errors='ignore')
-        
-        # Pyarrow conversion
-        df["local_timestamp"] = df["local_timestamp"].convert_dtypes(dtype_backend="pyarrow")
+        # Convert to Naive Local Time (so it represents wall clock time in that timezone)
+        df["local_timestamp"] = df["local_timestamp"].dt.tz_localize(None)
 
+        # 5. Enforce PyArrow dtypes
+        df["local_timestamp"] = df["local_timestamp"].astype("timestamp[ns][pyarrow]")
+        df["T_utc_timestamp"] = df["T_utc_timestamp"].astype("timestamp[ns][pyarrow]")
+ 
 
     else:
         raise ValueError("kind_of_log can only be 'baseline' or 'ddp'")
@@ -222,28 +276,22 @@ def extract_local_time_features(
     # ---------------------------------------------------------------------
     ts = df["local_timestamp"]
     
-    # Check if we still have timezone awareness (should be none for DDP, but maybe for baseline if not stripped)
-    # The new logic strips it for baseline too.
-    
-    # If stored as object dtype, force conversion (should handle naive correctly)
-    if ts.dtype == 'object':
-        df["local_timestamp"] = to_datetime(ts)
-        ts = df["local_timestamp"]
-
     iso = ts.dt.isocalendar()  # DataFrame: year, week, day
     iso["day"] = iso["day"].map(WEEKDAY_MAPPER)
-    iso["year_week"] = iso["year"].astype("uint16").astype("string[pyarrow]") + "-" + iso["week"].astype("uint8").astype("string[pyarrow]")
+    iso["year_week"] = iso["year"].astype(str) + "-" + iso["week"].astype(str)
 
+    # these dtype fixes feel stupid, but I cannot seem to get around it any other way
     df["local_weekday"] = iso["day"].to_list()
+    df["local_weekday"] = df["local_weekday"].convert_dtypes(dtype_backend="pyarrow")
     df["local_week"] = iso["year_week"].to_list()
+    df["local_week"] = df["local_week"].convert_dtypes(dtype_backend="pyarrow")
 
-    df["local_hour"] = ts.dt.hour.astype("uint8")
+    local_hour = ts.dt.hour.astype("uint8[pyarrow]")
 
-    df["local_day_segment"] = df["local_hour"].map(_day_segment_from_hour).astype("string[pyarrow]")
+    df["local_day_segment"] = local_hour.map(_day_segment_from_hour).convert_dtypes(dtype_backend="pyarrow")
 
-    # Optimization: Use .dt.date directly (faster than map)
-    df["local_date"] = ts.dt.date.astype("timestamp[ns][pyarrow]")
-    df["local_date_str"] = df["local_date"].astype("string[pyarrow]")
+    df["local_date"] = ts.dt.date
+    df["local_date"] = pd.to_datetime(df["local_date"]).convert_dtypes(dtype_backend="pyarrow")
 
     if verbose:
         print("...done")
@@ -830,7 +878,7 @@ def recode_main_activity(
 
 
 
-def recode_timestamp(
+"""def recode_timestamp(
     timestamp : pd.Timestamp | pd.Series, 
     recoding_policy : dict = {}) -> int | pd.Series:
 
@@ -845,7 +893,7 @@ def recode_timestamp(
            # coerce
            return pd.to_datetime(timestamp, errors='coerce').astype('int64') // 10**9
 
-    return np.int64(timestamp.timestamp())
+    return np.int64(timestamp.timestamp())"""
     
 
 
@@ -1141,11 +1189,11 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 
 def recode_events_df(
-    cf = None,
-    study_name = None,
-    study_dataset = None,
-    drop_single_value_cols = True,
-    verbose = False
+    cf: dict = None,
+    study_name: str = None,
+    study_dataset: pd.DataFrame = None,
+    drop_single_value_cols: bool = True,
+    verbose: bool = False
     ):
 
 
@@ -1252,9 +1300,12 @@ def recode_events_df(
                         cool_events[c] = func(cool_events[c], this_var_schema)
                         if verbose: print(f"Recoded successfully ({this_var_schema.get('scale', 'unknown scale')})")
                     except Exception as e:
-                         # Fallback
-                         print(f"Warning: Vectorized recode failed: ({e}). Falling back to map.")
-                         cool_events[c] = cool_events[c].map(lambda x: func(x, this_var_schema))
+                        # Fallback
+                        print(f"Warning: Vectorized recode failed: ({e}). Falling back to map.")
+                        try:
+                            cool_events[c] = cool_events[c].map(lambda x: func(x, this_var_schema))
+                        except Exception as e:
+                            raise Exception(f"Error: Map recode also failed: ({e}).")
                 else:
                     if verbose: print(f"Has no recode func, so no change ({this_var_schema.get('scale', 'unknown scale')})")
 

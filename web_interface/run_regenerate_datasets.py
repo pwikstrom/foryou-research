@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     print(f"Starting regeneration of core dataset.")
     try:
-        organize_datasets.load_datasets(
+        organize_datasets.load_study_datasets(
             cf = cf,
             study_name = 'everything',
             consolidate=True,

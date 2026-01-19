@@ -14,7 +14,7 @@ import pytz
 from datetime import datetime
 import time
 
-def infer_timezone_offset(timestamps: pd.Series) -> float:
+def OLD_infer_timezone_offset(timestamps: pd.Series) -> float:
     """
     Infers timezone offset by finding the 4-hour window with minimum activity.
     Assumes this quietest window centers around 04:00 local time.
@@ -182,22 +182,22 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     """
     if df_raw.empty:
         return {}
-        
+    
     # 1. Prepare Data
     # Filter to valid dates
-    df = df_raw.dropna(subset=['date']).copy()
+    df = df_raw.copy()#.dropna(subset=['date']).copy()
     if df.empty:
         return {}
         
-    df['date'] = pd.to_datetime(df['date'], utc=True)
-    df = df.sort_values('date')
-    
+    #df['date'] = pd.to_datetime(df['date'], utc=True)
+    #df = df.sort_values('date')
+
     # 2. Filter: Start from first 'watch' event
     # Only events after (or including) the first watch event are considered relevant
-    watch_events = df[df['feature_name'] == 'watch']
+    watch_events = df[df['D_feature_name'] == 'watch']
     if not watch_events.empty:
-        first_watch_ts = watch_events['date'].iloc[0]
-        df = df[df['date'] >= first_watch_ts]
+        first_watch_ts = watch_events['T_local_timestamp'].iloc[0]
+        df = df[df['T_local_timestamp'] >= first_watch_ts]
     else:
         # If no watch events, arguably no valid stats?
         # User said "screws up the stats" relating to watch based anchors.
@@ -206,78 +206,83 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
 
     if df.empty:
         return {}
-        
+
+
     # 3. Infer Timezone
-    tz_offset = infer_timezone_offset(df['date'])
+    #tz_offset = infer_timezone_offset(df['date'])
     
     # Create Local Time column
-    df['local_date'] = df['date'] + pd.Timedelta(hours=tz_offset)
-    df['local_hour'] = df['local_date'].dt.hour
+    #df['local_date'] = df['date'] + pd.Timedelta(hours=tz_offset)
+    #df['local_hour'] = df['local_date'].dt.hour
     
     # 4. Basic Activity Stats
     total_events = len(df)
-    first_date = df['local_date'].min()
-    last_date = df['local_date'].max()
-    active_days = df['local_date'].dt.date.nunique()
+    first_date = df['T_local_timestamp'].min()
+    last_date = df['T_local_timestamp'].max()
+    active_days = df['T_local_timestamp'].dt.date.nunique()
     lifespan_days = (last_date - first_date).days + 1
     events_per_day = total_events / max(1, active_days)
     
     # 5. Video Consumption (Watch Events)
     # Using 'watch' feature and 'secondary_value' (duration)
     # Ensure numeric conversion
-    watch_df = df[df['feature_name'] == 'watch'].copy()
-    watch_df['duration'] = pd.to_numeric(watch_df['secondary_value'], errors='coerce')
+    watch_df = df[df['D_feature_name'] == 'watch'].copy()
+    #watch_df['duration'] = pd.to_numeric(watch_df['secondary_value'], errors='coerce')
     
     # Filter insane durations (> 1 hour?) or keep all? 
     # Ideally filter outliers or very long paused videos
-    valid_watches = watch_df.dropna(subset=['duration'])
+    valid_watches = watch_df.dropna(subset=['D_watch_duration'])
     # Keeping logic from old code: duration <= 300s considered 'normal' short form watch?
     # User didn't specify, but old code did. Let's keep raw metrics then stats on filtered.
     
-    total_watch_time = valid_watches['duration'].sum()
-    avg_watch_time = valid_watches['duration'].mean() if not valid_watches.empty else 0
-    median_watch_time = valid_watches['duration'].median() if not valid_watches.empty else 0
+    total_watch_time = valid_watches['D_watch_duration'].sum()
+    avg_watch_time = valid_watches['D_watch_duration'].mean() if not valid_watches.empty else 0
+    median_watch_time = valid_watches['D_watch_duration'].median() if not valid_watches.empty else 0
     
     # 6. Sessions
     # Defined by gap > 15 mins (900s)
     # Calculate time diffs
-    df['prev_ts'] = df['date'].shift(1)
-    df['diff_sec'] = (df['date'] - df['prev_ts']).dt.total_seconds()
+    #df['prev_ts'] = df['date'].shift(1)
+    #df['diff_sec'] = (df['date'] - df['prev_ts']).dt.total_seconds()
     
     # New session if diff > 900 or first event (NaN)
-    input_session_gap = 15 * 60
-    df['is_new_session'] = (df['diff_sec'] > input_session_gap) | (df['diff_sec'].isna())
-    df['session_id'] = df['is_new_session'].astype(int).cumsum()
+    #input_session_gap = 15 * 60
+    #df['is_new_session'] = (df['diff_sec'] > input_session_gap) | (df['diff_sec'].isna())
+    #df['session_id'] = df['is_new_session'].astype(int).cumsum()
     
-    num_sessions = df['session_id'].max()
-    
+    num_sessions = df['session_id'].nunique()
+
     # Session Durations
-    session_stats = df.groupby('session_id')['date'].agg(start_time='min', end_time='max')
+    session_stats = df.groupby('session_id')['T_local_timestamp'].agg(start_time='min', end_time='max')
     session_stats['duration'] = (session_stats['end_time'] - session_stats['start_time']).dt.total_seconds()
     
-    avg_session_duration = session_stats['duration'].mean()
-    longest_session = session_stats['duration'].max()
-    
+    if len(session_stats) == 0:
+        avg_session_duration = 0
+        longest_session = 0
+    else:
+        avg_session_duration = session_stats['duration'].mean()
+        longest_session = session_stats['duration'].max()
+
     # Binge Level: % sessions longer than 20 mins (1200s)
     long_sessions = (session_stats['duration'] > 1200).sum()
     binge_level = long_sessions / max(1, num_sessions)
     
     # 7. Engagement Rates
     # Comments
-    comments_df = df[df['feature_name'] == 'comment']
+    comments_df = df[df['D_feature_name'] == 'comment']
     num_comments = len(comments_df)
-    
+
     # Likes
     # Mapped from 'ItemFavoriteList' in donations.py -> 'fave_item'
-    likes_df = df[df['feature_name'].isin(['like', 'fave_item'])]
+    likes_df = df[df['D_feature_name'].isin(['like', 'fave_item'])]
     num_likes = len(likes_df)
     
     # Posts
-    posts_df = df[df['feature_name'] == 'post']
+    posts_df = df[df['D_feature_name'] == 'post']
     num_posts = len(posts_df)
     
     # Emojis in comments
-    comment_texts = comments_df['primary_value'].tolist()
+    comment_texts = comments_df['D_primary_value'].tolist()
     emoji_stats = analyze_emojis_list(comment_texts)
     
     # 8. Advanced Behavioural Metrics (New)
@@ -294,7 +299,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     # Ratio of avg events/day (Sat-Sun) vs (Mon-Fri)
     # 'weekday' is 0=Mon, 6=Sun. Weekend = 5,6.
     # Group by date first to count events per day
-    daily_events = df.groupby(df['local_date'].dt.date).size()
+    daily_events = df.groupby(df['T_local_timestamp'].dt.date).size()
     # Map each date to weekend (True/False)
     # Use values to avoid index alignment issues (Series vs DateIndex)
     is_weekend = pd.to_datetime(daily_events.index).weekday.isin([5,6])
@@ -312,7 +317,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     # C. Comment Depth (Avg chars)
     # Handle mixed types in primary_value
     if num_comments > 0:
-         chars = comments_df['primary_value'].astype(str).str.len()
+         chars = comments_df['D_primary_value'].astype(str).str.len()
          avg_comment_len_chars = chars.mean()
     else:
         avg_comment_len_chars = 0.0
@@ -342,31 +347,30 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
 
     # 9. Time Patterns (Local Time)
     # Weekday Shares (Monday=0 in Python)
-    df['weekday'] = df['local_date'].dt.weekday
-    weekday_counts = df['weekday'].value_counts(normalize=True).reindex(range(7), fill_value=0)
+    #df['weekday'] = df['T_local_timestamp'].dt.weekday
+    #weekday_counts = df['T_local_weekday'].value_counts(normalize=True).reindex(range(7), fill_value=0)
     # Map to list [Mon, Tue, ... Sun]
-    weekday_shares = weekday_counts.sort_index().tolist()
+    #weekday_shares = weekday_counts.sort_index().tolist()
     
-    days_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    most_active_day_idx = weekday_counts.idxmax()
-    most_active_day = days_week[most_active_day_idx]
+    #days_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    #most_active_day_idx = weekday_counts.idxmax()
+    most_active_day = df['T_local_weekday'].value_counts().iloc[0]#days_week[most_active_day_idx]
     
     # Time of Day Buckets
     # Morning (5-11), Afternoon (12-17), Evening (18-23), Owl (0-4)
-    def assign_tod(h):
-        if 5 <= h < 12: return 'Morning'
-        elif 12 <= h < 18: return 'Afternoon'
-        elif 18 <= h <= 23: return 'Evening'
-        else: return 'Owl'
+    #def assign_tod(h):
+    #    if 5 <= h < 12: return 'Morning'
+    #    elif 12 <= h < 18: return 'Afternoon'
+    #    elif 18 <= h <= 23: return 'Evening'
+    #    else: return 'Owl'
         
-    df['tod'] = df['local_hour'].apply(assign_tod)
-    tod_shares = df['tod'].value_counts(normalize=True).to_dict()
+    #df['tod'] = df['local_hour'].apply(assign_tod)
+    tod_shares = df['T_local_day_segment'].value_counts(normalize=True).to_dict()
     
     # Activity Peak Analysis
     # We need a DF with index=timestamp, col='event_count'
     # Resample to hourly counts for analysis
-    # Resample to hourly counts for analysis
-    hourly_ts = df.set_index('local_date').resample('h').size().to_frame(name='event_count')
+    hourly_ts = df.set_index('T_local_timestamp').resample('h').size().to_frame(name='event_count')
     # Convert index to DatetimeIndex if it's PyArrow-backed (to access .hour)
     hourly_ts.index = pd.DatetimeIndex(hourly_ts.index)
     # Add hour column for the function
@@ -392,7 +396,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     
     # Patience: % of watches >= 30s
     if not valid_watches.empty:
-        patience = (valid_watches['duration'] >= 30).mean()
+        patience = (valid_watches['D_watch_duration'] >= 30).mean()
     else:
         patience = 0.0
         
@@ -416,10 +420,11 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     # Emoji Level (Log)
     emoji_level = math.log(1 + emoji_stats['emoji_rate'])
 
+
     # Compile Result
     result = {
-        'donation_id': df['donation_id'].iloc[0],
-        'inferred_tz_offset': float(tz_offset),
+        'D_donation_id': df['D_donation_id'].iloc[0],
+        'inferred_tz_offset': float(df['T_tz_offset'].iloc[0]),
         'active_days': int(active_days),
         'lifespan_days': int(lifespan_days),
         'total_events': int(total_events),
@@ -430,12 +435,12 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
         'likes_per_day': float(likes_per_day),
         'likes_per_video': float(num_likes / max(1, len(watch_df))),
         'daily_watch_time_s': float(total_watch_time / max(1, lifespan_days)),
-        
+    
         'num_watches': len(watch_df),
         'total_watch_time_s': float(total_watch_time),
         'avg_watch_time_s': float(avg_watch_time),
         'median_watch_time_s': float(median_watch_time),
-        
+            
         'num_sessions': int(num_sessions),
         'avg_session_duration_s': float(avg_session_duration),
         'longest_session_s': float(longest_session),
@@ -484,7 +489,9 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     return result
 
 
-def calculate_all_donation_stats(events_df: pd.DataFrame) -> pd.DataFrame:
+
+
+def generate_personas(events_df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculates statistics for all donations in the input DataFrame.
     """
@@ -495,18 +502,20 @@ def calculate_all_donation_stats(events_df: pd.DataFrame) -> pd.DataFrame:
     
     # Group by donation and process
     # Using groupby apply might be slow for complex logic, iterating groups is safer for debugging
-    grouped = events_df.groupby('donation_id')
+    grouped = events_df.groupby('D_donation_id')
     
-    for donation_id, group in grouped:
+    for D_donation_id, group in grouped:
         try:
             stats = process_single_donation(group)
             if stats:
                 results.append(stats)
         except Exception as e:
-            print(f"Error processing donation {donation_id}: {e}")
+            print(f"Error processing donation {D_donation_id}: {e}")
             continue
             
     return pd.DataFrame(results)
+
+
 
 
 # --- Location-based Timezone Inference & Caching ---
@@ -638,6 +647,75 @@ def infer_tz_from_location(postcode, country, cache: dict = None) -> float:
     except Exception as e:
         print(f"Error inferring timezone for {cache_key}: {e}")
         return None
+
+
+
+
+
+def enrich_stats_with_metadata(
+    cf, 
+    stats_df: pd.DataFrame, 
+    metadata_df: pd.DataFrame, 
+    tz_location_cache_filename: str = None
+    ) -> pd.DataFrame:
+    """
+    Merges metadata into stats_df and adds checking location-based timezone.
+    """
+    import fyp.data_io as data_io
+    #from os.path import join as os_join
+
+    def safe_get(row, col):
+        val = row.get(col)
+        # Basic cleaning
+        if val is None or pd.isna(val): return None
+        return str(val)
+
+
+
+    if stats_df.empty:
+        return stats_df
+
+    # Load cache
+    #tz_location_cache = load_tz_cache(tz_location_cache_path) if tz_location_cache_path else {}
+    tz_location_cache = data_io.load_json(cf, "ddp_main", tz_location_cache_filename) if tz_location_cache_filename else {}
+    initial_cache_size = len(tz_location_cache)
+    
+    # Merge Logic (taken from app.py)
+    # Handle columns that might be lists
+    list_columns = ['age', 'email', 'name', 'tiktokHandle', 'country', 'postCode']
+    for col in list_columns:
+        if col in metadata_df.columns:
+            metadata_df[col] = metadata_df[col].apply(
+                lambda x: ', '.join(str(v) for v in x) if hasattr(x, '__iter__') and not isinstance(x, str) else x
+            )
+
+
+    if 'donation_id' in metadata_df.columns:
+        cols_to_merge = ['donation_id'] + [c for c in ['email', 'name', 'date', 'age', 'tiktokHandle', 'country', 'postCode'] if c in metadata_df.columns]
+        # Drop duplicates in metadata just in case
+        meta_subset = metadata_df[cols_to_merge].drop_duplicates('donation_id')
+        
+        stats_df = stats_df.merge(meta_subset, on='donation_id', how='left')
+        
+        print("Inferring timezone from location data...")
+        
+        # Apply inference
+        offsets = []
+        for idx, row in stats_df.iterrows():
+            off = infer_tz_from_location(safe_get(row, 'postCode'), safe_get(row, 'country'), cache=tz_location_cache)
+            offsets.append(off)
+            
+        stats_df['location_tz_offset'] = offsets
+        
+        print(f"Location timezone inferred for {stats_df['location_tz_offset'].notna().sum()} donations")
+        
+    # Save cache if changed
+    if tz_location_cache_filename and len(tz_location_cache) > initial_cache_size:
+        #save_tz_cache(tz_location_cache, tz_location_cache_path)
+        data_io.save_json(cf, tz_location_cache, "ddp_main", tz_location_cache_filename)
+        print(f"Updated timezone location cache saved (entries: {len(tz_location_cache)})")
+        
+    return stats_df
 
 
 

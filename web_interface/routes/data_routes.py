@@ -11,7 +11,7 @@ from ..data_service import (
 from .. import explorer_backend as explorer
 import fyp
 import fyp.data_io as data_io
-from fyp.calc_donation_stats import calculate_all_donation_stats, enrich_stats_with_metadata
+from fyp.calc_donation_stats import generate_personas, enrich_stats_with_metadata
 
 data_bp = Blueprint('data_bp', __name__)
 
@@ -677,7 +677,7 @@ def api_persona_stats():
             return jsonify({"error": "No DDP events found"}), 404
             
         print(f"Calculating persona stats for {len(events_df)} events...")
-        stats_df = calculate_all_donation_stats(events_df)
+        stats_df = generate_personas(events_df)
         
         try:
             if data_io.exists(fyp_cf, "ddp_main", "all_participant_metadata.parquet"):

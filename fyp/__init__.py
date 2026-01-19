@@ -16,5 +16,6 @@ from .donations import *
 from .stats import *
 from .pca import *
 from .organize_datasets import *
+from .calc_donation_stats import *
 
 
