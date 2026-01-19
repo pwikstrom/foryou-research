@@ -579,7 +579,7 @@ def calculate_scaled_pca_scores(
     save_to_cache = True,
     verbose = False,
     ):
-
+    verbose = True
     #from json import dump as json_dump
     from concurrent.futures import ThreadPoolExecutor
     from pandas import NamedAgg, MultiIndex, DataFrame, concat, to_datetime
@@ -648,7 +648,9 @@ def calculate_scaled_pca_scores(
     if verbose:
         print(f"    [PCA] Only keeping events that are successfully annotated -> Shape: {study_recoded_dataset.shape}")    
 
-    study_recoded_dataset = study_recoded_dataset.dropna()
+    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(cf = cf, some_events_df = study_recoded_dataset, verbose=verbose)
+    
+    study_recoded_dataset = study_recoded_dataset.dropna(subset=fyp_features+fyp_factors)
     if verbose:
         print(f"    [PCA] Dropping rows with missing values -> Shape: {study_recoded_dataset.shape}")
 
@@ -668,8 +670,6 @@ def calculate_scaled_pca_scores(
 
     study_recoded_dataset = sampled_events_df.copy()
 
-    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(cf = cf, some_events_df = study_recoded_dataset, verbose=verbose)
-    
     if verbose:
         print(f"    [PCA] Dropping '{'-'.join(selected_factors)}' groups that are smaller than {minimum_group_size} rows")
 

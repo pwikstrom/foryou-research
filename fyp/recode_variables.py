@@ -238,8 +238,10 @@ def extract_local_time_features(
         df["local_timestamp"] = df["local_timestamp"].astype("timestamp[ns][pyarrow]")
         df["T_utc_timestamp"] = df["T_utc_timestamp"].astype("timestamp[ns][pyarrow]")
         df["T_tz_offset"] = df["local_timestamp"] - df["T_utc_timestamp"]
+        df["T_tz_offset"] = df["T_tz_offset"].dt.total_seconds() / 3600
         df["T_tz_offset"] = df["T_tz_offset"].astype("int64[pyarrow]")
 
+        df = df.rename(columns={tz_col: "T_tz_name"}).astype({"T_tz_name": "string[pyarrow]"})
 
     elif kind_of_log == "ddp":
 
@@ -1357,6 +1359,18 @@ def recode_events_df(
                              # calculate count for error message
                              count = cool_events[c].map(lambda x: isinstance(x, list)).sum()
                              raise ValueError(f"{c} has {count} values with more than one entry. Only a single value is allowed for categorical, dichotomous, ordinal, ratio, and interval variables.")
+
+
+
+
+                # ------------------------------------------------------
+                # 4&half. for ratio variables, I only accept numeric values
+                # ------------------------------------------------------
+                if (this_var_schema["scale"] in ["ratio"]):
+                    cool_events[c] = cool_events[c].astype("double[pyarrow]")
+                    # Check for integers using numpy float64 - safer for NaNs and avoids pyarrow mod error
+                    if not (cool_events[c].dropna().astype("float64") % 1 != 0).any():
+                        cool_events[c] = cool_events[c].astype("int64[pyarrow]")
 
 
 

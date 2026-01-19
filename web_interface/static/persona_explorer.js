@@ -46,7 +46,7 @@ function pe_init() {
                 // If cached stats exist, load them automatically
                 pe_loadCachedStats();
             } else {
-                timestampEl.innerText = 'No cached stats. Click Recalculate.';
+                timestampEl.innerText = 'No cached stats found.';
             }
         })
         .catch(err => console.error('Error fetching stats info:', err));
@@ -73,17 +73,18 @@ function pe_loadCachedStats() {
         });
 }
 
-function pe_recalculateStats() {
-    console.log('Recalculating stats...');
+function pe_refreshStats() {
+    console.log('Refreshing stats...');
 
     const container = document.getElementById('pe-strips-container');
-    if (container) container.innerHTML = '<p style="text-align:center; color:#999;">Recalculating stats (this may take a while)...</p>';
+    if (container) container.innerHTML = '<p style="text-align:center; color:#999;">Refreshing stats...</p>';
 
     fetch('/api/persona_stats', { method: 'POST' })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
                 alert(`Error: ${data.error}`);
+                if (container) container.innerHTML = `<p style="text-align:center; color:#e63946;">Error: ${data.error}</p>`;
                 return;
             }
             pe_handleStatsData(data);
@@ -91,11 +92,14 @@ function pe_recalculateStats() {
             // Update timestamp display
             const now = new Date();
             const timestampEl = document.getElementById('pe-stats-timestamp');
-            timestampEl.innerText = `Stats from: ${now.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })} ${now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`;
+            if (timestampEl) {
+                timestampEl.innerText = `Stats loaded: ${now.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })} ${now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`;
+            }
         })
         .catch(err => {
             console.error('Fetch error:', err);
-            alert('Failed to recalculate stats.');
+            alert('Failed to refresh stats.');
+            if (container) container.innerHTML = '<p style="text-align:center; color:#e63946;">Failed to refresh stats.</p>';
         });
 }
 
@@ -103,6 +107,13 @@ function pe_handleStatsData(data) {
     console.log('Stats loaded:', data.length, 'donations');
     pe_data = data;
     window.pe_data = data;  // Keep window reference in sync
+
+    // Update count display
+    const countEl = document.getElementById('pe-stats-count');
+    if (countEl) {
+        countEl.innerText = `(${data.length} donations)`;
+    }
+
     pe_calculatePercentileRanks();
 
     // Populate donation select
@@ -130,7 +141,7 @@ function pe_calculatePercentileRanks() {
 
     PE_RADAR_METRICS.forEach(metric => {
         const valuesWithIds = pe_data.map(d => ({
-            id: d.donation_id,
+            id: d.D_donation_id,
             value: d[metric] !== null && d[metric] !== undefined ? d[metric] : 0
         }));
 

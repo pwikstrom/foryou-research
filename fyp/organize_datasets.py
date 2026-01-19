@@ -532,7 +532,7 @@ def new_merge(
         print(f"Adding 'days_since_created' column. Resulting output log DF shape {shebang.shape}")
 
     # load failed_scrapes as a set
-    failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose, consolidate = True))
+    failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose))
     shebang["scraped_fail"] = shebang["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
     
     def _safe_vector_divide(x, y):

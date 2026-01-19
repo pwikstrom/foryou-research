@@ -11,7 +11,6 @@ from ..data_service import (
 from .. import explorer_backend as explorer
 import fyp
 import fyp.data_io as data_io
-from fyp.calc_donation_stats import generate_personas, enrich_stats_with_metadata
 
 data_bp = Blueprint('data_bp', __name__)
 
@@ -631,8 +630,8 @@ def api_pca_data():
 @data_bp.route('/api/persona_stats_info', methods=['GET'])
 def api_persona_stats_info():
     if True:
-        if data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
-            mtime = data_io.getmtime(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE)
+        if data_io.exists(fyp_cf, "ddp_main", "ddp_metadata.parquet"):
+            mtime = data_io.getmtime(fyp_cf, "ddp_main", "ddp_metadata.parquet")
             timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
             return jsonify({"exists": True, "timestamp": timestamp})
         return jsonify({"exists": False, "timestamp": None})
@@ -640,67 +639,85 @@ def api_persona_stats_info():
 
 @data_bp.route('/api/persona_stats_cached', methods=['GET'])
 def api_persona_stats_cached():
-    try:
-        if not data_io.exists(fyp_cf, "ddp_main", PERSONA_STATS_CACHE_FILE):
-            return jsonify({"error": "No cached stats found. Click 'Recalculate Stats' to generate."}), 404
-        
-        print(f"Loading cached persona stats from {PERSONA_STATS_CACHE_FILE}...")
-        stats_df = data_io.load_parquet(
-            cf=fyp_cf,
-            storage_location="ddp_main",
-            filename=PERSONA_STATS_CACHE_FILE)
-        
-        records = stats_df.replace({np.nan: None}).to_dict(orient='records')
-        for rec in records:
-            for key, val in rec.items():
-                rec[key] = make_serializable(val)
-        
-        return jsonify(records)
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+    # Alias to the main stats endpoint since we no longer distinguish between cached and calculated
+    return api_persona_stats()
 
 
-@data_bp.route('/api/persona_stats', methods=['POST'])
+@data_bp.route('/api/persona_stats', methods=['POST', 'GET']) # Allow GET for convenience
 def api_persona_stats():
     try:
-        print(f"Loading global DDP dataset...")
-        events_df = data_io.load_parquet(
-            cf=fyp_cf,
-            storage_location="ddp_main",
-            filename="all_participant_events.parquet"
-        )
+        filename = "ddp_metadata.parquet"
+        if not data_io.exists(fyp_cf, "ddp_main", filename):
+             return jsonify({"error": "Persona metadata file not found."}), 404
         
-        if events_df is None or events_df.empty:
-            return jsonify({"error": "No DDP events found"}), 404
-            
-        print(f"Calculating persona stats for {len(events_df)} events...")
-        stats_df = generate_personas(events_df)
+        stats_df = None
         
+        # Load the parquet file
         try:
-            if data_io.exists(fyp_cf, "ddp_main", "all_participant_metadata.parquet"):
-                metadata_df = data_io.load_parquet(fyp_cf, "ddp_main", "all_participant_metadata.parquet")
-                print(f"Loaded {len(metadata_df)} metadata records")
-                stats_df = enrich_stats_with_metadata(fyp_cf, stats_df, metadata_df, tz_location_cache_filename=LOCATION_CACHE_FILE)
-            else:
-                print("Metadata file not found, skipping enrichment.")
+             stats_df = data_io.load_parquet(
+                cf=fyp_cf,
+                storage_location="ddp_main",
+                filename=filename
+            )
         except Exception as e:
-            print(f"Could not load metadata or enrich stats: {e}")
-            import traceback
-            traceback.print_exc()
+             # Fallback: reconstruction column by column
+             print(f"Error loading parquet with default settings: {e}")
+             import pyarrow.parquet as pq
+             primary, _, _, _ = data_io._resolve_paths(fyp_cf, "ddp_main", filename)
+             try:
+                 table = pq.read_table(primary)
+                 data = {}
+                 for i, col_name in enumerate(table.column_names):
+                     data[col_name] = table.column(i).to_pandas()
+                 stats_df = pd.DataFrame(data)
+             except Exception as e2:
+                 print(f"Fallback loading failed: {e2}")
+                 return jsonify({"error": f"Failed to load data: {str(e)} / {str(e2)}"}), 500
+
+
+        if isinstance(stats_df.index, pd.Index) and stats_df.index.name == 'D_donation_id':
+             stats_df.reset_index(inplace=True)
+
+        # Flatten MultiIndex columns (handling both Tuples and String-Tuples)
+        new_columns = []
+        import ast
         
-        stats_df = stats_df.reset_index(drop=True)
-        data_io.save_parquet(
-            cf=fyp_cf,
-            df=stats_df,
-            storage_location="ddp_main",
-            filename=PERSONA_STATS_CACHE_FILE
-        )
-        print(f"Saved persona stats cache")
+        for col in stats_df.columns:
+            col_name = str(col)
+            
+            # Case 1: Real Tuple (from pandas load)
+            if isinstance(col, tuple):
+                group, name = col
+                col_name = name if name else group
+
+            # Case 2: String representation of Tuple (from pyarrow fallback)
+            elif isinstance(col, str) and col.startswith("(") and col.endswith(")"):
+                try:
+                    val = ast.literal_eval(col)
+                    if isinstance(val, tuple):
+                        group, name = val
+                        col_name = name if name else group
+                except:
+                    pass
+            
+            # Renaming for consistency
+            if col_name == 'D_donation_id':
+                col_name = 'donation_id'
+                
+            new_columns.append(col_name)
+            
+        stats_df.columns = new_columns
         
+        # Handle duplicated columns (keep first)
+        stats_df = stats_df.loc[:, ~stats_df.columns.duplicated()]
+
+        # Frontend Compatibility Aliases
+        if 'consistency_top_2_hours' in stats_df.columns and 'consistency' not in stats_df.columns:
+            stats_df['consistency'] = stats_df['consistency_top_2_hours']
+
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')
+        
+        # Serialize
         for rec in records:
             for key, val in rec.items():
                 rec[key] = make_serializable(val)

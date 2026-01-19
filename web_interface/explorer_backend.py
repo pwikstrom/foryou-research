@@ -559,6 +559,40 @@ def get_current_stats_old(df, column_types, viz_config=None):
 
 
 
+
+def make_serializable(obj):
+    """Helper to convert non-JSON-serializable types."""
+    from datetime import datetime
+    if obj is None:
+        return None
+        
+    # Check for containers FIRST to avoid pd.isna() returning an array
+    if isinstance(obj, dict):
+        return {str(k): make_serializable(v) for k, v in obj.items()}
+
+    if isinstance(obj, np.ndarray):
+        return [make_serializable(x) for x in obj.tolist()]
+        
+    if isinstance(obj, (list, tuple)):
+        return [make_serializable(x) for x in obj]
+    
+    # Check for scalar NAs (NaN, NaT, None)
+    # This is safe now because we've handled most containers
+    try:
+        if pd.isna(obj):
+            return None
+    except:
+        pass
+
+    if isinstance(obj, (pd.Timestamp, datetime)):
+        return obj.isoformat()
+        
+    if hasattr(obj, 'tolist'):  # generic numpy scalar fallback
+        return obj.tolist()
+        
+    return obj
+
+
 def load_data(fyp_cf, study, verbose=False):
     from numpy import ndarray as np_ndarray
     from fyp.organize_datasets import create_study_recoded_dataset
@@ -612,8 +646,15 @@ def load_data(fyp_cf, study, verbose=False):
                 first_idx = df[col].first_valid_index()
                 if first_idx is not None:
                     first_val = df[col].loc[first_idx]
-                    if isinstance(first_val, (list, np_ndarray)):
+                    
+                    # Robust check using serialization helper
+                    # This handles numpy arrays, pyarrow scalars that act like lists, etc.
+                    check_val = make_serializable(first_val)
+                    
+                    if isinstance(check_val, list):
                         is_list = True
+                    #elif isinstance(first_val, (list, np_ndarray)):
+                    #    is_list = True
                     elif isinstance(first_val, str):
                         s_val = first_val.strip()
                         if s_val.startswith('[') and s_val.endswith(']'):

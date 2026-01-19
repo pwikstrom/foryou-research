@@ -7,6 +7,7 @@ Author: Patrik
 Date: 
 """
 
+import re
 import pandas as pd
 from copy import copy
 from fyp.fyp_main import initialize, extract_and_join_subkeys, clean_url, pretty_str_seconds, get_recent_files
@@ -209,8 +210,8 @@ def refine_one_raw_zeeschuimer_log(
 
 
     # rename columns
-    zeeschuimer_logs_df = zeeschuimer_logs_df.rename(columns={c:"B_"+c if not c=="item_id" else c for c in zeeschuimer_logs_df.columns}).copy()
-    zeeschuimer_logs_df = rename_columns(zeeschuimer_logs_df)
+    zeeschuimer_logs_df = zeeschuimer_logs_df.rename(columns={c:"B_"+c if not c in ["item_id","event_id"] and not re.match(r"^[A-Z]_", c) else c for c in zeeschuimer_logs_df.columns}).copy()
+    zeeschuimer_logs_df = rename_columns(zeeschuimer_logs_df.copy()).copy()
 
 
     # Sort by timestamp and reset index
@@ -236,17 +237,18 @@ def refine_one_raw_zeeschuimer_log(
 
     if verbose:
         print(f"Dropped these columns, which are not in the variable schema:\n{"\n".join(dropped_vars_str)}\nCurrent shape: {zeeschuimer_logs_df.shape}")
-    
+
+    zeeschuimer_logs_df = zeeschuimer_logs_df.copy()
+
 
     zeeschuimer_logs_df = recode_events_df(
         cf = cf,
         study_dataset = zeeschuimer_logs_df,
         drop_single_value_cols = False,
-        load_from_cache = False,
-        save_to_cache = False,
         verbose = verbose
         )
     
+
     if verbose:
         print(f"Final shape: {zeeschuimer_logs_df.shape}")
         print("------------------------------------------------\n\n")
@@ -371,7 +373,7 @@ def consolidate_zeeschuimer_logs(
 
     if top_verbose:
         print(f"Concatenating refined zeeschuimer logs...")
-    concatenated_zeeschuimer_logs = pd.concat(many_zeeschuimer_logs).drop_duplicates(subset=["item_id","T_local_timestamp","B_source_tz_name"])
+    concatenated_zeeschuimer_logs = pd.concat(many_zeeschuimer_logs).drop_duplicates(subset=["item_id","T_local_timestamp","T_tz_name"])
 
     # reset index
     concatenated_zeeschuimer_logs.reset_index(drop=True, inplace=True)
@@ -384,6 +386,11 @@ def consolidate_zeeschuimer_logs(
     memory_per_column = concatenated_zeeschuimer_logs.memory_usage(deep=True) 
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
+
+    # dropping columns that are all NA
+    check_all_na_columns = len(concatenated_zeeschuimer_logs) - concatenated_zeeschuimer_logs.isna().sum()
+    concatenated_zeeschuimer_logs = concatenated_zeeschuimer_logs.drop(check_all_na_columns[check_all_na_columns==0].index, axis=1).copy()
+
 
     if top_verbose:
         print(f"...done. Concatenated all logs into shape: {concatenated_zeeschuimer_logs.shape} and memory usage: {total_memory_mb:.2f} MB")

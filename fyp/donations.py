@@ -638,7 +638,7 @@ def generate_donation_metadata(cf, ddp_events_df, sort_by=None, verbose=False):
     Parameters
     ----------
     edf : pandas.DataFrame
-        Events DataFrame containing 'donation_id' and 'feature_name' columns.
+        Events DataFrame containing 'D_donation_id' and 'D_feature_name' columns.
     sort_by : str, optional
         Column name to sort the resulting DataFrame by. If None, sorts by 'total'.
 
@@ -780,7 +780,7 @@ def _identify_similar_donations(
     Parameters
     ----------
     new_events : pandas.DataFrame
-        DataFrame containing the new donation events. Must contain 'donation_id', 'feature_name', and 'timestamp' columns.
+        DataFrame containing the new donation events. Must contain 'D_donation_id',  'D_feature_name', and 'T_local_timestamp' columns.
     old_events : pandas.DataFrame, optional
         DataFrame containing existing donation events to compare against. If None, compares new_events against itself.
     dont_check_these_cols : list, optional
@@ -1069,6 +1069,164 @@ def load_special_donations(
 
 
     return special_ddp_events_df
+
+
+
+
+
+
+
+
+
+
+
+def simple_sample_ddp_events(
+    cf = None, 
+    study_name = None, 
+    all_ddp_events_df = None, 
+    verbose=False):
+
+    from fyp.fyp_main import initialize
+    from fyp.recode_variables import get_group_factors_from_var_schema
+
+    if cf is None:
+        cf = initialize()
+    
+    if all_ddp_events_df is None:
+        raise ValueError("[DD Sampling] all_ddp_events_df cannot be None")
+
+    # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
+    # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
+
+    group_factors = get_group_factors_from_var_schema(cf = cf, some_events_df = all_ddp_events_df, verbose=verbose)
+
+
+
+    # I'm using the same parameters as in the main sampling function
+    AGG_GROUP_SIZE_PERCENTILE_LIMITS = cf["study_defs"][study_name]["AGG_GROUP_SIZE_PERCENTILE_LIMITS"]
+    MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = cf["study_defs"][study_name]["MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION"]
+    N_SAMPLED_DATES_FROM_EACH_DONATION = cf["study_defs"][study_name]["N_SAMPLED_DATES_FROM_EACH_DONATION"]
+    N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = cf["study_defs"][study_name]["N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP"]
+
+    print("    [DD Sampling] Sampling DDP events...")
+
+    # count the number of watch events in the donation-date groups. I don't want groups without any watch events
+    donation_date_groups = all_ddp_events_df[all_ddp_events_df['D_feature_name']=="watch"].groupby(group_factors)["D_feature_name"].count()
+    if verbose:
+        print(f"    [DD Sampling] There {len(all_ddp_events_df):,} dd events in {len(donation_date_groups):,} groups before sampling")
+
+
+    # this is transforming the donation-date group percentile limits to actual values
+    donation_date_group_size_limits = donation_date_groups.describe(percentiles=AGG_GROUP_SIZE_PERCENTILE_LIMITS).loc[[f"{k:.0%}" for k in AGG_GROUP_SIZE_PERCENTILE_LIMITS]].values
+    percentile_str = "-".join([f"{k:.0%}" for k in AGG_GROUP_SIZE_PERCENTILE_LIMITS])
+    limits_str = "-".join([f"{k:,.0f}" for k in donation_date_group_size_limits])
+    if verbose:
+        print(f"    [DD Sampling] The percentile limits {percentile_str} for this study translate to {limits_str} in actual event counts")
+
+    #return donation_date_groups
+    # apply the size limits to the donation-date groups to get those that fit the criteria
+    donation_date_groups_within_size_limits = donation_date_groups[(donation_date_groups>=donation_date_group_size_limits[0]) & (donation_date_groups<donation_date_group_size_limits[1])]
+    if verbose:
+        print(f"    [DD Sampling] There are {len(donation_date_groups_within_size_limits):,} donation-date groups with event counts within the limits")
+
+
+    # for each donation, count how many dates have event counts within the limits
+    n_tiktok_dates_within_limits_per_donation = (~donation_date_groups_within_size_limits.unstack(level=0).isna()).sum()
+
+
+    # I want donations who have a considerable number of dates within this range.
+    donations_with_many_dates_within_limits = n_tiktok_dates_within_limits_per_donation[n_tiktok_dates_within_limits_per_donation>=MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION]
+
+
+    
+    if verbose:
+        print(f"    [DD Sampling] There are {len(donations_with_many_dates_within_limits):,} donations with at least {MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION} dates where the number of events is within the limits")
+
+
+    # use these identified donations to identify the donation-date groups that meet the events per date criteria
+    donation_date_groups_by_regulars = donation_date_groups_within_size_limits.unstack(1).loc[donations_with_many_dates_within_limits.index,:].stack()
+    if verbose:
+        print(f"    [DD Sampling] These donations yield {len(donation_date_groups_by_regulars):,} donation-date groups meeting the criteria")
+
+
+    selected_groups = donation_date_groups_by_regulars.reset_index()
+    selected_groups['month_str'] = selected_groups.T_local_date.map(lambda x: x.strftime("%Y-%m"))
+    selected_groups.drop(columns=[0], inplace=True)
+    selected_groups = selected_groups.groupby("month_str").apply(lambda x: x.sample(200) if len(x) > 200 else x)#.set_index(["D_donation_id", "T_local_date"])
+    selected_groups.reset_index(drop=True, inplace=True)
+    selected_groups.drop(columns=["month_str"], inplace=True)
+
+    selected_groups = selected_groups.groupby("D_donation_id").apply(lambda x: x.sample(130) if len(x) > 130 else x).set_index(["D_donation_id", "T_local_date"])
+
+
+    ddp_events_in_selected_groups = all_ddp_events_df.set_index(group_factors)
+    ddp_events_in_selected_groups = ddp_events_in_selected_groups.loc[selected_groups.index]
+    ddp_events_in_selected_groups = ddp_events_in_selected_groups.reset_index()
+    if verbose:
+        print(f"    [DD Sampling] There are {len(ddp_events_in_selected_groups):,} events in these {len(selected_groups):,} donation-date groups")
+
+
+
+
+    return ddp_events_in_selected_groups
+
+    # Sample step 1: sample a certain number of dates from each donation
+
+    # I'm first shuffling the dates for each donation (pseudo-randomly for replicability)
+    ordered_groups = (
+        donation_date_groups_by_regulars.groupby(level=0, group_keys=False)
+          .apply(lambda g: g.sample(frac=1, replace=False, random_state=42))
+    )
+
+    # then I pick the top 'N_SAMPLED_DATES_FROM_EACH_DONATION' dates from each donation
+    # this ensures that I keep the elements selected when 'N_SAMPLED_DATES_FROM_EACH_DONATION' is small,
+    # also when I pick a higher 'N_SAMPLED_DATES_FROM_EACH_DONATION' value
+    # It's $$$ to scrape and annotate videos, so I don't want to start from scratch
+    # just because I increased the sample size
+    sampled_donation_date_groups_by_regulars = ordered_groups.groupby(level=0).head(N_SAMPLED_DATES_FROM_EACH_DONATION)
+
+    if verbose:
+        print(f"    [DD Sampling] Sampling {N_SAMPLED_DATES_FROM_EACH_DONATION} dates from each donation, giving {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
+
+    # get all events in these sampled donation-date groups (non-watch events as well)
+    ddp_events_in_sampled_groups = all_ddp_events_df.set_index(group_factors)
+    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.loc[sampled_donation_date_groups_by_regulars.index]
+    ddp_events_in_sampled_groups = ddp_events_in_sampled_groups.reset_index()
+    if verbose:
+        print(f"    [DD Sampling] There are {len(ddp_events_in_sampled_groups):,} events in these {len(sampled_donation_date_groups_by_regulars):,} donation-date groups")
+
+
+
+    # Sample step 2: sample a certain number of events from each donation-date group
+
+    # I'm first shuffling the events for each donation-date group pseudo-randomly
+    ordered_events_in_groups = (
+        ddp_events_in_sampled_groups.groupby(group_factors)
+          .apply(lambda g: g.sample(frac=1, replace=False, random_state=42), include_groups=False)
+    )
+
+    # then I pick the top 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' events from each donation-date group
+    # this ensures that I keep the elements selected when 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' is small, 
+    # also when I pick a higher 'N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP' value
+    # It's $$$ to annotate videos, so I don't want to start from scratch
+    # just because I increased the sample size
+    sampled_ddp_events_in_sampled_donation_date_groups = ordered_events_in_groups.groupby(group_factors).head(N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP)
+
+    # push the grouping variables back from index into columns
+    sampled_ddp_events_in_sampled_donation_date_groups.reset_index(level=[0,1], inplace=True)
+
+    print(f"    [DD Sampling] ...done. Sampled {N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP} events from each donation-date group, yielding {len(sampled_ddp_events_in_sampled_donation_date_groups):,} events")
+
+
+    
+    return sampled_ddp_events_in_sampled_donation_date_groups
+
+
+
+
+
+
+
 
 
 

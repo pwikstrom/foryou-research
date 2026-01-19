@@ -206,36 +206,10 @@ def get_viz_config():
         
     return config
 
-def make_serializable(obj):
-    """Helper to convert non-JSON-serializable types."""
-    if obj is None:
-        return None
-        
-    # Check for containers FIRST to avoid pd.isna() returning an array
-    if isinstance(obj, dict):
-        return {str(k): make_serializable(v) for k, v in obj.items()}
 
-    if isinstance(obj, np.ndarray):
-        return [make_serializable(x) for x in obj.tolist()]
-        
-    if isinstance(obj, (list, tuple)):
-        return [make_serializable(x) for x in obj]
-    
-    # Check for scalar NAs (NaN, NaT, None)
-    # This is safe now because we've handled most containers
-    try:
-        if pd.isna(obj):
-            return None
-    except:
-        pass
+# Alias from explorer to handle serialization issues
+make_serializable = explorer.make_serializable
 
-    if isinstance(obj, (pd.Timestamp, datetime)):
-        return obj.isoformat()
-        
-    if hasattr(obj, 'tolist'):  # generic numpy scalar fallback
-        return obj.tolist()
-        
-    return obj
 
 # --- PCA Visualization Endpoints ---
 
@@ -250,6 +224,8 @@ def get_pca_df(study_name):
     if study_name in pca_df_cache:
         # Check freshness? Simple version: just return.
         return pca_df_cache[study_name]
+
+    print("Loading PCA scores for study: ", study_name)
 
     # Load file
     if True:# try:
