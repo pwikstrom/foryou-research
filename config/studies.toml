@@ -2,16 +2,23 @@
 # Study parameters: Documentation
 # ===================================================================================
 
+# TIME_ZONE (e.g. "Australia/Brisbane"): timestamps in the data donation logs are reported in local timezones without information about which timezone it is. This parameter sets the assumed timezone for these. TODO: If we go international, this needs to be adjusted so that it can handle multiple timezones.
 # MIN_DURATION: minimum watch duration in seconds, set to 0 to include all events
 # MIN_NUNIQUE_USERS: minimum number of unique users per video, set to 1 to include all events
 # START_DATE & END_DATE: Only keep events between these date - parameters exist for DDPs and for Baseline
-# SPECIAL_DONATIONS [List]: sometimes we want to focus on certain donations. This allows you to do this. It's a list of special donation IDs that are included in addition to the sampled events
 # COL_MISSING_DATA_THRES [float]: some variables from the data enrichment have a lot of null values which are not useful and might as well be dropped. This parameter controls the threshold for dropping these columns if the fraction of missing data in a column is above this threshold, the column is dropped
-# TIME_ZONE (e.g. "Australia/Brisbane"): timestamps in the data donation logs are reported in local timezones without information about which timezone it is. This parameter sets the assumed timezone for these. TODO: If we go international, this needs to be adjusted so that it can handle multiple timezones.
-# AGG_GROUP_SIZE_PERCENTILE_LIMITS (e.g. [0.25,0.75]): percentile limits for the number of events in donation-dates groups, based on the median of all donation groups. The reasoning here is that I want 'average' TikTok dates. I want to avoid dates when the user has only watched very few videos or dates when they have watched thousands. 
-# MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION: I want donations where there are this many dates within the range defined by the previous parameter (AGG_GROUP_SIZE_PERCENTILE_LIMITS).
-# N_SAMPLED_DATES_FROM_EACH_DONATION: how many dates to pick from each donation
-# N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP: how many events to pick from each donation-date group
+# INCLUDE_ZEESCHUIMER_DATA = true
+# SPECIAL_DONATIONS [List]: sometimes we want to focus on certain donations. This allows you to do this. It's a list of special donation IDs that are included in addition to the sampled events
+# INCLUDE_DONATIONS = "none" # "sample", "all", "special",or "none" (other values taken as 'none')
+# MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP = 30
+# MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP = 70
+# MIN_GROUP_COUNT_REQUIRED_PER_DONATION = 20
+# MAX_GROUP_COUNT_SELECTED_PER_DONATION = 40
+# BALANCE_GROUP_SELECTION_OVER_TIME = false
+# USER_ACCESS = ["all"]
+
+
+
 
 
 # ====================================================================================
@@ -21,131 +28,68 @@
 
 [baseline_only]
 TIME_ZONE = "Australia/Brisbane"
-MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
-MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
-DDP_START_DATE = "2024-05-15" # yyyy-mm-dd only keep events after this date
-DDP_END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
-BASELINE_START_DATE = "2024-05-15" # yyyy-mm-dd only keep events after this date
-BASELINE_END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
-SPECIAL_DONATIONS = []
+START_DATE = "2024-05-15" # yyyy-mm-dd only keep events after this date
+END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
 INCLUDE_ZEESCHUIMER_DATA = true
-INCLUDE_DONATIONS = "none" # "sample", "all", "special",or "none" (other values taken as 'none')
-COL_MISSING_DATA_THRES = 0.5
-MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 0
-AGG_GROUP_SIZE_PERCENTILE_LIMITS = []
-N_SAMPLED_DATES_FROM_EACH_DONATION = 0 #TODO: not really dynamic and flexible...
-N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 0
+INCLUDE_DONATION_DATA = false
 USER_ACCESS = ["all"]
 
 
-[aanzca2025]
+
+["small study 1"]
 TIME_ZONE = "Australia/Brisbane"
-MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
-MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
-DDP_START_DATE = "2023-01-01" # yyyy-mm-dd only keep events after this date
-DDP_END_DATE = "2025-12-31" # yyyy-mm-dd only keep events before this date
-BASELINE_START_DATE = "2024-05-15" # yyyy-mm-dd only keep events after this date
-BASELINE_END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
-SPECIAL_DONATIONS = []
+START_DATE = "2024-05-01" # yyyy-mm-dd only keep events after this date
+END_DATE = "2024-08-31" # yyyy-mm-dd only keep events before this date
 INCLUDE_ZEESCHUIMER_DATA = true
-INCLUDE_DONATIONS = "sample"  # "sample", "all", "special",or "none" (other values taken as 'none')
-COL_MISSING_DATA_THRES = 0.5
-MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
-AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
-N_SAMPLED_DATES_FROM_EACH_DONATION = 30
-N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 35
+INCLUDE_DONATION_DATA = true
+SELECTED_DONATIONS = []
+
+DONATION_SAMPLE_FRAME = "annotated" #"off", "events", "scraped", "annotated"
+MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP = 30
+MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP = 70
+MIN_GROUP_COUNT_REQUIRED_PER_DONATION = 20
+MAX_GROUP_COUNT_SELECTED_PER_DONATION = 40
+BALANCE_GROUP_SELECTION_OVER_TIME = false
 USER_ACCESS = ["all"]
 
-[everything]
-TIME_ZONE = "Australia/Brisbane"
-MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
-MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
-DDP_START_DATE = "2000-01-01" # yyyy-mm-dd only keep events after this date
-DDP_END_DATE = "2100-12-31" # yyyy-mm-dd only keep events before this date
-BASELINE_START_DATE = "2000-05-15" # yyyy-mm-dd only keep events after this date
-BASELINE_END_DATE = "2100-07-15" # yyyy-mm-dd only keep events before this date
-COL_MISSING_DATA_THRES = 0.5
-SPECIAL_DONATIONS = []
-INCLUDE_ZEESCHUIMER_DATA = true
-INCLUDE_DONATIONS = "all"  # "sample", "all", "special",or "none" (other values taken as 'none')
-#MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
-#AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
-#N_SAMPLED_DATES_FROM_EACH_DONATION = 35
-#N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
-USER_ACCESS = ["admin"]
 
-[main_sample_paper1]
+
+
+[paper_one]
 TIME_ZONE = "Australia/Brisbane"
-MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
-MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
-DDP_START_DATE = "2023-01-01" # yyyy-mm-dd only keep events after this date
-DDP_END_DATE = "2025-12-31" # yyyy-mm-dd only keep events before this date
-BASELINE_START_DATE = "2024-05-15" # yyyy-mm-dd only keep events after this date
-BASELINE_END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
-COL_MISSING_DATA_THRES = 0.5
-SPECIAL_DONATIONS = []
+START_DATE = "2023-01-01" # yyyy-mm-dd only keep events after this date
+END_DATE = "2025-12-31" # yyyy-mm-dd only keep events before this date
 INCLUDE_ZEESCHUIMER_DATA = true
-INCLUDE_DONATIONS = "sample"  # "sample", "all", "special",or "none" (other values taken as 'none')
-MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
-AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
-N_SAMPLED_DATES_FROM_EACH_DONATION = 35
-N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
+INCLUDE_DONATION_DATA = true
+SELECTED_DONATIONS = []
+
+DONATION_SAMPLE_FRAME = "events" #"off", "events", "scraped", "annotated"
+MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP = 30
+MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP = 70
+MIN_GROUP_COUNT_REQUIRED_PER_DONATION = 20
+MAX_GROUP_COUNT_SELECTED_PER_DONATION = 40
+BALANCE_GROUP_SELECTION_OVER_TIME = false
 USER_ACCESS = ["all"]
 
-[compare_dd_w_baseline]
-TIME_ZONE = "Australia/Brisbane"
-MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
-MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
-DDP_START_DATE = "2024-05-15" # yyyy-mm-dd only keep events after this date
-DDP_END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
-BASELINE_START_DATE = "2024-05-15" # yyyy-mm-dd only keep events after this date
-BASELINE_END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
-COL_MISSING_DATA_THRES = 0.5
-SPECIAL_DONATIONS = []
-INCLUDE_ZEESCHUIMER_DATA = true
-INCLUDE_DONATIONS = "all"  # "sample", "all", "special",or "none" (other values taken as 'none')
-MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 0
-AGG_GROUP_SIZE_PERCENTILE_LIMITS = []
-N_SAMPLED_DATES_FROM_EACH_DONATION = 0
-N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 0
-USER_ACCESS = ["all"]
+
 
 [chenglong]
 TIME_ZONE = "Australia/Brisbane"
-MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
-MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
-DDP_START_DATE = "2025-04-15" # yyyy-mm-dd only keep events after this date
-DDP_END_DATE = "2025-04-22" # yyyy-mm-dd only keep events before this date
-BASELINE_START_DATE = "" # yyyy-mm-dd only keep events after this date
-BASELINE_END_DATE = "" # yyyy-mm-dd only keep events before this date
-COL_MISSING_DATA_THRES = 0.5
-SPECIAL_DONATIONS = [
+START_DATE = "2025-04-15" # yyyy-mm-dd only keep events after this date
+END_DATE = "2025-04-22" # yyyy-mm-dd only keep events before this date
+INCLUDE_ZEESCHUIMER_DATA = false
+INCLUDE_DONATION_DATA = true
+SELECTED_DONATIONS = [
     'c7902493-838e-4602-a0c7-16b5ba8fba72',
     '84987fbf-b3d5-4f1d-9957-6ebad5ec6d18',
     'ae283f03-d5f7-40a4-beb3-b70e9c95aac2']
-INCLUDE_ZEESCHUIMER_DATA = false
-INCLUDE_DONATIONS = "special"  # "sample", "all", "special",or "none" (other values taken as 'none')
-MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 0
-AGG_GROUP_SIZE_PERCENTILE_LIMITS = []
-N_SAMPLED_DATES_FROM_EACH_DONATION = 0
-N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 0
 USER_ACCESS = ["researcher"]
 
-[ica2026]
+
+
+[everything]
 TIME_ZONE = "Australia/Brisbane"
-MIN_DURATION = 0 # minimum watch duration in seconds, set to 0 to include all events
-MIN_NUNIQUE_USERS = 1 # minimum number of unique users per video, set to 1 to include all events
-DDP_START_DATE = "2024-07-01" # yyyy-mm-dd only keep events after this date
-DDP_END_DATE = "2024-12-31" # yyyy-mm-dd only keep events before this date
-BASELINE_START_DATE = "2024-05-15" # yyyy-mm-dd only keep events after this date
-BASELINE_END_DATE = "2024-07-15" # yyyy-mm-dd only keep events before this date
-COL_MISSING_DATA_THRES = 0.5
-SPECIAL_DONATIONS = []
-INCLUDE_ZEESCHUIMER_DATA = false
-INCLUDE_DONATIONS = "sample" # "sample", "all", "special",or "none" (other values taken as 'none')
-MIN_TIKTOK_DATES_WITHIN_LIMITS_PER_DONATION = 20
-AGG_GROUP_SIZE_PERCENTILE_LIMITS = [0.25,0.75]
-N_SAMPLED_DATES_FROM_EACH_DONATION = 35
-N_SAMPLED_EVENTS_FROM_EACH_AGG_GROUP = 38
-USER_ACCESS = ["researcher"]
+INCLUDE_ZEESCHUIMER_DATA = true
+INCLUDE_DONATION_DATA = true
+USER_ACCESS = ["admin"]
 

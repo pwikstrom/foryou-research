@@ -20,6 +20,7 @@ from datetime import datetime
 import subprocess
 
 import textwrap
+import datetime as _dt
 
 
 
@@ -699,31 +700,34 @@ def load_zeeschuimer_data(
         cf = initialize()
     
 
-    BASELINE_START_DATE = cf["study_defs"][study_name]["BASELINE_START_DATE"]
-    if isinstance(BASELINE_START_DATE, str):
-        BASELINE_START_DATE = datetime.strptime(BASELINE_START_DATE, "%Y-%m-%d")
+    START_DATE = cf["study_defs"][study_name].get("START_DATE","1970-01-01")
+    if isinstance(START_DATE, str):
+        START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
     
-    BASELINE_END_DATE = cf["study_defs"][study_name]["BASELINE_END_DATE"]
-    if isinstance(BASELINE_END_DATE, str):
-        BASELINE_END_DATE = datetime.strptime(BASELINE_END_DATE, "%Y-%m-%d")
+    END_DATE = cf["study_defs"][study_name].get("END_DATE","2099-12-31")
+    if isinstance(END_DATE, str):
+        END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
+
 
     print("    [Zeeschuimer] Loading data for study...")
 
     if all_data is None:
-        baseline_log = data_io.load_parquet(cf, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
+        zee_data = data_io.load_parquet(cf, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
     else:
-        baseline_log = all_data.copy()
+        zee_data = all_data.copy()
 
     if verbose:
-        print(f"    [Zeeschuimer] Data loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.T_local_timestamp.min():%Y-%m-%d} -- {baseline_log.T_local_timestamp.max():%Y-%m-%d}")
+        date_range = f"{zee_data.T_local_timestamp.min():%Y-%m-%d} -- {zee_data.T_local_timestamp.max():%Y-%m-%d}"
+        print(f"    [Zeeschuimer] Data loaded (and added session stats): {zee_data.shape[0]:,} rows w date range {date_range}")
     
 
-    baseline_log = baseline_log[(baseline_log.T_local_timestamp>=BASELINE_START_DATE) & (baseline_log.T_local_timestamp<=BASELINE_END_DATE)].copy()
+    zee_data = zee_data[(zee_data.T_local_timestamp>=START_DATE) & (zee_data.T_local_timestamp<=END_DATE)].copy()
+    date_range = f"{zee_data.T_local_timestamp.min():%Y-%m-%d} -- {zee_data.T_local_timestamp.max():%Y-%m-%d}"
     
-    print(f"    [Zeeschuimer] ...done. Selected date range: {baseline_log.T_local_timestamp.min():%Y-%m-%d} -- {baseline_log.T_local_timestamp.max():%Y-%m-%d}. Observations: {baseline_log.shape[0]:,}")
+    print(f"    [Zeeschuimer] ...done. Selected date range: {date_range}. Observations: {zee_data.shape[0]:,}")
     
 
-    return baseline_log
+    return zee_data
 
 
 
