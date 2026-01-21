@@ -73,6 +73,12 @@ def _load_schema_metadata(metadata):
                     dname = str(row['display_name'])
                     if dname and dname.lower() != 'nan' and dname.strip():
                         schema_map[var_name]['display_name'] = dname.strip()
+
+                # Add Display Priority (for filtering in viewer)
+                if 'web_display_prio' in row:
+                    prio = row['web_display_prio']
+                    if pd.notna(prio):
+                         schema_map[var_name]['web_display_prio'] = float(prio)
             
             metadata['schema_map'] = schema_map
                 

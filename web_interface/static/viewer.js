@@ -512,9 +512,15 @@ function renderMetadata(item) {
     const generalSection = "General";
 
     Object.keys(item).forEach(key => {
+        // FILTER: Only show if BOTH display_name and web_display_prio are present
+        const schema = schemaMap[key];
+        if (!schema || !schema.display_name || schema.web_display_prio === undefined) {
+            return;
+        }
+
         let section = generalSection;
-        if (schemaMap[key] && schemaMap[key].section) {
-            section = schemaMap[key].section;
+        if (schema.section) {
+            section = schema.section;
             if (!section || section.trim() === "") section = generalSection;
         }
 
