@@ -185,7 +185,7 @@ def initialize(
     where_to_start = toml.load(os.path.join(abs_project_root_path,"config","core.toml"))
 
     config_path = os.path.join(abs_project_root_path,"config",where_to_start["core"]["config_fn"])
-    study_defs_path = os.path.join(abs_project_root_path,"config",where_to_start["core"]["study_defs_fn"])
+
     var_schema_path = os.path.join(abs_project_root_path, "config", where_to_start["core"]["var_schema_fn"])
 
     # Load main config
@@ -195,11 +195,7 @@ def initialize(
     # Load variable schema
     cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
 
-    # Load study definitions
-    study_defs = toml.load(study_defs_path)
-    for study_name in study_defs.keys():
-        study_defs[study_name]["STUDY_NAME"] = study_name
-    cf["study_defs"] = study_defs
+
 
 
 
@@ -242,7 +238,7 @@ def initialize(
     cf["paths"]["zeeschuimer"] = os.path.join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
     cf["paths"]["zeeschuimer_raw"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")
     cf["paths"]["zeeschuimer_refined"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
-    cf["paths"]["zeeschuimer_main"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_main")
+    #cf["paths"]["zeeschuimer_main"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_main")
 
     # paths to ddp data
     cf["paths"]["ddp"] = os.path.join(cf["paths"]["local_data"],"activity_data", "ddp")
@@ -261,10 +257,13 @@ def initialize(
 
     # other paths
     cf["paths"]["recoded"] = os.path.join(cf["paths"]["local_data"], "recoded")
-    cf["paths"]["exports"] = os.path.join(cf["paths"]["local_data"], "exports")
+    #cf["paths"]["exports"] = os.path.join(cf["paths"]["local_data"], "exports")
     cf["paths"]["archive"] = os.path.join(cf["paths"]["local_data"], "archive")
     cf["paths"]["users"] = os.path.join(cf["paths"]["local_data"], "users") 
     cf["paths"]["cache"] = os.path.join(cf["paths"]["local_data"], "cache") 
+    cf["paths"]["studies"] = os.path.join(cf["paths"]["local_data"], "studies") 
+
+ 
     
     cf["paths"]["temp"] = "/tmp/fyp/"
     os.makedirs(cf["paths"]["temp"], exist_ok=True)
@@ -306,6 +305,22 @@ def initialize(
     # create missing local folders - note that this function first checks relevant flags and
     # only creates folders if needed 
     _create_local_dirs(cf, verbose=verbose)
+
+    
+    # Load study definitions using data_io
+    # This must be done after GCS setup so data_io works correctly if using GCS
+    study_defs_fn = where_to_start["core"]["study_defs_fn"]
+    
+    study_defs = data_io.load_json(cf, "studies", study_defs_fn)
+    if study_defs:
+        for study_name in study_defs.keys():
+            study_defs[study_name]["STUDY_NAME"] = study_name
+        cf["study_defs"] = study_defs
+        if verbose:
+            print(f"{len(study_defs)} study definitions loaded")
+    else:
+        print(f"Warning: Failed to load study definitions from {study_defs_fn}")
+        cf["study_defs"] = {}
 
     return cf
 

@@ -554,7 +554,7 @@ def load_json(cf, storage_location, filename, verbose = False):
             else:
                  if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
-            # Local Primary
+            # Local from local
             with open(primary, 'r') as file:
                 return load(file)
                 

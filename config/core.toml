@@ -4,5 +4,5 @@
 [core]
 
 config_fn = "config.toml" 
-study_defs_fn = "studies.toml"
+study_defs_fn = "studies.json"
 var_schema_fn = "var_schema.csv"
