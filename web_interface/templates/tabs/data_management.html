@@ -1,0 +1,190 @@
+<div id="data_management" class="tab-pane">
+    <div class="control-bar"
+        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>Data Management: Study Definitions</h2>
+        {% if user.is_admin() %}
+        <button class="action-btn" onclick="openNewStudyModal()">Define new study</button>
+        {% endif %}
+    </div>
+
+    <table class="data-table" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+        <thead>
+            <tr style="border-bottom: 2px solid #555;">
+                <th style="width: 30px; padding: 10px;"></th>
+                <th style="text-align: left; padding: 10px;">Study Name</th>
+                <th style="text-align: left; padding: 10px;">Start Date</th>
+                <th style="text-align: left; padding: 10px;">End Date</th>
+                <th style="text-align: right; padding: 10px;">Unique Donations</th>
+                <th style="text-align: right; padding: 10px;">Unique Videos</th>
+                <th style="text-align: right; padding: 10px;">Scraped</th>
+                <th style="text-align: right; padding: 10px;">Annotated</th>
+                <th style="text-align: right; padding: 10px;">Last Updated</th>
+                <th style="padding: 10px;">Actions</th>
+            </tr>
+        </thead>
+        <tbody id="studies_table_body">
+            <!-- Rows injected by JS -->
+        </tbody>
+    </table>
+
+    <!-- New Study Modal -->
+    <div id="newStudyModal" class="modal"
+        style="display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div class="modal-content"
+            style="background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 50%;">
+            <span class="close" onclick="closeNewStudyModal()"
+                style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            <h2>Define New Study</h2>
+            <div class="form-group">
+                <label>Study Name (Unique):</label>
+                <input type="text" id="new_study_name" class="control-input" style="width: 100%;">
+            </div>
+            <div style="margin-top: 20px; text-align: right;">
+                <button class="action-btn" onclick="createStudy()">Create</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Template for Row Details (Hidden) -->
+<template id="study_detail_template">
+    <tr class="detail-row" style="background-color: #2d2d30; display: none;">
+        <td colspan="10" style="padding: 30px;">
+            <div class="study-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+                <!-- Column 1 -->
+                <div>
+                    <div class="form-group-row">
+                        <label title="yyyy-mm-dd only include events after this date">START_DATE <i
+                                class="info-icon">ℹ️</i></label>
+                        <input type="text" data-field="START_DATE" class="control-input">
+                    </div>
+                    <div class="form-group-row">
+                        <label title="yyyy-mm-dd only include events before this date">END_DATE <i
+                                class="info-icon">ℹ️</i></label>
+                        <input type="text" data-field="END_DATE" class="control-input">
+                    </div>
+                    <div class="form-group-row">
+                        <label title="DEFAULT: true">INCLUDE_ZEESCHUIMER_DATA <i class="info-icon">ℹ️</i></label>
+                        <select data-field="INCLUDE_ZEESCHUIMER_DATA" class="control-input">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    <div class="form-group-row">
+                        <label title="DEFAULT: true">INCLUDE_DONATION_DATA <i class="info-icon">ℹ️</i></label>
+                        <select data-field="INCLUDE_DONATION_DATA" class="control-input">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    <div class="form-group-row" style="align-items: flex-start;">
+                        <label title="User Access List">USER_ACCESS <i class="info-icon">ℹ️</i></label>
+                        <div class="checkbox-group" data-field-group="USER_ACCESS" style="text-align: right;">
+                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="admin">
+                                Admin</label>
+                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox"
+                                    value="researcher"> Researcher</label>
+                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="viewer">
+                                Viewer</label>
+                        </div>
+                    </div>
+                </div>
+                <!-- Column 2 -->
+                <div>
+                    <div class="form-group-row">
+                        <label
+                            title="Control if and how donations are sampled: off, events, scraped, annotated">DONATION_SAMPLE_FRAME
+                            <i class="info-icon">ℹ️</i></label>
+                        <select data-field="DONATION_SAMPLE_FRAME" class="control-input"
+                            onchange="toggleSamplingOptions(this)">
+                            <option value="off">off</option>
+                            <option value="events">events</option>
+                            <option value="scraped">scraped</option>
+                            <option value="annotated">annotated</option>
+                        </select>
+                    </div>
+
+                    <div id="sampling-options-container">
+                        <div class="form-group-row">
+                            <label
+                                title="groups w less than this number of events are excluded [DEFAULT: 10]">MIN_EVENT_COUNT...
+                                <i class="info-icon">ℹ️</i></label>
+                            <input type="number" data-field="MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP"
+                                class="control-input">
+                        </div>
+                        <div class="form-group-row">
+                            <label
+                                title="groups w more than this number of events are downsampled [DEFAULT: 100]">MAX_EVENT_COUNT...
+                                <i class="info-icon">ℹ️</i></label>
+                            <input type="number" data-field="MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP"
+                                class="control-input">
+                        </div>
+                        <div class="form-group-row">
+                            <label
+                                title="donations w less than this number of accepted groups are excluded [DEFAULT: 10]">MIN_GROUP_COUNT...
+                                <i class="info-icon">ℹ️</i></label>
+                            <input type="number" data-field="MIN_GROUP_COUNT_REQUIRED_PER_DONATION"
+                                class="control-input">
+                        </div>
+                        <div class="form-group-row">
+                            <label
+                                title="donations w more than this number of accepted groups are downsampled [DEFAULT: 100]">MAX_GROUP_COUNT...
+                                <i class="info-icon">ℹ️</i></label>
+                            <input type="number" data-field="MAX_GROUP_COUNT_SELECTED_PER_DONATION"
+                                class="control-input">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group" style="margin-top: 20px;">
+                <label title="List of specific donation IDs to include. Leave empty for all."
+                    style="display: block; margin-bottom: 8px;">SELECTED_DONATIONS <i class="info-icon">ℹ️</i></label>
+                <textarea data-field="SELECTED_DONATIONS" class="control-input" rows="3" placeholder="[]"></textarea>
+            </div>
+
+            <style>
+                /* Scoped styles for this template's use */
+                .form-group-row {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 20px;
+                }
+
+                .form-group-row label {
+                    flex: 1;
+                    text-align: left;
+                    margin-right: 15px;
+                    color: #ccc;
+                }
+
+                .form-group-row .control-input {
+                    flex: 1;
+                    max-width: 50%;
+                    /* Box on the right */
+                    text-align: right;
+                    /* text inside box? or box alignment? user said "boxes to be right aligned" */
+                }
+
+                /* Ensure inputs themselves align right if desired, or just the element */
+                .form-group-row input,
+                .form-group-row select {
+                    /* width: 100%; taken by flex */
+                }
+            </style>
+
+            <div style="margin-top: 30px; display: flex; justify-content: space-between;">
+                {% if user.is_admin() or user.role == 'researcher' %}
+                <button class="action-btn" onclick="saveStudy(this)">Save Changes</button>
+                {% endif %}
+
+                {% if user.is_admin() %}
+                <button class="action-btn" style="background-color: #dc3545;" onclick="archiveStudy(this)">Archive
+                    Study</button>
+                {% endif %}
+            </div>
+        </td>
+    </tr>
+</template>
+
+<script src="/static/js/data_management.js"></script>

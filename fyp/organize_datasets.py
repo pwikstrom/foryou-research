@@ -55,17 +55,28 @@ def load_study_datasets(
         tutti_data = {}
         cached_core_datasets = {}
         for k in ['scrape','machine_annotations','donations','zeeschuimer']:
-            if data_io.exists(cf, "cache", f"core_{k}.parquet"):
+            tutti_data[k] = None
 
+            # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
+            if data_io.exists(cf, "cache", f"core_{k}.parquet"):
                 parquet_study_name = data_io.find_key_value_in_pq_metadata(cf=cf, storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
+                print(f"Found a cached version of '{k}' core dataset for study '{parquet_study_name}'")
                 if parquet_study_name == study_name or parquet_study_name == 'everything':
                     if verbose:
                         print(f"    [Core datasets] Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
                     cached_core_datasets[k] = parquet_study_name
                     tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="cache", filename=f"core_{k}.parquet")
-                else:
-                    pass
-                    #print(f"    [Core datasets] Cached '{k}' core dataset for study '{parquet_study_name}' does not match requested study name '{study_name}'. Getting the data from the main storage instead.")
+
+
+            # if no dataset was loaded from cache and the cache and main storage are at different locations, then load everything from
+            #  main storage and save to cache. It will save time later since this can be used for all studies
+            if tutti_data[k] is None and cf['data_io']['use_gcs_for_data']==True and cf['data_io']['use_gcs_for_cache']==False:
+                print(f"Loading core dataset '{k}' from main storage and saving to cache")
+                tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="recoded", filename=f"{k}_recoded.parquet")
+                print(f"Saving core dataset '{k}' to cache")
+                tutti_data[k].attrs["study_name"] = 'everything'
+                data_io.save_parquet(cf=cf, df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
+
                 
     elif len(all_datasets) > 0:
         tutti_data = deepcopy(all_datasets)
@@ -192,7 +203,7 @@ def load_study_datasets(
         return total_memory_mb
 
     # save the core datasets to cache if requested
-    if save_to_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
+    """if save_to_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         t1 = _dt.datetime.now()
         if verbose:
             print("    [Core datasets] Saving datasets to cache...")
@@ -204,7 +215,7 @@ def load_study_datasets(
             tutti_data[k].attrs["study_name"] = study_name
             data_io.save_parquet(cf=cf, df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
         if verbose:
-            print(f"    [Core datasets] ...done. (Took me {(_dt.datetime.now() - t1).total_seconds():.1f} seconds)")
+            print(f"    [Core datasets] ...done. (Took me {(_dt.datetime.now() - t1).total_seconds():.1f} seconds)")"""
 
     if verbose:
         print("    [Core datasets] Datasets:")
