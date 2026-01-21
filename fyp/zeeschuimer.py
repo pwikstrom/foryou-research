@@ -326,6 +326,7 @@ def refine_and_save_all_raw_zeeschuimer_logs(cf = None, verbose=False):
 def consolidate_zeeschuimer_logs(
     cf = None,
     force_consolidation: bool = False,
+    return_saved_data: bool = True,
     verbose = False):
 
     if cf is None:
@@ -355,17 +356,21 @@ def consolidate_zeeschuimer_logs(
         cf=cf,
         storage_location="zeeschuimer_refined",
         return_absolute_path=False,
-        verbose=False)
+        verbose=True)
     refined_zeeschuimer_files = [u for u in refined_zeeschuimer_files if u.endswith(".parquet")]
 
 
     latest_filename_list = dataset_meta.get("zeeschuimer", {}).get("filenames", [])
-    if not force_consolidation and latest_filename_list == refined_zeeschuimer_files:
+
+    if not force_consolidation and set(refined_zeeschuimer_files) == set(latest_filename_list):
         if top_verbose:
-            print("No new refined zeeschuimer files found. No need to consolidate. Returning existing file.")
-        return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="zeeschuimer_recoded.parquet")
+            print("No new refined zeeschuimer files found. No need to consolidate.")
+            if return_saved_data:
+                if verbose: print("Returning existing file.")
+                return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="zeeschuimer_recoded.parquet")
+        return False, None
     
- 
+
 
     # load and concatenate all refined files
     if top_verbose:

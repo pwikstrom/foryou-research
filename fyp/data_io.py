@@ -338,6 +338,8 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
                      files = [f"gs://{bucket_name}/{prefix}{f}" for f in files]
             else:
                  raise ValueError("GCS bucket not initialized for listdir")
+
+            if verbose: print(f"    [DATA_IO] Listed {len(files)} files in GCS storage '{storage_location}'")
                  
         except Exception as e:
             if verbose: print("    [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
@@ -357,7 +359,7 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
         if return_absolute_path:
             files = [join(local_dir, f) for f in files]
 
-    if verbose: print(f"    [DATA_IO] Listed {len(files)} files in local storage '{storage_location}'")
+        if verbose: print(f"    [DATA_IO] Listed {len(files)} files in local storage '{storage_location}'")
 
     return files
 
@@ -762,7 +764,14 @@ from concurrent.futures import ThreadPoolExecutor
 # Create a global lock object
 file_lock = threading.Lock()
 
-def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = False):
+def save_parquet(
+    cf: dict, 
+    df: pd.DataFrame, 
+    storage_location: str, 
+    filename: str, 
+    asyncronous: bool = False,
+    verbose: bool = False,
+    ):
     """
     Save a dataframe to the given path.
     Supports GCS direct write and Parallel Save (GCS + Local).
@@ -832,10 +841,13 @@ def save_parquet(cf, df: pd.DataFrame, storage_location, filename, verbose = Fal
                 if verbose:
                     print(f"    [DATA_IO ASYNC] Finished save to {path}. (unlocked)")
 
-        executor = ThreadPoolExecutor(max_workers=2)
+        if asyncronous:
+            executor = ThreadPoolExecutor(max_workers=2)
 
-        future = executor.submit(safe_save, this_df.copy(), primary)
-        future.add_done_callback(alert_finished)
+            future = executor.submit(safe_save, this_df.copy(), primary)
+            future.add_done_callback(alert_finished)
+        else:
+            safe_save(this_df.copy(), primary)
 
     else:
         this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=my_compression_level)

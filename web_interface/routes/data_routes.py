@@ -104,6 +104,7 @@ def api_explorer_studies():
         storage_location="cache",
         filename="_recoded.parquet",
         ):
+        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%does this ever happen?")
         recoded_files = [fn for fn in data_io.listdir(cf=fyp_cf, storage_location="cache") if fn.endswith("_recoded.parquet")]
         for fn in recoded_files:
             study_name = fn.replace("_recoded.parquet", "")
@@ -194,7 +195,7 @@ def api_explorer_metadata():
         
         # Inject dynamic User Tags metadata if missing from cache
         if 'User Tags' in col_types and 'User Tags' not in metadata:
-             print("    Injecting dynamic User Tags metadata")
+             print("    Adding dynamic User Tags metadata")
              if 'User Tags' in df.columns:
                  dynamic_meta = explorer.get_metadata(df[['User Tags']], {'User Tags': 'list'})
                  metadata.update(dynamic_meta)
@@ -210,7 +211,7 @@ def api_explorer_metadata():
 
         return jsonify(make_serializable(metadata))
 
-    print(f"    No cached metadata for {study}, calculating...")
+    print(f"    No cached explorer metadata for '{study}', calculating...")
     metadata = explorer.get_metadata(df, col_types)
     
     # Ensure User Tags is in filter_priority if it exists (for non-cached path)
@@ -274,7 +275,7 @@ def api_explorer_filter():
     # Selective Calculation Logic
     trigger_slice = data.get("trigger_slice") # 1, 2, or None (both)
 
-    # Optimization: Load cached metadata to potentially reuse total_stats
+    # Load cached metadata to potentially reuse total_stats
     cached_metadata = {}
     try:
         if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study}_explorer_metadata.json"):
@@ -290,7 +291,7 @@ def api_explorer_filter():
         is_empty_filters = (not filters) and (not search_query)
         
         if is_empty_filters and 'total_stats' in cached_metadata:
-            print("    Optimization: Using cached total_stats for S1")
+            print("    Using cached total_stats for Slice 1")
             result['stats'] = cached_metadata['total_stats']
             result['count'] = len(df)
             
@@ -313,13 +314,13 @@ def api_explorer_filter():
         filters2 = data.get("filters2", {})
         search_query2 = data.get("search_query2")
         
-        # Optimization: If filters are identical to S1 and S1 was just calculated, reuse result
+        # If filters are identical to S1 and S1 was just calculated, reuse result
         # This handles the initial load case where both are empty/default
         is_identical = (filters == filters2) and (search_query == search_query2)
         s1_available = (trigger_slice is None or trigger_slice == 1) and 'stats' in result
         
         if is_identical and s1_available:
-            print("    Optimization: S2 identical to S1, reusing stats")
+            print("    Slice 2 identical to Slice 1, reusing stats")
             result['stats2'] = result['stats']
             result['count2'] = result['count']
         else:
@@ -327,7 +328,7 @@ def api_explorer_filter():
             is_empty_filters2 = (not filters2) and (not search_query2)
             
             if is_empty_filters2 and 'total_stats' in cached_metadata:
-                 print("    Optimization: Using cached total_stats for S2")
+                 print("    Using cached total_stats for Slice 2")
                  result['stats2'] = cached_metadata['total_stats']
                  result['count2'] = len(df)
             else:
@@ -569,7 +570,7 @@ def api_pca_metadata():
 
     interpretations = {}
     try:
-        inter_path = f"{study}_COMP_INTERPRETATIONS.json"
+        inter_path = f"{study}_comp_interpretations.json"
         interpretations = data_io.load_json(fyp_cf, "cache", inter_path, verbose=False)
     except Exception as e:
         print(f"Error loading interpretations: {e}")

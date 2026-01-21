@@ -896,6 +896,7 @@ def _identify_similar_donations(
 def consolidate_ddp_logs(
     cf: dict | None = None,
     force_consolidation: bool = False,
+    return_saved_data: bool = True,
     verbose: bool = False,
 ) -> tuple[bool, pd.DataFrame]:
     """
@@ -954,12 +955,15 @@ def consolidate_ddp_logs(
     else:
         dataset_meta = {"donations": {"filenames": []}}
 
-
     latest_filename_list = dataset_meta.get("donations", {}).get("filenames", [])
-    if not force_consolidation and latest_filename_list == refined_ddp_files:
+    if not force_consolidation and set(latest_filename_list) == set(refined_ddp_files):
+
         if top_verbose:
-            print("No new refined DDP files found. No need to consolidate. Returning existing file.")
-        return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="donations_recoded.parquet")
+            print("No new refined DDP files found. No need to consolidate.")
+            if return_saved_data:
+                if verbose: print("Returning existing file.")
+                return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="donations_recoded.parquet")
+        return False, None
     
  
 

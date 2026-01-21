@@ -739,8 +739,11 @@ def download_videos_loop(
 def consolidate_and_save_scrape_data(
     cf: dict = None, 
     force_consolidation: bool = False,
+    return_saved_data: bool = True,
     verbose: bool = False,
     ):
+
+
     if cf is None:
         cf = initialize()
 
@@ -767,10 +770,14 @@ def consolidate_and_save_scrape_data(
             files_to_concatenate.append(fn)
 
     latest_filename_list = dataset_meta.get("scrape", {}).get("filenames", [])
-    if not force_consolidation and latest_filename_list == files_to_concatenate:
+    if not force_consolidation and set(latest_filename_list) == set(files_to_concatenate):
         if top_verbose:
-            print("No new scrape files found. No need to consolidate. Returning existing file.")
-        return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="scrape_recoded.parquet")
+            print("No new scrape files found. No need to consolidate.")
+            if return_saved_data:
+                if verbose: print("Returning existing file.")
+                return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="scrape_recoded.parquet")
+        return False, None
+
     
     # ---------------------------------------------------------------
     if top_verbose:

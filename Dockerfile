@@ -7,6 +7,16 @@ ENV PYTHONUNBUFFERED=1
 # 3. Create the app directory
 WORKDIR /app
 
+# Install the C compiler and build tools
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    cargo \
+    rustc \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip
+
 # 4. Install dependencies
 # We copy this first to leverage Docker caching (builds are faster later)
 COPY requirements312.txt .

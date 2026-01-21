@@ -1493,6 +1493,7 @@ def refine_and_save_all_raw_annotation_files(cf = None, verbose = False, noteboo
 def consolidate_and_save_refined_annotations(
     cf = None,
     force_consolidation = False,
+    return_saved_data = True,
     verbose = False,
     ):
 
@@ -1528,10 +1529,13 @@ def consolidate_and_save_refined_annotations(
             files_to_concatenate.append(fn)
 
     latest_filename_list = dataset_meta.get("machine_annotations", {}).get("filenames", [])
-    if not force_consolidation and latest_filename_list == files_to_concatenate:
+    if not force_consolidation and set(latest_filename_list) == set(files_to_concatenate):
         if top_verbose:
-            print("No new refined machine annotations files found. No need to consolidate. Returning existing file.")
-        return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="machine_annotations_recoded.parquet")
+            print("No new refined machine annotations files found. No need to consolidate.")
+            if return_saved_data:
+                if verbose: print("Returning existing file.")
+                return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="machine_annotations_recoded.parquet")
+        return False, None
     
  
     # ---------------------------------------------------------------

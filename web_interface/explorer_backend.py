@@ -32,8 +32,6 @@ def load_data_old(fyp_cf, study, verbose=False):
         df = create_study_recoded_dataset(
             cf = fyp_cf,
             study_name = study,
-            load_from_cache = True,
-            save_to_cache = True,
             verbose = verbose
         )
         print("@@ Back after finalising the recoding process. I will now resume loading the data.")
@@ -603,11 +601,15 @@ def load_data(fyp_cf, study, verbose=False):
         df = create_study_recoded_dataset(
             cf = fyp_cf,
             study_name = study,
-            load_from_cache = True,
-            save_to_cache = True,
             verbose = verbose
         )
-        print("@@ Back after finalising the recoding process. I will now resume loading the data.")
+        print("@@ Back after finalising the recoding process. I will now resume loading the data. (#606)")
+        df = data_io.load_parquet(
+            cf=fyp_cf,
+            storage_location="cache",
+            filename=f"{study}_recoded.parquet",
+            verbose=verbose,
+            )
 
     if df is None:
         print("    ERROR: This process cannot run without a study dataset. Process failed.")

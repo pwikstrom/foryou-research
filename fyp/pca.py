@@ -653,8 +653,6 @@ def calculate_scaled_pca_scores(
         study_recoded_dataset = create_study_recoded_dataset(
             cf = cf,
             study_name = study_name,
-            load_from_cache = True,
-            save_to_cache = True,
             verbose = verbose
         )
         print("@@ Back after created recoded dataset for this study. I will now resume the PCA analysis.")

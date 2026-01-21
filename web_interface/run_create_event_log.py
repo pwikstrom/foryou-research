@@ -26,8 +26,6 @@ def main():
         organize_datasets.create_study_recoded_dataset(
             cf = None,
             study_name = args.study_name,
-            load_from_cache = True,
-            save_to_cache = True,
             verbose = False
             )
         print("Process completed successfully.")

@@ -197,7 +197,7 @@ def load_study_datasets(
         if verbose:
             print("    [Core datasets] Saving datasets to cache...")
         for k in tutti_data:
-            if k in cached_core_datasets and cached_core_datasets[k] == 'everything':
+            if k in cached_core_datasets and cached_core_datasets[k] in ['everything', study_name]:
                 if verbose:
                     print(f"    [Core datasets] Cached 'everything' dataset for '{k}' already exists. No need to replace it with this dataset.")
                 continue
@@ -480,7 +480,7 @@ def update_enrichment_status(
 
 
 
-def consolidate_and_save_activity_logs(cf = None, force_consolidation=False, verbose=False):
+def _consolidate_and_save_activity_logs(cf = None, force_consolidation=False, verbose=False):
 
     if cf is None:
         cf = initialize()
@@ -490,6 +490,10 @@ def consolidate_and_save_activity_logs(cf = None, force_consolidation=False, ver
     print("\n*** Donations")
     new_d, d1 = consolidate_ddp_logs(cf = cf, force_consolidation=force_consolidation, verbose = verbose)
 
+    # I need all columns in both datasets. When concatenating, the columns will be created with null values.
+    # But sometimes the separate datasets will be used on its own. And in those situations I need to match
+    # up the columns as I'm doing here. Previously I had some idea that the new columns should not be NA,
+    # which is why the code is a bit complex. I've kept it since I might change my mind again.  
     if new_z or new_d:
         print("\nMatching up columns between zeeschuimer and donation data...")
         for c in set(z1.columns) | set(d1.columns):
@@ -501,7 +505,7 @@ def consolidate_and_save_activity_logs(cf = None, force_consolidation=False, ver
                 else:
                     if verbose:
                         print(f"    Adding {c} to z1 | string")
-                    z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
+                    z1[c] = pd.Series(pd.NA, index=z1.index, dtype="string[pyarrow]")
             if not c in d1.columns:
                 if pd.api.types.is_numeric_dtype(z1[c]):
                     if verbose:
@@ -510,7 +514,7 @@ def consolidate_and_save_activity_logs(cf = None, force_consolidation=False, ver
                 else:
                     if verbose:
                         print(f"    Adding {c} to d1 | string")
-                    d1[c] = pd.Series("DDP", index=d1.index, dtype="string[pyarrow]")
+                    d1[c] = pd.Series(pd.NA, index=d1.index, dtype="string[pyarrow]")
         print(f"...done matching columns Zeeshuimer shape {z1.shape} and DDP shape {d1.shape}")
 
     if new_z:
@@ -540,7 +544,7 @@ def consolidate_fyp_core_data(cf = None, force_consolidation=False, verbose=Fals
     if cf is None:
         cf = initialize()
 
-    (new_zeeschuimer_logs, zeeschuimer_logs), (new_ddp_logs, ddp_logs) = consolidate_and_save_activity_logs(cf=cf, 
+    (new_zeeschuimer_logs, zeeschuimer_logs), (new_ddp_logs, ddp_logs) = _consolidate_and_save_activity_logs(cf=cf, 
                                                                                                             force_consolidation=force_consolidation,
                                                                                                             verbose=verbose)
     print("\n*** Annotations")
@@ -648,13 +652,15 @@ def new_merge(
     if save_to_cache:
         t1 = _dt.datetime.now()
         if verbose:
-            print("  Saving the '{study_name}' dataset to cache...")
+            print(f"  Saving the '{study_name}' dataset to cache...")
         shebang.attrs['study_name'] = study_name
         data_io.save_parquet(
             cf=cf,
             df=shebang,
             storage_location="cache",
-            filename=f"{study_name}_recoded.parquet")
+            filename=f"{study_name}_recoded.parquet",
+            asyncronous=False,
+            verbose=verbose)
         #shebang.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_recoded.parquet"), engine='pyarrow')
         if verbose:
             print(f"  ...done. Time taken to save datasets to cache: {(_dt.datetime.now() - t1).total_seconds():.1f} seconds")
