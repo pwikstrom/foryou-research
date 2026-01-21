@@ -14,8 +14,8 @@ import fyp.data_io as data_io
 
 data_bp = Blueprint('data_bp', __name__)
 
-LOCATION_CACHE_FILE = 'location_timezone_cache.json'
-PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
+# LOCATION_CACHE_FILE = 'location_timezone_cache.json'
+# PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
 
 
 def _load_schema_metadata(metadata):

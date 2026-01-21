@@ -81,7 +81,7 @@ def load_study_datasets(
     # --------------------------------------------------------------------
 
     # if zeeschuimer data is to be included in the analysis
-    if cf["study_defs"][study_name].get("INCLUDE_ZEESCHUIMER_DATA",False):
+    if cf["study_defs"][study_name].get("INCLUDE_ZEESCHUIMER_DATA",True):
         tutti_data["zeeschuimer"] = load_zeeschuimer_data(cf = cf, study_name = study_name, all_data = tutti_data.get("zeeschuimer", None), verbose=verbose)
     # if it should not be included, remove it from the dictionary if it exists
     elif "zeeschuimer" in tutti_data:
@@ -89,7 +89,7 @@ def load_study_datasets(
 
 
     # if donation data is to be included in the analysis
-    if cf["study_defs"][study_name].get("INCLUDE_DONATION_DATA",False):
+    if cf["study_defs"][study_name].get("INCLUDE_DONATION_DATA",True):
         tutti_data["donations"] = load_donation_data(cf = cf, study_name = study_name, all_data = tutti_data.get("donations", None), verbose=verbose)
     # if it should not be included, remove it from the dictionary if it exists
     elif "donations" in tutti_data:

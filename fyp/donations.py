@@ -1235,10 +1235,10 @@ def simple_sample_ddp_events(
     if verbose:
         print(f"    [DD Sampling] Group factors: {group_factors}")
 
-    MIN_EVENTS_REQUIRED = cf["study_defs"][study_name]["MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP"]
-    MAX_EVENTS_SELECTED = cf["study_defs"][study_name]["MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP"]
-    MIN_GROUP_COUNT_REQUIRED_PER_DONATION = cf["study_defs"][study_name]["MIN_GROUP_COUNT_REQUIRED_PER_DONATION"]
-    MAX_GROUP_COUNT_SELECTED_PER_DONATION = cf["study_defs"][study_name]["MAX_GROUP_COUNT_SELECTED_PER_DONATION"]
+    MIN_EVENTS_REQUIRED = cf["study_defs"][study_name].get("MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP",10)
+    MAX_EVENTS_SELECTED = cf["study_defs"][study_name].get("MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP",100)
+    MIN_GROUP_COUNT_REQUIRED_PER_DONATION = cf["study_defs"][study_name].get("MIN_GROUP_COUNT_REQUIRED_PER_DONATION",10)
+    MAX_GROUP_COUNT_SELECTED_PER_DONATION = cf["study_defs"][study_name].get("MAX_GROUP_COUNT_SELECTED_PER_DONATION",100)
 
     # sorting the events by donation and event id in order to have a replicable sample
     donation_metadata_df = data_io.load_parquet(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet")

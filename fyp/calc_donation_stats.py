@@ -2,20 +2,20 @@
 import pandas as pd
 import numpy as np
 import math
-from datetime import timedelta
+#from datetime import timedelta
 import emoji
 from collections import Counter
 from fyp.activity_analysis import analyze_activity_peak
-import json
-import os
-from geopy.geocoders import Nominatim
-from timezonefinder import TimezoneFinder
-import pytz
-from datetime import datetime
-import time
+#import json
+#import os
+#from geopy.geocoders import Nominatim
+#from timezonefinder import TimezoneFinder
+#import pytz
+#from datetime import datetime
+#import time
 
-def OLD_infer_timezone_offset(timestamps: pd.Series) -> float:
-    """
+"""def OLD_infer_timezone_offset(timestamps: pd.Series) -> float:
+    " ""
     Infers timezone offset by finding the 4-hour window with minimum activity.
     Assumes this quietest window centers around 04:00 local time.
     
@@ -24,7 +24,7 @@ def OLD_infer_timezone_offset(timestamps: pd.Series) -> float:
         
     Returns:
         Offset in hours (float) from UTC. e.g. +10.0 for Brisbane.
-    """
+    "" "
     if len(timestamps) < 10:
         return 0.0 # Not enough data to infer
         
@@ -100,7 +100,7 @@ def OLD_infer_timezone_offset(timestamps: pd.Series) -> float:
                          
 
 
-
+"""
 
 
 
@@ -516,7 +516,7 @@ def generate_personas(events_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(results)
 
 
-
+"""
 
 # --- Location-based Timezone Inference & Caching ---
 
@@ -524,14 +524,14 @@ _geocoder = None
 _timezone_finder = None
 
 def _get_geocoder():
-    """Lazy-load the geocoder."""
+    #Lazy-load the geocoder.
     global _geocoder
     if _geocoder is None:
         _geocoder = Nominatim(user_agent="fyp_persona_explorer")
     return _geocoder
 
 def _get_timezone_finder():
-    """Lazy-load the timezone finder."""
+    #Lazy-load the timezone finder.
     global _timezone_finder
     if _timezone_finder is None:
         _timezone_finder = TimezoneFinder()
@@ -566,11 +566,11 @@ def save_tz_cache(cache: dict, cache_path: str):
 
 
 def infer_tz_from_location(postcode, country, cache: dict = None) -> float:
-    """
-    Infer UTC offset from postcode and country using geocoding.
-    Checks cache first if provided.
-    Returns the UTC offset in hours (float), or None if inference fails.
-    """
+    
+    #Infer UTC offset from postcode and country using geocoding.
+    #Checks cache first if provided.
+    #Returns the UTC offset in hours (float), or None if inference fails.
+    
     # Handle None, NA, empty strings
     def is_empty(val):
         if val is None: return True
@@ -648,7 +648,7 @@ def infer_tz_from_location(postcode, country, cache: dict = None) -> float:
         print(f"Error inferring timezone for {cache_key}: {e}")
         return None
 
-
+"""
 
 
 
