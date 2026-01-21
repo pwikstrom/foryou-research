@@ -28,6 +28,7 @@ from .routes.auth_routes import auth_bp
 from .routes.process_routes import process_bp
 from .routes.data_routes import data_bp
 from .routes.ingest_routes import ingest_bp
+from .routes.management_routes import management_bp
 from .data_service import study_cache # Re-export for tests
 
 # Initialize stats
@@ -74,6 +75,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(process_bp)
 app.register_blueprint(data_bp)
 app.register_blueprint(ingest_bp)
+app.register_blueprint(management_bp)
 
 
 @app.route('/')

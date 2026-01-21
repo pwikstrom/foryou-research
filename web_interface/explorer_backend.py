@@ -7,7 +7,7 @@ import fyp.data_io as data_io
 
 
 
-def load_data_old(fyp_cf, study, verbose=False):
+"""def load_data_old(fyp_cf, study, verbose=False):
     from numpy import ndarray as np_ndarray
     #from pandas import read_parquet as pd_read_parquet
     #from os.path import join as os_join, exists as os_exists
@@ -103,7 +103,7 @@ def load_data_old(fyp_cf, study, verbose=False):
                 column_types[col] = "category"
 
 
-    return df, column_types
+    return df, column_types"""
 
 
 
