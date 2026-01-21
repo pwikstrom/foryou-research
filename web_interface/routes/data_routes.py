@@ -23,36 +23,36 @@ def _load_schema_metadata(metadata):
     try:
         var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
         if var_schema_path.exists():
-            scheme_df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+            schema_df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
             
-            scheme_df['web_display_prio'] = pd.to_numeric(scheme_df['web_display_prio'], errors='coerce')
-            display_df = scheme_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')
+            schema_df['web_display_prio'] = pd.to_numeric(schema_df['web_display_prio'], errors='coerce')
+            display_df = schema_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')
             metadata['display_priority'] = display_df['variable_name'].tolist()
 
-            if 'web_viz_prio' in scheme_df.columns:
-                scheme_df['web_viz_prio'] = pd.to_numeric(scheme_df['web_viz_prio'], errors='coerce')
-                viz_df = scheme_df.dropna(subset=['web_viz_prio']).sort_values('web_viz_prio')
+            if 'web_viz_prio' in schema_df.columns:
+                schema_df['web_viz_prio'] = pd.to_numeric(schema_df['web_viz_prio'], errors='coerce')
+                viz_df = schema_df.dropna(subset=['web_viz_prio']).sort_values('web_viz_prio')
                 metadata['viz_priority'] = viz_df['variable_name'].tolist()
             else:
                  metadata['viz_priority'] = []
             
-            if 'web_filter_prio' in scheme_df.columns:  
-                scheme_df['web_filter_prio'] = pd.to_numeric(scheme_df['web_filter_prio'], errors='coerce')
-                filter_df = scheme_df.dropna(subset=['web_filter_prio']).sort_values('web_filter_prio')
+            if 'web_filter_prio' in schema_df.columns:  
+                schema_df['web_filter_prio'] = pd.to_numeric(schema_df['web_filter_prio'], errors='coerce')
+                filter_df = schema_df.dropna(subset=['web_filter_prio']).sort_values('web_filter_prio')
                 metadata['filter_priority'] = filter_df['variable_name'].tolist()
             else:
                 metadata['filter_priority'] = []
 
-            if 'section' not in scheme_df.columns:
-                scheme_df['section'] = 'General'
-            if 'description' not in scheme_df.columns:
-                scheme_df['description'] = ''
+            if 'section' not in schema_df.columns:
+                schema_df['section'] = 'General'
+            if 'description' not in schema_df.columns:
+                schema_df['description'] = ''
             
-            scheme_df['section'] = scheme_df['section'].fillna('General')
-            scheme_df['description'] = scheme_df['description'].fillna('')
+            schema_df['section'] = schema_df['section'].fillna('General')
+            schema_df['description'] = schema_df['description'].fillna('')
             
             schema_map = {}
-            for _, row in scheme_df.iterrows():
+            for _, row in schema_df.iterrows():
                 var_name = row['variable_name']
                 schema_map[var_name] = {
                     "section": str(row['section']),
@@ -564,7 +564,7 @@ def api_pca_metadata():
     interpretations = {}
     try:
         inter_path = f"{study}_COMP_INTERPRETATIONS.json"
-        interpretations = data_io.load_json(fyp_cf, "exports", inter_path, verbose=False)
+        interpretations = data_io.load_json(fyp_cf, "cache", inter_path, verbose=False)
     except Exception as e:
         print(f"Error loading interpretations: {e}")
 

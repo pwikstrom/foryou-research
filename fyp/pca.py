@@ -488,6 +488,29 @@ def transform_categories_to_components_and_diversity(
     """
     entropy_and_dominance = calc_entropy_and_dominance(counts_df, 1)
 
+    # Check validation - if there is only 1 category, we can't do PCA/MDS
+    if counts_df.shape[1] < 2:
+        if verbose:
+            print(f"Skipping PCA/MDS for {counts_df.shape[1]} category. Returning 0-variance component.")
+        
+        # Create a single component of zeros
+        pc_df = DataFrame(0.0, index=counts_df.index, columns=["C0"])
+        
+        # 1 component explains 0 variance (technically undefined but 0 is safe)
+        n_components = 1
+        explained = [0.0]
+        
+        print(f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance", end="\n", flush=True)
+
+        result_df = concat([pc_df,DataFrame(entropy_and_dominance),DataFrame(counts_df.T.idxmax(), columns=["top1"])],axis=1)
+
+        # Interpretation is empty/trivial
+        xx = {}
+        for col in pc_df.columns:
+            xx[col] = {"top_positive": "", "top_negative": ""}
+
+        return result_df, pc_df, xx
+
     D = pairwise_matrix_for_categorical_groups(
         counts_df,
         metric=metric,
@@ -576,10 +599,10 @@ def calculate_scaled_pca_scores(
     down_sample = 1,
     min_sample_size = 20000,
     load_from_cache = True,
-    save_to_cache = True,
+    save_to_cache = False,
     verbose = False,
     ):
-    verbose = True
+    
     #from json import dump as json_dump
     from concurrent.futures import ThreadPoolExecutor
     from pandas import NamedAgg, MultiIndex, DataFrame, concat, to_datetime

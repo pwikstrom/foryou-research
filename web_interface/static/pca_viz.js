@@ -462,7 +462,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 y: 0.98,
                 xanchor: 'left',
                 yanchor: 'top',
-                text: `<b>Linear Regression</b><br>${eq}<br>${r2Text}`,
+                text: `${r2Text}`,
                 showarrow: false,
                 font: { size: 12, color: '#fff' },
                 bgcolor: 'rgba(0,0,0,0.7)',
