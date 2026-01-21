@@ -223,16 +223,11 @@ def filter_dataframe(df, column_types, filters, search_query=None):
             continue
         
         val = criteria.get("value")
-        include_na = criteria.get("na", False)
-        
-        # If neither value criteria nor NA inclusion is active, skip
-        if (val is None or val == "") and not include_na:
+        # If no value criteria, skip
+        if val is None or val == "":
             continue
 
         dtype = column_types.get(col)
-        
-        # We need to construct a mask for this column that represents:
-        # (Matches Values) OR (Is NA if include_na)
         
         value_mask = pd.Series(False, index=filtered_df.index)
         has_value_criteria = False
@@ -262,17 +257,8 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                 value_mask = filtered_df[col].apply(lambda x: bool(set(x) & search_set) if isinstance(x, (list, np_ndarray)) else False)
                 has_value_criteria = True
 
-        # Combine with NA logic
-        final_col_mask = pd.Series(False, index=filtered_df.index)
-        
-        if include_na:
-             final_col_mask |= filtered_df[col].isna()
-        
         if has_value_criteria:
-             final_col_mask |= value_mask
-
-        # Apply mask
-        filtered_df = filtered_df[final_col_mask]
+             filtered_df = filtered_df[value_mask]
 
     # Global Search Logic
     if search_query and isinstance(search_query, str):

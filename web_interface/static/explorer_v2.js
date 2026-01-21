@@ -175,38 +175,7 @@ function renderFiltersV2(metadata, sliceId) {
         label.style.color = '#d4d4d4';
         wrapper.appendChild(label);
 
-        // -- NA Filter --
-        if (info.null_count && info.null_count > 0) {
-            const naDiv = document.createElement('div');
-            naDiv.style.marginBottom = '5px';
-            naDiv.style.display = 'flex';
-            naDiv.style.alignItems = 'center';
 
-            const naCb = document.createElement('input');
-            naCb.type = 'checkbox';
-            // Sanitize ID
-            const safeCol = col.replace(/[^a-zA-Z0-9]/g, '_');
-            naCb.id = `na-${sliceId}-${safeCol}`;
-            naCb.style.marginRight = '5px';
-
-            const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
-            if (filters[col] && filters[col].na) {
-                naCb.checked = true;
-            }
-
-            naCb.onchange = (e) => setFilterV2(sliceId, col, info.type, 'na', e.target.checked);
-
-            const naLabel = document.createElement('label');
-            naLabel.htmlFor = naCb.id;
-            naLabel.innerText = `Include NA/Missing (${info.null_count.toLocaleString()})`;
-            naLabel.style.fontSize = '0.9em';
-            naLabel.style.color = '#aaa';
-            naLabel.style.cursor = 'pointer';
-
-            naDiv.appendChild(naCb);
-            naDiv.appendChild(naLabel);
-            wrapper.appendChild(naDiv);
-        }
 
         if (info.type === 'number') {
             // Min/Max Inputs
@@ -315,10 +284,7 @@ function setFilterV2(sliceId, col, type, subtype, value) {
         filters[col] = { type: type, value: (type === 'number' ? {} : []) };
     }
 
-    if (subtype === 'na') {
-        filters[col].na = value;
-        if (!filters[col].na) delete filters[col].na;
-    } else if (type === 'number') {
+    if (type === 'number') {
         if (value === "") delete filters[col].value[subtype];
         else filters[col].value[subtype] = parseFloat(value);
     } else {
@@ -335,9 +301,7 @@ function setFilterV2(sliceId, col, type, subtype, value) {
         (filters[col].value && Object.keys(filters[col].value).length > 0) :
         (filters[col].value && filters[col].value.length > 0);
 
-    const hasNa = !!filters[col].na;
-
-    if (!hasValue && !hasNa) {
+    if (!hasValue) {
         delete filters[col];
     }
 
