@@ -151,6 +151,7 @@ def save_study():
 
     studies[study_name].update(data)
 
+    # this is first save to make sure that the study is saved if read by other processes
     data_io.save_json(fyp_cf, studies, "studies", study_defs_fn, verbose=True)
     fyp_cf['study_defs'] = studies
     
@@ -166,7 +167,24 @@ def save_study():
     
     # Update in-memory config if possible (optional but good for consistency)
     fyp_cf['study_defs'] = studies
+
+    # As the study dataset is updated, we should recalculate PCA as well
+    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_PCA.parquet"):
+        data_io.remove(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_PCA.parquet")
+    calculate_scaled_pca_scores(cf=fyp_cf, study_name=study_name, load_from_cache=True, save_to_cache=True)
     
+    # As the study dataset is updated, we should recalculate the enriched dataset as well
+    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_viewer_metadata.parquet"):
+        data_io.remove(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_viewer_metadata.parquet")
+    # TODO: call calculate_scaled_pca_scores in data_routes.py with the appropriate arguments to generate a new parquet file
+
+    # As the study dataset is updated, we should recalculate the enriched dataset as well
+    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_explorer_metadata.parquet"):
+        data_io.remove(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_explorer_metadata.parquet")
+    # TODO: call calculate_scaled_pca_scores in data_routes.py with the appropriate arguments to generate a new parquet file
+
+
+
     return jsonify({"status": "success", "study": studies[study_name]})
 
 
@@ -197,6 +215,9 @@ def delete_study():
         return jsonify({"status": "success", "message": f"Deleted {study_name}"})
     else:
         return jsonify({"error": "Study not found"}), 404
+
+
+
 
 
 @management_bp.route('/api/manage/donations', methods=['GET'])
