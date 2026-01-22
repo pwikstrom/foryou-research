@@ -1126,24 +1126,30 @@ def load_donation_data(
 
     if cf is None:
         cf = initialize()
-
-    the_selected_donations = cf["study_defs"][study_name].get("SELECTED_DONATIONS",[])
-
-
+ 
     print(f"    [DDP] Loading data for study...")
     
+ 
 
     START_DATE = cf["study_defs"][study_name].get("START_DATE","1970-01-01")
     if isinstance(START_DATE, str):
-        START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
+        try:
+            START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
+        except ValueError:
+            START_DATE = _dt.datetime(1970,1,1).date()
     
     END_DATE = cf["study_defs"][study_name].get("END_DATE","2099-12-31")
     if isinstance(END_DATE, str):
-        END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
+        try:
+            END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
+        except ValueError:
+            END_DATE = _dt.datetime(2099,12,31).date()
 
     sel = [("T_local_timestamp", ">=", START_DATE),("T_local_timestamp", "<=", END_DATE)]
 
+    the_selected_donations = cf["study_defs"][study_name].get("SELECTED_DONATIONS",[])
     if len(the_selected_donations) > 0:
+        the_selected_donations = [re.search(r'\[(.*?)\]', str(x)).group(1) if re.search(r'\[(.*?)\]', str(x)) else x for x in the_selected_donations]
         sel.append(("D_donation_id", "in", the_selected_donations))
 
     if all_data is None:
@@ -1157,9 +1163,16 @@ def load_donation_data(
         cached_ddp_events_df = all_data.copy()
         out_df = cached_ddp_events_df[(cached_ddp_events_df.T_local_timestamp>=START_DATE) & (cached_ddp_events_df.T_local_timestamp<=END_DATE)].copy()
 
-        if len(the_selected_donations) > 0:
-            out_df = out_df[out_df.D_donation_id.isin(the_selected_donations)].copy()
+        if not "D_donation_id" in out_df.columns or not "T_local_timestamp" in out_df.columns or len(out_df) == 0:
+            print(f"!!! [DDP] No events found in date range. Returning None.")
+            return None
 
+        if len(the_selected_donations) > 0:
+            out_df = out_df[out_df["D_donation_id"].isin(the_selected_donations)].copy()
+
+        if not "D_donation_id" in out_df.columns or not "T_local_timestamp" in out_df.columns or len(out_df) == 0:
+            print(f"!!! [DDP] The selected donations have no events in the date range. Returning None.")
+            return None
 
     print(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique donations: {out_df.D_donation_id.nunique()} | Date range: {out_df.T_local_timestamp.min():%Y-%m-%d} -- {out_df.T_local_timestamp.max():%Y-%m-%d}")
 

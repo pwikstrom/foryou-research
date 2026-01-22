@@ -655,6 +655,8 @@ def calculate_scaled_pca_scores(
             study_name = study_name,
             verbose = verbose
         )
+        if study_recoded_dataset is None:
+            raise ValueError("No study dataset found for study '{study_name}'")
         print("@@ Back after created recoded dataset for this study. I will now resume the PCA analysis.")
 
     if study_recoded_dataset is None:

@@ -655,6 +655,7 @@ def load_parquet(
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
+    if cf['data_io']['bucket'] is not None:
         # Initialize GCS filesystem
         fs = gcsfs.GCSFileSystem()
 

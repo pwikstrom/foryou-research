@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 import pandas as pd
 from datetime import datetime
-import json
+import re
 from ..hub_config import fyp_cf
 import fyp.data_io as data_io
 from fyp.fyp_main import initialize
@@ -146,16 +146,11 @@ def save_study():
         studies = {}
         
     # Update config
-    new_study = False
     if study_name not in studies:
-        new_study = True
         studies[study_name] = {}
-        
+
     studies[study_name].update(data)
 
-    #if new_study:
-    #    # First save to make sure the new study is added to the saved json. This is necessary to create other files
-    
     data_io.save_json(fyp_cf, studies, "studies", study_defs_fn, verbose=True)
     fyp_cf['study_defs'] = studies
     
@@ -207,7 +202,7 @@ def delete_study():
 @management_bp.route('/api/manage/donations', methods=['GET'])
 @login_required
 def list_donations():
-    try:
+    if True:#try:
         # Load ddp_metadata from ddp_main
         if data_io.exists(fyp_cf, storage_location="ddp_main", filename="ddp_metadata.parquet"):
             # Load only needed columns
@@ -217,47 +212,20 @@ def list_donations():
                 fyp_cf, 
                 storage_location="ddp_main", 
                 filename="ddp_metadata.parquet", 
-                columns=["D_donation_id", "D_id", "('other', 'D_id')"], 
-                verbose=False, 
-
-                convert_types=False,
-                ignore_metadata=True
+                #columns=["D_donation_id", "D_id", "('other', 'D_id')"], 
+                verbose=True, 
             )
             
-            # Format: "D{D_id:05} [{D_donation_id}]"
-            donations = []
-            if df is not None and not df.empty:
-                for idx, row in df.iterrows():
-                    try:
-                        # Handle potential missing or non-numeric D_id gracefully
-                        # Check for both standard and raw column names
-                        d_id_val = row.get('D_id')
-                        if pd.isna(d_id_val):
-                            d_id_val = row.get("('other', 'D_id')")
 
-                        d_don_id = row.get('D_donation_id', 'UNKNOWN')
-                        
-                        if pd.notna(d_id_val):
-                            try:
-                                formatted_str = f"D{int(d_id_val):05d} [{d_don_id}]"
-                                donations.append(formatted_str)
-                            except (ValueError, TypeError):
-                                # If conversion to int fails, treat as unknown/skip
-                                formatted_str = f"D????? [{d_don_id}]"
-                                # donations.append(formatted_str) 
-                        else:
-                            formatted_str = f"D????? [{d_don_id}]"
-                            
-                    except Exception as e:
-                        continue
-            
-            # Sort alphabetically
+            donations = [f"D{u[2]:05} [{u[1]}]" for u in df[("other","D_id")].reset_index().to_records()]
             donations.sort()
+
+
             return jsonify(donations)
         else:
             print("ddp_metadata.parquet not found in ddp_main")
             return jsonify([])
             
-    except Exception as e:
+    if False:#except Exception as e:
         print(f"Error listing donations: {e}")
         return jsonify({"error": str(e)}), 500

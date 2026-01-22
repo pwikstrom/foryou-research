@@ -376,6 +376,7 @@ function saveStudy(btn, event) {
     try {
         const formData = collectFormData(detailRow);
         formData.STUDY_NAME = studyName;
+        //console.log("Saving study definition:", formData);
 
         btn.textContent = "Saving...";
         btn.disabled = true;

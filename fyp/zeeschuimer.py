@@ -707,11 +707,17 @@ def load_zeeschuimer_data(
 
     START_DATE = cf["study_defs"][study_name].get("START_DATE","1970-01-01")
     if isinstance(START_DATE, str):
-        START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
+        try:
+            START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
+        except ValueError:
+            START_DATE = _dt.datetime(1970,1,1).date()
     
     END_DATE = cf["study_defs"][study_name].get("END_DATE","2099-12-31")
     if isinstance(END_DATE, str):
-        END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
+        try:
+            END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
+        except ValueError:
+            END_DATE = _dt.datetime(2099,12,31).date()
 
 
     print("    [Zeeschuimer] Loading data for study...")
@@ -727,6 +733,11 @@ def load_zeeschuimer_data(
     
 
     zee_data = zee_data[(zee_data.T_local_timestamp>=START_DATE) & (zee_data.T_local_timestamp<=END_DATE)].copy()
+
+    if not "T_local_timestamp" in zee_data.columns or len(zee_data) == 0:
+        print(f"!!! [Zeeschuimer] No events found in date range. Returning None.")
+        return None
+    
     date_range = f"{zee_data.T_local_timestamp.min():%Y-%m-%d} -- {zee_data.T_local_timestamp.max():%Y-%m-%d}"
     
     print(f"    [Zeeschuimer] ...done. Selected date range: {date_range}. Observations: {zee_data.shape[0]:,}")

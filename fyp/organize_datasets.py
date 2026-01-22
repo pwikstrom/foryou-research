@@ -106,6 +106,9 @@ def load_study_datasets(
     elif "donations" in tutti_data:
         del tutti_data["donations"]
 
+    if tutti_data.get("donations", None) is None and tutti_data.get("zeeschuimer", None) is None:
+        print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
+        return None
 
     # --------------------------------------------------------------------
     # sample donation data
@@ -347,6 +350,8 @@ def generate_unique_videos_to_scrape_and_annotate(
                 save_to_cache = True,
                 verbose = verbose
             )
+            if study_dataset is None:
+                raise ValueError("No study dataset found for study '{study_name}'")
             confirmed_cols = list(set(study_dataset.columns) & set(_build_agg_dict_to_generate_basic_video_stats()[1]))
             study_dataset = study_dataset[confirmed_cols].copy()
             print("@@ I'm back after having created the unified study dataset. I will now resume generating unique videos to scrape and annotate.")
@@ -769,6 +774,10 @@ def create_study_recoded_dataset(
         load_from_cache = True,
         save_to_cache = True,
         verbose = verbose)
+
+    if all_datasets == None:
+        print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
+        return None
 
     # with new merge, the datasets are already recoded
     study_recoded_dataset = new_merge(
