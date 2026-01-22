@@ -3,7 +3,7 @@
         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h2>Data Management: Study Definitions</h2>
         {% if user.is_admin() %}
-        <button class="action-btn" onclick="openNewStudyModal()">Define new study</button>
+        <button type="button" class="action-btn" onclick="openNewStudyModal()">Define new study</button>
         {% endif %}
     </div>
 
@@ -40,7 +40,7 @@
                 <input type="text" id="new_study_name" class="control-input" style="width: 100%;">
             </div>
             <div style="margin-top: 20px; text-align: right;">
-                <button class="action-btn" onclick="createStudy()">Create</button>
+                <button type="button" class="action-btn" onclick="createStudy(event)">Create</button>
             </div>
         </div>
     </div>
@@ -175,12 +175,12 @@
 
             <div style="margin-top: 30px; display: flex; justify-content: space-between;">
                 {% if user.is_admin() or user.role == 'researcher' %}
-                <button class="action-btn" onclick="saveStudy(this)">Save Changes</button>
+                <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Changes</button>
                 {% endif %}
 
                 {% if user.is_admin() %}
-                <button class="action-btn" style="background-color: #dc3545;" onclick="archiveStudy(this)">Archive
-                    Study</button>
+                <button type="button" class="action-btn" style="background-color: #dc3545;"
+                    onclick="deleteStudy(this, event)">Delete Study</button>
                 {% endif %}
             </div>
         </td>

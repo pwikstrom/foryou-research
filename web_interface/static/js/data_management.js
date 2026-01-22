@@ -218,7 +218,8 @@ function collectFormData(row) {
 }
 
 
-function saveStudy(btn) {
+function saveStudy(btn, event) {
+    if (event) event.preventDefault();
     const detailRow = btn.closest('tr');
     const studyName = detailRow.dataset.studyName;
 
@@ -273,11 +274,12 @@ function saveStudy(btn) {
 }
 
 
-function archiveStudy(btn) {
+function deleteStudy(btn, event) {
+    if (event) event.preventDefault();
     const detailRow = btn.closest('tr');
     const studyName = detailRow.dataset.studyName;
 
-    if (!confirm(`Are you sure you want to archive (delete) study '${studyName}'? This cannot be undone.`)) return;
+    if (!confirm(`Are you sure you want to delete study '${studyName}'? This cannot be undone.`)) return;
 
     fetch('/api/manage/studies/delete', {
         method: 'POST',
@@ -287,7 +289,7 @@ function archiveStudy(btn) {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                alert("Study archived.");
+                alert("Study deleted.");
                 loadStudies();
             } else {
                 alert("Error: " + data.error);
@@ -308,7 +310,8 @@ function closeNewStudyModal() {
     document.getElementById('newStudyModal').style.display = 'none';
 }
 
-function createStudy() {
+function createStudy(event) {
+    if (event) event.preventDefault();
     const name = document.getElementById('new_study_name').value.trim();
     if (!name) {
         alert("Please enter a name");
