@@ -7,105 +7,6 @@ import fyp.data_io as data_io
 
 
 
-"""def load_data_old(fyp_cf, study, verbose=False):
-    from numpy import ndarray as np_ndarray
-    #from pandas import read_parquet as pd_read_parquet
-    #from os.path import join as os_join, exists as os_exists
-    from fyp.organize_datasets import create_study_recoded_dataset
-
-    df = None
-    #recoded_cache_path = os_join(fyp_cf['paths']['cache'], f"{study}_recoded.parquet")
-    if data_io.exists(
-        cf=fyp_cf,
-        storage_location = "cache",
-        filename = f"{study}_recoded.parquet",
-        verbose=verbose
-        ):
-        df = data_io.load_parquet(
-            cf=fyp_cf,
-            storage_location="cache",
-            filename=f"{study}_recoded.parquet",
-            verbose=verbose,
-            )
-    else:
-        print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
-        df = create_study_recoded_dataset(
-            cf = fyp_cf,
-            study_name = study,
-            verbose = verbose
-        )
-        print("@@ Back after finalising the recoding process. I will now resume loading the data.")
-
-    if df is None:
-        print("    ERROR: This process cannot run without a study dataset. Process failed.")
-        return None, {}
-
-    column_types = {}
-
-    for col in df.columns:
-        # Check first non-null value
-        first_valid_index = df[col].first_valid_index()
-        if first_valid_index is None:
-            column_types[col] = "category"
-            continue
-        
-        val = df[col].loc[first_valid_index]
-
-        # 1. Check for List (actual list or stringified)
-        if isinstance(val, (list, np_ndarray)):
-            column_types[col] = "list"
-        elif isinstance(val, str) and val.strip().startswith('[') and val.strip().endswith(']'):
-            try:
-                # Attempt to parse entire column as list
-                df[col] = df[col].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) and x.strip().startswith('[') else (x if isinstance(x, (list, np_ndarray)) else []))
-                column_types[col] = "list"
-            except (ValueError, SyntaxError):
-                column_types[col] = "category"
-        
-        # 2. Check for Number
-        elif pd.api.types.is_numeric_dtype(df[col]):
-            # Sanity Check: If numbers are huge (e.g. IDs), do not treat as continuous number for plotting
-            # 1e15 is a safe upper bound for "counts" or "durations". 
-            # Snowflake IDs are ~1e18.
-            # Timestamps (ms) are ~1.7e12 (now) to 1e13.
-            try:
-                # Use max of non-nulls
-                max_val = df[col].max()
-                if max_val > 1e15:
-                    column_types[col] = "identifier" # Or category
-                else:
-                    column_types[col] = "number"
-            except:
-                 column_types[col] = "number"
-        
-        # 3. Check for Long Text (if category/string)
-        else:
-            # Check average length of non-null values
-            sample = df[col].dropna() # don't count null values
-            sample = sample[sample!="oThEr tHiNgS-+-"]
-            sample = sample.map(lambda x: len(str(x)))
-            sample = sample[sample > 0] # don't count empty strings
-            sample = sample.head(1000)
-            if not sample.empty:
-                mean_len = sample.mean()
-                if mean_len > 60: 
-                    column_types[col] = "long_text"
-                else:
-                    # Check for High Cardinality (Identifier)
-                    # If unique count is very high (>90% of non-null rows) and count > 100
-                    n_unique = df[col].nunique()
-                    n_rows = len(df[col].dropna())
-                    if n_rows > 100 and n_unique > 0.9 * n_rows:
-                        column_types[col] = "identifier"
-                    else:
-                        column_types[col] = "category"
-            else:
-                column_types[col] = "category"
-
-
-    return df, column_types"""
-
-
 
 
 
@@ -601,6 +502,7 @@ def load_data(fyp_cf, study, verbose=False):
         df = create_study_recoded_dataset(
             cf = fyp_cf,
             study_name = study,
+            save_to_cache=True,
             verbose = verbose
         )
         print("@@ Back after finalising the recoding process. I will now resume loading the data. (#606)")

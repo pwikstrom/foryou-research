@@ -6,7 +6,8 @@ import numpy as np
 from datetime import datetime
 from ..hub_config import fyp_cf, PROJECT_ROOT
 from ..data_service import (
-    get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags
+    get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags,
+    load_schema_metadata
 )
 from .. import explorer_backend as explorer
 import fyp
@@ -18,82 +19,6 @@ data_bp = Blueprint('data_bp', __name__)
 # PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
 
 
-def _load_schema_metadata(metadata):
-    """Helper to load and inject schema metadata (priorities, descriptions, accepted_labels) from CSV."""
-    try:
-        var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
-        if var_schema_path.exists():
-            schema_df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
-            
-            schema_df['web_display_prio'] = pd.to_numeric(schema_df['web_display_prio'], errors='coerce')
-            display_df = schema_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')
-            metadata['display_priority'] = display_df['variable_name'].tolist()
-
-            if 'web_viz_prio' in schema_df.columns:
-                schema_df['web_viz_prio'] = pd.to_numeric(schema_df['web_viz_prio'], errors='coerce')
-                viz_df = schema_df.dropna(subset=['web_viz_prio']).sort_values('web_viz_prio')
-                metadata['viz_priority'] = viz_df['variable_name'].tolist()
-            else:
-                 metadata['viz_priority'] = []
-            
-            if 'web_filter_prio' in schema_df.columns:  
-                schema_df['web_filter_prio'] = pd.to_numeric(schema_df['web_filter_prio'], errors='coerce')
-                filter_df = schema_df.dropna(subset=['web_filter_prio']).sort_values('web_filter_prio')
-                metadata['filter_priority'] = filter_df['variable_name'].tolist()
-            else:
-                metadata['filter_priority'] = []
-
-            if 'section' not in schema_df.columns:
-                schema_df['section'] = 'General'
-            if 'description' not in schema_df.columns:
-                schema_df['description'] = ''
-            
-            schema_df['section'] = schema_df['section'].fillna('General')
-            schema_df['description'] = schema_df['description'].fillna('')
-            
-            schema_map = {}
-            for _, row in schema_df.iterrows():
-                var_name = row['variable_name']
-                schema_map[var_name] = {
-                    "section": str(row['section']),
-                    "description": str(row['description'])
-                }
-                
-                # Parse Accepted Labels for Closed Tags
-                if 'accepted_labels' in row:
-                    accepted = str(row['accepted_labels'])
-                    if accepted and accepted.lower() != 'nan' and accepted.startswith('[') and accepted.endswith(']'):
-                        content = accepted[1:-1]
-                        if content.strip():
-                            labels = [x.strip() for x in content.split(',')]
-                            schema_map[var_name]['accepted_labels'] = labels
-                
-                # Add Display Name
-                if 'display_name' in row:
-                    dname = str(row['display_name'])
-                    if dname and dname.lower() != 'nan' and dname.strip():
-                        schema_map[var_name]['display_name'] = dname.strip()
-
-                # Add Display Priority (for filtering in viewer)
-                if 'web_display_prio' in row:
-                    prio = row['web_display_prio']
-                    if pd.notna(prio):
-                         schema_map[var_name]['web_display_prio'] = float(prio)
-            
-            metadata['schema_map'] = schema_map
-                
-        else:
-            # Only reset if keys missing? Or always reset? 
-            # If CSV missing, we might want to keep existing if available?
-            # But here we assume CSV is source of truth.
-            metadata['display_priority'] = []
-            metadata['filter_priority'] = []
-            metadata['schema_map'] = {}
-    except Exception as e:
-        print(f"Error loading priority list: {e}")
-        # Don't overwrite with empty if error?
-        pass
-    return metadata
 
 @data_bp.route('/api/explorer/studies', methods=['GET'])
 @login_required
@@ -207,7 +132,7 @@ def api_explorer_metadata():
             metadata['filter_priority'].insert(0, 'User Tags')
         
         # Always refresh schema metadata (accepted_labels, priorities) from CSV
-        metadata = _load_schema_metadata(metadata)
+        metadata = load_schema_metadata(metadata)
 
         return jsonify(make_serializable(metadata))
 
@@ -238,7 +163,7 @@ def api_explorer_metadata():
         metadata['source_file'] = "Error"
         metadata['source_file_modified'] = ""
 
-    metadata = _load_schema_metadata(metadata)
+    metadata = load_schema_metadata(metadata)
 
     data_io.save_json(cf=fyp_cf, data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=True)
 

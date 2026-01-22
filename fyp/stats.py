@@ -60,7 +60,7 @@ def run_anova(
 
 
 
-    for factor in [selected_factor]:#selected_factors:
+    for factor in [selected_factor]:#grouping_factors:
         anova_results[factor] = {}
         for comp in component_cols:
             formula = f"{comp} ~ C({factor})"
@@ -124,7 +124,7 @@ def run_permanova(
     dm = DistanceMatrix(D)
 
     # iterate over the factors
-    for factor_col in [selected_factor]:#selected_factors:
+    for factor_col in [selected_factor]:#grouping_factors:
         factor = events_pca_scores_scaled[factor_col].tolist()
         result = permanova(dm, factor, permutations=999)
 
@@ -170,7 +170,7 @@ def run_many_permanova(
 
 
         # iterate over the factors
-        for factor_col in [selected_factor]:# selected_factors:
+        for factor_col in [selected_factor]:# grouping_factors:
 
             print(f"{factor_col}-->{one_feature}")
 

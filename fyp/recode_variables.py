@@ -356,7 +356,7 @@ def _is_emoji(s: str) -> bool:
 
 
 
-def get_group_factors_from_var_schema(cf = None, some_events_df = None, verbose = False):
+def get_grouping_factors_from_var_schema(cf = None, some_events_df = None, verbose = False):
     #import pandas as pd
     #from os.path import join
     #from fyp.fyp_main import initialize
@@ -366,14 +366,14 @@ def get_group_factors_from_var_schema(cf = None, some_events_df = None, verbose 
     
     var_schema = cf["var_schema"]
     
-    the_group_factors = sorted(list(set(var_schema[var_schema["role"]=='group_factor'].variable_name)))
+    the_grouping_factors = sorted(list(set(var_schema[var_schema["role"]=='group_factor'].variable_name)))
     if some_events_df is not None:
-        the_group_factors = [c for c in the_group_factors if c in some_events_df.columns]
+        the_grouping_factors = [c for c in the_grouping_factors if c in some_events_df.columns]
     
-    if verbose  and len(the_group_factors) > 0:
-        print("    Group Factors:",", ".join(the_group_factors))
+    if verbose  and len(the_grouping_factors) > 0:
+        print("    Group Factors:",", ".join(the_grouping_factors))
 
-    return the_group_factors
+    return the_grouping_factors
 
 
 

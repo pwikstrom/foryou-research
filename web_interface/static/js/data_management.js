@@ -2,6 +2,7 @@
 // data_management.js
 
 let allStudies = [];
+const savingStudies = new Set(); // Track studies currently being saved
 
 function loadStudies() {
     fetch('/api/manage/studies')
@@ -166,7 +167,7 @@ function renderStudiesTable() {
             <td style="text-align: right; padding: 10px;">${formatNum(stats.annotated_videos)}</td>
             <td style="text-align: right; padding: 10px;">${lastUpdated}</td>
             <td style="padding: 10px;">
-                <!-- Actions provided in detail view mostly -->
+                ${savingStudies.has(study.STUDY_NAME) ? '<span style="color: #00ff00; font-weight: bold; text-shadow: 0 0 5px #00ff00;">Saving...</span>' : ''}
             </td>
         `;
 
@@ -290,6 +291,16 @@ function populateForm(row, study) {
 
         const checkboxes = group.querySelectorAll('input[type="checkbox"]');
         checkboxes.forEach(chk => {
+            // FORCE ADMIN TO BE STATIC
+            if (chk.value === 'admin') {
+                chk.checked = true;
+                chk.disabled = true;
+                // Add visual cue
+                chk.parentElement.style.opacity = '0.6';
+                chk.parentElement.title = "Admin access is mandatory";
+                return;
+            }
+
             // Logic: if currentList has 'all', check everything (or specific logic)
             // If chk.value is in currentList, check it.
 
@@ -300,6 +311,18 @@ function populateForm(row, study) {
             }
         });
     });
+
+    // 3. Stats Display
+    const statsInput = row.querySelector('[data-field="stats"]');
+    if (statsInput) {
+        const stats = study.stats || {};
+        const container = statsInput.parentElement;
+        const toScrape = container.querySelector('.stat-to-scrape');
+        const toAnnotate = container.querySelector('.stat-to-annotate');
+
+        if (toScrape) toScrape.textContent = stats.to_scrape_count !== undefined ? stats.to_scrape_count.toLocaleString() : '-';
+        if (toAnnotate) toAnnotate.textContent = stats.to_annotate_count !== undefined ? stats.to_annotate_count.toLocaleString() : '-';
+    }
 }
 
 
@@ -378,8 +401,17 @@ function saveStudy(btn, event) {
         formData.STUDY_NAME = studyName;
         //console.log("Saving study definition:", formData);
 
+        // Mark as saving
+        savingStudies.add(studyName);
         btn.textContent = "Saving...";
         btn.disabled = true;
+
+        // Show Saving Indicator immediately (for instant feedback)
+        const mainRow = detailRow.previousElementSibling;
+        const actionCell = mainRow.cells[mainRow.cells.length - 1];
+        actionCell.innerHTML = '<span style="color: #00ff00; font-weight: bold; text-shadow: 0 0 5px #00ff00;">Saving...</span>';
+
+        let isSuccess = false;
 
         fetch('/api/manage/studies/save', {
             method: 'POST',
@@ -389,23 +421,12 @@ function saveStudy(btn, event) {
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
+                    isSuccess = true;
                     // Update local model
                     const index = allStudies.findIndex(s => s.STUDY_NAME === studyName);
                     if (index !== -1) {
                         allStudies[index] = data.study;
                     }
-                    renderStudiesTable(); // Re-render to show updated stats/dates
-                    // Re-open the row that was open?
-                    // render closes everything.
-                    // ideally we stay open.
-                    // Quick hack:
-                    setTimeout(() => {
-                        const newDetail = document.getElementById(`detail-${index}`);
-                        const newRow = newDetail.previousElementSibling;
-                        toggleDetail(null, index); // Open it
-                        alert("Study saved successfully!");
-                    }, 100);
-
                 } else {
                     alert("Error saving: " + data.error);
                 }
@@ -415,12 +436,112 @@ function saveStudy(btn, event) {
                 alert("Save failed.");
             })
             .finally(() => {
+                // Done saving
+                savingStudies.delete(studyName);
+
+                // 1. Capture State BEFORE re-render
+                // We need to find the specific study again in case index shifted
+                const index = allStudies.findIndex(s => s.STUDY_NAME === studyName);
+                let wasOpen = false;
+                if (index !== -1) {
+                    const currentDetailRow = document.getElementById(`detail-${index}`);
+                    wasOpen = currentDetailRow && currentDetailRow.style.display !== 'none';
+                }
+
+                // 2. Re-render table (Updates "Last Updated" and clears "Saving..." indicator for THIS study)
+                renderStudiesTable();
+
+                // 3. Restore State & Show Feedback
+                if (index !== -1) {
+                    setTimeout(() => {
+                        const newDetail = document.getElementById(`detail-${index}`);
+
+                        // Restore Open State (if it was open OR we want it open? User said "stay collapsed if collapsed")
+                        // Logic: IF wasOpen, re-open. ELSE stay closed.
+                        if (wasOpen) {
+                            toggleDetail(null, index);
+
+                            // 4. Feedback (Green "Saved!" button) only if SUCCESS and was OPEN
+                            if (isSuccess) {
+                                const buttons = newDetail.querySelectorAll('button');
+                                let saveBtn = null;
+                                buttons.forEach(b => {
+                                    if (b.textContent.includes('Save')) saveBtn = b;
+                                });
+
+                                if (saveBtn) {
+                                    saveBtn.textContent = "Saved!";
+                                    saveBtn.style.backgroundColor = "#28a745";
+
+                                    setTimeout(() => {
+                                        saveBtn.textContent = "Save Changes";
+                                        saveBtn.style.backgroundColor = "";
+                                    }, 2000);
+                                }
+                            }
+                        }
+                    }, 50);
+                }
+
+                // Reset button state? The button in the DOM was destroyed if re-rendered.
+                // If the row was collapsed, the button is gone/hidden. 
+                // We re-enable the *detached* button just in case, but it doesn't matter.
                 btn.textContent = "Save Changes";
                 btn.disabled = false;
             });
 
     } catch (e) {
         // Validation failed
+    }
+}
+
+window.updateStudyEstimates = function (btn, event) {
+    if (event) event.preventDefault();
+    const detailRow = btn.closest('tr');
+    const studyName = detailRow.dataset.studyName;
+
+    try {
+        const formData = collectFormData(detailRow);
+        formData.STUDY_NAME = studyName;
+
+        btn.textContent = "Updating...";
+        btn.disabled = true;
+
+        fetch('/api/manage/studies/calculate_stats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify(formData)
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const stats = data.stats;
+
+                    // Update specific elements in THIS row (not re-rendering whole table)
+                    const container = btn.parentElement;
+                    const toScrape = container.querySelector('.stat-to-scrape');
+                    const toAnnotate = container.querySelector('.stat-to-annotate');
+
+                    if (toScrape) toScrape.textContent = stats.to_scrape_count !== undefined ? stats.to_scrape_count.toLocaleString() : '0';
+                    if (toAnnotate) toAnnotate.textContent = stats.to_annotate_count !== undefined ? stats.to_annotate_count.toLocaleString() : '0';
+
+                } else {
+                    alert("Error updating estimates: " + data.error);
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert("Update failed.");
+            })
+            .finally(() => {
+                btn.textContent = "Update Estimates";
+                btn.disabled = false;
+            });
+
+    } catch (e) {
+        console.error("Failed to collect data for estimate update", e);
+        btn.textContent = "Update Estimates";
+        btn.disabled = false;
     }
 }
 

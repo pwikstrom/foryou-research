@@ -25,7 +25,8 @@ def main():
         print(f"Starting process to create unified main dataset for study: {args.study_name}")
         organize_datasets.create_study_recoded_dataset(
             cf = None,
-            study_name = args.study_name,
+            study_name = args.study_name, 
+            save_to_cache=True,
             verbose = False
             )
         print("Process completed successfully.")

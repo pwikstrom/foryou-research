@@ -193,9 +193,22 @@
                 }*/
             </style>
 
-            <div style="margin-top: 30px; display: flex; justify-content: space-between;">
+            <div style="margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
                 {% if user.is_admin() or user.role == 'researcher' %}
-                <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Changes</button>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Changes</button>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 5px; margin-left: 20px; background: #3e3e42; padding: 5px 10px; border-radius: 4px; border: 1px solid #555;">
+                        <input type="hidden" data-field="stats" value="{}">
+                        <div style="font-size: 0.9em; color: #ddd;">
+                            Not Scraped: <span class="stat-to-scrape" style="font-weight: bold; color: #fff;">-</span>
+                        </div>
+                        <div style="font-size: 0.9em; color: #ddd;">
+                            Scraped Not Annotated: <span class="stat-to-annotate" style="font-weight: bold; color: #fff;">-</span>
+                        </div>
+                        <button type="button" onclick="updateStudyEstimates(this, event)" style="font-size: 0.8em; padding: 2px 5px; margin-top: 5px; cursor: pointer; background: #555; border: none; color: #eee;">Update Estimates</button>
+                    </div>
+                </div>
                 {% endif %}
 
                 {% if user.is_admin() %}

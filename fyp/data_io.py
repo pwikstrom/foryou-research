@@ -907,7 +907,7 @@ def get_dataset_details(cf=None, study_name=None):
     #from os import listdir
     #from os.path import join, getsize
     from fyp.fyp_main import initialize
-    from fyp.recode_variables import get_group_factors_from_var_schema
+    from fyp.recode_variables import get_grouping_factors_from_var_schema
     import pandas as pd
     
     if cf is None:
@@ -916,7 +916,7 @@ def get_dataset_details(cf=None, study_name=None):
     if study_name is None:
         raise ValueError("study_name is required")
 
-    group_factors = get_group_factors_from_var_schema(cf = cf)
+    grouping_factors = get_grouping_factors_from_var_schema(cf = cf)
 
     details = []
 
@@ -940,13 +940,13 @@ def get_dataset_details(cf=None, study_name=None):
             else:
                 nunique_items = "N/A"
 
-            all_group_factors_in_df = all([gf in df.columns for gf in group_factors])
-            if all_group_factors_in_df:
-                group_factor_counts = len(df.groupby(group_factors).size())
+            all_grouping_factors_in_df = all([gf in df.columns for gf in grouping_factors])
+            if all_grouping_factors_in_df:
+                group_factor_counts = len(df.groupby(grouping_factors).size())
             else:
-                all_group_factors_in_df = all([gf[2:] in df.columns for gf in group_factors])
-                if all_group_factors_in_df:
-                    group_factor_counts = len(df.groupby([gf[2:] for gf in group_factors]).size())
+                all_grouping_factors_in_df = all([gf[2:] in df.columns for gf in grouping_factors])
+                if all_grouping_factors_in_df:
+                    group_factor_counts = len(df.groupby([gf[2:] for gf in grouping_factors]).size())
                 else:
                     group_factor_counts = "N/A"
 

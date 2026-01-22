@@ -1229,20 +1229,20 @@ def simple_sample_ddp_events(
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
 
-    group_factors = get_group_factors_from_var_schema(cf = cf, some_events_df = the_df, verbose=False)
+    grouping_factors = get_grouping_factors_from_var_schema(cf = cf, some_events_df = the_df, verbose=False)
 
-    if len(group_factors) != 2:
+    if len(grouping_factors) != 2:
         raise ValueError("!!! [DD Sampling] Group factors must be exactly 2")
 
-    if not "D_donation_id" in group_factors:
+    if not "D_donation_id" in grouping_factors:
         raise ValueError("!!! [DD Sampling] Group factors must include D_donation_id")
 
     # make sure D_donation_id is the first element 
-    group_factors.remove("D_donation_id")
-    group_factors = ["D_donation_id"] + group_factors
+    grouping_factors.remove("D_donation_id")
+    grouping_factors = ["D_donation_id"] + grouping_factors
 
     if verbose:
-        print(f"    [DD Sampling] Group factors: {group_factors}")
+        print(f"    [DD Sampling] Group factors: {grouping_factors}")
 
     MIN_EVENTS_REQUIRED = cf["study_defs"][study_name].get("MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP",10)
     MAX_EVENTS_SELECTED = cf["study_defs"][study_name].get("MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP",100)
@@ -1270,19 +1270,19 @@ def simple_sample_ddp_events(
         print(f"    [DD Sampling] Dropping groups with less than {MIN_EVENTS_REQUIRED} events")
         print(f"    [DD Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment...")
     # select agg groups with the required number of events
-    ddp_watch_events_within_agg_group_size_limits = _filter_and_sample(all_watch_events_df, group_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED)
+    ddp_watch_events_within_agg_group_size_limits = _filter_and_sample(all_watch_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED)
     if verbose:
         sample_size = len(ddp_watch_events_within_agg_group_size_limits)
         print(f"    [DD Sampling] Watch events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     # build a df with unique pairs of the two group factors
-    unique_group_factor_pairs = ddp_watch_events_within_agg_group_size_limits[group_factors].drop_duplicates()
+    unique_group_factor_pairs = ddp_watch_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
 
     if verbose:
         print(f"    [DD Sampling] Dropping donations with less than {MIN_GROUP_COUNT_REQUIRED_PER_DONATION} groups within the limits")
         print(f"    [DD Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_DONATION} groups from each remaining donation. This might take a moment...")
     # select donations with a required number of groups
-    donations_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, group_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION)
+    donations_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION)
     if verbose:
         print(f"    [DD Sampling] Donations groups remaining after sampling: {len(donations_within_group_count_limits):,}")
 
@@ -1290,10 +1290,10 @@ def simple_sample_ddp_events(
     # ----------------------------------------------------------------------
     # find the watch events in the selected groups
     # 1. start with the events in the agg groups that meet the group size requirements and set the index to the group factors
-    ddp_watch_events_in_candidate_groups = ddp_watch_events_within_agg_group_size_limits.set_index(group_factors)
+    ddp_watch_events_in_candidate_groups = ddp_watch_events_within_agg_group_size_limits.set_index(grouping_factors)
 
     # 2. select the events in the groups that meet the group count requirements
-    ddp_watch_events_in_selected_groups = ddp_watch_events_in_candidate_groups.loc[donations_within_group_count_limits.set_index(group_factors).index]
+    ddp_watch_events_in_selected_groups = ddp_watch_events_in_candidate_groups.loc[donations_within_group_count_limits.set_index(grouping_factors).index]
     ddp_watch_events_in_selected_groups = ddp_watch_events_in_selected_groups.reset_index()
     if verbose:
         sample_size = len(ddp_watch_events_in_selected_groups)
@@ -1304,18 +1304,18 @@ def simple_sample_ddp_events(
     # sampled, there is a disproportional number of non-watch events in the sampled dataset compared 
     # to the number of watch events
     # 1. find all unique group factor pairs for the non-watch events
-    unique_group_factor_pairs_for_nonwatch_events = all_nonwatch_events_df[group_factors].drop_duplicates()
+    unique_group_factor_pairs_for_nonwatch_events = all_nonwatch_events_df[grouping_factors].drop_duplicates()
 
     # 2. find the non-watch groups that are in the selected groups. This is necessary since there are some non-watch
     # groups that don't have any watch events, and I don't want these included in the sample
-    nonwatch_groups = set(unique_group_factor_pairs_for_nonwatch_events.set_index(group_factors).index)
-    selected_watch_groups = set(donations_within_group_count_limits.set_index(group_factors).index)
+    nonwatch_groups = set(unique_group_factor_pairs_for_nonwatch_events.set_index(grouping_factors).index)
+    selected_watch_groups = set(donations_within_group_count_limits.set_index(grouping_factors).index)
     selected_nonwatch_groups = list(nonwatch_groups & selected_watch_groups)
 
-    selected_nonwatch_groups = pd.DataFrame(selected_nonwatch_groups, columns=group_factors)
-    selected_nonwatch_groups = selected_nonwatch_groups.convert_dtypes(dtype_backend="pyarrow").set_index(group_factors).index
+    selected_nonwatch_groups = pd.DataFrame(selected_nonwatch_groups, columns=grouping_factors)
+    selected_nonwatch_groups = selected_nonwatch_groups.convert_dtypes(dtype_backend="pyarrow").set_index(grouping_factors).index
 
-    mask = all_nonwatch_events_df.set_index(group_factors).index.isin(selected_nonwatch_groups)
+    mask = all_nonwatch_events_df.set_index(grouping_factors).index.isin(selected_nonwatch_groups)
     ddp_nonwatch_events_in_selected_groups = all_nonwatch_events_df[mask]
     if verbose:
         print(f"    [DD Sampling] Non-Watch events remaining in the selected groups: {len(ddp_nonwatch_events_in_selected_groups):,} (100% of original)")
@@ -1324,7 +1324,7 @@ def simple_sample_ddp_events(
 
     combined = pd.concat([ddp_watch_events_in_selected_groups, ddp_nonwatch_events_in_selected_groups])
     if verbose:
-        print(f"    [DD Sampling] Combining the (not sampled) non-watch events with the sampled watch events with : {len(combined):,} in {len(combined[group_factors].drop_duplicates()):,} groups")
+        print(f"    [DD Sampling] Combining the (not sampled) non-watch events with the sampled watch events with : {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     combined.drop("D_id", axis=1, inplace=True)
 
 
@@ -1342,7 +1342,7 @@ def simple_sample_ddp_events(
 
     mapper = cf['var_schema'][['variable_name','display_name']].dropna().set_index('variable_name').to_dict()['display_name']
 
-    print(f"    [DD Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[group_factors].drop_duplicates()):,} groups")
+    print(f"    [DD Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     print(f"    [DD Sampling] - Unique videos: {len(combined_deduped_enrichment_status):,}")
     for k in enrichment_summary:
         print(f"    [DD Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k]/len(combined_deduped_enrichment_status):.0%})")

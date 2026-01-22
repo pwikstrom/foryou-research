@@ -7,13 +7,16 @@ from ..hub_config import fyp_cf
 import fyp.data_io as data_io
 from fyp.fyp_main import initialize
 from fyp.organize_datasets import create_study_recoded_dataset
+from fyp.pca import calculate_scaled_pca_scores
+from .. import explorer_backend as explorer
+from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable
 
 management_bp = Blueprint('management_bp', __name__)
 
 
 
 
-def _calculate_stats(study_config):
+def _calculate_stats(study_config, save_to_cache=True):
     """
     Calculate stats for a study using enrichment_status.parquet AND the study's specific recoded dataset.
     """
@@ -26,15 +29,14 @@ def _calculate_stats(study_config):
         recoded_fn = f"{study_name}_recoded.parquet"
         
         # Logic adapted from explorer_backend.load_data
-        """if data_io.exists(fyp_cf, storage_location="cache", filename=recoded_fn):
+        if data_io.exists(fyp_cf, storage_location="cache", filename=recoded_fn):
              # Load only needed columns
              df_study = data_io.load_parquet(fyp_cf, storage_location="cache", filename=recoded_fn)#, columns=["item_id", "D_donation_id"], verbose=True)
-        else:"""
-        # Force update of the study dataset for every change of the study definition
-        if True:
+        else:
+             # Force update of the study dataset for every change of the study definition
              print(f"Creating/updating recoded dataset for '{study_name}' to calculate stats...")
              # create_study_recoded_dataset returns the DF
-             df_study = create_study_recoded_dataset(cf=fyp_cf, study_name=study_name, verbose=True)
+             df_study = create_study_recoded_dataset(cf=fyp_cf, study_name=study_name, save_to_cache=save_to_cache, verbose=True)
              if df_study is not None:
                  # Keep only what we need if it returned full DF
                  df_study = df_study[["item_id", "D_donation_id"]]
@@ -72,19 +74,45 @@ def _calculate_stats(study_config):
             # df_status is indexed by item_id (according to inspection)
             
             # Subset of status for this study
-            matched_status = df_status.loc[df_status.index.isin(study_item_ids)]
+            matched_status = df_status.loc[df_status.index.isin(study_item_ids)].fillna(False).copy()
             
-            if not matched_status.empty:
+
+            to_scrape_count = (~matched_status.scraped_ok & ~matched_status.scrape_fail).sum()
+            to_annotate_count = (matched_status.scraped_ok & ~matched_status.annotated_ok).sum()
+
+
+            """if not matched_status.empty:
                 if 'scraped_ok' in matched_status.columns:
                     scraped_videos = int(matched_status['scraped_ok'].sum())
                 if 'annotated_ok' in matched_status.columns:
                     annotated_videos = int(matched_status['annotated_ok'].sum())
+                
+                # --- New Estimates ---
+                # 1) Unique videos to scrape (scraped_ok == False & scraped_fail == False)
+                # Ensure scraped_fail exists
+                if 'scraped_fail' not in matched_status.columns:
+                    matched_status['scraped_fail'] = False # Default assumption if missing
+                
+                if 'scraped_ok' in matched_status.columns:
+                    to_scrape_mask = (~matched_status['scraped_ok']) & (~matched_status['scraped_fail'])
+                    to_scrape_count = int(to_scrape_mask.sum())
+                else:
+                    to_scrape_count = 0
+                    
+                # 2) Unique scraped videos to annotate (scraped_ok == True & annotated_ok == False)
+                if 'scraped_ok' in matched_status.columns and 'annotated_ok' in matched_status.columns:
+                    to_annotate_mask = (matched_status['scraped_ok']) & (~matched_status['annotated_ok'])
+                    to_annotate_count = int(to_annotate_mask.sum())
+                else:
+                    to_annotate_count = 0""" 
         
         return {
             "unique_videos": int(unique_videos),
             "scraped_videos": scraped_videos,
             "annotated_videos": annotated_videos,
-            "unique_donations": int(unique_donations)
+            "unique_donations": int(unique_donations),
+            "to_scrape_count": to_scrape_count if 'to_scrape_count' in locals() else 0,
+            "to_annotate_count": to_annotate_count if 'to_annotate_count' in locals() else 0
         }
 
     if False:#except Exception as e:
@@ -158,7 +186,7 @@ def save_study():
 
     # Calculate Stats
     print(f"Calculating stats for {study_name}...")
-    stats = _calculate_stats(studies[study_name])
+    stats = _calculate_stats(studies[study_name], save_to_cache=True)
     studies[study_name]['stats'] = stats
     studies[study_name]['last_updated'] = datetime.now().isoformat()
     
@@ -168,20 +196,130 @@ def save_study():
     # Update in-memory config if possible (optional but good for consistency)
     fyp_cf['study_defs'] = studies
 
+
+@management_bp.route('/api/manage/studies/calculate_stats', methods=['POST'])
+@login_required
+def calculate_study_stats():
+    """
+    On-demand calculation of stats for a study definition (without saving).
+    """
+    if not (current_user.is_admin() or current_user.role == 'researcher'):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data"}), 400
+        
+
+    
+    study_name = data.get("STUDY_NAME")
+    if not study_name:
+         return jsonify({"error": "Missing STUDY_NAME"}), 400
+         
+    # 1. Backup existing config
+    original_config = None
+    if 'study_defs' in fyp_cf and study_name in fyp_cf['study_defs']:
+        original_config = fyp_cf['study_defs'][study_name].copy()
+        
+    # 2. Update with Request Data (Simulation)
+    if 'study_defs' not in fyp_cf:
+        fyp_cf['study_defs'] = {}
+    
+    # If this is a new study (not in defs), we add it. 
+    # If existing, we overwrite.
+    fyp_cf['study_defs'][study_name] = data
+    
+    try:
+        # 3. specific instruction: "Force update of the study dataset"
+        # The logic in _calculate_stats calls create_study_recoded_dataset
+        stats = _calculate_stats(data, save_to_cache=False) # The argument to _calculate_stats is actually just used for getting STUDY_NAME inside it (line 24)
+        
+        return jsonify({"status": "success", "stats": stats})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+        
+    finally:
+        # 4. Revert config
+        if original_config is not None:
+             fyp_cf['study_defs'][study_name] = original_config
+        else:
+             # If it was new, remove it? 
+             # Or keep it? Safer to remove if it wasn't there.
+             if study_name in fyp_cf['study_defs']:
+                  del fyp_cf['study_defs'][study_name]
+
+
+    # ----------------------------------------------------------------------
     # As the study dataset is updated, we should recalculate PCA as well
+    # ----------------------------------------------------------------------
     if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_PCA.parquet"):
         data_io.remove(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_PCA.parquet")
     calculate_scaled_pca_scores(cf=fyp_cf, study_name=study_name, load_from_cache=True, save_to_cache=True)
-    
-    # As the study dataset is updated, we should recalculate the enriched dataset as well
-    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_viewer_metadata.parquet"):
-        data_io.remove(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_viewer_metadata.parquet")
-    # TODO: call calculate_scaled_pca_scores in data_routes.py with the appropriate arguments to generate a new parquet file
 
-    # As the study dataset is updated, we should recalculate the enriched dataset as well
-    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_explorer_metadata.parquet"):
-        data_io.remove(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_explorer_metadata.parquet")
-    # TODO: call calculate_scaled_pca_scores in data_routes.py with the appropriate arguments to generate a new parquet file
+
+    # ----------------------------------------------------------------------
+    # --- Refresh Metadata (Viewer & Explorer) ---
+    # ----------------------------------------------------------------------
+    
+    # --- Invalidate RAM Cache ---
+    with study_cache.lock:
+        if study_name in study_cache.cache:
+            # We cannot easily delete from LRUCache by key if it doesn't expose del, but popping with default works
+            # cachetools LRUCache supports __delitem__
+            try:
+                del study_cache.cache[study_name]
+                print(f"Invalidated RAM cache for {study_name}")
+            except KeyError:
+                pass
+
+
+    # --- Refresh Metadata (Viewer & Explorer) ---
+    print(f"Loading fresh data for {study_name} to generate metadata...")
+    # This reads the parquet file we just ensured allows existing (or recoded)
+    df, col_types = explorer.load_data(fyp_cf, study_name, verbose=True)
+
+    if df is not None:
+        # 1. Viewer Metadata (Scraped OK)
+        print(f"Generating viewer metadata for {study_name}...")
+        df_viewer = df[df.scraped_ok].copy()
+        viewer_meta = explorer.get_metadata(df_viewer, col_types)
+        
+        # Add filtering/display priorities
+        viewer_meta = load_schema_metadata(viewer_meta)
+        
+        data_io.save_json(fyp_cf, make_serializable(viewer_meta), "cache", f"{study_name}_viewer_metadata.json", verbose=True)
+
+
+        # 2. Explorer Metadata (Annotated OK)
+        print(f"Generating explorer metadata for {study_name}...")
+        df_explorer = df[df.annotated_ok].copy()
+        explorer_meta = explorer.get_metadata(df_explorer, col_types)
+        
+        # Calculate Total Stats for Explorer
+        # We need the viz config for binning/logging rules
+        viz_config = get_viz_config()
+        stats_res = explorer.get_current_stats(df_explorer, col_types, viz_config=viz_config)
+        explorer_meta['total_stats'] = stats_res['stats']
+        
+        # Inject Source File Info
+        try:
+            the_recoded_file = f"{study_name}_recoded.parquet"
+            if data_io.exists(cf=fyp_cf, storage_location="cache", filename=the_recoded_file):
+                explorer_meta['source_file'] = the_recoded_file
+                mtime = datetime.fromtimestamp(data_io.getmtime(cf=fyp_cf, storage_location="cache", filename=the_recoded_file))
+                explorer_meta['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                 explorer_meta['source_file'] = "Unknown"
+                 explorer_meta['source_file_modified'] = ""
+        except Exception as e:
+             explorer_meta['source_file'] = "Error"
+             explorer_meta['source_file_modified'] = ""
+
+        # Add filtering/display priorities
+        explorer_meta = load_schema_metadata(explorer_meta)
+        
+        data_io.save_json(fyp_cf, make_serializable(explorer_meta), "cache", f"{study_name}_explorer_metadata.json", verbose=True)
 
 
 

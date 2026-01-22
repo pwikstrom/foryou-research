@@ -747,6 +747,7 @@ def create_study_recoded_dataset(
     cf = None,
     study_name = None,
     all_datasets = {},
+    save_to_cache = True,
     verbose = False
     ):
 
@@ -772,7 +773,7 @@ def create_study_recoded_dataset(
         study_name = study_name,
         all_datasets = all_datasets,
         load_from_cache = True,
-        save_to_cache = True,
+        save_to_cache = save_to_cache,
         verbose = verbose)
 
     if all_datasets == None:
@@ -784,7 +785,7 @@ def create_study_recoded_dataset(
         cf = cf,
         study_name = study_name,
         all_datasets = all_datasets,
-        save_to_cache = True,
+        save_to_cache = save_to_cache,
         verbose = verbose
     )
 
