@@ -13,6 +13,131 @@ function loadStudies() {
         .catch(err => console.error("Error loading studies:", err));
 }
 
+let availableDonations = [];
+
+function loadAvailableDonations() {
+    fetch('/api/manage/donations')
+        .then(res => res.json())
+        .then(data => {
+            availableDonations = data; // Array of formatted strings
+            // After donations are loaded, assume studies can be rendered correctly?
+            // If loadStudies was called before, we might need to re-render.
+            // But we chained init order to call loadAvailableDonations first.
+            // So we trigger loadStudies HERE.
+            loadStudies();
+        })
+        .catch(err => {
+            console.error("Error loading donations list:", err);
+            // Even if donations fail, load studies
+            loadStudies();
+        });
+}
+
+// --------------------------------------------------------------------------
+// Donation Selector Helper Logic
+// --------------------------------------------------------------------------
+
+function renderDonationSelector(container, selectedList) {
+    if (!container) return;
+
+    container.innerHTML = '';
+    const selectedSet = new Set(selectedList || []);
+
+    if (availableDonations.length === 0) {
+        container.innerHTML = '<div style="padding: 10px; color: #aaa;">No donations available.</div>';
+        return;
+    }
+
+    const frag = document.createDocumentFragment();
+
+    availableDonations.forEach(item => {
+        const div = document.createElement('div');
+        div.style.padding = '2px 5px';
+        div.className = 'donation-item'; // for filtering
+
+        // Hide if filtered out? (No, render is usually called on expand. Filtering is separate)
+
+        const label = document.createElement('label');
+        label.style.display = 'flex';
+        label.style.alignItems = 'center';
+        label.style.cursor = 'pointer';
+        label.style.width = '100%';
+        label.style.color = '#ddd';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = item;
+        cb.checked = selectedSet.has(item);
+        cb.style.marginRight = '8px';
+
+        // Event listener to update count and hidden input
+        cb.onchange = function () {
+            updateDonationSelection(container.parentElement); // Pass parent .donation-selector
+        };
+
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(item));
+
+        div.appendChild(label);
+        frag.appendChild(div);
+    });
+
+    container.appendChild(frag);
+
+    // Initial count update
+    updateDonationSelection(container.parentElement);
+}
+
+function updateDonationSelection(selectorDiv) {
+    if (!selectorDiv) return;
+    const container = selectorDiv.querySelector('.donation-checklist-container');
+    // Finds the hidden input which is a sibling of selectorDiv in our HTML structure?
+    // Structure: div.form-group > label, div.donation-selector, input[hidden]
+    // So hidden input is next sibling of selectorDiv.
+    const hiddenInput = selectorDiv.nextElementSibling;
+    const countSpan = selectorDiv.querySelector('.selected-count');
+
+    const checked = container.querySelectorAll('input[type="checkbox"]:checked');
+    const values = Array.from(checked).map(c => c.value);
+
+    if (countSpan) countSpan.textContent = values.length;
+
+    if (hiddenInput && hiddenInput.dataset.field === 'SELECTED_DONATIONS') {
+        hiddenInput.value = JSON.stringify(values);
+    }
+}
+
+function filterDonations(inputElement) {
+    const searchText = inputElement.value.toLowerCase();
+    const selectorDiv = inputElement.closest('.donation-selector');
+    const items = selectorDiv.querySelectorAll('.donation-item');
+
+    items.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        if (text.includes(searchText)) {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function selectAllDonations(btn, select) {
+    const selectorDiv = btn.closest('.donation-selector');
+    const container = selectorDiv.querySelector('.donation-checklist-container');
+    const items = container.querySelectorAll('.donation-item');
+
+    items.forEach(item => {
+        if (item.style.display !== 'none') {
+            const cb = item.querySelector('input[type="checkbox"]');
+            cb.checked = select;
+        }
+    });
+
+    updateDonationSelection(selectorDiv);
+}
+
+
 function renderStudiesTable() {
     const tbody = document.getElementById('studies_table_body');
     tbody.innerHTML = '';
@@ -113,11 +238,30 @@ function populateForm(row, study) {
 
         // Handle Lists/JSON (Except USER_ACCESS which is now checkboxes)
         if (field === 'SELECTED_DONATIONS') {
-            if (Array.isArray(value)) {
-                // Pretty print for textarea
-                input.value = JSON.stringify(value, null, 2);
+            // Find the donation selector in this row
+            // The row input[data-field="SELECTED_DONATIONS"] is now the HIDDEN one.
+            // renderDonationSelector needs the container.
+            // Structure: input[hidden] is sibling of div.donation-selector
+
+            // Wait, input iteration loop finds the HIDDEN input.
+            // We can set its value (for reference) AND render the list.
+
+            const selectorDiv = input.parentElement.querySelector('.donation-selector');
+            if (selectorDiv) {
+                const container = selectorDiv.querySelector('.donation-checklist-container');
+                // Value is the array
+                const selectedList = Array.isArray(value) ? value : [];
+                input.value = JSON.stringify(selectedList); // Set hidden value
+
+                // Render Checklist
+                renderDonationSelector(container, selectedList);
             } else {
-                input.value = value || "[]";
+                // Fallback (should not happen if HTML updated)
+                if (Array.isArray(value)) {
+                    input.value = JSON.stringify(value, null, 2);
+                } else {
+                    input.value = value || "[]";
+                }
             }
         }
         // Handle Booleans (Selects)
@@ -174,16 +318,22 @@ function collectFormData(row) {
         }
         else if (field === 'SELECTED_DONATIONS') {
             try {
-                if (value.trim()) {
+                // For the new UI, the input.value is already a clean JSON string set by updateDonationSelection.
+                // But let's be robust.
+                if (value && value.trim()) {
+                    // It should be stringified array. 
+                    // replace not strictly needed if set programmatically, but safe.
                     let safeVal = value.replace(/'/g, '"');
+
+                    // If it's the Hidden Input, it holds the full array from check boxes.
                     data[field] = JSON.parse(safeVal);
                 } else {
                     data[field] = [];
                 }
             } catch (e) {
+                // If parsing fails (e.g. empty), default to empty
                 console.warn(`Failed to parse ${field}`, e);
-                alert(`Invalid JSON for ${field}: ${e.message}`);
-                throw e; // Stop save
+                data[field] = [];
             }
         }
         else if (input.type === 'number') {
@@ -364,5 +514,6 @@ const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribut
 // Better to expose init function or run loadStudies if tab is active?
 // main.js usually handles tab switching. We can add to the tab onclick or just load once.
 // Let's rely on explicit call or just run it:
-loadStudies();
+// Load donations FIRST, then studies to ensure selector populates correctly
+loadAvailableDonations();
 

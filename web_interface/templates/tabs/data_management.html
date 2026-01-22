@@ -139,7 +139,27 @@
             <div class="form-group" style="margin-top: 20px;">
                 <label title="List of specific donation IDs to include. Leave empty for all."
                     style="display: block; margin-bottom: 8px;">SELECTED_DONATIONS <i class="info-icon">ℹ️</i></label>
-                <textarea data-field="SELECTED_DONATIONS" class="control-input" rows="3" placeholder="[]"></textarea>
+
+                <div class="donation-selector" style="border: 1px solid #555; padding: 10px; background: #3e3e42;">
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <input type="text" placeholder="Search donations..." class="control-input donation-search-input"
+                            style="flex: 1;" onkeyup="filterDonations(this)">
+                        <button type="button" onclick="selectAllDonations(this, true)"
+                            style="padding: 5px 10px;">All</button>
+                        <button type="button" onclick="selectAllDonations(this, false)"
+                            style="padding: 5px 10px;">None</button>
+                    </div>
+                    <div class="donation-checklist-container"
+                        style="max-height: 200px; overflow-y: auto; text-align: left; background: #2d2d30; padding: 5px; border: 1px solid #555;">
+                        <!-- Checkboxes injected by JS -->
+                        <div style="padding: 10px; color: #ccc;">Loading donations...</div>
+                    </div>
+                    <div style="text-align: right; font-size: 0.8em; color: #aaa; margin-top: 5px;">
+                        <span class="selected-count">0</span> selected
+                    </div>
+                </div>
+                <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
+                <input type="hidden" data-field="SELECTED_DONATIONS" value="[]">
             </div>
 
             <style>

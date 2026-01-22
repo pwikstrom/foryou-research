@@ -10,6 +10,9 @@ from fyp.organize_datasets import create_study_recoded_dataset
 
 management_bp = Blueprint('management_bp', __name__)
 
+
+
+
 def _calculate_stats(study_config):
     """
     Calculate stats for a study using enrichment_status.parquet AND the study's specific recoded dataset.
@@ -23,11 +26,13 @@ def _calculate_stats(study_config):
         recoded_fn = f"{study_name}_recoded.parquet"
         
         # Logic adapted from explorer_backend.load_data
-        if data_io.exists(fyp_cf, storage_location="cache", filename=recoded_fn):
+        """if data_io.exists(fyp_cf, storage_location="cache", filename=recoded_fn):
              # Load only needed columns
              df_study = data_io.load_parquet(fyp_cf, storage_location="cache", filename=recoded_fn)#, columns=["item_id", "D_donation_id"], verbose=True)
-        else:
-             print(f"Creating recoded dataset for '{study_name}' to calculate stats...")
+        else:"""
+        # Force update of the study dataset for every change of the study definition
+        if True:
+             print(f"Creating/updating recoded dataset for '{study_name}' to calculate stats...")
              # create_study_recoded_dataset returns the DF
              df_study = create_study_recoded_dataset(cf=fyp_cf, study_name=study_name, verbose=True)
              if df_study is not None:
@@ -148,10 +153,11 @@ def save_study():
         
     studies[study_name].update(data)
 
-    if new_study:
-        # First save to make sure the new study is added to the saved json. This is necessary to create other files
-        data_io.save_json(fyp_cf, studies, "studies", study_defs_fn, verbose=True)
-        fyp_cf['study_defs'] = studies
+    #if new_study:
+    #    # First save to make sure the new study is added to the saved json. This is necessary to create other files
+    
+    data_io.save_json(fyp_cf, studies, "studies", study_defs_fn, verbose=True)
+    fyp_cf['study_defs'] = studies
     
 
     # Calculate Stats
@@ -196,3 +202,62 @@ def delete_study():
         return jsonify({"status": "success", "message": f"Deleted {study_name}"})
     else:
         return jsonify({"error": "Study not found"}), 404
+
+
+@management_bp.route('/api/manage/donations', methods=['GET'])
+@login_required
+def list_donations():
+    try:
+        # Load ddp_metadata from ddp_main
+        if data_io.exists(fyp_cf, storage_location="ddp_main", filename="ddp_metadata.parquet"):
+            # Load only needed columns
+            # Load using ignore_metadata to bypass list type errors
+            # Request D_id and possible raw multindex name "('other', 'D_id')"
+            df = data_io.load_parquet(
+                fyp_cf, 
+                storage_location="ddp_main", 
+                filename="ddp_metadata.parquet", 
+                columns=["D_donation_id", "D_id", "('other', 'D_id')"], 
+                verbose=False, 
+
+                convert_types=False,
+                ignore_metadata=True
+            )
+            
+            # Format: "D{D_id:05} [{D_donation_id}]"
+            donations = []
+            if df is not None and not df.empty:
+                for idx, row in df.iterrows():
+                    try:
+                        # Handle potential missing or non-numeric D_id gracefully
+                        # Check for both standard and raw column names
+                        d_id_val = row.get('D_id')
+                        if pd.isna(d_id_val):
+                            d_id_val = row.get("('other', 'D_id')")
+
+                        d_don_id = row.get('D_donation_id', 'UNKNOWN')
+                        
+                        if pd.notna(d_id_val):
+                            try:
+                                formatted_str = f"D{int(d_id_val):05d} [{d_don_id}]"
+                                donations.append(formatted_str)
+                            except (ValueError, TypeError):
+                                # If conversion to int fails, treat as unknown/skip
+                                formatted_str = f"D????? [{d_don_id}]"
+                                # donations.append(formatted_str) 
+                        else:
+                            formatted_str = f"D????? [{d_don_id}]"
+                            
+                    except Exception as e:
+                        continue
+            
+            # Sort alphabetically
+            donations.sort()
+            return jsonify(donations)
+        else:
+            print("ddp_metadata.parquet not found in ddp_main")
+            return jsonify([])
+            
+    except Exception as e:
+        print(f"Error listing donations: {e}")
+        return jsonify({"error": str(e)}), 500
