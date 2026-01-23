@@ -261,27 +261,27 @@ def download_single_video(
                     blob = cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                     while blob and blob.exists():
-                        blob.download_to_filename(local_join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
+                        blob.download_to_filename(os.path.join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
                         if blob.size >= cf["misc"]["min_media_object_size"]:
-                            image_files.append(local_join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
+                            image_files.append(os.path.join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
                         ccc += 1
                         blob = cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                     # use the images to build a slideshow
                     make_slideshow(
                         image_files,
-                        output=local_join(cf["paths"]["temp"],f"{video_id}.mp4"),
+                        output=os.path.join(cf["paths"]["temp"],f"{video_id}.mp4"),
                         duration=2,
                         swipe=False,
                         verbose=verbose
                     )
 
                     # upload the video slideshow to the storage bucket if it is large enough
-                    if local_getsize(local_join(cf["paths"]["temp"],f"{video_id}.mp4")) > cf["misc"]["min_media_object_size"]:
+                    if local_getsize(os.path.join(cf["paths"]["temp"],f"{video_id}.mp4")) > cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"Uploading video file to storage bucket...")
                         blob = cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
-                        blob.upload_from_filename(local_join(cf["paths"]["temp"],f"{video_id}.mp4"))
+                        blob.upload_from_filename(os.path.join(cf["paths"]["temp"],f"{video_id}.mp4"))
                         scrape_metadata.loc[0,'video_downloaded'] = True
                     else:
                         if verbose:
@@ -526,7 +526,7 @@ def download_video_threads(
         scrape_filename = f"scrape_{fine_ts}.parquet"
 
         # saving the results to local temp just in case everything goes to pieces
-        results.to_parquet(local_join(cf['paths']['temp'], "recovered_"+scrape_filename))
+        results.to_parquet(os.path.join(cf['paths']['temp'], "recovered_"+scrape_filename))
 
 
         # -----------------------------------------------
@@ -648,7 +648,9 @@ def scraper_loop_from_list(
             verbose = verbose,
             dry_run = dry_run)
         
-        good_scrapes += results_from_scraper["item_id"].to_list()
+        if not results_from_scraper.empty and "item_id" in results_from_scraper.columns:
+            good_scrapes += results_from_scraper["item_id"].to_list()
+        
         failed_scrapes += [v for v in batch if v not in good_scrapes]
         with open(os.path.join(cf['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
             json.dump(failed_scrapes, f)
@@ -778,6 +780,50 @@ def scraper_loop(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+def queue_scraper_loop(
+    cf = None,
+    batch_size = 500,
+    max_batches = None,
+    verbose = False,
+    dry_run = False
+    ):
+
+    if cf is None:
+        cf = initialize(verbose=verbose)
+        if cf['data_io']['use_gcs_for_data']:
+            cf = connect_to_google(cf, verbose=verbose)
+
+    # Load queue
+    video_list = []
+    if data_io.exists(cf=cf, storage_location='cache', filename='to_scrape.json'):
+            video_list = data_io.load_json(cf=cf, storage_location='cache', filename='to_scrape.json')
+    
+    if not video_list or not isinstance(video_list, list) or len(video_list) == 0:
+        print("Queue is empty or invalid. Nothing to scrape.")
+        return
+
+    print(f"Found {len(video_list)} items in queue.")
+
+    scraper_loop_from_list(
+        cf=cf,
+        video_list=video_list,
+        batch_size=batch_size,
+        max_batches=max_batches,
+        verbose=verbose,
+        dry_run=dry_run
+    )
 
 
 

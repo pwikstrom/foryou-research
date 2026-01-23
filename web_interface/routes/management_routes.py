@@ -96,6 +96,9 @@ def _calculate_stats(study_config, save_to_cache=True):
 
 
 
+
+
+
 @management_bp.route('/api/manage/studies', methods=['GET'])
 @login_required
 def list_studies():
@@ -122,6 +125,9 @@ def list_studies():
         studies_list.append(config)
         
     return jsonify(studies_list)
+
+
+
 
 
 
@@ -298,6 +304,9 @@ def save_study():
 
 
 
+
+
+
 @management_bp.route('/api/manage/studies/calculate_stats', methods=['POST'])
 @login_required
 def calculate_study_stats():
@@ -414,6 +423,9 @@ def list_donations():
         print(f"Error listing donations: {e}")
 
 
+
+
+
 @management_bp.route('/api/manage/enrichment/stats', methods=['GET'])
 @login_required
 def get_enrichment_stats():
@@ -454,6 +466,10 @@ def get_enrichment_stats():
         "scrape_queue_len": scrape_queue_len,
         "annotate_queue_len": annotate_queue_len
     })
+
+
+
+
 
 
 @management_bp.route('/api/manage/enrichment/empty_queues', methods=['POST'])

@@ -225,10 +225,25 @@ async function startProcess(name) {
         studyNameInputId = 'build-study-name';
     }
 
+    let studyName = "";
+    if (document.getElementById(studyNameInputId)) {
+        studyName = document.getElementById(studyNameInputId).value;
+    }
 
-    const studyName = document.getElementById(studyNameInputId).value;
-    const batchSize = document.getElementById('global-batch-size') ? document.getElementById('global-batch-size').value : null;
-    const maxBatches = document.getElementById('global-max-batches') ? document.getElementById('global-max-batches').value : null;
+    let batchSize = null;
+    let maxBatches = null;
+
+    if (name === 'queue_scraper') {
+        const bsEl = document.getElementById('enrichment-batch-size');
+        const mbEl = document.getElementById('enrichment-max-batches');
+        batchSize = bsEl ? bsEl.value : null;
+        maxBatches = mbEl ? mbEl.value : null;
+    } else {
+        const bsEl = document.getElementById('global-batch-size');
+        const mbEl = document.getElementById('global-max-batches');
+        batchSize = bsEl ? bsEl.value : null;
+        maxBatches = mbEl ? mbEl.value : null;
+    }
 
     if (['downloader', 'annotator', 'create_subsets', 'regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'].includes(name)) {
         if (!studyName) {
@@ -322,6 +337,7 @@ async function updateStatus() {
         setStatus('monitor', data.monitor);
         setStatus('annotator', data.annotator);
         setStatus('create_subsets', data.create_subsets);
+        setStatus('queue_scraper', data.queue_scraper);
 
         // Discreet processes
         const discreetProcesses = ['regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'];
@@ -530,6 +546,7 @@ async function updateLogs() {
     await fetchLogs('monitor');
     await fetchLogs('annotator');
     await fetchLogs('create_subsets');
+    await fetchLogs('queue_scraper');
     // await fetchLogs('regenerate_datasets'); // Optional if we want logs visible somewhere
 }
 

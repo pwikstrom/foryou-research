@@ -23,6 +23,7 @@ REGENERATE_DATASETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_regenerate_da
 CREATE_EVENT_LOG_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_event_log.py"
 RECODE_EVENT_LOG_SCRIPT = PROJECT_ROOT / "web_interface" / "run_recode_event_log.py"
 CALCULATE_PCA_SCRIPT = PROJECT_ROOT / "web_interface" / "run_calculate_pca.py"
+QUEUE_SCRAPER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_queue_scraper.py"
 CONFIG_FILE_STUDIES = PROJECT_ROOT / "config" / "studies.toml"
 CONFIG_FILE_CORE = PROJECT_ROOT / "config" / "config.toml"
 PROCESS_STATS_FILE = PROJECT_ROOT / "web_interface" / "process_stats.json"

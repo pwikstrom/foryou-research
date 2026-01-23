@@ -1594,6 +1594,7 @@ def annotate_from_video_id_list(
     cf = None,
     fine_list = None,
     max_workers = 50,
+    refine_after_annotation = True,
     verbose = False,
     notebook_mode = False,
     dry_run = False):
@@ -1638,11 +1639,13 @@ def annotate_from_video_id_list(
             print("Since this is a dry run I'm skipping the refinement step.")
             return None
 
-        _ = refine_one_raw_annotation_batch(
-            cf = cf,
-            raw_outputs_from_machine = raw_outputs_from_machine,
-            raw_json_filename = raw_json_fn,
-            verbose = verbose, notebook_mode = notebook_mode)
+        if refine_after_annotation:
+            _ = refine_one_raw_annotation_batch(
+                cf = cf,
+                raw_outputs_from_machine = raw_outputs_from_machine,
+                raw_json_filename = raw_json_fn,
+                verbose = verbose, notebook_mode = notebook_mode)
+        
 
     else:
         if verbose:
@@ -1694,6 +1697,72 @@ def annotate_from_scrape_data_file(
 
 
 
+
+
+
+
+
+
+
+def annotate_videos_loop_from_list(
+    cf = None,
+    video_list = None,
+    batch_size = 500,
+    max_batches = None,
+    verbose = False,
+    dry_run = False
+    ):
+
+    from datetime import datetime
+    from os import environ
+    #from os.path import join as os_join, exists as os_exists
+    #from pandas import read_parquet as pd_read_parquet
+    #import json
+    from fyp.fyp_main import initialize, connect_to_google, chunk_list
+    from fyp.organize_datasets import select_videos_from_study_dataset
+    from numpy import inf as np_inf
+    import fyp.data_io as data_io
+
+    max_batches = max_batches if max_batches is not None else np_inf
+
+    if video_list is None:
+        print("    ERROR: The annotation loop cannot run without a video list as input. Process failed.")
+        return None
+
+    if cf is None:
+        cf = initialize()
+    
+
+
+    print(f"    Annotating selected videos, batch size: {batch_size}, max batches: {max_batches}")
+    print(f"    Now: {datetime.now()}")
+
+    batch_number = 1
+
+    batch_target = min(max_batches, len(video_list) // batch_size + 1)
+
+    print(f"  Starting loop... There are {len(video_list):,} videos to process in {batch_target:,} batches")
+
+    for batch in chunk_list(video_list, batch_size):
+
+        print(f"  Batch {batch_number} of {max_batches:,}")
+
+        _ = annotate_from_video_id_list(
+            cf = cf,
+            fine_list = batch,
+            verbose = verbose,
+            dry_run = dry_run
+        )
+
+        if max_batches is not None and batch_number >= max_batches:
+            break
+
+        batch_number += 1
+
+        if dry_run:
+            break
+
+    print(f"Loop ended: {datetime.now()}")
 
 
 

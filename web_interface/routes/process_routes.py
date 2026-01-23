@@ -4,7 +4,8 @@ import web_interface.auth as auth
 from ..hub_config import (
     DOWNLOADER_SCRIPT, INGEST_SCRIPT, ANNOTATOR_SCRIPT, MONITOR_SCRIPT, 
     CREATE_SUBSETS_SCRIPT, REGENERATE_DATASETS_SCRIPT, CREATE_EVENT_LOG_SCRIPT, 
-    RECODE_EVENT_LOG_SCRIPT, CALCULATE_PCA_SCRIPT, CONFIG_FILE_STUDIES, CONFIG_FILE_CORE
+    RECODE_EVENT_LOG_SCRIPT, CALCULATE_PCA_SCRIPT, CONFIG_FILE_STUDIES, CONFIG_FILE_CORE,
+    QUEUE_SCRAPER_SCRIPT
 )
 from ..process_manager import (
     processes, process_stats, start_process, stop_process
@@ -24,11 +25,10 @@ def api_start(name):
     if "study_name" in data:
         args.append(data["study_name"])
 
-    # Pass batch controls for downloader and annotator
-    if name in ["downloader", "annotator"]:
-        if data.get("batch_size") and data["batch_size"].strip():
+    if name in ["downloader", "annotator", "queue_scraper"]:
+        if data.get("batch_size") and str(data["batch_size"]).strip():
              args.extend(["--batch-size", str(data["batch_size"])])
-        if data.get("max_batches") and data["max_batches"].strip():
+        if data.get("max_batches") and str(data["max_batches"]).strip():
              args.extend(["--max-batches", str(data["max_batches"])])
 
     study_name = data.get("study_name") 
@@ -41,7 +41,8 @@ def api_start(name):
         "regenerate_datasets": REGENERATE_DATASETS_SCRIPT,
         "create_event_log": CREATE_EVENT_LOG_SCRIPT,
         "recode_event_log": RECODE_EVENT_LOG_SCRIPT,
-        "calculate_pca": CALCULATE_PCA_SCRIPT
+        "calculate_pca": CALCULATE_PCA_SCRIPT,
+        "queue_scraper": QUEUE_SCRAPER_SCRIPT
     }
     
     success, msg = start_process(name, script_map[name], args, study_name=study_name)
