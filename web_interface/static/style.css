@@ -48,6 +48,11 @@ body {
     /* Activate flex column layout */
 }
 
+/* Specific scroll for Data Management which doesn't use the sidebar layout */
+#data_management {
+    overflow-y: auto;
+}
+
 /* Panels Area - Fills remaining space in tab-pane */
 .container {
     display: flex;

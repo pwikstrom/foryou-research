@@ -794,16 +794,17 @@ def scraper_loop(
 
 def queue_scraper_loop(
     cf = None,
-    batch_size = 500,
-    max_batches = None,
+    batch_size = 5,
+    max_batches = 1,
     verbose = False,
     dry_run = False
     ):
 
     if cf is None:
         cf = initialize(verbose=verbose)
-        if cf['data_io']['use_gcs_for_data']:
-            cf = connect_to_google(cf, verbose=verbose)
+
+    if cf['data_io']['use_gcs_for_data']:
+        cf = connect_to_google(cf, verbose=verbose)
 
     # Load queue
     video_list = []

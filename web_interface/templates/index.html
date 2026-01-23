@@ -22,9 +22,11 @@
     {% endif %}
 
     {% if user.is_admin() %}
-    <button class="tab-button" onclick="openTab(event, 'ingest_ndjson')">Ingest Zeeschuimer</button>
-    <button class="tab-button" onclick="openTab(event, 'scrape_annotate')">Scrape & Annotate</button>
-    <button class="tab-button" onclick="openTab(event, 'build_datasets')">Build Datasets</button>
+    <button class="tab-button" onclick="openTab(event, 'ingest_ndjson')" style="display: none;">Ingest
+        Zeeschuimer</button>
+    <button class="tab-button" onclick="openTab(event, 'scrape_annotate')" style="display: none;">Scrape &
+        Annotate</button>
+    <button class="tab-button" onclick="openTab(event, 'build_datasets')" style="display: none;">Build Datasets</button>
     {% endif %}
 
     <button class="tab-button" onclick="openTab(event, 'persona_explorer')">Persona Explorer</button>

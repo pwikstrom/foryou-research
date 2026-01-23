@@ -29,10 +29,10 @@ def _calculate_stats(study_config, save_to_cache=True):
         recoded_fn = f"{study_name}_recoded.parquet"
         
         # Logic adapted from explorer_backend.load_data
-        if data_io.exists(fyp_cf, storage_location="cache", filename=recoded_fn):
-             # Load only needed columns
-             df_study = data_io.load_parquet(fyp_cf, storage_location="cache", filename=recoded_fn)#, columns=["item_id", "D_donation_id"], verbose=True)
-        else:
+        #if data_io.exists(fyp_cf, storage_location="cache", filename=recoded_fn):
+        #     # Load only needed columns
+        #     df_study = data_io.load_parquet(fyp_cf, storage_location="cache", filename=recoded_fn)#, columns=["item_id", "D_donation_id"], verbose=True)
+        if True:#else:
              # Force update of the study dataset for every change of the study definition
              print(f"Creating/updating recoded dataset for '{study_name}' to calculate stats...")
              # create_study_recoded_dataset returns the DF
