@@ -390,6 +390,19 @@ function collectFormData(row) {
     return data;
 }
 
+// Helper to collect save settings (flags that aren't part of the study definition)
+// but are sent in the save payload.
+function collectSaveSettings(row) {
+    const settings = {};
+    const pcaChk = row.querySelector('.save-setting-pca');
+    const metaChk = row.querySelector('.save-setting-meta');
+
+    if (pcaChk) settings['REFRESH_PCA'] = pcaChk.checked;
+    if (metaChk) settings['REFRESH_METADATA'] = metaChk.checked;
+
+    return settings;
+}
+
 
 function saveStudy(btn, event) {
     if (event) event.preventDefault();
@@ -398,6 +411,11 @@ function saveStudy(btn, event) {
 
     try {
         const formData = collectFormData(detailRow);
+        const saveSettings = collectSaveSettings(detailRow);
+
+        // Merge settings into formData (backend will strip them)
+        Object.assign(formData, saveSettings);
+
         formData.STUDY_NAME = studyName;
         //console.log("Saving study definition:", formData);
 
