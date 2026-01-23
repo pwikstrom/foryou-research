@@ -11,7 +11,6 @@ Date:
 
 from typing import List, Tuple, Union, Sequence
 from PIL import Image, ImageColor
-from os.path import join as local_join, getsize as local_getsize
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import time
@@ -22,7 +21,7 @@ from fyp.fyp_main import initialize, connect_to_google, chunk_list, convert_dtyp
 import fyp.mypyktok as pyk
 from fyp.recode_variables import rename_columns, recode_events_df
 
-from os import environ
+import os
 
 import numpy as np
 import pandas as pd
@@ -414,7 +413,7 @@ def start_monitor(futures, submit_times, interval=5, label="monitor", bar_width=
                 line = line[:max(0, term_width - 1)]
 
             # single-line update
-            if "WEB_INTERFACE" in environ:
+            if "WEB_INTERFACE" in os.environ:
                  progress_data = {
                      "done": done,
                      "total": total,
@@ -569,8 +568,6 @@ def download_video_threads(
                 cf = cf,
                 study_dataset = results,
                 drop_single_value_cols=False,
-                load_from_cache = False,
-                save_to_cache = False,
                 verbose = verbose
                 )
 
@@ -607,7 +604,101 @@ def download_video_threads(
 
 
 
-def download_videos_loop(
+
+
+
+def scraper_loop_from_list(
+    cf = None,
+    video_list = [],
+    batch_size = 500,
+    max_batches = None,
+    verbose = False,
+    dry_run = False
+    ):
+
+
+
+    max_batches = max_batches if max_batches is not None else np.inf
+
+    if cf is None:
+        cf = initialize()
+
+
+    print(f"    Downloading media objects and metadata for selected videos, batch size: {batch_size}, max batches: {max_batches}")
+    print(f"    Now: {datetime.now()}")
+
+
+    batch_number = 1
+
+    batch_target = min(max_batches, len(video_list) // batch_size + 1)
+
+    print(f"  Starting loop... There are {len(video_list):,} videos to process in {batch_target:,} batches")
+
+    good_scrapes = []
+    failed_scrapes = []
+
+    for batch in chunk_list(video_list, batch_size):
+        
+        print(f"  Batch {batch_number} of {max_batches:,}")
+
+        results_from_scraper = download_video_threads(
+            cf = cf,
+            interesting_videos = batch, 
+            max_workers=4, 
+            verbose = verbose,
+            dry_run = dry_run)
+        
+        good_scrapes += results_from_scraper["item_id"].to_list()
+        failed_scrapes += [v for v in batch if v not in good_scrapes]
+        with open(os.path.join(cf['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
+            json.dump(failed_scrapes, f)
+        with open(os.path.join(cf['paths']['temp'], "temp_good_scrapes.json"), "w") as f:
+            json.dump(good_scrapes, f)
+
+
+        if max_batches is not None and batch_number >= max_batches:
+            break
+
+        batch_number += 1
+
+        if dry_run:
+            break
+
+    # ----------------
+    # Update scrape queue file, by removing the items that have been scraped - both good and failed
+    # -----------------
+    if data_io.exists(cf=cf, storage_location='cache', filename='to_scrape.json', verbose=verbose):
+        # Load the existing queue
+        to_scrape_queue = data_io.load_json(cf=cf, storage_location='cache', filename='to_scrape.json', verbose=verbose)
+        
+        if isinstance(to_scrape_queue, list):
+            # Identify items to remove (both good and failed are considered "processed" in this context)
+            processed_items = set(good_scrapes + failed_scrapes)
+            
+            # Filter the queue
+            original_len = len(to_scrape_queue)
+            updated_queue = [item for item in to_scrape_queue if item not in processed_items]
+            
+            # Save if changed
+            if len(updated_queue) < original_len:
+                data_io.save_json(cf=cf, data=updated_queue, storage_location='cache', filename='to_scrape.json', verbose=verbose)
+                if verbose:
+                    print(f"    Updated scrape queue: Removed {original_len - len(updated_queue)} items. New length: {len(updated_queue)}")
+
+
+    print(f"  Loop ended: {datetime.now()}")
+    return good_scrapes, failed_scrapes
+
+
+
+
+
+
+
+
+
+
+def scraper_loop(
     cf = None,
     study_name = None,
     study_dataset = None,
@@ -620,7 +711,7 @@ def download_videos_loop(
 
 
 
-    max_batches = max_batches if max_batches is not None else np.inf
+    #max_batches = max_batches if max_batches is not None else np.inf
 
     if study_name is None and study_dataset is None:
         print("    ERROR: This process cannot run without a study name or a study dataset as input. Process failed.")
@@ -663,9 +754,6 @@ def download_videos_loop(
         print("    ERROR: This process cannot run without a study dataset. Process failed.")
         return None
 
-    print(f"    Downloading media objects and metadata for unseen videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
-    print(f"    Now: {datetime.now()}")
-    #print("--"*60)
 
     selected_videos_df = select_videos_from_study_dataset(
         cf = cf,
@@ -675,31 +763,15 @@ def download_videos_loop(
         notebook_mode = False
     )
 
-    batch_number = 1
 
-    batch_target = min(max_batches, len(selected_videos_df.index) // batch_size + 1)
-
-    print(f"  Starting loop... There are {len(selected_videos_df):,} videos to process in {batch_target:,} batches")
-
-    for batch in chunk_list(selected_videos_df.index.to_list(), batch_size):
-        
-        print(f"  Batch {batch_number} of {max_batches:,}")
-
-        _ = download_video_threads(
-            cf = cf,
-            interesting_videos = batch, 
-            max_workers=4, 
-            verbose = verbose,
-            dry_run = dry_run)
-        
-
-        if max_batches is not None and batch_number >= max_batches:
-            break
-
-        batch_number += 1
-
-        if dry_run:
-            break
+    scraper_loop_from_list(
+        cf = cf,
+        video_list = selected_videos_df.index.to_list(),
+        batch_size = batch_size,
+        max_batches = max_batches,
+        verbose = verbose,
+        dry_run = dry_run
+        )
 
 
     print(f"  Loop ended: {datetime.now()}")
@@ -708,25 +780,6 @@ def download_videos_loop(
 
 
 
-
-
-
-
-
-"""def load_scrape_data(
-    cf = None,
-    filters=None,
-    verbose=False):
-
-
-    if cf is None:
-        cf = initialize()
-
-    print("Loading scraped data...")
-
-    scrape_data = data_io.load_parquet(cf, "recoded", "scrape_recoded.parquet", filters=filters, verbose=verbose)
-
-    return scrape_data"""
 
 
 

@@ -1192,7 +1192,6 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 def recode_events_df(
     cf: dict = None,
-    study_name: str = None,
     study_dataset: pd.DataFrame = None,
     drop_single_value_cols: bool = True,
     verbose: bool = False
@@ -1213,8 +1212,8 @@ def recode_events_df(
     # This thing now only works with a study dataset as input
     # It is not used in the web interface but only in the offline data prep
 
-    if study_name is None and study_dataset is None:
-        print("  This process cannot run without a study name or a study dataset as input. Process failed.")
+    if study_dataset is None:
+        print("  This process cannot run without a study dataset as input. Process failed.")
         return None
 
 

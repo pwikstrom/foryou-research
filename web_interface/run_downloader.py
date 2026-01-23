@@ -9,7 +9,7 @@ sys.path.append(str(project_root))
 
 if __name__ == "__main__":
     import argparse
-    from fyp.scrape import download_videos_loop
+    from fyp.scrape import scraper_loop
     #from fyp.fyp_main import connect_to_google, initialize
     
     parser = argparse.ArgumentParser(description="Run downloader")
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     #    cf = connect_to_google(cf)
 
     try:
-        download_videos_loop(
+        scraper_loop(
             cf = None,
             study_name=args.study_name,
             batch_size=args.batch_size,

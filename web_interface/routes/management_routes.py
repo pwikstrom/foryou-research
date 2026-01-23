@@ -147,6 +147,32 @@ def save_study():
     else:
         studies = {}
         
+    # If updating an existing study, check for actual changes
+    if study_name in studies:
+        existing_config = studies[study_name]
+        
+        # Compare incoming data with existing config
+        # We only care if the incoming data is different from what we have.
+        has_changes = False
+        for key, value in data.copy().items(): # Use copy to safely iterate
+            # key might be REFRESH_PCA/REFRESH_METADATA - these shouldn't count as study def changes but separate flags.
+            # We will pop them later, but for checking "study definition changes", we should ignore them now?
+            if key in [
+                'REFRESH_PCA', 'REFRESH_METADATA', 'stats']:
+                continue
+
+
+
+
+            if key not in existing_config or existing_config[key] != value:
+                has_changes = True
+                print(f"Change detected in {key}: {existing_config.get(key)} -> {value}") # Debug
+                break
+        
+        if not has_changes:
+             # If exact same definition, return early
+             return jsonify({"status": "no_change", "message": "No changes to save."})
+
     # Update config
     if study_name not in studies:
         studies[study_name] = {}
@@ -272,7 +298,6 @@ def save_study():
 
 
 
-    print("DEBUG: About to return success")
 @management_bp.route('/api/manage/studies/calculate_stats', methods=['POST'])
 @login_required
 def calculate_study_stats():
@@ -387,4 +412,63 @@ def list_donations():
             
     if False:#except Exception as e:
         print(f"Error listing donations: {e}")
+
+
+@management_bp.route('/api/manage/enrichment/stats', methods=['GET'])
+@login_required
+def get_enrichment_stats():
+    # 1. Load Enrichment Status
+    df_status = data_io.load_parquet(fyp_cf, storage_location="recoded", filename='enrichment_status.parquet')
+    
+    total_videos = 0
+    scraped_videos = 0
+    annotated_videos = 0
+    unique_donations = 0
+    
+    if df_status is not None and not df_status.empty:
+        total_videos = len(df_status)
+        if 'scraped_ok' in df_status.columns:
+            scraped_videos = int(df_status['scraped_ok'].sum())
+        if 'annotated_ok' in df_status.columns:
+            annotated_videos = int(df_status['annotated_ok'].sum())
+        if 'D_donation_id' in df_status.columns:
+            unique_donations = int(df_status['D_donation_id'].nunique())
+            
+    # 2. Get Queue Lengths
+    scrape_queue_len = 0
+    annotate_queue_len = 0
+    
+    if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_scrape.json'):
+        q = data_io.load_json(cf=fyp_cf, storage_location='cache', filename='to_scrape.json')
+        if isinstance(q, list): scrape_queue_len = len(q)
+        
+    if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_annotate.json'):
+        q = data_io.load_json(cf=fyp_cf, storage_location='cache', filename='to_annotate.json')
+        if isinstance(q, list): annotate_queue_len = len(q)
+        
+    return jsonify({
+        "total_videos": total_videos,
+        "scraped_videos": scraped_videos,
+        "annotated_videos": annotated_videos,
+        "unique_donations": unique_donations,
+        "scrape_queue_len": scrape_queue_len,
+        "annotate_queue_len": annotate_queue_len
+    })
+
+
+@management_bp.route('/api/manage/enrichment/empty_queues', methods=['POST'])
+@login_required
+def empty_enrichment_queues():
+    if not (current_user.is_admin() or current_user.role == 'researcher'):
+        return jsonify({"error": "Unauthorized"}), 403
+        
+    try:
+        if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_scrape.json'):
+            data_io.remove(cf=fyp_cf, storage_location='cache', filename='to_scrape.json')
+            
+        if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_annotate.json'):
+            data_io.remove(cf=fyp_cf, storage_location='cache', filename='to_annotate.json')
+            
+        return jsonify({"status": "success", "message": "Queues emptied."})
+    except Exception as e:
         return jsonify({"error": str(e)}), 500

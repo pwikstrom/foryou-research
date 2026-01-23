@@ -27,6 +27,57 @@
         </tbody>
     </table>
 
+    <div style="margin-top: 40px; border-top: 1px solid #555; padding-top: 20px;">
+        <div class="control-bar"
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2>Data Management: Enrichment</h2>
+        </div>
+
+        <table class="data-table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="border-bottom: 2px solid #555;">
+                    <th style="text-align: left; padding: 10px;">Enrichment Status</th>
+                    <th style="text-align: right; padding: 10px;">Count</th>
+                    <th style="text-align: right; padding: 10px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="padding: 10px;">Total Videos</td>
+                    <td style="text-align: right; padding: 10px;" id="enrich_total_videos">-</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px;">Total Unique Donations</td>
+                    <td style="text-align: right; padding: 10px;" id="enrich_unique_donations">-</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px;">Videos Scraped</td>
+                    <td style="text-align: right; padding: 10px;" id="enrich_scraped">-</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px;">Videos Annotated</td>
+                    <td style="text-align: right; padding: 10px;" id="enrich_annotated">-</td>
+                    <td></td>
+                </tr>
+                <tr style="border-top: 1px solid #555;">
+                    <td style="padding: 10px; font-weight: bold;">Scrape Queue</td>
+                    <td style="text-align: right; padding: 10px;" id="enrich_scrape_queue">-</td>
+                    <td rowspan="2" style="text-align: right; vertical-align: middle;">
+                        <button type="button" class="action-btn" onclick="emptyQueues()"
+                            style="background-color: #f39c12;">Empty Queues</button>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; font-weight: bold;">Annotation Queue</td>
+                    <td style="text-align: right; padding: 10px;" id="enrich_annotate_queue">-</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
     <!-- New Study Modal -->
     <div id="newStudyModal" class="modal"
         style="display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
@@ -197,22 +248,8 @@
                 {% if user.is_admin() or user.role == 'researcher' %}
                 <div style="display: flex; gap: 10px;">
                     <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                        <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Changes</button>
-                    </div>
-
-                    <div
-                        style="display: flex; flex-direction: column; gap: 5px; margin-left: 10px; background: #3e3e42; padding: 5px 10px; border-radius: 4px; border: 1px solid #555;">
-                        <input type="hidden" data-field="stats" value="{}">
-                        <div style="font-size: 0.9em; color: #ddd;">
-                            Not Scraped: <span class="stat-to-scrape" style="font-weight: bold; color: #fff;">-</span>
-                        </div>
-                        <div style="font-size: 0.9em; color: #ddd;">
-                            Scraped Not Annotated: <span class="stat-to-annotate"
-                                style="font-weight: bold; color: #fff;">-</span>
-                        </div>
-                        <button type="button" onclick="updateStudyEstimates(this, event)"
-                            style="font-size: 0.8em; padding: 2px 5px; margin-top: 5px; cursor: pointer; background: #555; border: none; color: #eee;">Update
-                            Estimates</button>
+                        <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Study
+                            Definition</button>
                     </div>
 
                     <div
@@ -231,6 +268,21 @@
                             <input type="checkbox" class="save-setting-meta" checked style="margin-right: 5px;"> Refresh
                             Metadata
                         </label>
+                    </div>
+
+                    <div
+                        style="display: flex; flex-direction: column; gap: 5px; margin-left: 10px; background: #3e3e42; padding: 5px 10px; border-radius: 4px; border: 1px solid #555;">
+                        <input type="hidden" data-field="stats" value="{}">
+                        <div style="font-size: 0.9em; color: #ddd;">
+                            Not Scraped: <span class="stat-to-scrape" style="font-weight: bold; color: #fff;">-</span>
+                        </div>
+                        <div style="font-size: 0.9em; color: #ddd;">
+                            Scraped Not Annotated: <span class="stat-to-annotate"
+                                style="font-weight: bold; color: #fff;">-</span>
+                        </div>
+                        <button type="button" onclick="updateStudyEstimates(this, event)"
+                            style="font-size: 0.8em; padding: 2px 5px; margin-top: 5px; cursor: pointer; background: #555; border: none; color: #eee;">Update
+                            Estimates</button>
                     </div>
                 </div>
                 {% endif %}

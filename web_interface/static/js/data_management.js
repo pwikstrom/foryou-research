@@ -445,6 +445,8 @@ function saveStudy(btn, event) {
                     if (index !== -1) {
                         allStudies[index] = data.study;
                     }
+                } else if (data.status === 'no_change') {
+                    alert(data.message);
                 } else {
                     alert("Error saving: " + data.error);
                 }
@@ -492,7 +494,7 @@ function saveStudy(btn, event) {
                                     saveBtn.style.backgroundColor = "#28a745";
 
                                     setTimeout(() => {
-                                        saveBtn.textContent = "Save Changes";
+                                        saveBtn.textContent = "Save Study Definition";
                                         saveBtn.style.backgroundColor = "";
                                     }, 2000);
                                 }
@@ -504,7 +506,7 @@ function saveStudy(btn, event) {
                 // Reset button state? The button in the DOM was destroyed if re-rendered.
                 // If the row was collapsed, the button is gone/hidden. 
                 // We re-enable the *detached* button just in case, but it doesn't matter.
-                btn.textContent = "Save Changes";
+                btn.textContent = "Save Study Definition";
                 btn.disabled = false;
             });
 
@@ -656,4 +658,45 @@ const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribut
 // Let's rely on explicit call or just run it:
 // Load donations FIRST, then studies to ensure selector populates correctly
 loadAvailableDonations();
+
+// --- Enrichment Stats ---
+
+function fetchEnrichmentStats() {
+    fetch('/api/manage/enrichment/stats')
+        .then(res => res.json())
+        .then(data => {
+            // Stats
+            document.getElementById('enrich_total_videos').textContent = data.total_videos.toLocaleString();
+            document.getElementById('enrich_scraped').textContent = data.scraped_videos.toLocaleString();
+            document.getElementById('enrich_annotated').textContent = data.annotated_videos.toLocaleString();
+            document.getElementById('enrich_unique_donations').textContent = data.unique_donations.toLocaleString();
+
+            // Queues
+            document.getElementById('enrich_scrape_queue').textContent = data.scrape_queue_len.toLocaleString();
+            document.getElementById('enrich_annotate_queue').textContent = data.annotate_queue_len.toLocaleString();
+        })
+        .catch(err => console.error("Error fetching enrichment stats:", err));
+}
+
+function emptyQueues() {
+    if (!confirm("Are you sure you want to empty the Scrape and Annotation queues? This action cannot be undone.")) return;
+
+    fetch('/api/manage/enrichment/empty_queues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert(data.message);
+                fetchEnrichmentStats();
+            } else {
+                alert("Error: " + data.error);
+            }
+        })
+        .catch(err => alert("Failed to empty queues: " + err));
+}
+
+// Call on load
+fetchEnrichmentStats();
 
