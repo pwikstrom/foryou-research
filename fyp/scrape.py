@@ -794,8 +794,8 @@ def scraper_loop(
 
 def queue_scraper_loop(
     cf = None,
-    batch_size = 5,
-    max_batches = 1,
+    batch_size = 500,
+    max_batches = 10,
     verbose = False,
     dry_run = False
     ):

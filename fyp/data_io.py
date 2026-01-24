@@ -678,6 +678,7 @@ def load_parquet(
             # OR if a renamed version of the parquet columns are included in the requested columns list
             # I have to do it this way since at some stage in the processing, I'm changing renaming the columns
             # Yes - it's a bit confusing.  
+            # TODO: this code is outdated and should be updated
             confirmed_columns = []
             for ec in existing_cols:
                 if ec in columns or _renamed(ec) in columns:
@@ -726,27 +727,35 @@ def load_parquet(
 
     # if specific columns are to be loaded, we need to make sure the cols actually exist in the parquet files
     if columns is not None:
-        if mode == 'gcs':
-            # Read parquet schema
-            with fs.open(primary) as f:
-                parquet_schema = pq.read_schema(f)
-        else:
-            # Local
-            parquet_schema = pq.read_schema(primary)
-        existing_cols = parquet_schema.names
+        try:
+            if mode == 'gcs':
+                # Read parquet schema
+                with fs.open(primary) as f:
+                    parquet_schema = pq.read_schema(f)
+            else:
+                # Local
+                parquet_schema = pq.read_schema(primary)
+            existing_cols = parquet_schema.names
+        except Exception as e:
+            if verbose: print(f"    [DATA_IO] WARN: Column selection failed: {e}")
+            existing_cols = []
         columns = [c for c in columns if c in existing_cols]
         if verbose:
             print(f"    [DATA_IO] Column selection: {columns}")
 
 
     if verbose: print(f"    [DATA_IO] Loading: '{filename}' from '{storage_location}' ({mode})...")
-    df = pd.read_parquet(
-        primary,
-        engine='pyarrow',
-        dtype_backend="pyarrow",
-        use_threads=True,
-        columns=columns,
-        filters=filters)
+    try:
+        df = pd.read_parquet(
+            primary,
+            engine='pyarrow',
+            dtype_backend="pyarrow",
+            use_threads=True,
+            columns=columns,
+            filters=filters)
+    except Exception as e:
+        print(f" !! [DATA_IO] WARNING: Loading '{filename}' failed: {e}")
+        return None
 
     # type management to be sure
     df = convert_dtypes_to_pyarrow(df, verbose=verbose)
@@ -804,7 +813,6 @@ def save_parquet(
     this_df = convert_dtypes_to_pyarrow(this_df, verbose=verbose)
 
     # C) Save to Primary
-    if verbose: print(f"    [DATA_IO] Saving: '{filename}' to '{storage_location}' ({mode})")
 
     # To get the total memory usage of the DataFrame in bytes:
     memory_per_column = this_df.memory_usage(deep=True) 

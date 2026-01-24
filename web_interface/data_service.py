@@ -56,12 +56,12 @@ def get_explorer_data(study, context = None):
         explorer_df, explorer_col_types = explorer.load_data(fyp_cf, study, verbose=True)
 
         if context == "viewer":
-            print(f"    Filtering for scraped_ok. Reducing rows from {len(explorer_df):,} to ", end="")
-            explorer_df = explorer_df[explorer_df.scraped_ok].copy()
+            print(f"    Filtering for scraped_ok and watch-only events. Reducing rows from {len(explorer_df):,} to ", end="")
+            explorer_df = explorer_df[(explorer_df.scraped_ok) & (explorer_df.D_feature_name=="watch")].copy()
             print(f"{len(explorer_df):,}")
         elif context == "explorer":
-            print(f"    Filtering for annotated_ok. Reducing rows from {len(explorer_df):,} to ", end="")
-            explorer_df = explorer_df[explorer_df.annotated_ok].copy()
+            print(f"    Filtering for annotated_ok and watch-only events. Reducing rows from {len(explorer_df):,} to ", end="")
+            explorer_df = explorer_df[(explorer_df.annotated_ok) & (explorer_df.D_feature_name=="watch")].copy()
             print(f"{len(explorer_df):,}")
 
 

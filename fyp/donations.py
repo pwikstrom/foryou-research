@@ -353,6 +353,179 @@ def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_00
 
 
 
+import pandas as pd
+import numpy as np
+
+def propagate_timestamps(
+    df, 
+    time_col='local_timestamp', 
+    prop_col='primary_value', 
+    item_col='item_id', 
+    feature_col='feature_name', 
+    target_feature='watch', 
+    match_on_item_id=False, 
+    status_col='propagation_status', 
+    fill_missing_items=True
+    ):
+
+    """
+    Propagates timestamps from non-target rows to the closest preceding target row indices.
+    
+    Args:
+        df: Input DataFrame.
+        time_col: Name of the timestamp column.
+        item_col: Name of the item identifier column.
+        feature_col: Name of the feature/category column.
+        target_feature: The feature value to receive timestamps (e.g. 'A' or 'watch').
+        match_on_item_id: If True, only propagates within the same item_id group. 
+                          If False, propagates based on strict chronological order (index) ignoring item_id.
+        status_col: Name of the new column to store row classification.
+        fill_missing_items: If True, fills NA item_ids in non-orphan rows with the item_id of their target.
+    """
+    
+    
+    # Ensure preservation of original index for correct updates
+    if not df.index.is_unique:
+        print("Warning: Index is not unique. Resetting index for processing.")
+        df = df.reset_index(drop=True)
+
+    # CRITICAL: Logic relies on chronological order
+    df = df.sort_values(by=time_col)
+    
+    # Initialize status column
+    # Use object/string dtype to avoid float compatibility warnings
+    df[status_col] = pd.Series([None] * len(df), dtype="string[pyarrow]") if "pyarrow" in str(df[prop_col].dtype) else pd.NA
+    
+    # Mark target rows
+    df.loc[df[feature_col] == target_feature, status_col] = 'target'
+
+    # 1. Identify dynamic features (all non-target non-NaN values)
+    all_features = df[feature_col].dropna().unique()
+    other_features = [f for f in all_features if f != target_feature]
+    
+    # Initialize these new columns
+    prop_dtype = df[prop_col].dtype
+    
+    for col in other_features:
+        if col not in df.columns:
+            if 'pyarrow' in str(prop_dtype):
+                 df[col] = pd.Series([None] * len(df), dtype=prop_dtype)
+            else:
+                 df[col] = pd.NA
+
+    # 2. Map each row to the index of its closest preceding target row.
+    df['target_idx_temp'] = df.index.to_series().where(df[feature_col] == target_feature)
+    
+    # Forward fill to propagate the index
+    if match_on_item_id:
+        df['target_idx_temp'] = df.groupby(item_col, dropna=False)['target_idx_temp'].ffill()
+    else:
+        df['target_idx_temp'] = df['target_idx_temp'].ffill()
+
+    # Apply Item ID Fill
+    if fill_missing_items:
+        target_item_ids = df['target_idx_temp'].map(df[item_col])
+        df[item_col] = df[item_col].fillna(target_item_ids)
+
+    # Classification: Orphans
+    relevant_mask = df[feature_col].isin(other_features)
+    orphan_mask = relevant_mask & df['target_idx_temp'].isna()
+    df.loc[orphan_mask, status_col] = 'orphan'
+
+    # 3. Identify source rows (non-target) that have a valid target
+    masked_rows = relevant_mask & (df['target_idx_temp'].notna())
+    updates_subset = df[masked_rows]
+
+    if updates_subset.empty:
+        df.drop(columns=['target_idx_temp'], errors='ignore', inplace=True)
+        return df
+
+    # logic to distinguish propagated vs collision
+    propagated_indices = updates_subset.groupby(['target_idx_temp', feature_col]).head(1).index
+    df.loc[propagated_indices, status_col] = 'propagated'
+    
+    collision_indices = updates_subset.index.difference(propagated_indices)
+    df.loc[collision_indices, status_col] = 'collision'
+
+    # 4. Pivot
+    pivot_updates = updates_subset.pivot_table(
+        index='target_idx_temp', 
+        columns=feature_col, 
+        values=prop_col, 
+        aggfunc='first'
+    )
+    
+    # Ensure pivot_updates matches the target dtype to avoid update warnings
+    # (pivot_table often returns 'object' for strings)
+    if 'pyarrow' in str(prop_dtype):
+        try:
+            pivot_updates = pivot_updates.astype(prop_dtype)
+        except Exception:
+            pass # Keep as is if cast fails
+
+    # 5. Update
+    df.update(pivot_updates)
+
+
+
+    # Post-processing types
+    for q in other_features:
+        if q in df.columns:
+            non_na_values = df[q].dropna()
+            if not non_na_values.empty:
+                # Check the first non-NA value safely
+                first_val = non_na_values.iloc[0]
+                # Ensure it's a string before calling startswith
+                if isinstance(first_val, str) and first_val.startswith("https://"):
+                    # Convert to bool: notna() is True for existing URLs, False for NA
+                    df[q] = df[q].notna().astype("bool[pyarrow]")
+                else:
+                    df[q] = df[q].astype("string[pyarrow]")
+            else:
+                 # If all empty, default to string[pyarrow]
+                 df[q] = df[q].astype("string[pyarrow]")
+
+    # Clean up
+    df.drop(columns=['target_idx_temp','','login_event','search','followed_by','post'], errors='ignore', inplace=True)
+
+    # Summary column: True if any propagated feature is present (not NA, not False, not "")
+    existing_other_features = [c for c in other_features if c in df.columns]
+    
+    if existing_other_features:
+        # Check for truthiness:
+        # 1. notna()
+        # 2. != False (for boolean cols)
+        # 3. != "" (for string cols)
+        
+        # We can use applymap-like logic or masking.
+        # Efficient approach: Check truthiness directly if types allow.
+        # But for pyarrow backed bools, False is False. For strings, "" is "".
+        # Let's use a mask.
+        
+        mask = df[existing_other_features].notna()
+        
+        # Apply stricter checks based on columns
+        for col in existing_other_features:
+            # If boolean, False is considered "empty"
+            if pd.api.types.is_bool_dtype(df[col]):
+                mask[col] &= (df[col] != False)
+            # If string/object, "" is considered "empty"
+            elif pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]):
+                mask[col] &= (df[col] != "")
+        
+        df['engagement'] = mask.any(axis=1)
+    else:
+        df['engagement'] = False
+
+
+
+
+    return df
+
+
+
+
+
 
 def refine_one_raw_ddp_log(
     cf: dict = None, 
@@ -415,12 +588,21 @@ def refine_one_raw_ddp_log(
     mask_date = all_ddp_events_df['variable_list'].map(lambda lst: 'date' in lst)
     all_ddp_events_df = all_ddp_events_df[mask_date & (all_ddp_events_df['variable_list'].map(len) > 0)].copy()
 
-    # extract primary_label and primary_value from variable_list and value_list
-    all_ddp_events_df['primary_label'] = all_ddp_events_df['variable_list'].str[1].convert_dtypes(dtype_backend="pyarrow")
-    all_ddp_events_df['primary_value'] = all_ddp_events_df['value_list'].str[1].convert_dtypes(dtype_backend="pyarrow")
+
+    # -----------------------------------------------------
+    # unpack the variable/value list
 
     # get the date from the value list
     all_ddp_events_df['date'] = pd.to_datetime(all_ddp_events_df['value_list'].str[0]).convert_dtypes(dtype_backend="pyarrow")
+
+    try:
+        # extract primary_label and primary_value from variable_list and value_list
+        all_ddp_events_df['primary_label'] = all_ddp_events_df['variable_list'].str[1].convert_dtypes(dtype_backend="pyarrow")
+        all_ddp_events_df['primary_value'] = all_ddp_events_df['value_list'].str[1].convert_dtypes(dtype_backend="pyarrow")
+    except:
+        all_ddp_events_df['primary_label'] = pd.NA
+        all_ddp_events_df['primary_value'] = pd.NA
+
 
     # type donation_id to pyarrow string
     all_ddp_events_df['donation_id'] = all_ddp_events_df['donation_id'].convert_dtypes(dtype_backend="pyarrow")
@@ -456,8 +638,10 @@ def refine_one_raw_ddp_log(
     # Extract sample_id from ts_jiggled (I'm not sure if I'm using this any longer)
     #all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype("int64[pyarrow]")
 
+
+
     # -----------------------------------------------------
-    # identify post events
+    # identify post events - this is silly since I will drop post events a little but further down
     post_events = [k for k in all_ddp_events_df.index if "whocanview" in all_ddp_events_df.loc[k,"variable_list"]]
     all_ddp_events_df.loc[post_events,"feature_name"] = "post"
     all_ddp_events_df.loc[post_events,"primary_label"] = "post_link"
@@ -493,7 +677,17 @@ def refine_one_raw_ddp_log(
         verbose = verbose)
 
 
-    
+    # connect non-watch events to watch events where possible 
+    all_ddp_events_df = propagate_timestamps(
+        all_ddp_events_df,
+
+        )
+
+
+    # thos events which I at this stage have not been able to associate with an item ID have to go
+    all_ddp_events_df = all_ddp_events_df[all_ddp_events_df.item_id.notna()].copy()
+
+
     # rename columns
     all_ddp_events_df = all_ddp_events_df.rename(columns={c:"D_"+c if not c in ["item_id","event_id"] and not re.match(r"^[A-Z]_", c) else c for c in all_ddp_events_df.columns}).copy()
     all_ddp_events_df = rename_columns(all_ddp_events_df)
@@ -536,8 +730,7 @@ def refine_one_raw_ddp_log(
 
 
     if verbose:
-        print(f"Final shape: {all_ddp_events_df.shape}")
-        print("------------------------------------------------\n\n")
+        print(f"Final shape of this donation log: {all_ddp_events_df.shape}")
 
 
     return all_ddp_events_df
@@ -563,7 +756,6 @@ def refine_all_raw_ddp_logs_and_save(cf = None, verbose=False):
     raw_ddp_files = [u for u in raw_ddp_files if not u.startswith(".")]
 
 
-
     result["raw_files"] = len(raw_ddp_files)
 
     refined_ddp_files = data_io.listdir(
@@ -578,6 +770,7 @@ def refine_all_raw_ddp_logs_and_save(cf = None, verbose=False):
         if u+".parquet" in refined_ddp_files:
             continue
 
+        print("------------------------------------------------")
 
         if verbose:
             print(f"Refining: {u}")
@@ -591,6 +784,7 @@ def refine_all_raw_ddp_logs_and_save(cf = None, verbose=False):
             data_io.save_parquet(cf=cf, df=new_flat, filename=u+".parquet", storage_location="ddp_processed", verbose=verbose)
         else:
             pass
+        
 
     refined_ddp_files = data_io.listdir(
         cf=cf,
@@ -896,6 +1090,7 @@ def _identify_similar_donations(
 def consolidate_ddp_logs(
     cf: dict | None = None,
     force_consolidation: bool = False,
+    consolidate_from_scratch: bool = True,
     return_saved_data: bool = True,
     verbose: bool = False,
 ) -> tuple[bool, pd.DataFrame]:
@@ -960,18 +1155,58 @@ def consolidate_ddp_logs(
 
         if top_verbose:
             print("No new refined DDP files found. No need to consolidate.")
-            if return_saved_data:
-                if verbose: print("Returning existing file.")
-                return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="donations_recoded.parquet")
+        if return_saved_data:
+            thing = data_io.load_parquet(cf=cf, storage_location="recoded", filename="donations_recoded.parquet")
+            if verbose: print("Returning existing file.")
+
+            return False, thing
         return False, None
     
- 
 
     # --------------------------------------------------------------------------------------
-    if top_verbose:
-        print("Loading refined DDP logs...")
-    many_ddp_logs = [data_io.load_parquet(cf=cf, storage_location="ddp_processed", filename=u) for u in refined_ddp_files]
+    ddp_meta = data_io.load_parquet(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet")
+    rejected_donations = ddp_meta[~ddp_meta[('other','accepted')]].index.to_list()
+    rejected_donations = [f"{u}.parquet" for u in rejected_donations]
 
+    # if I don't want to consolidate from scratch, I can load the existing data and only add the new files
+    new_refined_files = [u for u in refined_ddp_files if u not in latest_filename_list and u not in rejected_donations]
+    many_ddp_logs = []
+
+    # first look in cache, then look in recoded
+    if not consolidate_from_scratch:
+        if data_io.exists(cf=cf,storage_location="cache",filename="core_donations.parquet",verbose=verbose):
+            if top_verbose:
+                print("Loading existing DDP logs from cache...")
+            many_ddp_logs = [data_io.load_parquet(cf=cf, storage_location="cache", filename="core_donations.parquet")]
+        elif data_io.exists(cf=cf,storage_location="recoded",filename="donations_recoded.parquet",verbose=verbose):
+            if top_verbose:
+                print("Loading existing DDP logs from main storage...")
+            many_ddp_logs = [data_io.load_parquet(cf=cf, storage_location="recoded", filename="donations_recoded.parquet")]
+
+    # there is a df in many_ddp_logs, it means that I found a previously consolidated df and don't want to
+    # force consolidation from scratch. So I only need to add the new files.
+    if len(many_ddp_logs) == 1:
+        if top_verbose:
+            print(f"Loading {len(new_refined_files)} new logs to concatenate with already concatenated donations...")
+        for u in new_refined_files:
+            if top_verbose:
+                print(".", end="", flush=True)
+            many_ddp_logs.append(data_io.load_parquet(cf=cf, storage_location="ddp_processed", filename=u))
+        if top_verbose:
+            print()
+
+    # if I either force consolidate from scratch or no previously consolidated donations exist - start from scratch
+    else:
+        refined_ddp_files = [u for u in refined_ddp_files if u not in rejected_donations]
+        if top_verbose:
+            print(f"Loading {len(refined_ddp_files)} (all not previously rejected) donation logs to concatenate from scratch...")
+        for u in refined_ddp_files:
+            if top_verbose:
+                print(".", end="", flush=True)
+            many_ddp_logs.append(data_io.load_parquet(cf=cf, storage_location="ddp_processed", filename=u))
+        if top_verbose:
+            print()
+            
     if top_verbose:
         print(f"Concatenating {len(refined_ddp_files)} refined DDP logs...")
     concatenated_ddp_logs = pd.concat(many_ddp_logs)
@@ -1002,7 +1237,7 @@ def consolidate_ddp_logs(
     if top_verbose:
         print("    ...done updating donation metadata")
 
-    
+
     # --------------------------------------------------------------------------------------
     # create list of donations to be dropped and drop donations which has a very small number of watched videos
     donations_to_drop = []
@@ -1014,7 +1249,7 @@ def consolidate_ddp_logs(
 
     # --------------------------------------------------------------------------------------
     if top_verbose:
-        print(f"Only keeping one of multiple overlapping (similar) donations...")
+        print(f"Only keeping one of overlapping (=similar) donations...")
 
     # check for similarities between the new donations by looking for the same timestamps in the donations. 
     # The assumption is that if two donations have a lot of the same timestamps, they are likely to be duplicates
@@ -1030,7 +1265,6 @@ def consolidate_ddp_logs(
     concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs["D_donation_id"].isin(donations_to_drop)].copy()
     if top_verbose:
         print(f"    ...done. Shape after dropping overlapping donations: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
-
 
 
 

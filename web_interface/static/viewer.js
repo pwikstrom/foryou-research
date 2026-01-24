@@ -446,7 +446,15 @@ async function loadViewerItem(index) {
     document.getElementById('viewer-status').innerText = `Loading ${itemId}...`;
 
     try {
-        const res = await fetch(`/api/viewer/item/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`);
+        // Use POST to send context (filters) so backend picks the right row if duplicates exist
+        const res = await fetch(`/api/viewer/item/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filters: viewerData.filters,
+                search_query: viewerData.searchQuery
+            })
+        });
         const item = await res.json();
 
         if (item.error) {
@@ -504,6 +512,7 @@ function renderMetadata(item) {
     const tbody = document.getElementById('viewer-metadata').querySelector('tbody');
     tbody.innerHTML = '';
 
+
     const priorityList = viewerData.metadata && viewerData.metadata.display_priority ? viewerData.metadata.display_priority : [];
     const schemaMap = viewerData.metadata && viewerData.metadata.schema_map ? viewerData.metadata.schema_map : {};
 
@@ -548,6 +557,17 @@ function renderMetadata(item) {
         if (prioA !== prioB) return prioA - prioB;
         return a.localeCompare(b);
     });
+
+    // --- DEBUG LOGGING ---
+    sectionNames.forEach(sec => {
+        const vars = sections[sec];
+        let minPrio = 999999;
+        vars.forEach(v => {
+            const idx = priorityList.indexOf(v);
+            if (idx !== -1 && idx < minPrio) minPrio = idx;
+        });
+    });
+    // ---------------------
 
     // Sort variables within sections
     sectionNames.forEach(sec => {

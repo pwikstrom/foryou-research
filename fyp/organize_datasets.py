@@ -502,9 +502,9 @@ def _consolidate_and_save_activity_logs(cf = None, force_consolidation=False, ve
         cf = initialize()
     
     print("\n*** Zeeschuimer")
-    new_z, z1 = consolidate_zeeschuimer_logs(cf = cf, force_consolidation=force_consolidation, verbose=verbose)
+    new_z, z1 = consolidate_zeeschuimer_logs(cf = cf, force_consolidation=False)#force_consolidation, verbose=verbose)
     print("\n*** Donations")
-    new_d, d1 = consolidate_ddp_logs(cf = cf, force_consolidation=force_consolidation, verbose = verbose)
+    new_d, d1 = consolidate_ddp_logs(cf = cf, force_consolidation=force_consolidation, consolidate_from_scratch=True, verbose = verbose)
 
     # I need all columns in both datasets. When concatenating, the columns will be created with null values.
     # But sometimes the separate datasets will be used on its own. And in those situations I need to match

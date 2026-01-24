@@ -132,18 +132,24 @@ def filter_dataframe(df, column_types, filters, search_query=None):
         has_value_criteria = False
 
         if dtype == "number":
-            min_val = val.get("min") if val else None
-            max_val = val.get("max") if val else None
-            if min_val is not None or max_val is not None:
-                # Start with True (all valid for now)
-                temp_mask = pd.Series(True, index=filtered_df.index)
-                if min_val is not None:
-                     temp_mask &= (filtered_df[col] >= float(min_val))
-                if max_val is not None:
-                     temp_mask &= (filtered_df[col] <= float(max_val))
-                
-                value_mask = temp_mask
+            # Robustness: If frontend sends a list (checkboxes) for a numeric column (e.g. bools, discrete ints),
+            # treat it as a categorical "isin" filter.
+            if isinstance(val, (list, np_ndarray)):
+                value_mask = filtered_df[col].astype(str).isin([str(v) for v in val])
                 has_value_criteria = True
+            else:
+                min_val = val.get("min") if val else None
+                max_val = val.get("max") if val else None
+                if min_val is not None or max_val is not None:
+                    # Start with True (all valid for now)
+                    temp_mask = pd.Series(True, index=filtered_df.index)
+                    if min_val is not None:
+                         temp_mask &= (filtered_df[col] >= float(min_val))
+                    if max_val is not None:
+                         temp_mask &= (filtered_df[col] <= float(max_val))
+                    
+                    value_mask = temp_mask
+                    has_value_criteria = True
 
         elif dtype == "category":
             if isinstance(val, (list, np_ndarray)) and len(val) > 0:
@@ -523,7 +529,8 @@ def load_data(fyp_cf, study, verbose=False):
     for col in df.columns:
         dtype = df[col].dtype
         is_list = False
-        is_numeric = pd.api.types.is_numeric_dtype(dtype)
+        is_bool = pd.api.types.is_bool_dtype(dtype)
+        is_numeric = pd.api.types.is_numeric_dtype(dtype) and not is_bool
         
         if not is_numeric:
             # Check for actual lists

@@ -687,16 +687,34 @@ def api_persona_stats():
         return jsonify({"error": str(e)}), 500
 
 
-@data_bp.route('/api/viewer/item/<study>/<item_id>', methods=['GET'])
+@data_bp.route('/api/viewer/item/<study>/<item_id>', methods=['GET', 'POST'])
 def api_viewer_item(study, item_id):
-
-
     df, col_types = get_explorer_data(study, context="viewer")
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
     
-    """df = df[df.scraped_ok].copy()
-    print(f"    Filtered to {len(df):,} scraped events")"""
+    # Enrich with User Tags
+    username = current_user.username
+    df, col_types = enrich_with_user_tags(df, col_types, username)
+
+    # Apply Context Filters if provided (POST)
+    if request.method == 'POST':
+        data = request.json or {}
+        filters = data.get("filters", {})
+        search_query = data.get("search_query")
+        
+        #print(f"DEBUG: api_viewer_item POST | Item: {item_id} | Filters: {list(filters.keys())} | Search: {search_query}")
+        #if 'D_engagement' in col_types:
+        #     print(f"DEBUG: D_engagement type: {col_types['D_engagement']}")
+        #if 'D_engagement' in filters:
+        #     print(f"DEBUG: D_engagement filter: {filters['D_engagement']}")
+
+        if filters or search_query:
+            df = explorer.filter_dataframe(df, col_types, filters, search_query)
+            #print(f"DEBUG: DF shape after filtering: {df.shape}")
+    else:
+        pass
+        #print(f"DEBUG: api_viewer_item GET request received. Filters NOT applied.")
 
     id_col = 'item_id'
     if id_col not in df.columns:
@@ -704,10 +722,16 @@ def api_viewer_item(study, item_id):
         else: return jsonify({"error": "ID column missing"}), 500
 
     row = df[df[id_col].astype(str) == str(item_id)]
-    if row.empty:
-        return jsonify({"error": "Item not found"}), 404
     
+    if row.empty:
+        #print(f"DEBUG: Item {item_id} NOT FOUND after filtering.")
+        return jsonify({"error": "Item not found in current context"}), 404
+    
+    #print(f"DEBUG: Found {len(row)} rows for item {item_id} after filtering.")
     record = row.iloc[0].replace({np.nan: None}).to_dict()
+    #if 'D_engagement' in record:
+    #    print(f"DEBUG: Selected row D_engagement: {record['D_engagement']}")
+    
     return jsonify(record)
 
 
