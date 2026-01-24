@@ -209,16 +209,15 @@ def calculate_adaptive_histogram(data, min_val, max_val, bins=50, max_empty_rati
 
 
 
-
+"""
 
 def get_current_stats_old(df, column_types, viz_config=None):
     from pandas import set_option
     from numpy import ndarray as np_ndarray
     set_option('future.no_silent_downcasting', True)
-    """
+    "" "
     Returns robust stats for the (filtered) dataframe.
-    viz_config: { var: { 'log': bool, 'bins': int/list/None } }
-    """
+    v ""
     count = len(df)
     stats = {}
     if viz_config is None: viz_config = {}
@@ -429,19 +428,19 @@ def get_current_stats_old(df, column_types, viz_config=None):
             stats[col] = dict(Counter(all_items).most_common(20))
              
     # DEBUG LOGGING
-    """try:
+    " ""try:
         with open("debug_explorer_stats.txt", "w") as f:
             f.write(f"Count: {count}\n")
             f.write(f"Columns in stats: {list(stats.keys())}\n")
             for k, v in stats.items():
                 f.write(f"{k}: Type={v.get('type', 'Category')}, Mean={v.get('mean')}, Error={v == {}}\n")
     except:
-        pass"""
+        pass"" "
 
     return {"count": count, "stats": stats}
 
 
-
+"""
 
 
 

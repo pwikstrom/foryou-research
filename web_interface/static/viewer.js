@@ -528,8 +528,26 @@ function renderMetadata(item) {
         sections[section].push(key);
     });
 
-    // Sort Sections (General first? Or alphabetical? Let's do alphabetical, General last?)
-    let sectionNames = Object.keys(sections).sort();
+    // Sort Sections based on the LOWEST (best) display_priority of any variable in that section
+    let sectionNames = Object.keys(sections).sort((a, b) => {
+        const getSectionPrio = (secName) => {
+            const vars = sections[secName] || [];
+            let minPrio = 999999;
+            vars.forEach(v => {
+                const idx = priorityList.indexOf(v);
+                if (idx !== -1 && idx < minPrio) {
+                    minPrio = idx;
+                }
+            });
+            return minPrio;
+        };
+
+        const prioA = getSectionPrio(a);
+        const prioB = getSectionPrio(b);
+
+        if (prioA !== prioB) return prioA - prioB;
+        return a.localeCompare(b);
+    });
 
     // Sort variables within sections
     sectionNames.forEach(sec => {
