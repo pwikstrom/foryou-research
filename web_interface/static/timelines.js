@@ -12,41 +12,25 @@ window.timelines = {
 
     init: function () {
         console.log("Initializing Timelines Tab");
-        this.loadStudies();
+        // No study selection anymore, load all valid donations directly
+        this.loadDonations();
     },
 
-    loadStudies: async function () {
-        try {
-            const response = await fetch('/api/studies/defined');
-            const studies = await response.json();
-            const select = document.getElementById('timelines-study-select');
-
-            if (!select) return;
-
-            select.innerHTML = '<option value="">Select Study...</option>';
-            studies.forEach(study => {
-                const option = document.createElement('option');
-                option.value = study;
-                option.text = study;
-                select.appendChild(option);
-            });
-        } catch (e) {
-            console.error("Error loading studies:", e);
-        }
+    loadStudies: function () {
+        // Deprecated
     },
 
-    loadDonations: async function (studyName) {
-        if (!studyName) return;
-        this.currentStudy = studyName;
+    loadDonations: async function () {
+        // No study arg
         const listContainer = document.getElementById('timelines-donation-list');
         listContainer.innerHTML = '<div style="padding:10px;">Loading donations...</div>';
 
         try {
-            // Use specific endpoint to get study-specific donations
+            // No body needed for POST if we just get all accepted
             const res = await fetch('/api/timelines/donations', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ study: studyName })
+                body: JSON.stringify({})
             });
 
             const data = await res.json();

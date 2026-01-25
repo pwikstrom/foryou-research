@@ -1,5 +1,6 @@
 import threading
 import pandas as pd
+import json
 import numpy as np
 from cachetools import LRUCache
 from datetime import datetime
@@ -7,6 +8,8 @@ import fyp.data_io as data_io
 from fyp.pca import calculate_scaled_pca_scores
 from .hub_config import fyp_cf, PROJECT_ROOT
 from . import explorer_backend as explorer
+from fyp import fyp_main
+from fyp.organize_datasets import create_donation_unified_dataset
 
 # --- Explorer State ---
 
@@ -32,7 +35,6 @@ study_cache = StudyCache(maxsize=2)
 
 
 def get_explorer_data(study, context = None):
-    from datetime import datetime
     # Check cache (First Check)
     cached = study_cache.get(study)
     if cached:
@@ -228,241 +230,345 @@ def get_viz_config():
 
 
 
-def get_timeline_data(study, donation_id, interval='day'):
+def check_and_update_timeline_cache(donation_id, viz_vars):
+    """
+    Ensures that timeline aggregations for day, week, and month exist in cache.
+    If not, calculates them from the unified donation dataset.
+    """
+    
+    intervals = ['day', 'week', 'month']
+    missing = []
+    
+    # Check if files exist
+    # DEBUG: Force regeneration to fix cached bad data
+    # for interval in intervals:
+    #     filename = f"timeline_{donation_id}_{interval}.parquet"
+    #     if not data_io.exists(fyp_cf, "cache", filename):
+    #         missing.append(interval)
+            
+    # Force missing to trigger generation
+    missing = intervals 
+            
+    # if not missing:
+    #     return True # All good
+            
+    # Generate Data
+    # 1. Load Unified Dataset
+    df = create_donation_unified_dataset(fyp_cf, donation_id=donation_id, verbose=True)
+    if df is None or df.empty:
+        print("ERROR: Could not load unified dataset for donation", donation_id)
+        return False
+        
+    # Ensure date column
+    date_col = 'T_local_date'
+    if date_col not in df.columns:
+         print(f"ERROR: {date_col} missing in unified dataset")
+         return False
+         
+    df[date_col] = pd.to_datetime(df[date_col]).astype('datetime64[ns]')
+    
+    # Filter for Watch events only (as per previous requirement)
+    if 'D_feature_name' in df.columns:
+        df = df[df['D_feature_name'] == 'watch']
+
+
+
+    # ---------------------------------------------------------
+    # Custom Variables Calculation
+    # 1. Completion Rate
+    wd_col = 'D_watch_duration'
+    vd_col = 'S_video_duration'
+
+    # DEBUG: Print all columns to find the right ones
+    print(f"DEBUG TIMELINE: Available columns: {sorted(df.columns.tolist())}")
+
+    if True:# wd_col in df.columns and vd_col:
+        #print(f"DEBUG TIMELINE: Calculating completion_rate using {wd_col} / {vd_col}")
+        #wd = pd.to_numeric(df[wd_col], errors='coerce')
+        #vd = pd.to_numeric(df[vd_col], errors='coerce')
+        
+        # Avoid zero division
+        rate = df['D_watch_duration'] / df['S_video_duration']
+        rate = rate.replace([np.inf, -np.inf], np.nan)
+        
+        # Clip sensible range? 0 to ~1 (or >1 if rewatched). usage says "split by" -> divide
+        df['completion_rate'] = rate.map(lambda x: min(max(x, 0), 1))
+        
+        if 'completion_rate' not in viz_vars:
+            viz_vars.append('completion_rate')
+    else:
+        print(f"DEBUG TIMELINE: Columns for completion_rate missing. WD: {wd_col in df.columns}, VD: {vd_col}")
+
+
+    # ---------------------------------------------------------
+    # 2. Iterate and Aggregate
+    # We allow regenerating ALL intervals if any is missing to keep them in sync, 
+    # or just missing. Let's do all to be safe if one is missing (might be stale).
+    # Actually user said "check ... and if they are not there", implying lazy load.
+    # But loading unified is expensive, so efficiently do all 3 if we loaded it.
+    
+    for interval in intervals:
+        
+        # Grouping
+        temp_df = df.copy()
+        if interval == 'week':
+            temp_df['period'] = temp_df[date_col].dt.to_period('W').apply(lambda r: r.start_time).dt.date.astype(str)
+        elif interval == 'month':
+             temp_df['period'] = temp_df[date_col].dt.to_period('M').apply(lambda r: r.start_time).dt.date.astype(str)
+        else: # day
+             temp_df['period'] = temp_df[date_col].dt.date.astype(str)
+             
+        group_col = 'period'
+        periods = sorted(temp_df[group_col].unique())
+        
+        # Build Result DataFrame
+        # We need a row per period.
+        # Columns: period, count (videos), valid_count_{var}, {var}_val (numeric), {var}_counts (json)
+        
+        agg_data = [] # List of dicts
+        
+        # Pre-calculate video counts per period
+        video_counts = temp_df[group_col].value_counts().to_dict()
+        
+        for p in periods:
+            row = {'period': p, 'video_count': video_counts.get(p, 0)}
+            period_subset = temp_df[temp_df[group_col] == p]
+            
+            for var in viz_vars:
+                if var not in period_subset.columns:
+                    continue
+                
+                # Check type in this subset? or globally? 
+                # Better globally or inferred.
+                # Logic:
+                s_subset = period_subset[var]
+                
+                # Check for list
+                # Robust Arrow check
+                dt = s_subset.dtype
+                is_arrow_list = isinstance(dt, pd.ArrowDtype) and 'list' in str(dt)
+                
+                first_valid = s_subset.dropna().iloc[0] if not s_subset.dropna().empty else None
+                is_py_list = isinstance(first_valid, list)
+                is_np_array = isinstance(first_valid, np.ndarray)
+                
+                is_list = is_arrow_list or is_py_list or is_np_array
+                
+                # Ensure it's not numeric if we think it's a list (unless it's a list of numbers, which we treat as categorical/list anyway for now)
+                # But is_numeric check below relies on dtype.
+                # If object dtype containing lists, is_numeric_dtype represents 'object' -> False. Correct.
+                
+                is_numeric = pd.api.types.is_numeric_dtype(s_subset.dtype) and not is_list
+                
+                # Verify numeric isn't just low cardinality numbers masquerading 
+                # (Actually user config 'web_viz_log' helps, but relying on dtype is standard)
+
+                # DEBUG
+                # if var in ['S_desc_hashtags', 'G_symbol_and_brands', 'G_content_categories']:
+                #    print(f"DEBUG TIMELINE: Var {var} is_list={is_list} (Arrow={is_arrow_list}, PyList={is_py_list}, NpArray={is_np_array}). Sample: {first_valid} Type: {type(first_valid)}")
+                
+                # Valid Count
+                if is_list:
+                    # Safely handle potential numpy arrays
+                    # Convert to list to ensure explode works cleanly
+                    def safe_to_list(x):
+                        if isinstance(x, np.ndarray):
+                            return x.tolist()
+                        if isinstance(x, list):
+                            return x
+                        return x # pass through for None/NaN fallback
+                        
+                    # Apply conversion
+                    s_subset = s_subset.apply(safe_to_list)
+
+                    valid_files = s_subset[s_subset.apply(lambda x: isinstance(x, list) and len(x) > 0)]
+                    valid_c = len(valid_files)
+                else:
+                    valid_files = None
+                    valid_c = s_subset.count() # non-NA
+                
+                row[f"{var}_valid"] = valid_c
+                
+                if is_numeric:
+                    # Mean
+                    row[f"{var}_val"] = s_subset.mean()
+                else:
+                    # Counts
+                    if is_list:
+                         # Explode
+                         exploded = s_subset.explode()
+                         cnts = exploded.value_counts().to_dict()
+                    else:
+                         cnts = s_subset.value_counts().to_dict()
+                    
+                    # Store as JSON string
+                    row[f"{var}_counts"] = json.dumps(cnts)
+            
+            agg_data.append(row)
+            
+        agg_df = pd.DataFrame(agg_data)
+        
+        # Save
+        filename = f"timeline_{donation_id}_{interval}.parquet"
+        data_io.save_parquet(fyp_cf, agg_df, "cache", filename)
+
+    return True
+
+
+
+
+def get_timeline_data(donation_id, interval='day'):
     """
     Returns timeline data for plotting.
     - Numeric: Daily Mean (Raw values, invalid/missing ignored). 
       Includes metadata if log scale is requested.
     - Categorical: Daily Counts per category + Daily Total Count (for % calc).
     """
-    import fyp.data_io as data_io
-    from fyp import fyp_main
 
-    cf = fyp_main.initialize()
-    if 'var_schema' not in cf:
+    if 'var_schema' not in fyp_cf:
         print("ERROR: var_schema missing")
         return {}
 
-    schema = cf.get('var_schema', {})
+    schema = fyp_cf.get('var_schema', {})
     
-    # Use load_schema_metadata helper to get priority list reliably
+    # Load Schema Metadata
     meta = {}
     load_schema_metadata(meta)
     viz_vars = meta.get('timeline_priority', [])
-    
-    print(f"DEBUG TIMELINE: load_schema_metadata found {len(viz_vars)} viz_vars (timeline_prio): {viz_vars}")
-    
-    # Also load schema map for log config
     schema_map = meta.get('schema_map', {})
 
-    # Load Data (using our cache logic)
-    filename = f"{study}_recoded.parquet"
-    if not data_io.exists(cf, "cache", filename):
-        print("Recoded data not found for timeline")
-        return {}
 
-    df = data_io.load_parquet(cf, "cache", filename)
-    
-    # Filter for Donation
-    # Use D_donation_id
-    if 'D_donation_id' not in df.columns:
-        print("DEBUG TIMELINE: D_donation_id column missing in df keys:", df.columns.tolist())
-        print("D_donation_id column missing")
+    # Ensure Cache Exists
+    if not check_and_update_timeline_cache(donation_id, viz_vars):
+        print("ERROR: Failed to update timeline cache.")
         return {}
         
-    subset = df[df['D_donation_id'] == donation_id].copy()
-    
-    # Filter for Watch events only
-    if 'D_feature_name' in subset.columns:
-        subset = subset[subset['D_feature_name'] == 'watch']
-        
-    print(f"DEBUG TIMELINE: Filtering {study} for donation {donation_id} (interval={interval}). Rows found: {len(subset)}")
-    
-    if subset.empty:
-        return {"dates": [], "variables": {}, "counts": {"day": 0, "week": 0, "month": 0}}
+    # Get Counts Metadata (Load all 3 aggs to get lengths)
 
-    # Date Handling
-    date_col = 'T_local_date'
-    if date_col not in subset.columns:
-        print("T_local_date missing")
-        return {}
+    period_counts = {}
     
-    # Ensure correct datetime conversion
-    # Force to standard numpy datetime to avoid ArrowTemporalProperties issues (no to_period)
-    subset[date_col] = pd.to_datetime(subset[date_col]).astype('datetime64[ns]')
+    # Helper to load specific interval
+    def load_interval_df(u_interval):
+        fname = f"timeline_{donation_id}_{u_interval}.parquet"
+        if data_io.exists(fyp_cf, "cache", fname):
+            return data_io.load_parquet(fyp_cf, "cache", fname)
+        return None
 
-    # Calculate Counts for Metadata (available periods)
-    # Using 'period' logic ensures consistency
-    n_days = subset[date_col].dt.date.nunique()
-    n_weeks = subset[date_col].dt.to_period('W').nunique()
-    n_months = subset[date_col].dt.to_period('M').nunique()
+    # Load all to get counts
+    aggs = {}
+    for inv in ['day', 'week', 'month']:
+        df_agg = load_interval_df(inv)
+        if df_agg is not None:
+             period_counts[inv] = len(df_agg)
+             aggs[inv] = df_agg
+        else:
+             period_counts[inv] = 0
+             
+    # Use requested interval data
+    df = aggs.get(interval)
+    if df is None or df.empty:
+         return {"dates": [], "variables": {}, "counts": period_counts}
+         
+    # Prepare Result
+    # Dates
+    # Sort by period just in case
+    df = df.sort_values(by='period')
+    dates = df['period'].tolist()
     
-    period_counts = {
-        "day": n_days,
-        "week": n_weeks,
-        "month": n_months
-    }
-
-    # Generate Grouping Column based on interval
-    if interval == 'week':
-        # Start of week
-        subset['period'] = subset[date_col].dt.to_period('W').apply(lambda r: r.start_time).dt.date.astype(str)
-    elif interval == 'month':
-        # Start of month
-        subset['period'] = subset[date_col].dt.to_period('M').apply(lambda r: r.start_time).dt.date.astype(str)
-    else: # day
-        subset['period'] = subset[date_col].dt.date.astype(str)
-        
-    group_col = 'period'
-
-    # Get Date Range
-
-    # Get Date Range
-    dates = sorted(subset[group_col].unique())
-    print(f"DEBUG TIMELINE: Found {len(dates)} {interval}s.")
-    
-    # Generate Formatted Labels
+    # Formatted Labels
     date_labels = []
     for d_str in dates:
         try:
+            # We assume d_str is YYYY-MM-DD or similar from the generation step
+            # Note: generation step produces:
+            # Day: YYYY-MM-DD
+            # Week: YYYY-MM-DD (start date)
+            # Month: YYYY-MM-DD (start date)
             dt = pd.to_datetime(d_str)
             if interval == 'day':
-                # dd/mm/yy
                 lbl = dt.strftime('%d/%m/%y')
             elif interval == 'week':
-                # yyyy-ww
-                # Use %V for ISO week number
                 lbl = dt.strftime('%Y-%V')
             elif interval == 'month':
-                # mmm-yy
                 lbl = dt.strftime('%b-%y')
             else:
                 lbl = d_str
             date_labels.append(lbl)
         except:
-            date_labels.append(d_str)
-
+            date_labels.append(str(d_str))
+            
     variables = {}
     
-    # Deduplicate columns in subset to avoid weirdness
-    subset = subset.loc[:, ~subset.columns.duplicated()]
-
-    # Global Column Types Helper
-    def get_col_type(c):
-        dt = subset[c].dtype
-        if pd.api.types.is_numeric_dtype(dt) and not pd.api.types.is_bool_dtype(dt):
-            return 'number'
-        if isinstance(dt, pd.ArrowDtype) and 'list' in str(dt):
-            return 'list'
-        
-        # Check explicit list check like explorer
-        first_val = subset[c].dropna().iloc[0] if not subset[c].dropna().empty else None
-        if isinstance(first_val, list):
-            return 'list'
-            
-        return 'category'
-
-    col_types = {v: get_col_type(v) for v in viz_vars if v in subset.columns}
-
     for var in viz_vars:
-        if var not in subset.columns:
+        # Check if we have columns for this var
+        # Expected: {var}_val (numeric) OR {var}_counts (categorical)
+        # And {var}_valid
+        
+        # Determine type based on cols existence
+        has_val = f"{var}_val" in df.columns
+        has_counts = f"{var}_counts" in df.columns
+        
+        if not has_val and not has_counts:
             continue
             
-        try:
-            # print(f"DEBUG TIMELINE: Processing Var {var}")
-            is_numeric = (col_types.get(var) == 'number')
+        # Log Scale Config
+        use_log = False
+        if schema_map.get(var, {}).get('web_viz_log') == 'yes':
+             use_log = True
+        elif isinstance(schema, dict) and schema.get(var, {}).get('web_viz_log') == 'yes':
+             use_log = True
+             
+        # Metadata common props
+        valid_counts = df.get(f"{var}_valid", pd.Series([0]*len(df))).tolist()
+        video_counts = df['video_count'].tolist() # Total videos per period
+        
+        if has_val:
+            # Numeric
+            vals = df[f"{var}_val"].where(pd.notnull(df[f"{var}_val"]), None).tolist()
+            variables[var] = {
+                "type": "numeric",
+                "values": vals,
+                "log": use_log,
+                "daily_valid_counts": valid_counts,
+                "daily_video_counts": video_counts
+            }
+        elif has_counts:
+            # Categorical
+            # Parse JSON counts
+            counts_list = []
             
-            if is_numeric:
-                s_nums = pd.to_numeric(subset[var], errors='coerce')
-                
-                # Strict DataFrame construction for groupby
-                temp_df = pd.DataFrame({
-                    'date': subset[group_col].values,
-                    'val': s_nums.values
-                })
-                
-                # Mean per period
-                daily_means = temp_df.groupby('date')['val'].mean()
-                daily_means = daily_means.reindex(dates) # Keep NaNs for gaps
-                
-                # Check for Log Scale preference
-                use_log = False
-                if schema_map.get(var, {}).get('web_viz_log') == 'yes':
-                    use_log = True
-                elif isinstance(schema, dict) and schema.get(var, {}).get('web_viz_log') == 'yes':
-                    use_log = True
-
-                variables[var] = {
-                    "type": "numeric",
-                    "values": daily_means.where(pd.notnull(daily_means), None).tolist(),
-                    "log": use_log
-                }
+            # Need to get top categories globally to match frontend logic?
+            # Or just return all? Frontend sorts them. 
+            # Frontend expects "counts" as list of dicts.
+            # And "top_categories" for initial selection.
             
-            else:
-                # Categorical: Counts + Period Totals (for shares)
-                is_list = (col_types.get(var) == 'list')
+            global_cat_counts = {}
+            
+            for json_str in df[f"{var}_counts"]:
+                try:
+                    if json_str and isinstance(json_str, str):
+                        c_dict = json.loads(json_str)
+                    else:
+                        c_dict = {}
+                except:
+                    c_dict = {}
                 
-                # Period Total Calculation (Number of items per period)
-                daily_video_counts = subset[group_col].value_counts().reindex(dates, fill_value=0).sort_index()
-
-                if is_list:
-                    # Explode! safely
-                    temp_pre_explode = pd.DataFrame({
-                        'date': subset[group_col],
-                        'var': subset[var]
-                    })
-                    exploded_df = temp_pre_explode.explode('var')
-                    
-                    s_for_counts = exploded_df['var']
-                    date_for_counts = exploded_df['date']
-                    
-                    # Total items (tags) per period
-                    daily_total_items = date_for_counts.value_counts().reindex(dates, fill_value=0).sort_index()
-                    
-                else:
-                    s_for_counts = subset[var]
-                    date_for_counts = subset[group_col]
-                    temp_df = pd.DataFrame({'date': date_for_counts, 'var': s_for_counts})
-                    daily_total_items = daily_video_counts # Same for single cat
+                counts_list.append(c_dict)
                 
-                # Calculate VALID Counts (non-NA rows) for Denominator
-                if is_list:
-                     valid_mask = subset[var].apply(lambda x: isinstance(x, list) and len(x) > 0) 
-                     valid_mask = subset[var].notna() # Using same simplified logic as before
-                else:
-                     valid_mask = subset[var].notna()
-                
-                daily_valid_counts = subset.loc[valid_mask, group_col].value_counts().reindex(dates, fill_value=0).sort_index()
-                
-                # Top categories logic
-                top_counts = s_for_counts.value_counts(dropna=True).head(50).index.tolist()
-                
-                # Filter to top 50
-                if is_list:
-                    sub_cat = exploded_df[exploded_df['var'].isin(top_counts)]
-                else:
-                    sub_cat = temp_df[temp_df['var'].isin(top_counts)]
-                
-                if sub_cat.empty:
-                     daily_counts_dict = []
-                else:
-                    daily_counts = pd.crosstab(sub_cat['date'], sub_cat['var'])
-                    daily_counts = daily_counts.reindex(dates, fill_value=0)
-                    daily_counts_dict = daily_counts.to_dict(orient='records')
-
-                variables[var] = {
-                    "type": "categorical",
-                    "counts": daily_counts_dict,
-                    "daily_video_counts": daily_video_counts.to_list(),
-                    "daily_valid_counts": daily_valid_counts.to_list(),
-                    "daily_item_counts": daily_total_items.to_list(),
-                    "top_categories": top_counts[:3]
-                }
-        except Exception as e:
-            print(f"DEBUG TIMELINE: Error processing var {var}: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
+                # Aggregate for top_categories
+                for k, v in c_dict.items():
+                    global_cat_counts[k] = global_cat_counts.get(k, 0) + v
+            
+            # Top categories
+            top_cats = sorted(global_cat_counts.keys(), key=lambda x: global_cat_counts[x], reverse=True)
+            
+            variables[var] = {
+                "type": "categorical",
+                "counts": counts_list,
+                "daily_video_counts": video_counts,
+                "daily_valid_counts": valid_counts,
+                "top_categories": top_cats[:3]
+            }
 
     return {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts}
 
@@ -516,9 +622,7 @@ make_serializable = explorer.make_serializable
 pca_df_cache = {}
 
 def get_pca_df(study_name):
-    #from os.path import exists as os_exists, join as os_join
-    #from pandas import read_parquet as pd_read_parquet
-    import fyp.data_io as data_io
+
 
     global pca_df_cache
     if study_name in pca_df_cache:

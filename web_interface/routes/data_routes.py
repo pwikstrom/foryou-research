@@ -1,6 +1,5 @@
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 from flask_login import login_required, current_user
-import os
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -10,8 +9,12 @@ from ..data_service import (
     load_schema_metadata, get_timeline_data, get_study_donations
 )
 from .. import explorer_backend as explorer
+from fyp.recode_variables import get_factors_and_features_from_var_schema
 import fyp
 import fyp.data_io as data_io
+import pyarrow.parquet as pq
+import ast
+import traceback
 
 data_bp = Blueprint('data_bp', __name__)
 
@@ -87,8 +90,6 @@ def api_get_study_defs():
 @data_bp.route('/api/explorer/metadata', methods=['GET'])
 @login_required
 def api_explorer_metadata():
-    #from os.path import exists as os_exists, getmtime as os_getmtime, join as os_join
-    from datetime import datetime
 
     study = request.args.get('study')
     if not study:
@@ -555,7 +556,6 @@ def api_delete_tag(tag_name):
 
 @data_bp.route('/api/pca/metadata', methods=['POST'])
 def api_pca_metadata():
-    from fyp.recode_variables import get_factors_and_features_from_var_schema
     
     data = request.json or {}
     study = data.get("study")
@@ -677,7 +677,6 @@ def api_persona_stats():
         except Exception as e:
              # Fallback: reconstruction column by column
              print(f"Error loading parquet with default settings: {e}")
-             import pyarrow.parquet as pq
              primary, _, _, _ = data_io._resolve_paths(fyp_cf, "ddp_main", filename)
              try:
                  table = pq.read_table(primary)
@@ -695,7 +694,6 @@ def api_persona_stats():
 
         # Flatten MultiIndex columns (handling both Tuples and String-Tuples)
         new_columns = []
-        import ast
         
         for col in stats_df.columns:
             col_name = str(col)
@@ -756,7 +754,7 @@ def api_persona_stats():
         try:
             mtime = data_io.getmtime(fyp_cf, "ddp_main", filename)
             # Format as ISO string or similar for frontend parsing
-            from datetime import datetime
+
             dt = datetime.fromtimestamp(mtime)
             response.headers['X-Metadata-MTime'] = dt.isoformat()
         except Exception as e:
@@ -765,7 +763,6 @@ def api_persona_stats():
         return response
         
     except Exception as e:
-        import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
@@ -825,15 +822,15 @@ def api_viewer_item(study, item_id):
 @login_required
 def api_timeline_data():
     data = request.json or {}
-    study = data.get("study")
+    #study = data.get("study")
     donation_id = data.get("donation_id")
     interval = data.get("interval", "day")
     
-    if not study or not donation_id:
-        return jsonify({"error": "Missing study or donation_id"}), 400
+    if not donation_id:
+        return jsonify({"error": "Missing donation_id"}), 400
         
     try:
-        result = get_timeline_data(study, donation_id, interval=interval)
+        result = get_timeline_data(donation_id, interval=interval)
         if result is None:
              return jsonify({"error": "No data found"}), 404
         if "error" in result:
@@ -841,7 +838,7 @@ def api_timeline_data():
              
         return jsonify(make_serializable(result))
     except Exception as e:
-        import traceback
+
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
@@ -849,13 +846,76 @@ def api_timeline_data():
 @data_bp.route('/api/timelines/donations', methods=['POST'])
 @login_required
 def api_timeline_donations():
-    data = request.json or {}
-    study = data.get("study")
-    if not study:
-        return jsonify({"error": "Missing study"}), 400
+    # Load from ddp_metadata.parquet in cache
+    # Return list of { D_donation_id, D_id (optional) }
+    
+    
+    
+    meta_df = data_io.load_parquet(fyp_cf, "ddp_main", "ddp_metadata.parquet")
+    
+    if meta_df is None:
+        print("DEBUG TIMELINE: ddp_metadata.parquet is None")
+        return jsonify([])
         
-    donations = get_study_donations(study)
-    return jsonify(donations)
+    if meta_df.empty:
+        print("DEBUG TIMELINE: ddp_metadata.parquet is Empty")
+        return jsonify([])
+        
+    
+    # Reset index to access D_donation_id if it's in index
+    df_reset = meta_df.reset_index()
+    
+    # Handle MultiIndex columns
+    # We look for ('other', 'accepted')
+    accepted_col = None
+    if isinstance(meta_df.columns, pd.MultiIndex):
+        if ('other', 'accepted') in meta_df.columns:
+            accepted_col = ('other', 'accepted')
+    else:
+        if 'accepted' in meta_df.columns:
+            accepted_col = 'accepted'
+            
+    filtered = df_reset
+    if accepted_col:
+        # Ensure boolean
+        try:
+             filtered = df_reset[df_reset[accepted_col] == True]
+        except Exception as e:
+             # maybe string 'True'?
+             pass
+
+    
+    target_id_col = 'D_donation_id'
+    if target_id_col not in filtered.columns:
+        # Try to find it
+        if 'index' in filtered.columns:
+             # Assume index is the ID
+             target_id_col = 'index'
+        else:
+             return jsonify([])
+
+    # Unique donations
+    # Vectorized optimized extraction
+    
+    # We want specific column(s)
+    # If target_id_col returns a DataFrame (duplicate columns), take first
+    try:
+        don_ids_series = filtered[target_id_col]
+        if isinstance(don_ids_series, pd.DataFrame):
+            # Duplicate column names, take first
+            don_ids_series = don_ids_series.iloc[:, 0]
+            
+        unique_ids = don_ids_series.unique().tolist()
+        
+        # Build simple dict list
+        final_list = [{'D_donation_id': str(uid)} for uid in unique_ids if pd.notna(uid)]
+        
+        return jsonify(final_list)
+        
+    except Exception as e:
+
+        traceback.print_exc()
+        return jsonify([])
 
 
 @data_bp.route('/api/video/<study>/<item_id>', methods=['GET'])

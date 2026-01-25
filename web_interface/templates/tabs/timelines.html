@@ -4,12 +4,9 @@
         <div class="timelines-sidebar"
             style="width: 300px; padding: 20px; border-right: 1px solid #444; overflow-y: auto;">
             <h3>Timelines</h3>
-            <div class="form-group">
-                <label>Study</label>
-                <select id="timelines-study-select" class="form-control" onchange="timelines.loadDonations(this.value)">
-                    <option value="">Select Study...</option>
-                </select>
-            </div>
+            <!-- Study selection removed as per refactor -->
+            <div id="timelines-study-select-container" style="display:none;"></div>
+
             <div class="form-group" style="margin-top: 20px;">
                 <label>Aggregation</label>
                 <div style="display: flex; gap: 15px; margin-top: 5px;">
@@ -37,7 +34,7 @@
                 <div id="timelines-donation-list" class="simple-list"
                     style="height: 400px; overflow-y: auto; margin-top: 10px; border: 1px solid #555; background: #222;">
                     <!-- Populated by JS -->
-                    <div style="padding: 10px; color: #777;">Select a study first</div>
+                    <div style="padding: 10px; color: #777;">Loading donations...</div>
                 </div>
             </div>
         </div>

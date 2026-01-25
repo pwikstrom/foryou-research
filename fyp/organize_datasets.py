@@ -235,6 +235,133 @@ def load_study_datasets(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+def load_donation_datasets(
+    cf = None,
+    donation_id = None,
+    load_from_cache = True,
+    verbose=False
+    ):
+
+
+    if cf is None:
+        cf = initialize()
+
+
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None and not load_from_cache:
+        cf = connect_to_google(cf)
+
+    print(f"Loading core datasets for donation '{donation_id}'...")
+
+    # load core datasets from cache. This makes sense if the storage is remote. Since a slow network connection makes loading of datasets 
+    # take a long time. If this is not a problem, there is really no need to use this option.
+    if load_from_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
+        tutti_data = {}
+        cached_core_datasets = {}
+        for k in ['scrape','machine_annotations','donations']:
+            tutti_data[k] = None
+
+            # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
+            if data_io.exists(cf, "cache", f"core_{k}.parquet"):
+                parquet_study_name = data_io.find_key_value_in_pq_metadata(cf=cf, storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
+                print(f"Found a cached version of '{k}' core dataset for study '{parquet_study_name}'")
+                if parquet_study_name == 'everything':
+                    if verbose:
+                        print(f"    [Core datasets] Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
+                    cached_core_datasets[k] = parquet_study_name
+                    tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="cache", filename=f"core_{k}.parquet")
+
+
+            # if no dataset was loaded from cache and the cache and main storage are at different locations, then load everything from
+            #  main storage and save to cache. It will save time later since this can be used for all studies
+            if tutti_data[k] is None and cf['data_io']['use_gcs_for_data']==True and cf['data_io']['use_gcs_for_cache']==False:
+                print(f"Loading core dataset '{k}' from main storage and saving to cache")
+                tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="recoded", filename=f"{k}_recoded.parquet")
+                print(f"Saving core dataset '{k}' to cache")
+                tutti_data[k].attrs["study_name"] = 'everything'
+                data_io.save_parquet(cf=cf, df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
+
+                
+    elif len(all_datasets) > 0:
+        tutti_data = deepcopy(all_datasets)
+        print(f"    [Core datasets] Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
+    else:
+        tutti_data = {}
+        print(f"    [Core datasets] Starting without precomputed core datasets. Loading study core datasets from main storage.")
+
+
+
+    # --------------------------------------------------------------------
+    # load activity data
+    # --------------------------------------------------------------------
+
+
+    tutti_data["donations"] = tutti_data["donations"][tutti_data["donations"]["D_donation_id"] == donation_id]
+
+    unique_videos = set(tutti_data["donations"]["item_id"].dropna().values.tolist())
+    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in donation and zeeschuimer datasets")
+
+    # If the study is the special 'everything' study then I don't need to do this.
+    sel = [("item_id", "in", list(unique_videos))]
+
+
+
+    # --------------------------------------------------------------------
+    # load scraped data
+    # --------------------------------------------------------------------
+    print(f"    [Scrape] There are {len(tutti_data['scrape']):,} scraped data items in the cache", end="", flush=True)
+    tutti_data["scrape"] = tutti_data["scrape"][tutti_data["scrape"]["item_id"].isin(unique_videos)].copy()
+    print(f" and {len(tutti_data['scrape']):,} of those overlap with the activity datasets for this study.")    
+
+    # --------------------------------------------------------------------
+    # load machine annotations
+    # --------------------------------------------------------------------
+    print(f"    [Machine annotations] There are {len(tutti_data['machine_annotations']):,} annotations in the cache", end="", flush=True)
+    tutti_data["machine_annotations"] = tutti_data["machine_annotations"][tutti_data["machine_annotations"]["item_id"].isin(unique_videos)].copy()
+    print(f" and {len(tutti_data['machine_annotations']):,} of those overlap with the activity datasets for this study.")
+
+
+    def _df_size(df):
+        memory_per_column = df.memory_usage(deep=True) 
+        total_memory_bytes = memory_per_column.sum()
+        total_memory_mb = total_memory_bytes / (1024**2)
+        return total_memory_mb
+
+
+    if verbose:
+        print("    [Core datasets] Datasets:")
+        dataset_info = "\n    [Core datasets] - ".join([f"'{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)" for k in tutti_data])
+        print(f"    [Core datasets] - {dataset_info}")
+
+
+    print(f"...done. Core datasets loaded for donation '{donation_id}'")
+
+
+    return tutti_data
+
+
+
+
+
+
+
+
+
+
+
+
+
 def _build_agg_dict_to_generate_basic_video_stats(study_dataset = None):
     from pandas import NamedAgg
 
@@ -610,13 +737,13 @@ def new_merge(
 
     print(f"Merging all datasets...")
 
-    if study_name is None:
+    if study_name is None and save_to_cache == True:
         raise ValueError("study_name must be specified")
 
     if cf is None:
         cf = initialize()
 
-    if not study_name in cf["study_defs"].keys():
+    if not study_name in cf["study_defs"].keys() and save_to_cache == True:
         raise ValueError(f"study_name '{study_name}' not found in config")
 
     if all_datasets is None:
@@ -797,6 +924,63 @@ def create_study_recoded_dataset(
 
 
     return study_recoded_dataset
+
+
+
+
+
+
+
+def create_donation_unified_dataset(
+    cf = None,
+    donation_id = None,
+    verbose = False
+    ):
+
+    from fyp.fyp_main import initialize, connect_to_google
+
+    if donation_id is None:
+        raise ValueError("donation_id must be specified")
+
+    if cf is None:
+        cf = initialize()
+
+
+    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
+        cf = connect_to_google(cf)
+
+    print(f"Generating unified dataset for donation '{donation_id}'")
+
+    all_datasets = load_donation_datasets(
+        cf = cf,
+        donation_id = donation_id,
+        load_from_cache = True,
+        verbose = verbose)
+
+    if all_datasets == None:
+        print(f"!!! [Core datasets] No activity data matched the donation '{donation_id}'. Returning None")
+        return None
+
+    # with new merge, the datasets are already recoded
+    donation_dataset = new_merge(
+        cf = cf,
+        study_name = None,
+        all_datasets = all_datasets,
+        save_to_cache = False,
+        verbose = verbose
+    )
+
+
+    memory_per_column = donation_dataset.memory_usage(deep=True) 
+    total_memory_bytes = memory_per_column.sum()
+    total_memory_mb = total_memory_bytes / (1024**2)
+    print(f"...done. Unified dataset for donation '{donation_id}' generated. Total memory used: {total_memory_mb:.2f} MB")
+
+
+    return donation_dataset
+
+
+
 
 
 
