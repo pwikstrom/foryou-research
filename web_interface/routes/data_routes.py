@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from ..hub_config import fyp_cf, PROJECT_ROOT
+from ..fyp_config import fyp_cf, PROJECT_ROOT
 from ..data_service import (
     get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags,
     load_schema_metadata, get_timeline_data, get_study_donations

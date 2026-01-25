@@ -1,5 +1,5 @@
 from flask_login import LoginManager
-from .hub_config import PROJECT_ROOT, fyp_cf
+from .fyp_config import PROJECT_ROOT, fyp_cf
 import web_interface.auth as auth
 
 # --- Auth Setup ---

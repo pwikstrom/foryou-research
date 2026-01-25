@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
 import web_interface.auth as auth
-from ..hub_config import (
+from ..fyp_config import (
     DOWNLOADER_SCRIPT, INGEST_SCRIPT, ANNOTATOR_SCRIPT, MONITOR_SCRIPT, 
     CREATE_SUBSETS_SCRIPT, REGENERATE_DATASETS_SCRIPT, CREATE_EVENT_LOG_SCRIPT, 
     RECODE_EVENT_LOG_SCRIPT, CALCULATE_PCA_SCRIPT,

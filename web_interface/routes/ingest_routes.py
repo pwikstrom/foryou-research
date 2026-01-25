@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 import json
 from datetime import datetime
-from ..hub_config import fyp_cf, PROJECT_ROOT, PYTHON_EXEC, INGEST_SCRIPT
+from ..fyp_config import fyp_cf, PROJECT_ROOT, PYTHON_EXEC, INGEST_SCRIPT
 import fyp.data_io as data_io
 
 ingest_bp = Blueprint('ingest_bp', __name__)

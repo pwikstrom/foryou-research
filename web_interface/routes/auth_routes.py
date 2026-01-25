@@ -5,7 +5,7 @@ import web_interface.auth as auth
 from ..security import user_manager
 from email_validator import validate_email, EmailNotValidError
 from ..mail_utils import send_welcome_email_async
-from ..hub_config import fyp_cf
+from ..fyp_config import fyp_cf
 import fyp.data_io as data_io
 
 auth_bp = Blueprint('auth_bp', __name__)
