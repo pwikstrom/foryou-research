@@ -6,10 +6,19 @@ Author: Patrik
 """
 
 
-import pandas as pd
-import os
-import logging
+
+import datetime as _dt
+from fyp.fyp_main import convert_dtypes_to_pyarrow, connect_to_google, initialize
+from fyp.recode_variables import get_grouping_factors_from_var_schema
+import shutil
+import gcsfs
 import json
+import os
+import pandas as pd
+import pyarrow.parquet as pq
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 
 
 
@@ -28,8 +37,6 @@ def _resolve_paths(cf, storage_location, filename):
     Returns:
         tuple: (primary_path, secondary_path, mode, blob_name)
     """
-    from os.path import join, basename
-    from fyp.fyp_main import connect_to_google
     
     if (cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None) or (storage_location == 'cache' and cf['data_io']['use_gcs_for_cache'] and cf['data_io']['bucket'] is None):
         cf = connect_to_google(cf)
@@ -68,7 +75,7 @@ def _resolve_paths(cf, storage_location, filename):
         return (gcs_uri, None, 'gcs', blob_name)
     else:
         # Local
-        local_path = join(cf['paths'][storage_location], filename)
+        local_path = os.path.join(cf['paths'][storage_location], filename)
         return (local_path, None, 'local', None)
 
 
@@ -90,15 +97,13 @@ def find_key_value_in_pq_metadata(
     filename,
     the_key
     ):
-    from pyarrow.parquet import read_metadata as pq_read_metadata
-    from json import loads as json_loads
 
-    meta = pq_read_metadata(_resolve_paths(cf, storage_location, filename)[0])
+    meta = pq.read_metadata(_resolve_paths(cf, storage_location, filename)[0])
     file_metadata_dict = meta.metadata  # This is a dictionary of {bytes: bytes}
 
     for k in file_metadata_dict:
         try:
-            some_dict = json_loads(file_metadata_dict[k].decode('utf-8'))
+            some_dict = json.loads(file_metadata_dict[k].decode('utf-8'))
             if some_dict.get(the_key,None) is not None:
                 return some_dict.get(the_key)
         except:
@@ -115,8 +120,6 @@ def exists(cf, storage_location, filename, verbose=False) -> bool:
     Check if the file filename exists in the given storage location.
     Transparently handles local or GCS checks.
     """
-    from os.path import exists as local_exists
-    from fyp.fyp_main import connect_to_google
 
 
     if (cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None) or (storage_location == 'cache' and cf['data_io']['use_gcs_for_cache'] and cf['data_io']['bucket'] is None):
@@ -124,9 +127,8 @@ def exists(cf, storage_location, filename, verbose=False) -> bool:
     
     
     primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
-    #if verbose: 
-    if verbose:
-        print(f"    [DATA_IO] exists: Checking {primary}")
+    #if verbose:
+    #    print(f"    [DATA_IO] exists: Checking {primary}")
     
     if mode == 'gcs':
         bucket = _get_bucket(cf)
@@ -141,7 +143,7 @@ def exists(cf, storage_location, filename, verbose=False) -> bool:
 
         return False
     else:
-        return local_exists(primary)
+        return os.path.exists(primary)
 
 
 
@@ -152,8 +154,6 @@ def getctime(cf, storage_location, filename, verbose=False):
     """
     Get the creation time of the file filename.
     """
-    from os.path import getctime
-    from fyp.fyp_main import connect_to_google
     
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
@@ -172,7 +172,7 @@ def getctime(cf, storage_location, filename, verbose=False):
         else:
             raise ValueError("GCS bucket not initialized")
     else:
-        return getctime(primary)
+        return os.path.getctime(primary)
 
 
 
@@ -182,8 +182,6 @@ def getmtime(cf, storage_location, filename, verbose=False):
     """
     Get the modification time of the file.
     """
-    from os.path import getmtime
-    from fyp.fyp_main import connect_to_google
     
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
@@ -201,7 +199,7 @@ def getmtime(cf, storage_location, filename, verbose=False):
         else:
             raise ValueError("GCS bucket not initialized")
     else:
-        return getmtime(primary)
+        return os.path.getmtime(primary)
 
 
 
@@ -212,8 +210,6 @@ def getsize(cf, storage_location, filename, verbose=False):
     """
     Get the size of the file.
     """
-    from os.path import getsize
-    from fyp.fyp_main import connect_to_google
     
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
@@ -231,7 +227,7 @@ def getsize(cf, storage_location, filename, verbose=False):
         else:
                 raise ValueError("GCS bucket not initialized")
     else:
-        return getsize(primary)
+        return os.path.getsize(primary)
 
 
 
@@ -244,9 +240,6 @@ def remove(cf, storage_location, filename, verbose=False):
     """
     Remove the file filename from the given storage location.
     """
-    from os import remove as local_remove
-    from os.path import exists as local_exists
-    from fyp.fyp_main import connect_to_google
     
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
@@ -267,8 +260,8 @@ def remove(cf, storage_location, filename, verbose=False):
                 if verbose: print(f"    [DATA_IO] GCS remove note: {e}")
 
     else:
-        if local_exists(primary):
-            local_remove(primary)
+        if os.path.exists(primary):
+            os.remove(primary)
             if verbose: print(f"    [DATA_IO] Removed local file '{primary}'")
 
 
@@ -282,9 +275,6 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
     List files in the given storage location.
     Handles GCS listing if configured.
     """
-    from os import listdir as local_listdir
-    from os.path import join
-    from fyp.fyp_main import connect_to_google
     
     # I can't use _resolve_paths directly for the dir itself because _resolve_paths expects a filename
 
@@ -314,7 +304,7 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
                 prefix = gcs_base
                 if not prefix.endswith("/"): prefix += "/"
                 
-                if verbose: print(f"    [DATA_IO] Listing GCS blobs with prefix: {prefix}")
+                #if verbose: print(f"    [DATA_IO] Listing GCS blobs with prefix: {prefix}")
                 
                 
                 iterator = bucket.list_blobs(prefix=prefix, delimiter='/')
@@ -339,10 +329,10 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
             else:
                  raise ValueError("GCS bucket not initialized for listdir")
 
-            if verbose: print(f"    [DATA_IO] Listed {len(files)} files in GCS storage '{storage_location}'")
+            #if verbose: print(f"    [DATA_IO] Listed {len(files)} files in GCS storage '{storage_location}'")
                  
         except Exception as e:
-            if verbose: print("    [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
+            #if verbose: print("    [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
             files = [] # Or raise? Old code just warned and returned empty or had logic flow issues.
 
              
@@ -352,14 +342,14 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
             raise ValueError(f"Invalid storage location: '{storage_location}'.")
         local_dir = cf['paths'][storage_location]
 
-        if verbose: print(f"    [DATA_IO] Listing files in local storage: {local_dir}")
+        #if verbose: print(f"    [DATA_IO] Listing files in local storage: {local_dir}")
 
-        files = local_listdir(local_dir)
+        files = os.listdir(local_dir)
 
         if return_absolute_path:
-            files = [join(local_dir, f) for f in files]
+            files = [os.path.join(local_dir, f) for f in files]
 
-        if verbose: print(f"    [DATA_IO] Listed {len(files)} files in local storage '{storage_location}'")
+        #if verbose: print(f"    [DATA_IO] Listed {len(files)} files in local storage '{storage_location}'")
 
     return files
 
@@ -373,11 +363,6 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
     """
     Move the file filename from src_storage_location to dst_storage_location.
     """
-    from shutil import move as local_move
-    from os.path import exists as local_exists
-    from os.path import join as local_join
-    from fyp.fyp_main import connect_to_google
-    from os import remove as local_remove
 
 
 
@@ -392,8 +377,8 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
     # temp to storage_location
     if src_storage_location == "temp":
         
-        src_path = local_join(cf['paths']['temp'], filename)
-        if not local_exists(src_path):
+        src_path = os.path.join(cf['paths']['temp'], filename)
+        if not os.path.exists(src_path):
              if verbose: print(f"    [DATA_IO] ERROR: Source file not found in temp: '{src_path}'")
              return
 
@@ -405,7 +390,7 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
                     blob.upload_from_filename(src_path)
                     if verbose: print(f"    [DATA_IO] Uploaded from temp to GCS: '{src_path}' -> '{dst_blob_name}'")
                     # Remove local temp file after successful upload
-                    local_remove(src_path)
+                    os.remove(src_path)
                 except Exception as e:
                     if verbose: print(f"    [DATA_IO] WARN: Failed to upload/move from temp to GCS: {e}")
             else:
@@ -413,7 +398,7 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
 
         elif dst_mode == 'local':
              if dst_primary:
-                local_move(src_path, dst_primary)
+                shutil.move(src_path, dst_primary)
                 if verbose: print(f"    [DATA_IO] Moved from temp to local: '{src_path}' -> '{dst_primary}'")
              else:
                  if verbose: print(f"    [DATA_IO] ERROR: Destination path resolution failed for local move.")
@@ -440,7 +425,7 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
     elif src_mode == 'local' and dst_mode == 'local':
     
         if src_primary and dst_primary:
-            local_move(src_primary, dst_primary)
+            shutil.move(src_primary, dst_primary)
             if verbose: print(f"    [DATA_IO] Moved Local: '{filename}' from '{src_storage_location}' to '{dst_storage_location}'")
         else:
             if verbose and src_mode == 'local':
@@ -458,14 +443,11 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
 
 # read a file with one json object per line and return a list of dictionaries
 def read_ndjson_file(cf, storage_location, filename, verbose=False):
-    from os.path import basename, splitext
-    from json import load, loads
-    from fyp.fyp_main import connect_to_google
 
 
     # Extension check
-    bn = basename(filename)
-    root, ext = splitext(bn)
+    bn = os.path.basename(filename)
+    root, ext = os.path.splitext(bn)
     if ext != '.ndjson':
         if verbose: 
             print(f"    [DATA_IO] WARN: File extension is not '.ndjson': '{ext}' (filename: {bn})")
@@ -485,7 +467,7 @@ def read_ndjson_file(cf, storage_location, filename, verbose=False):
                         for line in file:
                             line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
                             line = '{"log_script":"' + root + '",' + line[1:]
-                            data.append(loads(line))
+                            data.append(json.loads(line))
                     return data
                 else:
                      if verbose: print(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
@@ -497,7 +479,7 @@ def read_ndjson_file(cf, storage_location, filename, verbose=False):
                 for line in file:
                     line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
                     line = '{"log_script":"' + root + '",' + line[1:]
-                    data.append(loads(line))
+                    data.append(json.loads(line))
             return data
                 
     if False:#except Exception as e:
@@ -523,17 +505,14 @@ def load_json(cf, storage_location, filename, verbose = False):
     Load a json from a given path.
     Handles GCS read.
     """
-    from os.path import basename, splitext
-    from json import load, loads
-    from fyp.fyp_main import connect_to_google
     
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
 
     # Extension check
-    bn = basename(filename)
-    root, ext = splitext(bn)
+    bn = os.path.basename(filename)
+    root, ext = os.path.splitext(bn)
     if ext != '.json':
         if verbose: print(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
@@ -548,7 +527,7 @@ def load_json(cf, storage_location, filename, verbose = False):
                 # Check existence to avoid generic 404 error masked as something else
                 if blob.exists():
                      content = blob.download_as_text()
-                     return loads(content)
+                     return json.loads(content)
                 else:
                      if verbose: print(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
             else:
@@ -556,7 +535,7 @@ def load_json(cf, storage_location, filename, verbose = False):
         else:
             # Local from local
             with open(primary, 'r') as file:
-                return load(file)
+                return json.load(file)
                 
     except Exception as e:
         if verbose: print(f"    [DATA_IO] Loading json failed ({mode}): {e}")
@@ -577,15 +556,12 @@ def save_json(cf, data, storage_location, filename, verbose = False):
     Save a json to a given path.
     Supports GCS write + Parallel Save.
     """
-    from os.path import basename, splitext
-    from json import dump, dumps
-    from fyp.fyp_main import connect_to_google
 
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
 
-    bn = basename(filename)
-    root, ext = splitext(bn)
+    bn = os.path.basename(filename)
+    root, ext = os.path.splitext(bn)
     if ext != '.json':
         if verbose: print(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
@@ -596,14 +572,14 @@ def save_json(cf, data, storage_location, filename, verbose = False):
         bucket = _get_bucket(cf)
         if bucket:
              blob = bucket.blob(blob_name)
-             blob.upload_from_string(dumps(data))
+             blob.upload_from_string(json.dumps(data))
              if verbose: print(f"    [DATA_IO] Saved JSON to GCS: {blob_name}")
         else:
              raise ValueError("GCS bucket not initialized")
     else:
         # Local
         with open(primary, 'w') as file:
-            dump(data, file)
+            json.dump(data, file)
     
     return 0
             
@@ -625,13 +601,6 @@ def load_parquet(
     Load a dataframe from a given path.
     Supports GCS direct read (gs://).
     """
-    from fyp.fyp_main import convert_dtypes_to_pyarrow, connect_to_google
-    from os.path import basename
-    import os
-
-    import pyarrow.parquet as pq
-    import gcsfs
-    from datetime import datetime
 
     def _renamed(s):
         fixer_upper = [
@@ -650,7 +619,7 @@ def load_parquet(
             s = s.replace(fu[0],fu[1])
         return s
 
-    t1 = datetime.now()
+    t1 = _dt.datetime.now()
 
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
@@ -708,7 +677,7 @@ def load_parquet(
         df = convert_dtypes_to_pyarrow(df, verbose=verbose)
 
         if verbose:
-            t2 = datetime.now()
+            t2 = _dt.datetime.now()
             print(f"    [DATA_IO] Loaded parquet(s) shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
 
         return df
@@ -761,15 +730,13 @@ def load_parquet(
     df = convert_dtypes_to_pyarrow(df, verbose=verbose)
 
     if verbose:
-        t2 = datetime.now()
+        t2 = _dt.datetime.now()
         print(f"    [DATA_IO] ...done. Shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
 
     return df
 
 
 
-import threading
-from concurrent.futures import ThreadPoolExecutor
 
 # Create a global lock object
 file_lock = threading.Lock()
@@ -789,9 +756,6 @@ def save_parquet(
 
     this_df = df.copy()
 
-    from fyp.fyp_main import convert_dtypes_to_pyarrow, connect_to_google
-    from os.path import join, basename
-    import os
 
     if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
         cf = connect_to_google(cf)
@@ -801,7 +765,7 @@ def save_parquet(
     # Note: filename here might not have extension yet, logic below handles it
     
     # Base logic to ensure extension is .parquet
-    base_name = basename(filename)
+    base_name = os.path.basename(filename)
     root, ext = os.path.splitext(base_name)
     if ext != '.parquet':
         raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
@@ -876,11 +840,6 @@ def save_parquet(
 # ------------------------------------------------------------------------------
 
 def get_study_export_files(cf = None, study_name = None):
-    #from os import listdir
-    #from os.path import join, getmtime
-    from fyp.fyp_main import initialize
-    from numpy import mean as np_mean
-    from datetime import datetime
 
     if cf is None:
         cf = initialize()
@@ -900,11 +859,11 @@ def get_study_export_files(cf = None, study_name = None):
         if len(study_files[category]) == 0:
             study_files[category] = "No file found"
         elif len(study_files[category]) == 1:
-            study_files[category] = f"1 file saved on {datetime.fromtimestamp(int(study_files[category][0]))}"
+            study_files[category] = f"1 file saved on {_dt.datetime.fromtimestamp(int(study_files[category][0]))}"
         else:
             oldest_file = int(min(study_files[category]))
             newest_file = int(max(study_files[category]))
-            study_files[category] = f"{len  (study_files[category])} files from {datetime.fromtimestamp(oldest_file)} to {datetime.fromtimestamp(newest_file)}"
+            study_files[category] = f"{len  (study_files[category])} files from {_dt.datetime.fromtimestamp(oldest_file)} to {_dt.datetime.fromtimestamp(newest_file)}"
 
     return study_files
 
@@ -912,11 +871,6 @@ def get_study_export_files(cf = None, study_name = None):
 
 
 def get_dataset_details(cf=None, study_name=None):
-    #from os import listdir
-    #from os.path import join, getsize
-    from fyp.fyp_main import initialize
-    from fyp.recode_variables import get_grouping_factors_from_var_schema
-    import pandas as pd
     
     if cf is None:
         cf = initialize()

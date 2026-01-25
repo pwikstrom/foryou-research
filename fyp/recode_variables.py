@@ -36,7 +36,6 @@ def rename_columns(some_events):
         ("B_local_","T_local_"),
         ("B_source_tz_name","T_tz_name"),
         ("D_local_","T_local_"),
-        #("D_utc_timestamp","T_utc_timestamp"),
         (".","_"),
         ("data_",""),
         ("source_url_","source_"),
@@ -678,7 +677,6 @@ def recode_faces_age_estimate(
         return pd.NA
 
 
-
     if isinstance(an_age_range_list, pd.Series):
         # Explode, parse range to mean, groupby index mean.
         # "20-30 | 40-50" -> ["20-30", "40-50"]
@@ -796,7 +794,7 @@ def recode_main_activity(
         # Regex: r'\b(\w+ing)\b'
         # This is MUCH faster than parsing list.
         
-        extracted = fine_actitivies_string.astype(str).str.extract(r'\b([a-zA-Z]+ing)\b', expand=False)
+        extracted = fine_actitivies_string.astype(str).str.lower().extract(r'\b([a-zA-Z]+ing)\b', expand=False)
         # If matched, return [match]. Else [UNABLE_TO_DETECT] or [NOT_CODED]?
         # Logic: if list empty -> NOT_CODED (if was empty string?) or fallback.
         # If no ing found -> UNABLE_TO_DETECT.

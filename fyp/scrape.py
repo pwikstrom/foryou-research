@@ -870,7 +870,7 @@ def consolidate_and_save_scrape_data(
             files_to_concatenate.append(fn)
 
     latest_filename_list = dataset_meta.get("scrape", {}).get("filenames", [])
-    if not force_consolidation and set(latest_filename_list) == set(files_to_concatenate):
+    if not force_consolidation and set(files_to_concatenate) <= set(latest_filename_list):
         if top_verbose:
             print("No new scrape files found. No need to consolidate.")
             if return_saved_data:

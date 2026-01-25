@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 import pandas as pd
+import numpy as np
 from datetime import datetime
 import re
 from ..hub_config import fyp_cf
@@ -20,6 +21,8 @@ def _calculate_stats(study_config, save_to_cache=True):
     """
     Calculate stats for a study using enrichment_status.parquet AND the study's specific recoded dataset.
     """
+
+
     if True:#try:
         study_name = study_config.get("STUDY_NAME")
         if not study_name:

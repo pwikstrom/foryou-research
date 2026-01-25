@@ -1459,7 +1459,7 @@ def refine_and_save_all_raw_annotation_files(cf = None, verbose = False, noteboo
     if verbose:
         print(f"{len(refined_annotation_files)} raw annotation files have already been refined")
         print(f"{len(raw_files_up_for_refinement)} files are up for refinement")
-
+    
     for i,fn in enumerate(raw_files_up_for_refinement):
         if verbose:
             print(f"\n{i+1}/{len(raw_files_up_for_refinement)} {fn}")
@@ -1529,7 +1529,9 @@ def consolidate_and_save_refined_annotations(
             files_to_concatenate.append(fn)
 
     latest_filename_list = dataset_meta.get("machine_annotations", {}).get("filenames", [])
-    if not force_consolidation and set(latest_filename_list) == set(files_to_concatenate):
+
+    # if all files found in the refine folder are already registered in the dataset meta, then no need to consolidate
+    if not force_consolidation and set(files_to_concatenate) <= set(latest_filename_list):
         if top_verbose:
             print("No new refined machine annotations files found. No need to consolidate.")
             if return_saved_data:

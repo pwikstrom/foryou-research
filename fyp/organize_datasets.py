@@ -623,15 +623,26 @@ def update_enrichment_status(
 
 
 
-def _consolidate_and_save_activity_logs(cf = None, force_consolidation=False, verbose=False):
+def _consolidate_and_save_activity_logs(
+    cf:dict | None = None, 
+    force_consolidation:bool = False, 
+    verbose:bool = False):
 
     if cf is None:
         cf = initialize()
     
     print("\n*** Zeeschuimer")
-    new_z, z1 = consolidate_zeeschuimer_logs(cf = cf, force_consolidation=False)#force_consolidation, verbose=verbose)
+    new_z, z1 = consolidate_zeeschuimer_logs(
+        cf = cf, 
+        force_consolidation=force_consolidation, 
+        verbose=verbose)
+    
     print("\n*** Donations")
-    new_d, d1 = consolidate_ddp_logs(cf = cf, force_consolidation=force_consolidation, consolidate_from_scratch=True, verbose = verbose)
+    new_d, d1 = consolidate_ddp_logs(
+        cf = cf, 
+        force_consolidation=force_consolidation, 
+        consolidate_from_scratch=True, 
+        verbose = verbose)
 
     # I need all columns in both datasets. When concatenating, the columns will be created with null values.
     # But sometimes the separate datasets will be used on its own. And in those situations I need to match
@@ -777,19 +788,38 @@ def new_merge(
     
     shebang = pd.merge(left=activity_data, right=enriched_data, on='item_id', how='left')
 
-    shebang["T_days_since_created"] = shebang["T_local_timestamp"] - shebang["S_createTime"]
-    shebang["T_days_since_created"] = shebang["T_days_since_created"].map(lambda x: x.days if x is not pd.NA else pd.NA).astype("int64[pyarrow]")
+    # --------------------------------------------------------------------------------------------------
+    # adding some calculated columns to this merged dataset
+    # --------------------------------------------------------------------------------------------------
 
-    if verbose:
-        print(f"Adding 'days_since_created' column. Resulting output log DF shape {shebang.shape}")
+    # 1. days since created
+    calc_col = ["T_days_since_created"]
+    shebang[calc_col[-1]] = shebang["T_local_timestamp"] - shebang["S_createTime"]
+    shebang[calc_col[-1]] = shebang[calc_col[-1]].map(lambda x: x.days if x is not pd.NA else pd.NA).astype("int64[pyarrow]")
+    shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0)
 
-    # load failed_scrapes as a set
-    failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose))
-    shebang["scraped_fail"] = shebang["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
-    
+    # 2. plays per day
+    calc_col += ["plays_per_day"]
     def _safe_vector_divide(x, y):
         return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
-    shebang['plays_per_day'] = _safe_vector_divide(shebang['S_stats_playCount'],shebang['T_days_since_created'])
+    shebang[calc_col[-1]] = _safe_vector_divide(shebang['S_stats_playCount'],shebang['T_days_since_created'])
+
+
+    # 3. scraped fail
+    failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose))  # load failed_scrapes as a set
+    calc_col += ["scraped_fail"]
+    shebang[calc_col[-1]] = shebang["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
+
+    
+    # 4. completion rate
+    calc_col += ["completion_rate"]
+    shebang[calc_col[-1]] = shebang["D_watch_duration"] / shebang["S_video_duration"]
+    shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0,upper=1).astype("double[pyarrow]")
+
+    if verbose:
+        print(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
+    # --------------------------------------------------------------------------------------------------
+
 
 
     if save_to_cache:

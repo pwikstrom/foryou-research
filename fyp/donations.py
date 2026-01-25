@@ -550,7 +550,14 @@ def refine_one_raw_ddp_log(
     raw_data_donation_top_keys = list(donation_dict.keys())
     if 'ad_preferences' in raw_data_donation_top_keys or 'CONTENT_INTERACTION' in raw_data_donation_top_keys:
         if verbose:
-            print(f"{donation_id} is not TikTok data, cannot process this one")
+            print(f"{donation_id} is not TikTok data, cannot process. Moving to archive...")
+            data_io.move(
+                cf=cf, 
+                src_storage_location='ddp_raw', 
+                dst_storage_location="archive", 
+                filename=donation_id, 
+                verbose=verbose
+            )
         return "[ERROR]: Not TikTok data"
 
 
@@ -1151,8 +1158,14 @@ def consolidate_ddp_logs(
         dataset_meta = {"donations": {"filenames": []}}
 
     latest_filename_list = dataset_meta.get("donations", {}).get("filenames", [])
-    if not force_consolidation and set(latest_filename_list) == set(refined_ddp_files):
 
+    ddp_meta = data_io.load_parquet(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet")
+    rejected_donations = ddp_meta[~ddp_meta[('other','accepted')]].index.to_list()
+    rejected_donations = [f"{u}.parquet" for u in rejected_donations]
+    accepted_refined_ddp_files = [u for u in refined_ddp_files if u not in rejected_donations]
+
+    # if all files found in the refine folder are already accepted, then no need to consolidate
+    if not force_consolidation and set(accepted_refined_ddp_files) <= set(latest_filename_list):
         if top_verbose:
             print("No new refined DDP files found. No need to consolidate.")
         if return_saved_data:
@@ -1161,12 +1174,10 @@ def consolidate_ddp_logs(
 
             return False, thing
         return False, None
-    
+    if top_verbose:
+        print("Found new refined DDP files. Consolidating...")
 
     # --------------------------------------------------------------------------------------
-    ddp_meta = data_io.load_parquet(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet")
-    rejected_donations = ddp_meta[~ddp_meta[('other','accepted')]].index.to_list()
-    rejected_donations = [f"{u}.parquet" for u in rejected_donations]
 
     # if I don't want to consolidate from scratch, I can load the existing data and only add the new files
     new_refined_files = [u for u in refined_ddp_files if u not in latest_filename_list and u not in rejected_donations]
