@@ -7,7 +7,7 @@ from datetime import datetime
 from ..hub_config import fyp_cf, PROJECT_ROOT
 from ..data_service import (
     get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags,
-    load_schema_metadata
+    load_schema_metadata, get_timeline_data, get_study_donations
 )
 from .. import explorer_backend as explorer
 import fyp
@@ -118,13 +118,19 @@ def api_explorer_metadata():
         metadata = data_io.load_json(cf=fyp_cf, storage_location="cache", filename=f"{study}_{context}_metadata.json")
         print(f"    Using cached metadata for {study}")
         
-        # Inject dynamic User Tags metadata if missing from cache
-        if 'User Tags' in col_types and 'User Tags' not in metadata:
-             print("    Adding dynamic User Tags metadata")
-             if 'User Tags' in df.columns:
-                 dynamic_meta = explorer.get_metadata(df[['User Tags']], {'User Tags': 'list'})
+        # Force refresh of dynamic metadata (User Tags & Has Annotation)
+        # We must re-calculate these every time because the cache might be stale w.r.t user actions
+        dynamic_cols = {}
+        if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
+        if 'Has Annotation' in col_types: dynamic_cols['Has Annotation'] = 'category'
+        
+        if dynamic_cols:
+             # print("    Refreshing dynamic metadata (User Tags / Has Annotation)")
+             cols_to_get = [c for c in dynamic_cols.keys() if c in df.columns]
+             if cols_to_get:
+                 dynamic_meta = explorer.get_metadata(df[cols_to_get], dynamic_cols)
                  metadata.update(dynamic_meta)
-                 
+
         # Ensure User Tags is in filter_priority if it exists
         if 'User Tags' in metadata and 'filter_priority' in metadata:
             if 'User Tags' in metadata['filter_priority']:
@@ -134,7 +140,47 @@ def api_explorer_metadata():
         # Always refresh schema metadata (accepted_labels, priorities) from CSV
         metadata = load_schema_metadata(metadata)
 
+        # Inject User Annotation Schema Info (User Tags & Has Annotation) - POST SCHEMA LOAD
+        if 'schema_map' not in metadata: metadata['schema_map'] = {}
+        
+        # 1. User Tags
+        if 'User Tags' in metadata:
+            metadata['schema_map']['User Tags'] = {
+                "section": "User Annotation",
+                "display_name": "User Tags",
+                "description": "Tags you have assigned to items."
+            }
+            # Re-insert into priorities
+            if 'filter_priority' not in metadata: metadata['filter_priority'] = []
+            if 'User Tags' in metadata['filter_priority']: metadata['filter_priority'].remove('User Tags')
+            metadata['filter_priority'].insert(0, 'User Tags')
+
+            if 'display_priority' not in metadata: metadata['display_priority'] = []
+            if 'User Tags' in metadata['display_priority']: metadata['display_priority'].remove('User Tags')
+            metadata['display_priority'].insert(0, 'User Tags')
+            
+        # 2. Has Annotation
+        if 'Has Annotation' in metadata:
+            metadata['schema_map']['Has Annotation'] = {
+                "section": "User Annotation",
+                "display_name": "Has Annotation",
+                "description": "Filter items that have notes, tags, or closed tags."
+            }
+            # Re-insert into priorities (After User Tags)
+            if 'filter_priority' not in metadata: metadata['filter_priority'] = []
+            if 'Has Annotation' in metadata['filter_priority']: metadata['filter_priority'].remove('Has Annotation')
+            # Insert at 1 if User Tags exists, else 0
+            idx = 1 if 'User Tags' in metadata else 0
+            metadata['filter_priority'].insert(idx, 'Has Annotation')
+
+            if 'display_priority' not in metadata: metadata['display_priority'] = []
+            if 'Has Annotation' in metadata['display_priority']: metadata['display_priority'].remove('Has Annotation')
+            idx = 1 if 'User Tags' in metadata else 0
+            metadata['display_priority'].insert(idx, 'Has Annotation')
+
         return jsonify(make_serializable(metadata))
+
+
 
     print(f"    No cached explorer metadata for '{study}', calculating...")
     metadata = explorer.get_metadata(df, col_types)
@@ -164,6 +210,43 @@ def api_explorer_metadata():
         metadata['source_file_modified'] = ""
 
     metadata = load_schema_metadata(metadata)
+
+    # Inject User Annotation Schema Info (User Tags & Has Annotation)
+    if 'schema_map' not in metadata: metadata['schema_map'] = {}
+
+    # 1. User Tags
+    if 'User Tags' in metadata:
+        metadata['schema_map']['User Tags'] = {
+            "section": "User Annotation",
+            "display_name": "User Tags",
+            "description": "Tags you have assigned to items."
+        }           
+        # Re-insert into priorities
+        if 'filter_priority' not in metadata: metadata['filter_priority'] = []
+        if 'User Tags' in metadata['filter_priority']: metadata['filter_priority'].remove('User Tags')
+        metadata['filter_priority'].insert(0, 'User Tags')
+
+        if 'display_priority' not in metadata: metadata['display_priority'] = []
+        if 'User Tags' in metadata['display_priority']: metadata['display_priority'].remove('User Tags')
+        metadata['display_priority'].insert(0, 'User Tags')
+
+    # 2. Has Annotation
+    if 'Has Annotation' in metadata:
+        metadata['schema_map']['Has Annotation'] = {
+            "section": "User Annotation",
+            "display_name": "Has Annotation",
+            "description": "Filter items that have notes, tags, or closed tags."
+        }
+        # Re-insert into priorities (After User Tags)
+        if 'filter_priority' not in metadata: metadata['filter_priority'] = []
+        if 'Has Annotation' in metadata['filter_priority']: metadata['filter_priority'].remove('Has Annotation')
+        idx = 1 if 'User Tags' in metadata else 0
+        metadata['filter_priority'].insert(idx, 'Has Annotation')
+
+        if 'display_priority' not in metadata: metadata['display_priority'] = []
+        if 'Has Annotation' in metadata['display_priority']: metadata['display_priority'].remove('Has Annotation')
+        idx = 1 if 'User Tags' in metadata else 0
+        metadata['display_priority'].insert(idx, 'Has Annotation')
 
     data_io.save_json(cf=fyp_cf, data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=True)
 
@@ -716,6 +799,8 @@ def api_viewer_item(study, item_id):
         pass
         #print(f"DEBUG: api_viewer_item GET request received. Filters NOT applied.")
 
+
+
     id_col = 'item_id'
     if id_col not in df.columns:
         if 'video_id' in df.columns: id_col = 'video_id'
@@ -732,7 +817,45 @@ def api_viewer_item(study, item_id):
     #if 'D_engagement' in record:
     #    print(f"DEBUG: Selected row D_engagement: {record['D_engagement']}")
     
+
     return jsonify(record)
+
+
+@data_bp.route('/api/timelines/data', methods=['POST'])
+@login_required
+def api_timeline_data():
+    data = request.json or {}
+    study = data.get("study")
+    donation_id = data.get("donation_id")
+    interval = data.get("interval", "day")
+    
+    if not study or not donation_id:
+        return jsonify({"error": "Missing study or donation_id"}), 400
+        
+    try:
+        result = get_timeline_data(study, donation_id, interval=interval)
+        if result is None:
+             return jsonify({"error": "No data found"}), 404
+        if "error" in result:
+             return jsonify(result), 400
+             
+        return jsonify(make_serializable(result))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@data_bp.route('/api/timelines/donations', methods=['POST'])
+@login_required
+def api_timeline_donations():
+    data = request.json or {}
+    study = data.get("study")
+    if not study:
+        return jsonify({"error": "Missing study"}), 400
+        
+    donations = get_study_donations(study)
+    return jsonify(donations)
 
 
 @data_bp.route('/api/video/<study>/<item_id>', methods=['GET'])

@@ -1,85 +1,158 @@
 <div id="admin" class="tab-pane">
-    <div style="padding: 24px;">
-        <h2 style="margin-bottom: 24px; border-bottom: 2px solid #eee; padding-bottom: 12px;">Admin Dashboard</h2>
+    <div style="height: 100%; overflow-y: auto; padding: 20px;">
+        <!-- User Administration Section -->
+        <div style="background: #252526; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <h2>User Administration</h2>
 
-        <div style="margin-bottom: 16px;">
-            <button onclick="loadUsers()"
-                style="background: white; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #374151;">
-                ↻ Refresh List
-            </button>
-        </div>
-
-        <!-- Pending Approvals Section -->
-        <div style="margin-bottom: 32px;">
-            <h3 style="color: #d97706; margin-bottom: 16px;">Pending Approvals</h3>
-            <div id="pendingUserList"
-                style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
-                <p style="color: #92400e; font-style: italic;">Loading pending users...</p>
-            </div>
-        </div>
-
-        <!-- Add User Section -->
-        <div
-            style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 32px; border: 1px solid #e9ecef;">
-            <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 18px;">Add New User</h3>
-            <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
-                <div>
-                    <label
-                        style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500;">Username</label>
-                    <input type="text" id="newUsername"
-                        style="padding: 8px; border: 1px solid #ced4da; border-radius: 4px; width: 200px;">
-                </div>
-                <div>
-                    <label
-                        style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500;">Password</label>
-                    <input type="password" id="newPassword"
-                        style="padding: 8px; border: 1px solid #ced4da; border-radius: 4px; width: 200px;">
-                </div>
-                <div>
-                    <label style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500;">Role</label>
-                    <select id="newRole"
-                        style="padding: 8px; border: 1px solid #ced4da; border-radius: 4px; width: 150px;">
-                        <option value="viewer">Viewer</option>
-                        <option value="researcher">Researcher</option>
-                        <option value="admin">Admin</option>
-                    </select>
-                </div>
-                <button onclick="addUser()"
-                    style="background: #10b981; color: white; border: none; padding: 9px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">
-                    Add User
+            <div style="margin: 16px 0;">
+                <button onclick="loadUsers()"
+                    style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                    ↻ Refresh List
                 </button>
             </div>
+
+            <!-- Pending Approvals Section -->
+            <div style="margin-bottom: 32px;">
+                <h3 style="color: #d97706; margin-bottom: 16px; font-size: 16px;">Pending Approvals</h3>
+                <div id="pendingUserList"
+                    style="background: #2d2d30; border: 1px solid #d97706; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+                    <p style="color: #d97706; font-style: italic;">Loading pending users...</p>
+                </div>
+            </div>
+
+            <!-- Add User Section -->
+            <div
+                style="background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 32px; border: 1px solid #3e3e42;">
+                <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 16px; color: #d4d4d4;">Add New User</h3>
+                <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+                    <div>
+                        <label
+                            style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Username</label>
+                        <input type="text" id="newUsername"
+                            style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 200px; background: #3c3c3c; color: #d4d4d4;">
+                    </div>
+                    <div>
+                        <label
+                            style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Password</label>
+                        <input type="password" id="newPassword"
+                            style="padding: 8px; width: 200px; background: #3c3c3c; border: 1px solid #3e3e42; color: #d4d4d4; border-radius: 3px;">
+                    </div>
+                    <div>
+                        <label
+                            style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Role</label>
+                        <select id="newRole"
+                            style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 150px; background: #3c3c3c; color: #d4d4d4;">
+                            <option value="viewer">Viewer</option>
+                            <option value="researcher">Researcher</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <button onclick="addUser()"
+                        style="background: #4ec9b0; color: #1e1e1e; border: none; padding: 9px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                        Add User
+                    </button>
+                </div>
+            </div>
+
+            <!-- User List Section -->
+            <div>
+                <h3 style="margin-bottom: 16px; font-size: 16px; color: #d4d4d4;">Active Users</h3>
+                <div style="overflow-x: auto;">
+                    <table
+                        style="width: 100%; border-collapse: collapse; background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 8px;">
+                        <thead>
+                            <tr style="background: #2d2d30;">
+                                <th
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    Username
+                                </th>
+                                <th
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    Role
+                                </th>
+                                <th
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    Videos
+                                </th>
+                                <th
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    Notes
+                                </th>
+                                <th
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    Closed
+                                </th>
+                                <th
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    Open
+                                </th>
+                                <th
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    Last
+                                    Login</th>
+                                <th
+                                    style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    Actions
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="userTableBody">
+                            <tr>
+                                <td colspan="8" style="padding: 16px; text-align: center; color: #888;">Loading users...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
-        <!-- User List Section -->
-        <div>
-            <h3 style="margin-bottom: 16px; font-size: 18px;">Active Users</h3>
+        <!-- User Annotations Section -->
+        <div style="background: #252526; padding: 20px; border-radius: 8px;">
+            <h2>User Annotations</h2>
+
+            <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
+                <button onclick="loadAnnotations()"
+                    style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                    ↻ Refresh Annotations
+                </button>
+            </div>
+
             <div style="overflow-x: auto;">
                 <table
-                    style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    style="width: 100%; border-collapse: collapse; background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 8px;">
                     <thead>
-                        <tr style="background: #f3f4f6;">
+                        <tr style="background: #2d2d30;">
                             <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 30%;">
-                                Username</th>
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                Item ID
+                            </th>
                             <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 20%;">
-                                Role</th>
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                Unique
+                                Users</th>
                             <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 15%;">
-                                Approved</th>
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                Total
+                                Notes</th>
                             <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 15%;">
-                                Last Login</th>
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                Total
+                                Closed</th>
                             <th
-                                style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #e5e7eb; width: 30%;">
-                                Actions</th>
+                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                Total
+                                Open</th>
+                            <th
+                                style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                Actions
+                            </th>
                         </tr>
                     </thead>
-                    <tbody id="userTableBody">
+                    <tbody id="annotationsTableBody">
                         <tr>
-                            <td colspan="4" style="padding: 16px; text-align: center; color: #6b7280;">Loading users...
-                            </td>
+                            <td colspan="6" style="padding: 16px; text-align: center; color: #888;">Click Refresh to
+                                load annotations.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -96,6 +169,13 @@
             const users = await response.json();
 
             renderUsers(users);
+
+            // Auto-load annotations if empty
+            const annBody = document.getElementById('annotationsTableBody');
+            if (annBody && annBody.rows.length <= 1 && annBody.innerHTML.includes('Click Refresh')) {
+                loadAnnotations();
+            }
+
         } catch (error) {
             console.error('Error:', error);
             alert('Error loading users: ' + error.message);
@@ -136,27 +216,41 @@
 
         // Render Active
         if (active.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="4" style="padding: 16px; text-align: center; color: #6b7280;">No active users found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: #6b7280;">No active users found.</td></tr>';
             return;
         }
 
-        tableBody.innerHTML = active.map(user => `
-        <tr style="border-bottom: 1px solid #e5e7eb;">
+        tableBody.innerHTML = active.map(user => {
+            const stats = user.stats || { notes: 0, closed_tags: 0, open_tags: 0, unique_videos: 0, used_tags: [] };
+            return `
+        <tr style="border-bottom: 1px solid #3e3e42;">
             <td style="padding: 12px 16px;">
-                <span style="font-weight: 500; color: #111827;">${user.username}</span>
+                <div style="display:flex; flex-direction:column;">
+                    <span style="font-weight: 500; color: #d4d4d4;">${user.username}</span>
+                    ${stats.used_tags.length > 0 ? `<a href="#" onclick="toggleTags('${user.username}'); return false;" style="font-size: 11px; color: #3b82f6; text-decoration: none;">Toggle Tags</a>` : ''}
+                </div>
             </td>
             <td style="padding: 12px 16px;">
                 <span style="background: ${getRoleColor(user.role)}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">${user.role}</span>
             </td>
-             <td style="padding: 12px 16px;">
-                <span style="color: #059669;">✔ Yes</span>
+            <td style="padding: 12px 16px; color: #d4d4d4;">
+                <strong>${stats.unique_videos}</strong>
             </td>
-            <td style="padding: 12px 16px;">
-                <span style="color: #6b7280; font-size: 12px;">${user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</span>
+            <td style="padding: 12px 16px; color: #d4d4d4;">
+                ${stats.notes}
+            </td>
+            <td style="padding: 12px 16px; color: #d4d4d4;">
+                ${stats.closed_tags}
+            </td>
+            <td style="padding: 12px 16px; color: #d4d4d4;">
+                ${stats.open_tags}
+            </td>
+            <td style="padding: 12px 16px; color: #d4d4d4;">
+                <span style="color: #888; font-size: 12px;">${user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</span>
             </td>
             <td style="padding: 12px 16px; text-align: right;">
                  <button onclick="resetPassword('${user.username}')" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 12px;">Reset Pwd</button>
-                 <select onchange="updateRole('${user.username}', this.value)" style="padding: 4px; border: 1px solid #d1d5db; border-radius: 4px; margin-right: 8px; font-size: 12px;">
+                 <select onchange="updateRole('${user.username}', this.value)" style="padding: 4px; border: 1px solid #555; background: #3c3c3c; color: #d4d4d4; border-radius: 4px; margin-right: 8px; font-size: 12px;">
                     <option value="" disabled selected>Change Role</option>
                     <option value="viewer">Viewer</option>
                     <option value="researcher">Researcher</option>
@@ -165,7 +259,24 @@
                 <button onclick="deleteUser('${user.username}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button>
             </td>
         </tr>
-    `).join('');
+        <tr id="tags-${user.username}" style="display: none; background: #2d2d30; border-bottom: 2px solid #3e3e42;">
+             <td colspan="8" style="padding: 12px 24px;">
+                 <div style="font-size: 13px; color: #d4d4d4;">
+                    <strong>Used Tags:</strong> 
+                    <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px;">
+                        ${stats.used_tags.map(t => `<span style="background: #3e3e42; padding: 2px 8px; border-radius: 12px; color: #d4d4d4;">${t}</span>`).join('')}
+                    </div>
+                 </div>
+             </td>
+        </tr>
+    `}).join('');
+    }
+
+    function toggleTags(username) {
+        const row = document.getElementById(`tags-${username}`);
+        if (row) {
+            row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+        }
     }
 
     function getRoleColor(role) {
@@ -291,5 +402,142 @@
             alert('Error: ' + error.message);
             loadUsers(); // Reset UI
         }
+    }
+
+    async function loadAnnotations() {
+        const tableBody = document.getElementById('annotationsTableBody');
+        tableBody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: #888;">Loading annotations...</td></tr>';
+
+        try {
+            const response = await fetch('/api/admin/annotations');
+            if (!response.ok) throw new Error('Failed to load annotations');
+            const data = await response.json();
+            renderAnnotations(data);
+        } catch (error) {
+            console.error('Error:', error);
+            tableBody.innerHTML = `<tr><td colspan="6" style="padding: 16px; text-align: center; color: #ef4444;">Error: ${error.message}</td></tr>`;
+        }
+    }
+
+    function renderAnnotations(items) {
+        const tableBody = document.getElementById('annotationsTableBody');
+        if (!tableBody) return;
+
+        if (items.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: #888;">No annotations found.</td></tr>';
+            return;
+        }
+
+        tableBody.innerHTML = items.map(item => {
+            const stats = item.stats;
+            // Safe JSON stringify for the data attribute
+            const detailsJson = JSON.stringify(item.details).replace(/"/g, '&quot;');
+
+            return `
+            <tr style="border-bottom: 1px solid #3e3e42;">
+                <td style="padding: 12px 16px; font-family: monospace; font-size: 13px; color: #d4d4d4;">${item.item_id}</td>
+                <td style="padding: 12px 16px; color: #d4d4d4;"><strong>${stats.unique_users || 0}</strong></td>
+                <td style="padding: 12px 16px; color: #d4d4d4;">${stats.notes}</td>
+                <td style="padding: 12px 16px; color: #d4d4d4;">${stats.closed_tags}</td>
+                <td style="padding: 12px 16px; color: #d4d4d4;">${stats.open_tags}</td>
+                <td style="padding: 12px 16px; text-align: right;">
+                    <button onclick="toggleAnnotationDetails('${item.item_id}', this)" style="background: #3e3e42; border: 1px solid #555; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; color: #d4d4d4;">
+                        Expand
+                    </button>
+                    <!-- Hidden data store for simpler access -->
+                    <div id="data-${item.item_id}" style="display:none;">${detailsJson}</div>
+                </td>
+            </tr>
+            <tr id="details-${item.item_id}" style="display: none; background: #2d2d30; border-bottom: 2px solid #3e3e42;">
+                <td colspan="6" style="padding: 0;">
+                    <div id="content-${item.item_id}" style="padding: 16px; color: #d4d4d4;">Loading details...</div>
+                </td>
+            </tr>
+            `;
+        }).join('');
+    }
+
+    function toggleAnnotationDetails(itemId, btn) {
+        const row = document.getElementById(`details-${itemId}`);
+        const contentDiv = document.getElementById(`content-${itemId}`);
+        const dataDiv = document.getElementById(`data-${itemId}`);
+
+        if (!row || !contentDiv || !dataDiv) return;
+
+        if (row.style.display === 'none') {
+            // Expand
+            row.style.display = 'table-row';
+            if (btn) btn.innerText = "Collapse";
+
+            // Render content if not already done
+            try {
+                const details = JSON.parse(dataDiv.textContent);
+                renderAnnotationDetails(contentDiv, details);
+            } catch (e) {
+                console.error("Error parsing details", e);
+                contentDiv.innerHTML = "Error loading details.";
+            }
+        } else {
+            // Collapse
+            row.style.display = 'none';
+            if (btn) btn.innerText = "Expand";
+        }
+    }
+
+    function renderAnnotationDetails(container, details) {
+        if (Object.keys(details).length === 0) {
+            container.innerHTML = '<p style="color: #888; font-style: italic;">No details available.</p>';
+            return;
+        }
+
+        let html = '<div style="display: flex; flex-direction: column; gap: 16px;">';
+
+        for (const [variable, data] of Object.entries(details)) {
+            html += `
+            <div style="border: 1px solid #3e3e42; background: #1e1e1e; border-radius: 6px; padding: 12px;">
+                <h4 style="margin-top: 0; margin-bottom: 8px; font-size: 14px; color: #9cdcfe; border-bottom: 1px solid #3e3e42; padding-bottom: 6px;">${data.label || variable}</h4>
+                
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+            `;
+
+            // Open Tags
+            if (Object.keys(data.open).length > 0) {
+                html += `<div><span style="font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600;">Tags:</span> <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">`;
+                for (const [tag, users] of Object.entries(data.open)) {
+                    const count = users.length;
+                    // We only want to show users on hover, but maybe duplicates in list if user tagged same thing twice? 
+                    // The backend logic appends username for every occurrence.
+                    // But let's assume unique users for display purposes or just show raw list.
+                    const userList = users.join(', ');
+                    html += `<span title="Used by: ${userList}" style="background: #264f78; color: #d4d4d4; padding: 2px 8px; border-radius: 12px; font-size: 12px; cursor: help;">${tag} <span style="opacity: 0.7; font-size: 10px;">(${count})</span></span>`;
+                }
+                html += `</div></div>`;
+            }
+
+            // Closed Tags
+            if (Object.keys(data.closed).length > 0) {
+                html += `<div><span style="font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600;">Closed Tags:</span> <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">`;
+                for (const [val, users] of Object.entries(data.closed)) {
+                    const count = users.length;
+                    const userList = users.join(', ');
+                    html += `<span title="Selected by: ${userList}" style="background: #3e5b3e; color: #d4d4d4; padding: 2px 8px; border-radius: 12px; font-size: 12px; cursor: help;">${val} <span style="opacity: 0.7; font-size: 10px;">(${count})</span></span>`;
+                }
+                html += `</div></div>`;
+            }
+
+            // Notes
+            if (data.notes.length > 0) {
+                html += `<div><span style="font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600;">Notes:</span> <ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 13px; color: #d4d4d4;">`;
+                for (const note of data.notes) {
+                    html += `<li title="By: ${note.user}" style="cursor: help; margin-bottom: 4px;">${note.text}</li>`;
+                }
+                html += `</ul></div>`;
+            }
+
+            html += `</div></div>`; // Close card and inner container
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
     }
 </script>

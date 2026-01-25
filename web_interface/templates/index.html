@@ -33,10 +33,10 @@
     <button class="tab-button" onclick="openTab(event, 'data_explorer_v2')">Data Explorer</button>
     <button class="tab-button" onclick="openTab(event, 'video_viewer')">Video Viewer</button>
     <button class="tab-button" onclick="openTab(event, 'pca_viz')">PCA Viz</button>
+    <button class="tab-button" onclick="openTab(event, 'timelines')">Timelines</button>
     <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
 
     {% if user.is_admin() %}
-    <button class="tab-button" onclick="openTab(event, 'config_tab')">Config</button>
     <button class="tab-button"
         onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
     {% endif %}
@@ -53,8 +53,8 @@
     {% include 'tabs/data_explorer_v2.html' %}
     {% include 'tabs/video_viewer.html' %}
     {% include 'tabs/pca_viz.html' %}
+    {% include 'tabs/timelines.html' %}
     {% include 'tabs/data_management.html' %}
-    {% include 'tabs/config_tab.html' %}
     {% include 'tabs/settings.html' %}
 
     {% if user.is_admin() %}

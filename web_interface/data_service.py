@@ -96,17 +96,26 @@ def enrich_with_user_tags(df, col_types, username):
     # user_tags: { item_id: { var: [tags...] } }
     # We want a map: item_id -> unique list of tags (flattened across variables)
     
-    # Pre-calculate map
+    # Pre-calculate map for Tags
     id_to_tags = {}
+    
+    # Set of IDs with ANY annotation (tags, notes, closed tags)
+    annotated_ids = set()
+    
     for item_id, var_map in user_tags.items():
+        # If item is in user_tags, it has SOME annotation (due to cleanup logic on save)
+        annotated_ids.add(str(item_id))
+        
+        # Collect explicit tags for the list column
         all_tags = set()
-        for tags in var_map.values():
-            if isinstance(tags, list):
-                all_tags.update(tags)
+        for key, val in var_map.items():
+            if isinstance(val, list): # It's a tag list
+                all_tags.update(val)
+                
         if all_tags:
             id_to_tags[str(item_id)] = list(all_tags)
             
-    if not id_to_tags:
+    if not annotated_ids:
         return df, col_types
         
     # Create the column
@@ -122,24 +131,35 @@ def enrich_with_user_tags(df, col_types, username):
     col_types = col_types.copy()
     
     # Vectorized mapping
-    # df[id_col] might be int. Convert to str for lookup.
+    str_ids = df[id_col].astype(str)
     
-    # Map using the pre-calculated dictionary
-    # Rows not in id_to_tags will get NaN (or None)
-    df['User Tags'] = df[id_col].astype(str).map(id_to_tags)
+    # 1. User Tags (List)
+    if id_to_tags:
+        df['User Tags'] = str_ids.map(id_to_tags)
+        if df['User Tags'].count() > 0:
+             col_types['User Tags'] = 'list'
+        else:
+             df.drop(columns=['User Tags'], inplace=True, errors='ignore')
     
-    # user_tags_series is now object type containing lists or NaNs
+    # 2. Has Annotation (Boolean/Category)
+    # We map to "Yes" / "No" or boolean? 
+    # Boolean is cleaner but 'category' type in explorer often expects strings. 
+    # Let's use boolean, pandas handles it. Explorer backend might convert boolean to "True"/"False" string representations.
+    # Let's check explorer backend? 'values' in metadata for boolean are [True, False].
+    # Frontend checkboxes: True, False. 
+    # To make it user friendly ("Yes"), maybe I should map to "Yes"/NaN?
+    # If I map to boolean True/False, I get checkboxes "True" and "False".
+    # User calls it "Has Annotation". Checkbox "True" is O.K.
+    # Maybe map to "Annotated" / "Not Annotated"?
+    # "Has Annotation": [x] Annotated. 
+    # Let's try Boolean first.
     
-    # Check if we actually have any tags for THIS dataset
-    # count() counts non-NA cells.
-    if df['User Tags'].count() == 0:
-        # No tags found for any item in this study
-        # Drop the column so it doesn't appear in metadata/filters
-        df.drop(columns=['User Tags'], inplace=True, errors='ignore')
-        return df, col_types
+    df['Has Annotation'] = str_ids.isin(annotated_ids)
     
-    # Set Metadata
-    col_types['User Tags'] = 'list'
+    # Only keep if there are any true values? Or always keep if explicit user request?
+    # If no annotations exist at all, we returned early above.
+    # So we have annotations.
+    col_types['Has Annotation'] = 'category' # Treat as category to trigger checkbox UI
     
     return df, col_types
 
@@ -205,6 +225,286 @@ def get_viz_config():
         print(f"Error reading viz config: {e}")
         
     return config
+
+
+
+def get_timeline_data(study, donation_id, interval='day'):
+    """
+    Returns timeline data for plotting.
+    - Numeric: Daily Mean (Raw values, invalid/missing ignored). 
+      Includes metadata if log scale is requested.
+    - Categorical: Daily Counts per category + Daily Total Count (for % calc).
+    """
+    import fyp.data_io as data_io
+    from fyp import fyp_main
+
+    cf = fyp_main.initialize()
+    if 'var_schema' not in cf:
+        print("ERROR: var_schema missing")
+        return {}
+
+    schema = cf.get('var_schema', {})
+    
+    # Use load_schema_metadata helper to get priority list reliably
+    meta = {}
+    load_schema_metadata(meta)
+    viz_vars = meta.get('timeline_priority', [])
+    
+    print(f"DEBUG TIMELINE: load_schema_metadata found {len(viz_vars)} viz_vars (timeline_prio): {viz_vars}")
+    
+    # Also load schema map for log config
+    schema_map = meta.get('schema_map', {})
+
+    # Load Data (using our cache logic)
+    filename = f"{study}_recoded.parquet"
+    if not data_io.exists(cf, "cache", filename):
+        print("Recoded data not found for timeline")
+        return {}
+
+    df = data_io.load_parquet(cf, "cache", filename)
+    
+    # Filter for Donation
+    # Use D_donation_id
+    if 'D_donation_id' not in df.columns:
+        print("DEBUG TIMELINE: D_donation_id column missing in df keys:", df.columns.tolist())
+        print("D_donation_id column missing")
+        return {}
+        
+    subset = df[df['D_donation_id'] == donation_id].copy()
+    
+    # Filter for Watch events only
+    if 'D_feature_name' in subset.columns:
+        subset = subset[subset['D_feature_name'] == 'watch']
+        
+    print(f"DEBUG TIMELINE: Filtering {study} for donation {donation_id} (interval={interval}). Rows found: {len(subset)}")
+    
+    if subset.empty:
+        return {"dates": [], "variables": {}, "counts": {"day": 0, "week": 0, "month": 0}}
+
+    # Date Handling
+    date_col = 'T_local_date'
+    if date_col not in subset.columns:
+        print("T_local_date missing")
+        return {}
+    
+    # Ensure correct datetime conversion
+    # Force to standard numpy datetime to avoid ArrowTemporalProperties issues (no to_period)
+    subset[date_col] = pd.to_datetime(subset[date_col]).astype('datetime64[ns]')
+
+    # Calculate Counts for Metadata (available periods)
+    # Using 'period' logic ensures consistency
+    n_days = subset[date_col].dt.date.nunique()
+    n_weeks = subset[date_col].dt.to_period('W').nunique()
+    n_months = subset[date_col].dt.to_period('M').nunique()
+    
+    period_counts = {
+        "day": n_days,
+        "week": n_weeks,
+        "month": n_months
+    }
+
+    # Generate Grouping Column based on interval
+    if interval == 'week':
+        # Start of week
+        subset['period'] = subset[date_col].dt.to_period('W').apply(lambda r: r.start_time).dt.date.astype(str)
+    elif interval == 'month':
+        # Start of month
+        subset['period'] = subset[date_col].dt.to_period('M').apply(lambda r: r.start_time).dt.date.astype(str)
+    else: # day
+        subset['period'] = subset[date_col].dt.date.astype(str)
+        
+    group_col = 'period'
+
+    # Get Date Range
+
+    # Get Date Range
+    dates = sorted(subset[group_col].unique())
+    print(f"DEBUG TIMELINE: Found {len(dates)} {interval}s.")
+    
+    # Generate Formatted Labels
+    date_labels = []
+    for d_str in dates:
+        try:
+            dt = pd.to_datetime(d_str)
+            if interval == 'day':
+                # dd/mm/yy
+                lbl = dt.strftime('%d/%m/%y')
+            elif interval == 'week':
+                # yyyy-ww
+                # Use %V for ISO week number
+                lbl = dt.strftime('%Y-%V')
+            elif interval == 'month':
+                # mmm-yy
+                lbl = dt.strftime('%b-%y')
+            else:
+                lbl = d_str
+            date_labels.append(lbl)
+        except:
+            date_labels.append(d_str)
+
+    variables = {}
+    
+    # Deduplicate columns in subset to avoid weirdness
+    subset = subset.loc[:, ~subset.columns.duplicated()]
+
+    # Global Column Types Helper
+    def get_col_type(c):
+        dt = subset[c].dtype
+        if pd.api.types.is_numeric_dtype(dt) and not pd.api.types.is_bool_dtype(dt):
+            return 'number'
+        if isinstance(dt, pd.ArrowDtype) and 'list' in str(dt):
+            return 'list'
+        
+        # Check explicit list check like explorer
+        first_val = subset[c].dropna().iloc[0] if not subset[c].dropna().empty else None
+        if isinstance(first_val, list):
+            return 'list'
+            
+        return 'category'
+
+    col_types = {v: get_col_type(v) for v in viz_vars if v in subset.columns}
+
+    for var in viz_vars:
+        if var not in subset.columns:
+            continue
+            
+        try:
+            # print(f"DEBUG TIMELINE: Processing Var {var}")
+            is_numeric = (col_types.get(var) == 'number')
+            
+            if is_numeric:
+                s_nums = pd.to_numeric(subset[var], errors='coerce')
+                
+                # Strict DataFrame construction for groupby
+                temp_df = pd.DataFrame({
+                    'date': subset[group_col].values,
+                    'val': s_nums.values
+                })
+                
+                # Mean per period
+                daily_means = temp_df.groupby('date')['val'].mean()
+                daily_means = daily_means.reindex(dates) # Keep NaNs for gaps
+                
+                # Check for Log Scale preference
+                use_log = False
+                if schema_map.get(var, {}).get('web_viz_log') == 'yes':
+                    use_log = True
+                elif isinstance(schema, dict) and schema.get(var, {}).get('web_viz_log') == 'yes':
+                    use_log = True
+
+                variables[var] = {
+                    "type": "numeric",
+                    "values": daily_means.where(pd.notnull(daily_means), None).tolist(),
+                    "log": use_log
+                }
+            
+            else:
+                # Categorical: Counts + Period Totals (for shares)
+                is_list = (col_types.get(var) == 'list')
+                
+                # Period Total Calculation (Number of items per period)
+                daily_video_counts = subset[group_col].value_counts().reindex(dates, fill_value=0).sort_index()
+
+                if is_list:
+                    # Explode! safely
+                    temp_pre_explode = pd.DataFrame({
+                        'date': subset[group_col],
+                        'var': subset[var]
+                    })
+                    exploded_df = temp_pre_explode.explode('var')
+                    
+                    s_for_counts = exploded_df['var']
+                    date_for_counts = exploded_df['date']
+                    
+                    # Total items (tags) per period
+                    daily_total_items = date_for_counts.value_counts().reindex(dates, fill_value=0).sort_index()
+                    
+                else:
+                    s_for_counts = subset[var]
+                    date_for_counts = subset[group_col]
+                    temp_df = pd.DataFrame({'date': date_for_counts, 'var': s_for_counts})
+                    daily_total_items = daily_video_counts # Same for single cat
+                
+                # Calculate VALID Counts (non-NA rows) for Denominator
+                if is_list:
+                     valid_mask = subset[var].apply(lambda x: isinstance(x, list) and len(x) > 0) 
+                     valid_mask = subset[var].notna() # Using same simplified logic as before
+                else:
+                     valid_mask = subset[var].notna()
+                
+                daily_valid_counts = subset.loc[valid_mask, group_col].value_counts().reindex(dates, fill_value=0).sort_index()
+                
+                # Top categories logic
+                top_counts = s_for_counts.value_counts(dropna=True).head(50).index.tolist()
+                
+                # Filter to top 50
+                if is_list:
+                    sub_cat = exploded_df[exploded_df['var'].isin(top_counts)]
+                else:
+                    sub_cat = temp_df[temp_df['var'].isin(top_counts)]
+                
+                if sub_cat.empty:
+                     daily_counts_dict = []
+                else:
+                    daily_counts = pd.crosstab(sub_cat['date'], sub_cat['var'])
+                    daily_counts = daily_counts.reindex(dates, fill_value=0)
+                    daily_counts_dict = daily_counts.to_dict(orient='records')
+
+                variables[var] = {
+                    "type": "categorical",
+                    "counts": daily_counts_dict,
+                    "daily_video_counts": daily_video_counts.to_list(),
+                    "daily_valid_counts": daily_valid_counts.to_list(),
+                    "daily_item_counts": daily_total_items.to_list(),
+                    "top_categories": top_counts[:3]
+                }
+        except Exception as e:
+            print(f"DEBUG TIMELINE: Error processing var {var}: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+
+    return {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts}
+
+def get_study_donations(study):
+    """
+    Returns a list of unique donations present in the study dataset.
+    Returns: [{ 'D_donation_id': '...', 'D_id': '...' }, ...]
+    """
+    try:
+        df, col_types = get_explorer_data(study, context="explorer")
+        if df is None:
+            return []
+        
+        if 'D_donation_id' not in df.columns:
+            # Fallback if D_donation_id is missing? 
+            # It should be there for any valid study.
+            return []
+
+        # Unique donations
+        # We need D_donation_id and D_id (if available)
+        cols_to_use = ['D_donation_id']
+        if 'D_id' in df.columns:
+            cols_to_use.append('D_id')
+            
+        donations = df[cols_to_use].drop_duplicates()
+        
+        # Format for frontend
+        result = []
+        for _, row in donations.iterrows():
+            item = {'D_donation_id': row['D_donation_id']}
+            if 'D_id' in row:
+                item['D_id'] = row['D_id']
+            else:
+                item['D_id'] = row['D_donation_id'] # Fallback
+            result.append(item)
+            
+        return sorted(result, key=lambda x: str(x.get('D_id', '')))
+        
+    except Exception as e:
+        print(f"Error getting study donations: {e}")
+        return []
+
 
 
 # Alias from explorer to handle serialization issues
@@ -289,6 +589,13 @@ def load_schema_metadata(metadata):
             else:
                  metadata['viz_priority'] = []
             
+            if 'web_timeline_prio' in schema_df.columns:
+                schema_df['web_timeline_prio'] = pd.to_numeric(schema_df['web_timeline_prio'], errors='coerce')
+                timeline_df = schema_df.dropna(subset=['web_timeline_prio']).sort_values('web_timeline_prio')
+                metadata['timeline_priority'] = timeline_df['variable_name'].tolist()
+            else:
+                 metadata['timeline_priority'] = []
+
             if 'web_filter_prio' in schema_df.columns:  
                 schema_df['web_filter_prio'] = pd.to_numeric(schema_df['web_filter_prio'], errors='coerce')
                 filter_df = schema_df.dropna(subset=['web_filter_prio']).sort_values('web_filter_prio')

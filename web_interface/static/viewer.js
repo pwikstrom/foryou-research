@@ -184,28 +184,91 @@ async function loadViewerMetadata() {
     }
 }
 
+// Initialize collapsed state from localStorage
+if (!viewerData.collapsedFilters) {
+    try {
+        viewerData.collapsedFilters = JSON.parse(localStorage.getItem('viewer_collapsed_filters') || '[]');
+    } catch (e) {
+        viewerData.collapsedFilters = [];
+    }
+}
+
 function renderViewerFilters(metadata) {
     const container = document.getElementById('viewer-filters');
     container.innerHTML = '';
 
     // Use filter_priority if available
     const priority = metadata.filter_priority;
-    let sortedCols = [];
+    let availableCols = [];
 
     if (priority && priority.length > 0) {
-        sortedCols = priority.filter(c => metadata[c]);
+        availableCols = priority.filter(c => metadata[c]);
     } else {
-        // Fallback to all (except special)
-        sortedCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
+        availableCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
     }
 
-    // Populate Sort Dropdown
+    const schemaMap = metadata.schema_map || {};
+
+    // Group by Section
+    const sections = {};
+    const generalSection = "General";
+
+    availableCols.forEach(col => {
+        let section = generalSection;
+        if (schemaMap[col] && schemaMap[col].section) {
+            section = schemaMap[col].section;
+            if (!section || section.trim() === "") section = generalSection;
+        }
+        if (!sections[section]) sections[section] = [];
+        sections[section].push(col);
+    });
+
+    // Sort Sections (Reusing logic from renderMetadata)
+    // Use display_priority for section ordering to match Metadata Panel
+    const sortPriority = metadata.display_priority && metadata.display_priority.length > 0 ? metadata.display_priority : priority;
+
+    let sectionNames = Object.keys(sections).sort((a, b) => {
+        const getSectionPrio = (secName) => {
+            const vars = sections[secName] || [];
+            let minPrio = 999999;
+            vars.forEach(v => {
+                const idx = sortPriority ? sortPriority.indexOf(v) : -1;
+                // If not in priority list, treat as high number
+                const p = idx === -1 ? 999999 : idx;
+                if (p < minPrio) minPrio = p;
+            });
+            return minPrio;
+        };
+
+        const prioA = getSectionPrio(a);
+        const prioB = getSectionPrio(b);
+
+        if (prioA !== prioB) return prioA - prioB;
+        return a.localeCompare(b);
+    });
+
+    // Populate Sort Dropdown (only once or update?)
     const sortSelect = document.getElementById('viewer-sort-select');
     if (sortSelect) {
         const currentVal = sortSelect.value || viewerData.sortBy;
         sortSelect.innerHTML = '<option value="">Default (Unsorted)</option>';
+        // Flatten sortedCols for dropdown? Or just all available?
+        // Let's use the sorted section order -> sorted vars
+        let dropdownCols = [];
+        sectionNames.forEach(sec => {
+            // Sort variables within section
+            sections[sec].sort((a, b) => {
+                const idxA = priority ? priority.indexOf(a) : -1;
+                const idxB = priority ? priority.indexOf(b) : -1;
+                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                if (idxA !== -1) return -1;
+                if (idxB !== -1) return 1;
+                return a.localeCompare(b);
+            });
+            dropdownCols.push(...sections[sec]);
+        });
 
-        sortedCols.forEach(col => {
+        dropdownCols.forEach(col => {
             const opt = document.createElement('option');
             opt.value = col;
             opt.text = col;
@@ -217,118 +280,226 @@ function renderViewerFilters(metadata) {
             viewerData.sortBy = e.target.value;
         };
     }
-
-    // Init Sort Button
     updateSortBtnUI();
 
-    sortedCols.forEach(col => {
-        const info = metadata[col];
-        const wrapper = document.createElement('div');
-        wrapper.className = 'filter-group';
-        wrapper.style.marginBottom = '15px';
-        wrapper.style.borderBottom = '1px solid #333';
-        wrapper.style.paddingBottom = '10px';
+    // Render Sections
+    sectionNames.forEach(sec => {
+        const vars = sections[sec];
+        if (vars.length === 0) return;
 
-        const label = document.createElement('label');
+        // Section Container
+        const sectionDiv = document.createElement('div');
+        sectionDiv.className = 'filter-section';
+        sectionDiv.style.marginBottom = '10px';
+        sectionDiv.style.border = '1px solid #3e3e42';
+        sectionDiv.style.borderRadius = '4px';
+        sectionDiv.style.overflow = 'hidden';
 
-        let displayName = col;
-        if (metadata.schema_map && metadata.schema_map[col] && metadata.schema_map[col].display_name) {
-            displayName = metadata.schema_map[col].display_name;
-        }
+        // Header
+        const header = document.createElement('div');
+        header.style.background = '#3e3e42';
+        header.style.padding = '8px 10px';
+        header.style.cursor = 'pointer';
+        header.style.fontWeight = 'bold';
+        header.style.color = '#eee';
+        header.style.userSelect = 'none';
+        header.style.display = 'flex';
+        header.style.alignItems = 'center';
 
-        label.innerText = displayName;
-        label.style.fontWeight = 'bold';
-        label.style.display = 'block';
-        label.style.marginBottom = '5px';
-        label.style.color = '#d4d4d4';
-        wrapper.appendChild(label);
+        const isCollapsed = viewerData.collapsedFilters.includes(sec);
+        const arrow = isCollapsed ? '&#9656;' : '&#9662;'; // Right vs Down
 
-        // -- NA Filter Removed per user request --
+        header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">${arrow}</span> ${sec}`;
 
-        if (info.type === 'number') {
-            const inputRow = document.createElement('div');
-            inputRow.style.display = 'flex';
-            inputRow.style.gap = '5px';
+        // Body (Variables)
+        const body = document.createElement('div');
+        body.style.padding = '10px';
+        body.style.background = '#252526';
+        body.style.display = isCollapsed ? 'none' : 'block';
 
-            const minInput = document.createElement('input');
-            minInput.type = 'number';
-            minInput.placeholder = `Min (${info.min})`;
-            minInput.style.width = '50%';
+        // Toggle Logic
+        header.onclick = () => {
+            const currentlyHidden = body.style.display === 'none';
+            if (currentlyHidden) {
+                // Show
+                body.style.display = 'block';
+                header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9662;</span> ${sec}`;
+                // Remove from collapsed list
+                viewerData.collapsedFilters = viewerData.collapsedFilters.filter(s => s !== sec);
+            } else {
+                // Hide
+                body.style.display = 'none';
+                header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9656;</span> ${sec}`;
+                // Add to collapsed list
+                if (!viewerData.collapsedFilters.includes(sec)) {
+                    viewerData.collapsedFilters.push(sec);
+                }
+            }
+            // Persist
+            localStorage.setItem('viewer_collapsed_filters', JSON.stringify(viewerData.collapsedFilters));
+        };
 
-            // Restore val
-            if (viewerData.filters[col] && viewerData.filters[col].value && viewerData.filters[col].value.min !== undefined) {
-                minInput.value = viewerData.filters[col].value.min;
+        sectionDiv.appendChild(header);
+
+        // Render variables inside
+        vars.forEach(col => {
+            const info = metadata[col];
+            const wrapper = document.createElement('div');
+            wrapper.className = 'filter-group';
+            wrapper.style.marginBottom = '15px';
+            wrapper.style.borderBottom = '1px solid #333';
+            wrapper.style.paddingBottom = '10px';
+
+            const label = document.createElement('label');
+
+            let displayName = col;
+            if (schemaMap && schemaMap[col] && schemaMap[col].display_name) {
+                displayName = schemaMap[col].display_name;
             }
 
-            minInput.onchange = (e) => setViewerFilter(col, 'number', 'min', e.target.value);
+            label.innerText = displayName;
+            label.style.fontWeight = 'bold';
+            label.style.display = 'block';
+            label.style.marginBottom = '5px';
+            label.style.color = '#d4d4d4';
+            wrapper.appendChild(label);
 
-            const maxInput = document.createElement('input');
-            maxInput.type = 'number';
-            maxInput.placeholder = `Max (${info.max})`;
-            maxInput.style.width = '50%';
+            if (info.type === 'number') {
+                const sliderDiv = document.createElement('div');
+                sliderDiv.style.marginBottom = '10px';
+                sliderDiv.style.marginLeft = '5px';
+                sliderDiv.style.marginRight = '5px';
+                wrapper.appendChild(sliderDiv);
 
-            if (viewerData.filters[col] && viewerData.filters[col].value && viewerData.filters[col].value.max !== undefined) {
-                maxInput.value = viewerData.filters[col].value.max;
-            }
+                // Min/Max Labels
+                const labelRow = document.createElement('div');
+                labelRow.style.display = 'flex';
+                labelRow.style.justifyContent = 'space-between';
+                labelRow.style.fontSize = '0.85em';
+                labelRow.style.color = '#888';
+                labelRow.style.marginTop = '-5px'; // Tweak spacing
 
-            maxInput.onchange = (e) => setViewerFilter(col, 'number', 'max', e.target.value);
+                const minLabel = document.createElement('span');
+                const maxLabel = document.createElement('span');
 
-            inputRow.appendChild(minInput);
-            inputRow.appendChild(maxInput);
-            wrapper.appendChild(inputRow);
+                labelRow.appendChild(minLabel);
+                labelRow.appendChild(maxLabel);
+                wrapper.appendChild(labelRow);
 
-        } else if (info.type === 'category' || info.type === 'list') {
-            const listContainer = document.createElement('div');
-            listContainer.style.maxHeight = '150px';
-            listContainer.style.overflowY = 'auto';
-            listContainer.style.background = '#252526';
-            listContainer.style.border = '1px solid #3e3e42';
-            listContainer.style.padding = '5px';
+                // Current Values
+                let currentMin = info.min;
+                let currentMax = info.max;
 
-            info.values.forEach(val => {
-                const item = document.createElement('div');
-                item.style.display = 'flex';
-                item.style.alignItems = 'center';
-
-                let actualValue = val;
-                let displayValue = val;
-
-                // Handle new object format {value: "v", count: 123}
-                if (typeof val === 'object' && val !== null && val.value !== undefined) {
-                    actualValue = val.value;
-                    displayValue = `${val.value} (${val.count.toLocaleString()})`;
+                if (viewerData.filters[col] && viewerData.filters[col].value) {
+                    if (viewerData.filters[col].value.min !== undefined) currentMin = viewerData.filters[col].value.min;
+                    if (viewerData.filters[col].value.max !== undefined) currentMax = viewerData.filters[col].value.max;
                 }
 
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.value = actualValue;
-                cb.dataset.rawValue = actualValue;
-                cb.style.marginRight = '5px';
+                // Helper format 
+                const fmt = (n) => Math.round(n).toLocaleString();
 
-                // Restore checked state if filter exists
-                if (viewerData.filters[col] && Array.isArray(viewerData.filters[col].value)) {
-                    if (viewerData.filters[col].value.includes(actualValue)) {
-                        cb.checked = true;
+                minLabel.innerText = fmt(currentMin);
+                maxLabel.innerText = fmt(currentMax);
+
+                // Initialize Slider
+                if (typeof noUiSlider !== 'undefined') {
+                    if (info.min >= info.max) {
+                        sliderDiv.style.display = 'none';
+                    } else {
+                        noUiSlider.create(sliderDiv, {
+                            start: [currentMin, currentMax],
+                            connect: true,
+                            range: {
+                                'min': info.min,
+                                'max': info.max
+                            },
+                            step: (info.max - info.min) > 100 ? 1 : ((info.max - info.min) / 100) // Adaptive step
+                        });
+
+                        // Debounce slider updates
+                        let debounceTimer;
+                        sliderDiv.noUiSlider.on('update', function (values, handle) {
+                            const value = parseFloat(values[handle]);
+                            if (handle === 0) {
+                                minLabel.innerText = fmt(value);
+                            } else {
+                                maxLabel.innerText = fmt(value);
+                            }
+                        });
+
+                        sliderDiv.noUiSlider.on('change', function (values, handle) {
+                            const vMin = parseFloat(values[0]);
+                            const vMax = parseFloat(values[1]);
+
+                            // Update Data
+                            if (!viewerData.filters[col]) viewerData.filters[col] = { type: 'number', value: {} };
+                            viewerData.filters[col].value.min = vMin;
+                            viewerData.filters[col].value.max = vMax;
+
+                            updateViewerStats();
+                        });
                     }
+                } else {
+                    // Fallback for no slider lib (unlikely but safe)
+                    minLabel.innerText = "Error: Slider lib missing";
                 }
 
-                cb.onchange = () => {
-                    const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
-                    console.log(`Viewer filtering ${col} with:`, checked);
-                    setViewerFilter(col, info.type, 'list', checked);
-                };
+            } else if (info.type === 'category' || info.type === 'list') {
+                const listContainer = document.createElement('div');
+                listContainer.style.maxHeight = '150px';
+                listContainer.style.overflowY = 'auto';
+                listContainer.style.background = '#252526';
+                listContainer.style.border = '1px solid #3e3e42';
+                listContainer.style.padding = '5px';
 
-                const span = document.createElement('span');
-                span.innerText = displayValue;
-                span.style.fontSize = '0.9em';
+                info.values.forEach(val => {
+                    const item = document.createElement('div');
+                    item.style.display = 'flex';
+                    item.style.alignItems = 'center';
 
-                item.appendChild(cb);
-                item.appendChild(span);
-                listContainer.appendChild(item);
-            });
-            wrapper.appendChild(listContainer);
-        }
-        container.appendChild(wrapper);
+                    let actualValue = val;
+                    let displayValue = val;
+
+                    // Handle new object format {value: "v", count: 123}
+                    if (typeof val === 'object' && val !== null && val.value !== undefined) {
+                        actualValue = val.value;
+                        displayValue = `${val.value} (${val.count.toLocaleString()})`;
+                    }
+
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.value = actualValue;
+                    cb.dataset.rawValue = actualValue;
+                    cb.style.marginRight = '5px';
+
+                    // Restore checked state if filter exists
+                    if (viewerData.filters[col] && Array.isArray(viewerData.filters[col].value)) {
+                        if (viewerData.filters[col].value.includes(actualValue)) {
+                            cb.checked = true;
+                        }
+                    }
+
+                    cb.onchange = () => {
+                        const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
+                        console.log(`Viewer filtering ${col} with:`, checked);
+                        setViewerFilter(col, info.type, 'list', checked);
+                    };
+
+                    const span = document.createElement('span');
+                    span.innerText = displayValue;
+                    span.style.fontSize = '0.9em';
+
+                    item.appendChild(cb);
+                    item.appendChild(span);
+                    listContainer.appendChild(item);
+                });
+                wrapper.appendChild(listContainer);
+            }
+            body.appendChild(wrapper);
+        });
+
+        sectionDiv.appendChild(body);
+        container.appendChild(sectionDiv);
     });
 }
 

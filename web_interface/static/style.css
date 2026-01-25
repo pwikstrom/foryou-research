@@ -303,3 +303,51 @@ textarea {
     color: #888;
     white-space: nowrap;
 }
+
+/* noUiSlider Dark Mode Overrides - Sleek & Elegant */
+/* High Specificity to override library defaults */
+.noUi-target {
+    background: #333333;
+    border: none;
+    box-shadow: none;
+    height: 4px;
+    /* Thinner track */
+    margin: 15px 0 10px 0;
+}
+
+.noUi-connect {
+    background: #4ec9b0;
+}
+
+/* Specificity Match: .noUi-horizontal .noUi-handle */
+.noUi-horizontal .noUi-handle {
+    height: 8px;
+    /* Slightly larger than track for usability */
+    width: 8px;
+    top: -2px;
+    /* (8px handle - 4px track) / 2 = 2px overhang. top: -2px centers it. */
+    right: -4px;
+    /* Half width */
+    border-radius: 50%;
+    background: #fff;
+    border: none;
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+    cursor: grab;
+    outline: none;
+}
+
+/* Hide default library markers */
+.noUi-handle:before,
+.noUi-handle:after {
+    display: none !important;
+}
+
+.noUi-tooltip {
+    display: none;
+}
+
+.noUi-active {
+    cursor: grabbing;
+    background: #fff;
+    transform: scale(1.2);
+}

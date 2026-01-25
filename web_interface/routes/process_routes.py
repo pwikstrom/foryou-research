@@ -4,7 +4,7 @@ import web_interface.auth as auth
 from ..hub_config import (
     DOWNLOADER_SCRIPT, INGEST_SCRIPT, ANNOTATOR_SCRIPT, MONITOR_SCRIPT, 
     CREATE_SUBSETS_SCRIPT, REGENERATE_DATASETS_SCRIPT, CREATE_EVENT_LOG_SCRIPT, 
-    RECODE_EVENT_LOG_SCRIPT, CALCULATE_PCA_SCRIPT, CONFIG_FILE_STUDIES, CONFIG_FILE_CORE,
+    RECODE_EVENT_LOG_SCRIPT, CALCULATE_PCA_SCRIPT,
     QUEUE_SCRAPER_SCRIPT
 )
 from ..process_manager import (
@@ -110,27 +110,4 @@ def api_logs(name):
     return jsonify({"logs": "".join(logs)})
 
 
-@process_bp.route('/api/config', methods=['GET', 'POST'])
-@auth.admin_required
-def api_config():
-    filename = request.args.get('file', 'studies.toml')
-    target_file = CONFIG_FILE_STUDIES if filename == 'studies.toml' else CONFIG_FILE_CORE
-    
-    if request.method == 'GET':
-        if target_file.exists():
-            with open(target_file, 'r') as f:
-                content = f.read()
-            return jsonify({"content": content})
-        return jsonify({"content": ""})
-    
-    elif request.method == 'POST':
-        content = request.json.get('content')
-        if content is None:
-            return jsonify({"error": "No content provided"}), 400
-        
-        try:
-            with open(target_file, 'w') as f:
-                f.write(content)
-            return jsonify({"status": "success"})
-        except Exception as e:
-            return jsonify({"status": "error", "message": str(e)}), 500
+

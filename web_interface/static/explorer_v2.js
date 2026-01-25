@@ -140,140 +140,288 @@ async function loadExplorerV2Metadata() {
     }
 }
 
+// Initialize collapsed state
+if (!explorerDataV2.collapsedFilters1) {
+    try {
+        explorerDataV2.collapsedFilters1 = JSON.parse(localStorage.getItem('explorer_collapsed_filters_1') || '[]');
+    } catch (e) { explorerDataV2.collapsedFilters1 = []; }
+}
+if (!explorerDataV2.collapsedFilters2) {
+    try {
+        explorerDataV2.collapsedFilters2 = JSON.parse(localStorage.getItem('explorer_collapsed_filters_2') || '[]');
+    } catch (e) { explorerDataV2.collapsedFilters2 = []; }
+}
+
 function renderFiltersV2(metadata, sliceId) {
     const container = document.getElementById(`explorer-v2-filters-${sliceId}`);
     container.innerHTML = '';
 
     const priority = metadata.filter_priority;
-    let colsToRender = [];
+    let availableCols = [];
 
     if (priority && priority.length > 0) {
-        colsToRender = priority.filter(c => metadata[c]);
+        availableCols = priority.filter(c => metadata[c]);
     } else {
-        colsToRender = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
+        availableCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
     }
 
-    colsToRender.forEach(col => {
-        const info = metadata[col];
-        const wrapper = document.createElement('div');
-        wrapper.className = 'filter-group';
-        wrapper.style.marginBottom = '15px';
-        wrapper.style.borderBottom = '1px solid #333';
-        wrapper.style.paddingBottom = '10px';
+    const schemaMap = metadata.schema_map || {};
 
-        const label = document.createElement('label');
+    // Group by Section
+    const sections = {};
+    const generalSection = "General";
 
-        let displayName = col;
-        if (metadata.schema_map && metadata.schema_map[col] && metadata.schema_map[col].display_name) {
-            displayName = metadata.schema_map[col].display_name;
+    availableCols.forEach(col => {
+        let section = generalSection;
+        if (schemaMap[col] && schemaMap[col].section) {
+            section = schemaMap[col].section;
+            if (!section || section.trim() === "") section = generalSection;
         }
+        if (!sections[section]) sections[section] = [];
+        sections[section].push(col);
+    });
 
-        label.innerText = displayName;
-        label.style.fontWeight = 'bold';
-        label.style.display = 'block';
-        label.style.marginBottom = '5px';
-        label.style.color = '#d4d4d4';
-        wrapper.appendChild(label);
+    // Sort Sections
+    const sortPriority = metadata.display_priority && metadata.display_priority.length > 0 ? metadata.display_priority : priority;
 
-
-
-        if (info.type === 'number') {
-            // Min/Max Inputs
-            const inputRow = document.createElement('div');
-            inputRow.style.display = 'flex';
-            inputRow.style.gap = '5px';
-
-            const minInput = document.createElement('input');
-            minInput.type = 'number';
-            minInput.placeholder = `Min (${info.min})`;
-            minInput.style.width = '50%';
-            minInput.style.background = '#3c3c3c';
-            minInput.style.border = '1px solid #555';
-            minInput.style.color = '#fff';
-
-            // Restore val
-            const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
-            if (filters[col] && filters[col].value && filters[col].value.min !== undefined) {
-                minInput.value = filters[col].value.min;
-            }
-
-            minInput.onchange = (e) => setFilterV2(sliceId, col, 'number', 'min', e.target.value);
-
-            const maxInput = document.createElement('input');
-            maxInput.type = 'number';
-            maxInput.placeholder = `Max (${info.max})`;
-            maxInput.style.width = '50%';
-            maxInput.style.background = '#3c3c3c';
-            maxInput.style.border = '1px solid #555';
-            maxInput.style.color = '#fff';
-
-            if (filters[col] && filters[col].value && filters[col].value.max !== undefined) {
-                maxInput.value = filters[col].value.max;
-            }
-
-            maxInput.onchange = (e) => setFilterV2(sliceId, col, 'number', 'max', e.target.value);
-
-            inputRow.appendChild(minInput);
-            inputRow.appendChild(maxInput);
-            wrapper.appendChild(inputRow);
-
-        } else if (info.type === 'category' || info.type === 'list') {
-            const listContainer = document.createElement('div');
-            listContainer.style.maxHeight = '150px';
-            listContainer.style.overflowY = 'auto';
-            listContainer.style.background = '#252526';
-            listContainer.style.border = '1px solid #3e3e42';
-            listContainer.style.padding = '5px';
-
-            info.values.forEach(val => {
-                const item = document.createElement('div');
-                item.style.display = 'flex';
-                item.style.alignItems = 'center';
-
-                let actualValue = val;
-                let displayValue = val;
-
-                if (typeof val === 'object' && val !== null && val.value !== undefined) {
-                    actualValue = val.value;
-                    displayValue = `${val.value} (${val.count.toLocaleString()})`;
-                }
-
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.value = actualValue;
-                cb.dataset.rawValue = actualValue;
-                cb.style.marginRight = '5px';
-
-                // Restore checked state
-                const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
-                if (filters[col] && Array.isArray(filters[col].value)) {
-                    if (filters[col].value.includes(actualValue)) {
-                        cb.checked = true;
-                    }
-                }
-
-                cb.onchange = () => {
-                    const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
-                    setFilterV2(sliceId, col, info.type, 'list', checked);
-                };
-
-                const span = document.createElement('span');
-                span.innerText = displayValue;
-                span.style.fontSize = '0.9em';
-
-                item.appendChild(cb);
-                item.appendChild(span);
-                listContainer.appendChild(item);
+    let sectionNames = Object.keys(sections).sort((a, b) => {
+        const getSectionPrio = (secName) => {
+            const vars = sections[secName] || [];
+            let minPrio = 999999;
+            vars.forEach(v => {
+                const idx = sortPriority ? sortPriority.indexOf(v) : -1;
+                const p = idx === -1 ? 999999 : idx;
+                if (p < minPrio) minPrio = p;
             });
+            return minPrio;
+        };
+        const prioA = getSectionPrio(a);
+        const prioB = getSectionPrio(b);
+        if (prioA !== prioB) return prioA - prioB;
+        return a.localeCompare(b);
+    });
 
-            if (info.values.length === 0) {
-                listContainer.innerHTML = '<div style="color:#777; font-size:0.8em;">No values</div>';
+    // Render Sections
+    const collapsedList = sliceId === 1 ? explorerDataV2.collapsedFilters1 : explorerDataV2.collapsedFilters2;
+    const storageKey = `explorer_collapsed_filters_${sliceId}`;
+
+    sectionNames.forEach(sec => {
+        const vars = sections[sec];
+        if (vars.length === 0) return;
+
+        // Section Container
+        const sectionDiv = document.createElement('div');
+        sectionDiv.className = 'filter-section';
+        sectionDiv.style.marginBottom = '10px';
+        sectionDiv.style.border = '1px solid #3e3e42';
+        sectionDiv.style.borderRadius = '4px';
+        sectionDiv.style.overflow = 'hidden';
+
+        // Header
+        const header = document.createElement('div');
+        header.style.background = '#3e3e42';
+        header.style.padding = '8px 10px';
+        header.style.cursor = 'pointer';
+        header.style.fontWeight = 'bold';
+        header.style.color = '#eee';
+        header.style.userSelect = 'none';
+        header.style.display = 'flex';
+        header.style.alignItems = 'center';
+
+        const isCollapsed = collapsedList.includes(sec);
+        const arrow = isCollapsed ? '&#9656;' : '&#9662;'; // Right vs Down
+
+        header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">${arrow}</span> ${sec}`;
+
+        // Body (Variables)
+        const body = document.createElement('div');
+        body.style.padding = '10px';
+        body.style.background = '#252526';
+        body.style.display = isCollapsed ? 'none' : 'block';
+
+        // Toggle Logic
+        header.onclick = () => {
+            const currentlyHidden = body.style.display === 'none';
+            if (currentlyHidden) {
+                body.style.display = 'block';
+                header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9662;</span> ${sec}`;
+                // Remove from collapsed list
+                const idx = collapsedList.indexOf(sec);
+                if (idx > -1) collapsedList.splice(idx, 1);
+            } else {
+                body.style.display = 'none';
+                header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9656;</span> ${sec}`;
+                // Add to collapsed list
+                if (!collapsedList.includes(sec)) collapsedList.push(sec);
+            }
+            // Persist
+            localStorage.setItem(storageKey, JSON.stringify(collapsedList));
+        };
+
+        sectionDiv.appendChild(header);
+
+        // Render vars
+        vars.forEach(col => {
+            const info = metadata[col];
+            const wrapper = document.createElement('div');
+            wrapper.className = 'filter-group';
+            wrapper.style.marginBottom = '15px';
+            wrapper.style.borderBottom = '1px solid #333';
+            wrapper.style.paddingBottom = '10px';
+
+            const label = document.createElement('label');
+
+            let displayName = col;
+            if (metadata.schema_map && metadata.schema_map[col] && metadata.schema_map[col].display_name) {
+                displayName = metadata.schema_map[col].display_name;
             }
 
-            wrapper.appendChild(listContainer);
-        }
+            label.innerText = displayName;
+            label.style.fontWeight = 'bold';
+            label.style.display = 'block';
+            label.style.marginBottom = '5px';
+            label.style.color = '#d4d4d4';
+            wrapper.appendChild(label);
 
-        container.appendChild(wrapper);
+            if (info.type === 'number') {
+                const sliderDiv = document.createElement('div');
+                sliderDiv.style.marginBottom = '10px';
+                sliderDiv.style.marginLeft = '5px';
+                sliderDiv.style.marginRight = '5px';
+                wrapper.appendChild(sliderDiv);
+
+                // Min/Max Labels
+                const labelRow = document.createElement('div');
+                labelRow.style.display = 'flex';
+                labelRow.style.justifyContent = 'space-between';
+                labelRow.style.fontSize = '0.85em';
+                labelRow.style.color = '#888';
+                labelRow.style.marginTop = '-5px';
+
+                const minLabel = document.createElement('span');
+                const maxLabel = document.createElement('span');
+
+                labelRow.appendChild(minLabel);
+                labelRow.appendChild(maxLabel);
+                wrapper.appendChild(labelRow);
+
+                // Current Values
+                let currentMin = info.min;
+                let currentMax = info.max;
+
+                const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
+
+                if (filters[col] && filters[col].value) {
+                    if (filters[col].value.min !== undefined) currentMin = filters[col].value.min;
+                    if (filters[col].value.max !== undefined) currentMax = filters[col].value.max;
+                }
+
+                // Formatting Helper
+                const fmt = (n) => Math.round(n).toLocaleString();
+
+                minLabel.innerText = fmt(currentMin);
+                maxLabel.innerText = fmt(currentMax);
+
+                // Initialize Slider
+                if (typeof noUiSlider !== 'undefined') {
+                    if (info.min >= info.max) {
+                        sliderDiv.style.display = 'none';
+                    } else {
+                        noUiSlider.create(sliderDiv, {
+                            start: [currentMin, currentMax],
+                            connect: true,
+                            range: {
+                                'min': info.min,
+                                'max': info.max
+                            },
+                        });
+
+                        sliderDiv.noUiSlider.on('update', function (values, handle) {
+                            const value = parseFloat(values[handle]);
+                            if (handle === 0) {
+                                minLabel.innerText = fmt(value);
+                            } else {
+                                maxLabel.innerText = fmt(value);
+                            }
+                        });
+
+                        sliderDiv.noUiSlider.on('change', function (values, handle) {
+                            const vMin = parseFloat(values[0]);
+                            const vMax = parseFloat(values[1]);
+
+                            const f = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
+                            if (!f[col]) f[col] = { type: 'number', value: {} };
+
+                            f[col].value.min = vMin;
+                            f[col].value.max = vMax;
+
+                            updateExplorerV2Stats(sliceId);
+                        });
+                    }
+                } else {
+                    minLabel.innerText = "Error: Slider lib missing";
+                }
+            } else if (info.type === 'category' || info.type === 'list') {
+                const listContainer = document.createElement('div');
+                listContainer.style.maxHeight = '150px';
+                listContainer.style.overflowY = 'auto';
+                listContainer.style.background = '#252526';
+                listContainer.style.border = '1px solid #3e3e42';
+                listContainer.style.padding = '5px';
+
+                info.values.forEach(val => {
+                    const item = document.createElement('div');
+                    item.style.display = 'flex';
+                    item.style.alignItems = 'center';
+
+                    let actualValue = val;
+                    let displayValue = val;
+
+                    if (typeof val === 'object' && val !== null && val.value !== undefined) {
+                        actualValue = val.value;
+                        displayValue = `${val.value} (${val.count.toLocaleString()})`;
+                    }
+
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.value = actualValue;
+                    cb.dataset.rawValue = actualValue;
+                    cb.style.marginRight = '5px';
+
+                    // Restore checked state
+                    const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
+                    if (filters[col] && Array.isArray(filters[col].value)) {
+                        if (filters[col].value.includes(actualValue)) {
+                            cb.checked = true;
+                        }
+                    }
+
+                    cb.onchange = () => {
+                        const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
+                        setFilterV2(sliceId, col, info.type, 'list', checked);
+                    };
+
+                    const span = document.createElement('span');
+                    span.innerText = displayValue;
+                    span.style.fontSize = '0.9em';
+
+                    item.appendChild(cb);
+                    item.appendChild(span);
+                    listContainer.appendChild(item);
+                });
+
+                if (info.values.length === 0) {
+                    listContainer.innerHTML = '<div style="color:#777; font-size:0.8em;">No values</div>';
+                }
+
+                wrapper.appendChild(listContainer);
+            }
+
+            body.appendChild(wrapper);
+        });
+
+        sectionDiv.appendChild(body);
+        container.appendChild(sectionDiv);
     });
 }
 

@@ -576,50 +576,7 @@ async function fetchLogs(name) {
 
 
 
-async function loadConfig(filename, targetIdOverride = null) {
-    try {
-        const res = await fetch(`/api/config?file=${filename}&_t=${Date.now()}`);
-        const data = await res.json();
 
-        let targetId = targetIdOverride;
-        if (!targetId) {
-            targetId = filename === 'studies.toml' ? 'config-editor' : 'config-editor';
-        }
-
-        const el = document.getElementById(targetId);
-        if (el) el.value = data.content;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function saveConfig(filename, sourceIdOverride = null) {
-    let sourceId = sourceIdOverride;
-    if (!sourceId) {
-        sourceId = filename === 'studies.toml' ? 'config-editor' : 'config-editor';
-    }
-
-    const el = document.getElementById(sourceId);
-    if (!el) return;
-
-    const content = el.value;
-    try {
-        const res = await fetch(`/api/config?file=${filename}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: content })
-        });
-        const data = await res.json();
-        if (data.status === 'success') {
-            alert(`${filename} saved!`);
-        } else {
-            alert("Error saving config: " + data.message);
-        }
-    } catch (e) {
-        console.error(e);
-        alert("Error saving config");
-    }
-}
 
 async function clearLogs(name) {
     try {
@@ -633,31 +590,7 @@ async function clearLogs(name) {
     }
 }
 
-// --- Config Tab Sidebar Logic ---
-let currentConfigFile = 'studies.toml';
 
-async function openConfigFile(filename) {
-    currentConfigFile = filename;
-    document.getElementById('config-file-title').innerText = filename;
-
-    // Highlight active button
-    const buttons = document.querySelectorAll('#config_tab .config-menu-btn');
-    buttons.forEach(btn => {
-        if (btn.innerText.trim() === filename) {
-            btn.style.background = '#37373d';
-            btn.style.fontWeight = 'bold';
-        } else {
-            btn.style.background = 'none';
-            btn.style.fontWeight = 'normal';
-        }
-    });
-
-    await loadConfig(filename, 'config-editor');
-}
-
-async function saveCurrentConfig() {
-    await saveConfig(currentConfigFile, 'config-editor');
-}
 
 
 function openTab(evt, tabName) {
@@ -695,10 +628,7 @@ function openTab(evt, tabName) {
         }
     }
 
-    // Config Tab Logic
-    if (tabName === 'config_tab') {
-        openConfigFile('studies.toml');
-    }
+
 
     // Settings Tab Logic
     if (tabName === 'settings' && typeof renderSettingsUI === 'function') {

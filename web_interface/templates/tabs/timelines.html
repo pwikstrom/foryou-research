@@ -1,0 +1,64 @@
+<div id="timelines" class="tab-pane">
+    <div class="timelines-container" style="display: flex; height: calc(100vh - 100px);">
+        <!-- Sidebar -->
+        <div class="timelines-sidebar"
+            style="width: 300px; padding: 20px; border-right: 1px solid #444; overflow-y: auto;">
+            <h3>Timelines</h3>
+            <div class="form-group">
+                <label>Study</label>
+                <select id="timelines-study-select" class="form-control" onchange="timelines.loadDonations(this.value)">
+                    <option value="">Select Study...</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-top: 20px;">
+                <label>Aggregation</label>
+                <div style="display: flex; gap: 15px; margin-top: 5px;">
+                    <label style="cursor: pointer;">
+                        <input type="radio" name="timeline-interval" value="day" checked
+                            onchange="timelines.onIntervalChange()">
+                        <span id="timelines-agg-label-day">Day</span>
+                    </label>
+                    <label style="cursor: pointer;">
+                        <input type="radio" name="timeline-interval" value="week"
+                            onchange="timelines.onIntervalChange()">
+                        <span id="timelines-agg-label-week">Week</span>
+                    </label>
+                    <label style="cursor: pointer;">
+                        <input type="radio" name="timeline-interval" value="month"
+                            onchange="timelines.onIntervalChange()">
+                        <span id="timelines-agg-label-month">Month</span>
+                    </label>
+                </div>
+            </div>
+            <div class="form-group" style="margin-top: 20px;">
+                <label>Donation ID</label>
+                <input type="text" id="timelines-donation-search" placeholder="Search ID..." class="form-control"
+                    onkeyup="timelines.filterDonations()">
+                <div id="timelines-donation-list" class="simple-list"
+                    style="height: 400px; overflow-y: auto; margin-top: 10px; border: 1px solid #555; background: #222;">
+                    <!-- Populated by JS -->
+                    <div style="padding: 10px; color: #777;">Select a study first</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="timelines-main" style="flex: 1; padding: 20px; overflow-y: auto;">
+            <div id="timelines-header" style="margin-bottom: 20px; display: none;">
+                <h2 id="timelines-title">Donation Timeline</h2>
+                <div class="controls" style="display: flex; gap: 20px; align-items: center;">
+                    <label style="display: flex; align-items: center; gap: 5px;">
+                        <input type="checkbox" id="timelines-exclude-nodata" onchange="timelines.renderTimelineCharts()"
+                            checked>
+                        Exclude dates with no data
+                    </label>
+                </div>
+            </div>
+
+            <div id="timelines-charts-container">
+                <p class="text-muted" style="margin-top: 50px; text-align: center;">Select a donation to view timelines.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
