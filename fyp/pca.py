@@ -10,7 +10,8 @@ from sklearn.preprocessing import StandardScaler
 
 from fyp.organize_datasets import create_study_recoded_dataset
 from fyp.recode_variables import get_factors_and_features_from_var_schema, get_grouping_factors_from_var_schema
-from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow, convert_index_dtype_pyarrow
+from fyp.fyp_main import initialize
+from fyp.types import convert_dtypes_to_pyarrow, convert_index_dtype_pyarrow
 import fyp.data_io as data_io
 from scipy.spatial.distance import pdist as scipy_pdist, squareform as scipy_squareform
 import datetime as _dt

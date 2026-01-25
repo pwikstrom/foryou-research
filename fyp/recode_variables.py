@@ -6,10 +6,8 @@ from datetime import datetime
 from copy import copy
 import numpy as np
 
-from fyp.fyp_main import initialize, convert_dtypes_to_pyarrow
-import fyp.data_io as data_io
-
 from fyp.fyp_main import initialize
+from fyp.types import convert_dtypes_to_pyarrow 
 
 
 

@@ -13,7 +13,8 @@ import textwrap
 import pandas as pd
 import re
 
-from fyp.fyp_main import convert_dtypes_to_pyarrow, initialize
+from fyp.fyp_main import initialize
+from fyp.types import convert_dtypes_to_pyarrow
 from fyp.recode_variables import *
 from fyp.calc_donation_stats import generate_personas
 import fyp.data_io as data_io
@@ -24,10 +25,8 @@ import numpy as np
 import datetime as _dt
 from pathlib import Path
 import subprocess
-from shlex import quote as shlex_quote
-from shutil import rmtree as shutil_rmtree
-from os.path import join as local_join
-from os import listdir as local_listdir
+import shlex
+import shutil
 from pathlib import Path
 import datetime as _dt
 
@@ -86,18 +85,18 @@ def get_donation_metadata_from_aio_aws(
 
     # Prepare destination
     filename = f"ddp_metadata_{file_stamp}.json"
-    temp_file = local_join(cf["paths"]["temp"], filename)
+    temp_file = os.path.join(cf["paths"]["temp"], filename)
 
     # Assemble the AWS CLI command
     scan_cmd = (
         "aws dynamodb scan "
-        f"--table-name {shlex_quote(table_name)} "
+        f"--table-name {shlex.quote(table_name)} "
         "--select ALL_ATTRIBUTES "
         "--page-size 500 "
         "--max-items 100000 "
         "--output json"
     )
-    full_cmd = f"{scan_cmd} > {shlex_quote(str(temp_file))}"
+    full_cmd = f"{scan_cmd} > {shlex.quote(str(temp_file))}"
 
     # Run it
     try:
@@ -177,7 +176,7 @@ def get_recent_data_donations_from_aio_aws(
     # ------------------------------------------------------------------
     # Use a specific temp folder for this batch
 
-    temp_dir_path = local_join(cf["paths"]["temp"], f"download_batch_{now.strftime('%Y%m%d%H%M%S')}")
+    temp_dir_path = os.path.join(cf["paths"]["temp"], f"download_batch_{now.strftime('%Y%m%d%H%M%S')}")
     dest = Path(temp_dir_path).expanduser().resolve()
     dest.mkdir(parents=True, exist_ok=True)
 
@@ -186,7 +185,7 @@ def get_recent_data_donations_from_aio_aws(
     # ------------------------------------------------------------------
     scan_cmd = (
         "aws dynamodb scan "
-        f"--table-name {shlex_quote(table_name)} "
+        f"--table-name {shlex.quote(table_name)} "
         "--filter-expression "
         "\"consentProvided = :consent and #d >= :shareDate\" "
         "--expression-attribute-names "
@@ -205,7 +204,7 @@ def get_recent_data_donations_from_aio_aws(
     full_cmd = (
         f"{scan_cmd} | jq -r '.[]' "
         "| xargs -I {} "
-        f"aws s3 cp \"s3://{bucket}/donation/{{}}\" {shlex_quote(str(dest))}"
+        f"aws s3 cp \"s3://{bucket}/donation/{{}}\" {shlex.quote(str(dest))}"
     )
     
     # ------------------------------------------------------------------
@@ -217,7 +216,7 @@ def get_recent_data_donations_from_aio_aws(
     # ------------------------------------------------------------------
     # 5) Move/Upload files to ddp_raw storage
     # ------------------------------------------------------------------
-    downloaded_files = local_listdir(dest)
+    downloaded_files = os.path.listdir(dest)
     print(f"Transferring {len(downloaded_files)} files to ddp_raw storage...")
     
     count = 0
@@ -242,7 +241,7 @@ def get_recent_data_donations_from_aio_aws(
     # 6) Cleanup Temp
     # ------------------------------------------------------------------
     try:
-        shutil_rmtree(dest)
+        shutil.rmtree(dest)
     except Exception as e:
         print(f"Warning: Failed to clean up temp directory {dest}: {e}")
 

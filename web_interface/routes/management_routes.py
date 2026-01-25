@@ -3,10 +3,8 @@ from flask_login import login_required, current_user
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import re
 from ..hub_config import fyp_cf
 import fyp.data_io as data_io
-from fyp.fyp_main import initialize
 from fyp.organize_datasets import create_study_recoded_dataset
 from fyp.pca import calculate_scaled_pca_scores
 from .. import explorer_backend as explorer

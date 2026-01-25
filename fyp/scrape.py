@@ -16,8 +16,8 @@ from datetime import datetime
 import time
 
 import fyp.data_io as data_io
-#from fyp.organize_datasets import select_videos_from_study_dataset, create_study_recoded_dataset
-from fyp.fyp_main import initialize, connect_to_google, chunk_list, convert_dtypes_to_pyarrow
+from fyp.fyp_main import initialize, connect_to_google
+from fyp.utils import chunk_list
 import fyp.mypyktok as pyk
 from fyp.recode_variables import rename_columns, recode_events_df
 

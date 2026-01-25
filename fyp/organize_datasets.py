@@ -1,5 +1,4 @@
 
-from zoneinfo import ZoneInfo
 import pandas as pd
 from fyp.fyp_main import initialize
 import fyp.data_io as data_io
@@ -60,7 +59,6 @@ def load_study_datasets(
             # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
             if data_io.exists(cf, "cache", f"core_{k}.parquet"):
                 parquet_study_name = data_io.find_key_value_in_pq_metadata(cf=cf, storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
-                print(f"Found a cached version of '{k}' core dataset for study '{parquet_study_name}'")
                 if parquet_study_name == study_name or parquet_study_name == 'everything':
                     if verbose:
                         print(f"    [Core datasets] Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")

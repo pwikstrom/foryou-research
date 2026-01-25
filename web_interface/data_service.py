@@ -273,31 +273,6 @@ def check_and_update_timeline_cache(donation_id, viz_vars):
 
 
 
-    # ---------------------------------------------------------
-    # Custom Variables Calculation
-    # 1. Completion Rate
-    wd_col = 'D_watch_duration'
-    vd_col = 'S_video_duration'
-
-    # DEBUG: Print all columns to find the right ones
-    print(f"DEBUG TIMELINE: Available columns: {sorted(df.columns.tolist())}")
-
-    if True:# wd_col in df.columns and vd_col:
-        #print(f"DEBUG TIMELINE: Calculating completion_rate using {wd_col} / {vd_col}")
-        #wd = pd.to_numeric(df[wd_col], errors='coerce')
-        #vd = pd.to_numeric(df[vd_col], errors='coerce')
-        
-        # Avoid zero division
-        rate = df['D_watch_duration'] / df['S_video_duration']
-        rate = rate.replace([np.inf, -np.inf], np.nan)
-        
-        # Clip sensible range? 0 to ~1 (or >1 if rewatched). usage says "split by" -> divide
-        df['completion_rate'] = rate.map(lambda x: min(max(x, 0), 1))
-        
-        if 'completion_rate' not in viz_vars:
-            viz_vars.append('completion_rate')
-    else:
-        print(f"DEBUG TIMELINE: Columns for completion_rate missing. WD: {wd_col in df.columns}, VD: {vd_col}")
 
 
     # ---------------------------------------------------------

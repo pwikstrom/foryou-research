@@ -4,7 +4,7 @@ import subprocess
 import json
 from datetime import datetime
 from ..hub_config import fyp_cf, PROJECT_ROOT, PYTHON_EXEC, INGEST_SCRIPT
-import fyp
+import fyp.data_io as data_io
 
 ingest_bp = Blueprint('ingest_bp', __name__)
 
@@ -24,7 +24,7 @@ def api_find_ndjson():
          return jsonify({"error": f"Directory not found: {directory}"}), 404
          
     try:
-        files = fyp.get_recent_files(fyp_cf, directory, suffix=".ndjson", how_recent=525600) 
+        files = data_io.get_recent_files(fyp_cf, directory, suffix=".ndjson", how_recent=525600) 
         
         result_files = []
         for f in files:

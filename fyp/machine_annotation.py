@@ -18,7 +18,6 @@ import re
  
 import google.genai
 from time import sleep
-from random import randint
 from copy import copy
 import collections
 

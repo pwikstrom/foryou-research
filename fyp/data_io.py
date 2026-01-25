@@ -8,8 +8,8 @@ Author: Patrik
 
 
 import datetime as _dt
-from fyp.fyp_main import convert_dtypes_to_pyarrow, connect_to_google, initialize
-from fyp.recode_variables import get_grouping_factors_from_var_schema
+from fyp.fyp_main import connect_to_google
+from fyp.types import convert_dtypes_to_pyarrow
 import shutil
 import gcsfs
 import json
@@ -84,6 +84,30 @@ def _get_bucket(cf):
     """Retrieve the bucket object from config."""
     w = cf['data_io']['bucket']
     return w
+
+
+
+
+
+
+
+
+def get_recent_files(cf, storage_location, suffix=None, how_recent=10):
+
+    current_time = datetime.now()
+    recent_files = []
+
+    for filename in data_io.listdir(cf, storage_location):
+        #file_path = join(storage_location, filename)
+        if suffix is None or filename.endswith(suffix):
+            modified_time = datetime.fromtimestamp(data_io.getmtime(cf, storage_location, filename))
+            created_time = datetime.fromtimestamp(data_io.getctime(cf, storage_location, filename))
+            time_difference = current_time - max(modified_time, created_time)
+            if time_difference < timedelta(minutes=how_recent):
+                recent_files.append({"filename":filename, "mtime":modified_time, "ctime":created_time})
+
+    return sorted(recent_files,key=lambda x: x["mtime"], reverse=True)
+
 
 
 
@@ -839,7 +863,7 @@ def save_parquet(
 # Data Management Utilities
 # ------------------------------------------------------------------------------
 
-def get_study_export_files(cf = None, study_name = None):
+"""def get_study_export_files(cf = None, study_name = None):
 
     if cf is None:
         cf = initialize()
@@ -865,11 +889,11 @@ def get_study_export_files(cf = None, study_name = None):
             newest_file = int(max(study_files[category]))
             study_files[category] = f"{len  (study_files[category])} files from {_dt.datetime.fromtimestamp(oldest_file)} to {_dt.datetime.fromtimestamp(newest_file)}"
 
-    return study_files
+    return study_files"""
 
 
 
-
+"""
 def get_dataset_details(cf=None, study_name=None):
     
     if cf is None:
@@ -934,3 +958,4 @@ def get_dataset_details(cf=None, study_name=None):
     # Sort by filename
     details.sort(key=lambda x: x["filename"])
     return details
+"""

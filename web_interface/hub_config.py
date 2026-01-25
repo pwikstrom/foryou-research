@@ -1,13 +1,11 @@
 import sys
 from pathlib import Path
-import os
 
 # --- Config ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT)) # Ensure fyp module is importable
 
 import fyp
-import fyp.data_io as data_io
 
 # Initialize configuration to access paths
 fyp_cf = fyp.initialize(verbose=False)

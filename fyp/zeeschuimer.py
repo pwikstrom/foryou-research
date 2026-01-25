@@ -10,15 +10,12 @@ Date:
 import re
 import pandas as pd
 from copy import copy
-from fyp.fyp_main import initialize, extract_and_join_subkeys, clean_url, pretty_str_seconds, get_recent_files
+from fyp.fyp_main import initialize
+from fyp.utils import extract_and_join_subkeys, clean_url, pretty_str_seconds
 from fyp.recode_variables import recode_events_df, extract_local_time_features, rename_columns
 import fyp.data_io as data_io
 import numpy as np
-
-
-from datetime import datetime
 import subprocess
-
 import textwrap
 import datetime as _dt
 
@@ -184,9 +181,9 @@ def refine_one_raw_zeeschuimer_log(
 
     # convert the 'data.createTime' and 'timestamp_collected' columns to datetime
     zeeschuimer_logs_df["data.createTime"] = zeeschuimer_logs_df["data.createTime"].astype(np.int64)
-    zeeschuimer_logs_df["data.createTime"] = zeeschuimer_logs_df["data.createTime"].apply(lambda x:datetime.fromtimestamp(x))
+    zeeschuimer_logs_df["data.createTime"] = zeeschuimer_logs_df["data.createTime"].apply(lambda x:_dt.datetime.fromtimestamp(x))
     zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].astype(np.int64)
-    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].apply(lambda x: datetime.fromtimestamp(np.int64(x/1000)))
+    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].apply(lambda x: _dt.datetime.fromtimestamp(np.int64(x/1000)))
 
     # replace commas and newlines in object columns with spaces
     object_cols = [c for c in zeeschuimer_logs_df.columns if zeeschuimer_logs_df[c].dtype == 'object']
@@ -525,7 +522,7 @@ def get_baseline_log(cf = None,
     if cf is None:
         cf = initialize()
 
-    start_time = datetime.now()
+    start_time = _dt.datetime.now()
     print("\n"+"*"*100)
 
     if the_script is None:
@@ -543,12 +540,12 @@ def get_baseline_log(cf = None,
             "osascript",
             the_script+".scrpt"
         ])
-        end_time = datetime.now()
+        end_time = _dt.datetime.now()
         print(f"{end_time.strftime('%Y-%m-%d %H:%M:%S')}: Harvest w '{basename(the_script)}' completed in {pretty_str_seconds((end_time-start_time).total_seconds())}.")    
 
     the_script = basename(the_script)
 
-    recent_files = get_recent_files(fyp_cf, "firefox_downloads",
+    recent_files = data_io.get_recent_files(fyp_cf, "firefox_downloads",
                                         suffix=".ndjson",
                                         how_recent=how_recent)
     if len(recent_files) > 0:
@@ -571,7 +568,7 @@ def get_baseline_log(cf = None,
         print(f"Could not find a Zeeschuimer ndjson file in the firefox downloads folder.")
 
 
-    end_time = datetime.now()
+    end_time = _dt.datetime.now()
     print(f"{end_time.strftime('%Y-%m-%d %H:%M:%S')}: Process completed in {pretty_str_seconds((end_time-start_time).total_seconds())}.")    
     print("Done\n"+"*"*80+"\n")
 
@@ -694,9 +691,6 @@ def load_zeeschuimer_data(
     verbose = False):
     # load items from baseline logs
 
-    from datetime import datetime
-    from fyp.fyp_main import initialize, connect_to_google
-    import fyp.data_io as data_io
 
     if study_name is None:
         raise ValueError("study_name must be specified")
