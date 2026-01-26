@@ -214,7 +214,10 @@ def api_admin_users():
 @login_required
 def api_user_settings():
     if request.method == 'GET':
-        return jsonify(current_user.settings or {})
+        s = current_user.settings or {}
+        if 'share_annotations' not in s:
+            s['share_annotations'] = True
+        return jsonify(s)
     
     elif request.method == 'POST':
         settings = request.json

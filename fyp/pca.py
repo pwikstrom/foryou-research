@@ -743,27 +743,13 @@ def calculate_scaled_pca_scores(
     events_pca_scores_scaled.reset_index(inplace=True)
     
 
-    # TODO: avoid making direct references to column names
     # Ensure we don't select duplicate columns if grouping_factors overlap with the time columns
-    cols_to_keep = list(set(fyp_factors + grouping_factors) & set(study_recoded_dataset.columns))# + ["D_donation_id","T_local_weekday","T_local_date","T_local_week"]
-    # Add selected factors only if not already present
-    #for f in grouping_factors:
-    #    if f not in cols_to_keep:
-    #        cols_to_keep.append(f)
-
+    cols_to_keep = list(set(fyp_factors + grouping_factors) & set(study_recoded_dataset.columns))
 
     # Shuffle rows to ensure random output order and avoid systematic bias (e.g. always picking the 'first' row)
     # when reducing the dataset to unique metadata combinations.
     time_columns_to_put_back = study_recoded_dataset[cols_to_keep].sample(frac=1, random_state=42).drop_duplicates()
     
-    # TODO: I don't remember what this is
-    # FIX: Ensure T_local_date is strictly datetime64[ns] (Numpy) on BOTH sides of the merge.
-    # PyArrow Timestamps vs Numpy Timestamps can cause index alignment failures in pd.concat.
-    #if "T_local_date" in time_columns_to_put_back.columns:
-    #    time_columns_to_put_back["T_local_date"] = time_columns_to_put_back["T_local_date"]
-
-    #if "T_local_date" in events_pca_scores_scaled.columns:
-    #    events_pca_scores_scaled["T_local_date"] = events_pca_scores_scaled["T_local_date"]
 
 
     time_columns_to_put_back = time_columns_to_put_back.set_index(grouping_factors)

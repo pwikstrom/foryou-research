@@ -42,6 +42,16 @@
                     <span style="color: #666;">vs</span>
                     <span id="explorer-v2-count-2" style="color: #2196F3;">Slice 2: ...</span>
                 </div>
+                <div style="margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px;">
+                    <label for="explorer-v2-sort" style="color: #bbb; font-size: 0.9em;">Sort by:</label>
+                    <select id="explorer-v2-sort" onchange="changeExplorerV2Sort(this.value)"
+                        style="padding: 4px; background: #3c3c3c; border: 1px solid #555; color: white; border-radius: 4px; font-size: 0.9em;">
+                        <option value="total">Total Frequency</option>
+                        <option value="slice1">Slice 1 Frequency</option>
+                        <option value="slice2">Slice 2 Frequency</option>
+                        <option value="name">Name (A-Z)</option>
+                    </select>
+                </div>
             </div>
             <div id="explorer-v2-stats" style="flex: 1; overflow-y: auto; padding: 10px;">
                 <!-- Stats injected here by JS -->

@@ -130,14 +130,25 @@ def list_studies():
 
     # Convert to list with name included
     studies_list = []
+    
+    # User Access Logic
+    # Admin sees everything.
+    # Others (Researcher/Viewer) see only studies where they are listed in USER_ACCESS
+    is_admin = current_user.is_admin()
+    username = current_user.username
+    
     for name, config in studies.items():
         # Ensure name is in config
         config['STUDY_NAME'] = name
         
-        # Check if we need to calculate stats (if missing)
-        # Prompt says: "calculated when a study is updated ... otherwise read directly"
-        # So here we just return what is there.
-        studies_list.append(config)
+        if is_admin:
+            studies_list.append(config)
+        else:
+            # Check USER_ACCESS for this study
+            user_access = config.get("USER_ACCESS", [])
+            # user_access should be a list of ROLES (e.g. ['viewer', 'researcher']) or ['all']
+            if isinstance(user_access, list) and (current_user.role in user_access or 'all' in user_access):
+                studies_list.append(config)
         
     return jsonify(studies_list)
 
@@ -442,23 +453,31 @@ def list_donations():
 @management_bp.route('/api/manage/enrichment/stats', methods=['GET'])
 @login_required
 def get_enrichment_stats():
+    # Only admins can see enrichment stats
+    if not current_user.is_admin():
+         return jsonify({"error": "Unauthorized"}), 403
+
     # 1. Load Enrichment Status
-    df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
-    
+    enrichment_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
+
+
     total_videos = 0
     scraped_videos = 0
     annotated_videos = 0
     unique_donations = 0
     
-    if df_status is not None and not df_status.empty:
-        total_videos = len(df_status)
-        if 'scraped_ok' in df_status.columns:
-            scraped_videos = int(df_status['scraped_ok'].sum())
-        if 'annotated_ok' in df_status.columns:
-            annotated_videos = int(df_status['annotated_ok'].sum())
-        if 'D_donation_id' in df_status.columns:
-            unique_donations = int(df_status['D_donation_id'].nunique())
-            
+    if enrichment_status is not None and not enrichment_status.empty:
+        total_videos = len(enrichment_status)
+        if 'scraped_ok' in enrichment_status.columns:
+            scraped_videos = int(enrichment_status['scraped_ok'].sum())
+        if 'annotated_ok' in enrichment_status.columns:
+            annotated_videos = int(enrichment_status['annotated_ok'].sum())
+    
+    ddp_metadata = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
+    if ddp_metadata is not None and not ddp_metadata.empty:
+        unique_donations = int(ddp_metadata[ddp_metadata[('other','accepted')]].index.nunique())
+        
+    
     # 2. Get Queue Lengths
     scrape_queue_len = 0
     annotate_queue_len = 0

@@ -11,7 +11,8 @@ let explorerDataV2 = {
     stats1: null,
     count1: 0,
     stats2: null,
-    count2: 0
+    count2: 0,
+    sortMode: 'total'
 };
 
 // Initialization
@@ -544,6 +545,11 @@ async function updateExplorerV2Stats(triggerSlice = null) {
     }
 }
 
+function changeExplorerV2Sort(mode) {
+    explorerDataV2.sortMode = mode;
+    renderStatsV2(explorerDataV2.stats1, explorerDataV2.stats2);
+}
+
 function renderStatsV2(stats1, stats2) {
     const container = document.getElementById('explorer-v2-stats');
     container.innerHTML = '';
@@ -704,21 +710,63 @@ function renderStatsV2(stats1, stats2) {
             // Stacked Bar (Horizontal) normalized to %
             // Need to merge keys from s1 and s2
 
-            const allCats = new Set([...Object.keys(s1), ...Object.keys(s2)]);
-            const cats = Array.from(allCats).sort((a, b) => {
-                const na = parseFloat(a);
-                const nb = parseFloat(b);
-                if (!isNaN(na) && !isNaN(nb)) return na - nb;
-                return a.localeCompare(b);
-            });
-
             // Counts
             const count1 = Object.values(s1).reduce((a, b) => a + b, 0);
             const count2 = Object.values(s2).reduce((a, b) => a + b, 0);
 
+            const allCats = new Set([...Object.keys(s1), ...Object.keys(s2)]);
+            const cats = Array.from(allCats).sort((a, b) => {
+                const mode = explorerDataV2.sortMode || 'total';
+
+                if (mode === 'name') {
+                    const na = parseFloat(a);
+                    const nb = parseFloat(b);
+                    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                    return a.localeCompare(b);
+                }
+
+                const v1a = s1[a] || 0;
+                const v2a = s2[a] || 0;
+                const v1b = s1[b] || 0;
+                const v2b = s2[b] || 0;
+
+                const p1a = v1a / Math.max(1, count1);
+                const p2a = v2a / Math.max(1, count2);
+                const p1b = v1b / Math.max(1, count1);
+                const p2b = v2b / Math.max(1, count2);
+
+                let scoreA = 0;
+                let scoreB = 0;
+
+                if (mode === 'slice1') {
+                    scoreA = p1a;
+                    scoreB = p1b;
+                } else if (mode === 'slice2') {
+                    scoreA = p2a;
+                    scoreB = p2b;
+                } else {
+                    // Total (default)
+                    scoreA = p1a + p2a;
+                    scoreB = p1b + p2b;
+                }
+
+                // Descending score
+                return scoreB - scoreA;
+            });
+
+
+            // Extended distinct palette (50 colors) to minimize adjacency collisions
+            const palette = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+                '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5', '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5',
+                '#393b79', '#637939', '#8c6d31', '#843c39', '#7b4173', '#5254a3', '#8ca252', '#bd9e39', '#d6616b', '#ce6dbd',
+                '#65a620', '#c75a93', '#e7969c', '#7b4173', '#a55194', '#ce6dbd', '#de9ed6', '#ad494a', '#d6616b', '#e7969c',
+                '#3182bd', '#e6550d', '#31a354', '#756bb1', '#636363', '#6baed6', '#fd8d3c', '#74c476', '#9e9ac8', '#969696'
+            ];
+
             const traces = [];
 
-            cats.forEach(cat => {
+            cats.forEach((cat, idx) => {
                 const val1 = s1[cat] || 0;
                 const val2 = s2[cat] || 0;
 
@@ -729,6 +777,7 @@ function renderStatsV2(stats1, stats2) {
                     x: [pct1, pct2],
                     y: ['Slice 1', 'Slice 2'],
                     name: cat,
+                    marker: { color: palette[idx % palette.length] },
                     orientation: 'h',
                     type: 'bar',
                     text: [cat, cat],

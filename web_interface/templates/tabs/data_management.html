@@ -2,7 +2,7 @@
     <div class="control-bar"
         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h2>Data Management: Study Definitions</h2>
-        {% if user.is_admin() %}
+        {% if current_user.is_admin() %}
         <button type="button" class="action-btn" onclick="openNewStudyModal()">Define new study</button>
         {% endif %}
     </div>
@@ -27,6 +27,7 @@
         </tbody>
     </table>
 
+    {% if current_user.is_admin() %}
     <div style="margin-top: 40px; border-top: 1px solid #555; padding-top: 20px;">
         <div class="control-bar"
             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -118,6 +119,7 @@
             </tbody>
         </table>
     </div>
+    {% endif %}
 
     <!-- New Study Modal -->
     <div id="newStudyModal" class="modal"
@@ -148,23 +150,27 @@
                     <div class="form-group-row">
                         <label title="yyyy-mm-dd only include events after this date">START_DATE <i
                                 class="info-icon">ℹ️</i></label>
-                        <input type="text" data-field="START_DATE" class="control-input">
+                        <input type="text" data-field="START_DATE" class="control-input" {% if
+                            current_user.role=='viewer' %}disabled{% endif %}>
                     </div>
                     <div class="form-group-row">
                         <label title="yyyy-mm-dd only include events before this date">END_DATE <i
                                 class="info-icon">ℹ️</i></label>
-                        <input type="text" data-field="END_DATE" class="control-input">
+                        <input type="text" data-field="END_DATE" class="control-input" {% if current_user.role=='viewer'
+                            %}disabled{% endif %}>
                     </div>
                     <div class="form-group-row">
                         <label title="DEFAULT: true">INCLUDE_ZEESCHUIMER_DATA <i class="info-icon">ℹ️</i></label>
-                        <select data-field="INCLUDE_ZEESCHUIMER_DATA" class="control-input">
+                        <select data-field="INCLUDE_ZEESCHUIMER_DATA" class="control-input" {% if
+                            current_user.role=='viewer' %}disabled{% endif %}>
                             <option value="true">True</option>
                             <option value="false">False</option>
                         </select>
                     </div>
                     <div class="form-group-row">
                         <label title="DEFAULT: true">INCLUDE_DONATION_DATA <i class="info-icon">ℹ️</i></label>
-                        <select data-field="INCLUDE_DONATION_DATA" class="control-input">
+                        <select data-field="INCLUDE_DONATION_DATA" class="control-input" {% if
+                            current_user.role=='viewer' %}disabled{% endif %}>
                             <option value="true">True</option>
                             <option value="false">False</option>
                         </select>
@@ -172,11 +178,13 @@
                     <div class="form-group-row" style="align-items: flex-start;">
                         <label title="User Access List">USER_ACCESS <i class="info-icon">ℹ️</i></label>
                         <div class="checkbox-group" data-field-group="USER_ACCESS" style="text-align: right;">
-                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="admin">
+                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="admin" {%
+                                    if current_user.role=='viewer' %}disabled{% endif %}>
                                 Admin</label>
-                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox"
-                                    value="researcher"> Researcher</label>
-                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="viewer">
+                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="researcher"
+                                    {% if current_user.role=='viewer' %}disabled{% endif %}> Researcher</label>
+                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="viewer" {%
+                                    if current_user.role=='viewer' %}disabled{% endif %}>
                                 Viewer</label>
                         </div>
                     </div>
@@ -188,7 +196,8 @@
                             title="Control if and how donations are sampled: off, events, scraped, annotated">DONATION_SAMPLE_FRAME
                             <i class="info-icon">ℹ️</i></label>
                         <select data-field="DONATION_SAMPLE_FRAME" class="control-input"
-                            onchange="toggleSamplingOptions(this)">
+                            onchange="toggleSamplingOptions(this)" {% if current_user.role=='viewer' %}disabled{% endif
+                            %}>
                             <option value="off">off</option>
                             <option value="events">events</option>
                             <option value="scraped">scraped</option>
@@ -202,32 +211,33 @@
                                 title="groups w less than this number of events are excluded [DEFAULT: 10]">MIN_EVENT_COUNT...
                                 <i class="info-icon">ℹ️</i></label>
                             <input type="number" data-field="MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP"
-                                class="control-input">
+                                class="control-input" {% if current_user.role=='viewer' %}disabled{% endif %}>
                         </div>
                         <div class="form-group-row">
                             <label
                                 title="groups w more than this number of events are downsampled [DEFAULT: 100]">MAX_EVENT_COUNT...
                                 <i class="info-icon">ℹ️</i></label>
                             <input type="number" data-field="MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP"
-                                class="control-input">
+                                class="control-input" {% if current_user.role=='viewer' %}disabled{% endif %}>
                         </div>
                         <div class="form-group-row">
                             <label
                                 title="donations w less than this number of accepted groups are excluded [DEFAULT: 10]">MIN_GROUP_COUNT...
                                 <i class="info-icon">ℹ️</i></label>
                             <input type="number" data-field="MIN_GROUP_COUNT_REQUIRED_PER_DONATION"
-                                class="control-input">
+                                class="control-input" {% if current_user.role=='viewer' %}disabled{% endif %}>
                         </div>
                         <div class="form-group-row">
                             <label
                                 title="donations w more than this number of accepted groups are downsampled [DEFAULT: 100]">MAX_GROUP_COUNT...
                                 <i class="info-icon">ℹ️</i></label>
                             <input type="number" data-field="MAX_GROUP_COUNT_SELECTED_PER_DONATION"
-                                class="control-input">
+                                class="control-input" {% if current_user.role=='viewer' %}disabled{% endif %}>
                         </div>
                     </div>
                 </div>
             </div>
+            {% if current_user.role != 'viewer' %}
             <div class="form-group" style="margin-top: 20px;">
                 <label title="List of specific donation IDs to include. Leave empty for all."
                     style="display: block; margin-bottom: 8px;">SELECTED_DONATIONS <i class="info-icon">ℹ️</i></label>
@@ -235,11 +245,12 @@
                 <div class="donation-selector" style="border: 1px solid #555; padding: 10px; background: #3e3e42;">
                     <div style="display: flex; gap: 10px; margin-bottom: 10px;">
                         <input type="text" placeholder="Search donations..." class="control-input donation-search-input"
-                            style="flex: 1;" onkeyup="filterDonations(this)">
-                        <button type="button" onclick="selectAllDonations(this, true)"
-                            style="padding: 5px 10px;">All</button>
-                        <button type="button" onclick="selectAllDonations(this, false)"
-                            style="padding: 5px 10px;">None</button>
+                            style="flex: 1;" onkeyup="filterDonations(this)" {% if current_user.role=='viewer'
+                            %}disabled{% endif %}>
+                        <button type="button" onclick="selectAllDonations(this, true)" style="padding: 5px 10px;" {% if
+                            current_user.role=='viewer' %}disabled{% endif %}>All</button>
+                        <button type="button" onclick="selectAllDonations(this, false)" style="padding: 5px 10px;" {% if
+                            current_user.role=='viewer' %}disabled{% endif %}>None</button>
                     </div>
                     <div class="donation-checklist-container"
                         style="max-height: 200px; overflow-y: auto; text-align: left; background: #2d2d30; padding: 5px; border: 1px solid #555;">
@@ -253,6 +264,7 @@
                 <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
                 <input type="hidden" data-field="SELECTED_DONATIONS" value="[]">
             </div>
+            {% endif %}
 
             <style>
                 /* Scoped styles for this template's use */
@@ -286,7 +298,7 @@
             </style>
 
             <div style="margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
-                {% if user.is_admin() or user.role == 'researcher' %}
+                {% if current_user.is_admin() or current_user.role == 'researcher' %}
                 <div style="display: flex; gap: 10px;">
                     <div style="display: flex; flex-direction: column; align-items: flex-start;">
                         <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Study
@@ -328,7 +340,7 @@
                 </div>
                 {% endif %}
 
-                {% if user.is_admin() %}
+                {% if current_user.is_admin() %}
                 <button type="button" class="action-btn" style="background-color: #dc3545;"
                     onclick="deleteStudy(this, event)">Delete Study</button>
                 {% endif %}

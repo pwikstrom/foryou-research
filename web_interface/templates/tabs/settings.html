@@ -15,6 +15,16 @@
             </div>
         </div>
 
+        <div class="setting-group" style="margin-bottom: 20px;">
+            <h3>Privacy</h3>
+            <div style="margin-top: 10px;">
+                <label style="display: flex; align-items: center; cursor: pointer; color: #d4d4d4;">
+                    <input type="checkbox" id="setting-share-annotations" style="margin-right: 10px;">
+                    Share my annotations anonymously with other researchers
+                </label>
+            </div>
+        </div>
+
         <button class="action-btn" onclick="saveSettingsTab()">Save Settings</button>
 
         <hr style="border: 0; border-top: 1px solid #3e3e42; margin: 30px 0;">
@@ -41,13 +51,19 @@
     function renderSettingsUI() {
         const autostart = document.getElementById('setting-video-autostart');
         if (autostart) {
-            // Default to false if not set, or true? User said "default unchecked".
-            // If key doesn't exist, it's undefined (falsy).
+            // Default to false if not set
             autostart.checked = !!(window.userSettings && window.userSettings.video_autostart);
 
             // Load tags
             if (typeof loadAndRenderUserTags === 'function') {
                 loadAndRenderUserTags();
+            }
+
+            // Share Annotations
+            const shareAnnotations = document.getElementById('setting-share-annotations');
+            if (shareAnnotations) {
+                // Default to true if not set (or if explicitly true)
+                shareAnnotations.checked = (window.userSettings && window.userSettings.share_annotations !== undefined) ? window.userSettings.share_annotations : true;
             }
         }
     }
@@ -63,8 +79,10 @@
 
     function saveSettingsTab() {
         const autostart = document.getElementById('setting-video-autostart').checked;
+        const shareAnnotations = document.getElementById('setting-share-annotations').checked;
         const s = {
-            video_autostart: autostart
+            video_autostart: autostart,
+            share_annotations: shareAnnotations
         };
         saveUserSettings(s);
     }

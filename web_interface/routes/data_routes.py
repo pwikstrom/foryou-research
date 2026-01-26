@@ -747,6 +747,14 @@ def api_persona_stats():
 
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')
         
+        # Access Control: Redact PII for Viewers
+        if current_user.is_authenticated and current_user.role == 'viewer':
+            redact_fields = ['name', 'email', 'tiktokHandle']
+            for rec in records:
+                for field in redact_fields:
+                    if field in rec:
+                        rec[field] = "hidden"
+        
         # Serialize
         for rec in records:
             for key, val in rec.items():

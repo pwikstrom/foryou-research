@@ -308,12 +308,7 @@ function pe_selectDonation(donationId) {
         : 'Unknown';
     document.getElementById('pe-stat-timezone').innerText = tzStr;
 
-    // Location-based timezone (from postcode/country)
-    const locTz = donation.location_tz_offset;
-    const locTzStr = locTz !== null && locTz !== undefined
-        ? `UTC${locTz >= 0 ? '+' : ''}${locTz}`
-        : 'N/A';
-    document.getElementById('pe-stat-location-timezone').innerText = locTzStr;
+
 
     document.getElementById('pe-stat-active-days').innerText = donation.active_days || 0;
     document.getElementById('pe-stat-total-events').innerText = (donation.total_events || 0).toLocaleString();
