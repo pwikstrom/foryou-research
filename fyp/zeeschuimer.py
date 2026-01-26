@@ -14,6 +14,7 @@ from fyp.utils import extract_and_join_subkeys, clean_url, pretty_str_seconds
 from fyp.recode_variables import recode_events_df, extract_local_time_features, rename_columns
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+from fyp.studies import init_study_defs, save_study_defs
 
 import numpy as np
 import subprocess
@@ -520,7 +521,8 @@ def load_zeeschuimer_data(
     if study_name is None:
         raise ValueError("study_name must be specified")
     
-    
+    if not "study_defs" in fyp_cf:
+        init_study_defs()
 
     START_DATE = fyp_cf["study_defs"][study_name].get("START_DATE","1970-01-01")
     if isinstance(START_DATE, str):

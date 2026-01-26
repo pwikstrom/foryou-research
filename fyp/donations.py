@@ -19,6 +19,7 @@ from fyp.recode_variables import *
 from fyp.calc_donation_stats import generate_personas
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+from fyp.studies import init_study_defs, save_study_defs
 
 from collections import deque
 import numpy as np
@@ -1331,7 +1332,8 @@ def load_donation_data(
  
     print(f"    [DDP] Loading data for study...")
     
- 
+    if not "study_defs" in fyp_cf:
+        init_study_defs()
 
     START_DATE = fyp_cf["study_defs"][study_name].get("START_DATE","1970-01-01")
     if isinstance(START_DATE, str):
@@ -1437,6 +1439,9 @@ def simple_sample_ddp_events(
 
     if verbose:
         print(f"    [DD Sampling] Group factors: {grouping_factors}")
+
+    if not "study_defs" in fyp_cf:
+        init_study_defs()
 
     MIN_EVENTS_REQUIRED = fyp_cf["study_defs"][study_name].get("MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP",10)
     MAX_EVENTS_SELECTED = fyp_cf["study_defs"][study_name].get("MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP",100)

@@ -57,10 +57,24 @@ def _calculate_stats(study_config, save_to_cache=True):
         if df_status is not None and not df_status.empty:
             
             # Filter status df to only include items in the study
-            study_item_ids = df_study['item_id'].unique()
             
-            # Subset of status for this study
-            matched_status = df_status.loc[df_status.index.isin(study_item_ids)].fillna(False).copy()
+            # Robust alignment: Ensure item_id is a column and use PyArrow strings
+            if 'item_id' not in df_status.columns and df_status.index.name == 'item_id':
+                df_status = df_status.reset_index()
+
+            if 'item_id' in df_status.columns:
+                try:
+                    status_ids = df_status['item_id'].astype("string[pyarrow]")
+                    study_ids = df_study['item_id'].astype("string[pyarrow]")
+                    matched_status = df_status.loc[status_ids.isin(study_ids)].fillna(False).copy()
+                except Exception as e:
+                    print(f"Error during robust index matching: {e}. Falling back to standard matching.")
+                    study_item_ids = df_study['item_id'].unique()
+                    matched_status = df_status.loc[df_status.index.isin(study_item_ids)].fillna(False).copy()
+            else:
+                # Fallback if we couldn't get item_id column
+                study_item_ids = df_study['item_id'].unique()
+                matched_status = df_status.loc[df_status.index.isin(study_item_ids)].fillna(False).copy()
             
             to_scrape_list = matched_status[(~matched_status.scraped_ok & ~matched_status.scrape_fail)].index.to_list()
             to_annotate_list = matched_status[(matched_status.scraped_ok & ~matched_status.annotated_ok)].index.to_list()
@@ -79,6 +93,12 @@ def _calculate_stats(study_config, save_to_cache=True):
             else:
                 data_io.save_json(storage_location='cache', filename='to_annotate.json', data=to_annotate_list)
             print(f"In scrape queue: {len(to_scrape_list)}  |  In annotation queue: {len(to_annotate_list)}")
+            
+            # Calculate counts
+            if 'scraped_ok' in matched_status.columns:
+                scraped_videos = int(matched_status['scraped_ok'].sum())
+            if 'annotated_ok' in matched_status.columns:
+                annotated_videos = int(matched_status['annotated_ok'].sum())
         
         return {
             "unique_videos": int(unique_videos),
@@ -102,10 +122,6 @@ def _calculate_stats(study_config, save_to_cache=True):
 @management_bp.route('/api/manage/studies', methods=['GET'])
 @login_required
 def list_studies():
-    # Load fresh from file to ensure we have latest (though fyp_cf["study_defs"] is usually loaded at init)
-    # But since we are modifying it, we should reload or use the in-memory if we keep it updated.
-    # The prompt implies we should read/write `studies.json`.
-    
     # Reload to be safe
     if not 'study_defs' in fyp_cf:
         init_study_defs()

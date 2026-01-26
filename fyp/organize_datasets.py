@@ -7,11 +7,12 @@ from fyp.machine_annotation import consolidate_and_save_refined_annotations
 from fyp.donations import load_donation_data, simple_sample_ddp_events
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.zeeschuimer import load_zeeschuimer_data
+from fyp.studies import init_study_defs
 import fyp.data_io as data_io
 from copy import deepcopy
 import datetime as _dt
 from fyp.fyp_config import fyp_cf
-
+from fyp.studies import init_study_defs, save_study_defs
 
 
 
@@ -28,6 +29,10 @@ def load_study_datasets(
 
     if study_name is None:
         raise ValueError("study_name must be specified")
+
+
+    if not "study_defs" in fyp_cf:
+        init_study_defs()
 
     if not study_name in fyp_cf["study_defs"].keys():
         raise ValueError(f"study_name '{study_name}' not found in config")
@@ -675,6 +680,9 @@ def new_merge(
     if study_name is None and save_to_cache == True:
         raise ValueError("study_name must be specified")
 
+
+    if not "study_defs" in fyp_cf:
+        init_study_defs()
 
     if not study_name in fyp_cf["study_defs"].keys() and save_to_cache == True:
         raise ValueError(f"study_name '{study_name}' not found in config")

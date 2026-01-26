@@ -238,17 +238,14 @@ def check_and_update_timeline_cache(donation_id, viz_vars):
     missing = []
     
     # Check if files exist
-    # DEBUG: Force regeneration to fix cached bad data
-    # for interval in intervals:
-    #     filename = f"timeline_{donation_id}_{interval}.parquet"
-    #     if not data_io.exists(storage_location="cache", filename=filename):
-    #         missing.append(interval)
-            
-    # Force missing to trigger generation
-    missing = intervals 
-            
-    # if not missing:
-    #     return True # All good
+    for interval in intervals:
+        filename = f"timeline_{donation_id}_{interval}.parquet"
+        if not data_io.exists(storage_location="cache", filename=filename):
+            missing.append(interval)
+
+    if not missing:
+        print(f"    [TIMELINE] Using cached timeline data for {donation_id}")
+        return True # All good
             
     # Generate Data
     # 1. Load Unified Dataset
