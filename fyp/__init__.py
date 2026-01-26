@@ -1,9 +1,14 @@
 # development version
 from py_compile import compile
-from os import listdir
-for fn in listdir():
+from py_compile import compile
+import os
+package_dir = os.path.dirname(__file__)
+for fn in os.listdir(package_dir):
     if fn.endswith(".py"):
-        compile(fn)
+        try:
+            compile(os.path.join(package_dir, fn))
+        except:
+            pass
 
 
 from .fyp_main import *

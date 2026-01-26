@@ -83,7 +83,8 @@ def get_metadata(df, column_types):
             all_items = []
             for row in df[col].dropna():
                 if isinstance(row, (list, np_ndarray)):
-                    all_items.extend(row)
+                    # Deduplicate within row to count Document Frequency (rows with tag) instead of Term Frequency
+                    all_items.extend(list(set(row)))
             
             # Use Counter to find top 50 tags
             from collections import Counter
@@ -767,7 +768,8 @@ def get_current_stats(df, column_types, viz_config=None):
              s = df[col].dropna()
              for row in s:
                   if isinstance(row, (list, np_ndarray)):
-                      all_items.extend(row)
+                      # Deduplicate within row to count Document Frequency
+                      all_items.extend(list(set(row)))
              from collections import Counter
              stats[col] = dict(Counter(all_items).most_common(20))
 
