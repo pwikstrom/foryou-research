@@ -8,7 +8,6 @@ Author: Patrik
 
 
 import datetime as _dt
-from fyp.fyp_main import connect_to_google
 from fyp.types import convert_dtypes_to_pyarrow
 import shutil
 import gcsfs
@@ -18,7 +17,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import threading
 from concurrent.futures import ThreadPoolExecutor
-
+from fyp.fyp_config import fyp_cf
 
 
 
@@ -26,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Path Resolution & GCS Helpers
 # ------------------------------------------------------------------------------
 
-def _resolve_paths(cf, storage_location, filename):
+def _resolve_paths(storage_location: str = "cache", filename: str = ""):
     """
     Resolve the given storage location and filename to local uri or local path:
     1. A Primary Path (GCS URI if enabled, else Local Path)
@@ -38,13 +37,12 @@ def _resolve_paths(cf, storage_location, filename):
         tuple: (primary_path, secondary_path, mode, blob_name)
     """
     
-    if (cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None) or (storage_location == 'cache' and cf['data_io']['use_gcs_for_cache'] and cf['data_io']['bucket'] is None):
-        cf = connect_to_google(cf)
-
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
     
     # 1. Validate Location
-    if storage_location not in cf['paths']:
-        valid_locs = ', '.join(list(cf['paths'].keys()))
+    if storage_location not in fyp_cf['paths']:
+        valid_locs = ', '.join(list(fyp_cf['paths'].keys()))
         raise ValueError(f"Invalid storage location: '{storage_location}'. Use: {valid_locs}")
 
 
@@ -53,14 +51,14 @@ def _resolve_paths(cf, storage_location, filename):
     gcs_base = False
     use_gcs = False
     if storage_location == 'cache':
-        use_gcs = cf['data_io']['use_gcs_for_cache']
+        use_gcs = fyp_cf['data_io']['use_gcs_for_cache']
     else:
-        use_gcs = cf['data_io']['use_gcs_for_data']
+        use_gcs = fyp_cf['data_io']['use_gcs_for_data']
 
     if use_gcs:
-        gcs_base = cf['gcs_paths'][storage_location]
+        gcs_base = fyp_cf['gcs_paths'][storage_location]
 
-    bucket_name = cf['data_io']['GCS_bucket_name']
+    bucket_name = fyp_cf['data_io']['GCS_bucket_name']
     
     # 3. Resolve
     if use_gcs and gcs_base:
@@ -75,14 +73,14 @@ def _resolve_paths(cf, storage_location, filename):
         return (gcs_uri, None, 'gcs', blob_name)
     else:
         # Local
-        local_path = os.path.join(cf['paths'][storage_location], filename)
+        local_path = os.path.join(fyp_cf['paths'][storage_location], filename)
         return (local_path, None, 'local', None)
 
 
 
-def _get_bucket(cf):
+def _get_bucket():
     """Retrieve the bucket object from config."""
-    w = cf['data_io']['bucket']
+    w = fyp_cf['data_io']['bucket']
     return w
 
 
@@ -92,16 +90,16 @@ def _get_bucket(cf):
 
 
 
-def get_recent_files(cf, storage_location, suffix=None, how_recent=10):
+def get_recent_files(storage_location: str = "cache", suffix: str = None, how_recent: int = 10):
 
     current_time = datetime.now()
     recent_files = []
 
-    for filename in data_io.listdir(cf, storage_location):
+    for filename in data_io.listdir(storage_location = storage_location):
         #file_path = join(storage_location, filename)
         if suffix is None or filename.endswith(suffix):
-            modified_time = datetime.fromtimestamp(data_io.getmtime(cf, storage_location, filename))
-            created_time = datetime.fromtimestamp(data_io.getctime(cf, storage_location, filename))
+            modified_time = datetime.fromtimestamp(data_io.getmtime(storage_location, filename))
+            created_time = datetime.fromtimestamp(data_io.getctime(storage_location, filename))
             time_difference = current_time - max(modified_time, created_time)
             if time_difference < timedelta(minutes=how_recent):
                 recent_files.append({"filename":filename, "mtime":modified_time, "ctime":created_time})
@@ -116,13 +114,21 @@ def get_recent_files(cf, storage_location, suffix=None, how_recent=10):
 
 
 def find_key_value_in_pq_metadata(
-    cf,
-    storage_location,
-    filename,
-    the_key
+    storage_location: str = "cache",
+    filename: str = "",
+    the_key: str = ""
     ):
 
-    meta = pq.read_metadata(_resolve_paths(cf, storage_location, filename)[0])
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+    
+    if the_key == "":
+        raise ValueError("Key cannot be empty")
+
+    meta = pq.read_metadata(_resolve_paths(storage_location, filename)[0])
     file_metadata_dict = meta.metadata  # This is a dictionary of {bytes: bytes}
 
     for k in file_metadata_dict:
@@ -139,23 +145,26 @@ def find_key_value_in_pq_metadata(
 
 
 
-def exists(cf, storage_location, filename, verbose=False) -> bool:
+def exists(storage_location: str = "cache", filename: str = "", verbose: bool = False) -> bool:
     """
     Check if the file filename exists in the given storage location.
     Transparently handles local or GCS checks.
     """
 
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
 
-    if (cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None) or (storage_location == 'cache' and cf['data_io']['use_gcs_for_cache'] and cf['data_io']['bucket'] is None):
-        cf = connect_to_google(cf)
+
     
-    
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
     #if verbose:
     #    print(f"    [DATA_IO] exists: Checking {primary}")
     
     if mode == 'gcs':
-        bucket = _get_bucket(cf)
+        bucket = _get_bucket()
         gcs_exists = False
         if bucket:
             # Note: Checking blob existence involves a metadata request
@@ -174,19 +183,22 @@ def exists(cf, storage_location, filename, verbose=False) -> bool:
 
 
 
-def getctime(cf, storage_location, filename, verbose=False):
+def getctime(storage_location: str = "cache", filename: str = "", verbose: bool = False):
     """
     Get the creation time of the file filename.
     """
     
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
-
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
     
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
     
     if mode == 'gcs':
-        bucket = cf['data_io']['bucket']
+        bucket = fyp_cf['data_io']['bucket']
         if bucket:
             blob = bucket.get_blob(blob_name)
             if blob and blob.time_created:
@@ -202,19 +214,23 @@ def getctime(cf, storage_location, filename, verbose=False):
 
 
 
-def getmtime(cf, storage_location, filename, verbose=False):
+def getmtime(storage_location: str = "cache", filename: str = "", verbose: bool = False):
     """
     Get the modification time of the file.
     """
     
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
-
     if mode == 'gcs':
-        bucket = cf['data_io']['bucket']
+        bucket = _get_bucket()
         if bucket:
             blob = bucket.get_blob(blob_name)
             if blob and blob.updated:
@@ -230,19 +246,22 @@ def getmtime(cf, storage_location, filename, verbose=False):
 
 
 
-def getsize(cf, storage_location, filename, verbose=False):
+def getsize(storage_location: str = "cache", filename: str = "", verbose: bool = False):
     """
     Get the size of the file.
     """
     
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
-
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
     
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     if mode == 'gcs':
-        bucket = cf['data_io']['bucket']
+        bucket = _get_bucket()
         if bucket:
                 blob = bucket.get_blob(blob_name)
                 if blob:
@@ -260,20 +279,23 @@ def getsize(cf, storage_location, filename, verbose=False):
 
 
 
-def remove(cf, storage_location, filename, verbose=False):
+def remove(storage_location: str = "cache", filename: str = "", verbose: bool = False):
     """
     Remove the file filename from the given storage location.
     """
     
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
-
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
     
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     # 1. Remove from GCS if configured
     if mode == 'gcs':
-        bucket = cf['data_io']['bucket']
+        bucket = _get_bucket()
         if bucket:
             try:
                 # delete() raises NotFound by default if missing, unless generic exception handling
@@ -294,26 +316,22 @@ def remove(cf, storage_location, filename, verbose=False):
 
 
 
-def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> list:
+def listdir(storage_location: str = "cache", return_absolute_path: bool = False, verbose: bool = False) -> list:
     """
     List files in the given storage location.
     Handles GCS listing if configured.
     """
     
-    # I can't use _resolve_paths directly for the dir itself because _resolve_paths expects a filename
-
-    if (cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None) or (storage_location == 'cache' and cf['data_io']['use_gcs_for_cache'] and cf['data_io']['bucket'] is None):
-        cf = connect_to_google(cf)
     
     gcs_base = False
     use_gcs = False
     if storage_location == 'cache':
-        use_gcs = cf['data_io']['use_gcs_for_cache']
+        use_gcs = fyp_cf['data_io']['use_gcs_for_cache']
     else:
-        use_gcs = cf['data_io']['use_gcs_for_data']
+        use_gcs = fyp_cf['data_io']['use_gcs_for_data']
 
     if use_gcs:
-        gcs_base = cf['gcs_paths'][storage_location]
+        gcs_base = fyp_cf['gcs_paths'][storage_location]
 
 
     files = []
@@ -321,8 +339,8 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
     if use_gcs and gcs_base:
         # GCS Mode
         try:
-            bucket = cf['data_io']['bucket']
-            bucket_name = cf['data_io']['GCS_bucket_name']
+            bucket = fyp_cf['data_io']['bucket']
+            bucket_name = fyp_cf['data_io']['GCS_bucket_name']
             if bucket:
                 # Add trailing slash to treat as directory
                 prefix = gcs_base
@@ -362,9 +380,9 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
              
     else:
         # Local Mode
-        if storage_location not in cf['paths']:
+        if storage_location not in fyp_cf['paths']:
             raise ValueError(f"Invalid storage location: '{storage_location}'.")
-        local_dir = cf['paths'][storage_location]
+        local_dir = fyp_cf['paths'][storage_location]
 
         #if verbose: print(f"    [DATA_IO] Listing files in local storage: {local_dir}")
 
@@ -383,31 +401,34 @@ def listdir(cf, storage_location, return_absolute_path=False, verbose=False) -> 
 
 
 
-def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=False):
+def move(src_storage_location: str = "", dst_storage_location: str = "", filename: str = "", verbose: bool = False):
     """
     Move the file filename from src_storage_location to dst_storage_location.
     """
 
-
-
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
-
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    
+    if src_storage_location == "":
+        raise ValueError("Source storage location cannot be empty")
+    
+    if dst_storage_location == "":
+        raise ValueError("Destination storage location cannot be empty")
     
     # Resolve DST
-    dst_primary, _, dst_mode, dst_blob_name = _resolve_paths(cf, dst_storage_location, filename)
+    dst_primary, _, dst_mode, dst_blob_name = _resolve_paths(dst_storage_location, filename)
 
 
     # temp to storage_location
     if src_storage_location == "temp":
         
-        src_path = os.path.join(cf['paths']['temp'], filename)
+        src_path = os.path.join(fyp_cf['paths']['temp'], filename)
         if not os.path.exists(src_path):
              if verbose: print(f"    [DATA_IO] ERROR: Source file not found in temp: '{src_path}'")
              return
 
         if dst_mode == 'gcs':
-            bucket = _get_bucket(cf)
+            bucket = _get_bucket()
             if bucket:
                 try:
                     blob = bucket.blob(dst_blob_name)
@@ -430,11 +451,11 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
         return
 
     # Resolve SRC
-    src_primary, _, src_mode, src_blob_name = _resolve_paths(cf, src_storage_location, filename)
+    src_primary, _, src_mode, src_blob_name = _resolve_paths(src_storage_location, filename)
 
     # GCS Move
     if src_mode == 'gcs' and dst_mode == 'gcs':
-        bucket = _get_bucket(cf)
+        bucket = _get_bucket()
         if bucket:
             try:
                 blob = bucket.blob(src_blob_name)
@@ -466,7 +487,13 @@ def move(cf, src_storage_location, dst_storage_location, filename: str, verbose=
 
 
 # read a file with one json object per line and return a list of dictionaries
-def read_ndjson_file(cf, storage_location, filename, verbose=False):
+def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbose: bool = False):
+
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
 
 
     # Extension check
@@ -476,20 +503,20 @@ def read_ndjson_file(cf, storage_location, filename, verbose=False):
         if verbose: 
             print(f"    [DATA_IO] WARN: File extension is not '.ndjson': '{ext}' (filename: {bn})")
         
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
     
     # Attempt Primary Load
     data = []
     if True:#try:
         if mode == 'gcs':
-            bucket = _get_bucket(cf)
+            bucket = _get_bucket()
             if bucket:
                 blob = bucket.blob(blob_name)
                 # Check existence to avoid generic 404 error masked as something else
                 if blob.exists():
                     with blob.open("r") as file:
                         for line in file:
-                            line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
+                            line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
                             line = '{"log_script":"' + root + '",' + line[1:]
                             data.append(json.loads(line))
                     return data
@@ -501,7 +528,7 @@ def read_ndjson_file(cf, storage_location, filename, verbose=False):
             # Local Primary
             with open(primary, 'r') as file:
                 for line in file:
-                    line = '{"label":"' + cf["misc"]["label"] + '",' + line[1:]
+                    line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
                     line = '{"log_script":"' + root + '",' + line[1:]
                     data.append(json.loads(line))
             return data
@@ -524,14 +551,17 @@ def read_ndjson_file(cf, storage_location, filename, verbose=False):
 
 
 
-def load_json(cf, storage_location, filename, verbose = False):
+def load_json(storage_location: str = "cache", filename: str = "", verbose: bool = False):
     """
     Load a json from a given path.
     Handles GCS read.
     """
+
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
     
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
 
 
     # Extension check
@@ -540,12 +570,12 @@ def load_json(cf, storage_location, filename, verbose = False):
     if ext != '.json':
         if verbose: print(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
     
     # Attempt Primary Load
     try:
         if mode == 'gcs':
-            bucket = _get_bucket(cf)
+            bucket = _get_bucket()
             if bucket:
                 blob = bucket.blob(blob_name)
                 # Check existence to avoid generic 404 error masked as something else
@@ -575,25 +605,31 @@ def load_json(cf, storage_location, filename, verbose = False):
 
 
 
-def save_json(cf, data, storage_location, filename, verbose = False):
+def save_json(data = None, storage_location: str = "cache", filename: str = "", verbose: bool = False):
     """
     Save a json to a given path.
     Supports GCS write + Parallel Save.
     """
 
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
+    if data is None:
+        raise ValueError("Data cannot be empty")
+    
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
 
     bn = os.path.basename(filename)
     root, ext = os.path.splitext(bn)
     if ext != '.json':
         if verbose: print(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     # 1. Save Primary
     if mode == 'gcs':
-        bucket = _get_bucket(cf)
+        bucket = _get_bucket()
         if bucket:
              blob = bucket.blob(blob_name)
              blob.upload_from_string(json.dumps(data))
@@ -614,9 +650,8 @@ def save_json(cf, data, storage_location, filename, verbose = False):
 
 
 def load_parquet(
-        cf,
-        storage_location,
-        filename, # if filename == '*' -> load all parquet files in storage_location
+        storage_location: str = "cache",
+        filename: str = "", # if filename == '*' -> load all parquet files in storage_location
         columns=None,
         filters=None,
         verbose = False,
@@ -625,6 +660,14 @@ def load_parquet(
     Load a dataframe from a given path.
     Supports GCS direct read (gs://).
     """
+
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+
 
     def _renamed(s):
         fixer_upper = [
@@ -645,18 +688,16 @@ def load_parquet(
 
     t1 = _dt.datetime.now()
 
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
-    if cf['data_io']['bucket'] is not None:
+    if fyp_cf['data_io']['bucket'] is not None:
         # Initialize GCS filesystem
         fs = gcsfs.GCSFileSystem()
 
 
     # if we are to load all parquet files in this location (and it is gcs)
-    if filename == "*" and cf['data_io']['use_gcs_for_data']:
-        gcs_base = cf.get("gcs_paths", {}).get(storage_location)
-        bucket_name = cf['data_io'].get('GCS_bucket_name')
+    if filename == "*" and fyp_cf['data_io']['use_gcs_for_data']:
+        gcs_base = fyp_cf.get("gcs_paths", {}).get(storage_location)
+        bucket_name = fyp_cf['data_io'].get('GCS_bucket_name')
         files = fs.glob(f'gs://{bucket_name}/{gcs_base}/*.parquet')
         files = ["gs://" + f for f in files]
 
@@ -712,11 +753,11 @@ def load_parquet(
     if ext != '.parquet':
         raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
 
-    if not exists(cf, storage_location, filename):
+    if not exists(storage_location, filename):
         raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
 
     # Resolve path
-    primary, _, mode, _ = _resolve_paths(cf, storage_location, filename)
+    primary, _, mode, _ = _resolve_paths(storage_location, filename)
 
     # if specific columns are to be loaded, we need to make sure the cols actually exist in the parquet files
     if columns is not None:
@@ -766,10 +807,9 @@ def load_parquet(
 file_lock = threading.Lock()
 
 def save_parquet(
-    cf: dict, 
-    df: pd.DataFrame, 
-    storage_location: str, 
-    filename: str, 
+    df: pd.DataFrame = None, 
+    storage_location: str = "cache", 
+    filename: str = "", 
     asyncronous: bool = False,
     verbose: bool = False,
     ):
@@ -778,11 +818,16 @@ def save_parquet(
     Supports GCS direct write and Parallel Save (GCS + Local).
     """
 
+    if df is None:
+        raise ValueError("Dataframe cannot be empty")
+    
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
     this_df = df.copy()
-
-
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
 
     # A) Resolve Paths (Primary = GCS if enabled, Secondary = Local)
@@ -795,7 +840,7 @@ def save_parquet(
         raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
     
     # Resolve using the filename (which has .parquet)
-    primary, secondary, mode, blob_name = _resolve_paths(cf, storage_location, filename)
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     # B) Type Management
     this_df = convert_dtypes_to_pyarrow(this_df, verbose=verbose)
@@ -856,106 +901,3 @@ def save_parquet(
 
 
 
-
-
-
-# ------------------------------------------------------------------------------
-# Data Management Utilities
-# ------------------------------------------------------------------------------
-
-"""def get_study_export_files(cf = None, study_name = None):
-
-    if cf is None:
-        cf = initialize()
-    
-    if study_name is None:
-        raise ValueError("study_name is required")
-
-    export_file_categories = ["HALF_BAKED", "PCA", "LOG", "RECODED"]
-    study_files = {category: [] for category in export_file_categories}
-    for fn in listdir(cf, "exports"):
-        if fn.startswith(study_name) and fn.endswith('.parquet'):
-            for category in export_file_categories:
-                if category in fn:
-                    study_files[category].append(getmtime(cf, "exports", fn))
-    
-    for category in study_files:
-        if len(study_files[category]) == 0:
-            study_files[category] = "No file found"
-        elif len(study_files[category]) == 1:
-            study_files[category] = f"1 file saved on {_dt.datetime.fromtimestamp(int(study_files[category][0]))}"
-        else:
-            oldest_file = int(min(study_files[category]))
-            newest_file = int(max(study_files[category]))
-            study_files[category] = f"{len  (study_files[category])} files from {_dt.datetime.fromtimestamp(oldest_file)} to {_dt.datetime.fromtimestamp(newest_file)}"
-
-    return study_files"""
-
-
-
-"""
-def get_dataset_details(cf=None, study_name=None):
-    
-    if cf is None:
-        cf = initialize()
-        
-    if study_name is None:
-        raise ValueError("study_name is required")
-
-    grouping_factors = get_grouping_factors_from_var_schema(cf = cf)
-
-    details = []
-
-    try:
-        files = [f for f in listdir(cf, "exports") if f.startswith(study_name) and f.endswith('.parquet')]
-    except FileNotFoundError:
-        return []
-
-    for fn in files:
-        try:
-            # Get size in KB
-            size_kb = getsize(cf, "exports", fn) / 1024
-            
-            # Read dataset safely
-            # Note: calling load_dataset directly within same module
-            df = load_parquet(cf, "exports", fn)
-            
-            rows, cols = df.shape if hasattr(df, "shape") else (len(df), "N/A")
-            if "item_id" in df.columns:
-                nunique_items = df["item_id"].nunique()
-            else:
-                nunique_items = "N/A"
-
-            all_grouping_factors_in_df = all([gf in df.columns for gf in grouping_factors])
-            if all_grouping_factors_in_df:
-                group_factor_counts = len(df.groupby(grouping_factors).size())
-            else:
-                all_grouping_factors_in_df = all([gf[2:] in df.columns for gf in grouping_factors])
-                if all_grouping_factors_in_df:
-                    group_factor_counts = len(df.groupby([gf[2:] for gf in grouping_factors]).size())
-                else:
-                    group_factor_counts = "N/A"
-
-            
-            details.append({
-                "filename": fn,
-                "rows": rows,
-                "cols": cols,
-                "nunique_items": nunique_items,
-                "group_factor_counts": group_factor_counts,
-                "size_kb": round(size_kb, 0)
-            })
-            
-            # Clean up memory
-            del df
-            
-        except Exception as e:
-            details.append({
-                "filename": fn,
-                "error": str(e)
-            })
-            
-    # Sort by filename
-    details.sort(key=lambda x: x["filename"])
-    return details
-"""

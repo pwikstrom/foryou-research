@@ -20,17 +20,15 @@ def main() -> None:
         current_dir = current_dir.parent
     sys.path.append(str(current_dir))
 
-    from fyp.fyp_main import initialize, connect_to_google
     import fyp.data_io as data_io
+    from fyp.fyp_config import fyp_cf
 
-    cf = initialize()
-    cf = connect_to_google(cf)
 
 
     # === CONFIG ===
     TRACE_STORAGE_LOCATION = "scrape"
     # Even if we use GCS, we keep the log file local in the mapped directory
-    WATCH_DIR_LOCAL = Path(cf['paths'][TRACE_STORAGE_LOCATION]) 
+    WATCH_DIR_LOCAL = Path(fyp_cf['paths'][TRACE_STORAGE_LOCATION]) 
     PATTERN_SUFFIX = '.parquet'                                      # final suffix to react to
     PATTERN_PREFIX = "scrape_metadata_"                          # prefix to react to
     STATE_FILE = "watcher_state.json"                            # JSON file in GCS to track state
@@ -49,7 +47,7 @@ def main() -> None:
         """
         try:
             # Save as a list
-            data_io.save_json(cf, list(processed), TRACE_STORAGE_LOCATION, STATE_FILE, verbose=False)
+            data_io.save_json(data = list(processed), storage_location = TRACE_STORAGE_LOCATION, filename = STATE_FILE, verbose=False)
         except Exception as e:
             print(f"Error saving watcher state: {e}")
 
@@ -63,7 +61,7 @@ def main() -> None:
         
         # 1. Try loading authoritative state from GCS/storage
         try:
-            state_data = data_io.load_json(cf, TRACE_STORAGE_LOCATION, STATE_FILE, verbose=False)
+            state_data = data_io.load_json(storage_location = TRACE_STORAGE_LOCATION, filename = STATE_FILE, verbose=False)
             if state_data and isinstance(state_data, list):
                 print(f"Loaded persistent state with {len(state_data)} records.")
                 return set(state_data)
@@ -111,7 +109,7 @@ def main() -> None:
         """
         # data_io.listdir handles GCS transparently
         try:
-            files = data_io.listdir(cf, TRACE_STORAGE_LOCATION, verbose=False)
+            files = data_io.listdir(storage_location = TRACE_STORAGE_LOCATION, verbose=False)
         except Exception as e:
             print(f"Error listing files: {e}")
             return set()
@@ -130,7 +128,6 @@ def main() -> None:
         print(f"Starting annotation of {filename}")
         # annotate_from_scrape_data_file supports data_io and GCS
         annotate_from_scrape_data_file(
-            cf = cf, 
             scrape_metadata_filename = filename, 
             verbose = False
             )

@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime
 from collections import deque
-from .fyp_config import PROCESS_STATS_FILE, PROJECT_ROOT, PYTHON_EXEC
+from fyp.fyp_config import PROCESS_STATS_FILE, PROJECT_ROOT, PYTHON_EXEC
 
 
 # --- Global State ---

@@ -3,14 +3,14 @@ from flask_login import login_required, current_user
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from ..fyp_config import fyp_cf, PROJECT_ROOT
+from fyp.fyp_config import fyp_cf, PROJECT_ROOT
 from ..data_service import (
     get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags,
     load_schema_metadata, get_timeline_data, get_study_donations
 )
 from .. import explorer_backend as explorer
 from fyp.recode_variables import get_factors_and_features_from_var_schema
-import fyp
+from fyp.studies import init_study_defs, save_study_defs
 import fyp.data_io as data_io
 import pyarrow.parquet as pq
 import ast
@@ -23,27 +23,30 @@ data_bp = Blueprint('data_bp', __name__)
 
 
 
-@data_bp.route('/api/explorer/studies', methods=['GET'])
+"""@data_bp.route('/api/explorer/studies', methods=['GET'])
 @login_required
 def api_explorer_studies():
     studies = []
     if data_io.exists(
-        cf=fyp_cf,
         storage_location="cache",
         filename="_recoded.parquet",
         ):
         print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%does this ever happen?")
-        recoded_files = [fn for fn in data_io.listdir(cf=fyp_cf, storage_location="cache") if fn.endswith("_recoded.parquet")]
+        recoded_files = [fn for fn in data_io.listdir(storage_location="cache") if fn.endswith("_recoded.parquet")]
         for fn in recoded_files:
             study_name = fn.replace("_recoded.parquet", "")
             studies.append(study_name)
     
-    return jsonify(sorted(studies))
+    return jsonify(sorted(studies))"""
 
 
 @data_bp.route('/api/studies/defined', methods=['GET'])
 @login_required
 def api_get_study_defs():
+
+    if not 'study_defs' in fyp_cf:
+        init_study_defs()
+        
     if 'study_defs' in fyp_cf:
         studies = []
         for study_name, study_config in fyp_cf['study_defs'].items():
@@ -115,8 +118,8 @@ def api_explorer_metadata():
         return jsonify({"error": "Dataset not found"}), 404
     
  
-    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study}_{context}_metadata.json"):
-        metadata = data_io.load_json(cf=fyp_cf, storage_location="cache", filename=f"{study}_{context}_metadata.json")
+    if data_io.exists(storage_location="cache", filename=f"{study}_{context}_metadata.json"):
+        metadata = data_io.load_json(storage_location="cache", filename=f"{study}_{context}_metadata.json")
         print(f"    Using cached metadata for {study}")
         
         # Force refresh of dynamic metadata (User Tags & Has Annotation)
@@ -198,9 +201,9 @@ def api_explorer_metadata():
 
     try:
         the_recoded_file = f"{study}_recoded.parquet"
-        if data_io.exists(cf=fyp_cf, storage_location="cache", filename=the_recoded_file):
+        if data_io.exists(storage_location="cache", filename=the_recoded_file):
             metadata['source_file'] = the_recoded_file
-            mtime = datetime.fromtimestamp(data_io.getmtime(cf=fyp_cf, storage_location="cache", filename=the_recoded_file))
+            mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file))
             metadata['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
         else:
              metadata['source_file'] = "Unknown"
@@ -249,7 +252,7 @@ def api_explorer_metadata():
         idx = 1 if 'User Tags' in metadata else 0
         metadata['display_priority'].insert(idx, 'Has Annotation')
 
-    data_io.save_json(cf=fyp_cf, data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=True)
+    data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=True)
 
     return jsonify(make_serializable(metadata))
 
@@ -287,8 +290,8 @@ def api_explorer_filter():
     # Load cached metadata to potentially reuse total_stats
     cached_metadata = {}
     try:
-        if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study}_explorer_metadata.json"):
-            cached_metadata = data_io.load_json(cf=fyp_cf, storage_location="cache", filename=f"{study}_explorer_metadata.json")
+        if data_io.exists(storage_location="cache", filename=f"{study}_explorer_metadata.json"):
+            cached_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_explorer_metadata.json")
     except Exception as e:
         print(f"    Warning: Could not load cached metadata: {e}")
     
@@ -421,8 +424,8 @@ def api_get_tags():
     username = current_user.username
     tag_filename = f"{username}_tags.json"
     
-    if data_io.exists(fyp_cf, "users", tag_filename):
-        tags = data_io.load_json(fyp_cf, "users", tag_filename)
+    if data_io.exists(storage_location = "users", filename = tag_filename):
+        tags = data_io.load_json(storage_location = "users", filename = tag_filename)
         return jsonify(tags)
     else:
         return jsonify({})
@@ -450,8 +453,8 @@ def api_save_tags():
     
     # Load existing
     user_data = {}
-    if data_io.exists(fyp_cf, "users", tag_filename):
-        user_data = data_io.load_json(fyp_cf, "users", tag_filename)
+    if data_io.exists(storage_location="users", filename=tag_filename):
+        user_data = data_io.load_json(storage_location="users", filename=tag_filename)
         
     # Update structure (Global Item ID centric)
     if item_id not in user_data: user_data[item_id] = {}
@@ -490,7 +493,7 @@ def api_save_tags():
         
     # Save
     # print(f"[TAGS] User data after update: {user_data}")
-    data_io.save_json(fyp_cf, user_data, "users", tag_filename)
+    data_io.save_json(data=user_data, storage_location="users", filename=tag_filename)
     
     return jsonify({"status": "success", "tags": tags, "notes": notes, "closed_tagging": closed_tagging})
 
@@ -506,10 +509,10 @@ def api_delete_tag(tag_name):
     
     print(f"[TAGS] Deleting tag '{tag_name}' for user {username}")
     
-    if not data_io.exists(fyp_cf, "users", tag_filename):
+    if not data_io.exists(storage_location="users", filename=tag_filename):
         return jsonify({"status": "success", "message": "No tags found"}), 200
         
-    user_data = data_io.load_json(fyp_cf, "users", tag_filename)
+    user_data = data_io.load_json(storage_location="users", filename=tag_filename)
     modified = False
     
     # Iterate and remove
@@ -544,7 +547,7 @@ def api_delete_tag(tag_name):
         del user_data[item_id]
         
     if modified:
-        data_io.save_json(fyp_cf, user_data, "users", tag_filename)
+        data_io.save_json(data=user_data, storage_location="users", filename=tag_filename)
         return jsonify({"status": "success", "message": f"Tag '{tag_name}' deleted"})
     else:
         return jsonify({"status": "success", "message": "Tag not found in any item"}), 200
@@ -565,7 +568,7 @@ def api_pca_metadata():
     if df is None: return jsonify({"error": "PCA data not found"}), 404
 
     numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-    factors, _ = get_factors_and_features_from_var_schema(cf = fyp_cf, some_events_df = df, verbose = False)
+    factors, _ = get_factors_and_features_from_var_schema(some_events_df = df, verbose = False)
     
     if not factors:
         raise Exception("No factors found in var_schema")
@@ -579,7 +582,7 @@ def api_pca_metadata():
     interpretations = {}
     try:
         inter_path = f"{study}_comp_interpretations.json"
-        interpretations = data_io.load_json(fyp_cf, "cache", inter_path, verbose=False)
+        interpretations = data_io.load_json(storage_location="cache", filename=inter_path, verbose=False)
     except Exception as e:
         print(f"Error loading interpretations: {e}")
 
@@ -645,8 +648,8 @@ def api_pca_data():
 @data_bp.route('/api/persona_stats_info', methods=['GET'])
 def api_persona_stats_info():
     if True:
-        if data_io.exists(fyp_cf, "ddp_main", "ddp_metadata.parquet"):
-            mtime = data_io.getmtime(fyp_cf, "ddp_main", "ddp_metadata.parquet")
+        if data_io.exists(storage_location="ddp_main", filename="ddp_metadata.parquet"):
+            mtime = data_io.getmtime(storage_location="ddp_main", filename="ddp_metadata.parquet")
             timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
             return jsonify({"exists": True, "timestamp": timestamp})
         return jsonify({"exists": False, "timestamp": None})
@@ -662,7 +665,7 @@ def api_persona_stats_cached():
 def api_persona_stats():
     try:
         filename = "ddp_metadata.parquet"
-        if not data_io.exists(fyp_cf, "ddp_main", filename):
+        if not data_io.exists(storage_location="ddp_main", filename=filename):
              return jsonify({"error": "Persona metadata file not found."}), 404
         
         stats_df = None
@@ -670,7 +673,6 @@ def api_persona_stats():
         # Load the parquet file
         try:
              stats_df = data_io.load_parquet(
-                cf=fyp_cf,
                 storage_location="ddp_main",
                 filename=filename
             )
@@ -851,7 +853,7 @@ def api_timeline_donations():
     
     
     
-    meta_df = data_io.load_parquet(fyp_cf, "ddp_main", "ddp_metadata.parquet")
+    meta_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
     
     if meta_df is None:
         print("DEBUG TIMELINE: ddp_metadata.parquet is None")
@@ -920,9 +922,6 @@ def api_timeline_donations():
 
 @data_bp.route('/api/video/<study>/<item_id>', methods=['GET'])
 def api_video_stream(study, item_id):
-    global fyp_cf
-    if fyp_cf["data_io"]["bucket"] is None:
-        fyp_cf = fyp.connect_to_google(fyp_cf)
 
     bucket = fyp_cf.get("data_io", {}).get("bucket")
     if not bucket:

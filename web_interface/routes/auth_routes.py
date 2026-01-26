@@ -5,7 +5,7 @@ import web_interface.auth as auth
 from ..security import user_manager
 from email_validator import validate_email, EmailNotValidError
 from ..mail_utils import send_welcome_email_async
-from ..fyp_config import fyp_cf
+from fyp.fyp_config import fyp_cf
 import fyp.data_io as data_io
 
 auth_bp = Blueprint('auth_bp', __name__)
@@ -87,7 +87,7 @@ def api_admin_users():
         
         # Get list of files in 'users' storage to check for annotations
         try:
-            stored_files = set(data_io.listdir(fyp_cf, "users"))
+            stored_files = set(data_io.listdir(storage_location = "users", return_absolute_path=False, verbose=False))
         except Exception as e:
             print(f"Error listing users directory: {e}")
             stored_files = set()
@@ -108,7 +108,7 @@ def api_admin_users():
             tag_filename = f"{u.username}_tags.json"
             if tag_filename in stored_files:
                 try:
-                    user_data = data_io.load_json(fyp_cf, "users", tag_filename)
+                    user_data = data_io.load_json(storage_location="users", filename=tag_filename)
                     if user_data:
                         notes_count = 0
                         closed_count = 0
@@ -231,7 +231,7 @@ def api_admin_annotations():
     master_index = {}
 
     try:
-        stored_files = set(data_io.listdir(fyp_cf, "users"))
+        stored_files = set(data_io.listdir(storage_location = "users", return_absolute_path=False, verbose=False))
     except Exception as e:
         print(f"Error listing users directory: {e}")
         return jsonify([])
@@ -243,7 +243,7 @@ def api_admin_annotations():
         username = filename.replace('_tags.json', '')
         
         try:
-            user_data = data_io.load_json(fyp_cf, "users", filename)
+            user_data = data_io.load_json(storage_location="users", filename=filename)
             if not user_data: continue
             
             for item_id, item_vars in user_data.items():

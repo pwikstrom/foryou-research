@@ -22,7 +22,6 @@ if __name__ == "__main__":
 
     try:
         queue_scraper_loop(
-            cf=None,
             batch_size=args.batch_size,
             max_batches=args.max_batches,
             verbose=False,

@@ -6,12 +6,9 @@ from datetime import datetime
 from copy import copy
 import numpy as np
 
-from fyp.fyp_main import initialize
+from fyp.fyp_config import fyp_cf
 from fyp.types import convert_dtypes_to_pyarrow 
 
-
-
-fyp_cf = initialize()
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 GENERIC_MAPPER = fyp_cf["labels"]["GENERIC_MAPPER"]
 IRRELEVANT_WORDS = fyp_cf["labels"]["IRRELEVANT_WORDS"]
@@ -171,7 +168,6 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
 
 
 def extract_local_time_features(
-    cf = None,
     some_events_df_in = None,
     kind_of_log = None,
     verbose = False):
@@ -179,9 +175,6 @@ def extract_local_time_features(
     Integrates per-donation timezone offsets from persona_stats_cache.
     """
 
-
-    if cf is None:
-        cf = initialize()
 
 
 
@@ -304,15 +297,9 @@ def extract_local_time_features(
 
 
 
-def get_factors_and_features_from_var_schema(cf = None, some_events_df = None, verbose = False):
-    #import pandas as pd
-    #from os.path import join
-    #from fyp.fyp_main import initialize
-
-    if cf is None:
-        cf = initialize()
+def get_factors_and_features_from_var_schema(some_events_df = None, verbose = False):
     
-    var_schema = cf["var_schema"]
+    var_schema = fyp_cf["var_schema"]
     
     the_factors = sorted(list(set(var_schema[var_schema["role"].isin(['factor','group_factor'])].variable_name)))
     the_features = sorted(list(set(var_schema[var_schema["role"]=='feature'].variable_name)))
@@ -353,15 +340,9 @@ def _is_emoji(s: str) -> bool:
 
 
 
-def get_grouping_factors_from_var_schema(cf = None, some_events_df = None, verbose = False):
-    #import pandas as pd
-    #from os.path import join
-    #from fyp.fyp_main import initialize
-
-    if cf is None:
-        cf = initialize()
+def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False):
     
-    var_schema = cf["var_schema"]
+    var_schema = fyp_cf["var_schema"]
     
     the_grouping_factors = sorted(list(set(var_schema[var_schema["role"]=='group_factor'].variable_name)))
     if some_events_df is not None:
@@ -628,17 +609,17 @@ def recode_scene_sentiments(
 
     a_string = a_string.lower().replace("-","").replace(" ","")
     valence = 0
-    for w in cf['labels']['POSITIVE_WORDS']:
+    for w in fyp_cf['labels']['POSITIVE_WORDS']:
         if w in a_string:
             valence = 1
-    for w in cf['labels']['NEGATIVE_WORDS']:
+    for w in fyp_cf['labels']['NEGATIVE_WORDS']:
         if w in a_string:
             valence = -1
     energy = 0
-    for w in cf['labels']['HIGH_ENERGY_WORDS']:
+    for w in fyp_cf['labels']['HIGH_ENERGY_WORDS']:
         if w in a_string:
             energy = 1
-    for w in cf['labels']['LOW_ENERGY_WORDS']:
+    for w in fyp_cf['labels']['LOW_ENERGY_WORDS']:
         if w in a_string:
             energy = -1
     
@@ -1187,7 +1168,6 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 
 def recode_events_df(
-    cf: dict = None,
     study_dataset: pd.DataFrame = None,
     drop_single_value_cols: bool = True,
     verbose: bool = False
@@ -1213,14 +1193,11 @@ def recode_events_df(
         return None
 
 
-    if cf is None:
-        cf = initialize()
-
 
 
     cool_events = study_dataset.copy()
 
-    var_schema = cf["var_schema"].copy()
+    var_schema = fyp_cf["var_schema"].copy()
 
     var_schema.set_index("variable_name", inplace=True)
 
@@ -1228,7 +1205,7 @@ def recode_events_df(
     # this is where evaluation of the test based variables in the csv takes place
     var_schema[['mapper','ignore_strings','recode_func']] = var_schema[['mapper','ignore_strings','recode_func']].map(_try_eval)
 
-    fyp_factors, _ = get_factors_and_features_from_var_schema(cf = cf, some_events_df = cool_events, verbose = verbose)
+    fyp_factors, _ = get_factors_and_features_from_var_schema(some_events_df = cool_events, verbose = verbose)
 
 
     # this will be overwritten in at a later stage - I just want to turn it into a string for now
@@ -1437,141 +1414,6 @@ def recode_events_df(
 
 
 
-
-
-
-
-
-"""def recode_machine_annotations():
-    #from fyp.fyp_main import initialize
-    #import fyp.data_io as data_io
-    #import fyp
-    #import pandas as pd
-    #from fyp.fyp_main import convert_dtypes_to_pyarrow
-
-    cf = initialize()
-
-    ma_df = data_io.load_parquet(cf=cf, storage_location="machine_annotations_refined", filename="*", verbose=True)
-
-    ma_df = rename_columns(ma_df.rename(columns={c:"G_"+c if not c=="item_id" and not c.startswith("G_") else c for c in ma_df.columns})).copy()
-
-    m1 = recode_events_df(
-        cf = cf,
-        study_dataset = ma_df,
-        load_from_cache = False,
-        save_to_cache = False,
-        verbose = True
-        )
-
-    m1 = clean_up_machine_annotations(m1, verbose=True)
-
-    m1["annotated_ok"] = ~m1.G_type_of_story.isna().astype("bool[pyarrow]")
-    m1["annotated_fail"] = m1.G_type_of_story.isna().astype("bool[pyarrow]")
-
-    m1 = convert_dtypes_to_pyarrow(m1, verbose=True)
-
-    m1.reset_index(drop=True, inplace=True)
-
-    m1.loc[m1[m1.annotated_fail].index,[c for c in m1.columns if c.startswith("G_")]] = pd.NA
-
-    _ = data_io.save_parquet(cf, m1, "recoded", "annotations_recoded.parquet")"""
-
-
-
-
-
-
-"""def _flatten_and_filter(items, exclude = []):
-    ""-"
-    items: list containing strings and/or lists of strings
-    exclude: set or list of strings to remove
-    "-""
-    excl = set(exclude)
-    out = []
-
-    append = out.append  # local binding for speed
-
-    for x in items:
-        if isinstance(x, list):
-            for y in x:
-                if y not in excl:
-                    append(y)
-        else:
-            if x not in excl:
-                append(x)
-
-    return out
-
-
-
-
-def _cutoff_by_share(tuples_list, share, min_count=1):
-    "-""
-    tuples_list: list of (item, count), sorted descending by count.
-    share: float in (0,1], cumulative proportion required.
-    min_count: minimum number of tuples to return.
-    "-""
-
-    if not 0 < share <= 1:
-        raise ValueError("share must be in (0,1].")
-
-    n = len(tuples_list)
-    if min_count > n:
-        min_count = n
-
-    total = sum(count for _, count in tuples_list)
-    target = total * share
-
-    out = []
-    cum = 0
-    append = out.append
-
-    for idx, (item, count) in enumerate(tuples_list):
-        append((item, count))
-        cum += count
-
-        # meet share AND minimum count
-        if cum >= target and idx + 1 >= min_count:
-            break
-
-    return out
-
-
-
-
-def _replace_in_structure(L, filter_list, replacement):
-    "-""
-    L: list containing strings and/or sublists of strings
-    filter_list: list of strings to keep
-    replacement: string to use as substitute if not in filter
-    
-    Returns a new list with identical structure,
-    replacing any matching strings.
-    "-""
-    from pandas import Series
-    filt = set(filter_list)  # faster lookups
-
-    out = []
-    append = out.append
-
-    for x in L:
-        if isinstance(x, list):
-            # preserve nested list shape
-            sub = []
-            sub_append = sub.append
-            for y in x:
-                if y not in filt:
-                    sub_append(replacement)
-                else:
-                    sub_append(y)
-            append(sub)
-        else:
-            append(replacement if x not in filt else x)
-
-    if hasattr(L, "dtype") and hasattr(L, "index"):
-        return Series(out, index=L.index, dtype=L.dtype)
-
-    return out"""
 
 
 

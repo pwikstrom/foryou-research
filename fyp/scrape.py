@@ -16,10 +16,10 @@ from datetime import datetime
 import time
 
 import fyp.data_io as data_io
-from fyp.fyp_main import initialize, connect_to_google
 from fyp.utils import chunk_list
 import fyp.mypyktok as pyk
 from fyp.recode_variables import rename_columns, recode_events_df
+from fyp.fyp_config import fyp_cf
 
 import os
 
@@ -190,7 +190,6 @@ def make_slideshow(
 
 
 def download_single_video(
-    cf = None,
     video_id: str = None, 
     verbose: bool = True,
     dry_run: bool = False,
@@ -204,34 +203,28 @@ def download_single_video(
             print(f"Dry run: would have downloaded video {video_id}")
         return video_id
 
-    if cf is None:
-        cf = initialize()
-    
-    if cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
-    if cf['data_io']['bucket'] is None:
+    if fyp_cf['data_io']['bucket'] is None:
         raise ValueError("No GCS bucket specified")
     if video_id is None:
         raise ValueError("No video id specified")
 
 
 
-    gcs_media_prefix = cf['data_io']['gcs_media_prefix']
+    gcs_media_prefix = fyp_cf['data_io']['gcs_media_prefix']
 
     pyk.specify_browser('chrome')
 
-    #tiktok_url = f"https://www.tiktokv.com/share/video/{video_id}/"
     tiktok_url = f"https://www.tiktok.com/@/video/{video_id}/"
 
     # try to scrape metadata and download video
     scrape_metadata = pyk.save_tiktok(
         tiktok_url,
         save_video=True,
-        max_duration_to_save = cf['misc']['max_duration_for_download'],
+        max_duration_to_save = fyp_cf['misc']['max_duration_for_download'],
         browser_name='chrome',
         save_path=gcs_media_prefix,
-        stream_to_bucket = cf["data_io"]["bucket"],
+        stream_to_bucket = fyp_cf["data_io"]["bucket"],
         verbose=verbose
     )
 
@@ -246,7 +239,7 @@ def download_single_video(
                     print(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
 
                 # if there isn't a video already associated to this post...
-                blob = cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
+                blob = fyp_cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
                 if blob.exists():
                     if verbose:
                         print(f"Photo slideshow already in bucket")
@@ -258,30 +251,30 @@ def download_single_video(
                     # look for image files and download those that are found
                     ccc = 1
                     image_files = []
-                    blob = cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
+                    blob = fyp_cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                     while blob and blob.exists():
-                        blob.download_to_filename(os.path.join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
-                        if blob.size >= cf["misc"]["min_media_object_size"]:
-                            image_files.append(os.path.join(cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
+                        blob.download_to_filename(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
+                        if blob.size >= fyp_cf["misc"]["min_media_object_size"]:
+                            image_files.append(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
                         ccc += 1
-                        blob = cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
+                        blob = fyp_cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                     # use the images to build a slideshow
                     make_slideshow(
                         image_files,
-                        output=os.path.join(cf["paths"]["temp"],f"{video_id}.mp4"),
+                        output=os.path.join(fyp_cf["paths"]["temp"],f"{video_id}.mp4"),
                         duration=2,
                         swipe=False,
                         verbose=verbose
                     )
 
                     # upload the video slideshow to the storage bucket if it is large enough
-                    if local_getsize(os.path.join(cf["paths"]["temp"],f"{video_id}.mp4")) > cf["misc"]["min_media_object_size"]:
+                    if local_getsize(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}.mp4")) > fyp_cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"Uploading video file to storage bucket...")
-                        blob = cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
-                        blob.upload_from_filename(os.path.join(cf["paths"]["temp"],f"{video_id}.mp4"))
+                        blob = fyp_cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
+                        blob.upload_from_filename(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}.mp4"))
                         scrape_metadata.loc[0,'video_downloaded'] = True
                     else:
                         if verbose:
@@ -296,9 +289,9 @@ def download_single_video(
                 # check if it truly is stored and is big enough
                 if verbose:
                     print(f"Checking video file in bucket")
-                if cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4").exists():
-                    blob = cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}.mp4")
-                    if blob.size < cf["misc"]["min_media_object_size"]:
+                if fyp_cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4").exists():
+                    blob = fyp_cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}.mp4")
+                    if blob.size < fyp_cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"   - Deleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
                         blob.delete()
@@ -445,24 +438,16 @@ def start_monitor(futures, submit_times, interval=5, label="monitor", bar_width=
 
 
 def download_video_threads(
-    cf:dict = None,
     interesting_videos:list[str] = None,
     max_workers:int = 4,
     verbose:bool = False,
     dry_run:bool = False):
     
 
-    if cf is None:
-        cf = initialize()
 
     if dry_run:
         print("********* This is a dry run. It's all fake. No data io action at all. *********")
     else:
-        if cf['data_io']['bucket'] is None:
-            cf = connect_to_google(cf)
-
-        if cf['data_io']['bucket'] is None:
-            raise ValueError("No GCS bucket specified")
         if interesting_videos is None:
             raise ValueError("No interesting videos specified")
 
@@ -474,7 +459,6 @@ def download_video_threads(
     def worker(idx_video):
         idx, video = idx_video
         return idx, download_single_video(
-            cf = cf,
             video_id = video, 
             verbose=verbose,
             dry_run=dry_run)
@@ -526,7 +510,7 @@ def download_video_threads(
         scrape_filename = f"scrape_{fine_ts}.parquet"
 
         # saving the results to local temp just in case everything goes to pieces
-        results.to_parquet(os.path.join(cf['paths']['temp'], "recovered_"+scrape_filename))
+        results.to_parquet(os.path.join(fyp_cf['paths']['temp'], "recovered_"+scrape_filename))
 
 
         # -----------------------------------------------
@@ -555,8 +539,8 @@ def download_video_threads(
             results = rename_columns(results).copy()
 
             # only keep columns as defined by the variable schema
-            dropped_vars_str = textwrap.wrap(", ".join(list(set(results.columns) - set(cf['var_schema'].variable_name))), width=120)
-            relevant_cols = [c for c in cf['var_schema'].variable_name if c in results.columns]
+            dropped_vars_str = textwrap.wrap(", ".join(list(set(results.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
+            relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in results.columns]
             results = results[relevant_cols].copy()
 
             if verbose:
@@ -565,7 +549,6 @@ def download_video_threads(
 
             # recode the data
             results = recode_events_df(
-                cf = cf,
                 study_dataset = results,
                 drop_single_value_cols=False,
                 verbose = verbose
@@ -575,7 +558,7 @@ def download_video_threads(
             results["scraped_ok"] = pd.Series(True, index=results.index, dtype="bool[pyarrow]")
 
 
-            data_io.save_parquet(cf=cf, df=results, storage_location="scrape", filename=scrape_filename)
+            data_io.save_parquet(df=results, storage_location="scrape", filename=scrape_filename)
 
             print(f"Saved {len(results):,} rows to '{scrape_filename}'. Media downloaded for {len(results[results['S_video_downloaded']]):,} of these.")
 
@@ -583,7 +566,6 @@ def download_video_threads(
             print(f"CRITICAL: Failed to save results to parquet: {e}")
             print("Recovering the un-processed results from temp")
             data_io.move(
-                cf=cf,
                 src_storage_location="temp",
                 dst_storage_location="scrape",
                 filename="recovered_"+scrape_filename,
@@ -592,7 +574,7 @@ def download_video_threads(
 
 
     if not dry_run and len(failed_items)>0:
-        data_io.save_json(cf, failed_items, "scrape", f"scrape_failed_items_{fine_ts}.json", verbose=verbose)
+        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"scrape_failed_items_{fine_ts}.json", verbose=verbose)
         print(f"Saved {len(failed_items)} failed items")
 
     return results
@@ -608,7 +590,6 @@ def download_video_threads(
 
 
 def scraper_loop_from_list(
-    cf = None,
     video_list = [],
     batch_size = 500,
     max_batches = None,
@@ -620,8 +601,6 @@ def scraper_loop_from_list(
 
     max_batches = max_batches if max_batches is not None else np.inf
 
-    if cf is None:
-        cf = initialize()
 
 
     print(f"    Downloading media objects and metadata for selected videos, batch size: {batch_size}, max batches: {max_batches}")
@@ -642,7 +621,6 @@ def scraper_loop_from_list(
         print(f"  Batch {batch_number} of {max_batches:,}")
 
         results_from_scraper = download_video_threads(
-            cf = cf,
             interesting_videos = batch, 
             max_workers=4, 
             verbose = verbose,
@@ -652,9 +630,9 @@ def scraper_loop_from_list(
             good_scrapes += results_from_scraper["item_id"].to_list()
         
         failed_scrapes += [v for v in batch if v not in good_scrapes]
-        with open(os.path.join(cf['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
+        with open(os.path.join(fyp_cf['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
             json.dump(failed_scrapes, f)
-        with open(os.path.join(cf['paths']['temp'], "temp_good_scrapes.json"), "w") as f:
+        with open(os.path.join(fyp_cf['paths']['temp'], "temp_good_scrapes.json"), "w") as f:
             json.dump(good_scrapes, f)
 
 
@@ -669,9 +647,9 @@ def scraper_loop_from_list(
     # ----------------
     # Update scrape queue file, by removing the items that have been scraped - both good and failed
     # -----------------
-    if data_io.exists(cf=cf, storage_location='cache', filename='to_scrape.json', verbose=verbose):
+    if data_io.exists(storage_location='cache', filename='to_scrape.json', verbose=verbose):
         # Load the existing queue
-        to_scrape_queue = data_io.load_json(cf=cf, storage_location='cache', filename='to_scrape.json', verbose=verbose)
+        to_scrape_queue = data_io.load_json(storage_location='cache', filename='to_scrape.json', verbose=verbose)
         
         if isinstance(to_scrape_queue, list):
             # Identify items to remove (both good and failed are considered "processed" in this context)
@@ -683,7 +661,7 @@ def scraper_loop_from_list(
             
             # Save if changed
             if len(updated_queue) < original_len:
-                data_io.save_json(cf=cf, data=updated_queue, storage_location='cache', filename='to_scrape.json', verbose=verbose)
+                data_io.save_json(data=updated_queue, storage_location='cache', filename='to_scrape.json', verbose=verbose)
                 if verbose:
                     print(f"    Updated scrape queue: Removed {original_len - len(updated_queue)} items. New length: {len(updated_queue)}")
 
@@ -701,7 +679,6 @@ def scraper_loop_from_list(
 
 
 def scraper_loop(
-    cf = None,
     study_name = None,
     study_dataset = None,
     load_from_cache = True,
@@ -719,12 +696,9 @@ def scraper_loop(
         print("    ERROR: This process cannot run without a study name or a study dataset as input. Process failed.")
         return None
 
-    if cf is None:
-        cf = initialize()
 
     if load_from_cache and study_name is not None:
         if data_io.exists(
-            cf=cf,
             storage_location="cache",
             filename=f"{study_name}_recoded.parquet",
             verbose=verbose
@@ -732,7 +706,6 @@ def scraper_loop(
             if verbose:
                 print("    Loading study dataset from cache", end=" ", flush=True)
             study_dataset = data_io.load_parquet(
-                cf=cf,
                 storage_location="cache",
                 filename=f"{study_name}_recoded.parquet",
                 verbose=verbose
@@ -744,7 +717,6 @@ def scraper_loop(
             if verbose:
                 print("    No cached study dataset found. I must run the process to create it. Please wait a moment...")
             study_dataset = create_study_recoded_dataset(
-                cf = cf,
                 study_name = study_name,
                 load_from_cache = True,
                 save_to_cache = True,
@@ -758,7 +730,6 @@ def scraper_loop(
 
 
     selected_videos_df = select_videos_from_study_dataset(
-        cf = cf,
         study_dataset = study_dataset,
         query_string = "~scraped_ok & ~scraped_fail",
         verbose = verbose,
@@ -767,7 +738,6 @@ def scraper_loop(
 
 
     scraper_loop_from_list(
-        cf = cf,
         video_list = selected_videos_df.index.to_list(),
         batch_size = batch_size,
         max_batches = max_batches,
@@ -793,23 +763,17 @@ def scraper_loop(
 
 
 def queue_scraper_loop(
-    cf = None,
     batch_size = 500,
     max_batches = 10,
     verbose = False,
     dry_run = False
     ):
 
-    if cf is None:
-        cf = initialize(verbose=verbose)
-
-    if cf['data_io']['use_gcs_for_data']:
-        cf = connect_to_google(cf, verbose=verbose)
 
     # Load queue
     video_list = []
-    if data_io.exists(cf=cf, storage_location='cache', filename='to_scrape.json'):
-            video_list = data_io.load_json(cf=cf, storage_location='cache', filename='to_scrape.json')
+    if data_io.exists(storage_location='cache', filename='to_scrape.json'):
+            video_list = data_io.load_json(storage_location='cache', filename='to_scrape.json')
     
     if not video_list or not isinstance(video_list, list) or len(video_list) == 0:
         print("Queue is empty or invalid. Nothing to scrape.")
@@ -818,7 +782,6 @@ def queue_scraper_loop(
     print(f"Found {len(video_list)} items in queue.")
 
     scraper_loop_from_list(
-        cf=cf,
         video_list=video_list,
         batch_size=batch_size,
         max_batches=max_batches,
@@ -837,15 +800,11 @@ def queue_scraper_loop(
 
 
 def consolidate_and_save_scrape_data(
-    cf: dict = None, 
     force_consolidation: bool = False,
     return_saved_data: bool = True,
     verbose: bool = False,
     ):
 
-
-    if cf is None:
-        cf = initialize()
 
 
     top_verbose = True
@@ -857,15 +816,15 @@ def consolidate_and_save_scrape_data(
         print("Checking for new scrape files for consolidation...")
 
     # check if there are any changes in the relevant folder compared to last time this process was run.    
-    if data_io.exists(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
-        dataset_meta = data_io.load_json(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
+    if data_io.exists(storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
+        dataset_meta = data_io.load_json(storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
         if verbose:
             print("Dataset meta loaded")
     else:
         dataset_meta = {"scrape": {"filenames": []}}
 
     files_to_concatenate = []
-    for fn in data_io.listdir(cf=cf, storage_location="scrape"):
+    for fn in data_io.listdir(storage_location="scrape"):
         if fn.startswith("scrape_") and fn.endswith(".parquet"):
             files_to_concatenate.append(fn)
 
@@ -875,7 +834,7 @@ def consolidate_and_save_scrape_data(
             print("No new scrape files found. No need to consolidate.")
             if return_saved_data:
                 if verbose: print("Returning existing file.")
-                return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="scrape_recoded.parquet")
+                return False, data_io.load_parquet(storage_location="recoded", filename="scrape_recoded.parquet")
         return False, None
 
     
@@ -884,7 +843,7 @@ def consolidate_and_save_scrape_data(
         print("Loading scrape files...")
     many_scrape_dfs = []
     for fn in files_to_concatenate:
-        df = data_io.load_parquet(cf=cf, storage_location="scrape", filename=fn)
+        df = data_io.load_parquet(storage_location="scrape", filename=fn)
         many_scrape_dfs.append(df)
         if verbose:
             print(fn, df.shape)
@@ -937,14 +896,14 @@ def consolidate_and_save_scrape_data(
 
     if top_verbose:
         print("Saving consolidated scrape data...")
-    _ = data_io.save_parquet(cf, scrape_df, "recoded", "scrape_recoded.parquet")
+    _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename="scrape_recoded.parquet")
 
 
     # update the dataset meta file
     if not "scrape" in dataset_meta:
         dataset_meta["scrape"] = {}
     dataset_meta["scrape"]["filenames"] = files_to_concatenate
-    _ = data_io.save_json(cf, dataset_meta, "recoded", "dataset_meta.json")
+    _ = data_io.save_json(data=dataset_meta, storage_location="recoded", filename="dataset_meta.json")
 
     if top_verbose:
         print("...done")
@@ -961,27 +920,23 @@ def consolidate_and_save_scrape_data(
 
 
 def load_failed_scrapes(
-    cf = None,
     verbose = False,
     super_verbose = False):
     # Load list of failed scraped attempts.
 
-
-    if cf is None:
-        cf = initialize()
 
     if verbose:
         print("Loading failed scrapes...")
 
     failed_scrape_fn_core = "scrape_failed_items"
 
-    failed_scrape_files = [gg for gg in data_io.listdir(cf, "scrape", verbose=verbose) if gg.startswith(failed_scrape_fn_core)]
+    failed_scrape_files = [gg for gg in data_io.listdir(storage_location="scrape", verbose=verbose) if gg.startswith(failed_scrape_fn_core)]
 
     failed_scrapes = []
     for fn in failed_scrape_files:
         if super_verbose:
             print(fn)
-        some_dict = data_io.load_json(cf, "scrape", fn, verbose=verbose)
+        some_dict = data_io.load_json(storage_location="scrape", filename=fn, verbose=verbose)
         if some_dict is not None:
             failed_scrapes += some_dict
 
@@ -992,11 +947,11 @@ def load_failed_scrapes(
         if verbose:
             print(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {failed_scrape_fn_core}_{fine_ts}.json.")
 
-        result = data_io.save_json(cf, failed_scrapes, "scrape", f"{failed_scrape_fn_core}_{fine_ts}.json", verbose=verbose)
+        result = data_io.save_json(data=failed_scrapes, storage_location="scrape", filename=f"{failed_scrape_fn_core}_{fine_ts}.json", verbose=verbose)
 
         if result == 0:
             for fn in failed_scrape_files:
-                data_io.move(cf, "scrape", "archive", fn, verbose=verbose)
+                data_io.move(src_storage_location="scrape", dst_storage_location="archive", filename=fn, verbose=verbose)
                 if verbose:
                     print(f"Moved {fn} to archive")
 

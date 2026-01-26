@@ -5,7 +5,7 @@ import numpy as np
 from cachetools import LRUCache
 import fyp.data_io as data_io
 from fyp.pca import calculate_scaled_pca_scores
-from .fyp_config import fyp_cf, PROJECT_ROOT
+from fyp.fyp_config import fyp_cf, PROJECT_ROOT
 from . import explorer_backend as explorer
 from fyp.organize_datasets import create_donation_unified_dataset
 
@@ -86,10 +86,10 @@ def enrich_with_user_tags(df, col_types, username):
     If no tags found, returns original.
     """
     tag_filename = f"{username}_tags.json"
-    if not data_io.exists(fyp_cf, "users", tag_filename):
+    if not data_io.exists(storage_location="users", filename=tag_filename):
         return df, col_types
 
-    user_tags = data_io.load_json(fyp_cf, "users", tag_filename)
+    user_tags = data_io.load_json(storage_location="users", filename=tag_filename)
     if not user_tags:
         return df, col_types
 
@@ -241,7 +241,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars):
     # DEBUG: Force regeneration to fix cached bad data
     # for interval in intervals:
     #     filename = f"timeline_{donation_id}_{interval}.parquet"
-    #     if not data_io.exists(fyp_cf, "cache", filename):
+    #     if not data_io.exists(storage_location="cache", filename=filename):
     #         missing.append(interval)
             
     # Force missing to trigger generation
@@ -252,7 +252,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars):
             
     # Generate Data
     # 1. Load Unified Dataset
-    df = create_donation_unified_dataset(fyp_cf, donation_id=donation_id, verbose=True)
+    df = create_donation_unified_dataset(donation_id=donation_id, verbose=True)
     if df is None or df.empty:
         print("ERROR: Could not load unified dataset for donation", donation_id)
         return False
@@ -383,7 +383,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars):
         
         # Save
         filename = f"timeline_{donation_id}_{interval}.parquet"
-        data_io.save_parquet(fyp_cf, agg_df, "cache", filename)
+        data_io.save_parquet(df=agg_df, storage_location="cache", filename=filename)
 
     return True
 
@@ -423,8 +423,8 @@ def get_timeline_data(donation_id, interval='day'):
     # Helper to load specific interval
     def load_interval_df(u_interval):
         fname = f"timeline_{donation_id}_{u_interval}.parquet"
-        if data_io.exists(fyp_cf, "cache", fname):
-            return data_io.load_parquet(fyp_cf, "cache", fname)
+        if data_io.exists(storage_location="cache", filename=fname):
+            return data_io.load_parquet(storage_location="cache", filename=fname)
         return None
 
     # Load all to get counts
@@ -610,13 +610,11 @@ def get_pca_df(study_name):
         pca_filename = f"{study_name}_PCA.parquet"
         
         if data_io.exists(
-            cf=fyp_cf,
             storage_location="cache",
             filename=pca_filename,
             ):
             
             events_pca_scores_scaled = data_io.load_parquet(
-                cf=fyp_cf,
                 storage_location="cache",
                 filename=pca_filename,
                 )
@@ -624,7 +622,6 @@ def get_pca_df(study_name):
         else:
             print("Calculating PCA scores for study: ", study_name)
             events_pca_scores_scaled, _ = calculate_scaled_pca_scores(
-                cf = fyp_cf,
                 study_name = study_name,
                 study_recoded_dataset = None,
                 minimum_group_size = 10,

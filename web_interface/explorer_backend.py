@@ -491,13 +491,11 @@ def load_data(fyp_cf, study, verbose=False):
     df = None
 
     if data_io.exists(
-        cf=fyp_cf,
         storage_location = "cache",
         filename = f"{study}_recoded.parquet",
         verbose=verbose
         ):
         df = data_io.load_parquet(
-            cf=fyp_cf,
             storage_location="cache",
             filename=f"{study}_recoded.parquet",
             verbose=verbose,
@@ -505,14 +503,12 @@ def load_data(fyp_cf, study, verbose=False):
     else:
         print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
         df = create_study_recoded_dataset(
-            cf = fyp_cf,
             study_name = study,
             save_to_cache=True,
             verbose = verbose
         )
         print("@@ Back after finalising the recoding process. I will now resume loading the data. (#606)")
         df = data_io.load_parquet(
-            cf=fyp_cf,
             storage_location="cache",
             filename=f"{study}_recoded.parquet",
             verbose=verbose,

@@ -1,12 +1,11 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
-import pandas as pd
-import numpy as np
 from datetime import datetime
-from ..fyp_config import fyp_cf
+from fyp.fyp_config import fyp_cf
 import fyp.data_io as data_io
 from fyp.organize_datasets import create_study_recoded_dataset
 from fyp.pca import calculate_scaled_pca_scores
+from fyp.studies import init_study_defs, save_study_defs
 from .. import explorer_backend as explorer
 from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable
 
@@ -30,14 +29,14 @@ def _calculate_stats(study_config, save_to_cache=True):
         recoded_fn = f"{study_name}_recoded.parquet"
         
         # Logic adapted from explorer_backend.load_data
-        #if data_io.exists(fyp_cf, storage_location="cache", filename=recoded_fn):
+        #if data_io.exists(storage_location="cache", filename=recoded_fn):
         #     # Load only needed columns
-        #     df_study = data_io.load_parquet(fyp_cf, storage_location="cache", filename=recoded_fn)#, columns=["item_id", "D_donation_id"], verbose=True)
+        #     df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)#, columns=["item_id", "D_donation_id"], verbose=True)
         if True:#else:
              # Force update of the study dataset for every change of the study definition
              print(f"Creating/updating recoded dataset for '{study_name}' to calculate stats...")
              # create_study_recoded_dataset returns the DF
-             df_study = create_study_recoded_dataset(cf=fyp_cf, study_name=study_name, save_to_cache=save_to_cache, verbose=True)
+             df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=save_to_cache, verbose=True)
              if df_study is not None:
                  # Keep only what we need if it returned full DF
                  df_study = df_study[["item_id", "D_donation_id"]]
@@ -50,7 +49,7 @@ def _calculate_stats(study_config, save_to_cache=True):
         unique_videos = df_study['item_id'].nunique()
 
         # 3. Load Enrichment Status
-        df_status = data_io.load_parquet(fyp_cf, storage_location="recoded", filename='enrichment_status.parquet')
+        df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
         
         scraped_videos = 0
         annotated_videos = 0
@@ -67,18 +66,18 @@ def _calculate_stats(study_config, save_to_cache=True):
             to_annotate_list = matched_status[(matched_status.scraped_ok & ~matched_status.annotated_ok)].index.to_list()
             to_scrape_count = len(to_scrape_list)
             to_annotate_count = len(to_annotate_list)
-            if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_scrape.json'):
-                to_scrape_list_old = data_io.load_json(cf=fyp_cf, storage_location='cache', filename='to_scrape.json')
+            if data_io.exists(storage_location='cache', filename='to_scrape.json'):
+                to_scrape_list_old = data_io.load_json(storage_location='cache', filename='to_scrape.json')
                 to_scrape_list = list(set(to_scrape_list + to_scrape_list_old))
-                data_io.save_json(cf=fyp_cf, storage_location='cache', filename='to_scrape.json', data=to_scrape_list)
+                data_io.save_json(storage_location='cache', filename='to_scrape.json', data=to_scrape_list)
             else:
-                data_io.save_json(cf=fyp_cf, storage_location='cache', filename='to_scrape.json', data=to_scrape_list)
-            if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_annotate.json'):
-                to_annotate_list_old = data_io.load_json(cf=fyp_cf, storage_location='cache', filename='to_annotate.json')
+                data_io.save_json(storage_location='cache', filename='to_scrape.json', data=to_scrape_list)
+            if data_io.exists(storage_location='cache', filename='to_annotate.json'):
+                to_annotate_list_old = data_io.load_json(storage_location='cache', filename='to_annotate.json')
                 to_annotate_list = list(set(to_annotate_list + to_annotate_list_old))
-                data_io.save_json(cf=fyp_cf, storage_location='cache', filename='to_annotate.json', data=to_annotate_list)
+                data_io.save_json(storage_location='cache', filename='to_annotate.json', data=to_annotate_list)
             else:
-                data_io.save_json(cf=fyp_cf, storage_location='cache', filename='to_annotate.json', data=to_annotate_list)
+                data_io.save_json(storage_location='cache', filename='to_annotate.json', data=to_annotate_list)
             print(f"In scrape queue: {len(to_scrape_list)}  |  In annotation queue: {len(to_annotate_list)}")
         
         return {
@@ -108,11 +107,10 @@ def list_studies():
     # The prompt implies we should read/write `studies.json`.
     
     # Reload to be safe
-    study_defs_fn = "studies.json"
-    if data_io.exists(fyp_cf, "studies", study_defs_fn):
-        studies = data_io.load_json(fyp_cf, "studies", study_defs_fn)
-    else:
-        studies = {}
+    if not 'study_defs' in fyp_cf:
+        init_study_defs()
+    
+    studies = fyp_cf['study_defs']
 
     # Convert to list with name included
     studies_list = []
@@ -136,6 +134,8 @@ def list_studies():
 @management_bp.route('/api/manage/studies/save', methods=['POST'])
 @login_required
 def save_study():
+    global fyp_cf
+
     if not (current_user.is_admin() or current_user.role == 'researcher'):
         return jsonify({"error": "Unauthorized"}), 403
 
@@ -147,13 +147,11 @@ def save_study():
     if not study_name:
         return jsonify({"error": "Missing STUDY_NAME"}), 400
         
-    # Load existing
-    study_defs_fn = "studies.json"
-    if data_io.exists(fyp_cf, "studies", study_defs_fn):
-        studies = data_io.load_json(fyp_cf, "studies", study_defs_fn)
-    else:
-        studies = {}
-        
+    
+    # load studies from disk into memory - overwrite whatever was there previously
+    init_study_defs()
+    studies = fyp_cf['study_defs'].copy()
+
     # If updating an existing study, check for actual changes
     if study_name in studies:
         existing_config = studies[study_name]
@@ -167,8 +165,6 @@ def save_study():
             if key in [
                 'REFRESH_PCA', 'REFRESH_METADATA', 'stats']:
                 continue
-
-
 
 
             if key not in existing_config or existing_config[key] != value:
@@ -196,8 +192,9 @@ def save_study():
     studies[study_name].pop('REFRESH_METADATA', None)
 
     # this is first save to make sure that the study is saved properly if read by other processes
-    data_io.save_json(fyp_cf, studies, "studies", study_defs_fn, verbose=True)
+    #data_io.save_json(data=studies, storage_location="studies", filename=study_defs_fn, verbose=True)
     fyp_cf['study_defs'] = studies
+    
     
 
     # Calculate Stats
@@ -207,10 +204,11 @@ def save_study():
     studies[study_name]['last_updated'] = datetime.now().isoformat()
     
     # Save 
-    data_io.save_json(fyp_cf, studies, "studies", study_defs_fn, verbose=True)
+    #data_io.save_json(data=studies, storage_location="studies", filename=study_defs_fn, verbose=True)
     
     # Update in-memory config if possible (optional but good for consistency)
     fyp_cf['study_defs'] = studies
+    save_study_defs()
 
 
     refresh_pca = refresh_pca_flag
@@ -220,11 +218,11 @@ def save_study():
 
     # regardless, I need to delete the existing PCA file, otherwise there will be a version mismatch
     # between the study data and the PCA 
-    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_PCA.parquet"):
-        data_io.remove(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_PCA.parquet")
+    if data_io.exists(storage_location="cache", filename=f"{study_name}_PCA.parquet"):
+        data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
 
     if refresh_pca:
-        calculate_scaled_pca_scores(cf=fyp_cf, study_name=study_name, load_from_cache=True, save_to_cache=True)
+        calculate_scaled_pca_scores(study_name=study_name, load_from_cache=True, save_to_cache=True)
 
 
     refresh_explorer_metadata = refresh_meta_flag
@@ -234,10 +232,10 @@ def save_study():
 
     # regardless, I need to invalidate the cache and delete the existing metadata file,
     # otherwise there will be a version mismatch between the study data and the metadata 
-    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_viewer_metadata.json"):
-        data_io.remove(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_viewer_metadata.json")
-    if data_io.exists(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_explorer_metadata.json"):
-        data_io.remove(cf=fyp_cf, storage_location="cache", filename=f"{study_name}_explorer_metadata.json")
+    if data_io.exists(storage_location="cache", filename=f"{study_name}_viewer_metadata.json"):
+        data_io.remove(storage_location="cache", filename=f"{study_name}_viewer_metadata.json")
+    if data_io.exists(storage_location="cache", filename=f"{study_name}_explorer_metadata.json"):
+        data_io.remove(storage_location="cache", filename=f"{study_name}_explorer_metadata.json")
 
     # --- Invalidate RAM Cache ---
     with study_cache.lock:
@@ -266,7 +264,7 @@ def save_study():
             # Add filtering/display priorities
             viewer_meta = load_schema_metadata(viewer_meta)
             
-            data_io.save_json(fyp_cf, make_serializable(viewer_meta), "cache", f"{study_name}_viewer_metadata.json", verbose=True)
+            data_io.save_json(data=make_serializable(viewer_meta), storage_location="cache", filename=f"{study_name}_viewer_metadata.json", verbose=True)
 
 
             # 2. Explorer Metadata (Annotated OK)
@@ -283,9 +281,9 @@ def save_study():
             # Inject Source File Info
             try:
                 the_recoded_file = f"{study_name}_recoded.parquet"
-                if data_io.exists(cf=fyp_cf, storage_location="cache", filename=the_recoded_file):
+                if data_io.exists(storage_location="cache", filename=the_recoded_file):
                     explorer_meta['source_file'] = the_recoded_file
-                    mtime = datetime.fromtimestamp(data_io.getmtime(cf=fyp_cf, storage_location="cache", filename=the_recoded_file))
+                    mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file))
                     explorer_meta['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
                 else:
                     explorer_meta['source_file'] = "Unknown"
@@ -297,7 +295,7 @@ def save_study():
             # Add filtering/display priorities
             explorer_meta = load_schema_metadata(explorer_meta)
             
-            data_io.save_json(fyp_cf, make_serializable(explorer_meta), "cache", f"{study_name}_explorer_metadata.json", verbose=True)
+            data_io.save_json(data = make_serializable(explorer_meta), storage_location="cache", filename=f"{study_name}_explorer_metadata.json", verbose=True)
 
 
 
@@ -314,6 +312,8 @@ def calculate_study_stats():
     """
     On-demand calculation of stats for a study definition (without saving).
     """
+    global fyp_cf
+    
     if not (current_user.is_admin() or current_user.role == 'researcher'):
         return jsonify({"error": "Unauthorized"}), 403
 
@@ -322,19 +322,18 @@ def calculate_study_stats():
         return jsonify({"error": "No data"}), 400
         
 
-    
     study_name = data.get("STUDY_NAME")
     if not study_name:
          return jsonify({"error": "Missing STUDY_NAME"}), 400
          
+    if fyp_cf.get('study_defs', None) is None:
+        init_study_defs()
+
     # 1. Backup existing config
     original_config = None
     if 'study_defs' in fyp_cf and study_name in fyp_cf['study_defs']:
         original_config = fyp_cf['study_defs'][study_name].copy()
         
-    # 2. Update with Request Data (Simulation)
-    if 'study_defs' not in fyp_cf:
-        fyp_cf['study_defs'] = {}
     
     # If this is a new study (not in defs), we add it. 
     # If existing, we overwrite.
@@ -367,6 +366,7 @@ def calculate_study_stats():
 @management_bp.route('/api/manage/studies/delete', methods=['POST'])
 @login_required
 def delete_study():
+    global fyp_cf
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized - Admin only"}), 403
         
@@ -375,16 +375,13 @@ def delete_study():
     if not study_name:
         return jsonify({"error": "Missing STUDY_NAME"}), 400
         
-    study_defs_fn = "studies.json"
-    if data_io.exists(fyp_cf, "studies", study_defs_fn):
-        studies = data_io.load_json(fyp_cf, "studies", study_defs_fn)
-    else:
-        return jsonify({"error": "No studies file found"}), 404
+    init_study_defs()
+    if not 'study_defs' in fyp_cf:
+        return jsonify({"error": "No study defs found"}), 404
         
-    if study_name in studies:
-        del studies[study_name]
-        data_io.save_json(fyp_cf, studies, "studies", study_defs_fn, verbose=True)
-        fyp_cf['study_defs'] = studies
+    if study_name in fyp_cf['study_defs']:
+        del fyp_cf['study_defs'][study_name]
+        save_study_defs()
         return jsonify({"status": "success", "message": f"Deleted {study_name}"})
     else:
         return jsonify({"error": "Study not found"}), 404
@@ -398,12 +395,11 @@ def delete_study():
 def list_donations():
     if True:#try:
         # Load ddp_metadata from ddp_main
-        if data_io.exists(fyp_cf, storage_location="ddp_main", filename="ddp_metadata.parquet"):
+        if data_io.exists(storage_location="ddp_main", filename="ddp_metadata.parquet"):
             # Load only needed columns
             # Load using ignore_metadata to bypass list type errors
             # Request D_id and possible raw multindex name "('other', 'D_id')"
             df = data_io.load_parquet(
-                fyp_cf, 
                 storage_location="ddp_main", 
                 filename="ddp_metadata.parquet", 
                 #columns=["D_donation_id", "D_id", "('other', 'D_id')"], 
@@ -431,7 +427,7 @@ def list_donations():
 @login_required
 def get_enrichment_stats():
     # 1. Load Enrichment Status
-    df_status = data_io.load_parquet(fyp_cf, storage_location="recoded", filename='enrichment_status.parquet')
+    df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
     
     total_videos = 0
     scraped_videos = 0
@@ -451,12 +447,12 @@ def get_enrichment_stats():
     scrape_queue_len = 0
     annotate_queue_len = 0
     
-    if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_scrape.json'):
-        q = data_io.load_json(cf=fyp_cf, storage_location='cache', filename='to_scrape.json')
+    if data_io.exists(storage_location='cache', filename='to_scrape.json'):
+        q = data_io.load_json(storage_location='cache', filename='to_scrape.json')
         if isinstance(q, list): scrape_queue_len = len(q)
         
-    if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_annotate.json'):
-        q = data_io.load_json(cf=fyp_cf, storage_location='cache', filename='to_annotate.json')
+    if data_io.exists(storage_location='cache', filename='to_annotate.json'):
+        q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
         if isinstance(q, list): annotate_queue_len = len(q)
         
     return jsonify({
@@ -480,11 +476,11 @@ def empty_enrichment_queues():
         return jsonify({"error": "Unauthorized"}), 403
         
     try:
-        if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_scrape.json'):
-            data_io.remove(cf=fyp_cf, storage_location='cache', filename='to_scrape.json')
+        if data_io.exists(storage_location='cache', filename='to_scrape.json'):
+            data_io.remove(storage_location='cache', filename='to_scrape.json')
             
-        if data_io.exists(cf=fyp_cf, storage_location='cache', filename='to_annotate.json'):
-            data_io.remove(cf=fyp_cf, storage_location='cache', filename='to_annotate.json')
+        if data_io.exists(storage_location='cache', filename='to_annotate.json'):
+            data_io.remove(storage_location='cache', filename='to_annotate.json')
             
         return jsonify({"status": "success", "message": "Queues emptied."})
     except Exception as e:

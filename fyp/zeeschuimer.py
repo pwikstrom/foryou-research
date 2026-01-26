@@ -10,10 +10,11 @@ Date:
 import re
 import pandas as pd
 from copy import copy
-from fyp.fyp_main import initialize
 from fyp.utils import extract_and_join_subkeys, clean_url, pretty_str_seconds
 from fyp.recode_variables import recode_events_df, extract_local_time_features, rename_columns
 import fyp.data_io as data_io
+from fyp.fyp_config import fyp_cf
+
 import numpy as np
 import subprocess
 import textwrap
@@ -28,86 +29,15 @@ import datetime as _dt
 
 
 
-"""def process_baseline_for_core_dataset(
-    cf:dict = None,
-    baseline_log:pd.DataFrame = None,
-    session_id_counter:np.int64 = 0,
-    verbose:bool = False):
-
-
-    if baseline_log is None or len(baseline_log) == 0:
-        if verbose:
-            print("No baseline log data available --> skipping baseline log processing. Returning None.")
-        return None, session_id_counter
-
-    if cf is None:
-        cf = initialize()
-
-    baseline_log_simple = baseline_log.rename(columns={c:"B_"+c if not c=="item_id" else c for c in baseline_log.columns}).copy()
-    if verbose:
-        print(f"The baseline log has shape: {baseline_log_simple.shape}")
-
-
-    if len(baseline_log_simple) and ("item_id" in baseline_log_simple.columns):
-        # Sort by script and timestamp
-        baseline_log_simple = baseline_log_simple.sort_values(["B_log_script", "B_local_timestamp"]).copy()
-        
-        # Assign session IDs: each script gets a unique session ID
-        baseline_log_simple["session_id"] = session_id_counter + baseline_log_simple.groupby("B_log_script").ngroup() + 1
-        session_id_counter = baseline_log_simple["session_id"].max() + 1
-        
-        # Event order within each session
-        baseline_log_simple["event_order_in_session"] = baseline_log_simple.groupby("session_id").cumcount()
-        
-        # Event position
-        n_videos_per_session = baseline_log_simple.groupby("session_id")["event_order_in_session"].transform("max")
-        baseline_log_simple["event_pos_in_session"] = baseline_log_simple["event_order_in_session"] / n_videos_per_session.replace(0, 1)
-        
-        if verbose:
-            print("Adding session stats to baseline data",baseline_log_simple.shape)
-    else:
-        if verbose:
-            print("no baseline data available --> skipping session stats attachment. Returning None.")
-        return None, session_id_counter
-
-
-    baseline_log_simple = rename_columns(baseline_log_simple)
-
-    print(set(cf['var_schema'].variable_name))
-    print("\n")
-    print(set(baseline_log_simple.columns))
-    print("\n")
-    print(set(cf['var_schema'].variable_name) & set(baseline_log_simple.columns))
-
-
-
-
-    relevant_baseline_cols = [c for c in cf['var_schema'].variable_name if c in baseline_log_simple.columns]
-
-    baseline_log_simple = baseline_log_simple[relevant_baseline_cols].copy()
-
-
-
-
-    if verbose:
-        print("Processed baseline for log export - shape:", baseline_log_simple.shape)
-    return baseline_log_simple#, session_id_counter"""
-
-  
-
 
 
 
 def refine_one_raw_zeeschuimer_log(
-    cf: dict = None,
     item_list_or_ndjson_path: str | list[dict] = None,
     verbose: bool = False):
 
-    if cf is None:
-        cf = initialize()
-
     if isinstance(item_list_or_ndjson_path, str):
-        item_list = data_io.read_ndjson_file(cf = cf, storage_location="zeeschuimer_raw", filename = item_list_or_ndjson_path)
+        item_list = data_io.read_ndjson_file(storage_location="zeeschuimer_raw", filename = item_list_or_ndjson_path)
     elif isinstance(item_list_or_ndjson_path, list):
         item_list = item_list_or_ndjson_path
     else:
@@ -195,7 +125,6 @@ def refine_one_raw_zeeschuimer_log(
 
     # calculate local time features such as hour, day segment, weekday, etc
     zeeschuimer_logs_df = extract_local_time_features(
-        cf = cf,
         some_events_df_in = zeeschuimer_logs_df,
         kind_of_log = 'baseline',
         verbose = verbose)
@@ -229,8 +158,8 @@ def refine_one_raw_zeeschuimer_log(
         print(f"Current shape: {zeeschuimer_logs_df.shape}")
 
     # only keep columns as defined by the variable schema
-    dropped_vars_str = textwrap.wrap(", ".join(list(set(zeeschuimer_logs_df.columns) - set(cf['var_schema'].variable_name))), width=120)
-    relevant_baseline_cols = [c for c in cf['var_schema'].variable_name if c in zeeschuimer_logs_df.columns]
+    dropped_vars_str = textwrap.wrap(", ".join(list(set(zeeschuimer_logs_df.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
+    relevant_baseline_cols = [c for c in fyp_cf['var_schema'].variable_name if c in zeeschuimer_logs_df.columns]
     zeeschuimer_logs_df = zeeschuimer_logs_df[relevant_baseline_cols].copy()
 
     if verbose:
@@ -240,7 +169,6 @@ def refine_one_raw_zeeschuimer_log(
 
 
     zeeschuimer_logs_df = recode_events_df(
-        cf = cf,
         study_dataset = zeeschuimer_logs_df,
         drop_single_value_cols = False,
         verbose = verbose
@@ -261,14 +189,11 @@ def refine_one_raw_zeeschuimer_log(
 
 
 
-def refine_and_save_all_raw_zeeschuimer_logs(cf = None, verbose=False):
+def refine_and_save_all_raw_zeeschuimer_logs(verbose=False):
 
-    if cf is None:
-        cf = initialize()
     result = {}
     
     raw_zeeschuimer_files = data_io.listdir(
-        cf=cf,
         storage_location="zeeschuimer_raw",
         return_absolute_path=False,
         verbose=False)
@@ -276,7 +201,6 @@ def refine_and_save_all_raw_zeeschuimer_logs(cf = None, verbose=False):
     result["raw_files"] = len(raw_zeeschuimer_files)
 
     refined_zeeschuimer_files = data_io.listdir(
-        cf=cf,
         storage_location="zeeschuimer_refined",
         return_absolute_path=False,
         verbose=False)
@@ -292,14 +216,12 @@ def refine_and_save_all_raw_zeeschuimer_logs(cf = None, verbose=False):
             if verbose:
                 print(f"Refining: {u}")
             new_flat = refine_one_raw_zeeschuimer_log(
-                cf = cf,
                 item_list_or_ndjson_path = u,
                 verbose=verbose)
             #ff += [new_flat.copy()]
-            data_io.save_parquet(cf=cf, df=new_flat, filename=u.replace(".ndjson",".parquet"), storage_location="zeeschuimer_refined", verbose=verbose)
+            data_io.save_parquet(df=new_flat, filename=u.replace(".ndjson",".parquet"), storage_location="zeeschuimer_refined", verbose=verbose)
 
     refined_zeeschuimer_files = data_io.listdir(
-        cf=cf,
         storage_location="zeeschuimer_refined",
         return_absolute_path=False,
         verbose=False)
@@ -321,19 +243,16 @@ def refine_and_save_all_raw_zeeschuimer_logs(cf = None, verbose=False):
 
 
 def consolidate_zeeschuimer_logs(
-    cf = None,
     force_consolidation: bool = False,
     return_saved_data: bool = True,
     verbose = False):
 
-    if cf is None:
-        cf = initialize()
 
     top_verbose = True
 
     if top_verbose:
         print("Checking for new raw zeeschuimer logs that needs refining...")
-    result = refine_and_save_all_raw_zeeschuimer_logs(cf=cf, verbose=verbose)
+    result = refine_and_save_all_raw_zeeschuimer_logs(verbose=verbose)
     if top_verbose:
         if result["refined_files_after"] == result["refined_files_before"]:
             print("    ...all files already refined.")
@@ -342,15 +261,14 @@ def consolidate_zeeschuimer_logs(
 
 
     # check if there are any changes in the relevant folder compared to last time this process was run.    
-    if data_io.exists(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
-        dataset_meta = data_io.load_json(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
+    if data_io.exists(storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
+        dataset_meta = data_io.load_json(storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
         if verbose:
             print("Dataset meta loaded")
     else:
         dataset_meta = {"zeeschuimer": {"filenames": []}}
 
     refined_zeeschuimer_files = data_io.listdir(
-        cf=cf,
         storage_location="zeeschuimer_refined",
         return_absolute_path=False,
         verbose=True)
@@ -364,7 +282,7 @@ def consolidate_zeeschuimer_logs(
             print("No new refined zeeschuimer files found. No need to consolidate.")
             if return_saved_data:
                 if verbose: print("Returning existing file.")
-                return False, data_io.load_parquet(cf=cf, storage_location="recoded", filename="zeeschuimer_recoded.parquet")
+                return False, data_io.load_parquet(storage_location="recoded", filename="zeeschuimer_recoded.parquet")
         return False, None
     
 
@@ -372,7 +290,7 @@ def consolidate_zeeschuimer_logs(
     # load and concatenate all refined files
     if top_verbose:
         print(f"Loading refined zeeschuimer logs. Found {len(refined_zeeschuimer_files)} files...")
-    many_zeeschuimer_logs = [data_io.load_parquet(cf=cf, storage_location="zeeschuimer_refined", filename=u) for u in refined_zeeschuimer_files]
+    many_zeeschuimer_logs = [data_io.load_parquet(storage_location="zeeschuimer_refined", filename=u) for u in refined_zeeschuimer_files]
 
     if top_verbose:
         print(f"Concatenating refined zeeschuimer logs...")
@@ -402,7 +320,7 @@ def consolidate_zeeschuimer_logs(
     if not "zeeschuimer" in dataset_meta:
         dataset_meta["zeeschuimer"] = {}
     dataset_meta["zeeschuimer"]["filenames"] = refined_zeeschuimer_files
-    _ = data_io.save_json(cf, dataset_meta, "recoded", "dataset_meta.json")
+    _ = data_io.save_json(data = dataset_meta, storage_location="recoded", filename="dataset_meta.json")
 
     return True, concatenated_zeeschuimer_logs
 
@@ -459,15 +377,12 @@ def get_baseline_info_as_string(the_raw_posts_df):
 
 
 def move_and_refine_recent_file(
-    cf = None,
     the_recent_file = None,
     the_script = None,
     verbose=False,
     move_it = True
     ):
 
-    if cf is None:
-        cf = initialize()
 
     if the_recent_file is None:
         raise ValueError("the_recent_file must be a dictionary with a 'filename' key")
@@ -482,19 +397,22 @@ def move_and_refine_recent_file(
 
     # move (and rename) the latest zeeschuimer ndjson file to the folder for raw zeeschuimer logs
     if move_it:
-        data_io.move(cf, "firefox_downloads", "zeeschuimer_raw", latest_zee_ndjson_in_firefox_downloads)
+        data_io.move(
+            src_storage_location = "firefox_downloads", 
+            dst_storage_location = "zeeschuimer_raw", 
+            filename = latest_zee_ndjson_in_firefox_downloads)
 
 
     # read the zeeschuimer log file from the new location and clean up the data
-    raw_zee_log = read_ndjson_file(cf = cf, file_path = latest_zee_ndjson_in_firefox_downloads)
-    refined_zee_log = refine_zeeschuimer_log(cf = cf, item_list_or_ndjson_path = raw_zee_log)
+    raw_zee_log = data_io.read_ndjson_file(storage_location = "zeeschuimer_raw", filename = latest_zee_ndjson_in_firefox_downloads)
+    refined_zee_log = refine_zeeschuimer_log(item_list_or_ndjson_path = raw_zee_log)
 
     # create a filename for the zeeschuimer processed file by just replacing the suffix
     zee_processed_fn = better_zee_ndjson_fn.replace(".ndjson",'.parquet')
 
     # make sure the filename for the processed file is unique
     r = 0
-    while data_io.exists(cf, "zeeschuimer_refined", zee_processed_fn):
+    while data_io.exists(storage_location = "zeeschuimer_refined", filename = zee_processed_fn):
         r += 1
         if r ==  1:
             zee_processed_fn = zee_processed_fn.replace('.parquet', f"_{r:04}.parquet")
@@ -505,7 +423,7 @@ def move_and_refine_recent_file(
     # save the refined zeeschuimer log as a processed file
     print(f"Saving the log file as a DataFrame: '{zee_processed_fn}'.")
 
-    data_io.save_parquet(cf, refined_zee_log, "zeeschuimer_refined", zee_processed_fn, verbose=verbose)
+    data_io.save_parquet(df = refined_zee_log, storage_location = "zeeschuimer_refined", filename = zee_processed_fn, verbose=verbose)
     
     # print some info about what is in refined_zee_log
     print(get_baseline_info_as_string(refined_zee_log))
@@ -514,19 +432,16 @@ def move_and_refine_recent_file(
 
 
 
-def get_baseline_log(cf = None,
-                     the_script=None, 
+def get_baseline_log(the_script=None, 
                      how_recent=30,
                      verbose=False):
 
-    if cf is None:
-        cf = initialize()
 
     start_time = _dt.datetime.now()
     print("\n"+"*"*100)
 
     if the_script is None:
-        print(f"No script name provided. Looking for recent zeeschuimer files in {cf['paths']['firefox_downloads']}")
+        print(f"No script name provided. Looking for recent zeeschuimer files in {fyp_cf['paths']['firefox_downloads']}")
         the_script = "zee"
     else:
         if the_script.endswith(".scrpt"):
@@ -556,7 +471,6 @@ def get_baseline_log(cf = None,
             print(f"Processing: {recent_file}")
             print("=========================================================")
             result = move_and_refine_recent_file(
-                cf = cf,
                 the_recent_file = recent_file,
                 the_script = the_script,
                 move_it = True,
@@ -590,94 +504,6 @@ def get_baseline_log(cf = None,
 
 
 
-"""def ingest_zeeschuimer_data(
-    cf = None,
-    verbose=False):
-    # load items from baseline logs
-
-    if cf is None:
-        cf = initialize()
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
-    
-    
-    print("Loading baseline logs...")
-
-    list_of_zeeschuimer_logs = []
-    okay_test_cases = []
-
-    zeeschuimer_refined_files = [fn for fn in data_io.listdir(cf, "zeeschuimer_refined", verbose=verbose) if fn.endswith('.parquet')]
-
-    # loop to load all separate zeeschuimer refined files
-    for fn in zeeschuimer_refined_files:
-        
-        zeeschuimer_candidate = data_io.load_parquet(cf, "zeeschuimer_refined", fn, verbose=verbose)
-        
-        test_cols = zeeschuimer_candidate[["item_id","timestamp_collected"]].reset_index(drop=True).sort_values("timestamp_collected").copy()
-        duplicate_found = False
-        for zl in okay_test_cases:
-            if zl.shape == test_cols.shape:
-                if (zl.index == test_cols.index).all() and (zl.columns == test_cols.columns).all():
-                    if (test_cols == zl).all().all():
-                        duplicate_found = True
-                        if verbose:
-                            print("   !! Found a duplicate zeeschuimer file. I'm not adding it to the collection...")
-                        wow = test_cols.copy()
-        if not duplicate_found:
-            zeeschuimer_candidate = zeeschuimer_candidate.reset_index(drop=True).reset_index().rename(columns={"index":"event_order_in_session"})
-            zeeschuimer_candidate["event_pos_in_session"] = zeeschuimer_candidate["event_order_in_session"] / max(1,len(zeeschuimer_candidate)-1)
-
-            list_of_zeeschuimer_logs += [zeeschuimer_candidate]
-            okay_test_cases += [test_cols]
-
-
-    list_of_zeeschuimer_logs = sorted(list_of_zeeschuimer_logs,key=lambda x:x["timestamp_collected"].min())
-
-
-    for i,zl in enumerate(list_of_zeeschuimer_logs):
-        zl["session_id"] = i
-
-    if len(list_of_zeeschuimer_logs)>0:
-        baseline_log = pd.concat(list_of_zeeschuimer_logs)
-
-        if verbose:
-            print(f"...baseline log loaded (and added session stats): {baseline_log.shape[0]:,} rows w date range {baseline_log.timestamp_collected.min()} -- {baseline_log.timestamp_collected.max()}")
-        
-        baseline_log = baseline_log.drop_duplicates(subset=["item_id","timestamp_collected","source_url.tz_name"]).copy()
-        if verbose:
-            print(f"Dropped duplicates based on item_id, timestamp and collection timezone, yielding {baseline_log.shape[0]:,} rows")
-
-
-        # only keeping videos from the FYP page not the explore page
-        baseline_log = baseline_log[baseline_log.source_platform_url.isin(['https://www.tiktok.com/en','https://www.tiktok.com/','https://www.tiktok.com/foryou'])].copy()
-        if verbose:
-            print(f"Keeping baseline logs from TikTok's ForYou page, yielding {baseline_log.shape[0]:,} rows.")
-
-        
-        baseline_log.reset_index(drop=True, inplace=True)
-
-
-
-        baseline_log = extract_local_time_features(
-            cf = cf,
-            some_events_df_in = baseline_log,
-            kind_of_log = 'baseline',
-            verbose = verbose)
-
-        baseline_log_simple, _ = process_baseline_for_core_dataset(cf = cf, baseline_log = baseline_log, verbose=verbose)
-
-        if verbose:
-            print("Saving half-baked baseline events...")    
-        baseline_log_simple = data_io.save_parquet(cf, baseline_log_simple, "zeeschuimer_main", "all_zeeschuimer_events.parquet", verbose=verbose)
-    
-    else:
-        baseline_log_simple = pd.DataFrame()
-
-    return baseline_log_simple"""
-
-
-
-
 
 
 
@@ -685,7 +511,6 @@ def get_baseline_log(cf = None,
 
 
 def load_zeeschuimer_data(
-    cf = None,
     study_name = None,
     all_data = None,
     verbose = False):
@@ -695,18 +520,16 @@ def load_zeeschuimer_data(
     if study_name is None:
         raise ValueError("study_name must be specified")
     
-    if cf is None:
-        cf = initialize()
     
 
-    START_DATE = cf["study_defs"][study_name].get("START_DATE","1970-01-01")
+    START_DATE = fyp_cf["study_defs"][study_name].get("START_DATE","1970-01-01")
     if isinstance(START_DATE, str):
         try:
             START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
         except ValueError:
             START_DATE = _dt.datetime(1970,1,1).date()
     
-    END_DATE = cf["study_defs"][study_name].get("END_DATE","2099-12-31")
+    END_DATE = fyp_cf["study_defs"][study_name].get("END_DATE","2099-12-31")
     if isinstance(END_DATE, str):
         try:
             END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
@@ -717,7 +540,7 @@ def load_zeeschuimer_data(
     print("    [Zeeschuimer] Loading data for study...")
 
     if all_data is None:
-        zee_data = data_io.load_parquet(cf, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
+        zee_data = data_io.load_parquet(storage_location="recoded", filename="zeeschuimer_recoded.parquet", verbose=verbose)
     else:
         zee_data = all_data.copy()
 

@@ -4,6 +4,27 @@ import pandas as pd
 import pyarrow as pa
 from typing import Iterable, List
 
+import http.client
+
+
+# check internet connectivity
+def online_ok(url="www.qut.edu.au",
+                        timeout=3):
+    connection = http.client.HTTPConnection(url,
+                                        timeout=timeout)
+    try:
+        # only header requested for fast operation
+        connection.request("HEAD", "/")
+        connection.close()  # connection closed
+        return True
+    except Exception as exep:
+        print(exep)
+        return False
+
+
+
+
+
 
 
 

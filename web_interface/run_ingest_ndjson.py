@@ -34,49 +34,21 @@ def ingest_files(filenames, label):
     
     for filename in filenames:
         try:
-            if not data_io.exists(fyp_cf, "firefox_downloads", filename):
+            if not data_io.exists(storage_location="firefox_downloads", filename=filename):
                 log(f"Error: File not found: {filename}")
                 continue
-            #original_path = Path(file_path)
-            #if not original_path.exists():
-            #    log(f"Error: File not found: {file_path}")
-            #    continue
-                
-            #log(f"Processing: {original_path.name}")
-            
-            # 1. Prepare new filename (Label + original name)
-            # Sanitize label a bit
-            #safe_label = "".join(c for c in label if c.isalnum() or c in (' ', '_', '-')).strip().replace(" ", "_")
-            
-            # Construct new filename: Label_OriginalName
-            # existing naming convention in get_baseline_log uses script name as prefix.
-            # We will use the label as "the_script" essentially.
-            
-            #new_filename = f"{safe_label}_{filename}"
-            #dest_path = raw_dir / new_filename
-            
-            # 2. Move File
-            #if data_io.exists(fyp_cf, "zeeschuimer_raw", new_filename):
-            #    # Handle collision by appending timestamp
-            #    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            #    new_filename = f"{safe_label}_{timestamp}_{filename}"
-            #    #dest_path = raw_dir / new_filename
                 
             
-            data_io.move(fyp_cf, "firefox_downloads", "zeeschuimer_raw", filename)
+            data_io.move(src_storage_location="firefox_downloads", dst_storage_location="zeeschuimer_raw", filename=filename)
             
             # 3. Read and Refine
-            # The read_ndjson_file function expects the file to be in zeeschuimer_raw usually 
-            # or we can pass absolute path.
-            # It uses fyp.cf["misc"]["label"] which is hardcoded in config... 
-            # We need to overwrite the label column anyway.
             
-            raw_data = read_ndjson_file(fyp_cf, storage_location="zeeschuimer_raw", filename=filename)
+            raw_data = read_ndjson_file(storage_location="zeeschuimer_raw", filename=filename)
             if not raw_data:
                 log("  Warning: Empty data found.")
                 continue
                 
-            df = refine_zeeschuimer_log(fyp_cf, raw_data)
+            df = zeeschuimer.refine_zeeschuimer_log(raw_data)
             
             if df.empty:
                 log("  Warning: DataFrame empty after refinement.")
@@ -86,21 +58,13 @@ def ingest_files(filenames, label):
             df['label'] = label
             
             # 5. Save File
-            # Naming logic from move_and_refine_recent_file
-            # It creates names like {script}{original_name_wo_zeeschuimer}.parquet)
-            # simplified:
             processed_fn = filename.replace(".ndjson", '.parquet')
             
-            # Check f there is already a file with this name in the zeeschuimer_refined - if so, append a number
-            #r = 0
-            #while data_io.exists(fyp_cf, "zeeshuimer_refined", processed_fn):
-            #    r += 1
-            #    stem = filename.replace(".ndjson", "")
-            #    processed_fn = f"{stem}_{r:04}.parquet"
+
             
             #save_path = refined_dir / processed_fn
             df = fyp.convert_dtypes_to_pyarrow(df, verbose=False)
-            data_io.save_parquet(fyp_cf, df, "zeeschuimer_refined", processed_fn, verbose=False)
+            data_io.save_parquet(df=df, storage_location="zeeschuimer_refined", filename=processed_fn, verbose=False)
             log(f"  Saved refined DataFrame to {processed_fn}")
             
             # Generate summary

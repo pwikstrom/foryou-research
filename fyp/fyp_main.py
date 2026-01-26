@@ -6,17 +6,10 @@ Author: Patrik
 Date: 
 """
 
-from copy import copy
-from google import genai
-from google.genai import types as gemini_types
-from google.api_core.exceptions import Forbidden as google_Forbidden
-from google.cloud import storage as gcs_storage
-import http.client
 import os
 import toml
 import pandas as pd
 import sys
-import json
 
 
 ############################################################################################################
@@ -24,20 +17,6 @@ import json
 ############################################################################################################
 
 
-
-# check internet connectivity
-def _checkInternetHttplib(url="www.qut.edu.au",
-                        timeout=3):
-    connection = http.client.HTTPConnection(url,
-                                        timeout=timeout)
-    try:
-        # only header requested for fast operation
-        connection.request("HEAD", "/")
-        connection.close()  # connection closed
-        return True
-    except Exception as exep:
-        print(exep)
-        return False
 
 
 
@@ -57,90 +36,6 @@ def _create_local_dirs(cf: dict, verbose: bool = False):
             if verbose:
                 print("Creating missing local folder for cache")
             os.makedirs(cf["paths"]["cache"], exist_ok=True)
-
-
-
-
-def connect_to_google(cf_in, verbose=False):
-    cf = copy(cf_in)
-
-    cf["data_io"]["bucket"] = None
-
-    if verbose:
-        print("Checking internet connection...")
-    online_ok = _checkInternetHttplib()
-
-    if online_ok:
-        print("...I'm online")
-        try:
-            with open(cf['machine']['prompt'], 'r') as file:
-                machine_prompt = file.read()
-
-            cf["machine"]["client"] = genai.Client(
-                vertexai=cf["machine"]["vertexai"],
-                project=cf["machine"]["project"],
-                location=cf["machine"]["location"],
-                http_options=gemini_types.HttpOptions(
-                    api_version=cf["machine"]["http_options_api_version"],
-                    timeout=cf["machine"]["http_options_timeout"]
-                )
-            )
-
-            cf["machine"]["global_generation_config"] = gemini_types.GenerateContentConfig(
-                system_instruction=machine_prompt,
-                temperature=cf["machine"]["temperature"],
-                max_output_tokens=cf["machine"]["max_output_tokens"],
-                response_mime_type=cf["machine"]["response_mime_type"],
-                presence_penalty=cf["machine"]["presence_penalty"],
-                frequency_penalty=cf["machine"]["frequency_penalty"],
-                thinking_config=gemini_types.ThinkingConfig(thinking_budget=cf["machine"]["thinking_budget"]),
-            )
-
-            print("Google Gemini initialized successfully")
-
-        except Exception as e:
-            print(f"Error Gemini API key. Gemini won't be available. {e}")
-
-
-        # Initialize a GCS storage client
-        try:
-            bucket_client = gcs_storage.Client()
-
-            # Get the GCS bucket
-            bucket = bucket_client.get_bucket(cf["data_io"]["GCS_bucket_name"])
-
-            # Try to access the GCS bucket's metadata
-            bucket.reload()
-            cf["data_io"]["bucket"] = bucket
-            print(f"Access to the project Google Cloud Storage bucket {bucket.name} located at {bucket.location} is authorized.")
-            if verbose:
-                if cf['data_io']['use_gcs_for_data']:
-                    print(f"Data is stored in GCS")
-                if cf['data_io']['use_gcs_for_cache']:
-                    print(f"Cache is stored in GCS")
-                if cf['data_io']['use_gcs_for_media']:
-                    print(f"Media is stored in GCS")
-
-
-            return cf
-        
-        except google_Forbidden:
-            print(f"I don't have access to the Google Cloud Storage.")
-        except Exception as e:
-            print(f"A Google Cloud Storage error occurred: {e}")
-
-    else:
-        print("...No internet connection. Running local mode without connecting to Google services.")
-        cf['misc']['local_mode'] = True
-    
-
-    cf['data_io']['use_gcs_for_data'] = False
-    cf['data_io']['use_gcs_for_cache'] = False
-    cf['data_io']['use_gcs_for_media'] = False
-    _create_local_dirs(cf, verbose=verbose)
-    return cf
-
-
 
 
 
@@ -208,7 +103,7 @@ def initialize(
 
 
     # ------------------------------------------------------------------
-    # prepare gen ai parameters for initialisation, which happens in 'connect_to_google'
+    # prepare gen ai parameters for initialisation
     # ------------------------------------------------------------------
     cf["machine"]["client"] = None
     cf["machine"]["global_generation_config"] = None
@@ -304,22 +199,7 @@ def initialize(
     # This must be done after GCS setup so data_io works correctly if using GCS
 
 
-    study_defs_fn = where_to_start["core"]["study_defs_fn"]
 
-
-    with open(os.path.join(cf["paths"]["studies"], study_defs_fn), 'r') as file:
-        study_defs = json.load(file)
-    
-    #study_defs = fyp_load_json(cf, "studies", study_defs_fn)
-    if study_defs:
-        for study_name in study_defs.keys():
-            study_defs[study_name]["STUDY_NAME"] = study_name
-        cf["study_defs"] = study_defs
-        if verbose:
-            print(f"{len(study_defs)} study definitions loaded")
-    else:
-        print(f"Warning: Failed to load study definitions from {study_defs_fn}")
-        cf["study_defs"] = {}
 
     return cf
 

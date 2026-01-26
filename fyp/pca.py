@@ -8,11 +8,12 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
+import fyp.data_io as data_io
 from fyp.organize_datasets import create_study_recoded_dataset
 from fyp.recode_variables import get_factors_and_features_from_var_schema, get_grouping_factors_from_var_schema
-from fyp.fyp_main import initialize
 from fyp.types import convert_dtypes_to_pyarrow, convert_index_dtype_pyarrow
-import fyp.data_io as data_io
+from fyp.fyp_config import fyp_cf
+
 from scipy.spatial.distance import pdist as scipy_pdist, squareform as scipy_squareform
 import datetime as _dt
 
@@ -204,7 +205,6 @@ def calc_entropy_and_dominance(
 
 
 def interpret_axes_with_categories(
-    cf = None,
     counts_df = None,
     feat = None,
     top=5
@@ -214,12 +214,6 @@ def interpret_axes_with_categories(
     feat: DataFrame with columns cat_PC1..k, index=matching group labels
     Returns dict {axis: [(category, corr), ...]}
     """
-
-
-
-    if cf is None:
-        cf = initialize()
-
 
     
     probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
@@ -264,12 +258,12 @@ def interpret_axes_with_categories(
         
         # Top Positive
         top_pos = corrs.sort_values(ascending=False).head(top).items()
-        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat != cf["labels"]["OTHER_THINGS"]]
+        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat != fyp_cf["labels"]["OTHER_THINGS"]]
         top_pos_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos])
 
         # Top Negative
         top_neg = corrs.sort_values(ascending=True).head(top).items()
-        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat != cf["labels"]["OTHER_THINGS"]]
+        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat != fyp_cf["labels"]["OTHER_THINGS"]]
         top_neg_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg])
 
         out[col] = {"top_positive": top_pos_str, "top_negative": top_neg_str}
@@ -279,16 +273,12 @@ def interpret_axes_with_categories(
 
 
 def interpret_pca_axes(
-    cf = None,
     c = None,
     scaled_pca_scores = None, 
     events_df_recoded = None):
 
 
-    if cf is None:
-        cf = initialize()
-
-    grouping_factors = get_grouping_factors_from_var_schema(cf = cf)
+    grouping_factors = get_grouping_factors_from_var_schema()
 
     # this looks awkward but it makes the selection realy clear
     components_associated_w_this_feature = []
@@ -304,7 +294,7 @@ def interpret_pca_axes(
         the_column=c, 
         grouping_factors=grouping_factors)
 
-    xx = interpret_axes_with_categories(cf = cf, counts_df = cool_counts, feat = selected_pca_scores, top=3)
+    xx = interpret_axes_with_categories(counts_df = cool_counts, feat = selected_pca_scores, top=3)
     for yy in xx:
         for zz in xx[yy]:
             print(yy,zz,xx[yy][zz])
@@ -392,7 +382,6 @@ def transform_category_column_to_counts_df(
 
 
 def transform_categories_to_components_and_diversity(
-    cf=None,
     counts_df=None,
     metric="jensen-shannon",
     smoothing=1e-9,
@@ -497,7 +486,7 @@ def transform_categories_to_components_and_diversity(
 
     result_df = pd.concat([pc_df,pd.DataFrame(entropy_and_dominance),pd.DataFrame(counts_df.T.idxmax(), columns=["top1"])],axis=1)
 
-    xx = interpret_axes_with_categories(cf=cf, counts_df = counts_df, feat = pc_df, top = 5)
+    xx = interpret_axes_with_categories(counts_df = counts_df, feat = pc_df, top = 5)
     for yy in xx:
         for zz in xx[yy]:
             if verbose:
@@ -522,7 +511,6 @@ def transform_categories_to_components_and_diversity(
 
 
 def calculate_scaled_pca_scores(
-    cf = None,
     study_name = None,
     study_recoded_dataset = None,
     minimum_group_size = 10,
@@ -536,15 +524,6 @@ def calculate_scaled_pca_scores(
     verbose = False,
     ):
     
-
-    #if study_name is None:
-    #    raise ValueError("study_name must be specified")
-
-    if cf is None:
-        cf = initialize()
-
-
-
     
 
     print(
@@ -561,14 +540,12 @@ def calculate_scaled_pca_scores(
 
 
     if load_from_cache and study_name is not None:
-        #recoded_cache_path = os_join(cf['paths']['cache'], f"{study_name}_recoded.parquet")
+
         if data_io.exists(
-            cf=cf,
             storage_location="cache",
             filename=f"{study_name}_recoded.parquet",
             ):
             study_recoded_dataset = data_io.load_parquet(
-                cf=cf,
                 storage_location="cache",
                 filename=f"{study_name}_recoded.parquet",
                 verbose=verbose)
@@ -576,7 +553,6 @@ def calculate_scaled_pca_scores(
     if study_name is not None and study_recoded_dataset is None:
         print("@@ No cached recoded study dataset found. I must create it. Please wait a moment...")
         study_recoded_dataset = create_study_recoded_dataset(
-            cf = cf,
             study_name = study_name,
             save_to_cache=True,
             verbose = verbose
@@ -598,8 +574,8 @@ def calculate_scaled_pca_scores(
     study_recoded_dataset.drop(columns=['dd_event_id'], errors='ignore', inplace=True)
 
 
-    targeted_grouping_factors = get_grouping_factors_from_var_schema(cf = cf, some_events_df = None, verbose=verbose)
-    grouping_factors = get_grouping_factors_from_var_schema(cf = cf, some_events_df = study_recoded_dataset, verbose=verbose)
+    targeted_grouping_factors = get_grouping_factors_from_var_schema(some_events_df = None, verbose=verbose)
+    grouping_factors = get_grouping_factors_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
     if targeted_grouping_factors != grouping_factors:
         print(f"    [PCA] Targeted grouping factors {targeted_grouping_factors} differ from those available in the dataset {grouping_factors}. Terminating.")
         return None, None
@@ -609,7 +585,7 @@ def calculate_scaled_pca_scores(
             print(f"    [PCA] Grouping factor {gf} is all NA or has only 1 unique value. Terminating.")
             return None, None
 
-    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(cf = cf, some_events_df = study_recoded_dataset, verbose=verbose)
+    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
 
 
     pre_len = len(study_recoded_dataset)
@@ -626,8 +602,8 @@ def calculate_scaled_pca_scores(
         print(f"    [PCA] Dropping features and group factors with more than 10% missing values -> {len(columns_to_be_dropped)} columns dropped. Shape: {study_recoded_dataset.shape}")
 
     # I need to do this again in case some factors or features were dropped in the previous step
-    grouping_factors = get_grouping_factors_from_var_schema(cf = cf, some_events_df = study_recoded_dataset, verbose=verbose)
-    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(cf = cf, some_events_df = study_recoded_dataset, verbose=verbose)
+    grouping_factors = get_grouping_factors_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
+    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
 
 
     pre_len = len(study_recoded_dataset)
@@ -721,7 +697,6 @@ def calculate_scaled_pca_scores(
         col_name = categorical_features[i]
         print(f"    [PCA] {(i+1):02}/{len(counts_list)}. {col_name}, {counts_df.shape}", end=": ", flush=True)
         wer, the_pc_df, comp_interpretation = transform_categories_to_components_and_diversity(
-            cf=cf,
             counts_df=counts_df,
             metric="hellinger",#"jensen-shannon",
             gamma=0.8,
@@ -820,25 +795,22 @@ def calculate_scaled_pca_scores(
 
         events_pca_scores_scaled.attrs['study_name'] = study_name
         data_io.save_parquet(
-            cf=cf,
             df=events_pca_scores_scaled,
             storage_location="cache",
             filename=pca_filename,
             verbose=verbose,
             )
-        #events_pca_scores_scaled.to_parquet(os_join(cf['paths']['cache'], pca_filename), engine="pyarrow")
+
         if verbose:
             print(f"    [PCA] Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'.")
 
         data_io.save_json(
-            cf=cf,
             data=comp_interpretations,
             storage_location="cache",
             filename=comp_inter_filename,
             verbose=verbose,
             )
-        #with open(os_join(cf['paths']['cache'],comp_inter_filename), 'w') as f:
-        #    json_dump(comp_interpretations, f, indent=4)
+
         if verbose:
             print(f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'.")
 

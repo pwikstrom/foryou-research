@@ -17,9 +17,7 @@ if __name__ == "__main__":
 
     print(f"Starting Create Item Subsets for study: {study_name}")
     try:
-        #cf = fyp.initialize()
         interesting_videos = fyp.generate_unique_videos_to_scrape_and_annotate(
-            cf = None,
             study_name = study_name,
             load_from_cache = True,
             save_to_cache = True,

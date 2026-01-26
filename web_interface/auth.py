@@ -8,10 +8,6 @@ from flask import abort, current_app
 from pathlib import Path
 import logging
 
-try:
-    from fyp.data_io import connect_to_google
-except ImportError:
-    connect_to_google = None
 
 
 logger = logging.getLogger(__name__)

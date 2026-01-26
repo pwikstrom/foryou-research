@@ -18,6 +18,7 @@ from fyp.types import convert_dtypes_to_pyarrow
 from fyp.recode_variables import *
 from fyp.calc_donation_stats import generate_personas
 import fyp.data_io as data_io
+from fyp.fyp_config import fyp_cf
 
 from collections import deque
 import numpy as np
@@ -58,7 +59,6 @@ def _remove_link_events_with_corrupt_links(some_events_df):
 
 
 def get_donation_metadata_from_aio_aws(
-                        cf = None,
                         storage_location: str = "ddp_participants",
                         table_name: str = (
                             "data-donation-stack-"
@@ -74,9 +74,6 @@ def get_donation_metadata_from_aio_aws(
     Requires AWS CLI to be installed and configured. *duh*
     """
 
-    if cf is None:
-        cf = initialize()
-
     # Compute cut‑off time
     now = (_dt.datetime.now(_dt.timezone.utc)
            if not use_local_time
@@ -85,7 +82,7 @@ def get_donation_metadata_from_aio_aws(
 
     # Prepare destination
     filename = f"ddp_metadata_{file_stamp}.json"
-    temp_file = os.path.join(cf["paths"]["temp"], filename)
+    temp_file = os.path.join(fyp_cf["paths"]["temp"], filename)
 
     # Assemble the AWS CLI command
     scan_cmd = (
@@ -107,7 +104,6 @@ def get_donation_metadata_from_aio_aws(
 
     # move to permanent storage
     data_io.move(
-        cf=cf,
         src_storage_location="temp",
         dst_storage_location=storage_location,
         filename=filename,
@@ -122,7 +118,6 @@ def get_donation_metadata_from_aio_aws(
 
 
 def get_recent_data_donations_from_aio_aws(
-                    cf: dict = None,
                     hours_back: int = 24,
                     table_name: str = (
                         "data-donation-stack-"
@@ -143,8 +138,6 @@ def get_recent_data_donations_from_aio_aws(
     ----------
     hours_back : int
         How far back to look (in hours) from *now*.
-    cf : dict, optional
-        Project configuration. If not provided, it will be initialized.
     table_name, bucket, campaign_name : str, optional
         Override the defaults if your stack names ever change.
     use_local_time : bool, optional
@@ -157,10 +150,6 @@ def get_recent_data_donations_from_aio_aws(
         If any of the shell commands exit with a non‑zero status.
     """
 
-
-
-    if cf is None:
-        cf = initialize()
 
     # ------------------------------------------------------------------
     # 1) Figure out the time window and format it the way the table stores it
@@ -176,7 +165,7 @@ def get_recent_data_donations_from_aio_aws(
     # ------------------------------------------------------------------
     # Use a specific temp folder for this batch
 
-    temp_dir_path = os.path.join(cf["paths"]["temp"], f"download_batch_{now.strftime('%Y%m%d%H%M%S')}")
+    temp_dir_path = os.path.join(fyp_cf["paths"]["temp"], f"download_batch_{now.strftime('%Y%m%d%H%M%S')}")
     dest = Path(temp_dir_path).expanduser().resolve()
     dest.mkdir(parents=True, exist_ok=True)
 
@@ -230,7 +219,7 @@ def get_recent_data_donations_from_aio_aws(
                 data = json.load(f)
                 
                 # Use data_io to save (handles GCS upload + Local secondary)
-                data_io.save_json(cf, data, "ddp_raw", filename)
+                data_io.save_json(data, "ddp_raw", filename)
                 count += 1
             except Exception as e:
                 print(f"Failed to process/upload {filename}: {e}")
@@ -527,22 +516,18 @@ def propagate_timestamps(
 
 
 def refine_one_raw_ddp_log(
-    cf: dict = None, 
     donation_id: str = None,
     verbose: bool = False):
 
-    if cf is None:
-        cf = initialize()
 
     # loading a json with the name == donation id
     donation_dict = data_io.load_json(
-        cf=cf, 
         storage_location="ddp_raw",
         filename=donation_id,
         verbose=verbose
     )
 
-    mod_time_timestamp = data_io.getmtime(cf=cf, storage_location="ddp_raw", filename=donation_id)
+    mod_time_timestamp = data_io.getmtime(storage_location="ddp_raw", filename=donation_id)
     mod_time_timestamp = _dt.datetime.fromtimestamp(mod_time_timestamp)
 
 
@@ -551,7 +536,6 @@ def refine_one_raw_ddp_log(
         if verbose:
             print(f"{donation_id} is not TikTok data, cannot process. Moving to archive...")
             data_io.move(
-                cf=cf, 
                 src_storage_location='ddp_raw', 
                 dst_storage_location="archive", 
                 filename=donation_id, 
@@ -677,7 +661,6 @@ def refine_one_raw_ddp_log(
 
 
     all_ddp_events_df = extract_local_time_features(
-        cf = cf,
         some_events_df_in = all_ddp_events_df,
         kind_of_log = 'ddp',
         verbose = verbose)
@@ -715,8 +698,8 @@ def refine_one_raw_ddp_log(
 
 
     # only keep columns as defined by the variable schema
-    dropped_vars_str = textwrap.wrap(", ".join(list(set(all_ddp_events_df.columns) - set(cf['var_schema'].variable_name))), width=120)
-    relevant_cols = [c for c in cf['var_schema'].variable_name if c in all_ddp_events_df.columns]
+    dropped_vars_str = textwrap.wrap(", ".join(list(set(all_ddp_events_df.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
+    relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in all_ddp_events_df.columns]
     all_ddp_events_df = all_ddp_events_df[relevant_cols].copy()
 
     if verbose:
@@ -726,7 +709,6 @@ def refine_one_raw_ddp_log(
     all_ddp_events_df["date_added_to_dataset"] = mod_time_timestamp
 
     all_ddp_events_df = recode_events_df(
-        cf = cf,
         study_dataset = all_ddp_events_df,
         drop_single_value_cols = False,
         verbose = verbose
@@ -748,14 +730,11 @@ def refine_one_raw_ddp_log(
 
 
 
-def refine_all_raw_ddp_logs_and_save(cf = None, verbose=False):
+def refine_all_raw_ddp_logs_and_save(verbose=False):
 
-    if cf is None:
-        cf = initialize()
     result = {}
     
     raw_ddp_files = data_io.listdir(
-        cf=cf,
         storage_location="ddp_raw",
         return_absolute_path=False,
         verbose=False)
@@ -765,7 +744,6 @@ def refine_all_raw_ddp_logs_and_save(cf = None, verbose=False):
     result["raw_files"] = len(raw_ddp_files)
 
     refined_ddp_files = data_io.listdir(
-        cf=cf,
         storage_location="ddp_processed",
         return_absolute_path=False,
         verbose=False)
@@ -781,19 +759,17 @@ def refine_all_raw_ddp_logs_and_save(cf = None, verbose=False):
         if verbose:
             print(f"Refining: {u}")
         new_flat = refine_one_raw_ddp_log(
-            cf=cf,
             donation_id=u,
             verbose=verbose
             )
 
         if isinstance(new_flat, pd.DataFrame):
-            data_io.save_parquet(cf=cf, df=new_flat, filename=u+".parquet", storage_location="ddp_processed", verbose=verbose)
+            data_io.save_parquet(df=new_flat, filename=u+".parquet", storage_location="ddp_processed", verbose=verbose)
         else:
             pass
         
 
     refined_ddp_files = data_io.listdir(
-        cf=cf,
         storage_location="ddp_processed",
         return_absolute_path=False,
         verbose=False)
@@ -832,7 +808,6 @@ def _deser(value):
 
 
 def generate_donation_metadata(
-    cf: dict | None = None, 
     ddp_events_df: pd.DataFrame | None = None,
     update_col: pd.Series | None = None,
     sort_by: str | None = None, 
@@ -844,8 +819,6 @@ def generate_donation_metadata(
 
     Parameters
     ----------
-    cf : dict, optional
-        Configuration dictionary. If None, initializes via initialize().
     ddp_events_df : pandas.DataFrame, optional
         Events DataFrame used to calculate metadata statistics.
     update_col : pandas.Series, optional
@@ -862,12 +835,9 @@ def generate_donation_metadata(
         The resulting metadata DataFrame with donation IDs as index.
     """
 
-    if cf is None:
-        cf = initialize()
 
-
-    if data_io.exists(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet"):
-        old_metadata_df = data_io.load_parquet(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet")
+    if data_io.exists(storage_location="ddp_main", filename="ddp_metadata.parquet"):
+        old_metadata_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
         if verbose:
             print(f"Loaded existing metadata from storage. Shape: {old_metadata_df.shape}")
     else:
@@ -891,7 +861,7 @@ def generate_donation_metadata(
 
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
             new_metadata_df = new_metadata_df.sort_index(axis='columns').sort_values(('other','D_id')).copy()
-            data_io.save_parquet(cf=cf, df=new_metadata_df, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
+            data_io.save_parquet(df=new_metadata_df, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
             print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
             return new_metadata_df
 
@@ -956,9 +926,9 @@ def generate_donation_metadata(
     if verbose:
         print("Checking all participant metadata files ")
     participant_metadata = {}
-    for participant_data_file in data_io.listdir(cf=cf, storage_location="ddp_participants"):
+    for participant_data_file in data_io.listdir(storage_location="ddp_participants"):
         if participant_data_file.endswith(".json"):
-            participant_metadata_raw = data_io.load_json(cf=cf, storage_location="ddp_participants", filename=participant_data_file)
+            participant_metadata_raw = data_io.load_json(storage_location="ddp_participants", filename=participant_data_file)
             if verbose:
                 print(f"P {len(participant_metadata_raw['Items'])} items in the file {participant_data_file}")
             for item in participant_metadata_raw.get("Items", []):
@@ -979,7 +949,7 @@ def generate_donation_metadata(
         combined_ddp_metadata = pd.concat([old_metadata_df, combined_ddp_metadata], axis=0)
         
     combined_ddp_metadata = combined_ddp_metadata.sort_index(axis='columns').sort_values(('other','D_id')).copy()
-    data_io.save_parquet(cf=cf, df=combined_ddp_metadata, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
+    data_io.save_parquet(df=combined_ddp_metadata, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
 
     if verbose:
         print(f"Shape of the combined metadata DF: {combined_ddp_metadata.shape}")
@@ -1094,7 +1064,6 @@ def _identify_similar_donations(
 
 
 def consolidate_ddp_logs(
-    cf: dict | None = None,
     force_consolidation: bool = False,
     consolidate_from_scratch: bool = True,
     return_saved_data: bool = True,
@@ -1109,8 +1078,6 @@ def consolidate_ddp_logs(
 
     Parameters
     ----------
-    cf : dict | None, optional
-        Configuration dictionary. If None, initializes a new configuration.
     force_consolidation : bool, default False
         Flag to force the consolidation process.
     verbose : bool, default False
@@ -1123,14 +1090,12 @@ def consolidate_ddp_logs(
         and the resulting consolidated DataFrame.
     """
 
-    if cf is None:
-        cf = initialize()
 
     top_verbose = True
 
     if top_verbose:
         print("Checking for new raw DDP logs that needs refining...")
-    result = refine_all_raw_ddp_logs_and_save(cf=cf, verbose=verbose)
+    result = refine_all_raw_ddp_logs_and_save(verbose=verbose)
     if top_verbose:
         if result["refined_files_after"] == result["refined_files_before"]:
             print("    ...all files already refined.")
@@ -1140,7 +1105,6 @@ def consolidate_ddp_logs(
 
     # --------------------------------------------------------------------------------------
     refined_ddp_files = data_io.listdir(
-        cf=cf,
         storage_location="ddp_processed",
         return_absolute_path=False,
         verbose=False)
@@ -1149,8 +1113,8 @@ def consolidate_ddp_logs(
 
     # ---------------------------------------------------------------
     # check if there are any changes in the relevant folder compared to last time this process was run.    
-    if data_io.exists(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
-        dataset_meta = data_io.load_json(cf=cf,storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
+    if data_io.exists(storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
+        dataset_meta = data_io.load_json(storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
         if verbose:
             print("Dataset meta loaded")
     else:
@@ -1158,7 +1122,7 @@ def consolidate_ddp_logs(
 
     latest_filename_list = dataset_meta.get("donations", {}).get("filenames", [])
 
-    ddp_meta = data_io.load_parquet(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet")
+    ddp_meta = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
     rejected_donations = ddp_meta[~ddp_meta[('other','accepted')]].index.to_list()
     rejected_donations = [f"{u}.parquet" for u in rejected_donations]
     accepted_refined_ddp_files = [u for u in refined_ddp_files if u not in rejected_donations]
@@ -1168,7 +1132,7 @@ def consolidate_ddp_logs(
         if top_verbose:
             print("No new refined DDP files found. No need to consolidate.")
         if return_saved_data:
-            thing = data_io.load_parquet(cf=cf, storage_location="recoded", filename="donations_recoded.parquet")
+            thing = data_io.load_parquet(storage_location="recoded", filename="donations_recoded.parquet")
             if verbose: print("Returning existing file.")
 
             return False, thing
@@ -1184,14 +1148,14 @@ def consolidate_ddp_logs(
 
     # first look in cache, then look in recoded
     if not consolidate_from_scratch:
-        if data_io.exists(cf=cf,storage_location="cache",filename="core_donations.parquet",verbose=verbose):
+        if data_io.exists(storage_location="cache",filename="core_donations.parquet",verbose=verbose):
             if top_verbose:
                 print("Loading existing DDP logs from cache...")
-            many_ddp_logs = [data_io.load_parquet(cf=cf, storage_location="cache", filename="core_donations.parquet")]
-        elif data_io.exists(cf=cf,storage_location="recoded",filename="donations_recoded.parquet",verbose=verbose):
+            many_ddp_logs = [data_io.load_parquet(storage_location="cache", filename="core_donations.parquet")]
+        elif data_io.exists(storage_location="recoded",filename="donations_recoded.parquet",verbose=verbose):
             if top_verbose:
                 print("Loading existing DDP logs from main storage...")
-            many_ddp_logs = [data_io.load_parquet(cf=cf, storage_location="recoded", filename="donations_recoded.parquet")]
+            many_ddp_logs = [data_io.load_parquet(storage_location="recoded", filename="donations_recoded.parquet")]
 
     # there is a df in many_ddp_logs, it means that I found a previously consolidated df and don't want to
     # force consolidation from scratch. So I only need to add the new files.
@@ -1201,7 +1165,7 @@ def consolidate_ddp_logs(
         for u in new_refined_files:
             if top_verbose:
                 print(".", end="", flush=True)
-            many_ddp_logs.append(data_io.load_parquet(cf=cf, storage_location="ddp_processed", filename=u))
+            many_ddp_logs.append(data_io.load_parquet(storage_location="ddp_processed", filename=u))
         if top_verbose:
             print()
 
@@ -1213,7 +1177,7 @@ def consolidate_ddp_logs(
         for u in refined_ddp_files:
             if top_verbose:
                 print(".", end="", flush=True)
-            many_ddp_logs.append(data_io.load_parquet(cf=cf, storage_location="ddp_processed", filename=u))
+            many_ddp_logs.append(data_io.load_parquet(storage_location="ddp_processed", filename=u))
         if top_verbose:
             print()
             
@@ -1239,7 +1203,6 @@ def consolidate_ddp_logs(
     if top_verbose:
         print("Calculating donation metadata for the new donations...")
     donation_metadata = generate_donation_metadata(
-        cf=cf, 
         ddp_events_df=concatenated_ddp_logs, 
         update_col=None,
         verbose=verbose
@@ -1288,7 +1251,6 @@ def consolidate_ddp_logs(
     accepted_donation_ids = concatenated_ddp_logs["D_donation_id"].unique()
     accepted_col = pd.Series(donation_metadata.index.isin(accepted_donation_ids), index=donation_metadata.index, name=("other", "accepted"))
     donation_metadata = generate_donation_metadata(
-        cf=cf, 
         ddp_events_df=None, 
         update_col=accepted_col,
         verbose=verbose
@@ -1327,7 +1289,7 @@ def consolidate_ddp_logs(
     if not "donations" in dataset_meta:
         dataset_meta["donations"] = {}
     dataset_meta["donations"]["filenames"] = refined_ddp_files
-    _ = data_io.save_json(cf, dataset_meta, "recoded", "dataset_meta.json")
+    _ = data_io.save_json(dataset_meta, "recoded", "dataset_meta.json")
 
 
     return True, concatenated_ddp_logs
@@ -1357,7 +1319,6 @@ def consolidate_ddp_logs(
 
 
 def load_donation_data(
-    cf = None, 
     study_name = None, 
     all_data = None,
     verbose=False):
@@ -1367,22 +1328,19 @@ def load_donation_data(
     if study_name is None:
         raise ValueError("!!! [DDP] study_name must be specified")
 
-
-    if cf is None:
-        cf = initialize()
  
     print(f"    [DDP] Loading data for study...")
     
  
 
-    START_DATE = cf["study_defs"][study_name].get("START_DATE","1970-01-01")
+    START_DATE = fyp_cf["study_defs"][study_name].get("START_DATE","1970-01-01")
     if isinstance(START_DATE, str):
         try:
             START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
         except ValueError:
             START_DATE = _dt.datetime(1970,1,1).date()
     
-    END_DATE = cf["study_defs"][study_name].get("END_DATE","2099-12-31")
+    END_DATE = fyp_cf["study_defs"][study_name].get("END_DATE","2099-12-31")
     if isinstance(END_DATE, str):
         try:
             END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
@@ -1391,7 +1349,7 @@ def load_donation_data(
 
     sel = [("T_local_timestamp", ">=", START_DATE),("T_local_timestamp", "<=", END_DATE)]
 
-    the_selected_donations = cf["study_defs"][study_name].get("SELECTED_DONATIONS",[])
+    the_selected_donations = fyp_cf["study_defs"][study_name].get("SELECTED_DONATIONS",[])
     if len(the_selected_donations) > 0:
         the_selected_donations = [re.search(r'\[(.*?)\]', str(x)).group(1) if re.search(r'\[(.*?)\]', str(x)) else x for x in the_selected_donations]
         sel.append(("D_donation_id", "in", the_selected_donations))
@@ -1399,7 +1357,7 @@ def load_donation_data(
     if all_data is None:
         if verbose:
             print(f"    [DDP] Loading donation events from main storage")
-        out_df = data_io.load_parquet(cf, "recoded", "donations_recoded.parquet", filters=sel,verbose=verbose)
+        out_df = data_io.load_parquet("recoded", "donations_recoded.parquet", filters=sel,verbose=verbose)
 
     else:
         if verbose:
@@ -1430,13 +1388,9 @@ def load_donation_data(
 
 
 def simple_sample_ddp_events(
-    cf = None, 
     study_name = None, 
     all_ddp_events_df = None, 
     verbose=False):
-
-
-
 
 
 
@@ -1461,10 +1415,6 @@ def simple_sample_ddp_events(
 
 
     
-
-    if cf is None:
-        cf = initialize()
-    
     if all_ddp_events_df is None:
         raise ValueError("[DD Sampling] all_ddp_events_df cannot be None")
 
@@ -1473,7 +1423,7 @@ def simple_sample_ddp_events(
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
 
-    grouping_factors = get_grouping_factors_from_var_schema(cf = cf, some_events_df = the_df, verbose=False)
+    grouping_factors = get_grouping_factors_from_var_schema(some_events_df = the_df, verbose=False)
 
     if len(grouping_factors) != 2:
         raise ValueError("!!! [DD Sampling] Group factors must be exactly 2")
@@ -1488,13 +1438,13 @@ def simple_sample_ddp_events(
     if verbose:
         print(f"    [DD Sampling] Group factors: {grouping_factors}")
 
-    MIN_EVENTS_REQUIRED = cf["study_defs"][study_name].get("MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP",10)
-    MAX_EVENTS_SELECTED = cf["study_defs"][study_name].get("MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP",100)
-    MIN_GROUP_COUNT_REQUIRED_PER_DONATION = cf["study_defs"][study_name].get("MIN_GROUP_COUNT_REQUIRED_PER_DONATION",10)
-    MAX_GROUP_COUNT_SELECTED_PER_DONATION = cf["study_defs"][study_name].get("MAX_GROUP_COUNT_SELECTED_PER_DONATION",100)
+    MIN_EVENTS_REQUIRED = fyp_cf["study_defs"][study_name].get("MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP",10)
+    MAX_EVENTS_SELECTED = fyp_cf["study_defs"][study_name].get("MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP",100)
+    MIN_GROUP_COUNT_REQUIRED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MIN_GROUP_COUNT_REQUIRED_PER_DONATION",10)
+    MAX_GROUP_COUNT_SELECTED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_SELECTED_PER_DONATION",100)
 
     # sorting the events by donation and event id in order to have a replicable sample
-    donation_metadata_df = data_io.load_parquet(cf=cf, storage_location="ddp_main", filename="ddp_metadata.parquet")
+    donation_metadata_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
     donation_to_d_dict = donation_metadata_df[("other","D_id")].to_dict()
 
     the_df["D_id"] = the_df["D_donation_id"].map(donation_to_d_dict)
@@ -1573,7 +1523,6 @@ def simple_sample_ddp_events(
 
 
     enrichment_status_df = data_io.load_parquet(
-        cf=cf,
         storage_location="recoded",
         filename="enrichment_status.parquet")
     
@@ -1584,7 +1533,7 @@ def simple_sample_ddp_events(
 
     enrichment_summary = combined_deduped_enrichment_status.select_dtypes(include=["bool"]).fillna(False).sum().to_dict()
 
-    mapper = cf['var_schema'][['variable_name','display_name']].dropna().set_index('variable_name').to_dict()['display_name']
+    mapper = fyp_cf['var_schema'][['variable_name','display_name']].dropna().set_index('variable_name').to_dict()['display_name']
 
     print(f"    [DD Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     print(f"    [DD Sampling] - Unique videos: {len(combined_deduped_enrichment_status):,}")

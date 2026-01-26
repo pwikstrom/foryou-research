@@ -1,6 +1,5 @@
 
 import pandas as pd
-from fyp.fyp_main import initialize
 import fyp.data_io as data_io
 from fyp.donations import consolidate_ddp_logs
 from fyp.zeeschuimer import consolidate_zeeschuimer_logs
@@ -8,16 +7,10 @@ from fyp.machine_annotation import consolidate_and_save_refined_annotations
 from fyp.donations import load_donation_data, simple_sample_ddp_events
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.zeeschuimer import load_zeeschuimer_data
-from fyp.fyp_main import initialize, connect_to_google
 import fyp.data_io as data_io
 from copy import deepcopy
 import datetime as _dt
-
-
-#WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
-
-
-
+from fyp.fyp_config import fyp_cf
 
 
 
@@ -26,7 +19,6 @@ import datetime as _dt
 
 
 def load_study_datasets(
-    cf = None,
     study_name = None,
     all_datasets = {},
     load_from_cache = True,
@@ -37,43 +29,38 @@ def load_study_datasets(
     if study_name is None:
         raise ValueError("study_name must be specified")
 
-    if cf is None:
-        cf = initialize()
-
-    if not study_name in cf["study_defs"].keys():
+    if not study_name in fyp_cf["study_defs"].keys():
         raise ValueError(f"study_name '{study_name}' not found in config")
 
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None and not load_from_cache:
-        cf = connect_to_google(cf)
 
     print(f"Loading core datasets for study '{study_name}'...")
 
     # load core datasets from cache. This makes sense if the storage is remote. Since a slow network connection makes loading of datasets 
     # take a long time. If this is not a problem, there is really no need to use this option.
-    if load_from_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
+    if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         tutti_data = {}
         cached_core_datasets = {}
         for k in ['scrape','machine_annotations','donations','zeeschuimer']:
             tutti_data[k] = None
 
             # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
-            if data_io.exists(cf, "cache", f"core_{k}.parquet"):
-                parquet_study_name = data_io.find_key_value_in_pq_metadata(cf=cf, storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
+            if data_io.exists(storage_location="cache", filename=f"core_{k}.parquet"):
+                parquet_study_name = data_io.find_key_value_in_pq_metadata(storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
                 if parquet_study_name == study_name or parquet_study_name == 'everything':
                     if verbose:
                         print(f"    [Core datasets] Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
                     cached_core_datasets[k] = parquet_study_name
-                    tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="cache", filename=f"core_{k}.parquet")
+                    tutti_data[k] = data_io.load_parquet(storage_location="cache", filename=f"core_{k}.parquet")
 
 
             # if no dataset was loaded from cache and the cache and main storage are at different locations, then load everything from
             #  main storage and save to cache. It will save time later since this can be used for all studies
-            if tutti_data[k] is None and cf['data_io']['use_gcs_for_data']==True and cf['data_io']['use_gcs_for_cache']==False:
+            if tutti_data[k] is None and fyp_cf['data_io']['use_gcs_for_data']==True and fyp_cf['data_io']['use_gcs_for_cache']==False:
                 print(f"Loading core dataset '{k}' from main storage and saving to cache")
-                tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="recoded", filename=f"{k}_recoded.parquet")
+                tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
                 print(f"Saving core dataset '{k}' to cache")
                 tutti_data[k].attrs["study_name"] = 'everything'
-                data_io.save_parquet(cf=cf, df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
+                data_io.save_parquet(df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
 
                 
     elif len(all_datasets) > 0:
@@ -90,16 +77,16 @@ def load_study_datasets(
     # --------------------------------------------------------------------
 
     # if zeeschuimer data is to be included in the analysis
-    if cf["study_defs"][study_name].get("INCLUDE_ZEESCHUIMER_DATA",True):
-        tutti_data["zeeschuimer"] = load_zeeschuimer_data(cf = cf, study_name = study_name, all_data = tutti_data.get("zeeschuimer", None), verbose=verbose)
+    if fyp_cf["study_defs"][study_name].get("INCLUDE_ZEESCHUIMER_DATA",True):
+        tutti_data["zeeschuimer"] = load_zeeschuimer_data(study_name = study_name, all_data = tutti_data.get("zeeschuimer", None), verbose=verbose)
     # if it should not be included, remove it from the dictionary if it exists
     elif "zeeschuimer" in tutti_data:
         del tutti_data["zeeschuimer"]
 
 
     # if donation data is to be included in the analysis
-    if cf["study_defs"][study_name].get("INCLUDE_DONATION_DATA",True):
-        tutti_data["donations"] = load_donation_data(cf = cf, study_name = study_name, all_data = tutti_data.get("donations", None), verbose=verbose)
+    if fyp_cf["study_defs"][study_name].get("INCLUDE_DONATION_DATA",True):
+        tutti_data["donations"] = load_donation_data(study_name = study_name, all_data = tutti_data.get("donations", None), verbose=verbose)
     # if it should not be included, remove it from the dictionary if it exists
     elif "donations" in tutti_data:
         del tutti_data["donations"]
@@ -111,9 +98,9 @@ def load_study_datasets(
     # --------------------------------------------------------------------
     # sample donation data
     # --------------------------------------------------------------------
-    enrichment_status = data_io.load_parquet(cf=cf, storage_location="recoded", filename="enrichment_status.parquet")
+    enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
 
-    sample_frame_setting = cf["study_defs"][study_name].get("DONATION_SAMPLE_FRAME", "off")
+    sample_frame_setting = fyp_cf["study_defs"][study_name].get("DONATION_SAMPLE_FRAME", "off")
 
     # no sampling is performed if the sample frame setting is "off"
     if sample_frame_setting == "off":
@@ -140,7 +127,6 @@ def load_study_datasets(
     # perform the sampling if a sample frame was defined
     if sample_frame is not None:
         tutti_data["donations"] = simple_sample_ddp_events(
-            cf = cf, 
             study_name = study_name, 
             all_ddp_events_df = sample_frame, 
             verbose = verbose)
@@ -175,7 +161,7 @@ def load_study_datasets(
     if tutti_data.get("scrape") is None:
         print("    [Scrape] Loading scraped data from main storage...", end="", flush=True)
         if verbose: print()
-        tutti_data["scrape"] = data_io.load_parquet(cf=cf, storage_location="recoded", filename="scrape_recoded.parquet", filters=sel, verbose=verbose)
+        tutti_data["scrape"] = data_io.load_parquet(storage_location="recoded", filename="scrape_recoded.parquet", filters=sel, verbose=verbose)
         if not verbose:print(" ...done")
     else:
         print(f"    [Scrape] There are {len(tutti_data['scrape']):,} scraped data items in the cache", end="", flush=True)
@@ -188,7 +174,7 @@ def load_study_datasets(
     if tutti_data.get("machine_annotations") is None:
         print("    [Machine annotations] Loading machine annotations from main storage...", end="", flush=True)
         if verbose: print()
-        tutti_data["machine_annotations"] = data_io.load_parquet(cf=cf, storage_location="recoded", filename="machine_annotations_recoded.parquet", filters=sel, verbose=verbose)
+        tutti_data["machine_annotations"] = data_io.load_parquet(storage_location="recoded", filename="machine_annotations_recoded.parquet", filters=sel, verbose=verbose)
         if not verbose: print(" ...done")
 
     else:
@@ -203,20 +189,6 @@ def load_study_datasets(
         total_memory_mb = total_memory_bytes / (1024**2)
         return total_memory_mb
 
-    # save the core datasets to cache if requested
-    """if save_to_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
-        t1 = _dt.datetime.now()
-        if verbose:
-            print("    [Core datasets] Saving datasets to cache...")
-        for k in tutti_data:
-            if k in cached_core_datasets and cached_core_datasets[k] in ['everything', study_name]:
-                if verbose:
-                    print(f"    [Core datasets] Cached 'everything' dataset for '{k}' already exists. No need to replace it with this dataset.")
-                continue
-            tutti_data[k].attrs["study_name"] = study_name
-            data_io.save_parquet(cf=cf, df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
-        if verbose:
-            print(f"    [Core datasets] ...done. (Took me {(_dt.datetime.now() - t1).total_seconds():.1f} seconds)")"""
 
     if verbose:
         print("    [Core datasets] Datasets:")
@@ -246,49 +218,41 @@ def load_study_datasets(
 
 
 def load_donation_datasets(
-    cf = None,
     donation_id = None,
     load_from_cache = True,
     verbose=False
     ):
 
 
-    if cf is None:
-        cf = initialize()
-
-
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None and not load_from_cache:
-        cf = connect_to_google(cf)
-
     print(f"Loading core datasets for donation '{donation_id}'...")
 
     # load core datasets from cache. This makes sense if the storage is remote. Since a slow network connection makes loading of datasets 
     # take a long time. If this is not a problem, there is really no need to use this option.
-    if load_from_cache and not cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
+    if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         tutti_data = {}
         cached_core_datasets = {}
         for k in ['scrape','machine_annotations','donations']:
             tutti_data[k] = None
 
             # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
-            if data_io.exists(cf, "cache", f"core_{k}.parquet"):
-                parquet_study_name = data_io.find_key_value_in_pq_metadata(cf=cf, storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
+            if data_io.exists(storage_location="cache", filename=f"core_{k}.parquet"):
+                parquet_study_name = data_io.find_key_value_in_pq_metadata(storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
                 print(f"Found a cached version of '{k}' core dataset for study '{parquet_study_name}'")
                 if parquet_study_name == 'everything':
                     if verbose:
                         print(f"    [Core datasets] Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
                     cached_core_datasets[k] = parquet_study_name
-                    tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="cache", filename=f"core_{k}.parquet")
+                    tutti_data[k] = data_io.load_parquet(storage_location="cache", filename=f"core_{k}.parquet")
 
 
             # if no dataset was loaded from cache and the cache and main storage are at different locations, then load everything from
             #  main storage and save to cache. It will save time later since this can be used for all studies
-            if tutti_data[k] is None and cf['data_io']['use_gcs_for_data']==True and cf['data_io']['use_gcs_for_cache']==False:
+            if tutti_data[k] is None and fyp_cf['data_io']['use_gcs_for_data']==True and fyp_cf['data_io']['use_gcs_for_cache']==False:
                 print(f"Loading core dataset '{k}' from main storage and saving to cache")
-                tutti_data[k] = data_io.load_parquet(cf=cf, storage_location="recoded", filename=f"{k}_recoded.parquet")
+                tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
                 print(f"Saving core dataset '{k}' to cache")
                 tutti_data[k].attrs["study_name"] = 'everything'
-                data_io.save_parquet(cf=cf, df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
+                data_io.save_parquet(df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
 
                 
     elif len(all_datasets) > 0:
@@ -390,19 +354,15 @@ def _build_agg_dict_to_generate_basic_video_stats(study_dataset = None):
 
 
 def select_videos_from_study_dataset(
-    cf = None,
     study_dataset = None,
     query_string = "",
     verbose = False,
     notebook_mode = False
     ):
 
-    from fyp.fyp_main import initialize
 
     if study_dataset is None:
         raise ValueError("study_dataset must be specified")
-    if cf is None:
-        cf = initialize()
 
 
     # group by video URL and count the number of unique users
@@ -411,7 +371,7 @@ def select_videos_from_study_dataset(
     video_stats = study_dataset[confirmed_cols].groupby('item_id').agg(**agg_dict)
 
     if "video_duration" in video_stats.columns:
-        video_stats['duration_ok_to_annotate'] = (video_stats['video_duration'] <= cf["machine"]["max_duration_for_annotation"]).fillna(False)
+        video_stats['duration_ok_to_annotate'] = (video_stats['video_duration'] <= fyp_cf["machine"]["max_duration_for_annotation"]).fillna(False)
         video_stats.drop(columns=["video_duration"], inplace=True)
     else:
         # If duration information is missing, default to False (safer not to annotate unknown duration)
@@ -431,7 +391,6 @@ def select_videos_from_study_dataset(
 
 
 def generate_unique_videos_to_scrape_and_annotate(
-    cf = None,
     study_name = None,
     study_dataset = None,
     load_from_cache = True,
@@ -447,21 +406,14 @@ def generate_unique_videos_to_scrape_and_annotate(
         print("  This process cannot run without a study name or a study dataset as input. Process failed.")
         return None
 
-    if cf is None:
-        cf = initialize()
 
     if load_from_cache and study_name is not None:
-        #study_dataset_cache_path = os_join(cf['paths']['cache'], f"{study_name}_recoded.parquet")
-        if data_io.exists(cf=cf, storage_location="cache", filename=f"{study_name}_recoded.parquet"):
+        if data_io.exists(storage_location="cache", filename=f"{study_name}_recoded.parquet"):
             if verbose:
                 print(f"    Loading study recoded dataset from cache...", end=" ", flush=True)
             
-            #schema = pq_read_schema(study_dataset_cache_path)
-            #confirmed_cols = list(set(schema.names) & set(_build_agg_dict_to_generate_basic_video_stats()[1]))
-            #print(study_dataset_cache_path)
 
             study_dataset = data_io.load_parquet(
-                cf=cf, 
                 filename=f"{study_name}_recoded.parquet", 
                 storage_location="cache")
             if verbose:
@@ -469,7 +421,6 @@ def generate_unique_videos_to_scrape_and_annotate(
         else:
             print("@@ No cached study dataset found. I must run the process to create it. Please wait a moment...")
             study_dataset = create_study_recoded_dataset(
-                cf = cf,
                 study_name = study_name,
                 load_from_cache = True,
                 save_to_cache = True,
@@ -489,14 +440,12 @@ def generate_unique_videos_to_scrape_and_annotate(
     study_dataset_small = study_dataset[["item_id","S_video_duration","annotated_ok","annotated_fail","scraped_ok","scraped_fail"]].copy()
 
     selected_annotate_videos = select_videos_from_study_dataset(
-        cf = cf,
         study_dataset = study_dataset_small,
         query_string = "scraped_ok & ~annotated_ok & ~annotated_fail & duration_ok_to_annotate",
         verbose = verbose,
         notebook_mode = False)
 
     selected_scrape_videos = select_videos_from_study_dataset(
-        cf = cf,
         study_dataset = study_dataset_small,
         query_string = "~scraped_ok & ~scraped_fail",
         verbose = verbose,
@@ -509,17 +458,13 @@ def generate_unique_videos_to_scrape_and_annotate(
         selected_annotate_videos.attrs['study_name'] = study_name
         selected_scrape_videos.attrs['study_name'] = study_name
         data_io.save_parquet(
-            cf=cf,
             df=selected_annotate_videos,
             storage_location="cache",
             filename=f"{study_name}_unique_items_to_annotate.parquet")
         data_io.save_parquet(
-            cf=cf,
             df=selected_scrape_videos,
             storage_location="cache",
             filename=f"{study_name}_unique_items_to_scrape.parquet")
-        #selected_annotate_videos.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_unique_items_to_annotate.parquet"), engine='pyarrow')
-        #selected_scrape_videos.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_unique_items_to_scrape.parquet"), engine='pyarrow')
         if verbose:
             print(f"  ...done. Time taken to save datasets to cache: {(_dt.datetime.now() - t1).total_seconds():.1f} seconds")
 
@@ -537,21 +482,16 @@ def generate_unique_videos_to_scrape_and_annotate(
 
 
 def check_unique_videos_to_scrape_and_annotate(
-    cf = None,
     study_name = None,
     load_from_cache = True,
     save_to_cache = True,
     verbose = False
     ):
 
-    from fyp.fyp_main import initialize
-    #from os.path import exists as os_exists, join as os_join
-
 
     print(f"Checking unique videos to scrape and annotate...")
 
     interesting_videos = generate_unique_videos_to_scrape_and_annotate(
-        cf = cf,
         study_name = study_name,
         load_from_cache = load_from_cache,
         save_to_cache = save_to_cache,
@@ -570,12 +510,9 @@ def check_unique_videos_to_scrape_and_annotate(
 
 
 def update_enrichment_status(
-    cf:dict | None = None,
     all_datasets:dict = {},
     verbose:bool = False):
     
-    if cf is None:
-        cf = initialize()
 
 
     enrichment_status_df = pd.concat([
@@ -597,7 +534,7 @@ def update_enrichment_status(
 
     enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets['annotations'][['item_id','annotated_ok','annotated_fail']], on='item_id', how='left')
 
-    failed_scrapes = load_failed_scrapes(cf)
+    failed_scrapes = load_failed_scrapes()
 
     failed_scrapes = pd.DataFrame(failed_scrapes, columns=["item_id"])
     failed_scrapes["scrape_fail"] = True
@@ -608,7 +545,7 @@ def update_enrichment_status(
 
     enrichment_status_df.set_index("item_id", inplace=True)
 
-    data_io.save_parquet(cf=cf, df=enrichment_status_df, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+    data_io.save_parquet(df=enrichment_status_df, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
 
     return enrichment_status_df
 
@@ -622,22 +559,17 @@ def update_enrichment_status(
 
 
 def _consolidate_and_save_activity_logs(
-    cf:dict | None = None, 
     force_consolidation:bool = False, 
     verbose:bool = False):
 
-    if cf is None:
-        cf = initialize()
     
     print("\n*** Zeeschuimer")
     new_z, z1 = consolidate_zeeschuimer_logs(
-        cf = cf, 
         force_consolidation=force_consolidation, 
         verbose=verbose)
     
     print("\n*** Donations")
     new_d, d1 = consolidate_ddp_logs(
-        cf = cf, 
         force_consolidation=force_consolidation, 
         consolidate_from_scratch=True, 
         verbose = verbose)
@@ -671,11 +603,11 @@ def _consolidate_and_save_activity_logs(
 
     if new_z:
         print(f"Saving Zeeschuimer dataset. Shape {z1.shape} to 'recoded' folder")
-        _ = data_io.save_parquet(cf, z1, "recoded", "zeeschuimer_recoded.parquet", verbose=verbose)
+        _ = data_io.save_parquet(df=z1, storage_location="recoded", filename="zeeschuimer_recoded.parquet", verbose=verbose)
 
     if new_d:
         print(f"Saving DDP dataset. Shape {d1.shape} to 'recoded' folder")
-        _ = data_io.save_parquet(cf, d1, "recoded", "donations_recoded.parquet", verbose=verbose)
+        _ = data_io.save_parquet(df=d1, storage_location="recoded", filename="donations_recoded.parquet", verbose=verbose)
     
     if new_z or new_d:
         print("...done saving datasets")
@@ -691,21 +623,16 @@ def _consolidate_and_save_activity_logs(
 
 
 
-def consolidate_fyp_core_data(cf = None, force_consolidation=False, verbose=False):
+def consolidate_fyp_core_data(force_consolidation=False, verbose=False):
 
-    if cf is None:
-        cf = initialize()
 
-    (new_zeeschuimer_logs, zeeschuimer_logs), (new_ddp_logs, ddp_logs) = _consolidate_and_save_activity_logs(cf=cf, 
-                                                                                                            force_consolidation=force_consolidation,
+    (new_zeeschuimer_logs, zeeschuimer_logs), (new_ddp_logs, ddp_logs) = _consolidate_and_save_activity_logs(force_consolidation=force_consolidation,
                                                                                                             verbose=verbose)
     print("\n*** Annotations")
-    (new_annotations, annotations) = consolidate_and_save_refined_annotations(cf=cf, 
-                                                                            force_consolidation=force_consolidation,
+    (new_annotations, annotations) = consolidate_and_save_refined_annotations(force_consolidation=force_consolidation,
                                                                             verbose=verbose)
     print("\n*** Scrape")
-    (new_scrape_data, scrape_data) = consolidate_and_save_scrape_data(cf=cf, 
-                                                                     force_consolidation=force_consolidation,
+    (new_scrape_data, scrape_data) = consolidate_and_save_scrape_data(force_consolidation=force_consolidation,
                                                                      verbose=verbose)
 
     fine_results = {
@@ -720,7 +647,7 @@ def consolidate_fyp_core_data(cf = None, force_consolidation=False, verbose=Fals
         }
 
     print("\n*** Updating (and saving) data enrichment status...")
-    update_enrichment_status(cf=cf, all_datasets=fine_results, verbose=verbose)
+    update_enrichment_status(all_datasets=fine_results, verbose=verbose)
     print("...done.")
 
 
@@ -737,7 +664,6 @@ def consolidate_fyp_core_data(cf = None, force_consolidation=False, verbose=Fals
 
 
 def new_merge(
-    cf = None,
     study_name = None,
     all_datasets = {},
     verbose = False,
@@ -749,10 +675,8 @@ def new_merge(
     if study_name is None and save_to_cache == True:
         raise ValueError("study_name must be specified")
 
-    if cf is None:
-        cf = initialize()
 
-    if not study_name in cf["study_defs"].keys() and save_to_cache == True:
+    if not study_name in fyp_cf["study_defs"].keys() and save_to_cache == True:
         raise ValueError(f"study_name '{study_name}' not found in config")
 
     if all_datasets is None:
@@ -804,7 +728,7 @@ def new_merge(
 
 
     # 3. scraped fail
-    failed_scrapes = set(load_failed_scrapes(cf = cf, verbose=verbose))  # load failed_scrapes as a set
+    failed_scrapes = set(load_failed_scrapes(verbose=verbose))  # load failed_scrapes as a set
     calc_col += ["scraped_fail"]
     shebang[calc_col[-1]] = shebang["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
 
@@ -826,13 +750,11 @@ def new_merge(
             print(f"  Saving the '{study_name}' dataset to cache...")
         shebang.attrs['study_name'] = study_name
         data_io.save_parquet(
-            cf=cf,
             df=shebang,
             storage_location="cache",
             filename=f"{study_name}_recoded.parquet",
             asyncronous=False,
             verbose=verbose)
-        #shebang.to_parquet(os_join(cf['paths']['cache'], f"{study_name}_recoded.parquet"), engine='pyarrow')
         if verbose:
             print(f"  ...done. Time taken to save datasets to cache: {(_dt.datetime.now() - t1).total_seconds():.1f} seconds")
 
@@ -850,45 +772,6 @@ def new_merge(
 
 
 
-################################################################################################################################################
-## Saturday morning, I need to build a cache refresh!
-################################################################################################################################################
-
-
-"""
-def refresh_cache(cf = None, study_name = "chenglong"):
-    if cf is None:
-        cf = initialize()
-    
-    fyp_core = {}
-    for fn in data_io.listdir(cf=cf, storage_location="recoded"):
-        if fn.endswith("_recoded.parquet"):
-            dataset_name = fn.replace("_recoded.parquet","")
-            print(f"Found one core dataset: {dataset_name}")
-            fyp_core[dataset_name] = data_io.load_parquet(
-                cf=cf,
-                storage_location="recoded",
-                filename=fn)
-    
-
-        
-    # with new merge, the datasets are already recoded
-    study_recoded_dataset = new_merge(
-        cf = cf,
-        study_name = study_name,
-        all_datasets = fyp_core,
-        save_to_cache = True,
-        verbose = True
-    )
-
-
-    memory_per_column = study_recoded_dataset.memory_usage(deep=True) 
-    total_memory_bytes = memory_per_column.sum()
-    total_memory_mb = total_memory_bytes / (1024**2)
-    print(f"...done. Unified dataset for study '{study_name}' generated. Total memory used: {total_memory_mb:.2f} MB")
-
-
-"""
 
 
 
@@ -899,32 +782,25 @@ def refresh_cache(cf = None, study_name = "chenglong"):
 
 
 def create_study_recoded_dataset(
-    cf = None,
     study_name = None,
     all_datasets = {},
     save_to_cache = True,
     verbose = False
     ):
 
-    from fyp.fyp_main import initialize, connect_to_google
 
     if study_name is None:
         raise ValueError("study_name must be specified")
 
-    if cf is None:
-        cf = initialize()
 
-    if not study_name in cf["study_defs"].keys():
+    if not study_name in fyp_cf["study_defs"].keys():
         raise ValueError(f"study_name '{study_name}' not found in config")
 
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
 
     print(f"Generating unified dataset for study '{study_name}'")
 
     all_datasets = load_study_datasets(
-        cf = cf,
         study_name = study_name,
         all_datasets = all_datasets,
         load_from_cache = True,
@@ -937,7 +813,6 @@ def create_study_recoded_dataset(
 
     # with new merge, the datasets are already recoded
     study_recoded_dataset = new_merge(
-        cf = cf,
         study_name = study_name,
         all_datasets = all_datasets,
         save_to_cache = save_to_cache,
@@ -960,27 +835,18 @@ def create_study_recoded_dataset(
 
 
 def create_donation_unified_dataset(
-    cf = None,
     donation_id = None,
     verbose = False
     ):
 
-    from fyp.fyp_main import initialize, connect_to_google
 
     if donation_id is None:
         raise ValueError("donation_id must be specified")
 
-    if cf is None:
-        cf = initialize()
-
-
-    if cf['data_io']['use_gcs_for_data'] and cf['data_io']['bucket'] is None:
-        cf = connect_to_google(cf)
 
     print(f"Generating unified dataset for donation '{donation_id}'")
 
     all_datasets = load_donation_datasets(
-        cf = cf,
         donation_id = donation_id,
         load_from_cache = True,
         verbose = verbose)
@@ -991,7 +857,6 @@ def create_donation_unified_dataset(
 
     # with new merge, the datasets are already recoded
     donation_dataset = new_merge(
-        cf = cf,
         study_name = None,
         all_datasets = all_datasets,
         save_to_cache = False,
@@ -1017,15 +882,12 @@ def create_donation_unified_dataset(
 
 
 def save_logs_as_csv(
-    cf = None,
     study_name = None,
     outdata_filtered = None,
     file_label = "",
     verbose=False):
 
 
-    if cf is None:
-        cf = initialize()
 
     if study_name is None:
         raise ValueError("study_name must be specified")
@@ -1108,7 +970,7 @@ def save_logs_as_csv(
 
 
         # Export with error handling for any remaining encoding issues
-        outdata_for_csv_export.to_csv(join(cf['paths']['exports'],log_as_csv_filename), errors='replace')
+        outdata_for_csv_export.to_csv(join(fyp_cf['paths']['exports'],log_as_csv_filename), errors='replace')
         if verbose:
             print(f"Exported {len(outdata_for_csv_export):,} observations in {log_as_csv_filename}.")
             print(f"The date of the observations in the log range from {outdata_filtered.T_local_timestamp.min()} -- {outdata_filtered.T_local_timestamp.max()}")
