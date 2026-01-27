@@ -6,8 +6,9 @@ from datetime import datetime
 from fyp.fyp_config import fyp_cf, PROJECT_ROOT
 from ..data_service import (
     get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags,
-    load_schema_metadata, get_timeline_data, get_study_donations
+    load_schema_metadata, get_timeline_data, get_study_donations, load_shared_tags
 )
+from ..security import user_manager
 from .. import explorer_backend as explorer
 from fyp.recode_variables import get_factors_and_features_from_var_schema
 from fyp.studies import init_study_defs, save_study_defs
@@ -104,7 +105,21 @@ def api_explorer_metadata():
     
     # Enrich with User Tags
     username = current_user.username
-    df, col_types = enrich_with_user_tags(df, col_types, username)
+    
+    # Check for Shared Annotations
+    shared_simple_map = None
+    user_settings = current_user.settings or {}
+    if user_settings.get('share_annotations'):
+        sharing_users = []
+        for u_name, u_obj in user_manager.users.items():
+            if u_name == username: continue
+            if u_obj.settings and u_obj.settings.get('share_annotations'):
+                sharing_users.append(u_name)
+        
+        if sharing_users:
+            shared_simple_map, _ = load_shared_tags(sharing_users)
+
+    df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
   
     """if context == 'viewer':
          df = df[df.scraped_ok].copy()
@@ -126,14 +141,23 @@ def api_explorer_metadata():
         # We must re-calculate these every time because the cache might be stale w.r.t user actions
         dynamic_cols = {}
         if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
+        if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
         if 'Has Annotation' in col_types: dynamic_cols['Has Annotation'] = 'category'
+        if 'Machine Annotations' in col_types: dynamic_cols['Machine Annotations'] = 'category'
         
         if dynamic_cols:
-             # print("    Refreshing dynamic metadata (User Tags / Has Annotation)")
              cols_to_get = [c for c in dynamic_cols.keys() if c in df.columns]
              if cols_to_get:
-                 dynamic_meta = explorer.get_metadata(df[cols_to_get], dynamic_cols)
-                 metadata.update(dynamic_meta)
+                  dynamic_meta = explorer.get_metadata(df[cols_to_get], dynamic_cols)
+                  metadata.update(dynamic_meta)
+                  
+                  # Force update of User Tags stats specifically if it's a list (to capture merged shared tags)
+                  if 'User Tags' in df.columns:
+                      res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'}, viz_config=get_viz_config())
+                      if 'stats' in res_tags:
+                          if 'total_stats' not in metadata: metadata['total_stats'] = {}
+                          metadata['total_stats'].update(res_tags['stats'])
+                          # metadata['User Tags'] = res_tags['stats']['User Tags'] # REMOVED: This overwrites filter config with stats
 
         # Ensure User Tags is in filter_priority if it exists
         if 'User Tags' in metadata and 'filter_priority' in metadata:
@@ -147,11 +171,11 @@ def api_explorer_metadata():
         # Inject User Annotation Schema Info (User Tags & Has Annotation) - POST SCHEMA LOAD
         if 'schema_map' not in metadata: metadata['schema_map'] = {}
         
-        # 1. User Tags
+        # 1. User Tags -> Tags by Humans
         if 'User Tags' in metadata:
             metadata['schema_map']['User Tags'] = {
-                "section": "User Annotation",
-                "display_name": "User Tags",
+                "section": "Annotation Status",
+                "display_name": "Tags by Humans",
                 "description": "Tags you have assigned to items."
             }
             # Re-insert into priorities
@@ -163,11 +187,11 @@ def api_explorer_metadata():
             if 'User Tags' in metadata['display_priority']: metadata['display_priority'].remove('User Tags')
             metadata['display_priority'].insert(0, 'User Tags')
             
-        # 2. Has Annotation
+        # 2. Has Annotation -> Has Human Annotations
         if 'Has Annotation' in metadata:
             metadata['schema_map']['Has Annotation'] = {
-                "section": "User Annotation",
-                "display_name": "Has Annotation",
+                "section": "Annotation Status",
+                "display_name": "Has Human Annotations",
                 "description": "Filter items that have notes, tags, or closed tags."
             }
             # Re-insert into priorities (After User Tags)
@@ -181,6 +205,26 @@ def api_explorer_metadata():
             if 'Has Annotation' in metadata['display_priority']: metadata['display_priority'].remove('Has Annotation')
             idx = 1 if 'User Tags' in metadata else 0
             metadata['display_priority'].insert(idx, 'Has Annotation')
+
+        # 3. Machine Annotations
+        if 'Machine Annotations' in metadata:
+            metadata['schema_map']['Machine Annotations'] = {
+                "section": "Annotation Status",
+                "display_name": "Machine Annotations",
+                "description": "Filter items by their machine annotation status."
+            }
+            # Priority
+            if 'filter_priority' not in metadata: metadata['filter_priority'] = []
+            if 'Machine Annotations' in metadata['filter_priority']: metadata['filter_priority'].remove('Machine Annotations')
+            # Insert after Has Annotation
+            idx = 0
+            if 'User Tags' in metadata: idx += 1
+            if 'Has Annotation' in metadata: idx += 1
+            metadata['filter_priority'].insert(idx, 'Machine Annotations')
+            
+            if 'display_priority' not in metadata: metadata['display_priority'] = []
+            if 'Machine Annotations' in metadata['display_priority']: metadata['display_priority'].remove('Machine Annotations')
+            metadata['display_priority'].insert(idx, 'Machine Annotations')
 
         return jsonify(make_serializable(metadata))
 
@@ -218,11 +262,11 @@ def api_explorer_metadata():
     # Inject User Annotation Schema Info (User Tags & Has Annotation)
     if 'schema_map' not in metadata: metadata['schema_map'] = {}
 
-    # 1. User Tags
+    # 1. User Tags -> Tags by Humans
     if 'User Tags' in metadata:
         metadata['schema_map']['User Tags'] = {
-            "section": "User Annotation",
-            "display_name": "User Tags",
+            "section": "Annotation Status",
+            "display_name": "Tags by Humans",
             "description": "Tags you have assigned to items."
         }           
         # Re-insert into priorities
@@ -234,11 +278,11 @@ def api_explorer_metadata():
         if 'User Tags' in metadata['display_priority']: metadata['display_priority'].remove('User Tags')
         metadata['display_priority'].insert(0, 'User Tags')
 
-    # 2. Has Annotation
+    # 2. Has Annotation -> Has Human Annotations
     if 'Has Annotation' in metadata:
         metadata['schema_map']['Has Annotation'] = {
-            "section": "User Annotation",
-            "display_name": "Has Annotation",
+            "section": "Annotation Status",
+            "display_name": "Has Human Annotations",
             "description": "Filter items that have notes, tags, or closed tags."
         }
         # Re-insert into priorities (After User Tags)
@@ -251,6 +295,26 @@ def api_explorer_metadata():
         if 'Has Annotation' in metadata['display_priority']: metadata['display_priority'].remove('Has Annotation')
         idx = 1 if 'User Tags' in metadata else 0
         metadata['display_priority'].insert(idx, 'Has Annotation')
+
+    # 3. Machine Annotations
+    if 'Machine Annotations' in metadata:
+        metadata['schema_map']['Machine Annotations'] = {
+            "section": "Annotation Status",
+            "display_name": "Machine Annotations",
+            "description": "Filter items by their machine annotation status."
+        }
+        # Priority
+        if 'filter_priority' not in metadata: metadata['filter_priority'] = []
+        if 'Machine Annotations' in metadata['filter_priority']: metadata['filter_priority'].remove('Machine Annotations')
+        # Insert after Has Annotation
+        idx = 0
+        if 'User Tags' in metadata: idx += 1
+        if 'Has Annotation' in metadata: idx += 1
+        metadata['filter_priority'].insert(idx, 'Machine Annotations')
+        
+        if 'display_priority' not in metadata: metadata['display_priority'] = []
+        if 'Machine Annotations' in metadata['display_priority']: metadata['display_priority'].remove('Machine Annotations')
+        metadata['display_priority'].insert(idx, 'Machine Annotations')
 
     data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=True)
 
@@ -785,7 +849,23 @@ def api_viewer_item(study, item_id):
     
     # Enrich with User Tags
     username = current_user.username
-    df, col_types = enrich_with_user_tags(df, col_types, username)
+    
+    # Check for Shared Annotations
+    shared_simple_map = None
+    shared_detailed_map = None
+    
+    user_settings = current_user.settings or {}
+    if user_settings.get('share_annotations'):
+        sharing_users = []
+        for u_name, u_obj in user_manager.users.items():
+            if u_name == username: continue
+            if u_obj.settings and u_obj.settings.get('share_annotations'):
+                sharing_users.append(u_name)
+        
+        if sharing_users:
+            shared_simple_map, shared_detailed_map = load_shared_tags(sharing_users)
+
+    df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
 
     # Apply Context Filters if provided (POST)
     if request.method == 'POST':
@@ -821,9 +901,12 @@ def api_viewer_item(study, item_id):
     
     #print(f"DEBUG: Found {len(row)} rows for item {item_id} after filtering.")
     record = row.iloc[0].replace({np.nan: None}).to_dict()
-    #if 'D_engagement' in record:
-    #    print(f"DEBUG: Selected row D_engagement: {record['D_engagement']}")
     
+    # Inject Shared Annotations for this item
+    if shared_detailed_map:
+        str_id = str(item_id)
+        if str_id in shared_detailed_map:
+            record['shared_annotations'] = shared_detailed_map[str_id]
 
     return jsonify(record)
 

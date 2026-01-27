@@ -1,5 +1,6 @@
 import pandas as pd
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
+from datetime import datetime
 from flask_login import login_user, logout_user, login_required, current_user
 import web_interface.auth as auth
 from ..security import user_manager
@@ -9,6 +10,8 @@ from fyp.fyp_config import fyp_cf
 import fyp.data_io as data_io
 
 auth_bp = Blueprint('auth_bp', __name__)
+
+from ..slack_service import get_recent_messages
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
@@ -30,6 +33,7 @@ def login():
                 else:
                     login_user(user_obj)
                     user_manager.update_last_login(user_obj.username)
+                    session['login_time'] = datetime.now().strftime('%Y-%m-%d %H:%M')
                     next_page = request.args.get('next')
                     return redirect(next_page or url_for('index'))
             else:
@@ -41,7 +45,8 @@ def login():
             auth.verify_password(dummy_hash, "dummy_password")
             flash('Invalid username or password')
     
-    return render_template('login.html')
+    slack_messages = get_recent_messages()
+    return render_template('login.html', slack_messages=slack_messages)
 
 @auth_bp.route('/signup', methods=['GET', 'POST'])
 def signup():

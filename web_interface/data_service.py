@@ -79,7 +79,7 @@ def get_explorer_data(study, context = None):
     return explorer_df, explorer_col_types
 
 
-def enrich_with_user_tags(df, col_types, username):
+def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     """
     Injects a 'User Tags' column into the DataFrame based on the user's tag file.
     Returns (enriched_df, enriched_col_types).
@@ -115,6 +115,20 @@ def enrich_with_user_tags(df, col_types, username):
         if all_tags:
             id_to_tags[str(item_id)] = list(all_tags)
             
+    # Merge Shared Tags
+    if shared_users_tags:
+        for iid, tags in shared_users_tags.items():
+            str_id = str(iid)
+            annotated_ids.add(str_id) # Ensure ID is marked as annotated
+            
+            # Update id_to_tags
+            if str_id in id_to_tags:
+                existing = set(id_to_tags[str_id])
+                existing.update(tags)
+                id_to_tags[str_id] = list(existing)
+            else:
+                id_to_tags[str_id] = list(tags)
+
     if not annotated_ids:
         return df, col_types
         
@@ -154,6 +168,10 @@ def enrich_with_user_tags(df, col_types, username):
     # "Has Annotation": [x] Annotated. 
     # Let's try Boolean first.
     
+    # Update annotated_ids to include shared ones
+    if shared_users_tags:
+        annotated_ids.update(str(k) for k in shared_users_tags.keys())
+
     df['Has Annotation'] = str_ids.isin(annotated_ids)
     
     # Only keep if there are any true values? Or always keep if explicit user request?
@@ -161,7 +179,99 @@ def enrich_with_user_tags(df, col_types, username):
     # So we have annotations.
     col_types['Has Annotation'] = 'category' # Treat as category to trigger checkbox UI
     
+    # 3. Machine Annotations (New Request)
+    # Check if annotated_ok exists
+    if 'annotated_ok' in df.columns:
+        # Map boolean to cleaner labels
+        # Note: In Explorer context, df is already filtered to annotated_ok=True, so only "Is Annotated" will appear.
+        # In Viewer context (scraped_ok), both will appear.
+        
+        # Robust Logic: Initialize all as "Not Yet Annotated"
+        df['Machine Annotations'] = 'Not Yet Annotated'
+        
+        # Set "Is Annotated" where True. 
+        # We assume 1/True/1.0 are true. '== True' checks for equality.
+        # For safety with object types, we can check truthiness or explicit True
+        mask_annotated = (df['annotated_ok'] == True)
+        df.loc[mask_annotated, 'Machine Annotations'] = 'Is Annotated'
+        
+        col_types['Machine Annotations'] = 'category'
+    
     return df, col_types
+
+
+def load_shared_tags(allowed_usernames):
+    """
+    Loads tags from a list of usernames.
+    Returns:
+        simple_map: { item_id: set(tags) } (For DF Enrichment)
+        detailed_map: { item_id: { variable: { user: { tags: [], notes: ... } } } } (For Viewer Details)
+    """
+    simple_map = {}
+    detailed_map = {}
+    
+    if not allowed_usernames:
+        return simple_map, detailed_map
+        
+    print(f"DEBUG: load_shared_tags called for: {allowed_usernames}")
+        
+    for user in allowed_usernames:
+        tag_filename = f"{user}_tags.json"
+        
+        try:
+            # Check exist first to avoid error logging in load_json
+            if not data_io.exists(storage_location="users", filename=tag_filename):
+                print(f"DEBUG: No tag file for {user}")
+                continue
+                
+            user_data = data_io.load_json(storage_location="users", filename=tag_filename)
+            if not user_data: 
+                print(f"DEBUG: Empty tag data for {user}")
+                continue
+            
+            print(f"DEBUG: Loaded {len(user_data)} items for {user}")
+            
+            for item_id, item_vars in user_data.items():
+                str_id = str(item_id)
+                
+                # --- Simple Map (All tags flattened) ---
+                if str_id not in simple_map: simple_map[str_id] = set()
+                
+                # --- Detailed Map ---
+                if str_id not in detailed_map: detailed_map[str_id] = {}
+                
+                for var, val in item_vars.items():
+                    # Parse Special Keys
+                    real_var = var
+                    type_ = 'tags'
+                    
+                    if var.endswith('__NOTES'):
+                        real_var = var[:-7]
+                        type_ = 'notes'
+                    elif var.endswith('__CLOSED_TAGGING'):
+                        real_var = var[:-16]
+                        type_ = 'closed'
+                    
+                    # Ensure struct
+                    if real_var not in detailed_map[str_id]: detailed_map[str_id][real_var] = {}
+                    if user not in detailed_map[str_id][real_var]: 
+                        detailed_map[str_id][real_var][user] = {'tags': [], 'notes': None, 'closed': None}
+                    
+                    entry = detailed_map[str_id][real_var][user]
+                    
+                    if type_ == 'tags':
+                        if isinstance(val, list):
+                            simple_map[str_id].update(val)
+                            entry['tags'] = val
+                    elif type_ == 'notes':
+                        entry['notes'] = val
+                    elif type_ == 'closed':
+                        entry['closed'] = val
+                        
+        except Exception as e:
+            print(f"Error loading tokens for {user}: {e}")
+            
+    return simple_map, detailed_map
 
 
 

@@ -760,26 +760,11 @@ function renderMetadata(item) {
         });
     });
 
+
     // Render
     sectionNames.forEach(sec => {
         const keys = sections[sec];
         if (keys.length === 0) return;
-
-        // Section Header (Collapsible)
-        // We put rows inside a tbody? No, we are INSIDE a tbody already (passed in selector).
-        // HTML tables don't support nested divs easily for toggle.
-        // Better: Use a single row for header, spanning 2 columns. 
-        // AND toggle visibility of subsequent rows.
-
-        // Alternatively, use multiple tbodies if parent allows?
-        // document.getElementById('viewer-metadata') is a table.
-        // We can append multiple tbodies to the TABLE, not inside a single tbody.
-        // But the helper passed "tbody" as the container.
-        // Let's change helper to clear table content and assume sections.
-
-        // Wait, the DOM structure is static in HTML: 
-        // <table id="viewer-metadata"> <tbody> <!-- Rows --> </tbody> </table>
-        // It's cleaner to inject header rows.
 
         const headerRow = document.createElement('tr');
         headerRow.style.background = '#3e3e42';
@@ -805,53 +790,127 @@ function renderMetadata(item) {
             const itemIdStr = String(item['item_id']);
             const itemTags = (viewerData.userTags[itemIdStr]?.[key]) || [];
 
+            // Shared Annotations
+            const sharedData = item['shared_annotations']?.[key] || {};
+            const hasShared = Object.keys(sharedData).length > 0;
+
             // Determine Display Name
             let displayName = key;
             if (schemaMap[key] && schemaMap[key].display_name) {
                 displayName = schemaMap[key].display_name;
             }
 
-            // Set Display Text
-            if (itemTags.length > 0) {
-                tdKey.style.color = '#4CAF50';
-                tdKey.style.fontWeight = 'bold';
-                tdKey.innerText = `${displayName} [${itemTags.length}]`;
-            } else {
-                tdKey.innerText = displayName;
-            }
+            // Set Display Text Logic
+            // Priorities:
+            // 1. Own Tags -> Green
+            // 2. Shared Tags -> Blue
+            // 3. Both -> Green Text + Blue Icon/Indicator
 
-            // Check for Notes
+            let displayText = displayName;
+            let styleColor = '';
+            let styleWeight = '';
+            let decoration = '';
+            let suffix = '';
+
+            const myCount = itemTags.length;
+
+            // Check for Notes/CC (My)
             const notesKey = `${key}__NOTES`;
             const itemNotes = viewerData.userTags[itemIdStr]?.[notesKey];
-
-            // Check for Closed Tagging
             const ccKey = `${key}__CLOSED_TAGGING`;
             const itemCC = viewerData.userTags[itemIdStr]?.[ccKey];
+            const hasMyAnnotation = myCount > 0 || itemNotes || itemCC;
 
-            // Marker for Notes (e.g. underline or little icon)
-            if (itemNotes || itemCC) {
-                tdKey.style.textDecoration = 'underline dotted #4CAF50';
-                if (!itemTags.length) tdKey.style.color = '#81C784'; // Lighter green if only notes/cc
+            if (hasMyAnnotation) {
+                styleColor = '#4CAF50';
+                styleWeight = 'bold';
+                if (myCount > 0) displayText += ` [${myCount}]`;
+
+                if (itemNotes || itemCC) {
+                    decoration = 'underline dotted #4CAF50';
+                }
+            } else if (hasShared) {
+                // Only shared
+                styleColor = '#4daafc'; // Blue
+                styleWeight = 'normal'; // Or bold? Let's keep normal but colored to distinguish from mine
+                // Count total other tags?
+                let otherTagCount = 0;
+                Object.values(sharedData).forEach(u => {
+                    if (u.tags) otherTagCount += u.tags.length;
+                });
+                if (otherTagCount > 0) displayText += ` [${otherTagCount}]`;
+
+                decoration = 'underline dotted #4daafc'; // Shared implie annotation
             }
+
+            if (styleColor) tdKey.style.color = styleColor;
+            if (styleWeight) tdKey.style.fontWeight = styleWeight;
+            if (decoration) tdKey.style.textDecoration = decoration;
+
+            // If BOTH, add indicator for shared
+            if (hasMyAnnotation && hasShared) {
+                suffix = ' <span style="color:#4daafc" title="Annotated by others">👥</span>';
+            } else if (hasShared && !hasMyAnnotation) {
+                suffix = ' <span style="color:#4daafc" title="Annotated by others">👥</span>';
+            }
+
+            tdKey.innerHTML = displayText + suffix;
+
 
             // Construct Tooltip (Tags + Description)
             let tooltipParts = [];
-            if (itemTags.length > 0) {
-                tooltipParts.push(`Tags: ${itemTags.join(', ')}`);
+
+            // 1. My Annotations
+            if (hasMyAnnotation) {
+                tooltipParts.push("--- MY ANNOTATIONS ---");
+                if (myCount > 0) tooltipParts.push(`Tags: ${itemTags.join(', ')}`);
+                if (itemCC) tooltipParts.push(`Closed Tagging: ${itemCC}`);
+                if (itemNotes) tooltipParts.push(`Notes: ${itemNotes}`);
+                tooltipParts.push(""); // Spacer
             }
-            if (itemCC) {
-                tooltipParts.push(`Closed Tagging: ${itemCC}`);
+
+            // 2. Shared Annotations
+            if (hasShared) {
+                tooltipParts.push("--- SHARED ANNOTATIONS ---");
+
+                // Aggregate anonymously
+                let allTags = new Set();
+                let allNotes = [];
+                let allClosed = new Set();
+
+                // Iterate sharedData values (which are user objects)
+                Object.values(sharedData).forEach(uData => {
+                    if (uData.tags && Array.isArray(uData.tags)) {
+                        uData.tags.forEach(t => allTags.add(t));
+                    }
+                    if (uData.notes) allNotes.push(uData.notes);
+                    if (uData.closed) allClosed.add(uData.closed);
+                });
+
+                if (allTags.size > 0) {
+                    tooltipParts.push(`Tags: ${Array.from(allTags).sort().join(', ')}`);
+                }
+                if (allClosed.size > 0) {
+                    tooltipParts.push(`Closed: ${Array.from(allClosed).join(', ')}`);
+                }
+                if (allNotes.length > 0) {
+                    tooltipParts.push("Notes:");
+                    allNotes.forEach(n => tooltipParts.push(`- ${n}`));
+                }
+
+                tooltipParts.push("");
             }
-            if (itemNotes) {
-                tooltipParts.push(`Notes: ${itemNotes}`);
-            }
+
+            // 3. Description
             if (schemaMap[key] && schemaMap[key].description) {
+                if (tooltipParts.length > 0) tooltipParts.push("--- DESCRIPTION ---");
                 tooltipParts.push(schemaMap[key].description);
             }
 
             if (tooltipParts.length > 0) {
                 tdKey.classList.add('meta-tooltip');
-                tdKey.setAttribute('data-tooltip', tooltipParts.join('\n\n'));
+                // Join with newline. CSS handles whitespace: pre-wrap
+                tdKey.setAttribute('data-tooltip', tooltipParts.join('\n'));
                 tdKey.removeAttribute('title');
             } else {
                 tdKey.title = "Click to add tags";
