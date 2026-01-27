@@ -5,7 +5,8 @@ from fyp.fyp_config import (
     DOWNLOADER_SCRIPT, INGEST_SCRIPT, ANNOTATOR_SCRIPT, MONITOR_SCRIPT, 
     CREATE_SUBSETS_SCRIPT, REGENERATE_DATASETS_SCRIPT, CREATE_EVENT_LOG_SCRIPT, 
     RECODE_EVENT_LOG_SCRIPT, CALCULATE_PCA_SCRIPT,
-    QUEUE_SCRAPER_SCRIPT
+    QUEUE_SCRAPER_SCRIPT, META_REFRESH_VIEWER_SCRIPT, 
+    META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT
 )
 from ..process_manager import (
     processes, process_stats, start_process, stop_process
@@ -42,7 +43,10 @@ def api_start(name):
         "create_event_log": CREATE_EVENT_LOG_SCRIPT,
         "recode_event_log": RECODE_EVENT_LOG_SCRIPT,
         "calculate_pca": CALCULATE_PCA_SCRIPT,
-        "queue_scraper": QUEUE_SCRAPER_SCRIPT
+        "queue_scraper": QUEUE_SCRAPER_SCRIPT,
+        "meta_refresh_viewer": META_REFRESH_VIEWER_SCRIPT,
+        "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
+        "timelines_refresh": TIMELINES_REFRESH_SCRIPT
     }
     
     success, msg = start_process(name, script_map[name], args, study_name=study_name)

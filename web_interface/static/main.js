@@ -338,6 +338,9 @@ async function updateStatus() {
         setStatus('annotator', data.annotator);
         setStatus('create_subsets', data.create_subsets);
         setStatus('queue_scraper', data.queue_scraper);
+        setStatus('meta_refresh_viewer', data.meta_refresh_viewer);
+        setStatus('meta_refresh_groups', data.meta_refresh_groups);
+        setStatus('timelines_refresh', data.timelines_refresh);
 
         // Discreet processes
         const discreetProcesses = ['regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'];
@@ -373,10 +376,23 @@ function setStatus(name, data) {
     const bar = document.getElementById(`${name}-bar`);
     const text = document.getElementById(`${name}-text`);
     if (bar && text) {
-        if (Object.keys(info).length > 0 && info.total > 0) {
-            const pct = (info.done / info.total) * 100;
+        if (Object.keys(info).length > 0 && (info.total > 0 || info.percent !== undefined)) {
+            let pct = 0;
+            let etaStr = "--";
+            let rateStr = "";
+            let countsStr = "";
+
+            if (info.percent !== undefined) {
+                pct = parseFloat(info.percent);
+                countsStr = info.message || "";
+            } else {
+                pct = (info.done / info.total) * 100;
+                countsStr = `${info.done.toLocaleString()} / ${info.total.toLocaleString()}`;
+                if (info.rate) rateStr = ` - ${info.rate.toFixed(2)}/s`;
+                if (info.eta) etaStr = formatETA(info.eta);
+            }
+
             bar.style.width = `${pct}%`;
-            const etaStr = formatETA(info.eta);
 
             // Calculate duration
             let durationStr = "";
@@ -387,7 +403,12 @@ function setStatus(name, data) {
                 durationStr = " - Time: " + formatETA(diff);
             }
 
-            text.innerText = `${info.done.toLocaleString()} / ${info.total.toLocaleString()} (${pct.toFixed(1)}%) - ${info.rate.toFixed(2)}/s - ETA ${etaStr}${durationStr}`;
+            if (info.percent !== undefined) {
+                text.innerText = `${countsStr} (${pct.toFixed(0)}%)${durationStr}`;
+            } else {
+                text.innerText = `${countsStr} (${pct.toFixed(1)}%)${rateStr} - ETA ${etaStr}${durationStr}`;
+            }
+
         } else {
             if (status === 'stopped') {
                 // bar.style.width = '0%';
@@ -547,6 +568,9 @@ async function updateLogs() {
     await fetchLogs('annotator');
     await fetchLogs('create_subsets');
     await fetchLogs('queue_scraper');
+    await fetchLogs('meta_refresh_viewer');
+    await fetchLogs('meta_refresh_groups');
+    await fetchLogs('timelines_refresh');
     // await fetchLogs('regenerate_datasets'); // Optional if we want logs visible somewhere
 }
 
@@ -562,7 +586,8 @@ async function fetchLogs(name) {
 
 
         // Basic check to see if we should scroll (simple autoscroll)
-        const atBottom = el.scrollHeight - el.scrollTop === el.clientHeight;
+        // Use a small buffer (e.g. 5px) to account for sub-pixel rendering differences
+        const atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 5;
 
         el.textContent = data.logs;
 
