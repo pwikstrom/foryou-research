@@ -31,6 +31,7 @@ from .routes.ingest_routes import ingest_bp
 from .routes.management_routes import management_bp
 from .data_service import study_cache # Re-export for tests
 from .slack_service import get_recent_messages
+from .static_content import HOME_CONTENT
 
 # Initialize stats
 load_process_stats()
@@ -83,7 +84,7 @@ app.register_blueprint(management_bp)
 @login_required
 def index():
     slack_messages = get_recent_messages()
-    return render_template('index.html', user=current_user, slack_messages=slack_messages)
+    return render_template('index.html', user=current_user, slack_messages=slack_messages, content=HOME_CONTENT)
 
 
 if __name__ == '__main__':

@@ -74,6 +74,12 @@ async function loadExplorerV2Studies() {
             selector.appendChild(opt);
         });
 
+        // Auto-select first study
+        if (studies.length > 0) {
+            selector.value = studies[0];
+            changeExplorerV2Study(studies[0]);
+        }
+
 
     } catch (e) {
         console.error("Failed to load studies", e);
@@ -704,7 +710,7 @@ function renderStatsV2(stats1, stats2) {
                 layout.xaxis.title = 'Log';
             }
 
-            Plotly.newPlot(plotDiv, traces, layout, { displayModeBar: false });
+            Plotly.newPlot(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
 
         } else {
             // Stacked Bar (Horizontal) normalized to %
@@ -796,7 +802,7 @@ function renderStatsV2(stats1, stats2) {
                 yaxis: { tickfont: { color: '#d4d4d4' } }
             };
 
-            Plotly.newPlot(plotDiv, traces, layout, { displayModeBar: false });
+            Plotly.newPlot(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
         }
     });
 }

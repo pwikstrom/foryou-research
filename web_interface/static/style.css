@@ -418,9 +418,21 @@ textarea {
     color: #1e1e1e;
 }
 
-/* Helper to position help icon in headers */
 .header-with-help {
     display: flex;
     align-items: center;
     /* ensure vertical alignment */
+}
+
+/* Content Section Links */
+.content-section a {
+    color: #4ec9b0;
+    text-decoration: none;
+    border-bottom: 1px dotted #4ec9b0;
+    transition: all 0.2s;
+}
+
+.content-section a:hover {
+    color: #fff;
+    border-bottom-style: solid;
 }

@@ -4,25 +4,159 @@ let pe_data = window.pe_data;
 let pe_selectedId = null;
 let pe_percentileRanks = {};
 
-// Metrics to display as strip plots
-const PE_METRICS = [
+// Metrics to display as strip plots - now dynamically loaded
+let PE_METRICS = [
     'videos_per_day', 'avg_watch_time_s', 'avg_session_duration_s',
     'weekend_bias', 'activity_trend_slope', 'day_to_day_return_prob',
     'session_velocity_vpm', 'likes_per_video', 'consistency_top_2_hours'
 ];
 
-// Metric labels and tooltips
+// Available metrics and their info
 const PE_METRIC_INFO = {
+    // Volume
+    'total_events': { label: 'Total Events', tooltip: 'Total number of events recorded' },
+    'num_comments': { label: 'Comments (Total)', tooltip: 'Total number of comments made' },
+    'num_likes': { label: 'Likes (Total)', tooltip: 'Total number of videos liked' },
+    'num_posts': { label: 'Posts (Total)', tooltip: 'Total number of videos posted' },
+
+    // Rates
     'videos_per_day': { label: 'Videos/Day', tooltip: 'Average number of videos watched per day' },
-    'avg_watch_time_s': { label: 'Avg Watch Time (s)', tooltip: 'Average seconds spent watching each video' },
-    'avg_session_duration_s': { label: 'Avg Session (s)', tooltip: 'Average session length in seconds' },
-    'weekend_bias': { label: 'Weekend Bias', tooltip: 'Ratio of weekend to weekday activity (>1 = more weekend)' },
-    'activity_trend_slope': { label: 'Activity Trend', tooltip: 'Slope of activity over time (+ve = growing)' },
-    'day_to_day_return_prob': { label: 'Return Probability', tooltip: 'Probability of returning the next day' },
-    'session_velocity_vpm': { label: 'Session Velocity', tooltip: 'Videos per minute during sessions' },
+    'comments_per_day': { label: 'Comments/Day', tooltip: 'Average comments per day' },
+    'likes_per_day': { label: 'Likes/Day', tooltip: 'Average likes per day' },
+    'emoji_rate': { label: 'Emoji Rate', tooltip: 'Rate of emojis used in comments' },
+
+    // Ratios
     'likes_per_video': { label: 'Likes/Video', tooltip: 'Ratio of liked items to videos watched' },
-    'consistency_top_2_hours': { label: 'Hour Consistency', tooltip: 'Share of activity in top 2 hours' }
+    'weekend_bias': { label: 'Weekend Bias', tooltip: 'Ratio of weekend to weekday activity (>1 = more weekend)' },
+
+    // Time & Consumption
+    'avg_watch_time_s': { label: 'Avg Watch Time (s)', tooltip: 'Average seconds spent watching each video' },
+    'median_watch_time_s': { label: 'Median Watch Time (s)', tooltip: 'Median seconds spent watching each video' },
+    'daily_watch_time_s': { label: 'Daily Watch Time (s)', tooltip: 'Average seconds spent watching per day' },
+    'total_watch_time_s': { label: 'Total Watch Time (s)', tooltip: 'Total seconds spent watching' },
+    'num_watches': { label: 'Video Watches', tooltip: 'Total number of videos watched' },
+
+    // Sessions
+    'num_sessions': { label: 'Total Sessions', tooltip: 'Total number of distinct sessions' },
+    'sessions_per_day': { label: 'Sessions/Day', tooltip: 'Average sessions per day (lifespan)' },
+    'avg_session_duration_s': { label: 'Avg Session (s)', tooltip: 'Average session length in seconds' },
+    'longest_session_s': { label: 'Longest Session (s)', tooltip: 'Length of the longest single session' },
+    'session_velocity_vpm': { label: 'Session Velocity', tooltip: 'Videos per minute during sessions' },
+    'day_to_day_return_prob': { label: 'Return Probability', tooltip: 'Probability of returning the next day' },
+    'binge_level': { label: 'Binge Level', tooltip: 'Proportion of sessions > 30 mins' },
+
+    // Core Metrics (Radar)
+    'chattiness': { label: 'Chattiness', tooltip: 'Comments per video' },
+    'enthusiasm': { label: 'Enthusiasm', tooltip: 'Likes per video' },
+    'patience': { label: 'Patience', tooltip: 'Proportion of watches > 30s' },
+
+    // Advanced / Pattern
+    'activity_trend_slope': { label: 'Activity Trend', tooltip: 'Slope of activity over time (+ve = growing)' },
+    'consistency_top_2_hours': { label: 'Hour Consistency', tooltip: 'Share of activity in top 2 hours' },
+    'peak_activity_hour_local': { label: 'Peak Hour', tooltip: 'Hour of day with most activity' },
+    'activity_consistency_cv': { label: 'Consistency CV', tooltip: 'Variation in activity (Lower = More Consistent)' },
+    'avg_comment_len_chars': { label: 'Avg Comment Len', tooltip: 'Average length of comments in characters' },
+    'emoji_level_log': { label: 'Emoji Level (Log)', tooltip: 'Log-scaled emoji usage intensity' },
+
+    // Lifespan
+    'active_days': { label: 'Active Days', tooltip: 'Number of days with any activity' },
+    'lifespan_days': { label: 'Lifespan (Days)', tooltip: 'Days between first and last event' },
+    'events_per_active_day': { label: 'Events/Active Day', tooltip: 'Average events only on days active' },
+
+    // Time of Day Shares
+    'share_morning': { label: 'Morning Share', tooltip: 'Proportion of activity in Morning (5-11)' },
+    'share_afternoon': { label: 'Afternoon Share', tooltip: 'Proportion of activity in Afternoon (12-17)' },
+    'share_evening': { label: 'Evening Share', tooltip: 'Proportion of activity in Evening (18-23)' },
+    'share_owl': { label: 'Night Owl Share', tooltip: 'Proportion of activity late night (0-4)' },
 };
+
+// Default Metrics (fallback)
+const PE_DEFAULT_METRICS = [
+    'videos_per_day', 'avg_watch_time_s', 'avg_session_duration_s',
+    'weekend_bias', 'activity_trend_slope', 'day_to_day_return_prob',
+    'session_velocity_vpm', 'likes_per_video', 'consistency_top_2_hours'
+];
+
+function pe_loadSettings() {
+    const saved = localStorage.getItem('pe_selected_metrics');
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                // Filter to ensure they actully exist in our registry
+                const valid = parsed.filter(m => PE_METRIC_INFO[m]);
+                if (valid.length > 0) {
+                    PE_METRICS = valid;
+                    return;
+                }
+            }
+        } catch (e) {
+            console.warn('Error loading PE settings', e);
+        }
+    }
+    // Fallback
+    PE_METRICS = [...PE_DEFAULT_METRICS];
+}
+
+function pe_saveSettings() {
+    localStorage.setItem('pe_selected_metrics', JSON.stringify(PE_METRICS));
+}
+
+// Open the configuration modal
+function pe_openConfig() {
+    const modal = document.getElementById('pe-config-modal');
+    const container = document.getElementById('pe-config-checkboxes');
+    if (!modal || !container) return;
+
+    container.innerHTML = '';
+
+    // Create checkboxes for all available metrics
+    Object.keys(PE_METRIC_INFO).forEach(metric => {
+        const info = PE_METRIC_INFO[metric];
+
+        const label = document.createElement('label');
+        label.className = 'config-checkbox';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = metric;
+        cb.checked = PE_METRICS.includes(metric);
+
+        const span = document.createElement('span');
+        span.innerText = info.label;
+
+        label.appendChild(cb);
+        label.appendChild(span);
+        container.appendChild(label);
+    });
+
+    modal.classList.remove('hidden');
+}
+
+function pe_closeConfig() {
+    document.getElementById('pe-config-modal').classList.add('hidden');
+}
+
+function pe_applyConfig() {
+    const container = document.getElementById('pe-config-checkboxes');
+    if (!container) return;
+
+    const selected = [];
+    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) selected.push(cb.value);
+    });
+
+    if (selected.length === 0) {
+        alert("Please select at least one metric.");
+        return;
+    }
+
+    PE_METRICS = selected;
+    pe_saveSettings();
+    pe_renderAllStrips();
+    pe_closeConfig();
+}
+
 
 // Radar chart metrics
 const PE_RADAR_METRICS = ['chattiness', 'enthusiasm', 'patience', 'binge_level', 'consistency'];
@@ -36,6 +170,8 @@ const PE_RADAR_INFO = {
 
 // Initialize when tab is shown - check for cached stats
 function pe_init() {
+    pe_loadSettings();
+
     // Fetch stats info to update timestamp display
     fetch('/api/persona_stats_info')
         .then(response => response.json())
@@ -370,3 +506,10 @@ function pe_renderRadar(d) {
         displayModeBar: false
     });
 }
+
+// Auto-init on load if present
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('pe-details-card')) {
+        pe_init();
+    }
+});

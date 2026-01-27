@@ -2,107 +2,133 @@
 
 {% block content %}
 <div class="login-container"
-    style="display: flex; height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+    style="display: flex; height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #1e1e1e; color: #d4d4d4;">
 
-    <!-- LEFT PANEL: Hero / Info -->
-    <div class="hero-section"
-        style="flex: 1; background-color: #1e1e1e; color: #d4d4d4; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 40px; border-right: 1px solid #333;">
-        <div style="max-width: 600px; text-align: center;">
-            <!-- Banner Image -->
-            <img src="{{ url_for('static', filename='home_banner.png') }}" alt="For You Data Hub Banner"
-                style="width: 100%; max-width: 450px; height: auto; border-radius: 10px; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.4);">
+    <!-- LEFT PANEL: Widgets (Fixed Width) -> Now contains Login Form -->
+    <div class="sidebar-section"
+        style="width: 400px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #333; background-color: #252526; overflow-y: auto;">
 
-            <h1
-                style="color: #4ec9b0; margin-bottom: 20px; font-size: 3.5em; font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 2px 4px rgba(0,0,0,0.3); font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                For You Data Hub</h1>
+        <!-- Banner Widget Removed -->
 
-            <p style="font-size: 1.15em; line-height: 1.6; color: #a0a0a0;">
-                Welcome to the For You Data Hub. Here you explore how participants
-                in the For You Project experience TikTok TBD TBD.
-            </p>
+        <!-- Login Widget -->
+        <div class="widget-box" style="padding: 30px 20px; border-bottom: 1px solid #333;">
+            <h3 style="margin-top: 0; color: #d4d4d4; font-size: 1.2em; margin-bottom: 20px; text-align: center;">Login
+            </h3>
+
+            {% with messages = get_flashed_messages() %}
+            {% if messages %}
+            <div
+                style="background: rgba(13, 110, 253, 0.2); border: 1px solid #0d6efd; color: #6ea8fe; padding: 10px; border-radius: 4px; margin-bottom: 20px; text-align: center;">
+                {% for message in messages %}
+                <div>{{ message }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <form method="POST" action="/login" style="display: flex; flex-direction: column; gap: 15px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <div>
+                    <label style="display: block; margin-bottom: 5px; color: #aaa;">Username</label>
+                    <input type="text" name="username" required
+                        style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #444; background: #333; color: white;">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; color: #aaa;">Password</label>
+                    <input type="password" name="password" required
+                        style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #444; background: #333; color: white;">
+                </div>
+                <button type="submit"
+                    style="background: #007acc; color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 10px;">
+                    Sign In
+                </button>
+            </form>
+            <div style="text-align: center; margin-top: 15px; font-size: 0.9em;">
+                <a href="/signup" style="color: #4ec9b0; text-decoration: none;">Create an account</a>
+            </div>
         </div>
+
+        <!-- Slack Updates Widget -->
+        <div class="widget-box" style="padding: 20px; flex: 1;">
+            <h3 style="margin-top: 0; color: #d4d4d4; font-size: 1.1em; margin-bottom: 15px;">Latest Updates</h3>
+            <div class="slack-updates"
+                style="background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 6px; padding: 10px; max-height: 300px; overflow-y: auto;">
+                {% if slack_messages %}
+                {% for msg in slack_messages %}
+                <div class="slack-message"
+                    style="padding: 10px; border-bottom: 1px solid #333; font-size: 0.9em; line-height: 1.4;">
+                    <strong style="color: #4ec9b0;">{{ msg.user }}:</strong>
+                    <span style="color: #ccc;">{{ msg.text }}</span>
+                    <div style="font-size: 0.8em; color: #777; margin-top: 4px;">{{ msg.ts }}</div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p style="color: #777; font-style: italic; text-align: center; padding: 20px;">No recent updates.</p>
+                {% endif %}
+            </div>
+        </div>
+
     </div>
 
-    <!-- RIGHT PANEL: Login & Updates -->
-    <div class="interaction-section"
-        style="flex: 1; background-color: #1e1e1e; color: #d4d4d4; padding: 40px; display: flex; flex-direction: column; justify-content: center; align-items: center; overflow-y: auto;">
+    <!-- RIGHT PANEL: Content (Scrollable) -->
+    <div class="content-section"
+        style="flex: 1; padding: 40px 60px; overflow-y: auto; background-color: #1e1e1e; position: relative;">
 
-        <div style="width: 100%; max-width: 400px;">
-            <!-- Login Box -->
-            <div style="margin-bottom: 40px;">
-                <h2
-                    style="text-align: left; margin-bottom: 1.5rem; color: #d4d4d4; font-weight: 700; font-size: 1.8em;">
-                    Login</h2>
+        <!-- Spacer for alignment -->
+        <div style="max-width: 800px; margin: 0 auto;">
 
-                {% with messages = get_flashed_messages() %}
-                {% if messages %}
+            <!-- Centered Hero Image added above title -->
+            <div style="text-align: center; margin-bottom: 30px;">
+                <img src="{{ url_for('static', filename='home_banner.png') }}" alt="For You Data Hub Banner"
+                    style="max-width: 500px; height: auto; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+            </div>
+
+            <h1
+                style="color: #4ec9b0; margin-bottom: 20px; font-size: 2.5em; font-weight: 700; letter-spacing: -0.5px; text-align: center;">
+                {{ content.hero_title }}
+            </h1>
+
+            <p style="font-size: 1.15em; line-height: 1.6; color: #d4d4d4; margin-bottom: 40px; text-align: center;">
+                {{ content.intro | safe }}
+            </p>
+
+            <hr style="border: 0; border-top: 1px solid #333; margin: 30px 0;">
+
+            <div class="text-block" style="margin-bottom: 40px;">
+                <h3 style="color: #d4d4d4; font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
+                    content.intentions_title }}</h3>
+                <p style="line-height: 1.6; color: #ccc;">
+                    {{ content.intentions_text }}
+                </p>
+            </div>
+
+            <div class="text-block" style="margin-bottom: 40px;">
+                <h3 style="color: #d4d4d4; font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
+                    content.notes_title }}</h3>
                 <div
-                    style="background-color: #3e2a2a; color: #f8d7da; padding: 12px; margin-bottom: 20px; border-radius: 6px; border: 1px solid #58151c;">
-                    {{ messages[0] }}
+                    style="background: #252526; border-left: 4px solid #ce9178; padding: 15px 20px; border-radius: 0 4px 4px 0; margin-bottom: 15px;">
+                    <p style="margin: 0; line-height: 1.6; color: #ccc;">
+                        {{ content.note_1 }}
+                    </p>
                 </div>
-                {% endif %}
-                {% endwith %}
-
-                <form method="POST" action="{{ url_for('auth_bp.login') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                    <div style="margin-bottom: 1.25rem;">
-                        <label for="username"
-                            style="display: block; margin-bottom: 0.5rem; color: #a0a0a0; font-weight: 500;">Username</label>
-                        <input type="text" id="username" name="username" required
-                            style="width: 100%; padding: 12px; border: 1px solid #3e3e42; background-color: #252526; color: #d4d4d4; border-radius: 6px; font-size: 15px; outline: none; transition: border-color 0.2s;">
-                    </div>
-
-                    <div style="margin-bottom: 2rem;">
-                        <label for="password"
-                            style="display: block; margin-bottom: 0.5rem; color: #a0a0a0; font-weight: 500;">Password</label>
-                        <input type="password" id="password" name="password" required
-                            style="width: 100%; padding: 12px; border: 1px solid #3e3e42; background-color: #252526; color: #d4d4d4; border-radius: 6px; font-size: 15px; outline: none;">
-                    </div>
-
-                    <button type="submit"
-                        style="width: 100%; background: #007acc; color: white; padding: 12px; border: none; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
-                        Log In
-                    </button>
-                    <!-- Button color changed to VS Code blue-ish for consistency, or keep standard bold blue -->
-                </form>
-
-                <div style="margin-top: 16px; font-size: 14px; color: #808080; text-align: center;">
-                    Don't have an account? <a href="{{ url_for('auth_bp.signup') }}"
-                        style="color: #4ec9b0; text-decoration: none; font-weight: 500;">Sign up</a>
+                <div
+                    style="background: #252526; border-left: 4px solid #ce9178; padding: 15px 20px; border-radius: 0 4px 4px 0;">
+                    <p style="margin: 0; line-height: 1.6; color: #ccc;">
+                        {{ content.note_2 }}
+                    </p>
                 </div>
             </div>
 
-            <!-- Slack Updates Widget -->
-            <div class="slack-widget"
-                style="background-color: #252526; border: 1px solid #3e3e42; border-radius: 8px; overflow: hidden; height: 350px; display: flex; flex-direction: column; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
-                <div
-                    style="background-color: #4a154b; color: white; padding: 12px 15px; display: flex; align-items: center; border-bottom: 1px solid #5a2e5a;">
-                    <svg style="width: 20px; height: 20px; margin-right: 10px;" viewBox="0 0 24 24" fill="white">
-                        <path
-                            d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.521v-6.314zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52h-2.521zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.522 2.521 2.527 2.527 0 0 1-2.522-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.522 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.522 2.521A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.52h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52 2.522 2.527 2.527 0 0 1 2.52-2.522h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.521h-6.313z" />
-                    </svg>
-                    <strong style="font-weight: 500;">Recent Updates</strong>
-                </div>
-                <div style="flex: 1; padding: 15px; overflow-y: auto;">
-                    {% if slack_messages %}
-                    {% for msg in slack_messages %}
-                    <div style="margin-bottom: 15px; border-bottom: 1px solid #3e3e42; padding-bottom: 10px;">
-                        <div
-                            style="font-size: 0.8em; color: #888; margin-bottom: 4px; display: flex; justify-content: space-between;">
-                            <span style="font-weight: 600; color: #ce9178;">{{ msg.user }}</span>
-                            <span>{{ msg.date_str }}</span>
-                        </div>
-                        <div style="font-size: 0.95em; color: #d4d4d4; line-height: 1.4;">
-                            {{ msg.text }}
-                        </div>
-                    </div>
-                    {% endfor %}
-                    {% else %}
-                    <div style="color: #666; text-align: center; font-style: italic; margin-top: 20px;">
-                        No recent updates.
-                    </div>
-                    {% endif %}
-                </div>
+            <div class="text-block" style="margin-bottom: 60px;">
+                <h3 style="color: #d4d4d4; font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
+                    content.ack_title }}</h3>
+                <p style="line-height: 1.6; color: #ccc;">
+                    {{ content.ack_text }}
+                </p>
+            </div>
+
+            <div style="text-align: center; color: #555; font-size: 0.9em; margin-top: 50px;">
+                &copy; 2024 For You Project. All rights reserved.
             </div>
 
         </div>

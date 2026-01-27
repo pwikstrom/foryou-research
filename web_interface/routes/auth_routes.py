@@ -12,6 +12,7 @@ import fyp.data_io as data_io
 auth_bp = Blueprint('auth_bp', __name__)
 
 from ..slack_service import get_recent_messages
+from ..static_content import HOME_CONTENT
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
@@ -46,7 +47,7 @@ def login():
             flash('Invalid username or password')
     
     slack_messages = get_recent_messages()
-    return render_template('login.html', slack_messages=slack_messages)
+    return render_template('login.html', slack_messages=slack_messages, content=HOME_CONTENT)
 
 @auth_bp.route('/signup', methods=['GET', 'POST'])
 def signup():

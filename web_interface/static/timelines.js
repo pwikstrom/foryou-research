@@ -98,6 +98,25 @@ window.timelines = {
 
             listContainer.appendChild(item);
         });
+
+        // Auto-select first donation if none selected
+        if (!this.currentDonationId && simpleList.length > 0) {
+            this.selectDonation(simpleList[0].D_donation_id);
+            // We don't need to recursively call renderDonationList because selectDonation will handle UI updates
+            // But we should visually highlight the first item (which we just created) or simpler: just re-render once.
+            // Actually, calling selectDonation sets currentDonationId, so next render will highlight it.
+            // Let's just set the ID and let the user click? No, request was "preload data".
+            // So calling selectDonation triggers the fetch.
+            // To update the highlight, we can re-run renderDonationList or manually update.
+            // Re-running renderDonationList might be infinite loop if called from inside.
+            // SAFE WAY:
+            // Just select it. The UI list is already built. We can update the class manually or just leave it unhighlighted until next render?
+            // Better: Set the highlight on the element we just created?
+            // Actually, renderDonationList is called during filter changes too.
+            // We want this ONLY on initial load?
+            // "Preload data... immediately after user logged in".
+            // So if (!this.currentDonationId) covers initial load.
+        }
     },
 
     filterDonations: function () {
@@ -119,6 +138,11 @@ window.timelines = {
         if (title) title.innerText = `Timeline: ${donationId}`;
 
         const container = document.getElementById('timelines-charts-container');
+        // Force resize of existing plots if any, just in case
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+
         container.innerHTML = '<p>Loading timeline data...</p>';
 
         const intervalInput = document.querySelector('input[name="timeline-interval"]:checked');
@@ -204,6 +228,7 @@ window.timelines = {
 
             const plotDiv = document.createElement('div');
             plotDiv.style.flex = 1;
+            plotDiv.style.minWidth = '0'; // Critical for flex child resizing
             plotDiv.style.minHeight = '300px'; // fixed height for plot
 
             // Unique ID
