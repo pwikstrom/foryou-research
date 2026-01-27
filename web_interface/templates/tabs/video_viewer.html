@@ -4,6 +4,10 @@
     <!-- We can reuse the same study selector logic if we give it a unique ID or class -->
     <div class="control-bar"
         style="display: flex; align-items: center; padding: 10px; background-color: #252526; margin-bottom: 20px; border-bottom: 1px solid #3e3e42;">
+        <div class="header-with-help" style="margin-right: 20px;">
+            <h3 style="margin: 0; color: #eee; font-size: 1.1em;">Video Analysis</h3>
+            <button class="help-icon" onclick="showHelp('video_viewer')">?</button>
+        </div>
         <label for="viewer-study-select" style="margin-right: 10px; font-weight: bold; color: #eee;">Select
             Study:</label>
         <select id="viewer-study-select" class="dropdown" onchange="changeViewerStudy()"
@@ -107,7 +111,7 @@
             <div
                 style="padding: 15px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; background: #2d2d30;">
                 <div style="flex: 0 0 auto;">
-                    <h2 style="margin: 0; font-size: 1.2em;">Video Viewer</h2>
+                    <h2 style="margin: 0; font-size: 1.2em;">Video Analysis</h2>
                     <span id="viewer-status" style="font-size: 0.9em; color: #888;">No data</span>
                 </div>
 

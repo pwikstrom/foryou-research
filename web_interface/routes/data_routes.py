@@ -9,6 +9,7 @@ from ..data_service import (
     load_schema_metadata, get_timeline_data, get_study_donations, load_shared_tags
 )
 from ..security import user_manager
+from ..auth import admin_required
 from .. import explorer_backend as explorer
 from fyp.recode_variables import get_factors_and_features_from_var_schema
 from fyp.studies import init_study_defs, save_study_defs
@@ -622,6 +623,7 @@ def api_delete_tag(tag_name):
 
 
 @data_bp.route('/api/pca/metadata', methods=['POST'])
+@admin_required
 def api_pca_metadata():
     
     data = request.json or {}
@@ -659,6 +661,7 @@ def api_pca_metadata():
 
 
 @data_bp.route('/api/pca/data', methods=['POST'])
+@admin_required
 def api_pca_data():
     data = request.json or {}
     study = data.get("study")

@@ -68,9 +68,18 @@ def signup():
             flash(f"Invalid email: {str(e)}")
             return render_template('signup.html')
             
-        success, msg = user_manager.add_user(username, password, auth.ROLE_VIEWER, approved=False)
+        # Default to requiring approval if not specified, for safety
+        require_approval = fyp_cf.get('misc', {}).get('new_user_admin_approval_required', True)
+        
+        # If approval is required, approved=False. If not required, approved=True.
+        is_approved = not require_approval
+        
+        success, msg = user_manager.add_user(username, password, auth.ROLE_VIEWER, approved=is_approved)
         if success:
-            flash("Account created! Please wait for an administrator to approve your account.")
+            if is_approved:
+                flash("Account created! You can now login.")
+            else:
+                flash("Account created! Please wait for an administrator to approve your account.")
             return redirect(url_for('auth_bp.login'))
         else:
             flash(msg)

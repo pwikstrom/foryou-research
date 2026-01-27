@@ -351,3 +351,76 @@ textarea {
     background: #fff;
     transform: scale(1.2);
 }
+
+/* Help Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+}
+
+.modal-content {
+    background-color: #252526;
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid #4ec9b0;
+    width: 50%;
+    color: #d4d4d4;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    position: relative;
+    font-size: 1.3em;
+    line-height: 1.6;
+}
+
+.close-button {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    position: absolute;
+    top: 5px;
+    right: 15px;
+}
+
+.close-button:hover,
+.close-button:focus {
+    color: #fff;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.help-icon {
+    font-size: 1.2em;
+    color: #4ec9b0;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid #4ec9b0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    margin-left: 10px;
+}
+
+.help-icon:hover {
+    background: #4ec9b0;
+    color: #1e1e1e;
+}
+
+/* Helper to position help icon in headers */
+.header-with-help {
+    display: flex;
+    align-items: center;
+    /* ensure vertical alignment */
+}
