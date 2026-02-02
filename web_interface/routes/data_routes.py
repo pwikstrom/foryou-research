@@ -110,11 +110,11 @@ def api_explorer_metadata():
     # Check for Shared Annotations
     shared_simple_map = None
     user_settings = current_user.settings or {}
-    if user_settings.get('share_annotations'):
+    if user_settings.get('share_annotations', True):
         sharing_users = []
         for u_name, u_obj in user_manager.users.items():
             if u_name == username: continue
-            if u_obj.settings and u_obj.settings.get('share_annotations'):
+            if u_obj.settings and u_obj.settings.get('share_annotations', True):
                 sharing_users.append(u_name)
         
         if sharing_users:
