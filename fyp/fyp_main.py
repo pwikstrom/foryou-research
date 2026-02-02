@@ -70,19 +70,15 @@ def initialize(
     # ------------------------------------------------------------------
     # Load essential files - let it blow up if the files aren't found
     # ------------------------------------------------------------------
-    where_to_start = toml.load(os.path.join(abs_project_root_path,"config","core.toml"))
+    #where_to_start = toml.load(os.path.join(abs_project_root_path,"config","core.toml"))
 
-    config_path = os.path.join(abs_project_root_path,"config",where_to_start["core"]["config_fn"])
+    config_path = os.path.join(abs_project_root_path,"config","config.toml") #where_to_start["core"]["config_fn"])
 
-    var_schema_path = os.path.join(abs_project_root_path, "config", where_to_start["core"]["var_schema_fn"])
+    #var_schema_path = os.path.join(abs_project_root_path, "config", "var_schema.csv") #where_to_start["core"]["var_schema_fn"])
 
     # Load main config
     cf = toml.load(config_path)
     cf["paths"]["project_root"] = abs_project_root_path
-
-    # Load variable schema
-    cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
-
 
 
 

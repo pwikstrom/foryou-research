@@ -1,62 +1,155 @@
 <div id="admin" class="tab-pane">
     <div style="height: 100%; overflow-y: auto; padding: 20px;">
-        <!-- User Administration Section -->
-        <div style="background: #252526; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h2>User Administration</h2>
-
-            <div style="margin: 16px 0;">
-                <button onclick="loadUsers()"
-                    style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
-                    ↻ Refresh List
-                </button>
+        <!-- General Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('general-content', 'general-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
+                <span id="general-arrow"
+                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                <h2 style="margin: 0;">General</h2>
             </div>
-
-            <!-- Pending Approvals Section -->
-            <div style="margin-bottom: 32px;">
-                <h3 style="color: #d97706; margin-bottom: 16px; font-size: 16px;">Pending Approvals</h3>
-                <div id="pendingUserList"
-                    style="background: #2d2d30; border: 1px solid #d97706; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
-                    <p style="color: #d97706; font-style: italic;">Loading pending users...</p>
-                </div>
-            </div>
-
-            <!-- Add User Section -->
-            <div
-                style="background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 32px; border: 1px solid #3e3e42;">
-                <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 16px; color: #d4d4d4;">Add New User</h3>
-                <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
-                    <div>
-                        <label
-                            style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Username</label>
-                        <input type="text" id="newUsername"
-                            style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 200px; background: #3c3c3c; color: #d4d4d4;">
-                    </div>
-                    <div>
-                        <label
-                            style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Password</label>
-                        <input type="password" id="newPassword"
-                            style="padding: 8px; width: 200px; background: #3c3c3c; border: 1px solid #3e3e42; color: #d4d4d4; border-radius: 3px;">
-                    </div>
-                    <div>
-                        <label
-                            style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Role</label>
-                        <select id="newRole"
-                            style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 150px; background: #3c3c3c; color: #d4d4d4;">
-                            <option value="viewer">Viewer</option>
-                            <option value="researcher">Researcher</option>
-                            <option value="admin">Admin</option>
-                        </select>
-                    </div>
-                    <button onclick="addUser()"
-                        style="background: #4ec9b0; color: #1e1e1e; border: none; padding: 9px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">
-                        Add User
+            <div id="general-content" style="padding: 0 20px 20px 20px;">
+                <div style="margin: 16px 0;">
+                    <button onclick="reloadVarSchema()"
+                        style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                        Reload variable schema
                     </button>
                 </div>
             </div>
+        </div>
 
-            <!-- User List Section -->
-            <div>
-                <h3 style="margin-bottom: 16px; font-size: 16px; color: #d4d4d4;">Active Users</h3>
+        <!-- User Administration Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('user-admin-content', 'user-admin-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
+                <span id="user-admin-arrow"
+                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                <h2 style="margin: 0;">User Administration</h2>
+            </div>
+
+            <div id="user-admin-content" style="padding: 0 20px 20px 20px;">
+                <div style="margin: 16px 0;">
+                    <button onclick="loadUsers()"
+                        style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                        ↻ Refresh List
+                    </button>
+                </div>
+
+                <!-- Pending Approvals Section -->
+                <div style="margin-bottom: 32px;">
+                    <h3 style="color: #d97706; margin-bottom: 16px; font-size: 16px;">Pending Approvals</h3>
+                    <div id="pendingUserList"
+                        style="background: #2d2d30; border: 1px solid #d97706; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+                        <p style="color: #d97706; font-style: italic;">Loading pending users...</p>
+                    </div>
+                </div>
+
+                <!-- Add User Section -->
+                <div
+                    style="background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 32px; border: 1px solid #3e3e42;">
+                    <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 16px; color: #d4d4d4;">Add New User</h3>
+                    <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+                        <div>
+                            <label
+                                style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Username</label>
+                            <input type="text" id="newUsername"
+                                style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 200px; background: #3c3c3c; color: #d4d4d4;">
+                        </div>
+                        <div>
+                            <label
+                                style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Password</label>
+                            <input type="password" id="newPassword"
+                                style="padding: 8px; width: 200px; background: #3c3c3c; border: 1px solid #3e3e42; color: #d4d4d4; border-radius: 3px;">
+                        </div>
+                        <div>
+                            <label
+                                style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Role</label>
+                            <select id="newRole"
+                                style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 150px; background: #3c3c3c; color: #d4d4d4;">
+                                <option value="viewer">Viewer</option>
+                                <option value="researcher">Researcher</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                        <button onclick="addUser()"
+                            style="background: #4ec9b0; color: #1e1e1e; border: none; padding: 9px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                            Add User
+                        </button>
+                    </div>
+                </div>
+
+                <!-- User List Section -->
+                <div>
+                    <h3 style="margin-bottom: 16px; font-size: 16px; color: #d4d4d4;">Active Users</h3>
+                    <div style="overflow-x: auto;">
+                        <table
+                            style="width: 100%; border-collapse: collapse; background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 8px;">
+                            <thead>
+                                <tr style="background: #2d2d30;">
+                                    <th
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        Username
+                                    </th>
+                                    <th
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        Role
+                                    </th>
+                                    <th
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        Videos
+                                    </th>
+                                    <th
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        Notes
+                                    </th>
+                                    <th
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        Closed
+                                    </th>
+                                    <th
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        Open
+                                    </th>
+                                    <th
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        Last
+                                        Login</th>
+                                    <th
+                                        style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        Actions
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody id="userTableBody">
+                                <tr>
+                                    <td colspan="8" style="padding: 16px; text-align: center; color: #888;">Loading
+                                        users...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Annotations Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('annotations-content', 'annotations-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
+                <span id="annotations-arrow"
+                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                <h2 style="margin: 0;">User Annotations</h2>
+            </div>
+
+            <div id="annotations-content" style="padding: 0 20px 20px 20px;">
+                <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
+                    <button onclick="loadAnnotations()"
+                        style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                        ↻ Refresh Annotations
+                    </button>
+                </div>
+
                 <div style="overflow-x: auto;">
                     <table
                         style="width: 100%; border-collapse: collapse; background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 8px;">
@@ -64,42 +157,34 @@
                             <tr style="background: #2d2d30;">
                                 <th
                                     style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                    Username
+                                    Item ID
                                 </th>
                                 <th
                                     style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                    Role
-                                </th>
+                                    Unique
+                                    Users</th>
                                 <th
                                     style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                    Videos
-                                </th>
+                                    Total
+                                    Notes</th>
                                 <th
                                     style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                    Notes
-                                </th>
+                                    Total
+                                    Closed</th>
                                 <th
                                     style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                    Closed
-                                </th>
-                                <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                    Open
-                                </th>
-                                <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                    Last
-                                    Login</th>
+                                    Total
+                                    Open</th>
                                 <th
                                     style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
                                     Actions
                                 </th>
                             </tr>
                         </thead>
-                        <tbody id="userTableBody">
+                        <tbody id="annotationsTableBody">
                             <tr>
-                                <td colspan="8" style="padding: 16px; text-align: center; color: #888;">Loading users...
-                                </td>
+                                <td colspan="6" style="padding: 16px; text-align: center; color: #888;">Click Refresh to
+                                    load annotations.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -107,61 +192,103 @@
             </div>
         </div>
 
-        <!-- User Annotations Section -->
-        <div style="background: #252526; padding: 20px; border-radius: 8px;">
-            <h2>User Annotations</h2>
-
-            <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
-                <button onclick="loadAnnotations()"
-                    style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
-                    ↻ Refresh Annotations
-                </button>
+        <!-- Inter-coder Reliability Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('reliability-content', 'reliability-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
+                <span id="reliability-arrow"
+                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                <h2 style="margin: 0;">Inter-coder Reliability</h2>
             </div>
 
-            <div style="overflow-x: auto;">
-                <table
-                    style="width: 100%; border-collapse: collapse; background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 8px;">
-                    <thead>
-                        <tr style="background: #2d2d30;">
-                            <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                Item ID
-                            </th>
-                            <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                Unique
-                                Users</th>
-                            <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                Total
-                                Notes</th>
-                            <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                Total
-                                Closed</th>
-                            <th
-                                style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                Total
-                                Open</th>
-                            <th
-                                style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
-                                Actions
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody id="annotationsTableBody">
-                        <tr>
-                            <td colspan="6" style="padding: 16px; text-align: center; color: #888;">Click Refresh to
-                                load annotations.</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div id="reliability-content" style="padding: 0 20px 20px 20px;">
+                <p style="color: #bbb; font-size: 13px; margin-bottom: 16px;">
+                    Calculate percent agreement and Cohen's Kappa for closed tags between each user and the consensus
+                    (most
+                    common tag).
+                </p>
+
+                <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
+                    <button onclick="calculateReliability()"
+                        style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                        Calculate Reliability
+                    </button>
+                </div>
+
+                <div style="overflow-x: auto;">
+                    <table
+                        style="width: 100%; border-collapse: collapse; background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 8px;">
+                        <thead>
+                            <tr style="background: #2d2d30;">
+                                <th
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    Variable</th>
+                                <th title="The average percentage of items where the user's tag matched the consensus (mode)."
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4; cursor: help;">
+                                    Avg Agreement %</th>
+                                <th title="The average Cohen's Kappa score across users, measuring agreement adjusted for chance."
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4; cursor: help;">
+                                    Avg Kappa</th>
+                                <th title="The number of users who have contributed tags for this variable."
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4; cursor: help;">
+                                    N Raters</th>
+                                <th title="The average number of videos coded by each user for this variable."
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4; cursor: help;">
+                                    Avg Items</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reliabilityTableBody">
+                            <tr>
+                                <td colspan="5" style="padding: 16px; text-align: center; color: #888;">Click Calculate
+                                    to
+                                    generate stats.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
 <script>
+    function toggleSection(contentId, arrowId) {
+        const content = document.getElementById(contentId);
+        const arrow = document.getElementById(arrowId);
+        if (!content || !arrow) return;
+
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            arrow.innerHTML = '▼'; // Down arrow
+            arrow.style.transform = 'rotate(0deg)';
+        } else {
+            content.style.display = 'none';
+            arrow.innerHTML = '▶'; // Right arrow
+            arrow.style.transform = 'rotate(0deg)'; // Optional: could just swap char
+        }
+    }
+
+    async function reloadVarSchema() {
+        if (!confirm("Are you sure you want to reload the variable schema?")) return;
+
+        try {
+            const response = await fetch('/api/manage/schema/reload', {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to reload schema');
+            }
+
+            const data = await response.json();
+            alert(data.message || 'Schema reloaded successfully');
+
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
     async function loadUsers() {
         try {
             const response = await fetch('/api/admin/users');
@@ -549,5 +676,45 @@
 
         html += '</div>';
         container.innerHTML = html;
+    }
+
+    async function calculateReliability() {
+        const tableBody = document.getElementById('reliabilityTableBody');
+        tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: #888;">Calculating...</td></tr>';
+
+        try {
+            const response = await fetch('/api/manage/inter_coder_reliability');
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to calculate reliability');
+            }
+            const data = await response.json();
+
+            if (data.results && data.results.length > 0) {
+                tableBody.innerHTML = data.results.map(row => `
+                    <tr style="border-bottom: 1px solid #3e3e42;">
+                        <td style="padding: 12px 16px; color: #d4d4d4; font-weight: 500;">${row.variable}</td>
+                        <td style="padding: 12px 16px; color: #d4d4d4;">${row.avg_agreement}%</td>
+                        <td style="padding: 12px 16px; color: ${getKappaColor(row.avg_kappa)}; font-weight: bold;">${row.avg_kappa}</td>
+                        <td style="padding: 12px 16px; color: #d4d4d4;">${row.n_raters}</td>
+                        <td style="padding: 12px 16px; color: #d4d4d4;">${row.avg_items}</td>
+                    </tr>
+                 `).join('');
+            } else {
+                tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: #888;">No data found (need at least 2 common items per user).</td></tr>';
+            }
+
+        } catch (error) {
+            console.error('Error:', error);
+            tableBody.innerHTML = `<tr><td colspan="5" style="padding: 16px; text-align: center; color: #ef4444;">Error: ${error.message}</td></tr>`;
+        }
+    }
+
+    function getKappaColor(k) {
+        if (k >= 0.8) return '#4ec9b0'; // Excellent
+        if (k >= 0.6) return '#6ee7b7'; // Good
+        if (k >= 0.4) return '#fcd34d'; // Moderate
+        if (k >= 0.2) return '#d97706'; // Fair
+        return '#ef4444'; // Poor
     }
 </script>

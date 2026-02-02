@@ -2,6 +2,7 @@ import threading
 import pandas as pd
 import json
 import numpy as np
+from sklearn.metrics import cohen_kappa_score
 from cachetools import LRUCache
 import fyp.data_io as data_io
 from fyp.pca import calculate_scaled_pca_scores
@@ -333,9 +334,9 @@ def get_viz_config():
     """
     config = {}
     try:
-        var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
-        if var_schema_path.exists():
-            df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+        #var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
+        if True:#var_schema_path.exists():
+            df = fyp_cf["var_schema"].copy() #pd.read_csv(var_schema_path, dtype_backend="pyarrow")
             
             # Check if columns exist
             has_log = 'web_viz_log' in df.columns
@@ -800,9 +801,9 @@ def get_pca_df(study_name):
 def load_schema_metadata(metadata):
     """Helper to load and inject schema metadata (priorities, descriptions, accepted_labels) from CSV."""
     try:
-        var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
-        if var_schema_path.exists():
-            schema_df = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+        #var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
+        if True: #var_schema_path.exists():
+            schema_df = fyp_cf["var_schema"].copy() #= pd.read_csv(var_schema_path, dtype_backend="pyarrow")
             
             schema_df['web_display_prio'] = pd.to_numeric(schema_df['web_display_prio'], errors='coerce')
             display_df = schema_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')
@@ -880,3 +881,178 @@ def load_schema_metadata(metadata):
         # Don't overwrite with empty if error?
         pass
     return metadata
+
+
+def calculate_inter_coder_reliability():
+    """
+    Calculates inter-coder reliability (Agreement % and Cohen's Kappa) for closed tags.
+    Returns a dictionary of stats.
+    """
+    
+    # 1. Load Schema to identify accepted labels and closed variables
+    meta = {}
+    load_schema_metadata(meta)
+    schema_map = meta.get('schema_map', {})
+    
+    # Identify Variables with accepted_labels (Closed Tags)
+    closed_vars = {}
+    for var, details in schema_map.items():
+        if 'accepted_labels' in details and details['accepted_labels']:
+            closed_vars[var] = details['accepted_labels']
+
+    if not closed_vars:
+        return {"error": "No closed tagging variables found in schema."}
+
+    # 2. Load All User Annotations
+    user_files = []
+    try:
+        # We assume 'users' storage location is set up in data_io
+        # Listing files in users directory
+        all_files = data_io.listdir(storage_location='users')
+        user_files = [f for f in all_files if f.endswith('.json') and not f.endswith('_tags.json')]
+    except Exception as e:
+        print(f"Error listing users: {e}")
+        return {"error": f"Error listing users: {str(e)}"}
+
+    if not user_files:
+        return {"error": "No user files found."}
+
+    # 3. Aggregate Data
+    all_data = []
+
+    for uf in user_files:
+        username = uf.replace('.json', '')
+        try:
+            user_blob = data_io.load_json(storage_location='users', filename=uf)
+            if not user_blob: continue
+            
+            annotations = user_blob.get('annotations', {})
+            
+            for item_id, item_vars in annotations.items():
+                for var_key, val in item_vars.items():
+                    # Handle variable naming conventions (e.g. VarName__CLOSED_TAGGING)
+                    real_var = var_key
+                    if var_key.endswith('__CLOSED_TAGGING'):
+                         real_var = var_key[:-16]
+                    
+                    if real_var in closed_vars:
+                         cleaned_val = None
+                         if isinstance(val, list):
+                             # Multi-label handling: For Kappa, we ideally need single labels.
+                             # If specific requirement isn't set, we treat single-element lists as the value,
+                             # and multi-element lists as a combined string to allow exact match agreement check.
+                             if len(val) == 1:
+                                 cleaned_val = val[0]
+                             elif len(val) > 1:
+                                 cleaned_val = ",".join(sorted(val))
+                         else:
+                             cleaned_val = str(val)
+                             
+                         if cleaned_val:
+                             all_data.append({
+                                 "item_id": str(item_id),
+                                 "variable": real_var,
+                                 "user": username,
+                                 "value": cleaned_val
+                             })
+                             
+        except Exception as e:
+            print(f"Error loading {uf}: {e}")
+            continue
+
+    if not all_data:
+         return {"error": "No closed tags found in user files."}
+
+    df = pd.DataFrame(all_data)
+
+    # 4. Compute Statistics Per Variable
+    results = []
+    
+    # We define Consensus as the Mode (Most Common) tag for each item.
+    
+    unique_vars = sorted(df['variable'].unique())
+    
+    for var in unique_vars:
+        var_df = df[df['variable'] == var]
+        
+        # Calculate Consensus (Mode) per Item
+        item_groups = var_df.groupby('item_id')['value']
+        consensus_map = {}
+        
+        for item, group in item_groups:
+            modes = group.mode()
+            if not modes.empty:
+                consensus_val = sorted(modes.tolist())[0]
+                consensus_map[item] = consensus_val
+                
+        # Calculate Stats Per User
+        users = sorted(var_df['user'].unique())
+        
+        user_agreements = []
+        user_kappas = []
+        user_n_items = []
+        
+        for u in users:
+            user_subset = var_df[var_df['user'] == u]
+            
+            y_true = [] # Consensus
+            y_pred = [] # User
+            
+            common_items = 0
+            
+            for _, row in user_subset.iterrows():
+                iid = row['item_id']
+                val = row['value']
+                
+                if iid in consensus_map:
+                    cons_val = consensus_map[iid]
+                    y_true.append(cons_val)
+                    y_pred.append(val)
+                    common_items += 1
+            
+            if common_items == 0:
+                continue
+            
+            user_n_items.append(common_items)
+            
+            # Percent Agreement
+            agreement = np.mean(np.array(y_true) == np.array(y_pred))
+            user_agreements.append(agreement)
+            
+            # Cohen's Kappa - simplified
+            kappa = 0.0
+            if common_items > 1 and len(set(y_true)) > 1: # Need variation for Kappa
+                try:
+                     kappa = cohen_kappa_score(y_true, y_pred)
+                     if pd.isna(kappa): kappa = 0.0
+                except:
+                    kappa = 0.0
+            elif common_items > 0 and y_true == y_pred:
+                 # Perfect agreement on single item or constant values
+                 # Technically Kappa is undefined or 0, but Agreement is 1.0. 
+                 # We'll treat Kappa as 1.0 for perfect match to not punish consistency?
+                 # No, standard is 0 if expected==observed.
+                 # Let's keep it 0.0 but rely on Agreement for interpretation.
+                 kappa = 0.0 
+                 # Wait, if I have 1 item and I match, Agreement is 100%. Kappa is undefined.
+                 pass
+
+            user_kappas.append(kappa)
+            
+        if user_agreements:
+            avg_agreement = np.mean(user_agreements)
+            avg_kappa = np.mean(user_kappas)
+            avg_n = np.mean(user_n_items)
+            
+            results.append({
+                "variable": var,
+                "avg_agreement": round(avg_agreement * 100, 1),
+                "avg_kappa": round(avg_kappa, 3),
+                "n_raters": len(users),
+                "avg_items": round(avg_n, 1)
+            })
+            
+    # Sort results
+    results.sort(key=lambda x: x['variable'])
+
+    return {"results": results}

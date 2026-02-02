@@ -1,5 +1,6 @@
 import sys
 import os
+import pandas as pd
 from pathlib import Path
 from google.api_core.exceptions import Forbidden as google_Forbidden
 from google.cloud import storage as gcs_storage
@@ -16,7 +17,7 @@ sys.path.append(abs_project_root_path)
 
 
 import fyp
-import fyp.data_io as data_io
+#import fyp.data_io as data_io
 
 
 
@@ -91,6 +92,22 @@ def _connect_to_google(cf, verbose=False):
 
 
 
+def load_var_schema(cf, verbose=False):
+    # Load variable schema
+    if cf['data_io']['use_gcs_for_data']:
+        if verbose:
+            print(f"Loading variable schema from GCS")
+        var_schema_path = f"gs://{cf['data_io']['GCS_bucket_name']}/data/var_schema.csv"
+    else:
+        if verbose:
+            print(f"Loading variable schema from local disk")
+        var_schema_path = os.path.join(abs_project_root_path, "config", "var_schema.csv")
+    cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+    if verbose:
+        print(f"Variable schema loaded. Shape: {cf['var_schema'].shape}")
+    return cf
+
+
 
 
 
@@ -102,7 +119,8 @@ PROJECT_ROOT = Path(abs_project_root_path)
 
 # Initialize things
 fyp_cf = fyp.initialize()
-fyp_cf = _connect_to_google(fyp_cf)
+fyp_cf = _connect_to_google(fyp_cf, verbose = True)
+fyp_cf = load_var_schema(fyp_cf, verbose=True)
 
 
 DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"

@@ -1,13 +1,13 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from datetime import datetime
-from fyp.fyp_config import fyp_cf
+from fyp.fyp_config import fyp_cf, load_var_schema
 import fyp.data_io as data_io
 from fyp.organize_datasets import create_study_recoded_dataset
 from fyp.pca import calculate_scaled_pca_scores
 from fyp.studies import init_study_defs, save_study_defs
 from .. import explorer_backend as explorer
-from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable
+from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable, calculate_inter_coder_reliability
 
 management_bp = Blueprint('management_bp', __name__)
 
@@ -184,24 +184,27 @@ def save_study():
         existing_config = studies[study_name]
         
         # Compare incoming data with existing config
-        # We only care if the incoming data is different from what we have.
-        has_changes = False
+        changed_keys = []
         for key, value in data.copy().items(): # Use copy to safely iterate
             # key might be REFRESH_PCA/REFRESH_METADATA - these shouldn't count as study def changes but separate flags.
-            # We will pop them later, but for checking "study definition changes", we should ignore them now?
-            if key in [
-                'REFRESH_PCA', 'REFRESH_METADATA', 'stats']:
+            if key in ['REFRESH_PCA', 'REFRESH_METADATA', 'stats']:
                 continue
 
-
             if key not in existing_config or existing_config[key] != value:
-                has_changes = True
+                changed_keys.append(key)
                 print(f"Change detected in {key}: {existing_config.get(key)} -> {value}") # Debug
-                break
         
-        if not has_changes:
+        if not changed_keys:
              # If exact same definition, return early
              return jsonify({"status": "no_change", "message": "No changes to save."})
+
+        # OPTIMIZATION: If only USER_ACCESS changed, we don't need to recalculate anything
+        if len(changed_keys) == 1 and changed_keys[0] == 'USER_ACCESS':
+            print(f"Only USER_ACCESS changed for {study_name}. Saving without recalculation.")
+            studies[study_name]['USER_ACCESS'] = data['USER_ACCESS']
+            fyp_cf['study_defs'] = studies
+            save_study_defs()
+            return jsonify({"status": "success", "study": studies[study_name]})
 
     # Update config
     if study_name not in studies:
@@ -519,4 +522,34 @@ def empty_enrichment_queues():
             
         return jsonify({"status": "success", "message": "Queues emptied."})
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@management_bp.route('/api/manage/schema/reload', methods=['POST'])
+@login_required
+def reload_schema():
+    if not (current_user.is_admin()):
+        return jsonify({"error": "Unauthorized"}), 403
+    
+    try:
+        global fyp_cf
+        fyp_cf = load_var_schema(fyp_cf, verbose=True)
+        return jsonify({"status": "success", "message": "Variable schema reloaded successfully."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@management_bp.route('/api/manage/inter_coder_reliability', methods=['GET'])
+@login_required
+def get_inter_coder_reliability():
+    if not (current_user.is_admin() or current_user.role == 'researcher'):
+        return jsonify({"error": "Unauthorized"}), 403
+    
+    try:
+        results = calculate_inter_coder_reliability()
+        if "error" in results:
+             return jsonify(results), 400
+        return jsonify(results)
+    except Exception as e:
+        print(f"Error calculating reliability: {e}")
         return jsonify({"error": str(e)}), 500

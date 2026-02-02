@@ -26,6 +26,9 @@ processes = {
 
 process_stats = {}
 
+
+
+#TODO: change this to use data_io. It won't work on Cloud Run
 def load_process_stats():
     global process_stats
     if PROCESS_STATS_FILE.exists():
@@ -38,12 +41,19 @@ def load_process_stats():
     else:
         process_stats = {}
 
+
+
+
+#TODO: change this to use data_io. It won't work on Cloud Run
 def save_process_stats():
     try:
         with open(PROCESS_STATS_FILE, 'w') as f:
             json.dump(process_stats, f)
     except Exception as e:
         print(f"Failed to save process stats: {e}")
+
+
+
 
 def enqueue_output(out, queue, process_state):
     for line in iter(out.readline, b''):
