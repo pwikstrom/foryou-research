@@ -29,7 +29,7 @@ import collections
  
 from fyp.types import convert_dtypes_to_pyarrow
 #from fyp.organize_datasets import select_videos_from_study_dataset
-from fyp.recode_variables import rename_columns, recode_events_df
+from fyp.recode_variables import rename_columns, recode_events_df, recode_fuzzy_match
 import fyp.utils as fyp_utils
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
@@ -1147,6 +1147,25 @@ def clean_up_machine_annotations(some_events, verbose = False):
         if valid_items.empty:
             continue
 
+        accepted = fyp_cf['var_schema'].set_index('variable_name').loc[c,'accepted_labels']
+        accepted_labels = pd.NA
+        if pd.notna(accepted) and accepted.lower() != 'nan' and accepted.startswith('[') and accepted.endswith(']'):
+            accepted = accepted[1:-1]
+            accepted_labels = [x.strip().replace("//", "").replace("&", " and ").replace("/", " or ") for x in accepted.split(',')]
+
+            pre_fuzzy_nunique = valid_items.nunique()
+
+            valid_items = recode_fuzzy_match(
+                list_a=valid_items, 
+                list_b=accepted_labels, 
+                threshold=0.8, 
+                verbose=verbose
+            )
+
+            if verbose:
+                print(f"    {c}: Recoded against accepted labels with fuzzy matching... {valid_items.nunique()} ({pre_fuzzy_nunique})")
+
+
 
         # Check mean length
         # Vectorized string length based on a sample of 500 items
@@ -1160,12 +1179,17 @@ def clean_up_machine_annotations(some_events, verbose = False):
             counts = valid_items.value_counts()
 
             total_count = counts.sum()
-            target = total_count * 0.98
+
+            # if we have an accepted list, we want to keep all of them
+            if pd.notna(accepted):
+                target = total_count * 1
+            else:
+                target = total_count * 0.95
             
             # cumulative sum
             cum_counts = counts.cumsum()
             
-            # find how many labels needed to cross 98%
+            # find how many labels needed to cross target
             # we keep labels where cumsum < target, plus the one that crosses it
             cutoff_idx = cum_counts.searchsorted(target)
             # ensure at least 3 if possible?
@@ -1196,7 +1220,7 @@ def clean_up_machine_annotations(some_events, verbose = False):
             # We need to iterate rows since we want to preserve list structure [[a, b], [c]] -> [[a, OTHER], [c]]
             # A simple map with set lookup is fastest for object columns with lists
             def _fast_replace(x):
-                if isinstance(x, list):
+                if isinstance(x, (list, np.ndarray)):
                     return [y if y in keep_set else fyp_cf['labels']['OTHER_THINGS'] for y in x]
                 if isinstance(x, str):
                     return x if x in keep_set else fyp_cf['labels']['OTHER_THINGS']
@@ -1212,6 +1236,10 @@ def clean_up_machine_annotations(some_events, verbose = False):
         else:
             if verbose:
                 print(f"    {c}: Avg string length > 60, not consolidating rare labels")
+        
+
+
+
 
     return some_cleaned_up_events
 
@@ -1310,10 +1338,13 @@ def refine_one_raw_annotation_batch(
             )
 
 
+
     # ---------------------------------------------------------------
     # consolidate some labels in non-numeric columns where that makes sense 
     # ---------------------------------------------------------------
     outputs_from_machine_df = clean_up_machine_annotations(some_events=outputs_from_machine_df, verbose=verbose)
+
+
 
 
     # ---------------------------------------------------------------

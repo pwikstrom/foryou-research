@@ -76,7 +76,7 @@ G_main_activity,Main activity,categorical,{},IRRELEVANT_WORDS + ['getting'], ,dr
 S_createTime,Creation time,datetime,{},[],,drop,,,standard,,,,,,114,Unix timestamp of when the video was uploaded.,Fundamentals,
 G_australian_relevance,Aussie relevance,dichotomous,{},[], | ,drop,zero,recode_stringified_list,feature,5,3,10,,,119,Is the content connected to Australia? (Yes/No).,Fundamentals,"[yes, no]"
 G_objects,Objects in video,collection,{},"['woman', 'man', 'person', 'people']", | ,drop,empty,recode_stringified_list,standard,,,35,,,120,List of physical items detected in the video.,Fundamentals,
-G_type_of_story,Type of story,categorical,{},[], | ,drop,keep,recode_stringified_list,feature,2,4,7,,,122,"Narrative classification (e.g., Issue, Event, Human-Interest).",Fundamentals,
+G_type_of_story,Type of story,categorical,{},[], | ,drop,keep,recode_stringified_list,feature,2,4,7,,,122,"Narrative classification (e.g., Issue, Event, Human-Interest).",Fundamentals,"[issue-based, event-based, human-interest, descriptive]"
 G_video_story,Video story,string,GENERIC_MAPPER,[], | ,drop,empty,recode_long_strings,standard,,,2,,,123,Concise AI-generated narrative summary of the video.,Fundamentals,
 S_desc_hashtags,Hashtags,collection,{},[],,drop,,,standard,1,5,4,,,127,List of hashtags extracted from the caption.,Fundamentals,
 S_desc_raw,Description,string,{},[],,drop,,,standard,,,3,,,130,Original video caption including text and hashtags.,Fundamentals,
@@ -84,7 +84,7 @@ S_isAd,Advertising (TikTok),dichotomous,{},[], | ,drop,,recode_stringified_list,
 G_advertising,Advertising (Gemini),dichotomous,{},[], | ,drop,zero,recode_stringified_list,feature,7,6,12,,,139,AI detection of advertising content (Yes/No).,Fundamentals,"[yes, no]"
 G_symbols_and_brands,Symbols and brands,collection,{},"['tiktok', 'tiktok logo']", | ,drop,empty,recode_stringified_list,standard,,7,16,,,140,"Visible logos, flags, or symbols detected by AI.",Fundamentals,
 G_tiktok_native,TikTok Native,dichotomous,{},[], | ,drop,keep,recode_stringified_list,feature,8,8,15,,,141,Does the video use native TikTok styles/formats? (Yes/No).,Fundamentals,"[yes, no]"
-G_trend,Is it a trend?,dichotomous,{},[], | ,drop,keep,recode_stringified_list,feature,6,9,11,,,142,Is the video participating in a viral trend? (Yes/No).,Fundamentals,"[technical trend, cultural trend, not trend]"
+G_trend,Is it a trend?,dichotomous,{},[], | ,drop,keep,recode_stringified_list,feature,6,9,11,,,142,Is the video participating in a viral trend? (Yes/No).,Fundamentals,"[yes, no]"
 B_author_nickname,Author nickname,string,{},[],,drop,keep,recode_long_strings,standard,,,,,,150,Display name of the author,Fundamentals,
 G_transcript_no_repetitions,Transcript,string,{},[],,drop,keep,recode_long_strings,standard,,,,,,150,Transcription of spoken words,Fundamentals,
 B_author_signature,Author signature,string,{},[],,drop,keep,recode_long_strings,standard,,,,,,151,Bio text of the author,Fundamentals,

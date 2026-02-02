@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 from copy import copy
 import numpy as np
+import difflib
 
 from fyp.fyp_config import fyp_cf
 from fyp.types import convert_dtypes_to_pyarrow 
@@ -1417,3 +1418,165 @@ def recode_events_df(
 
 
 
+
+
+# Try to import rapidfuzz for faster matching
+try:
+    from rapidfuzz import process, fuzz
+    _HAS_RAPIDFUZZ = True
+except ImportError:
+    _HAS_RAPIDFUZZ = False
+
+def recode_fuzzy_match(
+    list_a: list, 
+    list_b: list, 
+    threshold: float = 0.8, 
+    verbose: bool = False
+) -> list:
+    """
+    Matches strings in list_a against strings in list_b by similarity.
+    Replaces matched strings in A with their counterpart in B.
+    Unmatched strings are replaced with 'fyp_cf['labels']['OTHER_THINGS']'.
+    
+    Optimizations:
+    1. Exact matches are checked first (O(1) lookup).
+    2. Uses rapidfuzz if available for faster fuzzy matching.
+    3. Falls back to difflib if rapidfuzz is not installed.
+    
+    Args:
+        list_a: List of strings to be recoded.
+        list_b: List of target strings (the reference list).
+        threshold: float between 0 and 1. Similarity score required to match.
+        verbose: bool, if True prints warnings/info.
+        
+    Returns:
+        List of strings with same length as list_a.
+    """
+    
+    # Detect if input is a pandas Series to preserve index
+    is_series = isinstance(list_a, pd.Series)
+    input_index = list_a.index if is_series else None
+    
+    # ensure inputs are lists for processing
+    if is_series:
+        processing_list = list_a.tolist()
+    elif not isinstance(list_a, list):
+        if verbose:
+            print(f"Warning: list_a is not a list (got {type(list_a)}). Returning empty list.")
+        return []
+    else:
+        processing_list = list_a
+        
+    if not isinstance(list_b, list):
+        if verbose:
+            print(f"Warning: list_b is not a list (got {type(list_b)}). Returning {fyp_cf['labels']['OTHER_THINGS']}.")
+        return [fyp_cf['labels']['OTHER_THINGS']] * len(processing_list) # Return list if input was list
+
+    refined_list = []
+    
+    # Pre-clean list_b to ensure all elements are strings - handle pandas NA
+    valid_candidates = [str(x) for x in list_b if pd.notna(x)]
+    
+    # Optimization 1: Exact Match Lookup
+    candidates_set = set(valid_candidates)
+    
+    # Optimization 2: Use rapidfuzz if available
+    rapid_threshold = threshold * 100
+    
+    for item in processing_list:
+        # Handle list-like items (e.g. column of lists like [['tag1', 'tag2'], ['tag3']])
+        # Also handle numpy arrays and tuples to avoid "ambiguous truth value" errors in pd.isna()
+        if isinstance(item, (list, np.ndarray, tuple)):
+            sub_result = []
+            for sub_item in item:
+                if pd.isna(sub_item) or not isinstance(sub_item, str):
+                    sub_result.append(fyp_cf['labels']['OTHER_THINGS'])
+                    continue
+                
+                # Check Exact Match First (Sub-item)
+                if sub_item in candidates_set:
+                    sub_result.append(sub_item)
+                    continue
+
+                # Fuzzy Match (Sub-item)
+                best_sub_match = None
+                if _HAS_RAPIDFUZZ:
+                    result = process.extractOne(
+                        sub_item, 
+                        valid_candidates, 
+                        scorer=fuzz.ratio, 
+                        score_cutoff=rapid_threshold
+                    )
+                    if result:
+                        best_sub_match = result[0]
+                else:
+                    highest_sub_ratio = 0.0
+                    for candidate in valid_candidates:
+                        ratio = difflib.SequenceMatcher(None, sub_item, candidate).ratio()
+                        if ratio > highest_sub_ratio:
+                            highest_sub_ratio = ratio
+                            best_sub_match = candidate
+                    
+                    if highest_sub_ratio < threshold:
+                        best_sub_match = None
+                
+                if best_sub_match:
+                    sub_result.append(best_sub_match)
+                else:
+                    sub_result.append(fyp_cf['labels']['OTHER_THINGS'])
+            
+            refined_list.append(sub_result)
+            continue
+
+        # Handle non-string scalar items
+        # Check if scalar is NA safely (already know it's not a list)
+        if pd.isna(item) or not isinstance(item, str):
+            refined_list.append(fyp_cf['labels']['OTHER_THINGS'])
+            continue
+            
+        # Check Exact Match First (Scalar)
+        if item in candidates_set:
+            refined_list.append(item)
+            continue
+            
+        # Fuzzy Matching (Scalar)
+        best_match = None
+        
+        if _HAS_RAPIDFUZZ:
+            # rapidfuzz implementation
+            # extractOne returns (match, score, index)
+            result = process.extractOne(
+                item, 
+                valid_candidates, 
+                scorer=fuzz.ratio, # Use simple ratio to match difflib behavior roughly
+                score_cutoff=rapid_threshold
+            )
+            
+            if result:
+                best_match = result[0]
+                
+        else:
+            # difflib fallback implementation
+            highest_ratio = 0.0
+            
+            for candidate in valid_candidates:
+                ratio = difflib.SequenceMatcher(None, item, candidate).ratio()
+                
+                if ratio > highest_ratio:
+                    highest_ratio = ratio
+                    best_match = candidate
+            
+            # Check threshold for difflib result
+            if highest_ratio < threshold:
+                best_match = None
+        
+        if best_match:
+            refined_list.append(best_match)
+        else:
+            refined_list.append(fyp_cf['labels']['OTHER_THINGS'])
+            
+    # Return Series if input was Series, correctly indexed
+    if is_series:
+        return pd.Series(refined_list, index=input_index)
+        
+    return refined_list
