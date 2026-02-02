@@ -111,8 +111,9 @@ async function loadExplorerV2Metadata() {
     const filterContainer1 = document.getElementById('explorer-v2-filters-1');
     const filterContainer2 = document.getElementById('explorer-v2-filters-2');
 
-    filterContainer1.innerHTML = '<div style="text-align:center; margin-top:20px;">Loading metadata...</div>';
-    filterContainer2.innerHTML = '<div style="text-align:center; margin-top:20px;">Loading metadata...</div>';
+    const funLoader = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading...</div></div>';
+    filterContainer1.innerHTML = funLoader;
+    filterContainer2.innerHTML = funLoader;
 
     try {
         const res = await fetch(`/api/explorer/metadata?study=${encodeURIComponent(explorerDataV2.activeStudy)}`);
@@ -494,6 +495,10 @@ async function updateExplorerV2Stats(triggerSlice = null) {
     // Show loading state for relevant slice
     if (triggerSlice === 1 || triggerSlice === null) countEl1.innerText = "Loading...";
     if (triggerSlice === 2 || triggerSlice === null) countEl2.innerText = "Loading...";
+
+    const statsContainer = document.getElementById('explorer-v2-stats');
+    const funLoader = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading...</div></div>';
+    statsContainer.innerHTML = funLoader;
 
     try {
         const payload = {

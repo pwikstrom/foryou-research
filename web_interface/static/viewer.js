@@ -149,7 +149,13 @@ function changeViewerStudy(val) {
     // Also clear player
     document.getElementById('viewer-video').src = "";
     document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "";
-    document.getElementById('viewer-video-msg').style.display = "block";
+    document.getElementById('viewer-video').src = "";
+    document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "";
+
+    const msgEl = document.getElementById('viewer-video-msg');
+    const funLoader = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading video...</div></div>';
+    msgEl.innerHTML = funLoader;
+    msgEl.style.display = "block";
     updateNavUI();
 }
 
@@ -157,7 +163,8 @@ async function loadViewerMetadata() {
     if (!viewerData.activeStudy) return;
 
     const filterContainer = document.getElementById('viewer-filters');
-    filterContainer.innerHTML = '<div style="text-align:center; margin-top:20px;">Loading filters...</div>';
+    const funLoader = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading...</div></div>';
+    filterContainer.innerHTML = funLoader;
 
     try {
         const res = await fetch(`/api/explorer/metadata?study=${encodeURIComponent(viewerData.activeStudy)}&context=viewer`);
@@ -605,7 +612,12 @@ async function applyViewerFilters() {
             updateNavUI();
             // Clear display
             document.getElementById('viewer-video').src = "";
+            document.getElementById('viewer-video').src = "";
             document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "<tr><td>No items found</td></tr>";
+            // Show plain text 
+            const msgEl = document.getElementById('viewer-video-msg');
+            msgEl.innerHTML = "No videos found";
+            msgEl.style.display = "block";
         }
 
     } catch (e) {

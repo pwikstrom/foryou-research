@@ -436,3 +436,95 @@ textarea {
     color: #fff;
     border-bottom-style: solid;
 }
+
+/* --- Fun Loading Animation (Pacman) --- */
+.fun-loader-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+}
+
+.fun-loader {
+    display: inline-block;
+    position: relative;
+    width: 80px;
+    height: 80px;
+}
+
+.fun-loader div {
+    position: absolute;
+    top: 33px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #ffd700;
+    animation-timing-function: cubic-bezier(0, 1, 1, 0);
+}
+
+/* Mouth Parts */
+.fun-loader div:nth-child(1),
+.fun-loader div:nth-child(2) {
+    width: 0;
+    height: 0;
+    border: 40px solid #ffd700;
+    border-radius: 50%;
+    border-right-color: transparent;
+    background: transparent;
+    animation: lds-pacman-1 0.8s infinite linear;
+    top: 0;
+    left: 0;
+}
+
+.fun-loader div:nth-child(2) {
+    animation-name: lds-pacman-2;
+}
+
+/* Dots */
+.fun-loader div:nth-child(3),
+.fun-loader div:nth-child(4),
+.fun-loader div:nth-child(5) {
+    left: 40px;
+    background: #d4d4d4; /* Dot color */
+    animation: lds-pacman-3 0.8s infinite linear;
+}
+
+.fun-loader div:nth-child(4) {
+    animation-delay: -0.4s;
+}
+
+.fun-loader div:nth-child(5) {
+    animation-delay: -0.8s;
+}
+
+@keyframes lds-pacman-1 {
+    0% { transform: rotate(0deg); }
+    50% { transform: rotate(-45deg); }
+    100% { transform: rotate(0deg); }
+}
+
+@keyframes lds-pacman-2 {
+    0% { transform: rotate(180deg); }
+    50% { transform: rotate(225deg); }
+    100% { transform: rotate(180deg); }
+}
+
+@keyframes lds-pacman-3 {
+    0% { transform: translate(0, 0); opacity: 1; }
+    100% { transform: translate(-80px, 0); opacity: 1; }
+}
+
+.loading-text {
+    margin-top: 15px;
+    color: #ffd700;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: 1.2em;
+    animation: pulse-text 1s infinite alternate;
+}
+
+@keyframes pulse-text {
+    from { opacity: 0.7; }
+    to { opacity: 1; }
+}
