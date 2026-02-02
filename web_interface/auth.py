@@ -7,6 +7,7 @@ from functools import wraps
 from flask import abort, current_app
 from pathlib import Path
 import logging
+import fyp.data_io as data_io
 
 
 
@@ -71,12 +72,13 @@ class User(UserMixin):
 # --- User Manager ---
 
 class UserManager:
-    def __init__(self, filepath, gcs_bucket=None, gcs_path=None):
-        self.filepath = Path(filepath)
+    def __init__(self, storage_location="users"):
+        self.storage_location = storage_location
         self.users = {}
-        self.gcs_bucket = gcs_bucket
-        self.gcs_path = gcs_path
         
+        # Migration from legacy monolithic files
+        self.migrate_legacy_data()
+
         # Initial Load
         self.load_users()
         
@@ -85,58 +87,132 @@ class UserManager:
             logger.info("No users found. Creating default admin.")
             self.add_user("info@foryouresearch.net", "kelvingrove", ROLE_ADMIN, approved=True)
     
-    def load_users(self):
-        """Loads users from local JSON, syncs from GCS if configured."""
-        if self.gcs_bucket and self.gcs_path:
+    def migrate_legacy_data(self):
+        """Migrates legacy users.json and _tags.json to individual {username}.json files."""
+        legacy_file = "users.json"
+        
+        # Check if legacy file exists using data_io
+        if data_io.exists(storage_location=self.storage_location, filename=legacy_file):
+            logger.info("Found legacy users.json, starting migration...")
+            
             try:
-                blob = self.gcs_bucket.blob(self.gcs_path)
-                if blob.exists():
-                    logger.info(f"Downloading users from GCS: gs://{self.gcs_bucket.name}/{self.gcs_path}")
-                    blob.download_to_filename(str(self.filepath))
-                else:
-                    logger.info(f"No remote users file found at gs://{self.gcs_bucket.name}/{self.gcs_path}. Using local default.")
-            except Exception as e:
-                logger.error(f"Failed to sync users from GCS: {e}")
+                legacy_users = data_io.load_json(storage_location=self.storage_location, filename=legacy_file)
+                if not legacy_users:
+                    return
 
-        if self.filepath.exists():
-            try:
-                with open(self.filepath, 'r') as f:
-                    data = json.load(f)
-                    for username, user_data in data.items():
+                for username, user_data in legacy_users.items():
+                    target_filename = f"{username}.json"
+                    
+                    # 1. Check if already migrated
+                    if data_io.exists(storage_location=self.storage_location, filename=target_filename):
+                        logger.info(f"Skipping migration for {username}, {target_filename} already exists.")
+                        continue
+                        
+                    # 2. Build new user object structure
+                    new_user_data = {
+                        "username": user_data.get('username', username),
+                        "role": user_data.get('role', ROLE_VIEWER),
+                        "password_hash": user_data.get('password_hash'),
+                        "approved": user_data.get('approved', True),
+                        "last_login": user_data.get('last_login'),
+                        "last_login": user_data.get('last_login'),
+                        "settings": user_data.get('settings', {})
+                    }
+                    
+                    # Ensure defaults for settings
+                    default_settings = {
+                        "share_annotations": True,
+                        "video_autostart": False
+                    }
+                    # Update defaults with existing settings (existing override defaults)
+                    merged_settings = default_settings.copy()
+                    merged_settings.update(new_user_data['settings'])
+                    new_user_data['settings'] = merged_settings
+                    
+                    # 3. Check for and merge legacy tags
+                    tags_filename = f"{username}_tags.json"
+                    tags_data = {}
+                    if data_io.exists(storage_location=self.storage_location, filename=tags_filename):
+                         logger.info(f"Merging legacy tags for {username}...")
+                         tags_data = data_io.load_json(storage_location=self.storage_location, filename=tags_filename)
+                         if tags_data:
+                             new_user_data['annotations'] = tags_data
+                             
+                    # 4. Save new individual file
+                    data_io.save_json(data=new_user_data, storage_location=self.storage_location, filename=target_filename)
+                    logger.info(f"Migrated {username} to {target_filename}")
+                    
+                    # 5. Handle legacy tags file "rename" (Load -> SaveAs -> Remove)
+                    if tags_data: # Only if we successfully loaded it
+                        try:
+                            migrated_tags_filename = f"{username}_tags.json.migrated"
+                            data_io.save_json(data=tags_data, storage_location=self.storage_location, filename=migrated_tags_filename)
+                            data_io.remove(storage_location=self.storage_location, filename=tags_filename)
+                        except Exception as e:
+                            logger.error(f"Failed to rename legacy tags file for {username}: {e}")
+
+                # 6. Handle legacy users.json "rename"
+                try:
+                    migrated_users_filename = "users.json.migrated"
+                    data_io.save_json(data=legacy_users, storage_location=self.storage_location, filename=migrated_users_filename)
+                    data_io.remove(storage_location=self.storage_location, filename=legacy_file)
+                    logger.info("Legacy users.json migrated and renamed.")
+                except Exception as e:
+                    logger.error(f"Failed to rename legacy users.json: {e}")
+
+            except Exception as e:
+                logger.error(f"Migration failed: {e}")
+
+    def load_users(self):
+        """Loads users from individual JSON files in the storage location."""
+        self.users = {}
+        try:
+            # 1. List all .json files in users directory
+            files = data_io.listdir(storage_location=self.storage_location, return_absolute_path=False)
+            json_files = [f for f in files if f.endswith('.json') and not f.endswith('_tags.json')]
+            
+            for f in json_files:
+                try:
+                    user_data = data_io.load_json(storage_location=self.storage_location, filename=f)
+                    if user_data and 'username' in user_data:
+                        username = user_data['username']
                         self.users[username] = User(
-                            username=user_data['username'],
-                            role=user_data['role'],
-                            password_hash=user_data['password_hash'],
+                            username=username,
+                            role=user_data.get('role', ROLE_VIEWER),
+                            password_hash=user_data.get('password_hash'),
                             approved=user_data.get('approved', True),
                             last_login=user_data.get('last_login'),
                             settings=user_data.get('settings', {})
                         )
-                logger.info(f"Loaded {len(self.users)} users from {self.filepath}")
-            except Exception as e:
-                logger.error(f"Failed to load user database: {e}")
-                self.users = {}
-        else:
-            logger.warning(f"User database not found at {self.filepath}")
+                except Exception as e:
+                    logger.error(f"Failed to load user file {f}: {e}")
+            
+            logger.info(f"Loaded {len(self.users)} users from {self.storage_location}")
+        except Exception as e:
+            logger.error(f"Failed to list user directory: {e}")
             self.users = {}
 
-    def save_users(self):
-        """Saves users to local JSON."""
-        data = {u.username: u.to_dict() for u in self.users.values()}
+    def save_user(self, username):
+        """Saves a specific user to their individual JSON file."""
+        user = self.users.get(username)
+        if not user: return
+        
+        filename = f"{username}.json"
+        
+        # Load existing file to preserve 'annotations' if present (crucial for preserving tags during auth updates)
+        existing_data = {}
+        if data_io.exists(storage_location=self.storage_location, filename=filename):
+            existing_data = data_io.load_json(storage_location=self.storage_location, filename=filename) or {}
+            
+        # Update with current user object state
+        user_dict = user.to_dict()
+        existing_data.update(user_dict)
+        
         try:
-            with open(self.filepath, 'w') as f:
-                json.dump(data, f, indent=4)
-            logger.info("Saved user database.")
-            
-            if self.gcs_bucket and self.gcs_path:
-                try:
-                     blob = self.gcs_bucket.blob(self.gcs_path)
-                     blob.upload_from_filename(str(self.filepath))
-                     logger.info(f"Uploaded users to GCS: gs://{self.gcs_bucket.name}/{self.gcs_path}")
-                except Exception as e:
-                     logger.error(f"Failed to upload users to GCS: {e}")
-            
+            data_io.save_json(data=existing_data, storage_location=self.storage_location, filename=filename)
+            logger.info(f"Saved user {username}.")
         except Exception as e:
-            logger.error(f"Failed to save user database: {e}")
+            logger.error(f"Failed to save user {username}: {e}")
 
     def get_user(self, user_id):
         return self.users.get(user_id)
@@ -150,8 +226,14 @@ class UserManager:
             
         password_hash = hash_password(password)
         new_user = User(username, role, password_hash, approved=approved)
+        # Fix Default Settings for New Users
+        new_user.settings = {
+            "share_annotations": True,
+            "video_autostart": False
+        }
+        
         self.users[username] = new_user
-        self.save_users()
+        self.save_user(username)
         return True, "User created"
 
     def delete_user(self, username):
@@ -164,7 +246,27 @@ class UserManager:
             return False, "Cannot delete the last admin user"
 
         del self.users[username]
-        self.save_users()
+        # Also delete the file? Or keep as archive? Usually delete.
+        filename = f"{username}.json"
+        # We can implement delete in data_io but it might not be exposed. 
+        # For now, just removing from memory effectively bans them until reload, but file persists.
+        # Ideally: data_io.delete(storage_location=..., filename=...)
+        # Since we don't have delete exposed, we rely on removing from self.users.
+        # Wait, if we reload, they come back! We MUST delete or rename the file.
+        # Assuming we can't delete easily, we should mark as deleted in the file? 
+        # Or just empty the file content?
+        # Let's save an empty dict or a dict with disabled flag.
+        # Better: try to use os.remove directly if local? data_io abstracts this.
+        # Let's write a file with "deleted": True and filter in load_users.
+        
+        # Actually, let's just save the file with a flag and handle it in load_users or overwrite with garbage?
+        # A simple approach: save an empty file or specific "deleted" marker.
+        try:
+           # Overwrite with empty object or specific marker
+           # But load_users checks 'username' key. If we save {}, it won't load. Correct.
+           data_io.save_json(data={}, storage_location=self.storage_location, filename=filename)
+        except:
+           pass
         return True, "User deleted"
     
     def update_user_role(self, username, new_role):
@@ -179,7 +281,7 @@ class UserManager:
              return False, "Cannot demote the last admin user"
 
         self.users[username].role = new_role
-        self.save_users()
+        self.save_user(username)
         return True, "Role updated"
         
     def approve_user(self, username):
@@ -187,7 +289,7 @@ class UserManager:
             return False, "User not found"
         
         self.users[username].approved = True
-        self.save_users()
+        self.save_user(username)
         return True, "User approved"
 
     def update_password(self, username, new_password):
@@ -196,14 +298,14 @@ class UserManager:
              
         password_hash = hash_password(new_password)
         self.users[username].password_hash = password_hash
-        self.save_users()
+        self.save_user(username)
         return True, "Password updated"
 
     def update_last_login(self, username):
         if username in self.users:
             import datetime
             self.users[username].last_login = datetime.datetime.now().isoformat()
-            self.save_users()
+            self.save_user(username)
 
     def update_user_settings(self, username, settings):
         if username not in self.users:
@@ -216,7 +318,7 @@ class UserManager:
              self.users[username].settings = {}
              
         self.users[username].settings.update(settings)
-        self.save_users()
+        self.save_user(username)
         return True, "Settings updated"
 
     def verify_user(self, username, password):

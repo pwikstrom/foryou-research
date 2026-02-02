@@ -221,13 +221,15 @@
         }
 
         tableBody.innerHTML = active.map(user => {
-            const stats = user.stats || { notes: 0, closed_tags: 0, open_tags: 0, unique_videos: 0, used_tags: [] };
+            const stats = user.stats || { notes: 0, closed_tags: 0, open_tags: 0, unique_videos: 0, used_tags: [], user_notes: [] };
+            const hasAnnotations = stats.used_tags.length > 0 || (stats.user_notes && stats.user_notes.length > 0);
+
             return `
         <tr style="border-bottom: 1px solid #3e3e42;">
             <td style="padding: 12px 16px;">
                 <div style="display:flex; flex-direction:column;">
                     <span style="font-weight: 500; color: #d4d4d4;">${user.username}</span>
-                    ${stats.used_tags.length > 0 ? `<a href="#" onclick="toggleTags('${user.username}'); return false;" style="font-size: 11px; color: #3b82f6; text-decoration: none;">Toggle Tags</a>` : ''}
+                    ${hasAnnotations ? `<a href="#" onclick="toggleTags('${user.username}'); return false;" style="font-size: 11px; color: #3b82f6; text-decoration: none;">Show Annotations</a>` : ''}
                 </div>
             </td>
             <td style="padding: 12px 16px;">
@@ -261,11 +263,19 @@
         </tr>
         <tr id="tags-${user.username}" style="display: none; background: #2d2d30; border-bottom: 2px solid #3e3e42;">
              <td colspan="8" style="padding: 12px 24px;">
-                 <div style="font-size: 13px; color: #d4d4d4;">
-                    <strong>Used Tags:</strong> 
-                    <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px;">
-                        ${stats.used_tags.map(t => `<span style="background: #3e3e42; padding: 2px 8px; border-radius: 12px; color: #d4d4d4;">${t}</span>`).join('')}
-                    </div>
+                 <div style="display: flex; gap: 24px;">
+                     <div style="flex: 1; min-width: 0;">
+                        <h4 style="margin: 0 0 8px 0; font-size: 13px; color: #d4d4d4;">Used Tags</h4>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            ${stats.used_tags.length > 0 ? stats.used_tags.map(t => `<span style="background: #3e3e42; padding: 2px 8px; border-radius: 12px; color: #d4d4d4; font-size: 12px;">${t}</span>`).join('') : '<span style="color: #888; font-size: 12px;">None</span>'}
+                        </div>
+                     </div>
+                     <div style="flex: 1; min-width: 0;">
+                        <h4 style="margin: 0 0 8px 0; font-size: 13px; color: #d4d4d4;">Notes</h4>
+                        <div style="display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto;">
+                            ${stats.user_notes && stats.user_notes.length > 0 ? stats.user_notes.map(n => `<div style="background: #3e3e42; padding: 6px 10px; border-radius: 4px; font-size: 12px; color: #d4d4d4;"><span style="color:#888; font-family:monospace; margin-right: 6px;">${n.item}:</span>${n.text}</div>`).join('') : '<span style="color: #888; font-size: 12px;">None</span>'}
+                        </div>
+                     </div>
                  </div>
              </td>
         </tr>

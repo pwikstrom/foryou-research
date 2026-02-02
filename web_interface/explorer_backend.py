@@ -84,7 +84,10 @@ def get_metadata(df, column_types):
             for row in df[col].dropna():
                 if isinstance(row, (list, np_ndarray)):
                     # Deduplicate within row to count Document Frequency (rows with tag) instead of Term Frequency
-                    all_items.extend(list(set(row)))
+                    try:
+                        all_items.extend(list(set(str(x) for x in row)))
+                    except:
+                        pass
             
             # Use Counter to find top 50 tags
             from collections import Counter
@@ -159,8 +162,18 @@ def filter_dataframe(df, column_types, filters, search_query=None):
         
         elif dtype == "list":
             if isinstance(val, (list, np_ndarray)) and len(val) > 0:
-                search_set = set(val)
-                value_mask = filtered_df[col].apply(lambda x: bool(set(x) & search_set) if isinstance(x, (list, np_ndarray)) else False)
+                search_set = set(str(v) for v in val) # Ensure strings
+                
+                def robust_check(x):
+                    if not isinstance(x, (list, np_ndarray)): return False
+                    try:
+                        # Ensure x items are also hashable/strings
+                        check_set = set(str(item) for item in x)
+                        return bool(check_set & search_set)
+                    except:
+                        return False
+                        
+                value_mask = filtered_df[col].apply(robust_check)
                 has_value_criteria = True
 
         if has_value_criteria:
@@ -769,7 +782,10 @@ def get_current_stats(df, column_types, viz_config=None):
              for row in s:
                   if isinstance(row, (list, np_ndarray)):
                       # Deduplicate within row to count Document Frequency
-                      all_items.extend(list(set(row)))
+                      try:
+                          all_items.extend(list(set(str(x) for x in row)))
+                      except:
+                          pass
              from collections import Counter
              stats[col] = dict(Counter(all_items).most_common(20))
 

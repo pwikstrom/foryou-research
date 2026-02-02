@@ -32,51 +32,73 @@ study_cache = StudyCache(maxsize=2)
 
 
 
-def get_explorer_data(study, context = None):
+def get_explorer_data(study, context=None):
     # Check cache (First Check)
     cached = study_cache.get(study)
+    
+    # Store raw data in cache, filter on retrieval
+    raw_df = None
+    raw_col_types = None
+    
     if cached:
         print(f"    Study {study} found in RAM cache. Accessing {len(cached['df']):,} rows")
-        return cached['df'], cached['col_types']
+        raw_df = cached['df']
+        raw_col_types = cached['col_types']
+    else:
+        # Double-Checked Locking
+        if not hasattr(study_cache, 'loading_lock'):
+             study_cache.loading_lock = threading.Lock()
+             
+        with study_cache.loading_lock:
+            # Check cache again (Second Check)
+            cached = study_cache.get(study)
+            if cached:
+                print(f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows")
+                raw_df = cached['df']
+                raw_col_types = cached['col_types']
+            else:
+                print(f"    Loading study {study} from disk (with lock)...")
+                # Resolve path
+                raw_df, raw_col_types = explorer.load_data(fyp_cf, study, verbose=True)
 
-    # Double-Checked Locking
-    # We will use a dedicated lock for the critical section of *checking and loading*
-    if not hasattr(study_cache, 'loading_lock'):
-         study_cache.loading_lock = threading.Lock()
-         
-    with study_cache.loading_lock:
-        # Check cache again (Second Check)
-        cached = study_cache.get(study)
-        if cached:
-            print(f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows")
-            return cached['df'], cached['col_types']
-            
-        print(f"    Loading study {study} from disk (with lock)...")
-        # Resolve path
-        explorer_df, explorer_col_types = explorer.load_data(fyp_cf, study, verbose=True)
+                if raw_df is None:
+                    print(f"The requested recoded study dataset was not found")
+                    return None, None
 
-        if context == "viewer":
-            print(f"    Filtering for scraped_ok and watch-only events. Reducing rows from {len(explorer_df):,} to ", end="")
-            explorer_df = explorer_df[(explorer_df.scraped_ok) & (explorer_df.D_feature_name=="watch")].copy()
-            print(f"{len(explorer_df):,}")
-        elif context == "explorer":
-            print(f"    Filtering for annotated_ok and watch-only events. Reducing rows from {len(explorer_df):,} to ", end="")
-            explorer_df = explorer_df[(explorer_df.annotated_ok) & (explorer_df.D_feature_name=="watch")].copy()
-            print(f"{len(explorer_df):,}")
-
-
-        if explorer_df is None:
-            print(f"The requested recoded study dataset was not found")
-            return None, None
-
-        # Store in cache
-        cache_item = {
-            "df": explorer_df, 
-            "col_types": explorer_col_types,
-        }
-        study_cache.put(study, cache_item)
+                # Store in cache (RAW DATA)
+                cache_item = {
+                    "df": raw_df, 
+                    "col_types": raw_col_types,
+                }
+                study_cache.put(study, cache_item)
     
-    return explorer_df, explorer_col_types
+    # Apply Context Filtering on a COPY
+    if raw_df is not None:
+        filtered_df = raw_df
+        # Only copy if we are actually filtering to save memory? 
+        # Actually safer to copy always if we modify it downstream (enrichment does modify).
+        # But enrichment is done in the route handlers locally on the returned df.
+        
+        if context == "viewer":
+            # Viewer needs Scraped OK + Watch
+            # print(f"    Filtering context 'viewer' (scraped_ok & watch)...")
+            filtered_df = raw_df[(raw_df.scraped_ok) & (raw_df.D_feature_name=="watch")].copy()
+            # print(f"    Reduced rows from {len(raw_df):,} to {len(filtered_df):,}")
+            
+        elif context == "explorer":
+            # Explorer needs Annotated OK + Watch
+            # print(f"    Filtering context 'explorer' (annotated_ok & watch)...")
+            filtered_df = raw_df[(raw_df.annotated_ok) & (raw_df.D_feature_name=="watch")].copy()
+            # print(f"    Reduced rows from {len(raw_df):,} to {len(filtered_df):,}")
+            
+        else:
+            # Default or None context - return raw copy?
+            # Or assume explorer default? Let's return raw copy to be safe.
+            filtered_df = raw_df.copy()
+
+        return filtered_df, raw_col_types.copy()
+
+    return None, None
 
 
 def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
@@ -86,13 +108,22 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     If no tags found, returns original.
     """
     tag_filename = f"{username}_tags.json"
-    if not data_io.exists(storage_location="users", filename=tag_filename):
-        return df, col_types
+    filename = f"{username}.json"
+    user_data = {}
+    user_tags = {}
+    
+    # Try loading exact match first
+    if data_io.exists(storage_location="users", filename=filename):
+        user_data = data_io.load_json(storage_location="users", filename=filename) or {}
+    else:
+        # Fallback to lowercase
+        filename_lower = f"{username.lower()}.json"
+        if data_io.exists(storage_location="users", filename=filename_lower):
+             user_data = data_io.load_json(storage_location="users", filename=filename_lower) or {}
 
-    user_tags = data_io.load_json(storage_location="users", filename=tag_filename)
-    if not user_tags:
-        return df, col_types
-
+    if user_data:
+        user_tags = user_data.get('annotations', {})
+        
     # user_tags: { item_id: { var: [tags...] } }
     # We want a map: item_id -> unique list of tags (flattened across variables)
     
@@ -129,8 +160,8 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
             else:
                 id_to_tags[str_id] = list(tags)
 
-    if not annotated_ids:
-        return df, col_types
+    # Was: if not annotated_ids: return df, col_types
+    # We continue now to ensure "Has Annotation" and "Machine Annotations" are added even if empty.
         
     # Create the column
     # Ensure ID matching
@@ -150,7 +181,11 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     # 1. User Tags (List)
     if id_to_tags:
         df['User Tags'] = str_ids.map(id_to_tags)
-        if df['User Tags'].count() > 0:
+        
+        # Fill NaNs with empty lists (crucial for type safety in filters)
+        df['User Tags'] = df['User Tags'].apply(lambda x: x if isinstance(x, list) else [])
+        
+        if df['User Tags'].apply(len).sum() > 0: # Check if any tags exist
              col_types['User Tags'] = 'list'
         else:
              df.drop(columns=['User Tags'], inplace=True, errors='ignore')
@@ -216,15 +251,25 @@ def load_shared_tags(allowed_usernames):
     print(f"DEBUG: load_shared_tags called for: {allowed_usernames}")
         
     for user in allowed_usernames:
-        tag_filename = f"{user}_tags.json"
-        
         try:
-            # Check exist first to avoid error logging in load_json
-            if not data_io.exists(storage_location="users", filename=tag_filename):
-                print(f"DEBUG: No tag file for {user}")
+            filename = f"{user}.json"
+            
+            # Check exist
+            user_blob = None
+            if data_io.exists(storage_location="users", filename=filename):
+                user_blob = data_io.load_json(storage_location="users", filename=filename)
+            else:
+                 # Check lowercase
+                 filename_lower = f"{user.lower()}.json"
+                 if data_io.exists(storage_location="users", filename=filename_lower):
+                     user_blob = data_io.load_json(storage_location="users", filename=filename_lower)
+            
+            if not user_blob:
+                print(f"DEBUG: No user file for {user}")
                 continue
                 
-            user_data = data_io.load_json(storage_location="users", filename=tag_filename)
+            user_data = user_blob.get('annotations', {})
+            
             if not user_data: 
                 print(f"DEBUG: Empty tag data for {user}")
                 continue

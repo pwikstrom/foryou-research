@@ -7,11 +7,7 @@ login_manager = LoginManager()
 login_manager.login_view = 'auth_bp.login' # Updated to point to blueprint view
 
 # Initialize User Manager
-USERS_FILE = PROJECT_ROOT / "config" / "users.json"
-GCS_BUCKET = fyp_cf['data_io'].get('bucket')
-GCS_PATH = "config/users.json" # Stored in bucket root/config/
-
-user_manager = auth.UserManager(USERS_FILE, gcs_bucket=GCS_BUCKET, gcs_path=GCS_PATH)
+user_manager = auth.UserManager(storage_location="users")
 
 @login_manager.user_loader
 def load_user(user_id):

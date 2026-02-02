@@ -487,10 +487,11 @@ def api_viewer_ids():
 @login_required
 def api_get_tags():
     username = current_user.username
-    tag_filename = f"{username}_tags.json"
+    filename = f"{username}.json"
     
-    if data_io.exists(storage_location = "users", filename = tag_filename):
-        tags = data_io.load_json(storage_location = "users", filename = tag_filename)
+    if data_io.exists(storage_location = "users", filename = filename):
+        user_data = data_io.load_json(storage_location = "users", filename = filename) or {}
+        tags = user_data.get('annotations', {})
         return jsonify(tags)
     else:
         return jsonify({})
@@ -514,12 +515,15 @@ def api_save_tags():
     if not item_id or not variable:
         return jsonify({"error": "Missing required fields"}), 400
         
-    tag_filename = f"{username}_tags.json"
+    filename = f"{username}.json"
     
     # Load existing
-    user_data = {}
-    if data_io.exists(storage_location="users", filename=tag_filename):
-        user_data = data_io.load_json(storage_location="users", filename=tag_filename)
+    user_file_data = {}
+    if data_io.exists(storage_location="users", filename=filename):
+        user_file_data = data_io.load_json(storage_location="users", filename=filename) or {}
+        
+    # Get Annotations Section
+    user_data = user_file_data.get('annotations', {})
         
     # Update structure (Global Item ID centric)
     if item_id not in user_data: user_data[item_id] = {}
@@ -557,8 +561,11 @@ def api_save_tags():
         del user_data[item_id]
         
     # Save
+    # Save back to file structure
+    user_file_data['annotations'] = user_data
+    
     # print(f"[TAGS] User data after update: {user_data}")
-    data_io.save_json(data=user_data, storage_location="users", filename=tag_filename)
+    data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
     
     return jsonify({"status": "success", "tags": tags, "notes": notes, "closed_tagging": closed_tagging})
 
@@ -570,14 +577,15 @@ def api_delete_tag(tag_name):
     # If tag name has slashes, flask might interpret it as path segments. <path:tag_name> handles this.
     
     username = current_user.username
-    tag_filename = f"{username}_tags.json"
+    filename = f"{username}.json"
     
     print(f"[TAGS] Deleting tag '{tag_name}' for user {username}")
     
-    if not data_io.exists(storage_location="users", filename=tag_filename):
+    if not data_io.exists(storage_location="users", filename=filename):
         return jsonify({"status": "success", "message": "No tags found"}), 200
         
-    user_data = data_io.load_json(storage_location="users", filename=tag_filename)
+    user_file_data = data_io.load_json(storage_location="users", filename=filename) or {}
+    user_data = user_file_data.get('annotations', {})
     modified = False
     
     # Iterate and remove
@@ -612,7 +620,8 @@ def api_delete_tag(tag_name):
         del user_data[item_id]
         
     if modified:
-        data_io.save_json(data=user_data, storage_location="users", filename=tag_filename)
+        user_file_data['annotations'] = user_data # Update annotations block
+        data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
         return jsonify({"status": "success", "message": f"Tag '{tag_name}' deleted"})
     else:
         return jsonify({"status": "success", "message": "Tag not found in any item"}), 200
@@ -876,20 +885,8 @@ def api_viewer_item(study, item_id):
         filters = data.get("filters", {})
         search_query = data.get("search_query")
         
-        #print(f"DEBUG: api_viewer_item POST | Item: {item_id} | Filters: {list(filters.keys())} | Search: {search_query}")
-        #if 'D_engagement' in col_types:
-        #     print(f"DEBUG: D_engagement type: {col_types['D_engagement']}")
-        #if 'D_engagement' in filters:
-        #     print(f"DEBUG: D_engagement filter: {filters['D_engagement']}")
-
         if filters or search_query:
             df = explorer.filter_dataframe(df, col_types, filters, search_query)
-            #print(f"DEBUG: DF shape after filtering: {df.shape}")
-    else:
-        pass
-        #print(f"DEBUG: api_viewer_item GET request received. Filters NOT applied.")
-
-
 
     id_col = 'item_id'
     if id_col not in df.columns:
@@ -899,10 +896,8 @@ def api_viewer_item(study, item_id):
     row = df[df[id_col].astype(str) == str(item_id)]
     
     if row.empty:
-        #print(f"DEBUG: Item {item_id} NOT FOUND after filtering.")
         return jsonify({"error": "Item not found in current context"}), 404
     
-    #print(f"DEBUG: Found {len(row)} rows for item {item_id} after filtering.")
     record = row.iloc[0].replace({np.nan: None}).to_dict()
     
     # Inject Shared Annotations for this item

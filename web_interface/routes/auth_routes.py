@@ -100,13 +100,9 @@ def api_admin_users():
         # Return list of users (excluding password hashes)
         users_list = []
         
-        # Get list of files in 'users' storage to check for annotations
-        try:
-            stored_files = set(data_io.listdir(storage_location = "users", return_absolute_path=False, verbose=False))
-        except Exception as e:
-            print(f"Error listing users directory: {e}")
-            stored_files = set()
-
+        # We iterate through active users and attempt to load their data file directly
+        # This avoids potential issues with listdir filenames vs user.username casing
+        
         for u in user_manager.users.values():
             ud = u.to_dict()
             del ud['password_hash']
@@ -117,48 +113,65 @@ def api_admin_users():
                 'closed_tags': 0,
                 'open_tags': 0,
                 'unique_videos': 0,
-                'used_tags': []
+                'used_tags': [],
+                'user_notes': []
             }
             
-            tag_filename = f"{u.username}_tags.json"
-            if tag_filename in stored_files:
-                try:
-                    user_data = data_io.load_json(storage_location="users", filename=tag_filename)
-                    if user_data:
-                        notes_count = 0
-                        closed_count = 0
-                        open_count = 0
-                        unique_videos = set()
-                        used_tags = set()
-                        
-                        for item_id, item_vars in user_data.items():
-                            has_annotation = False
-                            for key, value in item_vars.items():
-                                if key.endswith('__NOTES'):
-                                    notes_count += 1
+            # Refactored for single file structure
+            user_filename = f"{u.username}.json"
+            
+            # Try to load file directly (data_io.load_json returns None if missing/fail)
+            try:
+                print(f"[DEBUG] Attempting to load {user_filename} for user {u.username}")
+                user_data_file = data_io.load_json(storage_location="users", filename=user_filename)
+                
+                # Try lowercase if failed
+                if not user_data_file:
+                     print(f"[DEBUG] Failed to load {user_filename}, trying lowercase...")
+                     user_filename_lower = f"{u.username.lower()}.json"
+                     user_data_file = data_io.load_json(storage_location="users", filename=user_filename_lower)
+
+                if user_data_file:
+                    print(f"[DEBUG] Successfully loaded data for {u.username}")
+                    user_annotations = user_data_file.get('annotations', {})
+                    
+                    notes_count = 0
+                    closed_count = 0
+                    open_count = 0
+                    unique_videos = set()
+                    used_tags = set()
+                    user_notes = [] # List of {item_id: text}
+                    
+                    for item_id, item_vars in user_annotations.items():
+                        has_annotation = False
+                        for key, value in item_vars.items():
+                            if key.endswith('__NOTES'):
+                                notes_count += 1
+                                has_annotation = True
+                                user_notes.append({'item': item_id, 'text': value})
+                            elif key.endswith('__CLOSED_TAGGING'):
+                                closed_count += 1
+                                has_annotation = True
+                            else:
+                                # Open Tags
+                                if isinstance(value, list) and value:
+                                    open_count += len(value)
+                                    used_tags.update(value)
                                     has_annotation = True
-                                elif key.endswith('__CLOSED_TAGGING'):
-                                    closed_count += 1
-                                    has_annotation = True
-                                else:
-                                    # Open Tags
-                                    if isinstance(value, list) and value:
-                                        open_count += len(value)
-                                        used_tags.update(value)
-                                        has_annotation = True
-                            
-                            if has_annotation:
-                                unique_videos.add(item_id)
                         
-                        ud['stats'] = {
-                            'notes': notes_count,
-                            'closed_tags': closed_count,
-                            'open_tags': open_count,
-                            'unique_videos': len(unique_videos),
-                            'used_tags': sorted(list(used_tags))
-                        }
-                except Exception as e:
-                    print(f"Error loading stats for {u.username}: {e}")
+                        if has_annotation:
+                            unique_videos.add(item_id)
+                    
+                    ud['stats'] = {
+                        'notes': notes_count,
+                        'closed_tags': closed_count,
+                        'open_tags': open_count,
+                        'unique_videos': len(unique_videos),
+                        'used_tags': sorted(list(used_tags)),
+                        'user_notes': user_notes
+                    }
+            except Exception as e:
+                print(f"Error loading stats for {u.username}: {e}")
 
             users_list.append(ud)
         return jsonify(users_list)
@@ -248,23 +261,18 @@ def api_admin_annotations():
     # item_id -> { stats: {...}, details: { variable: { open: {tag: [users]}, notes: [{user, text}], closed: {val: [users]} } } }
     master_index = {}
 
-    try:
-        stored_files = set(data_io.listdir(storage_location = "users", return_absolute_path=False, verbose=False))
-    except Exception as e:
-        print(f"Error listing users directory: {e}")
-        return jsonify([])
-
-    for filename in stored_files:
-        if not filename.endswith('_tags.json'):
-            continue
-            
-        username = filename.replace('_tags.json', '')
+    # Iterate through all known users instead of listing files to avoid casing/sync issues
+    for u in user_manager.users.values():
+        username = u.username
+        user_filename = f"{username}.json"
         
         try:
-            user_data = data_io.load_json(storage_location="users", filename=filename)
-            if not user_data: continue
+            user_data_file = data_io.load_json(storage_location="users", filename=user_filename)
+            if not user_data_file: continue
             
-            for item_id, item_vars in user_data.items():
+            user_annotations = user_data_file.get('annotations', {})
+            
+            for item_id, item_vars in user_annotations.items():
                 if item_id not in master_index:
                     master_index[item_id] = {
                         'item_id': item_id,
@@ -335,7 +343,7 @@ def api_admin_annotations():
                                 entry['stats']['open_tags'] += 1
 
         except Exception as e:
-            print(f"Error processing {filename}: {e}")
+            print(f"Error processing {username}: {e}")
 
     # Convert to list and fix unique_users count
     results = []
