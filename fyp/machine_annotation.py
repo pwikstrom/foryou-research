@@ -22,7 +22,7 @@ import google.genai
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from time import sleep, time
+import time
 from random import random
 from copy import deepcopy, copy
 import collections
@@ -119,7 +119,7 @@ def call_machine(
 
 
     if dry_run:
-        sleep(1)
+        time.sleep(1)
         if verbose:
             print(f"Dry run: would have annotated video {video_id}")
         return {
@@ -171,7 +171,9 @@ def call_machine(
     
     except Exception as e:
         output["error"] = str(e)
-        data_io.save_json(data=output, storage_location="temp", filename=temp_fn)
+        with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
+            json.dump(output, file)
+
         return output
 
 
@@ -196,7 +198,8 @@ def call_machine(
         else:
             output["finish_reason"] = "DNF - see error msg"
 
-        data_io.save_json(data=output, storage_location="temp", filename=temp_fn)
+        with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
+            json.dump(output, file)
         return output
 
 
@@ -215,7 +218,8 @@ def call_machine(
         output["finish_reason"] = the_finish_reason
         output["response"] = resp
 
-        data_io.save_json(data=output, storage_location="temp", filename=temp_fn)
+        with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
+            json.dump(output, file)
         return output
 
     output["inference_duration"] = (times[-1] - times[-2]).total_seconds()
@@ -223,7 +227,8 @@ def call_machine(
     output["response"] = machine_annotations
 
     # save the json just in case everything crashes
-    data_io.save_json(data=output, storage_location="temp", filename=temp_fn)
+    with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
+        json.dump(output, file)
 
     return output
 
@@ -364,12 +369,11 @@ def call_machine_threads(
         # Maybe Gemini doesn't like to get to many request at once.
         # Sleeping for a bit with the first ones solves the problem
         if idx < max_workers:
-            sleep(3+random()*max_workers/2)
+            time.sleep(3+random()*max_workers/2)
 
         t1 = _dt.datetime.now()
         rr = call_machine(
             video_id = video,
-            testing = False,
             dry_run = dry_run,
             verbose = verbose,
 

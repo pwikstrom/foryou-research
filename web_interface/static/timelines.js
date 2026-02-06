@@ -165,7 +165,7 @@ window.timelines = {
                 return;
             }
 
-            console.log("TIMELINE DEBUG: Received Data", data);
+            //console.log("TIMELINE DEBUG: Received Data", data);
             this.timelineData = data;
 
             // Update Aggregation Labels with Counts
@@ -187,9 +187,9 @@ window.timelines = {
     },
 
     renderTimelineCharts: function () {
-        console.log("TIMELINE DEBUG: renderTimelineCharts called");
+        //console.log("TIMELINE DEBUG: renderTimelineCharts called");
         if (!this.timelineData) {
-            console.log("TIMELINE DEBUG: No timelineData available");
+            //console.log("TIMELINE DEBUG: No timelineData available");
             return;
         }
 
@@ -204,8 +204,8 @@ window.timelines = {
         const data = this.timelineData;
         const dates = data.dates;
 
-        console.log("TIMELINE DEBUG: Dates length", dates.length);
-        console.log("TIMELINE DEBUG: Variables keys", Object.keys(data.variables));
+        //console.log("TIMELINE DEBUG: Dates length", dates.length);
+        //console.log("TIMELINE DEBUG: Variables keys", Object.keys(data.variables));
 
         // Iterate over variables
         Object.keys(data.variables).forEach(varName => {

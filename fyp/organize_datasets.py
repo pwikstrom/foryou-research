@@ -582,12 +582,24 @@ def _consolidate_and_save_activity_logs(
     # I need all columns in both datasets. When concatenating, the columns will be created with null values.
     # But sometimes the separate datasets will be used on its own. And in those situations I need to match
     # up the columns as I'm doing here. Previously I had some idea that the new columns should not be NA,
-    # which is why the code is a bit complex. I've kept it since I might change my mind again.  
+    # which is why the code is a bit complex. I've kept it since I might change my mind again.
+    # Update Feb'26: I realised that I D_donation_id is crucial for most analyses to function and have to 
+    # be treated separately. This is specifically for the case when data is generated from zeeschuimer and
+    # not from ddp logs. I assume that this data is 'baseline' even though it can certainly be other things
+    # as well.
     if new_z or new_d:
         print("\nMatching up columns between zeeschuimer and donation data...")
         for c in set(z1.columns) | set(d1.columns):
             if not c in z1.columns:
-                if pd.api.types.is_numeric_dtype(d1[c]):
+                if c=="D_donation_id": 
+                    if verbose:
+                        print(f"    Adding {c} to z1 | string")
+                    z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
+                elif c=="D_feature_name": 
+                    if verbose:
+                        print(f"    Adding {c} to z1 | string")
+                    z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
+                elif pd.api.types.is_numeric_dtype(d1[c]): 
                     if verbose:
                         print(f"    Adding {c} to z1 | numeric")
                     z1[c] = pd.Series(pd.NA, index=z1.index, dtype="int64[pyarrow]")

@@ -12,6 +12,7 @@ import json
 import textwrap
 import pandas as pd
 import re
+import os
 
 from fyp.fyp_main import initialize
 from fyp.types import convert_dtypes_to_pyarrow
@@ -327,7 +328,7 @@ def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_00
             ddp_log.loc[all_updates.index, 'D_watch_duration'] = all_updates['delta']
         
         if verbose:
-            print("Adding session stats to DDP data",ddp_log.shape)
+            print(f"Adding session stats to DDP data {ddp_log.shape}. Unique donations: {ddp_log.D_donation_id.nunique()}")
         
     else:
         if verbose:
@@ -507,8 +508,6 @@ def propagate_timestamps(
         df['engagement'] = False
 
 
-
-
     return df
 
 
@@ -516,33 +515,11 @@ def propagate_timestamps(
 
 
 
-def refine_one_raw_ddp_log(
+def refine_one_raw_ddp_log_from_dict(
     donation_id: str = None,
-    verbose: bool = False):
-
-
-    # loading a json with the name == donation id
-    donation_dict = data_io.load_json(
-        storage_location="ddp_raw",
-        filename=donation_id,
-        verbose=verbose
-    )
-
-    mod_time_timestamp = data_io.getmtime(storage_location="ddp_raw", filename=donation_id)
-    mod_time_timestamp = _dt.datetime.fromtimestamp(mod_time_timestamp)
-
-
-    raw_data_donation_top_keys = list(donation_dict.keys())
-    if 'ad_preferences' in raw_data_donation_top_keys or 'CONTENT_INTERACTION' in raw_data_donation_top_keys:
-        if verbose:
-            print(f"{donation_id} is not TikTok data, cannot process. Moving to archive...")
-            data_io.move(
-                src_storage_location='ddp_raw', 
-                dst_storage_location="archive", 
-                filename=donation_id, 
-                verbose=verbose
-            )
-        return "[ERROR]: Not TikTok data"
+    donation_dict: dict = None,
+    ts_added_to_dataset: _dt.datetime = None,
+    verbose: bool = False) -> pd.DataFrame:
 
 
     donation_items = []
@@ -566,15 +543,25 @@ def refine_one_raw_ddp_log(
 
     # --- nothing found? bail out early ------------------------
     if not donation_items:
-        return ["ERROR: No donation items found in file", donation_id]
+        print("ERROR: No donation items found in file", donation_id)
+        return pd.DataFrame()
 
+
+    # -----------------------------------------------------
+    # initialising the dataframe from the raw data. This is the df I'll be processing through this function
     all_ddp_events_df = pd.DataFrame.from_records(donation_items)
 
     # this is an immutable id for each event in the donation file - it reflects the order in which the events were recorded in the raw file
     all_ddp_events_df["event_id"] = all_ddp_events_df.index.astype("uint64[pyarrow]")
 
-    # --- process the dataframe ---------------------------
+    # retype donation_id to pyarrow string
+    all_ddp_events_df['donation_id'] = all_ddp_events_df['donation_id'].convert_dtypes(dtype_backend="pyarrow")
 
+    # add ts_added_to_dataset
+    all_ddp_events_df["ts_added_to_dataset"] = ts_added_to_dataset
+
+
+    # -----------------------------------------------------
     # keep rows that have at least one variable and contain 'date'
     mask_date = all_ddp_events_df['variable_list'].map(lambda lst: 'date' in lst)
     all_ddp_events_df = all_ddp_events_df[mask_date & (all_ddp_events_df['variable_list'].map(len) > 0)].copy()
@@ -583,20 +570,17 @@ def refine_one_raw_ddp_log(
     # -----------------------------------------------------
     # unpack the variable/value list
 
-    # get the date from the value list
+    # get the date
     all_ddp_events_df['date'] = pd.to_datetime(all_ddp_events_df['value_list'].str[0]).convert_dtypes(dtype_backend="pyarrow")
 
+    # extract primary_label and primary_value
     try:
-        # extract primary_label and primary_value from variable_list and value_list
         all_ddp_events_df['primary_label'] = all_ddp_events_df['variable_list'].str[1].convert_dtypes(dtype_backend="pyarrow")
         all_ddp_events_df['primary_value'] = all_ddp_events_df['value_list'].str[1].convert_dtypes(dtype_backend="pyarrow")
     except:
         all_ddp_events_df['primary_label'] = pd.NA
         all_ddp_events_df['primary_value'] = pd.NA
 
-
-    # type donation_id to pyarrow string
-    all_ddp_events_df['donation_id'] = all_ddp_events_df['donation_id'].convert_dtypes(dtype_backend="pyarrow")
 
 
     # -----------------------------------------------------
@@ -618,17 +602,11 @@ def refine_one_raw_ddp_log(
     )
     all_ddp_events_df["item_id"] = item_ids.where(mask).convert_dtypes(dtype_backend="pyarrow")
 
+
     # -----------------------------------------------------
-    # to ns → s int
+    # convert date to seconds since epoch
     all_ddp_events_df['timestamp'] = (all_ddp_events_df['date'].astype("int64[pyarrow]") // 1_000_000_000).astype("int64[pyarrow]")
-
-    # add random noise to the timestamp. Useful when sorting events to make sure no event happens simultaneously
-    #all_ddp_events_df['ts_jiggled'] = all_ddp_events_df['date'].astype("int64[pyarrow]") + np.random.randint(-10_000, 10_000, size=len(all_ddp_events_df))
-    del all_ddp_events_df['date']
-
-    # Extract sample_id from ts_jiggled (I'm not sure if I'm using this any longer)
-    #all_ddp_events_df["sample_id"] = all_ddp_events_df.ts_jiggled.astype(str).str[-4:].astype("int64[pyarrow]")
-
+    del all_ddp_events_df['date'] # don't need this one any longer
 
 
     # -----------------------------------------------------
@@ -638,6 +616,7 @@ def refine_one_raw_ddp_log(
     all_ddp_events_df.loc[post_events,"primary_label"] = "post_link"
 
 
+    # -----------------------------------------------------
     # rename feature_name to make the labels a bit clearer
     all_ddp_events_df["feature_name"] = all_ddp_events_df["feature_name"].map(
         {
@@ -653,62 +632,63 @@ def refine_one_raw_ddp_log(
     ).convert_dtypes(dtype_backend="pyarrow").copy()
 
 
+    # -----------------------------------------------------
     # Feature_name is NA for login events - not sure why, but this changes that
     all_ddp_events_df.loc[all_ddp_events_df[all_ddp_events_df["primary_label"]=="ip"].index,"feature_name"] = "login_event"
-
-
     print(f"Current shape: {all_ddp_events_df.shape}")
     print(f"The DDP events range from {all_ddp_events_df.timestamp.min()} -- {all_ddp_events_df.timestamp.max()}")
 
 
+    # -----------------------------------------------------
+    # extract local time features
     all_ddp_events_df = extract_local_time_features(
         some_events_df_in = all_ddp_events_df,
         kind_of_log = 'ddp',
         verbose = verbose)
 
 
+    # -----------------------------------------------------
     # connect non-watch events to watch events where possible 
-    all_ddp_events_df = propagate_timestamps(
-        all_ddp_events_df,
-
-        )
+    all_ddp_events_df = propagate_timestamps(all_ddp_events_df)
 
 
+    # -----------------------------------------------------
     # thos events which I at this stage have not been able to associate with an item ID have to go
     all_ddp_events_df = all_ddp_events_df[all_ddp_events_df.item_id.notna()].copy()
 
 
+    # -----------------------------------------------------
     # rename columns
     all_ddp_events_df = all_ddp_events_df.rename(columns={c:"D_"+c if not c in ["item_id","event_id"] and not re.match(r"^[A-Z]_", c) else c for c in all_ddp_events_df.columns}).copy()
     all_ddp_events_df = rename_columns(all_ddp_events_df)
 
+
+    # -----------------------------------------------------
     # Sort by timestamp and reset index
     all_ddp_events_df.sort_values("T_local_timestamp", inplace=True)
     all_ddp_events_df.reset_index(drop=True, inplace=True)
 
 
+    # -----------------------------------------------------
     # assign session IDs etc. These are just placeholders for now,
     # Session IDs will be updated when donations are merged.
     all_ddp_events_df = _add_session_info_to_ddp_log(all_ddp_events_df, verbose=verbose)
-
-
     if verbose:
         print(f"Current shape: {all_ddp_events_df.shape}")
 
 
-
-
+    # -----------------------------------------------------
     # only keep columns as defined by the variable schema
     dropped_vars_str = textwrap.wrap(", ".join(list(set(all_ddp_events_df.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
     relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in all_ddp_events_df.columns]
     all_ddp_events_df = all_ddp_events_df[relevant_cols].copy()
-
     if verbose:
         print(f"Dropped these columns, which are not in the variable schema:\n{"\n".join(dropped_vars_str)}\nCurrent shape: {all_ddp_events_df.shape}")
     
 
-    all_ddp_events_df["date_added_to_dataset"] = mod_time_timestamp
 
+    # -----------------------------------------------------
+    # recode variables by the variable schema
     all_ddp_events_df = recode_events_df(
         study_dataset = all_ddp_events_df,
         drop_single_value_cols = False,
@@ -716,12 +696,8 @@ def refine_one_raw_ddp_log(
         )
 
 
-
-
     if verbose:
         print(f"Final shape of this donation log: {all_ddp_events_df.shape}")
-
-
     return all_ddp_events_df
 
 
@@ -731,19 +707,71 @@ def refine_one_raw_ddp_log(
 
 
 
+
+
+
+def refine_one_raw_ddp_log_file(
+    filename: str | None = None,
+    donation_id: str | None = None,
+    verbose: bool = False):
+
+    if donation_id is None:
+        donation_id = os.path.basename(filename)
+
+
+    # loading a json with the name == donation id
+    donation_dict = data_io.load_json(
+        storage_location="ddp_raw",
+        filename=filename,
+        verbose=verbose
+    )
+
+    mod_time_timestamp = data_io.getmtime(storage_location="ddp_raw", filename=filename)
+    mod_time_timestamp = _dt.datetime.fromtimestamp(mod_time_timestamp)
+
+
+    raw_data_donation_top_keys = list(donation_dict.keys())
+    if 'ad_preferences' in raw_data_donation_top_keys or 'CONTENT_INTERACTION' in raw_data_donation_top_keys:
+        if verbose:
+            print(f"{filename} is not TikTok data, cannot process. Moving to archive...")
+        data_io.move(
+            src_storage_location='ddp_raw', 
+            dst_storage_location="archive", 
+            filename=filename, 
+            verbose=verbose
+        )
+        return "[ERROR]: Not TikTok data"
+
+
+    return refine_one_raw_ddp_log_from_dict(
+        donation_id = donation_id,
+        donation_dict = donation_dict,
+        ts_added_to_dataset = mod_time_timestamp,
+        verbose = verbose
+    )
+
+
+
+
+
 def refine_all_raw_ddp_logs_and_save(verbose=False):
 
     result = {}
     
+    # -----------------------------------------------------
+    # Get list of raw DDP files
+    # raw files are json files and should have a json suffix. But some files don't
+    # particularly those from the aio aws machine. I just assume that they
+    # still are okay json files.  
     raw_ddp_files = data_io.listdir(
         storage_location="ddp_raw",
         return_absolute_path=False,
         verbose=False)
     raw_ddp_files = [u for u in raw_ddp_files if not u.startswith(".")]
-
-
     result["raw_files"] = len(raw_ddp_files)
 
+    # -----------------------------------------------------
+    # Get list of refined DDP files
     refined_ddp_files = data_io.listdir(
         storage_location="ddp_processed",
         return_absolute_path=False,
@@ -751,21 +779,23 @@ def refine_all_raw_ddp_logs_and_save(verbose=False):
     refined_ddp_files = [u for u in refined_ddp_files if u.endswith(".parquet")]
     result["refined_files_before"] = len(refined_ddp_files)
 
+
     for u in raw_ddp_files:
-        if u+".parquet" in refined_ddp_files:
+        bn = os.path.basename(u)
+        if bn+".parquet" in refined_ddp_files:
             continue
 
         print("------------------------------------------------")
 
         if verbose:
-            print(f"Refining: {u}")
-        new_flat = refine_one_raw_ddp_log(
-            donation_id=u,
+            print(f"Refining raw ddp file: {u}")
+        new_flat = refine_one_raw_ddp_log_file(
+            filename=u,
             verbose=verbose
             )
 
         if isinstance(new_flat, pd.DataFrame):
-            data_io.save_parquet(df=new_flat, filename=u+".parquet", storage_location="ddp_processed", verbose=verbose)
+            data_io.save_parquet(df=new_flat, filename=bn+".parquet", storage_location="ddp_processed", verbose=verbose)
         else:
             pass
         
@@ -908,13 +938,13 @@ def generate_donation_metadata(
     df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
 
 
-    a = ddp_events_df_new[["D_donation_id","date_added_to_dataset"]].drop_duplicates()
+    a = ddp_events_df_new[["D_donation_id","ts_added_to_dataset"]].drop_duplicates()
     b = a.set_index("D_donation_id", inplace=False)
-    these_donation_dates = b.to_dict()["date_added_to_dataset"]
-    df1["other","date_added_to_dataset"] = df1.index.map(lambda x: these_donation_dates[x])
+    these_donation_dates = b.to_dict()["ts_added_to_dataset"]
+    df1["other","ts_added_to_dataset"] = df1.index.map(lambda x: these_donation_dates[x])
 
 
-    df1.sort_values(by=[("other","date_added_to_dataset")], inplace=True)
+    df1.sort_values(by=[("other","ts_added_to_dataset")], inplace=True)
     df1["other","D_id"] = list(range(len(df1)))
 
 
@@ -1117,19 +1147,32 @@ def consolidate_ddp_logs(
     if data_io.exists(storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
         dataset_meta = data_io.load_json(storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
         if verbose:
-            print("Dataset meta loaded")
+            print("Dataset metadata loaded")
     else:
         dataset_meta = {"donations": {"filenames": []}}
-
     latest_filename_list = dataset_meta.get("donations", {}).get("filenames", [])
 
-    ddp_meta = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
-    rejected_donations = ddp_meta[~ddp_meta[('other','accepted')]].index.to_list()
-    rejected_donations = [f"{u}.parquet" for u in rejected_donations]
-    accepted_refined_ddp_files = [u for u in refined_ddp_files if u not in rejected_donations]
+
+
+    # ---------------------------------------------------------------
+    if data_io.exists(storage_location="ddp_main",filename="ddp_metadata.parquet",verbose=verbose):
+        ddp_meta_file_exists = True
+        ddp_meta = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
+        rejected_donations = ddp_meta[~ddp_meta[('other','accepted')]].index.to_list()
+        rejected_donations = [f"{u}.parquet" for u in rejected_donations]
+        accepted_refined_ddp_files = [u for u in refined_ddp_files if u not in rejected_donations]
+    else:
+        ddp_meta_file_exists = False
+        rejected_donations = []
+        accepted_refined_ddp_files = []
+
+    donations_recoded_file_exists = data_io.exists(storage_location="recoded",filename="donations_recoded.parquet",verbose=verbose)
 
     # if all files found in the refine folder are already accepted, then no need to consolidate
-    if not force_consolidation and set(accepted_refined_ddp_files) <= set(latest_filename_list):
+    if donations_recoded_file_exists and \
+        ddp_meta_file_exists and \
+        not force_consolidation and \
+        set(accepted_refined_ddp_files) <= set(latest_filename_list):
         if top_verbose:
             print("No new refined DDP files found. No need to consolidate.")
         if return_saved_data:
@@ -1148,15 +1191,16 @@ def consolidate_ddp_logs(
     many_ddp_logs = []
 
     # first look in cache, then look in recoded
-    if not consolidate_from_scratch:
+    if donations_recoded_file_exists and ddp_meta_file_exists and not consolidate_from_scratch:
         if data_io.exists(storage_location="cache",filename="core_donations.parquet",verbose=verbose):
             if top_verbose:
-                print("Loading existing DDP logs from cache...")
+                print("Loading existing DDP logs from cache...", end="", flush=True)
             many_ddp_logs = [data_io.load_parquet(storage_location="cache", filename="core_donations.parquet")]
         elif data_io.exists(storage_location="recoded",filename="donations_recoded.parquet",verbose=verbose):
             if top_verbose:
-                print("Loading existing DDP logs from main storage...")
+                print("Loading existing DDP logs from main storage...", end="", flush=True)
             many_ddp_logs = [data_io.load_parquet(storage_location="recoded", filename="donations_recoded.parquet")]
+        print(f"...done. Shape: {many_ddp_logs[0].shape}. Unique donations: {many_ddp_logs[0].D_donation_id.nunique()}.")
 
     # there is a df in many_ddp_logs, it means that I found a previously consolidated df and don't want to
     # force consolidation from scratch. So I only need to add the new files.
@@ -1183,7 +1227,7 @@ def consolidate_ddp_logs(
             print()
             
     if top_verbose:
-        print(f"Concatenating {len(refined_ddp_files)} refined DDP logs...")
+        print(f"Concatenating {len(many_ddp_logs)} refined files...")
     concatenated_ddp_logs = pd.concat(many_ddp_logs)
     if top_verbose:
         print(f"    ...done - initial shape of the concatenated dataframe: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
@@ -1197,12 +1241,10 @@ def consolidate_ddp_logs(
         print(f"Shape after naive duplication drop: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
 
 
-
-
     # --------------------------------------------------------------------------------------
     # calculate the donation stats
     if top_verbose:
-        print("Calculating donation metadata for the new donations...")
+        print("Calculating donation metadata for the concatenated donations...")
     donation_metadata = generate_donation_metadata(
         ddp_events_df=concatenated_ddp_logs, 
         update_col=None,
@@ -1216,10 +1258,19 @@ def consolidate_ddp_logs(
     # create list of donations to be dropped and drop donations which has a very small number of watched videos
     donations_to_drop = []
     donations_to_drop += list(donation_metadata["counts"][(donation_metadata["counts","watch"]<5)].index)
-    concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs.D_donation_id.isin(donations_to_drop)].copy()
-    if top_verbose:
-        print(f"Shape after dropping donations with fewer than 5 watch events: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
+
+    donations_to_drop = list(set(concatenated_ddp_logs.D_donation_id.unique()) & set(donations_to_drop))
+
+    if len(donations_to_drop) > 0:
+
+        if verbose:
+            print(f"The following donations have fewer than 5 watch events and will be dropped: \n  - {"\n  - ".join(donations_to_drop)}")
+
+        concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs.D_donation_id.isin(donations_to_drop)].copy()
+        if top_verbose:
+            print(f"Shape after dropping donations with fewer than 5 watch events: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
     
+
 
     # --------------------------------------------------------------------------------------
     if top_verbose:
@@ -1242,7 +1293,6 @@ def consolidate_ddp_logs(
 
 
 
-
     # --------------------------------------------------------------------------------------
     # update the donation metadata with a column to signify which donations are accepted
     # and included in the dataset. This is necessary since the donation metadata df contains
@@ -1259,22 +1309,27 @@ def consolidate_ddp_logs(
     if top_verbose:
         print("    ...done updating donation metadata")
 
-    
+
+
 
     # --------------------------------------------------------------------------------------
     # reset index
     concatenated_ddp_logs.reset_index(drop=True, inplace=True)
 
+
     if top_verbose:
-        print("Recalculate session details to ensure that the session IDs are unique.")
+        print(f"Recalculate session details to ensure that the session IDs are unique.")
     concatenated_ddp_logs = _add_session_info_to_ddp_log(concatenated_ddp_logs, verbose=verbose)
     if "session_id" in concatenated_ddp_logs.columns:
         concatenated_ddp_logs["session_id"] = concatenated_ddp_logs["session_id"].map(lambda x:f"SD{x:05}" if pd.notna(x) else pd.NA) # SD kind of indicates that this is a S-ession and D-onation
-    
+
+
     # --------------------------------------------------------------------------------------
     # I will concatenate this df with anohter df where this column is missing. It makes
     # my life easier to turn it into str. I'm not using it for calculations anyway.  
-    concatenated_ddp_logs["date_added_to_dataset"] = concatenated_ddp_logs["date_added_to_dataset"].dt.strftime('%Y-%m-%d')
+    #concatenated_ddp_logs["ts_added_to_dataset"] = concatenated_ddp_logs["ts_added_to_dataset"].dt.strftime('%Y-%m-%d')
+
+
     concatenated_ddp_logs = convert_dtypes_to_pyarrow(concatenated_ddp_logs)
 
     memory_per_column = concatenated_ddp_logs.memory_usage(deep=True) 
@@ -1284,6 +1339,8 @@ def consolidate_ddp_logs(
 
     if top_verbose:
         print(f"...done. Combined all logs into shape: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()} (memory usage: {total_memory_mb:.2f} MB)")
+
+
 
     # ---------------------------------------------------------------
     # update the dataset meta file

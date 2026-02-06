@@ -8,16 +8,7 @@ Date:
 
 import os
 import toml
-import pandas as pd
 import sys
-
-
-############################################################################################################
-###                     Initialize things
-############################################################################################################
-
-
-
 
 
 def _create_local_dirs(cf: dict, verbose: bool = False):
@@ -41,12 +32,10 @@ def _create_local_dirs(cf: dict, verbose: bool = False):
 
 
 def initialize(
-    verbose=False,
-    abs_project_root_path=None
+    verbose: bool = False,
+    abs_project_root_path: str = None
     ) -> dict:
-
     
-
     # ------------------------------------------------------------------
     # Locate the project root - I don't know what other people do - this works for me
     # ------------------------------------------------------------------
@@ -65,24 +54,13 @@ def initialize(
         # add project root path to PATH since the modules are located in the project structure
         sys.path.append(abs_project_root_path)
 
-
     
     # ------------------------------------------------------------------
-    # Load essential files - let it blow up if the files aren't found
+    # Load essential config - let it blow up if the files aren't found
     # ------------------------------------------------------------------
-    #where_to_start = toml.load(os.path.join(abs_project_root_path,"config","core.toml"))
-
-    config_path = os.path.join(abs_project_root_path,"config","config.toml") #where_to_start["core"]["config_fn"])
-
-    #var_schema_path = os.path.join(abs_project_root_path, "config", "var_schema.csv") #where_to_start["core"]["var_schema_fn"])
-
-    # Load main config
+    config_path = os.path.join(abs_project_root_path,"config","config.toml")
     cf = toml.load(config_path)
     cf["paths"]["project_root"] = abs_project_root_path
-
-
-
-
 
 
     # ------------------------------------------------------------------
@@ -95,21 +73,6 @@ def initialize(
     gemini_env_key = os.environ.get("GEMINI_API_KEY")
     if gemini_env_key:
         cf["machine"]["key"] = gemini_env_key
-
-
-
-    # ------------------------------------------------------------------
-    # prepare gen ai parameters for initialisation
-    # ------------------------------------------------------------------
-    cf["machine"]["client"] = None
-    cf["machine"]["global_generation_config"] = None
-
-    # I've used different prompts in the config. This allows for some flexibility.
-    # It is expected that the parameter in the config file is a filename to a text file
-    # that is located in a folder named 'prompts' in the project root. 
-    for p in cf["machine"].keys():
-        if "prompt" in p:
-            cf["machine"][p] = os.path.join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
 
 
     # ------------------------------------------------------------------
@@ -141,18 +104,33 @@ def initialize(
 
     # other paths
     cf["paths"]["recoded"] = os.path.join(cf["paths"]["local_data"], "recoded")
-    #cf["paths"]["exports"] = os.path.join(cf["paths"]["local_data"], "exports")
+    #cf["paths"]["prompts"] = os.path.join(cf["paths"]["local_data"], "prompts")
     cf["paths"]["archive"] = os.path.join(cf["paths"]["local_data"], "archive")
     cf["paths"]["users"] = os.path.join(cf["paths"]["local_data"], "users") 
     cf["paths"]["cache"] = os.path.join(cf["paths"]["local_data"], "cache") 
     cf["paths"]["studies"] = os.path.join(cf["paths"]["local_data"], "studies") 
-
- 
     
     cf["paths"]["temp"] = "/tmp/fyp/"
     os.makedirs(cf["paths"]["temp"], exist_ok=True)
     
 
+    # ------------------------------------------------------------------
+    # prepare gen ai parameters for initialisation
+    # ------------------------------------------------------------------
+    cf["machine"]["client"] = None
+    cf["machine"]["global_generation_config"] = None
+
+    # I've used different prompts in the config. This allows for some flexibility.
+    # It is expected that the parameter in the config file is a filename to a text file
+    # that is located in a folder named 'prompts' in the project root. 
+    for p in cf["machine"].keys():
+        if "prompt" in p:
+            cf["machine"][p] = os.path.join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
+
+
+    # ------------------------------------------------------------------
+    # prepare data storage for initialisation - either gcs or local
+    # ------------------------------------------------------------------
     # This is not set by the config so I'm setting it to None
     cf["data_io"]["bucket"] = None
 
@@ -163,53 +141,23 @@ def initialize(
         cf['data_io']['use_gcs_for_cache'] = False
         cf['data_io']['use_gcs_for_media'] = False
 
-
     if cf['data_io']['use_gcs_for_data']:
-
         cf["gcs_paths"] = {}
         gcs_prefix = cf["data_io"].get("gcs_data_prefix", "")
-
         for k, v in cf["paths"].items():
             if isinstance(v, str) and v.startswith(cf["paths"]["local_data"]) and k != "local_data":
-                # calculate relative path from local_data root
-                # e.g. /.../data/activity/zeeschuimer -> activity/zeeschuimer
                 rel = os.path.relpath(v, cf["paths"]["local_data"])
-                
-                # Combine with GCS prefix
-                # Use forward slashes for GCS always, though on Mac os.path.join uses /
                 if rel == ".": 
                     gcs_path = gcs_prefix
                 else:
-                    gcs_path = f"{gcs_prefix}/{rel}" if gcs_prefix else rel
-                    
+                    gcs_path = f"{gcs_prefix}/{rel}" if gcs_prefix else rel            
                 cf["gcs_paths"][k] = gcs_path
         
-
-
     # create missing local folders - note that this function first checks relevant flags and
     # only creates folders if needed 
     _create_local_dirs(cf, verbose=verbose)
-
-    
-    # Load study definitions using data_io
-    # This must be done after GCS setup so data_io works correctly if using GCS
-
-
 
 
     return cf
 
 
-
-
-
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    print("Module is being run directly.")

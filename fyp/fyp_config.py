@@ -101,10 +101,13 @@ def load_var_schema(cf, verbose=False):
     else:
         if verbose:
             print(f"Loading variable schema from local disk")
-        var_schema_path = os.path.join(abs_project_root_path, "config", "var_schema.csv")
-    cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
-    if verbose:
-        print(f"Variable schema loaded. Shape: {cf['var_schema'].shape}")
+        var_schema_path = os.path.join(cf['paths']['local_data'], "var_schema.csv")
+    try:
+        cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+        if verbose:
+            print(f"Variable schema loaded. Shape: {cf['var_schema'].shape}")
+    except Exception as e:
+        print(f"CRITICAL ERROR: Failed to load variable schema: {e}")
     return cf
 
 

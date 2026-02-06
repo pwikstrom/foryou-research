@@ -83,13 +83,13 @@ def get_explorer_data(study, context=None):
         if context == "viewer":
             # Viewer needs Scraped OK + Watch
             # print(f"    Filtering context 'viewer' (scraped_ok & watch)...")
-            filtered_df = raw_df[(raw_df.scraped_ok) & (raw_df.D_feature_name=="watch")].copy()
+            filtered_df = raw_df[(raw_df.scraped_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
             # print(f"    Reduced rows from {len(raw_df):,} to {len(filtered_df):,}")
             
         elif context == "explorer":
             # Explorer needs Annotated OK + Watch
             # print(f"    Filtering context 'explorer' (annotated_ok & watch)...")
-            filtered_df = raw_df[(raw_df.annotated_ok) & (raw_df.D_feature_name=="watch")].copy()
+            filtered_df = raw_df[(raw_df.annotated_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
             # print(f"    Reduced rows from {len(raw_df):,} to {len(filtered_df):,}")
             
         else:
@@ -249,7 +249,7 @@ def load_shared_tags(allowed_usernames):
     if not allowed_usernames:
         return simple_map, detailed_map
         
-    print(f"DEBUG: load_shared_tags called for: {allowed_usernames}")
+    #print(f"DEBUG: load_shared_tags called for: {allowed_usernames}")
         
     for user in allowed_usernames:
         try:
@@ -266,16 +266,16 @@ def load_shared_tags(allowed_usernames):
                      user_blob = data_io.load_json(storage_location="users", filename=filename_lower)
             
             if not user_blob:
-                print(f"DEBUG: No user file for {user}")
+                #print(f"DEBUG: No user file for {user}")
                 continue
                 
             user_data = user_blob.get('annotations', {})
             
             if not user_data: 
-                print(f"DEBUG: Empty tag data for {user}")
+                #print(f"DEBUG: Empty tag data for {user}")
                 continue
             
-            print(f"DEBUG: Loaded {len(user_data)} items for {user}")
+            #print(f"DEBUG: Loaded {len(user_data)} items for {user}")
             
             for item_id, item_vars in user_data.items():
                 str_id = str(item_id)
@@ -420,7 +420,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars):
     
     # Filter for Watch events only (as per previous requirement)
     if 'D_feature_name' in df.columns:
-        df = df[df['D_feature_name'] == 'watch']
+        df = df[df['D_feature_name'].isin(["watch","BASELINE"])].copy()
 
 
 

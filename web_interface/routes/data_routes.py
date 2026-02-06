@@ -945,11 +945,11 @@ def api_timeline_donations():
     meta_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
     
     if meta_df is None:
-        print("DEBUG TIMELINE: ddp_metadata.parquet is None")
+        #print("DEBUG TIMELINE: ddp_metadata.parquet is None")
         return jsonify([])
         
     if meta_df.empty:
-        print("DEBUG TIMELINE: ddp_metadata.parquet is Empty")
+        #print("DEBUG TIMELINE: ddp_metadata.parquet is Empty")
         return jsonify([])
         
     
