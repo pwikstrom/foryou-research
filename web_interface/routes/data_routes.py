@@ -838,7 +838,7 @@ def api_persona_stats():
         response = jsonify(records)
         
         try:
-            mtime = data_io.getmtime(fyp_cf, "ddp_main", filename)
+            mtime = data_io.getmtime(storage_location="ddp_main", filename=filename)
             # Format as ISO string or similar for frontend parsing
 
             dt = datetime.fromtimestamp(mtime)

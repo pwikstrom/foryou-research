@@ -41,6 +41,9 @@ def _resolve_paths(storage_location: str = "cache", filename: str = ""):
         raise ValueError("Filename cannot be empty")
     
     # 1. Validate Location
+    #print(60*"==")
+    #print(storage_location)
+    #print(60*"==")
     if storage_location not in fyp_cf['paths']:
         valid_locs = ', '.join(list(fyp_cf['paths'].keys()))
         raise ValueError(f"Invalid storage location: '{storage_location}'. Use: {valid_locs}")
@@ -95,11 +98,11 @@ def get_recent_files(storage_location: str = "cache", suffix: str = None, how_re
     current_time = datetime.now()
     recent_files = []
 
-    for filename in data_io.listdir(storage_location = storage_location):
+    for filename in listdir(storage_location = storage_location):
         #file_path = join(storage_location, filename)
         if suffix is None or filename.endswith(suffix):
-            modified_time = datetime.fromtimestamp(data_io.getmtime(storage_location, filename))
-            created_time = datetime.fromtimestamp(data_io.getctime(storage_location, filename))
+            modified_time = datetime.fromtimestamp(getmtime(storage_location = storage_location, filename = filename))
+            created_time = datetime.fromtimestamp(getctime(storage_location = storage_location, filename = filename))
             time_difference = current_time - max(modified_time, created_time)
             if time_difference < timedelta(minutes=how_recent):
                 recent_files.append({"filename":filename, "mtime":modified_time, "ctime":created_time})

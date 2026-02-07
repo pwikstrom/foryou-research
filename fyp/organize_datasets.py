@@ -228,7 +228,6 @@ def load_donation_datasets(
     verbose=False
     ):
 
-
     print(f"Loading core datasets for donation '{donation_id}'...")
 
     # load core datasets from cache. This makes sense if the storage is remote. Since a slow network connection makes loading of datasets 
@@ -242,22 +241,22 @@ def load_donation_datasets(
             # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
             if data_io.exists(storage_location="cache", filename=f"core_{k}.parquet"):
                 parquet_study_name = data_io.find_key_value_in_pq_metadata(storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
-                print(f"Found a cached version of '{k}' core dataset for study '{parquet_study_name}'")
+                print(f"    [Core datasets] Found a cached version of '{k}' core dataset for study '{parquet_study_name}'")
                 if parquet_study_name == 'everything':
                     if verbose:
                         print(f"    [Core datasets] Found a cached version of '{k}' core dataset for study '{parquet_study_name}'. Loading...")
                     cached_core_datasets[k] = parquet_study_name
                     tutti_data[k] = data_io.load_parquet(storage_location="cache", filename=f"core_{k}.parquet")
-
-
-            # if no dataset was loaded from cache and the cache and main storage are at different locations, then load everything from
-            #  main storage and save to cache. It will save time later since this can be used for all studies
-            if tutti_data[k] is None and fyp_cf['data_io']['use_gcs_for_data']==True and fyp_cf['data_io']['use_gcs_for_cache']==False:
-                print(f"Loading core dataset '{k}' from main storage and saving to cache")
+            else:
+                print(f"    [Core datasets] Loading core dataset '{k}' from main storage")
                 tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
-                print(f"Saving core dataset '{k}' to cache")
                 tutti_data[k].attrs["study_name"] = 'everything'
-                data_io.save_parquet(df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
+
+                # if the main storage is on gcs and cache is local, then save the core dataset to cache.
+                # It will save time later since this can be used for all studies
+                if fyp_cf['data_io']['use_gcs_for_data']==True and fyp_cf['data_io']['use_gcs_for_cache']==False:
+                    print(f"    [Core datasets] Saving core dataset '{k}' to cache")
+                    data_io.save_parquet(df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
 
                 
     elif len(all_datasets) > 0:
@@ -273,8 +272,11 @@ def load_donation_datasets(
     # load activity data
     # --------------------------------------------------------------------
 
-
-    tutti_data["donations"] = tutti_data["donations"][tutti_data["donations"]["D_donation_id"] == donation_id]
+    if "donations" in tutti_data and isinstance(tutti_data["donations"], pd.DataFrame):
+        tutti_data["donations"] = tutti_data["donations"][tutti_data["donations"]["D_donation_id"] == donation_id]
+        if len(tutti_data["donations"]) == 0:
+            print(f"    [Core datasets] No donations found for donation_id '{donation_id}'")
+            return None
 
     unique_videos = set(tutti_data["donations"]["item_id"].dropna().values.tolist())
     print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in donation and zeeschuimer datasets")
