@@ -698,14 +698,55 @@ def get_timeline_data(donation_id, interval='day'):
 
     return {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts}
 
+
+def load_display_id_map():
+    """
+    Loads donation_annotations.json and returns a map of { raw_id: display_id }.
+    """
+    mapping = {}
+    da_filename = "donation_annotations.json"
+    try:
+        if data_io.exists(storage_location="ddp_main", filename=da_filename):
+            annotations = data_io.load_json(storage_location="ddp_main", filename=da_filename) or {}
+            for raw_id, data in annotations.items():
+                disp = data.get('display_donation_id')
+                if disp and str(disp).strip():
+                    mapping[str(raw_id)] = str(disp).strip()
+    except Exception as e:
+        print(f"Error loading display id map: {e}")
+    return mapping
+
 def get_study_donations(study):
     """
     Returns a list of unique donations present in the study dataset.
     Returns: [{ 'D_donation_id': '...', 'D_id': '...' }, ...]
     """
     try:
-        df, col_types = get_explorer_data(study, context="explorer")
+        # Optimization: Only load necessary columns to avoid reading full dataset
+        # We can't know for sure if D_id exists without reading schema or checking, 
+        # but data_io.load_parquet handles missing columns gracefully if we ask for them?
+        # Actually data_io.load_parquet logic checks existing cols.
+        # So we can ask for both.
+        
+        # We also need to know if the file exists first, which logic inside data_io handles, 
+        # but get_explorer_data handles caching and other logic.
+        # However, get_explorer_data loads EVERYTHING.
+        # For just getting donations, we should bypass get_explorer_data if possible for speed.
+        
+        recoded_file = f"{study}_recoded.parquet"
+        if data_io.exists(storage_location="cache", filename=recoded_file):
+             df = data_io.load_parquet(
+                 storage_location="cache", 
+                 filename=recoded_file, 
+             )
+             print(f"DEBUG DONATIONS: Loaded fast columns for {study}: shape={df.shape}")
+        else:
+             # Fallback to full load if cache missing (triggering creation)
+             df, _ = get_explorer_data(study, context="explorer")
+             
+             
         if df is None:
+            print(f"DEBUG DONATIONS: df is None for {study}")
             return []
         
         if 'D_donation_id' not in df.columns:
@@ -780,20 +821,77 @@ def get_pca_df(study_name):
                 minimum_group_size = 10,
                 target_explained_variance = 0.8,
                 drop_rare_globally_below = 0.01,
-                scale_it = True,
-                down_sample = 1,
-                min_sample_size = 20000,
-                load_from_cache = True,
-                save_to_cache = True,
-                verbose = False,
-                )
-        
+            )
+            data_io.save_parquet(
+                df=events_pca_scores_scaled,
+                storage_location="cache",
+                filename=pca_filename,
+            )
+
         pca_df_cache[study_name] = events_pca_scores_scaled
         return events_pca_scores_scaled
 
-    if False:#except Exception as e:
-        print(f"Error loading PCA: {e}")
+    if False: #except Exception as e:
+        print(f"Error loading PCA for {study_name}: {e}")
         return None
+
+
+
+def get_accessible_studies(username, role, is_admin):
+    """
+    Returns a list of study names that the user has access to.
+    """
+    from fyp.studies import init_study_defs
+    
+    if not 'study_defs' in fyp_cf:
+        init_study_defs()
+
+    print(f"DEBUG ACCESS: Checking access for user={username}, role={role}, admin={is_admin}")
+    accessible_studies = []
+    
+    if 'study_defs' in fyp_cf:
+        for study_name, study_config in fyp_cf['study_defs'].items():
+            # 1. Admin Override
+            if is_admin:
+                has_access = True
+            else:
+                user_access = study_config.get('USER_ACCESS')
+
+                # 2. Missing or Empty => Default Allow
+                if not user_access:
+                    has_access = True
+
+                # Ensure it is a list
+                elif not isinstance(user_access, list):
+                    has_access = True
+
+                # 3. 'all' keyword
+                elif 'all' in user_access:
+                    has_access = True
+
+                # 4. Role Match
+                elif role in user_access:
+                    has_access = True
+
+                # 5. Username Match
+                elif username in user_access:
+                    has_access = True
+                else:
+                    has_access = False
+
+            if has_access:
+                # Data Integrity Checks
+                if not data_io.exists(storage_location="cache", filename=f"{study_name}_recoded.parquet"):
+                    continue
+                
+                stats = study_config.get('stats', {})
+                if stats.get('unique_videos', 0) <= 0:
+                    continue
+
+                accessible_studies.append(study_name)
+    
+    print(f"DEBUG ACCESS: Accessible studies found: {accessible_studies}")
+    return sorted(accessible_studies)
 
 
 

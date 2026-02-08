@@ -11,7 +11,8 @@ let viewerData = {
     sortOrder: 'asc',
     currentIndex: -1,
     userTags: {},
-    activeModal: { item_id: null, variable: null, currentTags: [] }
+    activeModal: { item_id: null, variable: null, currentTags: [] },
+    displayIds: {} // Map of raw_id -> display_id
 };
 
 // Initialization
@@ -473,10 +474,11 @@ function renderViewerFilters(metadata) {
                     let actualValue = val;
                     let displayValue = val;
 
-                    // Handle new object format {value: "v", count: 123}
                     if (typeof val === 'object' && val !== null && val.value !== undefined) {
                         actualValue = val.value;
-                        displayValue = `${val.value} (${val.count.toLocaleString()})`;
+                        // Use label if available (display_id), else value
+                        const label = val.label || val.value;
+                        displayValue = `${label} (${val.count.toLocaleString()})`;
                     }
 
                     const cb = document.createElement('input');
@@ -602,6 +604,7 @@ async function applyViewerFilters() {
 
         viewerData.filteredIds = data.ids;
         viewerData.itemCount = data.count;
+        viewerData.displayIds = data.display_ids || {};
 
         // Reset to first item
         if (viewerData.itemCount > 0) {
@@ -630,9 +633,10 @@ async function loadViewerItem(index) {
     if (index < 0 || index >= viewerData.itemCount) return;
 
     const itemId = viewerData.filteredIds[index];
+    const displayId = viewerData.displayIds[itemId] || itemId;
 
     // Update UI Loading state?
-    document.getElementById('viewer-status').innerText = `Loading ${itemId}...`;
+    document.getElementById('viewer-status').innerText = `Loading ${displayId}...`;
 
     try {
         // Use POST to send context (filters) so backend picks the right row if duplicates exist
@@ -700,6 +704,14 @@ function linkify(text) {
 function renderMetadata(item) {
     const tbody = document.getElementById('viewer-metadata').querySelector('tbody');
     tbody.innerHTML = '';
+
+    // Inject Display ID if present at top
+    if (item.display_donation_id) {
+        const didRow = document.createElement('tr');
+        didRow.style.background = '#333';
+        didRow.innerHTML = `<td style="padding:5px; font-weight:bold; color:#88e;">Display ID</td><td style="padding:5px; font-weight:bold; color:#fff;">${item.display_donation_id}</td>`;
+        tbody.appendChild(didRow);
+    }
 
 
     const priorityList = viewerData.metadata && viewerData.metadata.display_priority ? viewerData.metadata.display_priority : [];

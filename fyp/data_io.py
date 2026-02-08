@@ -657,14 +657,18 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
 def load_parquet(
         storage_location: str = "cache",
         filename: str = "", # if filename == '*' -> load all parquet files in storage_location
-        columns=None,
-        filters=None,
+        #columns=None,
+        #filters=None,
         verbose = False,
     ):
     """
     Load a dataframe from a given path.
     Supports GCS direct read (gs://).
     """
+
+    columns=None
+    filters=None
+
 
     if filename == "":
         raise ValueError("Filename cannot be empty")

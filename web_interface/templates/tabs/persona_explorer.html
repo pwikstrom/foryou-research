@@ -5,9 +5,6 @@
             <button class="help-icon" onclick="showHelp('persona_explorer')">?</button>
         </div>
         <div class="control-group" style="display: flex; align-items: center; gap: 15px;">
-            <button class="config-btn" onclick="pe_openConfig()">
-                <i class="fas fa-cog"></i> Configure Metrics
-            </button>
             <span id="pe-stats-timestamp" class="timestamp-text" style="font-size: 0.85em; color: #888;"></span>
             <span id="pe-stats-count" class="timestamp-text" style="font-size: 0.85em; color: #888;"></span>
         </div>
@@ -16,16 +13,36 @@
     <div class="pe-container">
         <!-- Left Panel: Lists & Controls -->
         <div class="pe-sidebar">
+            <!-- Radar Chart first -->
+            <div class="panel-card" style="margin-bottom: 20px;">
+                <div class="header-with-help">
+                    <h4 id="pe-radar-title" style="margin: 0;">Radar Chart</h4>
+                    <button class="config-btn" onclick="pe_openConfig()" style="font-size: 0.8em; padding: 2px 6px;">
+                        <i class="fas fa-cog"></i> Configure
+                    </button>
+                </div>
+                <div id="pe-radar-plot" style="width: 100%; height: 300px;"></div>
+                <p id="pe-details-moniker" class="moniker-text"></p>
+            </div>
+
             <div class="panel-card">
                 <h4>Select Donation</h4>
-                <select id="pe-donation-select" onchange="pe_onDonationSelect()" class="full-width-select"></select>
+                <!-- Replaced simple select with Searchable List (Timelines style) -->
+                <div class="form-group">
+                    <input type="text" id="pe-donation-search" placeholder="Search ID..." class="full-width-select"
+                        onkeyup="pe_filterDonationList()">
+                    <div id="pe-donation-list" class="simple-list"
+                        style="height: 300px; overflow-y: auto; margin-top: 5px; border: 1px solid #3e3e42; background: #1e1e1e;">
+                        <div style="padding: 10px; color: #777;">Loading donations...</div>
+                    </div>
+                </div>
 
                 <div id="pe-details-card" class="details-card hidden">
                     <h5 id="pe-details-id"></h5>
-                    <p id="pe-details-moniker" class="moniker-text"></p>
+
 
                     <!-- Participant Info -->
-                    <div class="stats-section">
+                    <div id="pe-participant-info-section" class="stats-section">
                         <div class="section-title">Participant Info</div>
                         <ul class="stats-list">
                             <li><span class="stat-label">Name:</span> <span id="pe-stat-name"></span></li>
@@ -38,6 +55,45 @@
                             </li>
                         </ul>
                     </div>
+
+                    <!-- Donation Annotations -->
+                    {% if current_user.is_admin() %}
+                    <div class="stats-section">
+                        <div class="section-title">Donation Annotations</div>
+                        <ul class="stats-list" style="display: flex; flex-direction: column; gap: 8px;">
+                            <li style="flex-direction: column; align-items: flex-start; border: none; padding: 0;">
+                                <span class="stat-label" style="font-size: 0.9em; margin-bottom: 2px;">Display
+                                    ID:</span>
+                                <input type="text" id="pe-annot-display-id" class="full-width-select"
+                                    style="margin: 0; padding: 4px; font-size: 0.9em;" placeholder="e.g. D123">
+                            </li>
+                            <li style="flex-direction: column; align-items: flex-start; border: none; padding: 0;">
+                                <span class="stat-label" style="font-size: 0.9em; margin-bottom: 2px;">Tags
+                                    (Manage):</span>
+
+                                <div id="pe-annot-tags-container"
+                                    style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 5px; width: 100%;">
+                                    <!-- Chips rendered by JS -->
+                                </div>
+
+                                <div style="display: flex; gap: 5px; width: 100%;">
+                                    <input type="text" id="pe-annot-new-tag" class="full-width-select"
+                                        style="margin: 0; padding: 4px; font-size: 0.9em;" placeholder="Add new tag..."
+                                        onkeydown="if(event.key === 'Enter') { pe_addNewTag(); event.preventDefault(); }">
+                                    <button onclick="pe_addNewTag()" class="config-btn"
+                                        style="width: 30px; justify-content: center;" title="Add Tag"><i
+                                            class="fas fa-plus"></i></button>
+                                </div>
+                            </li>
+                            <li style="border: none; padding-top: 5px;">
+                                <button onclick="pe_saveAnnotation()" class="apply-btn"
+                                    style="width: 100%; display: flex; justify-content: center; align-items: center; gap: 5px;">
+                                    <i class="fas fa-save"></i> Save Annotations
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                    {% endif %}
 
                     <!-- Activity Stats -->
                     <div class="stats-section">
@@ -53,15 +109,12 @@
                             <li><span class="stat-label">Watch Time:</span> <span id="pe-stat-watch-time"></span></li>
                             <li><span class="stat-label">First Event:</span> <span id="pe-stat-first-event"></span></li>
                             <li><span class="stat-label">Last Event:</span> <span id="pe-stat-last-event"></span></li>
+                            <li><span class="stat-label">Tags:</span> <span id="pe-stat-tags"></span></li>
                         </ul>
                     </div>
                 </div>
             </div>
 
-            <div class="panel-card">
-                <h4>Persona Shape</h4>
-                <div id="pe-radar-plot" style="width: 100%; height: 300px;"></div>
-            </div>
         </div>
 
         <!-- Main Panel: Metric Strip Plots -->
@@ -103,6 +156,14 @@
         gap: 20px;
         padding: 20px;
         height: calc(100vh - 120px);
+        overflow: hidden;
+        /* Prevent container scroll, force child scroll */
+    }
+
+    .header-with-help {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
 
     .pe-sidebar {
@@ -111,6 +172,8 @@
         flex-direction: column;
         gap: 20px;
         overflow-y: auto;
+        max-height: 100%;
+        /* Ensure it doesn't overflow parent */
     }
 
     .pe-main {

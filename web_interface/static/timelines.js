@@ -86,9 +86,12 @@ window.timelines = {
                 item.onmouseout = () => item.style.background = 'transparent';
             }
 
-            // Display D_id if available, fall back to donation_id
-            const label = d.D_id ? `${d.D_id} (${d.D_donation_id.substring(0, 8)}...)` : d.D_donation_id;
-            item.innerHTML = label;
+            // Display ID (custom) -> Filename (fallback)
+            let label = d.display_donation_id;
+            if (!label || label.trim() === '') {
+                label = d.D_donation_id;
+            }
+            item.innerText = label;
 
             item.onclick = () => {
                 this.selectDonation(d.D_donation_id);
@@ -134,8 +137,39 @@ window.timelines = {
         const header = document.getElementById('timelines-header');
         if (header) header.style.display = 'block';
 
+        const donation = this.donationList.find(d => d.D_donation_id === donationId);
+        let displayTitle = donationId;
+        if (donation && donation.display_donation_id) {
+            displayTitle = donation.display_donation_id;
+        }
+
         const title = document.getElementById('timelines-title');
-        if (title) title.innerText = `Timeline: ${donationId}`;
+        if (title) {
+            title.innerHTML = `Timeline: ${displayTitle}`;
+
+            // Append Tags if available
+            if (donation && donation.annotation_tags && Array.isArray(donation.annotation_tags) && donation.annotation_tags.length > 0) {
+                const tagsContainer = document.createElement('span');
+                tagsContainer.style.marginLeft = '15px';
+                tagsContainer.style.fontSize = '0.6em'; // Smaller relative to h2
+                tagsContainer.style.fontWeight = 'normal';
+
+                donation.annotation_tags.forEach(tag => {
+                    const chip = document.createElement('span');
+                    chip.innerText = tag;
+                    chip.style.display = 'inline-block';
+                    chip.style.background = '#007acc';
+                    chip.style.color = '#fff';
+                    chip.style.padding = '2px 8px';
+                    chip.style.borderRadius = '12px';
+                    chip.style.marginRight = '5px';
+                    chip.style.verticalAlign = 'middle';
+                    tagsContainer.appendChild(chip);
+                });
+
+                title.appendChild(tagsContainer);
+            }
+        }
 
         const container = document.getElementById('timelines-charts-container');
         // Force resize of existing plots if any, just in case

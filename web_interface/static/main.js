@@ -662,7 +662,9 @@ function openTab(evt, tabName) {
 
     // Persona Explorer - init on first open
     if (tabName === 'persona_explorer') {
-        if (typeof pe_init === 'function' && (!window.pe_data || window.pe_data.length === 0)) {
+        if (typeof pe_onShow === 'function') {
+            pe_onShow();
+        } else if (typeof pe_init === 'function' && (!window.pe_data || window.pe_data.length === 0)) {
             pe_init();
         }
     }

@@ -387,7 +387,8 @@ function renderFiltersV2(metadata, sliceId) {
 
                     if (typeof val === 'object' && val !== null && val.value !== undefined) {
                         actualValue = val.value;
-                        displayValue = `${val.value} (${val.count.toLocaleString()})`;
+                        const label = val.label || val.value;
+                        displayValue = `${label} (${val.count.toLocaleString()})`;
                     }
 
                     const cb = document.createElement('input');
