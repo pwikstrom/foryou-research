@@ -608,11 +608,11 @@ function pe_renderDonationList(query = "") {
     const filtered = pe_data.filter(d => {
         if (!query) return true;
         // Robust checking
-        const did = String(d.D_id || '').toLowerCase();
+        //const did = String(d.D_id || '').toLowerCase();
         const ddon = String(d.D_donation_id || '').toLowerCase();
         const display = String(d.display_donation_id || '').toLowerCase();
 
-        return did.includes(query) || ddon.includes(query) || display.includes(query);
+        return ddon.includes(query) || display.includes(query);
     });
 
     if (filtered.length === 0) {

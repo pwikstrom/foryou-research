@@ -892,7 +892,7 @@ def generate_donation_metadata(
                 old_metadata_df = old_metadata_df.drop(columns=[update_col.name])
 
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
-            new_metadata_df = new_metadata_df.sort_index(axis='columns').sort_values(('other','D_id')).copy()
+            #new_metadata_df = new_metadata_df.sort_index(axis='columns').sort_values(('other','D_id')).copy()
             data_io.save_parquet(df=new_metadata_df, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
             print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
             return new_metadata_df
@@ -946,7 +946,7 @@ def generate_donation_metadata(
 
 
     df1.sort_values(by=[("other","ts_added_to_dataset")], inplace=True)
-    df1["other","D_id"] = list(range(len(df1)))
+    #df1["other","D_id"] = list(range(len(df1)))
 
 
 
@@ -980,7 +980,7 @@ def generate_donation_metadata(
             print(f"Adding {len(combined_ddp_metadata)} rows to the existing metadata DF")
         combined_ddp_metadata = pd.concat([old_metadata_df, combined_ddp_metadata], axis=0)
         
-    combined_ddp_metadata = combined_ddp_metadata.sort_index(axis='columns').sort_values(('other','D_id')).copy()
+    #combined_ddp_metadata = combined_ddp_metadata.sort_index(axis='columns').sort_values(('other','D_id')).copy()
     data_io.save_parquet(df=combined_ddp_metadata, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
 
     if verbose:
@@ -1507,11 +1507,11 @@ def simple_sample_ddp_events(
     MAX_GROUP_COUNT_SELECTED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_SELECTED_PER_DONATION",100)
 
     # sorting the events by donation and event id in order to have a replicable sample
-    donation_metadata_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
-    donation_to_d_dict = donation_metadata_df[("other","D_id")].to_dict()
+    #donation_metadata_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
+    #donation_to_d_dict = donation_metadata_df[("other","D_id")].to_dict()
 
-    the_df["D_id"] = the_df["D_donation_id"].map(donation_to_d_dict)
-    the_df = the_df.sort_values(by=["D_id","event_id"])
+    #the_df["D_id"] = the_df["D_donation_id"].map(donation_to_d_dict)
+    #the_df = the_df.sort_values(by=["D_id","event_id"])
 
 
     # Separate watch and non-watch events 
@@ -1584,7 +1584,7 @@ def simple_sample_ddp_events(
     combined = pd.concat([ddp_watch_events_in_selected_groups, ddp_nonwatch_events_in_selected_groups])
     if verbose:
         print(f"    [DD Sampling] Combining the (not sampled) non-watch events with the sampled watch events with : {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
-    combined.drop("D_id", axis=1, inplace=True)
+    combined.drop("D_id", axis=1, inplace=True, errors='ignore')
 
 
     enrichment_status_df = data_io.load_parquet(

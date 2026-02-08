@@ -721,22 +721,13 @@ def load_display_id_map():
         print(f"Error loading display id map: {e}")
     return mapping
 
+
 def get_study_donations(study):
     """
     Returns a list of unique donations present in the study dataset.
     Returns: [{ 'D_donation_id': '...', 'D_id': '...' }, ...]
     """
     try:
-        # Optimization: Only load necessary columns to avoid reading full dataset
-        # We can't know for sure if D_id exists without reading schema or checking, 
-        # but data_io.load_parquet handles missing columns gracefully if we ask for them?
-        # Actually data_io.load_parquet logic checks existing cols.
-        # So we can ask for both.
-        
-        # We also need to know if the file exists first, which logic inside data_io handles, 
-        # but get_explorer_data handles caching and other logic.
-        # However, get_explorer_data loads EVERYTHING.
-        # For just getting donations, we should bypass get_explorer_data if possible for speed.
         
         recoded_file = f"{study}_recoded.parquet"
         if data_io.exists(storage_location="cache", filename=recoded_file):
@@ -755,29 +746,19 @@ def get_study_donations(study):
             return []
         
         if 'D_donation_id' not in df.columns:
-            # Fallback if D_donation_id is missing? 
-            # It should be there for any valid study.
+            print(f"ERROR: D_donation_id not found in df for {study}")
             return []
 
         # Unique donations
-        # We need D_donation_id and D_id (if available)
-        cols_to_use = ['D_donation_id']
-        if 'D_id' in df.columns:
-            cols_to_use.append('D_id')
-            
-        donations = df[cols_to_use].drop_duplicates()
+        donations = df[['D_donation_id']].drop_duplicates()
         
         # Format for frontend
         result = []
         for _, row in donations.iterrows():
             item = {'D_donation_id': row['D_donation_id']}
-            if 'D_id' in row:
-                item['D_id'] = row['D_id']
-            else:
-                item['D_id'] = row['D_donation_id'] # Fallback
             result.append(item)
             
-        return sorted(result, key=lambda x: str(x.get('D_id', '')))
+        return sorted(result, key=lambda x: str(x.get('D_donation_id', '')))
         
     except Exception as e:
         print(f"Error getting study donations: {e}")

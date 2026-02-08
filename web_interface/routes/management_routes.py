@@ -432,24 +432,18 @@ def list_donations():
     if True:#try:
         # Load ddp_metadata from ddp_main
         if data_io.exists(storage_location="ddp_main", filename="ddp_metadata.parquet"):
-            # Load only needed columns
-            # Load using ignore_metadata to bypass list type errors
-            # Request D_id and possible raw multindex name "('other', 'D_id')"
             df = data_io.load_parquet(
                 storage_location="ddp_main", 
                 filename="ddp_metadata.parquet", 
-                #columns=["D_donation_id", "D_id", "('other', 'D_id')"], 
                 verbose=False,
             )
             
-
             # Filter for accepted donations
             if ('other', 'accepted') in df.columns:
                 df = df[df[('other', 'accepted')]]
             
-            donations = [f"D{u[2]:05} [{u[1]}]" for u in df[("other","D_id")].reset_index().to_records()]
+            donations = df.index.to_list()
             donations.sort()
-
 
             return jsonify(donations)
         else:

@@ -59,9 +59,9 @@ window.timelines = {
         const simpleList = this.donationList.filter(d => {
             if (!query) return true;
             // Search by D_donation_id or D_id
-            const did = (d.D_id || '').toLowerCase();
+            //const did = (d.D_id || '').toLowerCase();
             const ddon = (d.D_donation_id || '').toLowerCase();
-            return did.includes(query) || ddon.includes(query);
+            return ddon.includes(query);
         });
 
         if (simpleList.length === 0) {

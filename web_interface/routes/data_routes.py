@@ -34,7 +34,7 @@ def _enforce_study_donations(metadata, study):
         # Get authoritative list of donations for this study
         donations = get_study_donations(study)
         valid_donation_ids = set()
-        valid_ids = set()
+        #valid_ids = set()
         
         if not donations:
             print(f"    [Security] Warning: get_study_donations returned empty for {study}. Skipping filter enforcement.")
@@ -42,7 +42,7 @@ def _enforce_study_donations(metadata, study):
 
         for d in donations:
             if d.get('D_donation_id'): valid_donation_ids.add(str(d['D_donation_id']).strip())
-            if d.get('D_id'): valid_ids.add(str(d['D_id']).strip())
+            #if d.get('D_id'): valid_ids.add(str(d['D_id']).strip())
             
         if not valid_donation_ids:
              print(f"    [Security] Warning: No valid_donation_ids found for {study}. Skipping filter enforcement.")
@@ -65,7 +65,7 @@ def _enforce_study_donations(metadata, study):
                 
             metadata['D_donation_id']['values'] = filtered
 
-        if 'D_id' in metadata and 'values' in metadata['D_id']:
+        """if 'D_id' in metadata and 'values' in metadata['D_id']:
             original = metadata['D_id']['values']
             # Note: D_id might be mapped, so value is key
             filtered = [v for v in original if str(v['value']).strip() in valid_ids]
@@ -76,7 +76,7 @@ def _enforce_study_donations(metadata, study):
             elif len(original) != len(filtered):
                  print(f"    [Security] Filtered D_id for {study}: {len(original)} -> {len(filtered)}")
                  
-            metadata['D_id']['values'] = filtered
+            metadata['D_id']['values'] = filtered"""
             
     except Exception as e:
         print(f"    Error enforcing study donations: {e}")
@@ -260,7 +260,7 @@ def api_explorer_metadata():
             # Inject Display IDs (Cached Path)
             display_map = load_display_id_map()
             if display_map:
-                for col in ['D_donation_id', 'D_id']:
+                for col in ['D_donation_id']:#, 'D_id']:
                     if col in potential_metadata and potential_metadata[col].get('type') == 'category': 
                         if 'values' in potential_metadata[col]:
                             new_values = []
@@ -375,7 +375,7 @@ def api_explorer_metadata():
     # Inject Display IDs for ID Columns
     display_map = load_display_id_map()
     if display_map:
-        for col in ['D_donation_id', 'D_id']:
+        for col in ['D_donation_id']:#, 'D_id']:
             if col in metadata and metadata[col].get('type') == 'category': # IDs are often category/list in metadata
                 # Check values list
                 if 'values' in metadata[col]:
@@ -914,8 +914,8 @@ def api_persona_stats():
                 group, name = col
                 if group == 'other' and name == 'accepted':
                     col_name = 'accepted'
-                elif group == 'other' and name == 'D_id':
-                     col_name = 'D_id'
+                #elif group == 'other' and name == 'D_id':
+                #     col_name = 'D_id'
                 else:
                     col_name = name if name else group
 
@@ -927,8 +927,8 @@ def api_persona_stats():
                         group, name = val
                         if group == 'other' and name == 'accepted':
                             col_name = 'accepted'
-                        elif group == 'other' and name == 'D_id':
-                            col_name = 'D_id'
+                        #elif group == 'other' and name == 'D_id':
+                        #    col_name = 'D_id'
                         else:
                             col_name = name if name else group
                 except:
