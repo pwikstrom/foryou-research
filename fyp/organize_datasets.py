@@ -96,9 +96,12 @@ def load_study_datasets(
     elif "donations" in tutti_data:
         del tutti_data["donations"]
 
-    if tutti_data.get("donations", None) is None and tutti_data.get("zeeschuimer", None) is None:
+
+
+    if tutti_data.get("donations", pd.DataFrame()).empty and tutti_data.get("zeeschuimer", pd.DataFrame()).empty:
         print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
         return None
+
 
     # --------------------------------------------------------------------
     # sample donation data
@@ -136,6 +139,9 @@ def load_study_datasets(
             all_ddp_events_df = sample_frame, 
             verbose = verbose)
 
+    if tutti_data.get("donations", pd.DataFrame()).empty and tutti_data.get("zeeschuimer", pd.DataFrame()).empty:
+        print(f"!!! [Core datasets] Sampling resulted in empty datasets for study definition '{study_name}'. Returning None")
+        return None
 
 
 
@@ -196,9 +202,13 @@ def load_study_datasets(
 
 
     if verbose:
-        print("    [Core datasets] Datasets:")
-        dataset_info = "\n    [Core datasets] - ".join([f"'{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)" for k in tutti_data])
-        print(f"    [Core datasets] - {dataset_info}")
+        if tutti_data is None:
+            print("    [Core datasets] - None")
+        else:
+            print("    [Core datasets] Datasets:")
+            for k in tutti_data:
+                if tutti_data[k] is not None:
+                    print(f"    [Core datasets] - '{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)")
 
 
     print(f"...done. Core datasets loaded for study '{study_name}'")
@@ -309,9 +319,13 @@ def load_donation_datasets(
 
 
     if verbose:
-        print("    [Core datasets] Datasets:")
-        dataset_info = "\n    [Core datasets] - ".join([f"'{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)" for k in tutti_data])
-        print(f"    [Core datasets] - {dataset_info}")
+        if tutti_data is None:
+            print("    [Core datasets] - None")
+        else:
+            print("    [Core datasets] Datasets:")
+            for k in tutti_data:
+                if tutti_data[k] is not None:
+                    print(f"    [Core datasets] - '{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)")
 
 
     print(f"...done. Core datasets loaded for donation '{donation_id}'")
@@ -703,22 +717,26 @@ def new_merge(
 
     if all_datasets is None:
         raise ValueError("all_datasets must be specified")
+    
+    for k in all_datasets.keys():
+        if all_datasets[k] is None:
+            print(f"all_datasets['{k}'] is None")
 
 
-    if 'scrape' in all_datasets and 'machine_annotations' in all_datasets:
+    if all_datasets.get('scrape',None) is not None and all_datasets.get('machine_annotations',None) is not None:
         enriched_data = pd.merge(left=all_datasets['scrape'], right=all_datasets['machine_annotations'], on='item_id', how='left')
-    elif 'scrape' in all_datasets and 'machine_annotations' not in all_datasets:
+    elif all_datasets.get('scrape',None) is not None and all_datasets.get('machine_annotations',None) is None:
         enriched_data = all_datasets['scrape']
-    elif 'machine_annotations' in all_datasets and 'scrape' not in all_datasets:
+    elif all_datasets.get('machine_annotations',None) is not None and all_datasets.get('scrape',None) is None:
         enriched_data = all_datasets['machine_annotations']
     else:
         enriched_data = pd.DataFrame()        
     
-    if 'donations' in all_datasets and 'zeeschuimer' in all_datasets:
+    if all_datasets.get('donations',None) is not None and all_datasets.get('zeeschuimer',None) is not None:
         activity_data = pd.concat([all_datasets['donations'], all_datasets['zeeschuimer']], ignore_index=True)
-    elif 'donations' in all_datasets and 'zeeschuimer' not in all_datasets:
+    elif all_datasets.get('donations',None) is not None and all_datasets.get('zeeschuimer',None) is None:
         activity_data = all_datasets['donations']
-    elif 'zeeschuimer' in all_datasets and 'donations' not in all_datasets:
+    elif all_datasets.get('zeeschuimer',None) is not None and all_datasets.get('donations',None) is None:
         activity_data = all_datasets['zeeschuimer']
     else:
         activity_data = pd.DataFrame()

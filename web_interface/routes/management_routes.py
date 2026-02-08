@@ -42,7 +42,13 @@ def _calculate_stats(study_config, save_to_cache=True):
                  df_study = df_study[["item_id", "D_donation_id"]]
         
         if df_study is None or df_study.empty:
-             return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_donations": 0}
+            print(f"No data found for study '{study_name}'. Removing all cached files for this study.")
+            data_io.remove(storage_location="cache", filename=f"{study_name}_recoded.parquet")
+            data_io.remove(storage_location="cache", filename=f"{study_name}_explorer_metadata.json")
+            data_io.remove(storage_location="cache", filename=f"{study_name}_viewer_metadata.json")
+            data_io.remove(storage_location="cache", filename=f"{study_name}_comp_interpretations.json")
+            data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
+            return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_donations": 0}
 
         # 2. Count Unique Donations
         unique_donations = df_study['D_donation_id'].nunique()
@@ -146,7 +152,7 @@ def list_studies():
         else:
             # Check USER_ACCESS for this study
             user_access = config.get("USER_ACCESS", [])
-            # user_access should be a list of ROLES (e.g. ['viewer', 'researcher']) or ['all']
+            # user_access should be a list of ROLES (e.g. ['viewer', 'researcher', 'student']) or ['all']
             if isinstance(user_access, list) and (current_user.role in user_access or 'all' in user_access):
                 studies_list.append(config)
         
@@ -163,7 +169,7 @@ def list_studies():
 def save_study():
     global fyp_cf
 
-    if not (current_user.is_admin() or current_user.role == 'researcher'):
+    if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
 
     data = request.json
@@ -192,13 +198,13 @@ def save_study():
 
             if key not in existing_config or existing_config[key] != value:
                 changed_keys.append(key)
-                print(f"Change detected in {key}: {existing_config.get(key)} -> {value}") # Debug
+                #print(f"Change detected in {key}: {existing_config.get(key)} -> {value}") # Debug
         
         if not changed_keys:
              # If exact same definition, return early
              return jsonify({"status": "no_change", "message": "No changes to save."})
 
-        # OPTIMIZATION: If only USER_ACCESS changed, we don't need to recalculate anything
+        # If only USER_ACCESS changed, we don't need to recalculate anything
         if len(changed_keys) == 1 and changed_keys[0] == 'USER_ACCESS':
             print(f"Only USER_ACCESS changed for {study_name}. Saving without recalculation.")
             studies[study_name]['USER_ACCESS'] = data['USER_ACCESS']
@@ -221,24 +227,20 @@ def save_study():
     studies[study_name].pop('REFRESH_PCA', None)
     studies[study_name].pop('REFRESH_METADATA', None)
 
-    # this is first save to make sure that the study is saved properly if read by other processes
-    #data_io.save_json(data=studies, storage_location="studies", filename=study_defs_fn, verbose=True)
+    # Update in-memory config before calculating stats
     fyp_cf['study_defs'] = studies
     
-    
-
     # Calculate Stats
     print(f"Calculating stats for {study_name}...")
     stats = _calculate_stats(studies[study_name], save_to_cache=True)
     studies[study_name]['stats'] = stats
     studies[study_name]['last_updated'] = datetime.now().isoformat()
     
-    # Save 
-    #data_io.save_json(data=studies, storage_location="studies", filename=study_defs_fn, verbose=True)
     
-    # Update in-memory config if possible (optional but good for consistency)
+    # Update in-memory config again (optional but good for consistency)
     fyp_cf['study_defs'] = studies
     save_study_defs()
+
 
 
     refresh_pca = refresh_pca_flag
@@ -251,7 +253,7 @@ def save_study():
     if data_io.exists(storage_location="cache", filename=f"{study_name}_PCA.parquet"):
         data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
 
-    if refresh_pca:
+    if refresh_pca and stats['annotated_videos'] > 0:
         calculate_scaled_pca_scores(study_name=study_name, load_from_cache=True, save_to_cache=True)
 
 
@@ -278,7 +280,7 @@ def save_study():
             except KeyError:
                 pass
 
-    if refresh_explorer_metadata:
+    if refresh_explorer_metadata and stats['unique_videos'] > 0:
 
         # --- Refresh Metadata (Viewer & Explorer) ---
         print(f"Loading fresh data for {study_name} to generate metadata...")
@@ -344,7 +346,7 @@ def calculate_study_stats():
     """
     global fyp_cf
     
-    if not (current_user.is_admin() or current_user.role == 'researcher'):
+    if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
 
     data = request.json
@@ -437,6 +439,10 @@ def list_donations():
             )
             
 
+            # Filter for accepted donations
+            if ('other', 'accepted') in df.columns:
+                df = df[df[('other', 'accepted')]]
+            
             donations = [f"D{u[2]:05} [{u[1]}]" for u in df[("other","D_id")].reset_index().to_records()]
             donations.sort()
 
@@ -510,7 +516,7 @@ def get_enrichment_stats():
 @management_bp.route('/api/manage/enrichment/empty_queues', methods=['POST'])
 @login_required
 def empty_enrichment_queues():
-    if not (current_user.is_admin() or current_user.role == 'researcher'):
+    if not (current_user.is_admin()):
         return jsonify({"error": "Unauthorized"}), 403
         
     try:
@@ -542,7 +548,7 @@ def reload_schema():
 @management_bp.route('/api/manage/inter_coder_reliability', methods=['GET'])
 @login_required
 def get_inter_coder_reliability():
-    if not (current_user.is_admin() or current_user.role == 'researcher'):
+    if not (current_user.is_admin()):
         return jsonify({"error": "Unauthorized"}), 403
     
     try:

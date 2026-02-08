@@ -54,36 +54,45 @@ def api_get_study_defs():
         for study_name, study_config in fyp_cf['study_defs'].items():
             # 1. Admin Override: Admins see everything
             if current_user.is_admin():
-                studies.append(study_name)
-                continue
+                has_access = True
 
-            user_access = study_config.get('USER_ACCESS')
+            else:
+                user_access = study_config.get('USER_ACCESS')
 
-            # 2. Missing or Empty => Default Allow (Backward Compatibility)
-            if not user_access:
-                studies.append(study_name)
-                continue
+                # 2. Missing or Empty => Default Allow (Backward Compatibility)
+                if not user_access:
+                    has_access = True
 
-            # Ensure it is a list for subsequent checks
-            if not isinstance(user_access, list):
-                # Should not happen given TOML encoding but safe fallback
-                studies.append(study_name)
-                continue
+                # Ensure it is a list for subsequent checks
+                elif not isinstance(user_access, list):
+                    # Should not happen given TOML encoding but safe fallback
+                    has_access = True
 
-            # 3. 'all' keyword
-            if 'all' in user_access:
-                studies.append(study_name)
-                continue
+                # 3. 'all' keyword
+                elif 'all' in user_access:
+                    has_access = True
 
-            # 4. Role Match
-            if current_user.role in user_access:
-                studies.append(study_name)
-                continue
+                # 4. Role Match
+                elif current_user.role in user_access:
+                    has_access = True
 
-            # 5. Username Match
-            if current_user.username in user_access:
+                # 5. Username Match
+                elif current_user.username in user_access:
+                    has_access = True
+
+            if has_access:
+                # Data Integrity Checks
+                # 1. Check if recoded parquet exists in cache
+                if not data_io.exists(storage_location="cache", filename=f"{study_name}_recoded.parquet"):
+                    continue
+                
+                # 2. Check unique videos count
+                # Requirement: Ensure the dataset has more than 0 unique videos.
+                stats = study_config.get('stats', {})
+                if stats.get('unique_videos', 0) <= 0:
+                    continue
+
                 studies.append(study_name)
-                continue
                 
         return jsonify(sorted(studies))
     return jsonify([])

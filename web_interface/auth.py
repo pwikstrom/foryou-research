@@ -9,8 +9,6 @@ from pathlib import Path
 import logging
 import fyp.data_io as data_io
 
-
-
 logger = logging.getLogger(__name__)
 
 # --- Role Definitions ---
@@ -18,7 +16,85 @@ ROLE_ADMIN = "admin"
 ROLE_RESEARCHER = "researcher" 
 ROLE_VIEWER = "viewer"
 
-ROLES = [ROLE_ADMIN, ROLE_RESEARCHER, ROLE_VIEWER]
+# --- Role Manager ---
+
+class RoleManager:
+    def __init__(self, storage_location="users"):
+        self.storage_location = storage_location
+        self.roles = []
+        self.filename = "roles.json"
+        
+        self.load_roles()
+        
+    def load_roles(self):
+        """Loads roles from roles.json."""
+        if data_io.exists(storage_location=self.storage_location, filename=self.filename):
+            loaded_roles = data_io.load_json(storage_location=self.storage_location, filename=self.filename)
+            if isinstance(loaded_roles, list):
+                self.roles = loaded_roles
+            else:
+                logger.warning(f"Invalid format for {self.filename}, expected list. Resetting to defaults.")
+                self.roles = []
+        else:
+            self.roles = []
+            
+        # Ensure default roles exist
+        self._ensure_defaults()
+
+    def _ensure_defaults(self):
+        defaults = ["admin", "researcher", "viewer"]
+        changed = False
+        for r in defaults:
+            if r not in self.roles:
+                self.roles.append(r)
+                changed = True
+        
+        if changed:
+            self.save_roles()
+
+    def save_roles(self):
+        """Saves roles to roles.json."""
+        try:
+            data_io.save_json(data=self.roles, storage_location=self.storage_location, filename=self.filename)
+        except Exception as e:
+            logger.error(f"Failed to save roles: {e}")
+
+    def get_roles(self):
+        return self.roles
+
+    def add_role(self, role_name):
+        if role_name in self.roles:
+            return False, "Role already exists"
+        self.roles.append(role_name)
+        self.save_roles()
+        return True, "Role added"
+
+    def delete_role(self, role_name, user_manager_instance):
+        if role_name == ROLE_ADMIN:
+            return False, "Cannot delete admin role"
+            
+        if role_name not in self.roles:
+            return False, "Role not found"
+            
+        # Check if any users have this role
+        # We need the user_manager instance here. 
+        # Since RoleManager is initialized before UserManager, we pass it in or dependency inject.
+        # Here we pass it as argument.
+        for u in user_manager_instance.users.values():
+            if u.role == role_name:
+                return False, f"Cannot delete role '{role_name}' because it is assigned to user '{u.username}'"
+
+        self.roles.remove(role_name)
+        self.save_roles()
+        return True, "Role deleted"
+
+    def role_exists(self, role_name):
+        return role_name in self.roles
+
+
+# Initialize Role Manager
+role_manager = RoleManager(storage_location="users")
+
 
 # --- Password Hashing Helpers ---
 
@@ -111,10 +187,9 @@ class UserManager:
                     # 2. Build new user object structure
                     new_user_data = {
                         "username": user_data.get('username', username),
-                        "role": user_data.get('role', ROLE_VIEWER),
+                        "role": user_data.get('role', 'viewer'), # Default to viewer if missing
                         "password_hash": user_data.get('password_hash'),
                         "approved": user_data.get('approved', True),
-                        "last_login": user_data.get('last_login'),
                         "last_login": user_data.get('last_login'),
                         "settings": user_data.get('settings', {})
                     }
@@ -169,7 +244,7 @@ class UserManager:
         try:
             # 1. List all .json files in users directory
             files = data_io.listdir(storage_location=self.storage_location, return_absolute_path=False)
-            json_files = [f for f in files if f.endswith('.json') and not f.endswith('_tags.json')]
+            json_files = [f for f in files if f.endswith('.json') and not f.endswith('_tags.json') and f != "roles.json"]
             
             for f in json_files:
                 try:
@@ -178,7 +253,7 @@ class UserManager:
                         username = user_data['username']
                         self.users[username] = User(
                             username=username,
-                            role=user_data.get('role', ROLE_VIEWER),
+                            role=user_data.get('role', 'viewer'),
                             password_hash=user_data.get('password_hash'),
                             approved=user_data.get('approved', True),
                             last_login=user_data.get('last_login'),
@@ -218,7 +293,7 @@ class UserManager:
         return self.users.get(user_id)
 
     def add_user(self, username, password, role, approved=False):
-        if role not in ROLES:
+        if not role_manager.role_exists(role):
             return False, "Invalid role"
         
         if username in self.users:
@@ -248,31 +323,23 @@ class UserManager:
         del self.users[username]
         # Also delete the file? Or keep as archive? Usually delete.
         filename = f"{username}.json"
-        # We can implement delete in data_io but it might not be exposed. 
-        # For now, just removing from memory effectively bans them until reload, but file persists.
-        # Ideally: data_io.delete(storage_location=..., filename=...)
-        # Since we don't have delete exposed, we rely on removing from self.users.
-        # Wait, if we reload, they come back! We MUST delete or rename the file.
-        # Assuming we can't delete easily, we should mark as deleted in the file? 
-        # Or just empty the file content?
-        # Let's save an empty dict or a dict with disabled flag.
-        # Better: try to use os.remove directly if local? data_io abstracts this.
-        # Let's write a file with "deleted": True and filter in load_users.
         
-        # Actually, let's just save the file with a flag and handle it in load_users or overwrite with garbage?
-        # A simple approach: save an empty file or specific "deleted" marker.
+        # Ideally: data_io.delete(storage_location=..., filename=...)
+        # Since we don't have delete exposed in data_io consistently/easily for all backends (though we do have remove),
+        # we try to use data_io.remove
         try:
-           # Overwrite with empty object or specific marker
-           # But load_users checks 'username' key. If we save {}, it won't load. Correct.
-           data_io.save_json(data={}, storage_location=self.storage_location, filename=filename)
-        except:
-           pass
+            if data_io.exists(storage_location=self.storage_location, filename=filename):
+                data_io.remove(storage_location=self.storage_location, filename=filename)
+                logger.info(f"Removed user file {filename}")
+        except Exception as e:
+            logger.error(f"Failed to remove user file {filename}: {e}")
+            
         return True, "User deleted"
     
     def update_user_role(self, username, new_role):
         if username not in self.users:
             return False, "User not found"
-        if new_role not in ROLES:
+        if not role_manager.role_exists(new_role):
             return False, "Invalid role"
             
         # Prevent demoting the last admin
@@ -338,6 +405,11 @@ def role_required(roles):
             if not current_user.is_authenticated:
                 return current_app.login_manager.unauthorized()
             
+            # Allow admin to access everything
+            if current_user.is_admin():
+                return f(*args, **kwargs)
+
+            # Check if user's role is in the allowed list
             if current_user.role not in roles:
                  abort(403) # Forbidden
                  
@@ -348,5 +420,10 @@ def role_required(roles):
 def admin_required(f):
     return role_required([ROLE_ADMIN])(f)
 
+
 def researcher_required(f):
-    return role_required([ROLE_ADMIN, ROLE_RESEARCHER])(f)
+    # FALLBACK/DEPRECATED: We enforce Admin only for things that were "Researcher" level management tasks,
+    # OR we allow "Researcher" role users to pass if we really want to keep some distinction,
+    # but the instructions say simplify.
+    # Let's make it strict Admin for now to satisfy "creating new studies etc... simplify things".
+    return role_required([ROLE_ADMIN])(f)

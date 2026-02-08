@@ -18,6 +18,32 @@
             </div>
         </div>
 
+        <!-- Role Management Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('role-mgmt-content', 'role-mgmt-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
+                <span id="role-mgmt-arrow"
+                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                <h2 style="margin: 0;">Role Management</h2>
+            </div>
+            <div id="role-mgmt-content" style="padding: 0 20px 20px 20px;">
+                <div style="margin-bottom: 16px;">
+                    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+                        <input type="text" id="newRoleName" placeholder="New Role Name"
+                            style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 200px; background: #3c3c3c; color: #d4d4d4;">
+                        <button onclick="addRole()"
+                            style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                            Add Role
+                        </button>
+                    </div>
+                </div>
+                <div id="roleList" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <!-- Populated dynamically -->
+                    <div style="color: #888; font-style: italic;">Loading roles...</div>
+                </div>
+            </div>
+        </div>
+
         <!-- User Administration Section -->
         <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
             <div onclick="toggleSection('user-admin-content', 'user-admin-arrow')"
@@ -66,9 +92,7 @@
                                 style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Role</label>
                             <select id="newRole"
                                 style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 150px; background: #3c3c3c; color: #d4d4d4;">
-                                <option value="viewer">Viewer</option>
-                                <option value="researcher">Researcher</option>
-                                <option value="admin">Admin</option>
+                                <!-- Populated dynamically -->
                             </select>
                         </div>
                         <button onclick="addUser()"
@@ -303,6 +327,9 @@
                 loadAnnotations();
             }
 
+            // Also load roles if we haven't already or to refresh
+            loadRoles();
+
         } catch (error) {
             console.error('Error:', error);
             alert('Error loading users: ' + error.message);
@@ -379,11 +406,9 @@
             </td>
             <td style="padding: 12px 16px; text-align: right;">
                  <button onclick="resetPassword('${user.username}')" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 12px;">Reset Pwd</button>
-                 <select onchange="updateRole('${user.username}', this.value)" style="padding: 4px; border: 1px solid #555; background: #3c3c3c; color: #d4d4d4; border-radius: 4px; margin-right: 8px; font-size: 12px;">
-                    <option value="" disabled selected>Change Role</option>
-                    <option value="viewer">Viewer</option>
-                    <option value="researcher">Researcher</option>
-                    <option value="admin">Admin</option>
+                 <select onchange="updateRole('${user.username}', this.value)" class="role-select" data-current-role="${user.role}"
+                    style="padding: 4px; border: 1px solid #555; background: #3c3c3c; color: #d4d4d4; border-radius: 4px; margin-right: 8px; font-size: 12px;">
+                    <!-- Populated dynamically -->
                 </select>
                 <button onclick="deleteUser('${user.username}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button>
             </td>
@@ -407,6 +432,16 @@
              </td>
         </tr>
     `}).join('');
+
+        // After rendering users, populate their role dropdowns
+        if (window.availableRoles) {
+            users.forEach(u => {
+                const select = document.querySelector(`select[onchange="updateRole('${u.username}', this.value)"]`);
+                if (select) {
+                    populateRoleSelect(select, window.availableRoles, u.role);
+                }
+            });
+        }
     }
 
     function toggleTags(username) {
@@ -717,4 +752,99 @@
         if (k >= 0.2) return '#d97706'; // Fair
         return '#ef4444'; // Poor
     }
+
+    // --- Role Management ---
+
+    async function loadRoles() {
+        try {
+            const response = await fetch('/api/admin/roles');
+            if (!response.ok) throw new Error("Failed to load roles");
+            const roles = await response.json();
+            window.availableRoles = roles; // Store globally regarding this scope
+            renderRoles(roles);
+            updateRoleSelects(roles);
+        } catch (e) {
+            console.error(e);
+            alert("Error loading roles: " + e.message);
+        }
+    }
+
+    function renderRoles(roles) {
+        const container = document.getElementById('roleList');
+        if (!container) return;
+
+        container.innerHTML = roles.map(role => `
+            <div style="background: #3e3e42; padding: 6px 12px; border-radius: 20px; color: #d4d4d4; display: flex; align-items: center; gap: 8px; border: 1px solid #555;">
+                <span>${role}</span>
+                ${role !== 'admin' ?
+                `<span onclick="deleteRole('${role}')" style="cursor: pointer; color: #ef4444; font-weight: bold; font-size: 16px; line-height: 1;">&times;</span>`
+                : ''}
+            </div>
+        `).join('');
+    }
+
+    function updateRoleSelects(roles) {
+        // Update "New User" select
+        const newRoleSelect = document.getElementById('newRole');
+        if (newRoleSelect) {
+            populateRoleSelect(newRoleSelect, roles, 'viewer');
+        }
+
+        // Update existing users dropdowns if already rendered
+        const userSelects = document.querySelectorAll('.role-select');
+        userSelects.forEach(sel => {
+            const currentRole = sel.getAttribute('data-current-role');
+            populateRoleSelect(sel, roles, currentRole);
+        });
+    }
+
+    function populateRoleSelect(select, roles, current = null) {
+        select.innerHTML = roles.map(r =>
+            `<option value="${r}" ${r === current ? 'selected' : ''}>${r.charAt(0).toUpperCase() + r.slice(1)}</option>`
+        ).join('');
+    }
+
+    async function addRole() {
+        const nameInput = document.getElementById('newRoleName');
+        const roleName = nameInput.value.trim();
+        if (!roleName) return;
+
+        try {
+            const response = await fetch('/api/admin/roles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role_name: roleName })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || "Failed");
+            }
+
+            nameInput.value = '';
+            loadRoles();
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+
+    async function deleteRole(roleName) {
+        if (!confirm(`Are you sure you want to delete role '${roleName}'?`)) return;
+
+        try {
+            const response = await fetch(`/api/admin/roles?role_name=${encodeURIComponent(roleName)}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || "Failed");
+            }
+
+            loadRoles();
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+
 </script>

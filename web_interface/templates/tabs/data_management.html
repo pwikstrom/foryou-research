@@ -248,14 +248,7 @@
                     <div class="form-group-row" style="align-items: flex-start;">
                         <label title="User Access List">USER_ACCESS <i class="info-icon">ℹ️</i></label>
                         <div class="checkbox-group" data-field-group="USER_ACCESS" style="text-align: right;">
-                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="admin" {%
-                                    if current_user.role=='viewer' %}disabled{% endif %}>
-                                Admin</label>
-                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="researcher"
-                                    {% if current_user.role=='viewer' %}disabled{% endif %}> Researcher</label>
-                            <label style="display: block; margin-bottom: 5px;"><input type="checkbox" value="viewer" {%
-                                    if current_user.role=='viewer' %}disabled{% endif %}>
-                                Viewer</label>
+                            <div class="dynamic-roles-container">Loading roles...</div>
                         </div>
                     </div>
                 </div>
@@ -368,7 +361,7 @@
             </style>
 
             <div style="margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
-                {% if current_user.is_admin() or current_user.role == 'researcher' %}
+                {% if current_user.is_admin() %}
                 <div style="display: flex; gap: 10px;">
                     <div style="display: flex; flex-direction: column; align-items: flex-start;">
                         <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Study

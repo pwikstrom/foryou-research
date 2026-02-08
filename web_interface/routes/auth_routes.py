@@ -227,12 +227,39 @@ def api_admin_users():
 
         return jsonify({"error": "Invalid action"}), 400
 
-    elif request.method == 'DELETE':
-        username = request.args.get('username')
-        if not username:
-             return jsonify({"error": "Missing username"}), 400
-             
         success, msg = user_manager.delete_user(username)
+        if success:
+             return jsonify({"status": "success", "message": msg})
+        else:
+             return jsonify({"error": msg}), 400
+
+@auth_bp.route('/api/admin/roles', methods=['GET', 'POST', 'DELETE'])
+@auth.admin_required
+def api_admin_roles():
+    if request.method == 'GET':
+        return jsonify(auth.role_manager.get_roles())
+        
+    elif request.method == 'POST':
+        data = request.json
+        role_name = data.get('role_name')
+        if not role_name:
+             return jsonify({"error": "Missing role name"}), 400
+             
+        # sanitization?
+        role_name = role_name.strip().lower()
+        
+        success, msg = auth.role_manager.add_role(role_name)
+        if success:
+             return jsonify({"status": "success", "message": msg})
+        else:
+             return jsonify({"error": msg}), 400
+             
+    elif request.method == 'DELETE':
+        role_name = request.args.get('role_name')
+        if not role_name:
+             return jsonify({"error": "Missing role name"}), 400
+             
+        success, msg = auth.role_manager.delete_role(role_name, user_manager)
         if success:
              return jsonify({"status": "success", "message": msg})
         else:

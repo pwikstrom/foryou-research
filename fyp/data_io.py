@@ -312,6 +312,8 @@ def remove(storage_location: str = "cache", filename: str = "", verbose: bool = 
         if os.path.exists(primary):
             os.remove(primary)
             if verbose: print(f"    [DATA_IO] Removed local file '{primary}'")
+        else:
+            if verbose: print(f"    [DATA_IO] File '{primary}' not found in local storage")
 
 
 

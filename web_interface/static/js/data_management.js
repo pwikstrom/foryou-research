@@ -34,6 +34,18 @@ function loadAvailableDonations() {
         });
 }
 
+// Global cache for roles
+let systemRoles = [];
+
+function loadSystemRoles() {
+    fetch('/api/admin/roles')
+        .then(res => res.json())
+        .then(data => {
+            systemRoles = data;
+        })
+        .catch(err => console.error("Error loading roles:", err));
+}
+
 // --------------------------------------------------------------------------
 // Donation Selector Helper Logic
 // --------------------------------------------------------------------------
@@ -286,30 +298,46 @@ function populateForm(row, study) {
     // 2. Checkbox Groups (USER_ACCESS)
     const groups = row.querySelectorAll('[data-field-group]');
     groups.forEach(group => {
-        const field = group.dataset.fieldGroup;
-        const currentList = study[field] || []; // e.g. ["admin", "researcher"] or ["all"]
+        const field = group.dataset.fieldGroup; // USER_ACCESS
+        const currentList = study[field] || []; // e.g. ["admin", "viewer"]
+        const container = group.querySelector('.dynamic-roles-container');
 
-        const checkboxes = group.querySelectorAll('input[type="checkbox"]');
-        checkboxes.forEach(chk => {
-            // FORCE ADMIN TO BE STATIC
-            if (chk.value === 'admin') {
-                chk.checked = true;
-                chk.disabled = true;
-                // Add visual cue
-                chk.parentElement.style.opacity = '0.6';
-                chk.parentElement.title = "Admin access is mandatory";
-                return;
-            }
+        if (field === 'USER_ACCESS' && container) {
+            // Render dynamic roles
+            container.innerHTML = '';
 
-            // Logic: if currentList has 'all', check everything (or specific logic)
-            // If chk.value is in currentList, check it.
+            // Ensure admin is always present and handled even if not in systemRoles fetch yet (race condition)
+            // But systemRoles should be loaded.
+            const rolesToRender = systemRoles.length > 0 ? systemRoles : ['admin', 'researcher', 'viewer'];
 
-            if (currentList.includes('all')) {
-                chk.checked = true;
-            } else {
-                chk.checked = currentList.includes(chk.value);
-            }
-        });
+            rolesToRender.forEach(role => {
+                const label = document.createElement('label');
+                label.style.display = 'block';
+                label.style.marginBottom = '5px';
+
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.value = role;
+
+                // Admin logic
+                if (role === 'admin') {
+                    cb.checked = true;
+                    cb.disabled = true;
+                    label.style.opacity = '0.6';
+                    label.title = "Admin access is mandatory";
+                } else {
+                    if (currentList.includes('all')) {
+                        cb.checked = true;
+                    } else {
+                        cb.checked = currentList.includes(role);
+                    }
+                }
+
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(" " + role.charAt(0).toUpperCase() + role.slice(1)));
+                container.appendChild(label);
+            });
+        }
     });
 
     // 3. Stats Display
@@ -657,7 +685,10 @@ const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribut
 // main.js usually handles tab switching. We can add to the tab onclick or just load once.
 // Let's rely on explicit call or just run it:
 // Load donations FIRST, then studies to ensure selector populates correctly
+// Load donations FIRST, then studies
 loadAvailableDonations();
+// Also load roles
+loadSystemRoles();
 
 // --- Enrichment Stats ---
 

@@ -1529,7 +1529,8 @@ def simple_sample_ddp_events(
     ddp_watch_events_within_agg_group_size_limits = _filter_and_sample(all_watch_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED)
     if verbose:
         sample_size = len(ddp_watch_events_within_agg_group_size_limits)
-        print(f"    [DD Sampling] Watch events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+        if sample_frame_size > 0:
+            print(f"    [DD Sampling] Watch events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     # build a df with unique pairs of the two group factors
     unique_group_factor_pairs = ddp_watch_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
@@ -1553,7 +1554,8 @@ def simple_sample_ddp_events(
     ddp_watch_events_in_selected_groups = ddp_watch_events_in_selected_groups.reset_index()
     if verbose:
         sample_size = len(ddp_watch_events_in_selected_groups)
-        print(f"    [DD Sampling] Watch events remaining in the sampled groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+        if sample_frame_size > 0:
+            print(f"    [DD Sampling] Watch events remaining in the sampled groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     # ----------------------------------------------------------------------
     # find the non-watch events in the selected groups - note that since the non-watch events are not
@@ -1600,7 +1602,10 @@ def simple_sample_ddp_events(
     print(f"    [DD Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     print(f"    [DD Sampling] - Unique videos: {len(combined_deduped_enrichment_status):,}")
     for k in enrichment_summary:
-        print(f"    [DD Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k]/len(combined_deduped_enrichment_status):.0%})")
+        if len(combined_deduped_enrichment_status) > 0:
+            print(f"    [DD Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k]/len(combined_deduped_enrichment_status):.0%})")
+        else:
+            print(f"    [DD Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} (N/A)")
 
     return combined
 
