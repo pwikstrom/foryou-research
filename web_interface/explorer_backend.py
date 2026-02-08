@@ -1,7 +1,8 @@
 import pandas as pd
-import ast
+
 import numpy as np
 import fyp.data_io as data_io
+from fyp.fyp_config import fyp_cf
 
 
 
@@ -466,6 +467,8 @@ def get_current_stats_old(df, column_types, viz_config=None):
 
 
 
+
+
 def make_serializable(obj):
     """Helper to convert non-JSON-serializable types."""
     from datetime import datetime
@@ -499,34 +502,27 @@ def make_serializable(obj):
     return obj
 
 
-def load_data(fyp_cf, study, verbose=False):
-    from numpy import ndarray as np_ndarray
+def load_data(study: str, verbose: bool = False):
+    import pyarrow as pa
     from fyp.organize_datasets import create_study_recoded_dataset
 
     if verbose:
-        print("    Loading study data for viewer and explorer...")
+        print("    Loading study data for viewer/explorer...")
     df = None
 
-    if data_io.exists(
+    if not data_io.exists(
         storage_location = "cache",
         filename = f"{study}_recoded.parquet",
         verbose=verbose
         ):
-        df = data_io.load_parquet(
-            storage_location="cache",
-            filename=f"{study}_recoded.parquet",
-            verbose=verbose,
-            )
-    else:
-        if verbose:
-            print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
+        print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
         df = create_study_recoded_dataset(
             study_name = study,
             save_to_cache=True,
             verbose = verbose
         )
-        if verbose:
-            print("@@ Back after finalising the recoding process. I will now resume loading the data. (#606)")
+        print("@@ Back after finalising the recoding process.")
+    else:
         df = data_io.load_parquet(
             storage_location="cache",
             filename=f"{study}_recoded.parquet",
@@ -540,46 +536,40 @@ def load_data(fyp_cf, study, verbose=False):
     
     column_types = {}
     
-    # Bulk type inspection
+    # Bulk type inspection based on Parquet/Arrow Schema
     for col in df.columns:
         dtype = df[col].dtype
-        is_list = False
-        is_bool = pd.api.types.is_bool_dtype(dtype)
-        is_numeric = pd.api.types.is_numeric_dtype(dtype) and not is_bool
         
-        if not is_numeric:
-            # Check for actual lists
-            if isinstance(dtype, pd.ArrowDtype) and 'list' in str(dtype):
-                 is_list = True
-            
-            if not is_list:
-                # Heuristic: Check first valid value
-                first_idx = df[col].first_valid_index()
-                if first_idx is not None:
-                    first_val = df[col].loc[first_idx]
-                    
-                    # Robust check using serialization helper
-                    # This handles numpy arrays, pyarrow scalars that act like lists, etc.
-                    check_val = make_serializable(first_val)
-                    
-                    if isinstance(check_val, list):
-                        is_list = True
-                    #elif isinstance(first_val, (list, np_ndarray)):
-                    #    is_list = True
-                    elif isinstance(first_val, str):
-                        s_val = first_val.strip()
-                        if s_val.startswith('[') and s_val.endswith(']'):
-                           try: 
-                               # Convert to object to use python apply? or string accessor?
-                               # Only apply if it actually looks like a list
-                               df[col] = df[col].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) and x.strip().startswith('[') else (x if isinstance(x, (list, np_ndarray)) else []))
-                               is_list = True
-                           except:
-                               pass
-
+        # 1. Check for Lists (List, LargeList, FixedSizeList)
+        is_list = False
+        if isinstance(dtype, pd.ArrowDtype):
+            pa_type = dtype.pyarrow_dtype
+            if (pa.types.is_list(pa_type) or 
+                pa.types.is_large_list(pa_type) or 
+                pa.types.is_fixed_size_list(pa_type)):
+                is_list = True
+        
         if is_list:
             column_types[col] = "list"
             continue
+
+        # 2. Check for Numbers (Integers, Floats)
+        # We explicitly exclude booleans from "number" to treat them as categorical/other
+        is_numeric = False
+        is_bool = False
+
+        if isinstance(dtype, pd.ArrowDtype):
+            pa_type = dtype.pyarrow_dtype
+            if pa.types.is_boolean(pa_type):
+                is_bool = True
+            elif pa.types.is_integer(pa_type) or pa.types.is_floating(pa_type):
+                is_numeric = True
+        else:
+            # Fallback for numpy dtypes (though we expect Arrow)
+            if pd.api.types.is_bool_dtype(dtype):
+                is_bool = True
+            elif pd.api.types.is_numeric_dtype(dtype):
+                is_numeric = True
 
         if is_numeric:
              try:
@@ -594,12 +584,16 @@ def load_data(fyp_cf, study, verbose=False):
                  column_types[col] = "number"
              continue
         
+        # 3. Strings / Categories
+        # Boolean also falls through here to be treated as category (heuristic)
+        
         # Check for Long Text / Category / Identifier
+        # We still use data-based heuristics for this distinction as Arrow string type is generic
         series_sample = df[col].dropna()
         if len(series_sample) > 1000:
             series_sample = series_sample.head(1000)
             
-        series_sample = series_sample[series_sample != "oThEr tHiNgS-+-"]
+        series_sample = series_sample[series_sample != fyp_cf['labels']['OTHER_THINGS']]
         
         if series_sample.empty:
             column_types[col] = "category"

@@ -285,7 +285,7 @@ def save_study():
         # --- Refresh Metadata (Viewer & Explorer) ---
         print(f"Loading fresh data for {study_name} to generate metadata...")
         # This reads the parquet file we just ensured allows existing (or recoded)
-        df, col_types = explorer.load_data(fyp_cf, study_name, verbose=False)
+        df, col_types = explorer.load_data(study_name, verbose=False)
 
         if df is not None:
             # 1. Viewer Metadata (Scraped OK)

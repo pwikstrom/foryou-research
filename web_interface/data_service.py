@@ -63,7 +63,7 @@ def get_explorer_data(study, context=None, verbose=False):
                 if verbose:
                     print(f"    Loading study {study} from disk (with lock)...")
                 # Resolve path
-                raw_df, raw_col_types = explorer.load_data(fyp_cf, study, verbose=False)
+                raw_df, raw_col_types = explorer.load_data(study, verbose=False)
 
                 if raw_df is None:
                     if verbose:
@@ -79,31 +79,22 @@ def get_explorer_data(study, context=None, verbose=False):
     
     # Apply Context Filtering on a COPY
     if raw_df is not None:
-        filtered_df = raw_df
-        # Only copy if we are actually filtering to save memory? 
-        # Actually safer to copy always if we modify it downstream (enrichment does modify).
-        # But enrichment is done in the route handlers locally on the returned df.
-        
         if context == "viewer":
-            # Viewer needs Scraped OK + Watch
-            # print(f"    Filtering context 'viewer' (scraped_ok & watch)...")
+            # Viewer needs Scraped OK + Watch + BASELINE
             filtered_df = raw_df[(raw_df.scraped_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
-            # print(f"    Reduced rows from {len(raw_df):,} to {len(filtered_df):,}")
-            
         elif context == "explorer":
-            # Explorer needs Annotated OK + Watch
-            # print(f"    Filtering context 'explorer' (annotated_ok & watch)...")
+            # Explorer needs Annotated OK + Watch + BASELINE
             filtered_df = raw_df[(raw_df.annotated_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
-            # print(f"    Reduced rows from {len(raw_df):,} to {len(filtered_df):,}")
-            
         else:
-            # Default or None context - return raw copy?
-            # Or assume explorer default? Let's return raw copy to be safe.
+            # return raw copy to be safe. this should never happen though...
             filtered_df = raw_df.copy()
 
         return filtered_df, raw_col_types.copy()
 
     return None, None
+
+
+
 
 
 def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):

@@ -25,7 +25,7 @@ data_bp = Blueprint('data_bp', __name__)
 # PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
 
 
-def _enforce_study_donations(metadata, study):
+def _enforce_study_donations(metadata, study, verbose=False):
     """
     Ensures that the metadata only contains Donation IDs that are strictly part of the study.
     This prevents any cached artifacts or merging errors from exposing unrelated donation IDs.
@@ -37,7 +37,7 @@ def _enforce_study_donations(metadata, study):
         #valid_ids = set()
         
         if not donations:
-            print(f"    [Security] Warning: get_study_donations returned empty for {study}. Skipping filter enforcement.")
+            print(f"    [DATA_ROUTES] Warning: get_study_donations returned empty for {study}. Skipping filter enforcement.")
             return metadata
 
         for d in donations:
@@ -45,7 +45,7 @@ def _enforce_study_donations(metadata, study):
             #if d.get('D_id'): valid_ids.add(str(d['D_id']).strip())
             
         if not valid_donation_ids:
-             print(f"    [Security] Warning: No valid_donation_ids found for {study}. Skipping filter enforcement.")
+             print(f"    [DATA_ROUTES] Warning: No valid_donation_ids found for {study}. Skipping filter enforcement.")
              return metadata
 
         # Filter D_donation_id
@@ -56,27 +56,17 @@ def _enforce_study_donations(metadata, study):
             
             # Debugging mismatch if drastic change
             if len(original) > 0 and len(filtered) == 0:
-                print(f"    [Security] CRITICAL: Filter removed ALL {len(original)} IDs for {study}. Cache is likely stale.")
+                print(f"    [DATA_ROUTES] CRITICAL: Filter removed ALL {len(original)} IDs for {study}. Cache is likely stale.")
                 print(f"    - Sample Valid IDs: {list(valid_donation_ids)[:5]}")
                 print(f"    - Sample Metadata IDs: {[str(v['value']).strip() for v in original[:5]]}")
                 return None # Signal to caller that metadata is invalid
             elif len(original) != len(filtered):
-                print(f"    [Security] Filtered D_donation_id for {study}: {len(original)} -> {len(filtered)}")
+                if verbose:
+                    print(f"    [DATA_ROUTES] Info: Filtered D_donation_id for {study}: {len(original)} -> {len(filtered)}")
                 
             metadata['D_donation_id']['values'] = filtered
 
-        """if 'D_id' in metadata and 'values' in metadata['D_id']:
-            original = metadata['D_id']['values']
-            # Note: D_id might be mapped, so value is key
-            filtered = [v for v in original if str(v['value']).strip() in valid_ids]
-            
-            if len(original) > 0 and len(filtered) == 0:
-                 print(f"    [Security] CRITICAL: Filter removed ALL {len(original)} IDs for {study} (D_id). Cache is likely stale.")
-                 return None # Signal to caller that metadata is invalid
-            elif len(original) != len(filtered):
-                 print(f"    [Security] Filtered D_id for {study}: {len(original)} -> {len(filtered)}")
-                 
-            metadata['D_id']['values'] = filtered"""
+
             
     except Exception as e:
         print(f"    Error enforcing study donations: {e}")
@@ -121,7 +111,7 @@ def api_get_study_defs():
 @data_bp.route('/api/explorer/metadata', methods=['GET'])
 @login_required
 def api_explorer_metadata():
-
+    print("----------1----------")
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
@@ -129,7 +119,10 @@ def api_explorer_metadata():
     context = request.args.get('context', 'explorer')
 
     df, col_types = get_explorer_data(study, context=context)
-    
+ 
+    if df is None:
+        return jsonify({"error": "Dataset not found"}), 404
+
     # Enrich with User Tags
     username = current_user.username
     
@@ -148,23 +141,14 @@ def api_explorer_metadata():
 
     df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
   
-    """if context == 'viewer':
-         df = df[df.scraped_ok].copy()
-         print(f"    Filtered to {len(df):,} scraped events")
-    else:
-         df = df[df.annotated_ok].copy()
-         print(f"    Filtered to {len(df):,} annotated events")"""
 
- 
-    if df is None:
-        return jsonify({"error": "Dataset not found"}), 404
     
  
     cached_metadata = None
     if data_io.exists(storage_location="cache", filename=f"{study}_{context}_metadata.json"):
         try:
+            print(f"    Using cached metadata for {study}")
             potential_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_{context}_metadata.json")
-            #print(f"    Using cached metadata for {study}")
             
             # ... (Dynamic columns logic omitted for brevity as it modifies potential_metadata in place) ...
             # To avoid complexity in replacement, I will assume the dynamic logic is robust or harmless if metadata is discarded later.
@@ -275,9 +259,10 @@ def api_explorer_metadata():
             potential_metadata = _enforce_study_donations(potential_metadata, study)
             
             if potential_metadata:
-                 return jsonify(make_serializable(potential_metadata))
+                print(f"    [DATA_ROUTES] Returning cached metadata for {study}")
+                return jsonify(make_serializable(potential_metadata))
             else:
-                 print(f"    [Security] Cache invalidated for {study}, regenerating...")
+                print(f"    [DATA_ROUTES] Cache invalidated for {study}, regenerating...")
 
         except Exception as e:
             print(f"    Warning: Error loading/processing cached metadata: {e}")
