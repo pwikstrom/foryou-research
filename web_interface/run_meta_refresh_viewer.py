@@ -29,7 +29,7 @@ if __name__ == "__main__":
             try:
                 # Load Data
                 # This might take time
-                df, col_types = load_data(fyp_cf, study_name, verbose=True)
+                df, col_types = load_data(fyp_cf, study_name, verbose=False)
                 
                 if df is None: 
                     print(f"Skipping {study_name}: No data found.")
@@ -50,7 +50,7 @@ if __name__ == "__main__":
                 # Remove old if exists (save_json overwrites, but good to be clean)
                 # data_io.remove(storage_location="cache", filename=filename) 
                 
-                data_io.save_json(data=make_serializable(meta), storage_location="cache", filename=filename, verbose=True)
+                data_io.save_json(data=make_serializable(meta), storage_location="cache", filename=filename, verbose=False)
                 print(f"  Updated metadata for {study_name}")
                 
             except Exception as e:

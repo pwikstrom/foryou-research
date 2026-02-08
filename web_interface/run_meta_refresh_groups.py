@@ -28,7 +28,7 @@ if __name__ == "__main__":
             
             try:
                 # Load Data
-                df, col_types = load_data(fyp_cf, study_name, verbose=True)
+                df, col_types = load_data(fyp_cf, study_name, verbose=False)
                 
                 if df is None:
                     print(f"Skipping {study_name}: No data found.")
@@ -65,7 +65,7 @@ if __name__ == "__main__":
                 meta = load_schema_metadata(meta)
                 
                 filename = f"{study_name}_explorer_metadata.json"
-                data_io.save_json(data=make_serializable(meta), storage_location="cache", filename=filename, verbose=True)
+                data_io.save_json(data=make_serializable(meta), storage_location="cache", filename=filename, verbose=False)
                 print(f"  Updated metadata for {study_name}")
                 
             except Exception as e:

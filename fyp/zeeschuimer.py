@@ -273,7 +273,7 @@ def consolidate_zeeschuimer_logs(
     refined_zeeschuimer_files = data_io.listdir(
         storage_location="zeeschuimer_refined",
         return_absolute_path=False,
-        verbose=True)
+        verbose=False)
     refined_zeeschuimer_files = [u for u in refined_zeeschuimer_files if u.endswith(".parquet")]
 
 

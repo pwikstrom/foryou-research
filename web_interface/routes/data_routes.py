@@ -164,7 +164,7 @@ def api_explorer_metadata():
     if data_io.exists(storage_location="cache", filename=f"{study}_{context}_metadata.json"):
         try:
             potential_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_{context}_metadata.json")
-            print(f"    Using cached metadata for {study}")
+            #print(f"    Using cached metadata for {study}")
             
             # ... (Dynamic columns logic omitted for brevity as it modifies potential_metadata in place) ...
             # To avoid complexity in replacement, I will assume the dynamic logic is robust or harmless if metadata is discarded later.
@@ -395,7 +395,7 @@ def api_explorer_metadata():
     # Enforce strict study membership for Donation IDs (before saving to cache)
     metadata = _enforce_study_donations(metadata, study)
 
-    data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=True)
+    data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=False)
 
     return jsonify(make_serializable(metadata))
 
@@ -446,7 +446,7 @@ def api_explorer_filter():
         is_empty_filters = (not filters) and (not search_query)
         
         if is_empty_filters and 'total_stats' in cached_metadata:
-            print("    Using cached total_stats for Slice 1")
+            #print("    Using cached total_stats for Slice 1")
             result['stats'] = cached_metadata['total_stats']
             result['count'] = len(df)
             
@@ -475,7 +475,7 @@ def api_explorer_filter():
         s1_available = (trigger_slice is None or trigger_slice == 1) and 'stats' in result
         
         if is_identical and s1_available:
-            print("    Slice 2 identical to Slice 1, reusing stats")
+            #print("    Slice 2 identical to Slice 1, reusing stats")
             result['stats2'] = result['stats']
             result['count2'] = result['count']
         else:
@@ -483,7 +483,7 @@ def api_explorer_filter():
             is_empty_filters2 = (not filters2) and (not search_query2)
             
             if is_empty_filters2 and 'total_stats' in cached_metadata:
-                 print("    Using cached total_stats for Slice 2")
+                 #print("    Using cached total_stats for Slice 2")
                  result['stats2'] = cached_metadata['total_stats']
                  result['count2'] = len(df)
             else:
@@ -1213,13 +1213,13 @@ def api_timeline_donations():
     # Iterate studies and get donations (using optimized loader)
     for study in studies:
         study_donations = get_study_donations(study) # returns list of dicts
-        print(f"DEBUG TIMELINE: Study {study} returned {len(study_donations)} donations")
+        #print(f"DEBUG TIMELINE: Study {study} returned {len(study_donations)} donations")
         for d in study_donations:
             # d is {'D_donation_id': ..., 'D_id': ...}
             if 'D_donation_id' in d:
                 allowed_donation_ids.add(str(d['D_donation_id']))
                 
-    print(f"DEBUG TIMELINE: Total allowed donation IDs: {len(allowed_donation_ids)}")
+    #print(f"DEBUG TIMELINE: Total allowed donation IDs: {len(allowed_donation_ids)}")
     if not allowed_donation_ids:
         return jsonify([])
 
@@ -1296,7 +1296,7 @@ def api_timeline_donations():
             don_ids_series = don_ids_series.iloc[:, 0]
             
         unique_ids = don_ids_series.unique().tolist()
-        print(f"DEBUG TIMELINE: Total unique donations in metadata: {len(unique_ids)}")
+        #print(f"DEBUG TIMELINE: Total unique donations in metadata: {len(unique_ids)}")
         
         # Filter against allowed set
         # Only include if in allowed_donation_ids

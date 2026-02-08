@@ -61,19 +61,23 @@ def load_study_datasets(
             # if no dataset was loaded from cache and the cache and main storage are at different locations, then load everything from
             #  main storage and save to cache. It will save time later since this can be used for all studies
             if tutti_data[k] is None and fyp_cf['data_io']['use_gcs_for_data']==True and fyp_cf['data_io']['use_gcs_for_cache']==False:
-                print(f"Loading core dataset '{k}' from main storage and saving to cache")
+                if verbose:
+                    print(f"Loading core dataset '{k}' from main storage and saving to cache")
                 tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
-                print(f"Saving core dataset '{k}' to cache")
+                if verbose:
+                    print(f"Saving core dataset '{k}' to cache")
                 tutti_data[k].attrs["study_name"] = 'everything'
                 data_io.save_parquet(df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
 
                 
     elif len(all_datasets) > 0:
         tutti_data = deepcopy(all_datasets)
-        print(f"    [Core datasets] Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
+        if verbose:
+            print(f"    [Core datasets] Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
     else:
         tutti_data = {}
-        print(f"    [Core datasets] Starting without precomputed core datasets. Loading study core datasets from main storage.")
+        if verbose:
+            print(f"    [Core datasets] Starting without precomputed core datasets. Loading study core datasets from main storage.")
 
 
 

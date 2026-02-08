@@ -33,7 +33,7 @@ study_cache = StudyCache(maxsize=2)
 
 
 
-def get_explorer_data(study, context=None):
+def get_explorer_data(study, context=None, verbose=False):
     # Check cache (First Check)
     cached = study_cache.get(study)
     
@@ -42,7 +42,8 @@ def get_explorer_data(study, context=None):
     raw_col_types = None
     
     if cached:
-        print(f"    Study {study} found in RAM cache. Accessing {len(cached['df']):,} rows")
+        if verbose:
+            print(f"    Study {study} found in RAM cache. Accessing {len(cached['df']):,} rows")
         raw_df = cached['df']
         raw_col_types = cached['col_types']
     else:
@@ -54,16 +55,19 @@ def get_explorer_data(study, context=None):
             # Check cache again (Second Check)
             cached = study_cache.get(study)
             if cached:
-                print(f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows")
+                if verbose:
+                    print(f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows")
                 raw_df = cached['df']
                 raw_col_types = cached['col_types']
             else:
-                print(f"    Loading study {study} from disk (with lock)...")
+                if verbose:
+                    print(f"    Loading study {study} from disk (with lock)...")
                 # Resolve path
-                raw_df, raw_col_types = explorer.load_data(fyp_cf, study, verbose=True)
+                raw_df, raw_col_types = explorer.load_data(fyp_cf, study, verbose=False)
 
                 if raw_df is None:
-                    print(f"The requested recoded study dataset was not found")
+                    if verbose:
+                        print(f"The requested recoded study dataset was not found")
                     return None, None
 
                 # Store in cache (RAW DATA)
@@ -384,7 +388,7 @@ def get_viz_config():
 
 
 
-def check_and_update_timeline_cache(donation_id, viz_vars):
+def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False):
     """
     Ensures that timeline aggregations for day, week, and month exist in cache.
     If not, calculates them from the unified donation dataset.
@@ -400,12 +404,13 @@ def check_and_update_timeline_cache(donation_id, viz_vars):
             missing.append(interval)
 
     if not missing:
-        print(f"    [TIMELINE] Using cached timeline data for {donation_id}")
+        if verbose:
+            print(f"    [TIMELINE] Using cached timeline data for {donation_id}")
         return True # All good
             
     # Generate Data
     # 1. Load Unified Dataset
-    df = create_donation_unified_dataset(donation_id=donation_id, verbose=True)
+    df = create_donation_unified_dataset(donation_id=donation_id, verbose=False)
     if df is None or df.empty:
         print("ERROR: Could not load unified dataset for donation", donation_id)
         return False
@@ -739,14 +744,14 @@ def get_study_donations(study):
                  storage_location="cache", 
                  filename=recoded_file, 
              )
-             print(f"DEBUG DONATIONS: Loaded fast columns for {study}: shape={df.shape}")
+             #print(f"DEBUG DONATIONS: Loaded fast columns for {study}: shape={df.shape}")
         else:
              # Fallback to full load if cache missing (triggering creation)
              df, _ = get_explorer_data(study, context="explorer")
              
              
         if df is None:
-            print(f"DEBUG DONATIONS: df is None for {study}")
+            #print(f"DEBUG DONATIONS: df is None for {study}")
             return []
         
         if 'D_donation_id' not in df.columns:
@@ -846,7 +851,7 @@ def get_accessible_studies(username, role, is_admin):
     if not 'study_defs' in fyp_cf:
         init_study_defs()
 
-    print(f"DEBUG ACCESS: Checking access for user={username}, role={role}, admin={is_admin}")
+    #print(f"DEBUG ACCESS: Checking access for user={username}, role={role}, admin={is_admin}")
     accessible_studies = []
     
     if 'study_defs' in fyp_cf:
@@ -890,7 +895,7 @@ def get_accessible_studies(username, role, is_admin):
 
                 accessible_studies.append(study_name)
     
-    print(f"DEBUG ACCESS: Accessible studies found: {accessible_studies}")
+    #print(f"DEBUG ACCESS: Accessible studies found: {accessible_studies}")
     return sorted(accessible_studies)
 
 

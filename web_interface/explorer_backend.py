@@ -32,7 +32,7 @@ def get_robust_bounds(series):
 
 
 
-def get_metadata(df, column_types):
+def get_metadata(df, column_types, verbose=False):
     """
     Returns metadata for frontend:
     - columns: { name: type }
@@ -40,7 +40,8 @@ def get_metadata(df, column_types):
     """
     from datetime import datetime
     t1 = datetime.now()
-    print("    Calculating things for viewer and explorer...")
+    if verbose:
+        print("    Calculating things for viewer and explorer...")
     from numpy import ndarray as np_ndarray
     metadata = {}
     for col, dtype in column_types.items():
@@ -109,7 +110,8 @@ def get_metadata(df, column_types):
         elif dtype in ["long_text", "identifier"]:
             continue
     
-    print(f"    ...done calculating things for viewer and explorer. Time: {datetime.now()-t1}")
+    if verbose:
+        print(f"    ...done calculating things for viewer and explorer. Time: {datetime.now()-t1}")
     return metadata
 
 
@@ -501,7 +503,8 @@ def load_data(fyp_cf, study, verbose=False):
     from numpy import ndarray as np_ndarray
     from fyp.organize_datasets import create_study_recoded_dataset
 
-    print("    Loading study data for viewer and explorer...")
+    if verbose:
+        print("    Loading study data for viewer and explorer...")
     df = None
 
     if data_io.exists(
@@ -515,13 +518,15 @@ def load_data(fyp_cf, study, verbose=False):
             verbose=verbose,
             )
     else:
-        print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
+        if verbose:
+            print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
         df = create_study_recoded_dataset(
             study_name = study,
             save_to_cache=True,
             verbose = verbose
         )
-        print("@@ Back after finalising the recoding process. I will now resume loading the data. (#606)")
+        if verbose:
+            print("@@ Back after finalising the recoding process. I will now resume loading the data. (#606)")
         df = data_io.load_parquet(
             storage_location="cache",
             filename=f"{study}_recoded.parquet",
@@ -529,7 +534,7 @@ def load_data(fyp_cf, study, verbose=False):
             )
 
     if df is None:
-        print("    ERROR: This process cannot run without a study dataset. Process failed.")
+        print("ERROR: This process cannot run without a study dataset. Process failed.")
         return None, {}
     
     
@@ -622,13 +627,14 @@ def load_data(fyp_cf, study, verbose=False):
 
 
 
-def get_current_stats(df, column_types, viz_config=None):
+def get_current_stats(df, column_types, viz_config=None, verbose=False):
     from pandas import set_option
     from numpy import ndarray as np_ndarray
     from datetime import datetime
     set_option('future.no_silent_downcasting', True)
     t1 = datetime.now()
-    print("    Calculating stats for viewer and explorer...")
+    if verbose:
+        print("    Calculating stats for viewer and explorer...")
 
     count = len(df)
     stats = {}
@@ -789,7 +795,8 @@ def get_current_stats(df, column_types, viz_config=None):
              from collections import Counter
              stats[col] = dict(Counter(all_items).most_common(20))
 
-    print(f"    ...done calculating stats for viewer and explorer. Time: {datetime.now()-t1}")
+    if verbose:
+        print(f"    ...done calculating stats for viewer and explorer. Time: {datetime.now()-t1}")
 
 
     return {"count": count, "stats": stats}

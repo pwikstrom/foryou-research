@@ -36,7 +36,7 @@ def _calculate_stats(study_config, save_to_cache=True):
              # Force update of the study dataset for every change of the study definition
              print(f"Creating/updating recoded dataset for '{study_name}' to calculate stats...")
              # create_study_recoded_dataset returns the DF
-             df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=save_to_cache, verbose=True)
+             df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=save_to_cache, verbose=False)
              if df_study is not None:
                  # Keep only what we need if it returned full DF
                  df_study = df_study[["item_id", "D_donation_id"]]
@@ -285,7 +285,7 @@ def save_study():
         # --- Refresh Metadata (Viewer & Explorer) ---
         print(f"Loading fresh data for {study_name} to generate metadata...")
         # This reads the parquet file we just ensured allows existing (or recoded)
-        df, col_types = explorer.load_data(fyp_cf, study_name, verbose=True)
+        df, col_types = explorer.load_data(fyp_cf, study_name, verbose=False)
 
         if df is not None:
             # 1. Viewer Metadata (Scraped OK)
@@ -296,7 +296,7 @@ def save_study():
             # Add filtering/display priorities
             viewer_meta = load_schema_metadata(viewer_meta)
             
-            data_io.save_json(data=make_serializable(viewer_meta), storage_location="cache", filename=f"{study_name}_viewer_metadata.json", verbose=True)
+            data_io.save_json(data=make_serializable(viewer_meta), storage_location="cache", filename=f"{study_name}_viewer_metadata.json", verbose=False)
 
 
             # 2. Explorer Metadata (Annotated OK)
@@ -327,7 +327,7 @@ def save_study():
             # Add filtering/display priorities
             explorer_meta = load_schema_metadata(explorer_meta)
             
-            data_io.save_json(data = make_serializable(explorer_meta), storage_location="cache", filename=f"{study_name}_explorer_metadata.json", verbose=True)
+            data_io.save_json(data = make_serializable(explorer_meta), storage_location="cache", filename=f"{study_name}_explorer_metadata.json", verbose=False)
 
 
 
@@ -439,7 +439,7 @@ def list_donations():
                 storage_location="ddp_main", 
                 filename="ddp_metadata.parquet", 
                 #columns=["D_donation_id", "D_id", "('other', 'D_id')"], 
-                verbose=True, 
+                verbose=False,
             )
             
 
@@ -543,7 +543,7 @@ def reload_schema():
     
     try:
         global fyp_cf
-        fyp_cf = load_var_schema(fyp_cf, verbose=True)
+        fyp_cf = load_var_schema(fyp_cf, verbose=False)
         return jsonify({"status": "success", "message": "Variable schema reloaded successfully."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

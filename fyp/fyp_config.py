@@ -61,24 +61,30 @@ def _connect_to_google(cf, verbose=False):
             # Try to access the GCS bucket's metadata
             bucket.reload()
             cf["data_io"]["bucket"] = bucket
-            print(f"Access to the project Google Cloud Storage bucket {bucket.name} located at {bucket.location} is authorized.")
+            print(f"Access to GCS bucket '{bucket.name}' ({bucket.location}) is authorized.")
             if verbose:
                 if cf['data_io']['use_gcs_for_data']:
                     print(f"Data is stored in GCS")
+                else:
+                    print(f"Data is stored locally")
                 if cf['data_io']['use_gcs_for_cache']:
                     print(f"Cache is stored in GCS")
+                else:
+                    print(f"Cache is stored locally")
                 if cf['data_io']['use_gcs_for_media']:
                     print(f"Media is stored in GCS")
+                else:
+                    print(f"Media is stored locally")
 
             return cf
         
         except google_Forbidden:
-            print(f"I don't have access to the Google Cloud Storage.")
+            print(f"I don't have access to the GCS.")
         except Exception as e:
-            print(f"A Google Cloud Storage error occurred: {e}")
+            print(f"A GCS error occurred: {e}")
 
     else:
-        print("No internet connection. Running local mode without connecting to Google services.")
+        print("No internet connection. Running local mode.")
         cf['misc']['local_mode'] = True
     
 
@@ -96,18 +102,18 @@ def load_var_schema(cf, verbose=False):
     # Load variable schema
     if cf['data_io']['use_gcs_for_data']:
         if verbose:
-            print(f"Loading variable schema from GCS")
+            print(f"Loading variable schema from GCS", end="", flush=True)
         var_schema_path = f"gs://{cf['data_io']['GCS_bucket_name']}/data/var_schema.csv"
     else:
         if verbose:
-            print(f"Loading variable schema from local disk")
+            print(f"Loading variable schema from local disk", end="", flush=True)
         var_schema_path = os.path.join(cf['paths']['local_data'], "var_schema.csv")
     try:
         cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
         if verbose:
-            print(f"Variable schema loaded. Shape: {cf['var_schema'].shape}")
+            print(f" - OK. Shape: {cf['var_schema'].shape}")
     except Exception as e:
-        print(f"CRITICAL ERROR: Failed to load variable schema: {e}")
+        print(f"\nCRITICAL ERROR: Failed to load variable schema: {e}")
     return cf
 
 
