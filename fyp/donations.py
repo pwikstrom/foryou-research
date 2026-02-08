@@ -543,7 +543,7 @@ def refine_one_raw_ddp_log_from_dict(
 
     # --- nothing found? bail out early ------------------------
     if not donation_items:
-        print("ERROR: No donation items found in file", donation_id)
+        print("ERROR: No collection items found in file", donation_id)
         return pd.DataFrame()
 
 
@@ -682,8 +682,9 @@ def refine_one_raw_ddp_log_from_dict(
     dropped_vars_str = textwrap.wrap(", ".join(list(set(all_ddp_events_df.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
     relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in all_ddp_events_df.columns]
     all_ddp_events_df = all_ddp_events_df[relevant_cols].copy()
-    if verbose:
-        print(f"Dropped these columns, which are not in the variable schema:\n{"\n".join(dropped_vars_str)}\nCurrent shape: {all_ddp_events_df.shape}")
+    if verbose and dropped_vars_str:
+        joined_vars = '\n'.join(dropped_vars_str)
+        print(f"Dropped these columns, which are not in the variable schema:\n{joined_vars}\nCurrent shape: {all_ddp_events_df.shape}")
     
 
 
@@ -697,7 +698,7 @@ def refine_one_raw_ddp_log_from_dict(
 
 
     if verbose:
-        print(f"Final shape of this donation log: {all_ddp_events_df.shape}")
+        print(f"Final shape of this collection: {all_ddp_events_df.shape}")
     return all_ddp_events_df
 
 
@@ -1538,7 +1539,7 @@ def simple_sample_ddp_events(
     if verbose:
         print(f"    [DD Sampling] Dropping donations with less than {MIN_GROUP_COUNT_REQUIRED_PER_DONATION} groups within the limits")
         print(f"    [DD Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_DONATION} groups from each remaining donation. This might take a moment...")
-    # select donations with a required number of groups
+    # select collections with a required number of groups
     donations_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION)
     if verbose:
         print(f"    [DD Sampling] Donations groups remaining after sampling: {len(donations_within_group_count_limits):,}")

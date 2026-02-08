@@ -31,13 +31,13 @@
                 </div>
             </div>
             <div class="form-group" style="margin-top: 20px;">
-                <label>Donation ID</label>
+                <label>Collection ID</label>
                 <input type="text" id="timelines-donation-search" placeholder="Search ID..." class="form-control"
                     onkeyup="timelines.filterDonations()">
                 <div id="timelines-donation-list" class="simple-list"
                     style="height: 400px; overflow-y: auto; margin-top: 10px; border: 1px solid #555; background: #222;">
                     <!-- Populated by JS -->
-                    <div style="padding: 10px; color: #777;">Loading donations...</div>
+                    <div style="padding: 10px; color: #777;">Loading collections...</div>
                 </div>
             </div>
         </div>
@@ -45,7 +45,7 @@
         <!-- Main Content -->
         <div class="timelines-main" style="flex: 1; padding: 20px; overflow-y: auto;">
             <div id="timelines-header" style="margin-bottom: 20px; display: none;">
-                <h2 id="timelines-title">Donation Timeline</h2>
+                <h2 id="timelines-title">Collection Timeline</h2>
                 <div class="controls" style="display: flex; gap: 20px; align-items: center;">
                     <label style="display: flex; align-items: center; gap: 5px;">
                         <input type="checkbox" id="timelines-exclude-nodata" onchange="timelines.renderTimelineCharts()"
@@ -56,7 +56,7 @@
             </div>
 
             <div id="timelines-charts-container">
-                <p class="text-muted" style="margin-top: 50px; text-align: center;">Select a donation to view timelines.
+                <p class="text-muted" style="margin-top: 50px; text-align: center;">Select a collection to view timelines.
                 </p>
             </div>
         </div>

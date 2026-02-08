@@ -1,7 +1,7 @@
 <div id="persona_explorer" class="tab-pane">
     <div class="control-bar">
         <div class="header-with-help">
-            <h3>Participant Profiles</h3>
+            <h3>Collections</h3>
             <button class="help-icon" onclick="showHelp('persona_explorer')">?</button>
         </div>
         <div class="control-group" style="display: flex; align-items: center; gap: 15px;">
@@ -26,14 +26,14 @@
             </div>
 
             <div class="panel-card">
-                <h4>Select Donation</h4>
+                <h4>Select Collection</h4>
                 <!-- Replaced simple select with Searchable List (Timelines style) -->
                 <div class="form-group">
                     <input type="text" id="pe-donation-search" placeholder="Search ID..." class="full-width-select"
                         onkeyup="pe_filterDonationList()">
                     <div id="pe-donation-list" class="simple-list"
                         style="height: 300px; overflow-y: auto; margin-top: 5px; border: 1px solid #3e3e42; background: #1e1e1e;">
-                        <div style="padding: 10px; color: #777;">Loading donations...</div>
+                        <div style="padding: 10px; color: #777;">Loading collections...</div>
                     </div>
                 </div>
 
@@ -43,7 +43,7 @@
 
                     <!-- Participant Info -->
                     <div id="pe-participant-info-section" class="stats-section">
-                        <div class="section-title">Participant Info</div>
+                        <div class="section-title">Collection Info</div>
                         <ul class="stats-list">
                             <li><span class="stat-label">Name:</span> <span id="pe-stat-name"></span></li>
                             <li><span class="stat-label">Email:</span> <span id="pe-stat-email"></span></li>
@@ -51,7 +51,7 @@
                             <li><span class="stat-label">Age:</span> <span id="pe-stat-age"></span></li>
                             <li><span class="stat-label">Country:</span> <span id="pe-stat-country"></span></li>
                             <li><span class="stat-label">Post Code:</span> <span id="pe-stat-postcode"></span></li>
-                            <li><span class="stat-label">Donation Date:</span> <span id="pe-stat-donation-date"></span>
+                            <li><span class="stat-label">Date Added to Dataset:</span> <span id="pe-stat-donation-date"></span>
                             </li>
                         </ul>
                     </div>
@@ -59,7 +59,7 @@
                     <!-- Donation Annotations -->
                     {% if current_user.is_admin() %}
                     <div class="stats-section">
-                        <div class="section-title">Donation Annotations</div>
+                        <div class="section-title">Collection Annotations</div>
                         <ul class="stats-list" style="display: flex; flex-direction: column; gap: 8px;">
                             <li style="flex-direction: column; align-items: flex-start; border: none; padding: 0;">
                                 <span class="stat-label" style="font-size: 0.9em; margin-bottom: 2px;">Display
@@ -99,12 +99,12 @@
                     <div class="stats-section">
                         <div class="section-title">Activity Stats</div>
                         <ul class="stats-list">
-                            <li><span class="stat-label">TZ (inferred from activity):</span> <span
+                            <li><span class="stat-label">TZ (inferred from data):</span> <span
                                     id="pe-stat-timezone"></span></li>
                             <li><span class="stat-label">Active Days:</span> <span id="pe-stat-active-days"></span></li>
                             <li><span class="stat-label">Total Events:</span> <span id="pe-stat-total-events"></span>
                             </li>
-                            <li><span class="stat-label">Peak Segment:</span> <span id="pe-stat-peak-segment"></span>
+                            <li><span class="stat-label">Peak Day Segment:</span> <span id="pe-stat-peak-segment"></span>
                             </li>
                             <li><span class="stat-label">Watch Time:</span> <span id="pe-stat-watch-time"></span></li>
                             <li><span class="stat-label">First Event:</span> <span id="pe-stat-first-event"></span></li>
@@ -120,8 +120,8 @@
         <!-- Main Panel: Metric Strip Plots -->
         <div class="pe-main">
             <div class="panel-card" style="overflow-y: auto;">
-                <h4>Population Distribution by Metric</h4>
-                <p class="helper-text">Click on any box to select that donation. Selected donation is highlighted in red
+                <h4>Distribution by Metric</h4>
+                <p class="helper-text">Click on any box to select that collection. Selected collection is highlighted in red
                     across all metrics.</p>
                 <div id="pe-strips-container" class="strips-container">
                     <!-- Strip plots will be generated dynamically -->
@@ -134,11 +134,11 @@
     <div id="pe-config-modal" class="pe-modal hidden">
         <div class="pe-modal-content">
             <div class="pe-modal-header">
-                <h4>Configure Metrics</h4>
+                <h4>Configure Radar Chart</h4>
                 <button onclick="pe_closeConfig()" class="close-btn">&times;</button>
             </div>
             <div class="pe-modal-body">
-                <p class="helper-text">Select behavior strips to display:</p>
+                <p class="helper-text">Select metrics to display in the radar chart:</p>
                 <div id="pe-config-checkboxes" class="config-grid">
                     <!-- Checkboxes generated by JS -->
                 </div>

@@ -543,8 +543,9 @@ def download_video_threads(
             relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in results.columns]
             results = results[relevant_cols].copy()
 
-            if verbose:
-                print(f"Dropped these columns, which are not in the variable schema:\n{"\n".join(dropped_vars_str)}\nCurrent shape: {results.shape}")
+            if verbose and dropped_vars_str:
+                joined_vars = '\n'.join(dropped_vars_str)
+                print(f"Dropped these columns, which are not in the variable schema:\n{joined_vars}\nCurrent shape: {results.shape}")
     
 
             # recode the data

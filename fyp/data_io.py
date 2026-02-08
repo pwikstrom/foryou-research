@@ -658,7 +658,7 @@ def load_parquet(
         storage_location: str = "cache",
         filename: str = "", # if filename == '*' -> load all parquet files in storage_location
         #columns=None,
-        #filters=None,
+        filters=None,
         verbose = False,
     ):
     """
@@ -667,7 +667,7 @@ def load_parquet(
     """
 
     columns=None
-    filters=None
+    #filters=None
 
 
     if filename == "":

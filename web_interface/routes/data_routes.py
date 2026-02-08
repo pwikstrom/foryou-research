@@ -25,6 +25,66 @@ data_bp = Blueprint('data_bp', __name__)
 # PERSONA_STATS_CACHE_FILE = 'persona_stats_cache.parquet'
 
 
+def _enforce_study_donations(metadata, study):
+    """
+    Ensures that the metadata only contains Donation IDs that are strictly part of the study.
+    This prevents any cached artifacts or merging errors from exposing unrelated donation IDs.
+    """
+    try:
+        # Get authoritative list of donations for this study
+        donations = get_study_donations(study)
+        valid_donation_ids = set()
+        valid_ids = set()
+        
+        if not donations:
+            print(f"    [Security] Warning: get_study_donations returned empty for {study}. Skipping filter enforcement.")
+            return metadata
+
+        for d in donations:
+            if d.get('D_donation_id'): valid_donation_ids.add(str(d['D_donation_id']).strip())
+            if d.get('D_id'): valid_ids.add(str(d['D_id']).strip())
+            
+        if not valid_donation_ids:
+             print(f"    [Security] Warning: No valid_donation_ids found for {study}. Skipping filter enforcement.")
+             return metadata
+
+        # Filter D_donation_id
+        if 'D_donation_id' in metadata and 'values' in metadata['D_donation_id']:
+            original = metadata['D_donation_id']['values']
+            # Robust filter with strip
+            filtered = [v for v in original if str(v['value']).strip() in valid_donation_ids]
+            
+            # Debugging mismatch if drastic change
+            if len(original) > 0 and len(filtered) == 0:
+                print(f"    [Security] CRITICAL: Filter removed ALL {len(original)} IDs for {study}. Cache is likely stale.")
+                print(f"    - Sample Valid IDs: {list(valid_donation_ids)[:5]}")
+                print(f"    - Sample Metadata IDs: {[str(v['value']).strip() for v in original[:5]]}")
+                return None # Signal to caller that metadata is invalid
+            elif len(original) != len(filtered):
+                print(f"    [Security] Filtered D_donation_id for {study}: {len(original)} -> {len(filtered)}")
+                
+            metadata['D_donation_id']['values'] = filtered
+
+        if 'D_id' in metadata and 'values' in metadata['D_id']:
+            original = metadata['D_id']['values']
+            # Note: D_id might be mapped, so value is key
+            filtered = [v for v in original if str(v['value']).strip() in valid_ids]
+            
+            if len(original) > 0 and len(filtered) == 0:
+                 print(f"    [Security] CRITICAL: Filter removed ALL {len(original)} IDs for {study} (D_id). Cache is likely stale.")
+                 return None # Signal to caller that metadata is invalid
+            elif len(original) != len(filtered):
+                 print(f"    [Security] Filtered D_id for {study}: {len(original)} -> {len(filtered)}")
+                 
+            metadata['D_id']['values'] = filtered
+            
+    except Exception as e:
+        print(f"    Error enforcing study donations: {e}")
+        traceback.print_exc()
+    
+    return metadata
+
+
 
 """@data_bp.route('/api/explorer/studies', methods=['GET'])
 @login_required
@@ -100,113 +160,129 @@ def api_explorer_metadata():
         return jsonify({"error": "Dataset not found"}), 404
     
  
+    cached_metadata = None
     if data_io.exists(storage_location="cache", filename=f"{study}_{context}_metadata.json"):
-        metadata = data_io.load_json(storage_location="cache", filename=f"{study}_{context}_metadata.json")
-        print(f"    Using cached metadata for {study}")
-        
-        # Force refresh of dynamic metadata (User Tags & Has Annotation)
-        # We must re-calculate these every time because the cache might be stale w.r.t user actions
-        dynamic_cols = {}
-        if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
-        if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
-        if 'Has Annotation' in col_types: dynamic_cols['Has Annotation'] = 'category'
-        if 'Machine Annotations' in col_types: dynamic_cols['Machine Annotations'] = 'category'
-        
-        if dynamic_cols:
-             cols_to_get = [c for c in dynamic_cols.keys() if c in df.columns]
-             if cols_to_get:
-                  dynamic_meta = explorer.get_metadata(df[cols_to_get], dynamic_cols)
-                  metadata.update(dynamic_meta)
-                  
-                  # Force update of User Tags stats specifically if it's a list (to capture merged shared tags)
-                  if 'User Tags' in df.columns:
-                      res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'}, viz_config=get_viz_config())
-                      if 'stats' in res_tags:
-                          if 'total_stats' not in metadata: metadata['total_stats'] = {}
-                          metadata['total_stats'].update(res_tags['stats'])
-                          # metadata['User Tags'] = res_tags['stats']['User Tags'] # REMOVED: This overwrites filter config with stats
-
-        # Ensure User Tags is in filter_priority if it exists
-        if 'User Tags' in metadata and 'filter_priority' in metadata:
-            if 'User Tags' in metadata['filter_priority']:
-                metadata['filter_priority'].remove('User Tags')
-            metadata['filter_priority'].insert(0, 'User Tags')
-        
-        # Always refresh schema metadata (accepted_labels, priorities) from CSV
-        metadata = load_schema_metadata(metadata)
-
-        # Inject User Annotation Schema Info (User Tags & Has Annotation) - POST SCHEMA LOAD
-        if 'schema_map' not in metadata: metadata['schema_map'] = {}
-        
-        # 1. User Tags -> Tags by Humans
-        if 'User Tags' in metadata:
-            metadata['schema_map']['User Tags'] = {
-                "section": "Annotation Status",
-                "display_name": "Tags by Humans",
-                "description": "Tags you have assigned to items."
-            }
-            # Re-insert into priorities
-            if 'filter_priority' not in metadata: metadata['filter_priority'] = []
-            if 'User Tags' in metadata['filter_priority']: metadata['filter_priority'].remove('User Tags')
-            metadata['filter_priority'].insert(0, 'User Tags')
-
-            if 'display_priority' not in metadata: metadata['display_priority'] = []
-            if 'User Tags' in metadata['display_priority']: metadata['display_priority'].remove('User Tags')
-            metadata['display_priority'].insert(0, 'User Tags')
+        try:
+            potential_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_{context}_metadata.json")
+            print(f"    Using cached metadata for {study}")
             
-        # 2. Has Annotation -> Has Human Annotations
-        if 'Has Annotation' in metadata:
-            metadata['schema_map']['Has Annotation'] = {
-                "section": "Annotation Status",
-                "display_name": "Has Human Annotations",
-                "description": "Filter items that have notes, tags, or closed tags."
-            }
-            # Re-insert into priorities (After User Tags)
-            if 'filter_priority' not in metadata: metadata['filter_priority'] = []
-            if 'Has Annotation' in metadata['filter_priority']: metadata['filter_priority'].remove('Has Annotation')
-            # Insert at 1 if User Tags exists, else 0
-            idx = 1 if 'User Tags' in metadata else 0
-            metadata['filter_priority'].insert(idx, 'Has Annotation')
-
-            if 'display_priority' not in metadata: metadata['display_priority'] = []
-            if 'Has Annotation' in metadata['display_priority']: metadata['display_priority'].remove('Has Annotation')
-            idx = 1 if 'User Tags' in metadata else 0
-            metadata['display_priority'].insert(idx, 'Has Annotation')
-
-        if 'Machine Annotations' in metadata:
-            metadata['schema_map']['Machine Annotations'] = {
-                "section": "Annotation Status",
-                "display_name": "Machine Annotations",
-                "description": "Filter items by their machine annotation status."
-            }
-            # Priority
-            if 'filter_priority' not in metadata: metadata['filter_priority'] = []
-            if 'Machine Annotations' in metadata['filter_priority']: metadata['filter_priority'].remove('Machine Annotations')
-            # Insert after Has Annotation
-            idx = 0
-            if 'User Tags' in metadata: idx += 1
-            if 'Has Annotation' in metadata: idx += 1
-            metadata['filter_priority'].insert(idx, 'Machine Annotations')
+            # ... (Dynamic columns logic omitted for brevity as it modifies potential_metadata in place) ...
+            # To avoid complexity in replacement, I will assume the dynamic logic is robust or harmless if metadata is discarded later.
+            # Actually, I need to keep the existing logic structure but wrap the return.
             
-            if 'display_priority' not in metadata: metadata['display_priority'] = []
-            if 'Machine Annotations' in metadata['display_priority']: metadata['display_priority'].remove('Machine Annotations')
-            metadata['display_priority'].insert(idx, 'Machine Annotations')
+            # Force refresh of dynamic metadata (User Tags & Has Annotation)
+            # We must re-calculate these every time because the cache might be stale w.r.t user actions
+            dynamic_cols = {}
+            if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
+            if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
+            if 'Has Annotation' in col_types: dynamic_cols['Has Annotation'] = 'category'
+            if 'Machine Annotations' in col_types: dynamic_cols['Machine Annotations'] = 'category'
+            
+            if dynamic_cols:
+                 cols_to_get = [c for c in dynamic_cols.keys() if c in df.columns]
+                 if cols_to_get:
+                      dynamic_meta = explorer.get_metadata(df[cols_to_get], dynamic_cols)
+                      potential_metadata.update(dynamic_meta)
+                      
+                      # Force update of User Tags stats specifically if it's a list (to capture merged shared tags)
+                      if 'User Tags' in df.columns:
+                          res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'}, viz_config=get_viz_config())
+                          if 'stats' in res_tags:
+                              if 'total_stats' not in potential_metadata: potential_metadata['total_stats'] = {}
+                              potential_metadata['total_stats'].update(res_tags['stats'])
+    
+            # Ensure User Tags is in filter_priority if it exists
+            if 'User Tags' in potential_metadata and 'filter_priority' in potential_metadata:
+                if 'User Tags' in potential_metadata['filter_priority']:
+                    potential_metadata['filter_priority'].remove('User Tags')
+                potential_metadata['filter_priority'].insert(0, 'User Tags')
+            
+            # Always refresh schema metadata (accepted_labels, priorities) from CSV
+            potential_metadata = load_schema_metadata(potential_metadata)
+    
+            # Inject User Annotation Schema Info (User Tags & Has Annotation) - POST SCHEMA LOAD
+            if 'schema_map' not in potential_metadata: potential_metadata['schema_map'] = {}
+            
+            # 1. User Tags -> Tags by Humans
+            if 'User Tags' in potential_metadata:
+                potential_metadata['schema_map']['User Tags'] = {
+                    "section": "Annotation Status",
+                    "display_name": "Tags by Humans",
+                    "description": "Tags you have assigned to items."
+                }
+                # Re-insert into priorities
+                if 'filter_priority' not in potential_metadata: potential_metadata['filter_priority'] = []
+                if 'User Tags' in potential_metadata['filter_priority']: potential_metadata['filter_priority'].remove('User Tags')
+                potential_metadata['filter_priority'].insert(0, 'User Tags')
+    
+                if 'display_priority' not in potential_metadata: potential_metadata['display_priority'] = []
+                if 'User Tags' in potential_metadata['display_priority']: potential_metadata['display_priority'].remove('User Tags')
+                potential_metadata['display_priority'].insert(0, 'User Tags')
+                
+            # 2. Has Annotation -> Has Human Annotations
+            if 'Has Annotation' in potential_metadata:
+                potential_metadata['schema_map']['Has Annotation'] = {
+                    "section": "Annotation Status",
+                    "display_name": "Has Human Annotations",
+                    "description": "Filter items that have notes, tags, or closed tags."
+                }
+                # Re-insert into priorities (After User Tags)
+                if 'filter_priority' not in potential_metadata: potential_metadata['filter_priority'] = []
+                if 'Has Annotation' in potential_metadata['filter_priority']: potential_metadata['filter_priority'].remove('Has Annotation')
+                # Insert at 1 if User Tags exists, else 0
+                idx = 1 if 'User Tags' in potential_metadata else 0
+                potential_metadata['filter_priority'].insert(idx, 'Has Annotation')
+    
+                if 'display_priority' not in potential_metadata: potential_metadata['display_priority'] = []
+                if 'Has Annotation' in potential_metadata['display_priority']: potential_metadata['display_priority'].remove('Has Annotation')
+                idx = 1 if 'User Tags' in potential_metadata else 0
+                potential_metadata['display_priority'].insert(idx, 'Has Annotation')
+    
+            if 'Machine Annotations' in potential_metadata:
+                potential_metadata['schema_map']['Machine Annotations'] = {
+                    "section": "Annotation Status",
+                    "display_name": "Machine Annotations",
+                    "description": "Filter items by their machine annotation status."
+                }
+                # Priority
+                if 'filter_priority' not in potential_metadata: potential_metadata['filter_priority'] = []
+                if 'Machine Annotations' in potential_metadata['filter_priority']: potential_metadata['filter_priority'].remove('Machine Annotations')
+                # Insert after Has Annotation
+                idx = 0
+                if 'User Tags' in potential_metadata: idx += 1
+                if 'Has Annotation' in potential_metadata: idx += 1
+                potential_metadata['filter_priority'].insert(idx, 'Machine Annotations')
+                
+                if 'display_priority' not in potential_metadata: potential_metadata['display_priority'] = []
+                if 'Machine Annotations' in potential_metadata['display_priority']: potential_metadata['display_priority'].remove('Machine Annotations')
+                potential_metadata['display_priority'].insert(idx, 'Machine Annotations')
+    
+            # Inject Display IDs (Cached Path)
+            display_map = load_display_id_map()
+            if display_map:
+                for col in ['D_donation_id', 'D_id']:
+                    if col in potential_metadata and potential_metadata[col].get('type') == 'category': 
+                        if 'values' in potential_metadata[col]:
+                            new_values = []
+                            for item in potential_metadata[col]['values']:
+                                val = item['value']
+                                if val in display_map:
+                                    item['label'] = display_map[val]
+                                new_values.append(item)
+                            potential_metadata[col]['values'] = new_values
+    
+            # Enforce strict study membership for Donation IDs
+            potential_metadata = _enforce_study_donations(potential_metadata, study)
+            
+            if potential_metadata:
+                 return jsonify(make_serializable(potential_metadata))
+            else:
+                 print(f"    [Security] Cache invalidated for {study}, regenerating...")
 
-        # Inject Display IDs (Cached Path)
-        display_map = load_display_id_map()
-        if display_map:
-            for col in ['D_donation_id', 'D_id']:
-                if col in metadata and metadata[col].get('type') == 'category': 
-                    if 'values' in metadata[col]:
-                        new_values = []
-                        for item in metadata[col]['values']:
-                            val = item['value']
-                            if val in display_map:
-                                item['label'] = display_map[val]
-                            new_values.append(item)
-                        metadata[col]['values'] = new_values
-
-        return jsonify(make_serializable(metadata))
+        except Exception as e:
+            print(f"    Warning: Error loading/processing cached metadata: {e}")
+            traceback.print_exc()
+            # Fall through to regeneration
 
 
 
@@ -315,6 +391,9 @@ def api_explorer_metadata():
                             pass
                         new_values.append(item)
                     metadata[col]['values'] = new_values
+
+    # Enforce strict study membership for Donation IDs (before saving to cache)
+    metadata = _enforce_study_donations(metadata, study)
 
     data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=True)
 

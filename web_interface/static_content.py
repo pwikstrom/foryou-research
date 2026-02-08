@@ -12,10 +12,9 @@ HOME_CONTENT = {
     'intentions_title': "Our intentions with this tool",
     'intentions_text': (
         "We hope that this tool eventually will allow social science and humanities researchers "
-        "to analyse complex data from short video platforms, particularly with a focus on data "
-        "collected via data donations. It is also exploring the capabilities and limitations of "
+        "to analyse complex data from short video platforms. With this tool, we are also exploring the capabilities and limitations of "
         "using Gen AI to support annotation and analysis of video content at scale. You can combine "
-        "machine annotations with human annotations, and work in teams to annotate videos together "
+        "machine annotations with your own annotations, and work in teams to annotate videos together "
         "and assess your team's inter coder reliability as well as the quality of the machine "
         "based annotations."
     ),

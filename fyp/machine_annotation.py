@@ -1447,7 +1447,7 @@ def consolidate_and_save_refined_annotations(
         if result["refined_files_after"] == result["refined_files_before"]:
             print("    ...all files already refined.")
         else:
-            print(f"    ...refined {result["refined_files_after"] - result["refined_files_before"]} files.")
+            print(f"    ...refined {result['refined_files_after'] - result['refined_files_before']} files.")
 
 
     # ---------------------------------------------------------------

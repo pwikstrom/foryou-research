@@ -425,6 +425,10 @@ def delete_study():
 @management_bp.route('/api/manage/donations', methods=['GET'])
 @login_required
 def list_donations():
+    
+    if not current_user.is_admin():
+         return jsonify([])
+
     if True:#try:
         # Load ddp_metadata from ddp_main
         if data_io.exists(storage_location="ddp_main", filename="ddp_metadata.parquet"):

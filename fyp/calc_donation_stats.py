@@ -59,10 +59,10 @@ def generate_moniker(pers: dict, time_of_day_shares: dict) -> str:
     day_person_key = max(time_of_day_shares, key=time_of_day_shares.get)
     
     label_map = {
-        'Morning': 'Morning Person',
-        'Afternoon': 'Afternoon Ace',
-        'Evening': 'Night Owl',
-        'Owl': 'Overnighter'
+        'Morning': 'Early Riser',
+        'Afternoon': 'Afternoon',
+        'Evening': 'Evening',
+        'Owl': 'Night Owl'
     }
     day_person_label = label_map.get(day_person_key, "Person")
 
@@ -81,7 +81,7 @@ def generate_moniker(pers: dict, time_of_day_shares: dict) -> str:
 
 def process_single_donation(df_raw: pd.DataFrame) -> dict:
     """
-    Calculates statistics for a single donation (user).
+    Calculates statistics for a single collection.
     """
     if df_raw.empty:
         return {}
@@ -413,7 +413,7 @@ def generate_personas(events_df: pd.DataFrame) -> pd.DataFrame:
             if stats:
                 results.append(stats)
         except Exception as e:
-            print(f"Error processing donation {D_donation_id}: {e}")
+            print(f"Error processing collection {D_donation_id}: {e}")
             continue
             
     return pd.DataFrame(results)

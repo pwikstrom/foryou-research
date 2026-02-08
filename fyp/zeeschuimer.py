@@ -163,8 +163,9 @@ def refine_one_raw_zeeschuimer_log(
     relevant_baseline_cols = [c for c in fyp_cf['var_schema'].variable_name if c in zeeschuimer_logs_df.columns]
     zeeschuimer_logs_df = zeeschuimer_logs_df[relevant_baseline_cols].copy()
 
-    if verbose:
-        print(f"Dropped these columns, which are not in the variable schema:\n{"\n".join(dropped_vars_str)}\nCurrent shape: {zeeschuimer_logs_df.shape}")
+    if verbose and dropped_vars_str:
+        joined_vars = '\n'.join(dropped_vars_str)
+        print(f"Dropped these columns, which are not in the variable schema:\n{joined_vars}\nCurrent shape: {zeeschuimer_logs_df.shape}")
 
     zeeschuimer_logs_df = zeeschuimer_logs_df.copy()
 
