@@ -18,8 +18,7 @@
     <button class="tab-button active" onclick="openTab(event, 'home')">Home</button>
 
 
-    {% if user.can_access_research_features() %}
-    {% endif %}
+
 
     {% if user.is_admin() %}
     <button class="tab-button" onclick="openTab(event, 'ingest_ndjson')" style="display: none;">Ingest

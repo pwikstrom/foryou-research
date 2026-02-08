@@ -5,10 +5,12 @@ import json
 from datetime import datetime
 from fyp.fyp_config import fyp_cf, PROJECT_ROOT, PYTHON_EXEC, INGEST_SCRIPT
 import fyp.data_io as data_io
+import web_interface.auth as auth
 
 ingest_bp = Blueprint('ingest_bp', __name__)
 
 @ingest_bp.route('/api/find_ndjson', methods=['POST'])
+@auth.admin_required
 def api_find_ndjson():
     data = request.json or {}
     directory = data.get('directory')
@@ -42,6 +44,7 @@ def api_find_ndjson():
 
 
 @ingest_bp.route('/api/ingest_ndjson', methods=['POST'])
+@auth.admin_required
 def api_ingest_ndjson():
     data = request.json or {}
     files = data.get('files', [])
@@ -88,6 +91,7 @@ def api_ingest_ndjson():
 
 
 @ingest_bp.route('/api/browse_folder', methods=['POST'])
+@auth.admin_required
 def api_browse_folder():
     try:
         result = subprocess.run(
@@ -107,6 +111,7 @@ def api_browse_folder():
 
 
 @ingest_bp.route('/api/upload_ndjson', methods=['POST'])
+@auth.admin_required
 def api_upload_ndjson():
     try:
         from werkzeug.utils import secure_filename

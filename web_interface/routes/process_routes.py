@@ -15,7 +15,7 @@ from ..process_manager import (
 process_bp = Blueprint('process_bp', __name__)
 
 @process_bp.route('/api/start/<name>', methods=['POST'])
-@auth.researcher_required
+@auth.admin_required
 def api_start(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
@@ -57,7 +57,7 @@ def api_start(name):
 
 
 @process_bp.route('/api/stop/<name>', methods=['POST'])
-@auth.researcher_required
+@auth.admin_required
 def api_stop(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
@@ -94,7 +94,7 @@ def api_status():
 
 
 @process_bp.route('/api/logs/clear/<name>', methods=['POST'])
-@auth.researcher_required
+@auth.admin_required
 def api_clear_logs(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400

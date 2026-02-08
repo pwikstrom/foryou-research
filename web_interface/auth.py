@@ -2,7 +2,7 @@ import json
 import os
 import hashlib
 import binascii
-from flask_login import UserMixin, current_user
+from flask_login import UserMixin, current_user, AnonymousUserMixin
 from functools import wraps
 from flask import abort, current_app
 from pathlib import Path
@@ -13,8 +13,14 @@ logger = logging.getLogger(__name__)
 
 # --- Role Definitions ---
 ROLE_ADMIN = "admin"
-ROLE_RESEARCHER = "researcher" 
 ROLE_VIEWER = "viewer"
+
+class AnonymousUser(AnonymousUserMixin):
+
+
+    def is_admin(self):
+        return False
+
 
 # --- Role Manager ---
 
@@ -42,7 +48,7 @@ class RoleManager:
         self._ensure_defaults()
 
     def _ensure_defaults(self):
-        defaults = ["admin", "researcher", "viewer"]
+        defaults = ["admin", "viewer"]
         changed = False
         for r in defaults:
             if r not in self.roles:
@@ -129,8 +135,7 @@ class User(UserMixin):
         self.last_login = last_login
         self.settings = settings if settings is not None else {}
 
-    def can_access_research_features(self):
-        return self.role in [ROLE_ADMIN, ROLE_RESEARCHER] and self.approved
+
 
     def is_admin(self):
         return self.role == ROLE_ADMIN and self.approved
@@ -421,9 +426,4 @@ def admin_required(f):
     return role_required([ROLE_ADMIN])(f)
 
 
-def researcher_required(f):
-    # FALLBACK/DEPRECATED: We enforce Admin only for things that were "Researcher" level management tasks,
-    # OR we allow "Researcher" role users to pass if we really want to keep some distinction,
-    # but the instructions say simplify.
-    # Let's make it strict Admin for now to satisfy "creating new studies etc... simplify things".
-    return role_required([ROLE_ADMIN])(f)
+
