@@ -722,12 +722,28 @@ def load_display_id_map():
     return mapping
 
 
+
 def get_study_donations(study):
     """
     Returns a list of unique donations present in the study dataset.
     Returns: [{ 'D_donation_id': '...', 'D_id': '...' }, ...]
     """
-    try:
+
+    if not "study_defs" in fyp_cf:
+        init_study_defs()
+
+    if not study in fyp_cf["study_defs"]:
+        return []
+
+    selected_donations = fyp_cf["study_defs"][study].get("SELECTED_DONATIONS", [])
+
+    selected_donations = [{"D_donation_id": str(d).strip()} for d in selected_donations]
+
+    return selected_donations
+
+
+
+    """try:
         
         recoded_file = f"{study}_recoded.parquet"
         if data_io.exists(storage_location="cache", filename=recoded_file):
@@ -762,7 +778,7 @@ def get_study_donations(study):
         
     except Exception as e:
         print(f"Error getting study donations: {e}")
-        return []
+        return []"""
 
 
 

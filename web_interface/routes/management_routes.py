@@ -26,7 +26,7 @@ def _calculate_stats(study_config, save_to_cache=True):
              return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_donations": 0}
 
         # 1. Load Study Dataset (create if missing)
-        recoded_fn = f"{study_name}_recoded.parquet"
+        #recoded_fn = f"{study_name}_recoded.parquet"
         
         # Logic adapted from explorer_backend.load_data
         #if data_io.exists(storage_location="cache", filename=recoded_fn):

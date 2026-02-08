@@ -23,7 +23,7 @@ def init_study_defs():
         study_defs = {}
 
     fyp_cf["study_defs"] = study_defs
-    print(f"Loaded {len(study_defs)} study definitions to config")
+    print(f"Loaded {len(study_defs)} study definitions. OK.")
     
 
 
