@@ -111,7 +111,7 @@ def api_get_study_defs():
 @data_bp.route('/api/explorer/metadata', methods=['GET'])
 @login_required
 def api_explorer_metadata():
-    print("----------1----------")
+
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
@@ -142,12 +142,9 @@ def api_explorer_metadata():
     df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
   
 
-    
- 
     cached_metadata = None
     if data_io.exists(storage_location="cache", filename=f"{study}_{context}_metadata.json"):
         try:
-            print(f"    Using cached metadata for {study}")
             potential_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_{context}_metadata.json")
             
             # ... (Dynamic columns logic omitted for brevity as it modifies potential_metadata in place) ...
@@ -157,7 +154,6 @@ def api_explorer_metadata():
             # Force refresh of dynamic metadata (User Tags & Has Annotation)
             # We must re-calculate these every time because the cache might be stale w.r.t user actions
             dynamic_cols = {}
-            if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
             if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
             if 'Has Annotation' in col_types: dynamic_cols['Has Annotation'] = 'category'
             if 'Machine Annotations' in col_types: dynamic_cols['Machine Annotations'] = 'category'
@@ -259,7 +255,7 @@ def api_explorer_metadata():
             potential_metadata = _enforce_study_donations(potential_metadata, study)
             
             if potential_metadata:
-                print(f"    [DATA_ROUTES] Returning cached metadata for {study}")
+                #print(f"    [DATA_ROUTES] Returning cached metadata for {study}")
                 return jsonify(make_serializable(potential_metadata))
             else:
                 print(f"    [DATA_ROUTES] Cache invalidated for {study}, regenerating...")

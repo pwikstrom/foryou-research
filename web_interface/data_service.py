@@ -9,6 +9,7 @@ from fyp.pca import calculate_scaled_pca_scores
 from fyp.fyp_config import fyp_cf, PROJECT_ROOT
 from . import explorer_backend as explorer
 from fyp.organize_datasets import create_donation_unified_dataset
+from fyp.studies import init_study_defs
 
 # --- Explorer State ---
 

@@ -1,11 +1,13 @@
 import pandas as pd
-
 import numpy as np
+import datetime as _dt
+import pyarrow as pa
+
+from collections import Counter
+
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
-
-
-
+from fyp.organize_datasets import create_study_recoded_dataset
 
 
 
@@ -39,11 +41,9 @@ def get_metadata(df, column_types, verbose=False):
     - columns: { name: type }
     - stats: min/max for numbers, unique values for categories, null_counts
     """
-    from datetime import datetime
-    t1 = datetime.now()
+    t1 = _dt.datetime.now()
     if verbose:
         print("    Calculating things for viewer and explorer...")
-    from numpy import ndarray as np_ndarray
     metadata = {}
     for col, dtype in column_types.items():
         # Calculate Null Count
@@ -84,7 +84,7 @@ def get_metadata(df, column_types, verbose=False):
             # Flatten
             all_items = []
             for row in df[col].dropna():
-                if isinstance(row, (list, np_ndarray)):
+                if isinstance(row, (list, np.ndarray)):
                     # Deduplicate within row to count Document Frequency (rows with tag) instead of Term Frequency
                     try:
                         all_items.extend(list(set(str(x) for x in row)))
@@ -92,7 +92,6 @@ def get_metadata(df, column_types, verbose=False):
                         pass
             
             # Use Counter to find top 50 tags
-            from collections import Counter
             c = Counter(all_items)
             top_50 = c.most_common(50)
             
@@ -112,7 +111,7 @@ def get_metadata(df, column_types, verbose=False):
             continue
     
     if verbose:
-        print(f"    ...done calculating things for viewer and explorer. Time: {datetime.now()-t1}")
+        print(f"    ...done calculating things for viewer and explorer. Time: {_dt.datetime.now()-t1}")
     return metadata
 
 
@@ -120,7 +119,6 @@ def get_metadata(df, column_types, verbose=False):
 
 
 def filter_dataframe(df, column_types, filters, search_query=None):
-    from numpy import ndarray as np_ndarray
 
     filtered_df = df.copy()
 
@@ -141,7 +139,7 @@ def filter_dataframe(df, column_types, filters, search_query=None):
         if dtype == "number":
             # Robustness: If frontend sends a list (checkboxes) for a numeric column (e.g. bools, discrete ints),
             # treat it as a categorical "isin" filter.
-            if isinstance(val, (list, np_ndarray)):
+            if isinstance(val, (list, np.ndarray)):
                 value_mask = filtered_df[col].astype(str).isin([str(v) for v in val])
                 has_value_criteria = True
             else:
@@ -159,16 +157,16 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                     has_value_criteria = True
 
         elif dtype == "category":
-            if isinstance(val, (list, np_ndarray)) and len(val) > 0:
+            if isinstance(val, (list, np.ndarray)) and len(val) > 0:
                 value_mask = filtered_df[col].astype(str).isin(val)
                 has_value_criteria = True
         
         elif dtype == "list":
-            if isinstance(val, (list, np_ndarray)) and len(val) > 0:
+            if isinstance(val, (list, np.ndarray)) and len(val) > 0:
                 search_set = set(str(v) for v in val) # Ensure strings
                 
                 def robust_check(x):
-                    if not isinstance(x, (list, np_ndarray)): return False
+                    if not isinstance(x, (list, np.ndarray)): return False
                     try:
                         # Ensure x items are also hashable/strings
                         check_set = set(str(item) for item in x)
@@ -232,238 +230,6 @@ def calculate_adaptive_histogram(data, min_val, max_val, bins=50, max_empty_rati
 
 
 
-"""
-
-def get_current_stats_old(df, column_types, viz_config=None):
-    from pandas import set_option
-    from numpy import ndarray as np_ndarray
-    set_option('future.no_silent_downcasting', True)
-    "" "
-    Returns robust stats for the (filtered) dataframe.
-    v ""
-    count = len(df)
-    stats = {}
-    if viz_config is None: viz_config = {}
-
-    if count == 0:
-        return {"count": 0, "stats": {}}
-
-    for col, dtype in column_types.items():
-        if dtype == "number":
-             # Check for Discrete Integer
-             # If integer type and distinct count is low
-             is_integer = pd.api.types.is_integer_dtype(df[col])
-             n_unique = df[col].nunique()
-             
-             if is_integer and n_unique < 20:
-                 # Treat as category for plotting (Bar Chart)
-                 vc = df[col].value_counts().sort_index().to_dict()
-                 # Convert keys to str for JSON consistency
-                 stats[col] = {str(k): v for k, v in vc.items()}
-                 continue
-
-             # Continuous Variable - Density Plot
-             # Use robust bounds to exclude outliers
-             try:
-                 series = df[col][df[col]>=0].dropna()
-             except Exception as e:
-                 print(f"Error filtering {col}: {e}")
-                 stats[col] = {}
-                 continue
-
-             if series.empty:
-                 stats[col] = {"type": "density", "x": [], "y": []}
-                 continue
-             
-             # Calculate Mean, Std, Count (Safe for JSON)
-             try:
-                 import math
-                 val = float(series.mean())
-                 mean_val = val if math.isfinite(val) else None
-                 
-                 std_val = float(series.std())
-                 std_val = std_val if math.isfinite(std_val) else None
-                 
-                 count_val = int(len(series))
-             except:
-                 mean_val = None
-                 std_val = None
-                 count_val = 0
-
-             min_val, max_val = get_robust_bounds(series)
-                 
-             # Check Skewness & Transform
-             transform = "linear"
-             
-             # Config Override for LOG
-             use_log = False
-             if col in viz_config and viz_config[col].get('log'):
-                 use_log = True
-             else:
-                 # Default Logic (if not strictly specified to NO? User said "if yes -> log, otherwise not")
-                 # This implies we ONLY log if yes. So disable auto-skew check?
-                 # "web_viz_log: if this column is 'yes' then the variable should be logged, otherwise not."
-                 # This implies strict override. 
-                 use_log = False
-                 
-             if use_log:# and min_val >= 0:
-                 transform = "log10"
-             
-             # Clamp data (original domain)
-             clamped_series = series.clip(lower=min_val, upper=max_val)
-             
-             
-             # Calculate Histogram
-             try:
-                if min_val == max_val:
-                     # Constant value
-                     # For log10, we'd plot at log10(val+1)
-                     x_val = np.log10(min_val + 1) if transform == "log10" else min_val
-                     
-                     stats[col] = {
-                        "type": "density",
-                        "x": [float(x_val)],
-                        "y": [float(len(clamped_series))],
-                        "transform": transform,
-                        "min": min_val,
-                        "max": max_val,
-                        "mean": mean_val,
-                        "std": std_val,
-                        "count": count_val
-                    }
-                     continue
-                
-                # Bin Configuration
-                # Default: 10 bins (User request)
-                # Config: int or list
-                bins_arg = 10 
-                adaptive = True # Default to adaptive? User said "defaults to 10". 
-                # "If a numerical plot doesn't have a value ... default to 10"
-                # If explicit bins are given, likely we shouldn't adaptively reduce them?
-                
-                if col in viz_config and viz_config[col].get('bins') is not None:
-                     bins_arg = viz_config[col]['bins']
-                     adaptive = False # explicit bins -> disable adaptive
-                elif col not in viz_config: 
-                     # Should we keep adaptive for default 10? 
-                     # Start with 10. If empty, reducing to 5 is fine.
-                     adaptive = True
-                
-                if transform == "log10":
-                    # Transform data: log10(x + 1)
-                    log_data = np.log10(clamped_series + 1)
-                    log_min = np.log10(min_val + 1)
-                    log_max = np.log10(max_val + 1)
-                    
-                    # Histogram in log domain (linear bins in log space)
-                    if adaptive and isinstance(bins_arg, int):
-                         counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max, bins=bins_arg)
-                    else:
-                         # Explicit bins (int or list)
-                         # If list (edges), we need to ensure they are in log domain? 
-                         # User config is likely in ORIGINAL domain.
-                         # "10|30|50"
-                         # If log, edges need transform. 
-                         chosen_bins = bins_arg
-                         if isinstance(chosen_bins, (list, np_ndarray)):
-                             # Transform edges to log
-                             chosen_bins = [np.log10(b + 1) for b in chosen_bins]
-                             # Add min/max to edges if not covering range? 
-                             # np.histogram handles range if bins is int. If bins is sequence, it defines edges.
-                             
-                         counts, bin_edges = np.histogram(log_data, bins=chosen_bins, range=(log_min, log_max) if isinstance(chosen_bins, int) else None, density=True)
-                         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-
-                    
-                    # Generate Custom Ticks for Log Axis (Original Values)
-                    # We want ticks at 0, 1, 10, 100, 1000...
-                    tick_vals = []
-                    tick_text = []
-                    
-                    # 0
-                    if 0 >= min_val and 0 <= max_val:
-                        tick_vals.append(np.log10(1))
-                        tick_text.append("0")
-                    
-                    # Powers of 10
-                    p = 0
-                    while True:
-                        v = 10**p
-                        if v > max_val:
-                            break
-                        if v >= min_val:
-                            tick_vals.append(np.log10(v + 1))
-                            tick_text.append(f"{v:,}") # Add comma separator
-                        p += 1
-                        
-                    stats[col] = {
-                        "type": "density",
-                        "x": bin_centers.tolist(), # Transformed if log
-                        "y": counts.tolist(),
-                        "transform": transform,
-                        "min": min_val, # Original units
-                        "max": max_val,  # Original units
-                        "tick_vals": tick_vals,
-                        "tick_text": tick_text,
-                        "mean": mean_val,
-                        "std": std_val,
-                        "count": count_val
-                    }
-                    continue # Use continue to skip the default stats assignment below
-                else:
-                    # Linear Bins in original domain
-                    if adaptive and isinstance(bins_arg, int):
-                        counts, bin_centers = calculate_adaptive_histogram(clamped_series, min_val, max_val, bins=bins_arg)
-                    else:
-                        counts, bin_edges = np.histogram(clamped_series, bins=bins_arg, range=(min_val, max_val) if isinstance(bins_arg, int) else None, density=True)
-                        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-                
-                stats[col] = {
-                    "type": "density",
-                    "x": bin_centers.tolist(), # Transformed if log
-                    "y": counts.tolist(),
-                    "transform": transform,
-                    "min": min_val, # Original units
-                    "max": max_val,  # Original units
-                    "mean": mean_val,
-                    "std": std_val,
-                    "count": count_val
-                }
-             except Exception as e:
-                 print(f"Error calculating histogram for {col}: {e}")
-                 stats[col] = {}
-        
-        elif dtype == "category":
-            # Cap value counts for charts to Top 20
-            # Sending thousands of bars crashes frontend
-            vc = df[col].value_counts().head(20).to_dict()
-            stats[col] = vc
-
-        elif dtype == "list":
-            # Flatten and count
-            all_items = []
-            for row in df[col].dropna():
-                    if isinstance(row, (list, np_ndarray)):
-                        all_items.extend(row)
-            
-            from collections import Counter
-            # Cap list items to Top 20
-            stats[col] = dict(Counter(all_items).most_common(20))
-             
-    # DEBUG LOGGING
-    " ""try:
-        with open("debug_explorer_stats.txt", "w") as f:
-            f.write(f"Count: {count}\n")
-            f.write(f"Columns in stats: {list(stats.keys())}\n")
-            for k, v in stats.items():
-                f.write(f"{k}: Type={v.get('type', 'Category')}, Mean={v.get('mean')}, Error={v == {}}\n")
-    except:
-        pass"" "
-
-    return {"count": count, "stats": stats}
-
-
-"""
 
 
 
@@ -471,7 +237,7 @@ def get_current_stats_old(df, column_types, viz_config=None):
 
 def make_serializable(obj):
     """Helper to convert non-JSON-serializable types."""
-    from datetime import datetime
+
     if obj is None:
         return None
         
@@ -493,7 +259,7 @@ def make_serializable(obj):
     except:
         pass
 
-    if isinstance(obj, (pd.Timestamp, datetime)):
+    if isinstance(obj, (pd.Timestamp, _dt.datetime)):
         return obj.isoformat()
         
     if hasattr(obj, 'tolist'):  # generic numpy scalar fallback
@@ -503,8 +269,6 @@ def make_serializable(obj):
 
 
 def load_data(study: str, verbose: bool = False):
-    import pyarrow as pa
-    from fyp.organize_datasets import create_study_recoded_dataset
 
     if verbose:
         print("    Loading study data for viewer/explorer...")
@@ -622,11 +386,11 @@ def load_data(study: str, verbose: bool = False):
 
 
 def get_current_stats(df, column_types, viz_config=None, verbose=False):
-    from pandas import set_option
-    from numpy import ndarray as np_ndarray
-    from datetime import datetime
-    set_option('future.no_silent_downcasting', True)
-    t1 = datetime.now()
+    
+    pd.set_option('future.no_silent_downcasting', True)
+    
+    t1 = _dt.datetime.now()
+    
     if verbose:
         print("    Calculating stats for viewer and explorer...")
 
@@ -704,7 +468,7 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
                           counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max, bins=bins_arg)
                      else:
                           chosen_bins = bins_arg
-                          if isinstance(chosen_bins, (list, np_ndarray)):
+                          if isinstance(chosen_bins, (list, np.ndarray)):
                               chosen_bins = [np.log10(b + 1) for b in chosen_bins]
                           
                           counts, bin_edges = np.histogram(log_data, bins=chosen_bins, range=(log_min, log_max) if isinstance(chosen_bins, int) else None, density=True)
@@ -780,17 +544,16 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
              all_items = []
              s = df[col].dropna()
              for row in s:
-                  if isinstance(row, (list, np_ndarray)):
+                  if isinstance(row, (list, np.ndarray)):
                       # Deduplicate within row to count Document Frequency
                       try:
                           all_items.extend(list(set(str(x) for x in row)))
                       except:
                           pass
-             from collections import Counter
              stats[col] = dict(Counter(all_items).most_common(20))
 
     if verbose:
-        print(f"    ...done calculating stats for viewer and explorer. Time: {datetime.now()-t1}")
+        print(f"    ...done calculating stats for viewer and explorer. Time: {_dt.datetime.now()-t1}")
 
 
     return {"count": count, "stats": stats}
