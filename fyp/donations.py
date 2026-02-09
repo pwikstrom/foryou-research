@@ -792,7 +792,6 @@ def flatten_single_tiktok_ddp_from_raw_file(
 
 
 
-
 def refine_one_raw_ddp_log_from_dict(
     donation_id: str = None,
     donation_dict: dict = None,
@@ -1394,7 +1393,7 @@ def consolidate_ddp_logs(
         if result["refined_files_after"] == result["refined_files_before"]:
             print("    ...all files already refined.")
         else:
-            print(f"    ...refined {result["refined_files_after"] - result["refined_files_before"]} files.")
+            print(f"    ...refined {result['refined_files_after'] - result['refined_files_before']} files.")
 
 
     # --------------------------------------------------------------------------------------
@@ -1539,7 +1538,7 @@ def consolidate_ddp_logs(
 
     if len(too_small_donations) > 0:
         if verbose:
-            print(f"The following donations have fewer than 5 watch events and will be dropped: \n  - {"\n  - ".join(too_small_donations)}")
+            print(f"The following donations have fewer than 5 watch events and will be dropped: \n  - {'\n  - '.join(too_small_donations)}")
 
         concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs.D_donation_id.isin(too_small_donations)].copy()
         if top_verbose:
