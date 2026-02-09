@@ -843,7 +843,8 @@ def generate_donation_metadata(
     ddp_events_df: pd.DataFrame | None = None,
     update_col: pd.Series | None = None,
     sort_by: str | None = None, 
-    verbose: bool = False
+    verbose: bool = False,
+    save_to_disk_ok: bool = True,
     ) -> pd.DataFrame:
     """
     Generate or update donation metadata, either by calculating statistics from events 
@@ -893,8 +894,9 @@ def generate_donation_metadata(
 
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
             #new_metadata_df = new_metadata_df.sort_index(axis='columns').sort_values(('other','D_id')).copy()
-            data_io.save_parquet(df=new_metadata_df, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
-            print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
+            if save_to_disk_ok:
+                data_io.save_parquet(df=new_metadata_df, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
+                print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
             return new_metadata_df
 
         else:
@@ -951,18 +953,19 @@ def generate_donation_metadata(
 
 
     donation_personas = generate_personas(ddp_events_df_new)
-    donation_personas.set_index("D_donation_id", inplace=True)
-    donation_personas.columns = pd.MultiIndex.from_product([['personas'], donation_personas.columns])
+    if not donation_personas.empty and "D_donation_id" in donation_personas.columns:
+        donation_personas.set_index("D_donation_id", inplace=True)
+        donation_personas.columns = pd.MultiIndex.from_product([['personas'], donation_personas.columns])
 
 
     if verbose:
-        print("Checking all participant metadata files ")
+        print("Checking participant metadata files...")
     participant_metadata = {}
     for participant_data_file in data_io.listdir(storage_location="ddp_participants"):
         if participant_data_file.endswith(".json"):
             participant_metadata_raw = data_io.load_json(storage_location="ddp_participants", filename=participant_data_file)
             if verbose:
-                print(f"P {len(participant_metadata_raw['Items'])} items in the file {participant_data_file}")
+                print(f"    Found {len(participant_metadata_raw['Items']):,} items in the file {participant_data_file}")
             for item in participant_metadata_raw.get("Items", []):
                     py_item = {k: _deser(v) for k, v in item.items()}
                     participant_metadata[py_item['id']] = py_item
@@ -972,16 +975,18 @@ def generate_donation_metadata(
     participant_metadata_df.columns = pd.MultiIndex.from_product([['participants'], participant_metadata_df.columns])
 
     combined_ddp_metadata = pd.merge(df1, participant_metadata_df, left_index=True, right_index=True, how="left")
-    combined_ddp_metadata = pd.merge(combined_ddp_metadata, donation_personas, left_index=True, right_index=True, how="left")
+
+    if not donation_personas.empty:
+        combined_ddp_metadata = pd.merge(combined_ddp_metadata, donation_personas, left_index=True, right_index=True, how="left")
 
 
     if old_metadata_df is not None:
-        if verbose:
-            print(f"Adding {len(combined_ddp_metadata)} rows to the existing metadata DF")
         combined_ddp_metadata = pd.concat([old_metadata_df, combined_ddp_metadata], axis=0)
         
-    #combined_ddp_metadata = combined_ddp_metadata.sort_index(axis='columns').sort_values(('other','D_id')).copy()
-    data_io.save_parquet(df=combined_ddp_metadata, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
+    if save_to_disk_ok:
+        if verbose:
+            print(f"Saving updated metadata to disk. Shape: {combined_ddp_metadata.shape}")
+        data_io.save_parquet(df=combined_ddp_metadata, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
 
     if verbose:
         print(f"Shape of the combined metadata DF: {combined_ddp_metadata.shape}")
@@ -1003,10 +1008,9 @@ def generate_donation_metadata(
 
 
 
+
 def _identify_similar_donations(
-    new_events: pd.DataFrame = None,
-    old_events: pd.DataFrame = None,
-    dont_check_these_cols: list = [],
+    donation_events: pd.DataFrame = None,
     overlap_threshold: float = 0.5
 ) -> dict:
     """
@@ -1015,18 +1019,10 @@ def _identify_similar_donations(
     check for similarities in the donations by looking for the same timestamps in the donations. 
     The assumption is that if two donations have a lot of the same timestamps, they are likely to be duplicates
 
-
-    This function compares the timestamps of events in new donations against old donations (or within new donations themselves)
-    to identify potential duplicates or highly similar donations.
-
     Parameters
     ----------
-    new_events : pandas.DataFrame
-        DataFrame containing the new donation events. Must contain 'D_donation_id',  'D_feature_name', and 'T_local_timestamp' columns.
-    old_events : pandas.DataFrame, optional
-        DataFrame containing existing donation events to compare against. If None, compares new_events against itself.
-    dont_check_these_cols : list, optional
-        List of feature names to exclude from the comparison.
+    donation_events : pandas.DataFrame
+        DataFrame containing the donation events. Must contain 'D_donation_id' and 'T_local_timestamp' columns.
     overlap_threshold : float, default 0.5
         The threshold for timestamp overlap ratio to consider donations as similar.
 
@@ -1034,55 +1030,41 @@ def _identify_similar_donations(
     -------
     dict
         A dictionary containing sets of donation IDs:
-        - "new_drops": IDs of new donations to be dropped.
-        - "old_drops": IDs of old donations to be dropped.
+        - "drops": IDs of donations to be dropped.
         - "keepers": IDs of donations to keep.
     """
 
-    if new_events is None:
-        raise ValueError("new_events cannot be None")
-    new_events_ts_dict = {}
-    fine_events_df = new_events[~new_events["D_feature_name"].isin(dont_check_these_cols)].copy()
-    for d,i in fine_events_df.groupby('D_donation_id'):
-        new_events_ts_dict[d] = set([j for j in i['T_local_timestamp'].values])
-    
-    if old_events is not None:
-        old_events_ts_dict = {}
-        fine_events_df = old_events[~old_events["D_feature_name"].isin(dont_check_these_cols)].copy()
-        for d,i in fine_events_df.groupby('D_donation_id'):
-            old_events_ts_dict[d] = set([j for j in i['T_local_timestamp'].values])
-    else:
-        old_events_ts_dict = new_events_ts_dict.copy()
+    if donation_events is None:
+        raise ValueError("donation_events cannot be None")
 
-    new_drop_candidates = set()
-    old_drop_candidates = set()
-    keeper_donations = set()
+    # dropping df cols and changing timestamp column to integers which makes set operations faster
+    fine_events_df = donation_events[['D_donation_id','T_local_timestamp']].copy()
+    fine_events_df['T_local_timestamp'] = fine_events_df['T_local_timestamp'].astype('int64') / 1e9
 
-    unique_new_donations = list(new_events_ts_dict.keys())
-    unique_old_donations = list(old_events_ts_dict.keys())
 
-    unique_new_donations = sorted(unique_new_donations, key=lambda x: len(new_events_ts_dict[x]), reverse=False)
-    unique_old_donations = sorted(unique_old_donations, key=lambda x: len(old_events_ts_dict[x]), reverse=False)
+    # the logic is based on comparing sets of timestamps, assuming that it is unlikely that two donations have
+    # the same collection of timestamps
+    ts_sets = fine_events_df.groupby('D_donation_id', observed=False)['T_local_timestamp'].apply(set).to_dict()
+    unique_donations = list(ts_sets.keys())
+    unique_donations = sorted(unique_donations, key=lambda x: len(ts_sets[x]), reverse=False)
 
-    for a_new_donation in unique_new_donations:
-        if a_new_donation not in (new_drop_candidates | old_drop_candidates):
-            for an_old_donation in unique_old_donations:
-                if (a_new_donation != an_old_donation) and (an_old_donation not in (new_drop_candidates | old_drop_candidates)):
-                    ts_overlap = len(new_events_ts_dict[a_new_donation] & old_events_ts_dict[an_old_donation]) / \
-                                                                (min(len(old_events_ts_dict[an_old_donation]), len(new_events_ts_dict[a_new_donation])))   
+    drop_candidates = set()
+
+    for don_a in unique_donations:
+        if don_a not in drop_candidates:
+            for don_b in unique_donations:
+                if (don_a != don_b) and (don_b not in drop_candidates):
+                    ts_overlap = len(ts_sets[don_a] & ts_sets[don_b]) / (min(len(ts_sets[don_b]), len(ts_sets[don_a])))   
                     if (ts_overlap > overlap_threshold):
-                        if len(old_events_ts_dict[an_old_donation]) > len(new_events_ts_dict[a_new_donation]):
-                            new_drop_candidates.add(a_new_donation)
-                            keeper_donations.add(an_old_donation)
-                            #print(f"Dropping new donation: {a_new_donation} and {an_old_donation} with overlap {ts_overlap}")
+                        if len(ts_sets[don_b]) > len(ts_sets[don_a]):
+                            drop_candidates.add(don_a)
                         else:
-                            old_drop_candidates.add(an_old_donation)
-                            keeper_donations.add(a_new_donation)
-                            #print(f"Dropping old donation: {an_old_donation} and {a_new_donation} with overlap {ts_overlap}")
-
+                            drop_candidates.add(don_b)
                         break
-    
-    return {"new_drops": new_drop_candidates, "old_drops": old_drop_candidates, "keepers": keeper_donations}
+
+    keeper_donations = set(unique_donations) - drop_candidates
+
+    return {"drops": drop_candidates, "keepers": keeper_donations}
 
 
 
@@ -1097,8 +1079,10 @@ def _identify_similar_donations(
 
 def consolidate_ddp_logs(
     force_consolidation: bool = False,
-    consolidate_from_scratch: bool = True,
+    consolidate_from_scratch: bool = False,
     return_saved_data: bool = True,
+    exclude_rejected: bool = True,
+    save_to_disk_ok: bool = True,
     verbose: bool = False,
 ) -> tuple[bool, pd.DataFrame]:
     """
@@ -1136,6 +1120,7 @@ def consolidate_ddp_logs(
 
 
     # --------------------------------------------------------------------------------------
+    # get a list of refined ddp files
     refined_ddp_files = data_io.listdir(
         storage_location="ddp_processed",
         return_absolute_path=False,
@@ -1152,19 +1137,23 @@ def consolidate_ddp_logs(
     else:
         dataset_meta = {"donations": {"filenames": []}}
     latest_filename_list = dataset_meta.get("donations", {}).get("filenames", [])
+    latest_donation_ids = [ fn.replace(".parquet","") for fn in latest_filename_list]
+    if top_verbose:
+        print(f"Number of donations in the latest successful run of this process: {len(latest_donation_ids)}")
 
-
-
-    # ---------------------------------------------------------------
+    # get a list of accepted refined ddp files
     if data_io.exists(storage_location="ddp_main",filename="ddp_metadata.parquet",verbose=verbose):
         ddp_meta_file_exists = True
         ddp_meta = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
-        rejected_donations = ddp_meta[~ddp_meta[('other','accepted')]].index.to_list()
-        rejected_donations = [f"{u}.parquet" for u in rejected_donations]
-        accepted_refined_ddp_files = [u for u in refined_ddp_files if u not in rejected_donations]
+        if exclude_rejected:
+            rejected_refined_ddp_files = ddp_meta[~ddp_meta[('other','accepted')]].index.to_list()
+            rejected_refined_ddp_files = [f"{u}.parquet" for u in rejected_refined_ddp_files]
+        else:
+            rejected_refined_ddp_files = []
+        accepted_refined_ddp_files = [u for u in refined_ddp_files if u not in rejected_refined_ddp_files]
     else:
         ddp_meta_file_exists = False
-        rejected_donations = []
+        rejected_refined_ddp_files = []
         accepted_refined_ddp_files = []
 
     donations_recoded_file_exists = data_io.exists(storage_location="recoded",filename="donations_recoded.parquet",verbose=verbose)
@@ -1179,20 +1168,22 @@ def consolidate_ddp_logs(
         if return_saved_data:
             thing = data_io.load_parquet(storage_location="recoded", filename="donations_recoded.parquet")
             if verbose: print("Returning existing file.")
-
             return False, thing
+
         return False, None
-    if top_verbose:
-        print("Found new refined DDP files. Consolidating...")
+
 
     # --------------------------------------------------------------------------------------
-
-    # if I don't want to consolidate from scratch, I can load the existing data and only add the new files
-    new_refined_files = [u for u in refined_ddp_files if u not in latest_filename_list and u not in rejected_donations]
+    if top_verbose:
+        print("Found new refined DDP files or no consolidated file exists. Consolidating...")
     many_ddp_logs = []
 
-    # first look in cache, then look in recoded
+
+    # --------------------------------------------------------------------------------------
+    # if I don't want to consolidate from scratch, I can load the existing data and only add the new files
+
     if donations_recoded_file_exists and ddp_meta_file_exists and not consolidate_from_scratch:
+        # first look in cache, then look in recoded
         if data_io.exists(storage_location="cache",filename="core_donations.parquet",verbose=verbose):
             if top_verbose:
                 print("Loading existing DDP logs from cache...", end="", flush=True)
@@ -1203,32 +1194,44 @@ def consolidate_ddp_logs(
             many_ddp_logs = [data_io.load_parquet(storage_location="recoded", filename="donations_recoded.parquet")]
         print(f"...done. Shape: {many_ddp_logs[0].shape}. Unique donations: {many_ddp_logs[0].D_donation_id.nunique()}.")
 
-    # there is a df in many_ddp_logs, it means that I found a previously consolidated df and don't want to
-    # force consolidation from scratch. So I only need to add the new files.
+    # --------------------------------------------------------------------------------------
+    # if there is a df in many_ddp_logs at this stage, it means that I found a previously consolidated df and that 
+    # I don't want to force consolidation from scratch. So I only need to add the new files.
     if len(many_ddp_logs) == 1:
+        # get a list of new refined files
+        new_refined_files = [u for u in refined_ddp_files if u not in latest_filename_list and u not in rejected_refined_ddp_files]
         if top_verbose:
             print(f"Loading {len(new_refined_files)} new logs to concatenate with already concatenated donations...")
-        for u in new_refined_files:
-            if top_verbose:
-                print(".", end="", flush=True)
-            many_ddp_logs.append(data_io.load_parquet(storage_location="ddp_processed", filename=u))
-        if top_verbose:
-            print()
 
-    # if I either force consolidate from scratch or no previously consolidated donations exist - start from scratch
+    # --------------------------------------------------------------------------------------
+    # if many_ddp_logs is empty - it means I want to force consolidate from scratch or no previously 
+    # consolidated donations exist - start from scratch and load all individual donations
     else:
-        refined_ddp_files = [u for u in refined_ddp_files if u not in rejected_donations]
         if top_verbose:
-            print(f"Loading {len(refined_ddp_files)} (all not previously rejected) donation logs to concatenate from scratch...")
-        for u in refined_ddp_files:
-            if top_verbose:
-                print(".", end="", flush=True)
-            many_ddp_logs.append(data_io.load_parquet(storage_location="ddp_processed", filename=u))
+            if exclude_rejected:
+                new_refined_files = [u for u in refined_ddp_files if u not in rejected_refined_ddp_files]
+                print(f"Loading {len(new_refined_files)} (not previously rejected) donation logs to concatenate from scratch...")
+            else:
+                new_refined_files = refined_ddp_files
+                print(f"Loading {len(new_refined_files)} donation logs to concatenate from scratch...")
+
+    for u in new_refined_files:
         if top_verbose:
-            print()
-            
+            print(".", end="", flush=True)
+        many_ddp_logs.append(data_io.load_parquet(storage_location="ddp_processed", filename=u))
+    if top_verbose:
+        print()
+
+    # --------------------------------------------------------------------------------------
+    # concatenate all refined files
     if top_verbose:
         print(f"Concatenating {len(many_ddp_logs)} refined files...")
+
+    # drop columns with all null values before concatenating
+    for dl in many_ddp_logs:
+        dd = dl.notnull().sum()
+        dl.drop(dd[dd==0].index.tolist(), axis=1, inplace=True)
+
     concatenated_ddp_logs = pd.concat(many_ddp_logs)
     if top_verbose:
         print(f"    ...done - initial shape of the concatenated dataframe: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
@@ -1241,76 +1244,83 @@ def consolidate_ddp_logs(
     if top_verbose:
         print(f"Shape after naive duplication drop: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
 
+    if set(concatenated_ddp_logs["D_donation_id"].unique()) == set(latest_donation_ids):
+        if top_verbose:
+            print("Donation dataset have not changed. Returning dataset. (1)")
+        return concatenated_ddp_logs
+        
 
-    # --------------------------------------------------------------------------------------
-    # calculate the donation stats
-    if top_verbose:
-        print("Calculating donation metadata for the concatenated donations...")
-    donation_metadata = generate_donation_metadata(
-        ddp_events_df=concatenated_ddp_logs, 
-        update_col=None,
-        verbose=verbose
-        )
-    if top_verbose:
-        print("    ...done updating donation metadata")
+
+    donation_counts = concatenated_ddp_logs.groupby('D_donation_id')["D_feature_name"].value_counts().unstack().fillna(0).astype(int)
 
 
     # --------------------------------------------------------------------------------------
-    # create list of donations to be dropped and drop donations which has a very small number of watched videos
-    donations_to_drop = []
-    donations_to_drop += list(donation_metadata["counts"][(donation_metadata["counts","watch"]<5)].index)
+    # create list of donations which has a very small number of watched videos
+    too_small_donations = list(donation_counts[(donation_counts["watch"]<5)].index)
+    too_small_donations = list(set(concatenated_ddp_logs.D_donation_id.unique()) & set(too_small_donations))
 
-    donations_to_drop = list(set(concatenated_ddp_logs.D_donation_id.unique()) & set(donations_to_drop))
-
-    if len(donations_to_drop) > 0:
-
+    if len(too_small_donations) > 0:
         if verbose:
-            print(f"The following donations have fewer than 5 watch events and will be dropped: \n  - {"\n  - ".join(donations_to_drop)}")
+            print(f"The following donations have fewer than 5 watch events and will be dropped: \n  - {"\n  - ".join(too_small_donations)}")
 
-        concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs.D_donation_id.isin(donations_to_drop)].copy()
+        concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs.D_donation_id.isin(too_small_donations)].copy()
         if top_verbose:
             print(f"Shape after dropping donations with fewer than 5 watch events: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
-    
+
+
+    if set(concatenated_ddp_logs["D_donation_id"].unique()) == set(latest_donation_ids):
+        if top_verbose:
+            print("Donation dataset have not changed. Returning dataset. (2)")
+        return concatenated_ddp_logs
+        
 
 
     # --------------------------------------------------------------------------------------
+    # check for similarities among donations by comparing donations' sets of event timestamps. 
     if top_verbose:
-        print(f"Only keeping one of overlapping (=similar) donations...")
+        print(f"Identifying for similar/overlapping donations and only keeping the bigger one of these...")
 
-    # check for similarities between the new donations by looking for the same timestamps in the donations. 
-    # The assumption is that if two donations have a lot of the same timestamps, they are likely to be duplicates
-    # first include all kinds of events, then exclude the watch events
+    similarity_results = _identify_similar_donations(donation_events=concatenated_ddp_logs, overlap_threshold=0.2)
 
-    a1 = _identify_similar_donations(new_events=concatenated_ddp_logs, old_events=concatenated_ddp_logs, dont_check_these_cols=[])
-    a2 = _identify_similar_donations(new_events=concatenated_ddp_logs, old_events=concatenated_ddp_logs, dont_check_these_cols=["watch"])
-    new_donations_to_drop = (a1["new_drops"] | a2["new_drops"])
-    old_donations_to_drop = (a1["old_drops"] | a2["old_drops"])
-    donations_to_drop = new_donations_to_drop | old_donations_to_drop
-
+    accepted_new_refined_files = list(set(new_refined_files) & set(similarity_results["keepers"]))
+    #if len(accepted_new_refined_files) > 0:
     # drop the events in these donations
-    concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs["D_donation_id"].isin(donations_to_drop)].copy()
+    concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs["D_donation_id"].isin(similarity_results["drops"])].copy()
     if top_verbose:
-        print(f"    ...done. Shape after dropping overlapping donations: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
+        if len(similarity_results["drops"])>0:
+            print(f"Dropped {len(similarity_results["drops"])} donation(s) which were too similar to other donations.")
 
-
+    if len(accepted_new_refined_files) > 0:
+        if verbose:
+            print(f"    ...done. New shape: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
+    else:
+        if verbose:
+            print("    ...done. No new donations were accepted. Returning dataset. (3)")
+        return concatenated_ddp_logs
+        
 
     # --------------------------------------------------------------------------------------
     # update the donation metadata with a column to signify which donations are accepted
     # and included in the dataset. This is necessary since the donation metadata df contains
     # all donations, even those that are overlapping or are too small to be included in the dataset.  
     if top_verbose:
-        print("Updating donation metadata with a column to signify which donations are accepted...")
+        print("Updating 'accepted' status in donation metadata file...")
     accepted_donation_ids = concatenated_ddp_logs["D_donation_id"].unique()
-    accepted_col = pd.Series(donation_metadata.index.isin(accepted_donation_ids), index=donation_metadata.index, name=("other", "accepted"))
     donation_metadata = generate_donation_metadata(
+        ddp_events_df=concatenated_ddp_logs, 
+        update_col=None,
+        verbose=verbose,
+        save_to_disk_ok=save_to_disk_ok,
+        )
+    accepted_col = pd.Series(donation_metadata.index.isin(accepted_donation_ids), index=donation_metadata.index, name=("other", "accepted"))
+    _ = generate_donation_metadata(
         ddp_events_df=None, 
         update_col=accepted_col,
-        verbose=verbose
+        verbose=verbose,
+        save_to_disk_ok=save_to_disk_ok,
         )
     if top_verbose:
         print("    ...done updating donation metadata")
-
-
 
 
     # --------------------------------------------------------------------------------------
@@ -1326,21 +1336,17 @@ def consolidate_ddp_logs(
 
 
     # --------------------------------------------------------------------------------------
-    # I will concatenate this df with anohter df where this column is missing. It makes
-    # my life easier to turn it into str. I'm not using it for calculations anyway.  
-    #concatenated_ddp_logs["ts_added_to_dataset"] = concatenated_ddp_logs["ts_added_to_dataset"].dt.strftime('%Y-%m-%d')
-
-
+    # is this necessary - I don't know...
     concatenated_ddp_logs = convert_dtypes_to_pyarrow(concatenated_ddp_logs)
 
+
+    # --------------------------------------------------------------------------------------
+    # calculate memory usage
     memory_per_column = concatenated_ddp_logs.memory_usage(deep=True) 
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
-
-
     if top_verbose:
         print(f"...done. Combined all logs into shape: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()} (memory usage: {total_memory_mb:.2f} MB)")
-
 
 
     # ---------------------------------------------------------------
@@ -1348,7 +1354,8 @@ def consolidate_ddp_logs(
     if not "donations" in dataset_meta:
         dataset_meta["donations"] = {}
     dataset_meta["donations"]["filenames"] = refined_ddp_files
-    _ = data_io.save_json(dataset_meta, "recoded", "dataset_meta.json")
+    if save_to_disk_ok:
+        _ = data_io.save_json(dataset_meta, "recoded", "dataset_meta.json")
 
 
     return True, concatenated_ddp_logs
