@@ -7,6 +7,7 @@ Author: Patrik
 Date: 
 """
 
+from zoneinfo import ZoneInfo
 import re
 import pandas as pd
 from copy import copy
@@ -20,12 +21,92 @@ import numpy as np
 import subprocess
 import textwrap
 import datetime as _dt
+import os
 
 
 
 ############################################################################################################
 ###                     Process Zeeschuimer metadata
 ############################################################################################################
+
+
+
+
+def flatten_single_tiktok_zeeschuimer_dict(
+    filename: str = None,
+    collection_id: str = None,
+    collection_group: str = None,
+    verbose: bool = False) -> pd.DataFrame:
+
+    zeeschuimer_list = data_io.read_ndjson_file(storage_location="zeeschuimer_raw", filename = filename)
+    # normalize the list of dictionaries into a dataframe and convert the item_id to an integer
+    zeeschuimer_logs_df = pd.json_normalize(zeeschuimer_list)
+
+    # only keeping videos from the FYP page not the explore page
+    zeeschuimer_logs_df = zeeschuimer_logs_df[zeeschuimer_logs_df['source_platform_url'] == 'https://www.tiktok.com/foryou'].copy()
+
+    # drop the items with corrupt item_ids
+    zeeschuimer_logs_df = zeeschuimer_logs_df[zeeschuimer_logs_df.item_id.map(lambda x:all([u in "0123456789" for u in x]) and len(x) == 19)].copy()
+    zeeschuimer_logs_df["item_id"] = zeeschuimer_logs_df["item_id"].astype("string[pyarrow]")
+
+
+    source_details = []
+    for ii in zeeschuimer_logs_df.index:
+        source_details += [clean_url(zeeschuimer_logs_df['source_url'][ii])]        
+    source_details = pd.DataFrame(source_details)
+
+    # merge the source_details dataframe with the zeeschuimer_logs_df dataframe and drop the source_url column
+    zeeschuimer_logs_df = pd.merge(left=zeeschuimer_logs_df, right=source_details, left_index=True, right_index=True)
+    del zeeschuimer_logs_df["source_url"]
+
+    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].astype(np.int64)
+    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].apply(lambda x: _dt.datetime.fromtimestamp(np.int64(x/1000)))
+
+
+    unique_tz = zeeschuimer_logs_df["source_url.tz_name"].unique()
+    if len(unique_tz) > 1:
+        raise ValueError(f"Multiple timezones found: {unique_tz}")
+
+    tz = ZoneInfo(unique_tz[0])
+    # Localize -> Convert to UTC
+    zeeschuimer_logs_df["utc_timestamp"] = (
+        zeeschuimer_logs_df["timestamp_collected"]
+        .dt.tz_localize(tz, ambiguous='NaT', nonexistent='NaT')
+        .dt.tz_convert("UTC")
+    )
+
+    zeeschuimer_logs_df["timestamp_collected"] = zeeschuimer_logs_df["timestamp_collected"].astype("timestamp[ns][pyarrow]")
+    zeeschuimer_logs_df["utc_timestamp"] = zeeschuimer_logs_df["utc_timestamp"].astype("timestamp[ns][pyarrow]")
+
+    zeeschuimer_logs_df["tz_offset"] = zeeschuimer_logs_df["timestamp_collected"] - zeeschuimer_logs_df["utc_timestamp"]
+    zeeschuimer_logs_df["tz_offset"] = zeeschuimer_logs_df["tz_offset"].dt.total_seconds() / 3600
+    zeeschuimer_logs_df["tz_offset"] = zeeschuimer_logs_df["tz_offset"].astype("int64[pyarrow]")
+
+    zeeschuimer_logs_df = zeeschuimer_logs_df[["item_id","tz_offset","utc_timestamp"]].copy()
+
+    ts_added_to_dataset = data_io.getmtime(storage_location = "zeeschuimer_raw", filename = filename)
+    ts_added_to_dataset = pd.to_datetime(ts_added_to_dataset, unit="s")
+    zeeschuimer_logs_df['ts_added_to_dataset'] = pd.Series(ts_added_to_dataset, index=zeeschuimer_logs_df.index, dtype="timestamp[ns][pyarrow]")
+
+    if collection_id is None:
+        collection_id = os.path.basename(filename)
+    zeeschuimer_logs_df['collection_id'] = pd.Series(collection_id, index=zeeschuimer_logs_df.index, dtype="string[pyarrow]")
+    zeeschuimer_logs_df['collection_group'] = pd.Series(collection_group, index=zeeschuimer_logs_df.index, dtype="string[pyarrow]")
+
+    zeeschuimer_logs_df["source_platform"] = pd.Series("tiktok", index=zeeschuimer_logs_df.index, dtype="string[pyarrow]")
+    zeeschuimer_logs_df["data_source"] = pd.Series("zeeschuimer", index=zeeschuimer_logs_df.index, dtype="string[pyarrow]")
+    zeeschuimer_logs_df["event_type"] = pd.Series("watch", index=zeeschuimer_logs_df.index, dtype="string[pyarrow]")
+    zeeschuimer_logs_df["extra_data"] = pd.Series(pd.NA, index=zeeschuimer_logs_df.index).convert_dtypes(dtype_backend="pyarrow")
+
+
+    zeeschuimer_logs_df["item_id"] = zeeschuimer_logs_df["item_id"].astype("string[pyarrow]")
+
+
+    return zeeschuimer_logs_df
+
+
+
+
 
 
 

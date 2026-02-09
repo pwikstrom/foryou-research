@@ -13,46 +13,26 @@ import textwrap
 import pandas as pd
 import re
 import os
-
-from fyp.fyp_main import initialize
-from fyp.types import convert_dtypes_to_pyarrow
-from fyp.recode_variables import *
-from fyp.calc_donation_stats import generate_personas
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
-from fyp.studies import init_study_defs, save_study_defs
-
 from collections import deque
 import numpy as np
-
 import datetime as _dt
 from pathlib import Path
 import subprocess
 import shlex
 import shutil
-from pathlib import Path
-import datetime as _dt
+
+from fyp.types import convert_dtypes_to_pyarrow
+from fyp.recode_variables import *
+from fyp.calc_donation_stats import generate_personas
+import fyp.data_io as data_io
+from fyp.fyp_config import fyp_cf
+from fyp.studies import init_study_defs
 
 
 
 
 
-"""
-def _remove_link_events_with_corrupt_links(some_events_df):
 
-    non_video_ddp_events_df = some_events_df[some_events_df["primary_label"] != "link"].copy()
-    video_ddp_events_df = some_events_df[some_events_df["primary_label"] == "link"].copy()
-    
-    # Vectorized string length calculation
-    url_lengths = video_ddp_events_df.primary_value.str.len()
-    most_common_url_length = int(url_lengths.value_counts().index[0])
-    
-    video_ddp_events_df = video_ddp_events_df[url_lengths == most_common_url_length].copy()
-    some_events_df = pd.concat([video_ddp_events_df, non_video_ddp_events_df])
-
-    return some_events_df
-
-"""
 
 
 
@@ -207,8 +187,8 @@ def get_recent_data_donations_from_aio_aws(
     # ------------------------------------------------------------------
     # 5) Move/Upload files to ddp_raw storage
     # ------------------------------------------------------------------
-    downloaded_files = os.path.listdir(dest)
-    print(f"Transferring {len(downloaded_files)} files to ddp_raw storage...")
+    downloaded_files = os.listdir(dest)
+    print(f"Moving {len(downloaded_files)} files to ddp_raw storage...")
     
     count = 0
     for filename in downloaded_files:
@@ -237,6 +217,92 @@ def get_recent_data_donations_from_aio_aws(
         print(f"Warning: Failed to clean up temp directory {dest}: {e}")
 
 
+
+
+
+
+
+
+def add_session_info_to_generic_event_log(ddp_log_in, session_id_counter = np.int64(10_000_000), session_time_limit=900, verbose=False):
+    # attach session stats to donation events
+
+    ddp_log = ddp_log_in.copy()
+
+    all_sessions = []
+        
+    # Collect all updates, then apply in bulk at the end
+    updates_list = []
+
+    # initialize new columns
+    ddp_log['session_id'] = pd.NA
+    ddp_log['session_id'] = ddp_log['session_id'].astype("int64[pyarrow]")
+    ddp_log['event_order_in_session'] = pd.NA
+    ddp_log['event_order_in_session'] = ddp_log['event_order_in_session'].astype("int64[pyarrow]")
+    ddp_log['event_pos_in_session'] = pd.NA
+    ddp_log['event_pos_in_session'] = ddp_log['event_pos_in_session'].astype("double[pyarrow]")
+
+
+    for one_donation_id,one_donation in ddp_log.groupby("collection_id"):
+
+        watch = (one_donation.sort_values(['utc_timestamp','event_order_in_session'])).copy()
+
+        watch['delta'] = watch['utc_timestamp'].shift(-1) - watch['utc_timestamp']
+        # timedelta conversion to seconds
+        watch['delta'] = watch['delta'].dt.total_seconds()
+
+
+
+        # A new session starts when delta is X minutes or is NaN
+        session_breaks = (watch['delta'].isna()) | (watch['delta'] > session_time_limit)
+
+        # Cumsum creates incrementing session IDs at each break
+        session_nums = session_breaks.astype(bool).cumsum()
+        # Add the counter offset and assign
+        watch['session_id'] = session_id_counter + session_nums
+        
+        
+        # groupby().cumcount() gives sequential numbering within each session
+        watch['event_order_in_session'] = watch.groupby('session_id').cumcount()
+        # events at session breaks get -1, others keep their count
+        watch.loc[session_breaks, 'event_order_in_session'] = 0
+
+        session_stats = watch.groupby('session_id').agg(
+            session_duration=('delta', 'sum'),
+            session_start_ts=('utc_timestamp', 'min'),
+            n_videos_in_session=('event_order_in_session', 'max'),
+        )
+
+        session_stats = session_stats.astype(int)
+        session_stats["session_end_ts"] = session_stats["session_start_ts"] + session_stats["session_duration"]
+        session_stats["collection_id"] = one_donation_id
+
+        watch['n_videos_in_session'] = watch['session_id'].map(session_stats['n_videos_in_session'].to_dict())
+        watch['event_pos_in_session'] = watch['event_order_in_session'] / watch['n_videos_in_session']
+        #watch['event_pos_in_session'] = watch['event_pos_in_session'].fillna(-1).astype(float)
+
+        session_stats["n_videos_in_session"] = session_stats["n_videos_in_session"]+1
+
+        short = watch.loc[watch['delta'].between(0, session_time_limit), ['delta', 'session_id', 'event_order_in_session', 'event_pos_in_session']]
+
+        # Store updates
+        if len(short) > 0:
+            updates_list.append(short)
+
+        all_sessions += [session_stats]
+
+    # Apply all updates at once
+    if updates_list:
+        all_updates = pd.concat(updates_list)
+        ddp_log.loc[all_updates.index, 'session_id'] = all_updates['session_id']
+        ddp_log.loc[all_updates.index, 'event_order_in_session'] = all_updates['event_order_in_session']
+        ddp_log.loc[all_updates.index, 'event_pos_in_session'] = all_updates['event_pos_in_session']
+        ddp_log.loc[all_updates.index, 'watch_duration'] = all_updates['delta']
+    
+    if verbose:
+        print(f"Adding session stats to activity data {ddp_log.shape}. Unique collections: {ddp_log.collection_id.nunique()}")
+        
+
+    return ddp_log
 
 
 
@@ -343,8 +409,6 @@ def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_00
 
 
 
-import pandas as pd
-import numpy as np
 
 def propagate_timestamps(
     df, 
@@ -509,6 +573,220 @@ def propagate_timestamps(
 
 
     return df
+
+
+
+
+
+
+
+def flatten_single_tiktok_ddp_from_raw_file(
+    filename: str = None,
+    collection_id: str = None,
+    collection_group: str = None,
+    verbose: bool = False) -> dict:
+
+
+    if data_io.exists(storage_location = "ddp_raw", filename = filename):
+        donation_dict = data_io.load_json(storage_location = "ddp_raw", filename = filename)
+    else:
+        raise FileNotFoundError(f"File {filename} not found")
+
+    ts_added_to_dataset = data_io.getmtime(storage_location = "ddp_raw", filename = filename)
+
+    if collection_id is None:
+        collection_id = os.path.basename(filename)
+
+
+    donation_items = []
+
+    # --- find list of dicts -------------
+    stack = deque([(None, donation_dict)])       # (feature_name, current_obj)
+    while stack:
+        feature, obj = stack.pop()
+        if isinstance(obj, list):          # this is an event list
+            for item in obj:
+                if isinstance(item, dict) and item:           # non-empty dict
+                    donation_items.append({
+                        "event_type":      (feature or '').lower(),
+                        "variable_list":     [k.lower() for k in item.keys()],
+                        "value_list":        list(item.values())
+                    })
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                stack.append((k, v))
+
+    # --- nothing found? bail out early ------------------------
+    if not donation_items:
+        print("ERROR: No collection items found in file", donation_id)
+        return {}
+
+
+    # -----------------------------------------------------
+    # initialising the dataframe from the raw data. This is the df I'll be processing through this function
+    all_ddp_events_df = pd.DataFrame.from_records(donation_items)
+    all_ddp_events_df['collection_id'] = collection_id
+    all_ddp_events_df['collection_id'] = all_ddp_events_df['collection_id'].astype("string[pyarrow]")
+
+
+    # -----------------------------------------------------
+    # keep rows that have at least one variable and contain 'date'
+    mask_date = all_ddp_events_df['variable_list'].map(lambda lst: 'date' in lst)
+    all_ddp_events_df = all_ddp_events_df[mask_date & (all_ddp_events_df['variable_list'].map(len) > 0)].copy()
+
+
+    # -----------------------------------------------------
+    # unpack the variable/value list
+
+    # get the date
+    all_ddp_events_df['date'] = pd.to_datetime(all_ddp_events_df['value_list'].str[0]).convert_dtypes(dtype_backend="pyarrow")
+
+    # extract primary_label and primary_value
+    try:
+        all_ddp_events_df['primary_label'] = all_ddp_events_df['variable_list'].str[1].convert_dtypes(dtype_backend="pyarrow")
+        all_ddp_events_df['extra_data'] = all_ddp_events_df['value_list'].str[1].convert_dtypes(dtype_backend="pyarrow")
+    except:
+        all_ddp_events_df['primary_label'] = pd.NA
+        all_ddp_events_df['extra_data'] = pd.NA
+
+
+    # -----------------------------------------------------
+    # Extract item_id from the video_url
+    item_ids_from_url = (
+        all_ddp_events_df["extra_data"]
+        .astype("string")
+        .str.rsplit("/", n=2) # rsplit is cheaper than full split, only looks from the right
+        .str[-2]
+    )
+
+    # keep only item_ids that are pure digit strings, everything else -> <NA>
+    digits = item_ids_from_url.str.fullmatch(r"\d+")
+    item_ids = item_ids_from_url.where(digits)
+
+    mask = (
+        (all_ddp_events_df["primary_label"]=="link")
+        & (all_ddp_events_df["event_type"].notna())
+    )
+    all_ddp_events_df["item_id"] = item_ids.where(mask).convert_dtypes(dtype_backend="pyarrow")
+
+    # nullify the extra_data column for rows where item_id was extracted
+    mask = all_ddp_events_df["item_id"].notnull()
+    all_ddp_events_df.loc[mask, "extra_data"] = pd.NA
+
+
+
+    # -----------------------------------------------------
+    # tiktok timestamps are a bit weird - convert date to seconds since epoch
+    all_ddp_events_df['timestamp'] = (all_ddp_events_df['date'].astype("int64[pyarrow]") // 1_000_000_000).astype("int64[pyarrow]")
+
+
+    # -----------------------------------------------------
+    # rename feature_name to make the labels a bit clearer
+    all_ddp_events_df["event_type"] = all_ddp_events_df["event_type"].map(
+        {
+            'videolist':'watch',
+            'commentslist':'comment',
+            'post':'post',
+            'searchlist':'search',
+            'fanslist':'followed_by',
+            'following':'following',
+            'itemfavoritelist':'fave',
+            'favoritevideolist':'fave'
+        }
+    ).convert_dtypes(dtype_backend="pyarrow").copy()
+
+
+    # -----------------------------------------------------
+    # event_type is NA for login events - not sure why, but this changes that
+    all_ddp_events_df.loc[all_ddp_events_df[all_ddp_events_df["primary_label"]=="ip"].index,"event_type"] = "login_event"
+
+
+    # -----------------------------------------------------
+    # rename timestamp to utc_timestamp
+    if "utc_timestamp" not in all_ddp_events_df.columns:
+        all_ddp_events_df = all_ddp_events_df.rename(columns={"timestamp": "utc_timestamp"})
+    
+    # 2. Ensure UTC Timestamp is valid Datetime
+    if not pd.api.types.is_datetime64_any_dtype(all_ddp_events_df['utc_timestamp']):
+        all_ddp_events_df["utc_timestamp"] = pd.to_datetime(all_ddp_events_df["utc_timestamp"], unit='s', utc=True)
+
+    # 3. Infer Timezone Offset
+    all_ddp_events_df["tz_offset"] = infer_timezone_offset(all_ddp_events_df["utc_timestamp"])
+    all_ddp_events_df["tz_offset"] = all_ddp_events_df["tz_offset"].astype("int64[pyarrow]")
+
+    all_ddp_events_df["utc_timestamp"] = all_ddp_events_df["utc_timestamp"].astype("timestamp[ns][pyarrow]")
+
+
+    # -----------------------------------------------------
+    del all_ddp_events_df['primary_label']
+    del all_ddp_events_df['variable_list']
+    del all_ddp_events_df['value_list']
+    del all_ddp_events_df['date']
+    all_ddp_events_df = all_ddp_events_df[((all_ddp_events_df["event_type"] != "watch") | (all_ddp_events_df["item_id"].notna()))].copy()
+
+
+    # -----------------------------------------------------
+    # Sort by timestamp and reset index
+    all_ddp_events_df.sort_values("utc_timestamp", inplace=True)
+    all_ddp_events_df.reset_index(drop=True, inplace=True)
+
+
+    all_ddp_events_df['collection_group'] = pd.Series(collection_group, index=all_ddp_events_df.index, dtype="string[pyarrow]")
+
+
+    all_ddp_events_df["ts_added_to_dataset"] = pd.to_datetime(ts_added_to_dataset, unit="s")
+    all_ddp_events_df["ts_added_to_dataset"] = all_ddp_events_df["ts_added_to_dataset"].astype("timestamp[ns][pyarrow]")
+
+    all_ddp_events_df["source_platform"] = pd.Series("tiktok", index=all_ddp_events_df.index, dtype="string[pyarrow]")
+    all_ddp_events_df["data_source"] = pd.Series("ddp", index=all_ddp_events_df.index, dtype="string[pyarrow]")
+
+
+    # -----------------------------------------------------
+    # It seems like the data donation packages keep watch logs for a certain time back
+    # in time, but they keep other engagement stats for longer. It is difficult to handle engagement stats without connection to a watch
+    # event, so I remove all events before the first watch event. It feels a bit brutal to throw away data, but I'm not sure what else to do.
+    first_watch_idx = all_ddp_events_df[all_ddp_events_df["event_type"] == "watch"].index[0]
+    all_ddp_events_df = all_ddp_events_df.loc[first_watch_idx:].copy()
+
+
+    # -----------------------------------------------------
+    # Create temporary session ids to make some processing based on events that are very close to eachother in time
+    all_ddp_events_df['delta'] = all_ddp_events_df['utc_timestamp'] - all_ddp_events_df['utc_timestamp'].shift(1)
+    all_ddp_events_df['delta'] = all_ddp_events_df['delta'].dt.total_seconds()
+    all_ddp_events_df['session_break'] = (all_ddp_events_df['delta'].isna()) | (all_ddp_events_df['delta'] > 180) # a very short time - only 3 minutes...
+
+    # Cumsum creates incrementing session IDs at each break
+    all_ddp_events_df['session_id'] = all_ddp_events_df['session_break'].astype(bool).cumsum()
+        
+
+    # -----------------------------------------------------
+    # 1. Identify valid starting points (first non-NA item_id) per session
+    # Any row with cumsum == 0 is before the first item_id in that session.
+    has_item = all_ddp_events_df['item_id'].notna().astype(int)
+    cumulative_items = has_item.groupby(all_ddp_events_df['session_id']).cumsum()
+
+    # Filter out rows before the first item
+    all_ddp_events_df = all_ddp_events_df[cumulative_items > 0].copy()
+
+    # 2. Forward fill item_id within groups
+    all_ddp_events_df['item_id'] = all_ddp_events_df.groupby('session_id')['item_id'].ffill()
+
+    # 3. Filter short sessions (len <= 1)
+    session_counts = all_ddp_events_df.groupby("session_id")["session_id"].transform("count")
+    all_ddp_events_df = all_ddp_events_df[session_counts > 1].copy()
+
+
+    all_ddp_events_df.drop(columns=["session_id", "session_break", "delta"], inplace=True)
+    all_ddp_events_df.convert_dtypes(dtype_backend="pyarrow")
+
+    return all_ddp_events_df
+
+
+
+
+
+
+
 
 
 
