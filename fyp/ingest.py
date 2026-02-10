@@ -26,13 +26,6 @@ from typing import Literal
 from abc import ABC, abstractmethod
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
-GENERIC_MAPPER = fyp_cf["labels"]["GENERIC_MAPPER"]
-IRRELEVANT_WORDS = fyp_cf["labels"]["IRRELEVANT_WORDS"]
-
-NOT_CODED =  fyp_cf["labels"]["NOT_CODED"]
-UNABLE_TO_DETECT = fyp_cf["labels"]["UNABLE_TO_DETECT"]
-OTHER_THINGS = fyp_cf["labels"]["OTHER_THINGS"]
-
 
 
 
@@ -121,7 +114,7 @@ def transform_new_activity_data_format_to_old_format():
 
 
 
-class ForYouCollection(ABC):
+class ForYouBaseCollection(ABC):
 
 
     REQUIRED_COLUMNS = {
@@ -144,8 +137,8 @@ class ForYouCollection(ABC):
         self.collection_id = collection_id
         self.verbose = verbose
         self.data = pd.DataFrame()
-        self.state: Literal["empty", "raw", "processed", "deduped"] = "empty"
-        self.ts_added_to_dataset = None # Should be set by subclasses
+        self.state: Literal["empty", "raw", "processed"] = "empty"
+        #self.ts_added_to_dataset = None # Should be set by subclasses
         self.additional_columns = {}
 
 
@@ -155,12 +148,44 @@ class ForYouCollection(ABC):
 
 
 
-    def load_raw(self, raw_path: str):
+    def load_processed(
+        self, 
+        processed_fn: str, 
+        storage_location: str = "cache",
+        drop_similar_event_sequences: bool = True
+        ):
+        
+        new_processed_data = data_io.load_parquet(storage_location=storage_location,filename=processed_fn, verbose=self.verbose)
+
+        if len(self.data) > 0:
+            if self.state != "processed":
+                print(f"Warning: There is data in this collection but the state is {self.state}. Existing data must be processed. Terminating.")
+                return
+            print(f"Adding {len( new_processed_data):,} new processed events to existing {len(self.data):,} events.")
+            self.data = pd.concat([self.data, new_processed_data], ignore_index=True)
+        else:
+            print(f"Loading {len(new_processed_data):,} processed events.")
+            self.data = new_processed_data.copy()
+
+        self.state = "processed"
+
+        if drop_similar_event_sequences:
+            print("Dropping events from files with overlapping/similar event sequences")
+            self.identify_similar_file_content(drop_them=True)
+
+        print(f"There are now {len(self.data):,} events in the collection.")
+
+
+
+
+
+
+    def load_raw(self, raw_path: str, min_required_rows_per_file: int = 10):
 
         if self.state != "empty":
-            print("Warning: This collection is not empty. Please clear the collection first.")
-            return
-        
+            print("Note that this collection is not empty. The current data will be replaced.")
+
+
         if os.path.isdir(raw_path):
             all_the_files = [os.path.join(raw_path, f) for f in os.listdir(raw_path) if not f.startswith(".")]
         else:
@@ -175,14 +200,18 @@ class ForYouCollection(ABC):
                 one_df = self.load_single_raw(fn)
 
                 if len(one_df) > 0:
-                    if self.verbose:
-                        print(f"Loaded file: {fn}. Number of rows: {len(one_df)}")
-            except Exception as e:
-                if self.verbose:
-                    print(f"Cannot load file: {fn}")
+                    one_df["ts_added_to_dataset"] = pd.to_datetime(os.path.getmtime(fn), unit="s")
+                    one_df["raw_file"] = os.path.basename(fn)
 
-            if len(one_df) > 0:
+                    if self.verbose: print(f"Loaded file: {fn}. Number of rows: {len(one_df)}")
+            except Exception as e:
+                if self.verbose: print(f"Cannot load file: {fn}")
+
+            # I will keep data from this file if there are at least 10 events. (just an arbitrary number)
+            if len(one_df) >= min_required_rows_per_file:
                 many_dfs.append(one_df)
+            else:
+                if self.verbose: print(f"Discarding file: {fn}. Too few rows: {len(one_df)}")
             
 
         if len(many_dfs) > 1:
@@ -227,8 +256,7 @@ class ForYouCollection(ABC):
 
 
 
-            
-
+        
 
     def save(self):
         if self.state != "processed":
@@ -261,12 +289,15 @@ class ForYouCollection(ABC):
         
 
 
+
+
+
     def identify_similar_file_content(
         self, 
         overlap_threshold: float = 0.2,
         group_identifier: str = "raw_file",
         timestamp_column: str = "utc_timestamp",
-        drop_them: bool = False
+        drop_them: bool = True
         ) -> dict[str, set]:
         """
         Identify similar event collections based on timestamp overlap.
@@ -296,6 +327,8 @@ class ForYouCollection(ABC):
         if self.state != "processed":
             raise ValueError("Collection is not in processed state. Please process the collection first.")
 
+        # starting off with basic deduplication.
+        self.data = self.data.drop_duplicates(subset=["item_id","utc_timestamp","event_type","tz_offset"]).copy()
 
         # dropping df cols and changing timestamp column to integers which makes set operations faster
         fine_events_df = self.data[[group_identifier,timestamp_column]].copy()
@@ -421,10 +454,21 @@ class ForYouCollection(ABC):
 
 
 
+class ForYouCollection(ForYouBaseCollection):
+    def __init__(self, collection_id: str = None, verbose: bool = False):
+        super().__init__(collection_id, verbose)
+
+    def load_single_raw(self, fn: str) -> pd.DataFrame:
+        raise ValueError("Don't use this class to load raw data")
+    
+    def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
+        raise ValueError("Don't use this class to process raw data")
 
 
 
-class TikTokDDPCollection(ForYouCollection):
+
+
+class TikTokDDPCollection(ForYouBaseCollection):
 
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
@@ -449,6 +493,7 @@ class TikTokDDPCollection(ForYouCollection):
 
         # find list of dicts
         donation_items = []
+        
         stack = deque([(None, donation_dict)])
         while stack:
             feature, obj = stack.pop()
@@ -464,11 +509,16 @@ class TikTokDDPCollection(ForYouCollection):
                 for k, v in obj.items():
                     stack.append((k, v))
 
-        # initialising the dataframe from the raw data. This is the df I'll be processing through this function
+        # initialising the dataframe from the raw data.
         if len(donation_items) > 0:
             one_df = pd.DataFrame.from_records(donation_items)
-            one_df["ts_added_to_dataset"] = pd.to_datetime(os.path.getmtime(fn), unit="s")
-            one_df["raw_file"] = os.path.basename(fn)
+
+        # a data donation package without at least a few watch events is not useful       
+        # watch events are referred to as 'videolist' by TikTok 
+        n_watch_events = len(one_df[one_df['event_type'] == 'videolist'])
+        if n_watch_events <= 10:
+            if self.verbose: print(f"Discarding {fn} as it only has {n_watch_events} watch events.")
+            return pd.DataFrame()
 
         return one_df
 
@@ -602,7 +652,7 @@ class TikTokDDPCollection(ForYouCollection):
         # 5. As I cannot associate the events at the beginning of sessions with an item, 
         # I might as well drop those rows.
         df = df[cumulative_items > 0].copy()
-        
+
         # 6. Propagate the last valid item_id forward within each session to associate with subsequent events
         df['item_id'] = df.groupby('session_id')['item_id'].ffill()
         
@@ -628,7 +678,7 @@ class TikTokDDPCollection(ForYouCollection):
 
 
 
-class TikTokZeeschuimerCollection(ForYouCollection):
+class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
@@ -659,11 +709,6 @@ class TikTokZeeschuimerCollection(ForYouCollection):
             # Only keeping data from accepted tiktok urls
             if 'source_platform_url' in one_df.columns:
                 one_df = one_df[one_df['source_platform_url'].isin(self.accepted_tiktok_urls)].copy()
-
-            if len(one_df) > 0:
-                one_df["ts_added_to_dataset"] = pd.to_datetime(os.path.getmtime(fn), unit="s")
-                one_df["raw_file"] = os.path.basename(fn)
-
         
         return one_df
 
@@ -709,7 +754,7 @@ class TikTokZeeschuimerCollection(ForYouCollection):
 
         # Derive UTC timestamp
         if len(unique_tz) == 1:
-            print("fast extraction of local time based features")
+            if self.verbose: print("fast extraction of local time based features")
             # Fast path: everything in same tz
             tz = ZoneInfo(unique_tz[0])
             # Localize -> Convert to UTC
@@ -719,7 +764,7 @@ class TikTokZeeschuimerCollection(ForYouCollection):
                 .dt.tz_convert("UTC")
             )
         else:
-            print("slow extraction of local time based features")
+            if self.verbose: print("slow extraction of local time based features")
             # Slower path: per-timezone blocks
             utc_parts = []
             for tz_name, block in df.groupby("source_url.tz_name", sort=False):
