@@ -267,6 +267,9 @@ def extract_local_time_features(
     # ---------------------------------------------------------------------
     # 2. Derive local time features
     # ---------------------------------------------------------------------
+
+
+
     ts = df["local_timestamp"]
     
     iso = ts.dt.isocalendar()  # DataFrame: year, week, day

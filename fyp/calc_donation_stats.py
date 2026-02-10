@@ -227,14 +227,14 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
         
     # D. Activity Trend (Slope)
     # Events per day index (0..n)
-    if len(daily_events) > 1:
-        y = daily_events.values
-        x = np.arange(len(y))
-        # Simple linreg: slope
-        slope, _ = np.polyfit(x, y, 1)
-        activity_trend_slope = slope
-    else:
-        activity_trend_slope = 0.0
+    #if len(daily_events) > 1:
+    #    y = daily_events.values
+    #    x = np.arange(len(y))
+    #    # Simple linreg: slope
+    #    slope, _ = np.polyfit(x, y, 1)
+    #    activity_trend_slope = slope
+    #else:
+    #    activity_trend_slope = 0.0
         
     # E. Return Probability
     # Prob of being active on D+1 given active on D
@@ -364,7 +364,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
         'session_velocity_vpm': float(session_velocity_vpm),
         'weekend_bias': float(weekend_bias),
         'avg_comment_len_chars': float(avg_comment_len_chars),
-        'activity_trend_slope': float(activity_trend_slope),
+        #'activity_trend_slope': float(activity_trend_slope),
         'day_to_day_return_prob': float(day_to_day_return_prob),
         
         'share_morning': tod_shares.get('Morning', 0.0),

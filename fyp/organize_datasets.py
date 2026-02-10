@@ -86,11 +86,11 @@ def load_study_datasets(
     # --------------------------------------------------------------------
 
     # if zeeschuimer data is to be included in the analysis
-    if fyp_cf["study_defs"][study_name].get("INCLUDE_ZEESCHUIMER_DATA",True):
-        tutti_data["zeeschuimer"] = load_zeeschuimer_data(study_name = study_name, all_data = tutti_data.get("zeeschuimer", None), verbose=verbose)
+    #if fyp_cf["study_defs"][study_name].get("INCLUDE_ZEESCHUIMER_DATA",True):
+    #    tutti_data["zeeschuimer"] = load_zeeschuimer_data(study_name = study_name, all_data = tutti_data.get("zeeschuimer", None), verbose=verbose)
     # if it should not be included, remove it from the dictionary if it exists
-    elif "zeeschuimer" in tutti_data:
-        del tutti_data["zeeschuimer"]
+    #elif "zeeschuimer" in tutti_data:
+    #    del tutti_data["zeeschuimer"]
 
 
     # if donation data is to be included in the analysis
@@ -156,8 +156,8 @@ def load_study_datasets(
     # I only want to download the enrichment data that are needed for this particular study. So I check which videos are in the
     # activity datasets, and use that to filter the enrichment metadata. 
     unique_videos = set()
-    if "zeeschuimer" in tutti_data:
-        unique_videos = unique_videos | set(tutti_data["zeeschuimer"]["item_id"].dropna().values.tolist())
+    #if "zeeschuimer" in tutti_data:
+    #    unique_videos = unique_videos | set(tutti_data["zeeschuimer"]["item_id"].dropna().values.tolist())
     if "donations" in tutti_data:
         unique_videos = unique_videos | set(tutti_data["donations"]["item_id"].dropna().values.tolist())
     print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in donation and zeeschuimer datasets")
@@ -722,6 +722,14 @@ def new_merge(
     if all_datasets is None:
         raise ValueError("all_datasets must be specified")
     
+
+
+    if 'zeeschuimer' in all_datasets.keys():
+        del all_datasets['zeeschuimer']
+
+
+
+
     for k in all_datasets.keys():
         if all_datasets[k] is None:
             print(f"all_datasets['{k}'] is None")
@@ -736,12 +744,12 @@ def new_merge(
     else:
         enriched_data = pd.DataFrame()        
     
-    if all_datasets.get('donations',None) is not None and all_datasets.get('zeeschuimer',None) is not None:
-        activity_data = pd.concat([all_datasets['donations'], all_datasets['zeeschuimer']], ignore_index=True)
-    elif all_datasets.get('donations',None) is not None and all_datasets.get('zeeschuimer',None) is None:
+    #if all_datasets.get('donations',None) is not None and all_datasets.get('zeeschuimer',None) is not None:
+    #    activity_data = pd.concat([all_datasets['donations'], all_datasets['zeeschuimer']], ignore_index=True)
+    if all_datasets.get('donations',None) is not None:# and all_datasets.get('zeeschuimer',None) is None:
         activity_data = all_datasets['donations']
-    elif all_datasets.get('zeeschuimer',None) is not None and all_datasets.get('donations',None) is None:
-        activity_data = all_datasets['zeeschuimer']
+    #elif all_datasets.get('zeeschuimer',None) is not None and all_datasets.get('donations',None) is None:
+    #    activity_data = all_datasets['zeeschuimer']
     else:
         activity_data = pd.DataFrame()
 

@@ -1122,6 +1122,7 @@ def generate_donation_metadata(
     sort_by: str | None = None, 
     verbose: bool = False,
     save_to_disk_ok: bool = True,
+    load_from_disk: bool = True,
     ) -> pd.DataFrame:
     """
     Generate or update donation metadata, either by calculating statistics from events 
@@ -1145,15 +1146,15 @@ def generate_donation_metadata(
         The resulting metadata DataFrame with donation IDs as index.
     """
 
-
-    if data_io.exists(storage_location="ddp_main", filename="ddp_metadata.parquet"):
-        old_metadata_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
-        if verbose:
-            print(f"Loaded existing metadata from storage. Shape: {old_metadata_df.shape}")
+    old_metadata_df = pd.DataFrame()
+    if load_from_disk:
+        if data_io.exists(storage_location="ddp_main", filename="ddp_metadata.parquet"):
+            old_metadata_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
+            if verbose:
+                print(f"Loaded existing metadata from storage. Shape: {old_metadata_df.shape}")
     else:
         if verbose:
             print("No calculated metadata found in storage")
-        old_metadata_df = pd.DataFrame()
 
 
     # if no events df is provided, check if there is an update column
