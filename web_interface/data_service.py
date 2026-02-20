@@ -81,11 +81,13 @@ def get_explorer_data(study, context=None, verbose=False):
     # Apply Context Filtering on a COPY
     if raw_df is not None:
         if context == "viewer":
-            # Viewer needs Scraped OK + Watch + BASELINE
-            filtered_df = raw_df[(raw_df.scraped_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
+            # Viewer needs Scraped OK 
+            #filtered_df = raw_df[(raw_df.scraped_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
+            filtered_df = raw_df[(raw_df.scraped_ok)].copy()
         elif context == "explorer":
-            # Explorer needs Annotated OK + Watch + BASELINE
-            filtered_df = raw_df[(raw_df.annotated_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
+            # Explorer needs Annotated OK 
+            #filtered_df = raw_df[(raw_df.annotated_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
+            filtered_df = raw_df[(raw_df.annotated_ok)].copy()
         else:
             # return raw copy to be safe. this should never happen though...
             filtered_df = raw_df.copy()

@@ -810,7 +810,7 @@ def consolidate_and_save_scrape_data(
 
     top_verbose = True
 
-    # There is no need to look for raw scrape files. Contrary to zeeschuimer, donations,
+    # There is no need to look for raw scrape files. Contrary to activity data
     # and annotations, the scrape files are recoded and immediately after the scrape 
 
     if top_verbose:

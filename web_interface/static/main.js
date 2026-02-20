@@ -336,7 +336,7 @@ async function updateStatus() {
         setStatus('downloader', data.downloader);
         setStatus('monitor', data.monitor);
         setStatus('annotator', data.annotator);
-        setStatus('create_subsets', data.create_subsets);
+        //setStatus('create_subsets', data.create_subsets);
         setStatus('queue_scraper', data.queue_scraper);
         setStatus('meta_refresh_viewer', data.meta_refresh_viewer);
         setStatus('meta_refresh_groups', data.meta_refresh_groups);
@@ -425,9 +425,9 @@ function setStatus(name, data) {
         }
     }
 
-    if (name === 'create_subsets' && data.data && Object.keys(data.data).length > 0) {
-        renderSubsetChart(data.data);
-    }
+    //if (name === 'create_subsets' && data.data && Object.keys(data.data).length > 0) {
+    //    renderSubsetChart(data.data);
+    //}
 }
 
 
@@ -566,7 +566,7 @@ async function updateLogs() {
     await fetchLogs('downloader');
     await fetchLogs('monitor');
     await fetchLogs('annotator');
-    await fetchLogs('create_subsets');
+    //await fetchLogs('create_subsets');
     await fetchLogs('queue_scraper');
     await fetchLogs('meta_refresh_viewer');
     await fetchLogs('meta_refresh_groups');

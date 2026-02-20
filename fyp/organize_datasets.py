@@ -1,12 +1,11 @@
 
 import pandas as pd
 import fyp.data_io as data_io
-from fyp.donations import consolidate_ddp_logs
-from fyp.zeeschuimer import consolidate_zeeschuimer_logs
+#from fyp.donations import consolidate_ddp_logs
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
 from fyp.donations import load_donation_data, simple_sample_ddp_events
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
-from fyp.zeeschuimer import load_zeeschuimer_data
+#from fyp.zeeschuimer import load_zeeschuimer_data, consolidate_zeeschuimer_logs
 from fyp.studies import init_study_defs
 import fyp.data_io as data_io
 from copy import deepcopy
@@ -46,7 +45,7 @@ def load_study_datasets(
     if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         tutti_data = {}
         cached_core_datasets = {}
-        for k in ['scrape','machine_annotations','donations','zeeschuimer']:
+        for k in ['scrape','machine_annotations','donations']:#,'zeeschuimer']:
             tutti_data[k] = None
 
             # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
@@ -107,7 +106,7 @@ def load_study_datasets(
             tutti_data[k] = pd.DataFrame()
 
 
-    if tutti_data.get("donations", pd.DataFrame()).empty and tutti_data.get("zeeschuimer", pd.DataFrame()).empty:
+    if tutti_data.get("donations", pd.DataFrame()).empty:# and tutti_data.get("zeeschuimer", pd.DataFrame()).empty:
         print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
         return None
 
@@ -148,7 +147,7 @@ def load_study_datasets(
             all_ddp_events_df = sample_frame, 
             verbose = verbose)
 
-    if tutti_data.get("donations", pd.DataFrame()).empty and tutti_data.get("zeeschuimer", pd.DataFrame()).empty:
+    if tutti_data.get("donations", pd.DataFrame()).empty:# and tutti_data.get("zeeschuimer", pd.DataFrame()).empty:
         print(f"!!! [Core datasets] Sampling resulted in empty datasets for study definition '{study_name}'. Returning None")
         return None
 
@@ -165,7 +164,7 @@ def load_study_datasets(
     #    unique_videos = unique_videos | set(tutti_data["zeeschuimer"]["item_id"].dropna().values.tolist())
     if "donations" in tutti_data:
         unique_videos = unique_videos | set(tutti_data["donations"]["item_id"].dropna().values.tolist())
-    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in donation and zeeschuimer datasets")
+    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets")
 
     # If the study is the special 'everything' study then I don't need to do this.
     if study_name == 'everything':
@@ -297,7 +296,7 @@ def load_donation_datasets(
             return None
 
     unique_videos = set(tutti_data["donations"]["item_id"].dropna().values.tolist())
-    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in donation and zeeschuimer datasets")
+    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets")
 
     # If the study is the special 'everything' study then I don't need to do this.
     sel = [("item_id", "in", list(unique_videos))]
@@ -545,7 +544,7 @@ def update_enrichment_status(
     
     collection_id_column = "D_donation_id"
 
-    if "zeeschuimer_logs" in all_datasets and "ddp_logs" in all_datasets:
+    """if "zeeschuimer_logs" in all_datasets and "ddp_logs" in all_datasets:
         combined_activity_data= pd.concat([
                 all_datasets["zeeschuimer_logs"][['item_id', collection_id_column]],
                 all_datasets["ddp_logs"][['item_id', collection_id_column]]
@@ -555,9 +554,10 @@ def update_enrichment_status(
     elif "ddp_logs" in all_datasets:
         combined_activity_data = all_datasets["ddp_logs"][['item_id', collection_id_column]]
     else:
-        raise ValueError("No activity data found")
+        raise ValueError("No activity data found")"""
 
 
+    combined_activity_data = all_datasets["ddp_logs"][['item_id', collection_id_column]]
 
     enrichment_status_df = combined_activity_data.groupby("item_id").agg(
             nunique_donations=pd.NamedAgg(column=collection_id_column, aggfunc="nunique"),
@@ -602,15 +602,15 @@ def update_enrichment_status(
 
 
 
-def _consolidate_and_save_activity_logs(
+def OLD_consolidate_and_save_activity_logs(
     force_consolidation:bool = False, 
     verbose:bool = False):
 
     
-    print("\n*** Zeeschuimer")
-    new_z, z1 = consolidate_zeeschuimer_logs(
-        force_consolidation=force_consolidation, 
-        verbose=verbose)
+    #print("\n*** Zeeschuimer")
+    #new_z, z1 = consolidate_zeeschuimer_logs(
+    #    force_consolidation=force_consolidation, 
+    #    verbose=verbose)
     
     print("\n*** Donations")
     new_d, d1 = consolidate_ddp_logs(
@@ -626,7 +626,7 @@ def _consolidate_and_save_activity_logs(
     # be treated separately. This is specifically for the case when data is generated from zeeschuimer and
     # not from ddp logs. I assume that this data is 'baseline' even though it can certainly be other things
     # as well.
-    if new_z or new_d:
+    """if new_z or new_d:
         print("\nMatching up columns between zeeschuimer and donation data...")
         for c in set(z1.columns) | set(d1.columns):
             if not c in z1.columns:
@@ -659,16 +659,17 @@ def _consolidate_and_save_activity_logs(
 
     if new_z:
         print(f"Saving Zeeschuimer dataset. Shape {z1.shape} to 'recoded' folder")
-        _ = data_io.save_parquet(df=z1, storage_location="recoded", filename="zeeschuimer_recoded.parquet", verbose=verbose)
+        _ = data_io.save_parquet(df=z1, storage_location="recoded", filename="zeeschuimer_recoded.parquet", verbose=verbose)"""
 
     if new_d:
         print(f"Saving DDP dataset. Shape {d1.shape} to 'recoded' folder")
         _ = data_io.save_parquet(df=d1, storage_location="recoded", filename="donations_recoded.parquet", verbose=verbose)
     
-    if new_z or new_d:
+    if new_d:# or new_z:
         print("...done saving datasets")
     
-    return (new_z, z1), (new_d, d1)
+    return (new_d, d1)
+    #return (new_z, z1), (new_d, d1)
 
 
 
@@ -679,10 +680,11 @@ def _consolidate_and_save_activity_logs(
 
 
 
-def consolidate_fyp_core_data(force_consolidation=False, verbose=False):
+def OLD_consolidate_fyp_core_data(force_consolidation=False, verbose=False):
 
 
-    (new_zeeschuimer_logs, zeeschuimer_logs), (new_ddp_logs, ddp_logs) = _consolidate_and_save_activity_logs(force_consolidation=force_consolidation,
+    #(new_zeeschuimer_logs, zeeschuimer_logs), 
+    (new_ddp_logs, ddp_logs) = _consolidate_and_save_activity_logs(force_consolidation=force_consolidation,
                                                                                                             verbose=verbose)
     print("\n*** Annotations")
     (new_annotations, annotations) = consolidate_and_save_refined_annotations(force_consolidation=force_consolidation,
@@ -692,7 +694,7 @@ def consolidate_fyp_core_data(force_consolidation=False, verbose=False):
                                                                      verbose=verbose)
 
     fine_results = {
-        "new_zeeschuimer_logs": new_zeeschuimer_logs,
+        #"new_zeeschuimer_logs": new_zeeschuimer_logs,
         #"zeeschuimer_logs": zeeschuimer_logs,
         "new_ddp_logs": new_ddp_logs,
         "ddp_logs": ddp_logs,
