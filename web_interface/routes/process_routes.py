@@ -5,7 +5,7 @@ from fyp.fyp_config import (
     DOWNLOADER_SCRIPT, INGEST_SCRIPT, ANNOTATOR_SCRIPT, MONITOR_SCRIPT, 
     CREATE_EVENT_LOG_SCRIPT, #REGENERATE_DATASETS_SCRIPT, CREATE_SUBSETS_SCRIPT, 
     RECODE_EVENT_LOG_SCRIPT, CALCULATE_PCA_SCRIPT,
-    QUEUE_SCRAPER_SCRIPT, META_REFRESH_VIEWER_SCRIPT, 
+    QUEUE_SCRAPER_SCRIPT, QUEUE_ANNOTATOR_SCRIPT, META_REFRESH_VIEWER_SCRIPT, 
     META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT
 )
 from ..process_manager import (
@@ -26,7 +26,7 @@ def api_start(name):
     if "study_name" in data:
         args.append(data["study_name"])
 
-    if name in ["downloader", "annotator", "queue_scraper"]:
+    if name in ["downloader", "annotator", "queue_scraper", "queue_annotator"]:
         if data.get("batch_size") and str(data["batch_size"]).strip():
              args.extend(["--batch-size", str(data["batch_size"])])
         if data.get("max_batches") and str(data["max_batches"]).strip():
@@ -44,6 +44,7 @@ def api_start(name):
         "recode_event_log": RECODE_EVENT_LOG_SCRIPT,
         "calculate_pca": CALCULATE_PCA_SCRIPT,
         "queue_scraper": QUEUE_SCRAPER_SCRIPT,
+        "queue_annotator": QUEUE_ANNOTATOR_SCRIPT,
         "meta_refresh_viewer": META_REFRESH_VIEWER_SCRIPT,
         "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
         "timelines_refresh": TIMELINES_REFRESH_SCRIPT

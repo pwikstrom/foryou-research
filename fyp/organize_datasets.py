@@ -674,6 +674,35 @@ def OLD_consolidate_and_save_activity_logs(
 
 
 
+def consolidate_enrichment_data(force_consolidation=False, verbose=False):
+
+
+    ddp_logs = data_io.load_parquet(filename="donations_recoded.parquet", storage_location="recoded")
+    new_ddp_logs = False
+    
+    print("\n*** Annotations")
+    (new_annotations, annotations) = consolidate_and_save_refined_annotations(force_consolidation=force_consolidation,
+                                                                            verbose=verbose)
+    print("\n*** Scrape")
+    (new_scrape_data, scrape_data) = consolidate_and_save_scrape_data(force_consolidation=force_consolidation,
+                                                                     verbose=verbose)
+
+    fine_results = {
+        "new_ddp_logs": new_ddp_logs,
+        "ddp_logs": ddp_logs,
+        "new_annotations": new_annotations,
+        "annotations": annotations,
+        "new_scrape_data": new_scrape_data,
+        "scrape_data": scrape_data
+        }
+
+    print("\n*** Updating (and saving) data enrichment status...")
+    update_enrichment_status(all_datasets=fine_results, verbose=verbose)
+    print("...done.")
+
+    return fine_results
+
+
 
 
 

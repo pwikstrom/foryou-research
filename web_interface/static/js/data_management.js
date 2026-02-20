@@ -10,26 +10,29 @@ function loadStudies() {
         .then(data => {
             allStudies = data;
             renderStudiesTable();
+            if (typeof populateEnrichmentStudySelect === 'function') {
+                populateEnrichmentStudySelect(data);
+            }
         })
         .catch(err => console.error("Error loading studies:", err));
 }
 
-let availableDonations = [];
+let availableCollections = [];
 
-function loadAvailableDonations() {
-    fetch('/api/manage/donations')
+function loadAvailableCollections() {
+    fetch('/api/manage/collections')
         .then(res => res.json())
         .then(data => {
-            availableDonations = data; // Array of formatted strings
-            // After donations are loaded, assume studies can be rendered correctly?
+            availableCollections = data; // Array of objects containing metadata
+            // After collections are loaded, assume studies can be rendered correctly?
             // If loadStudies was called before, we might need to re-render.
-            // But we chained init order to call loadAvailableDonations first.
+            // But we chained init order to call loadAvailableCollections first.
             // So we trigger loadStudies HERE.
             loadStudies();
         })
         .catch(err => {
-            console.error("Error loading donations list:", err);
-            // Even if donations fail, load studies
+            console.error("Error loading collections list:", err);
+            // Even if collections fail, load studies
             loadStudies();
         });
 }
@@ -47,95 +50,224 @@ function loadSystemRoles() {
 }
 
 // --------------------------------------------------------------------------
-// Donation Selector Helper Logic
+// Collection Selector Helper Logic
 // --------------------------------------------------------------------------
 
-function renderDonationSelector(container, selectedList) {
+function renderCollectionSelector(container, selectedList) {
     if (!container) return;
 
     container.innerHTML = '';
     const selectedSet = new Set(selectedList || []);
 
-    if (availableDonations.length === 0) {
-        container.innerHTML = '<div style="padding: 10px; color: #aaa;">No donations available.</div>';
+    if (availableCollections.length === 0) {
+        container.innerHTML = '<div style="padding: 10px; color: #aaa;">No collections available.</div>';
         return;
     }
 
-    const frag = document.createDocumentFragment();
+    const table = document.createElement('table');
+    table.className = 'collection-table';
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.style.color = '#ddd';
+    table.style.fontSize = '0.9em';
 
-    availableDonations.forEach(item => {
-        const div = document.createElement('div');
-        div.style.padding = '2px 5px';
-        div.className = 'donation-item'; // for filtering
+    // Create Header
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr style="text-align: left;">
+            <th style="padding: 8px 5px; width: 30px; position: sticky; top: 0; background: #3e3e42; z-index: 10; border-bottom: 2px solid #555;"></th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Collection ID</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Display ID</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Tags</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Email</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Name</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">TikTok</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Age</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Country</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">PostCode</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Active Days</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Total Events</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Last Event</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Added</th>
+        </tr>
+    `;
+    table.appendChild(thead);
 
-        // Hide if filtered out? (No, render is usually called on expand. Filtering is separate)
+    const tbody = document.createElement('tbody');
 
-        const label = document.createElement('label');
-        label.style.display = 'flex';
-        label.style.alignItems = 'center';
-        label.style.cursor = 'pointer';
-        label.style.width = '100%';
-        label.style.color = '#ddd';
+    availableCollections.forEach(itemInfo => {
+        const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
 
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid #444';
+        tr.className = 'donation-item'; // Keep class for CSS/JS targeting
+
+        let pEmail = '', pName = '', pTiktok = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
+        let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
+        let searchString = item;
+
+        if (typeof itemInfo === 'object') {
+            if (itemInfo.displayId) pDisplayId = itemInfo.displayId;
+            if (itemInfo.tags && Array.isArray(itemInfo.tags)) pTags = itemInfo.tags.join(', ');
+
+            if (itemInfo.participants) {
+                pEmail = itemInfo.participants.email || '';
+                pName = itemInfo.participants.name || '';
+                pTiktok = itemInfo.participants.tiktokHandle || '';
+                pAge = itemInfo.participants.age || '';
+                pCountry = itemInfo.participants.country || '';
+                pPostCode = itemInfo.participants.postCode || '';
+            }
+            if (itemInfo.personas) {
+                pActiveDays = itemInfo.personas.active_days ?? '';
+                pTotalEvents = itemInfo.personas.total_events ?? '';
+                if (itemInfo.personas.last_event_ts) {
+                    pLastEvent = String(itemInfo.personas.last_event_ts).split('T')[0];
+                }
+            }
+            if (itemInfo.other && itemInfo.other.ts_added_to_dataset) {
+                pAdded = String(itemInfo.other.ts_added_to_dataset).split('T')[0];
+            }
+            searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pTiktok} ${pAge} ${pCountry} ${pPostCode} ${pActiveDays} ${pTotalEvents} ${pLastEvent} ${pAdded}`;
+        }
+
+        tr.setAttribute('data-search', searchString.toLowerCase());
+
+        // Checkbox Cell
+        const tdCheck = document.createElement('td');
+        tdCheck.style.padding = '5px';
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.value = item;
         cb.checked = selectedSet.has(item);
-        cb.style.marginRight = '8px';
-
-        // Event listener to update count and hidden input
+        cb.style.cursor = 'pointer';
         cb.onchange = function () {
-            updateDonationSelection(container.parentElement); // Pass parent .donation-selector
+            updateCollectionSelection(container.parentElement);
         };
+        tdCheck.appendChild(cb);
 
-        label.appendChild(cb);
-        label.appendChild(document.createTextNode(item));
+        const createCell = (text, isBold = false) => {
+            const td = document.createElement('td');
+            td.style.padding = '5px';
+            if (isBold) td.innerHTML = `<strong>${text}</strong>`;
+            else td.textContent = text;
+            return td;
+        }
 
-        div.appendChild(label);
-        frag.appendChild(div);
+        tr.appendChild(tdCheck);
+        tr.appendChild(createCell(item, true));
+        tr.appendChild(createCell(pDisplayId));
+        tr.appendChild(createCell(pTags));
+        tr.appendChild(createCell(pEmail));
+        tr.appendChild(createCell(pName));
+        tr.appendChild(createCell(pTiktok));
+        tr.appendChild(createCell(pAge));
+        tr.appendChild(createCell(pCountry));
+        tr.appendChild(createCell(pPostCode));
+        tr.appendChild(createCell(pActiveDays));
+        tr.appendChild(createCell(pTotalEvents));
+        tr.appendChild(createCell(pLastEvent));
+        tr.appendChild(createCell(pAdded));
+
+        tbody.appendChild(tr);
     });
 
-    container.appendChild(frag);
+    table.appendChild(tbody);
+    container.appendChild(table);
 
     // Initial count update
-    updateDonationSelection(container.parentElement);
+    updateCollectionSelection(container.parentElement);
 }
 
-function updateDonationSelection(selectorDiv) {
+function updateCollectionSelection(selectorDiv) {
     if (!selectorDiv) return;
     const container = selectorDiv.querySelector('.donation-checklist-container');
-    // Finds the hidden input which is a sibling of selectorDiv in our HTML structure?
-    // Structure: div.form-group > label, div.donation-selector, input[hidden]
-    // So hidden input is next sibling of selectorDiv.
-    const hiddenInput = selectorDiv.nextElementSibling;
+
+    // More robust way to find the hidden input within the same detail row instead of sibling logic
+    const row = selectorDiv.closest('.detail-row') || document;
+    const hiddenInput = row.querySelector('input[data-field="SELECTED_DONATIONS"]');
+
     const countSpan = selectorDiv.querySelector('.selected-count');
+    const eventsSpan = selectorDiv.querySelector('.selected-events-count');
 
     const checked = container.querySelectorAll('input[type="checkbox"]:checked');
     const values = Array.from(checked).map(c => c.value);
 
+    let totalEvents = 0;
+    const valueSet = new Set(values);
+    availableCollections.forEach(c => {
+        const id = typeof c === 'string' ? c : c.id;
+        if (valueSet.has(id) && typeof c === 'object' && c.personas && c.personas.total_events) {
+            totalEvents += (Number(c.personas.total_events) || 0);
+        }
+    });
+
     if (countSpan) countSpan.textContent = values.length;
+    if (eventsSpan) eventsSpan.textContent = totalEvents.toLocaleString();
 
     if (hiddenInput && hiddenInput.dataset.field === 'SELECTED_DONATIONS') {
         hiddenInput.value = JSON.stringify(values);
     }
 }
 
-function filterDonations(inputElement) {
+window.sortCollectionTable = function (th) {
+    const table = th.closest('table');
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr.donation-item'));
+    const headerRow = th.parentElement;
+    const columnIndex = Array.from(headerRow.children).indexOf(th);
+
+    let currentDir = th.dataset.sortDir || 'desc';
+    let newDir = currentDir === 'asc' ? 'desc' : 'asc';
+
+    headerRow.querySelectorAll('th').forEach(header => {
+        header.dataset.sortDir = '';
+        header.textContent = header.textContent.replace(/ [▼▲]$/, '');
+    });
+
+    th.dataset.sortDir = newDir;
+    th.textContent += newDir === 'asc' ? ' ▲' : ' ▼';
+
+    const textContent = th.textContent.replace(/ [▼▲]$/, '');
+    const isNumeric = ['Age', 'Active Days', 'Total Events'].includes(textContent);
+
+    rows.sort((a, b) => {
+        let cellA = a.children[columnIndex].textContent.trim();
+        let cellB = b.children[columnIndex].textContent.trim();
+
+        if (isNumeric) {
+            let numA = parseFloat(cellA);
+            let numB = parseFloat(cellB);
+            if (isNaN(numA)) numA = -Infinity;
+            if (isNaN(numB)) numB = -Infinity;
+            if (numA < numB) return newDir === 'asc' ? -1 : 1;
+            if (numA > numB) return newDir === 'asc' ? 1 : -1;
+            return 0;
+        }
+
+        const comp = cellA.localeCompare(cellB);
+        return newDir === 'asc' ? comp : -comp;
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+};
+
+function filterCollections(inputElement) {
     const searchText = inputElement.value.toLowerCase();
     const selectorDiv = inputElement.closest('.donation-selector');
-    const items = selectorDiv.querySelectorAll('.donation-item');
+    const items = selectorDiv.querySelectorAll('.donation-item'); // these are now table rows (tr)
 
     items.forEach(item => {
-        const text = item.textContent.toLowerCase();
+        const text = item.getAttribute('data-search') || item.textContent.toLowerCase();
         if (text.includes(searchText)) {
-            item.style.display = 'block';
+            item.style.display = 'table-row';
         } else {
             item.style.display = 'none';
         }
     });
 }
 
-function selectAllDonations(btn, select) {
+function selectAllCollections(btn, select) {
     const selectorDiv = btn.closest('.donation-selector');
     const container = selectorDiv.querySelector('.donation-checklist-container');
     const items = container.querySelectorAll('.donation-item');
@@ -147,7 +279,7 @@ function selectAllDonations(btn, select) {
         }
     });
 
-    updateDonationSelection(selectorDiv);
+    updateCollectionSelection(selectorDiv);
 }
 
 
@@ -213,9 +345,13 @@ function toggleDetail(event, index) {
     if (detailRow.style.display === 'none') {
         detailRow.style.display = 'table-row';
         icon.textContent = '▼';
+        row.style.backgroundColor = '#1e1e1e';
+        row.style.borderLeft = '4px solid #3b82f6';
     } else {
         detailRow.style.display = 'none';
         icon.textContent = '▶';
+        row.style.backgroundColor = '';
+        row.style.borderLeft = '';
     }
 }
 
@@ -253,7 +389,7 @@ function populateForm(row, study) {
         if (field === 'SELECTED_DONATIONS') {
             // Find the donation selector in this row
             // The row input[data-field="SELECTED_DONATIONS"] is now the HIDDEN one.
-            // renderDonationSelector needs the container.
+            // renderCollectionSelector needs the container.
             // Structure: input[hidden] is sibling of div.donation-selector
 
             // Wait, input iteration loop finds the HIDDEN input.
@@ -267,7 +403,7 @@ function populateForm(row, study) {
                 input.value = JSON.stringify(selectedList); // Set hidden value
 
                 // Render Checklist
-                renderDonationSelector(container, selectedList);
+                renderCollectionSelector(container, selectedList);
             } else {
                 // Fallback (should not happen if HTML updated)
                 if (Array.isArray(value)) {
@@ -345,11 +481,13 @@ function populateForm(row, study) {
     if (statsInput) {
         const stats = study.stats || {};
         const container = statsInput.parentElement;
-        const toScrape = container.querySelector('.stat-to-scrape');
-        const toAnnotate = container.querySelector('.stat-to-annotate');
+        const uniqueVids = container.querySelector('.stat-unique-vids');
+        const scrapedVids = container.querySelector('.stat-scraped-vids');
+        const annotatedVids = container.querySelector('.stat-annotated-vids');
 
-        if (toScrape) toScrape.textContent = stats.to_scrape_count !== undefined ? stats.to_scrape_count.toLocaleString() : '-';
-        if (toAnnotate) toAnnotate.textContent = stats.to_annotate_count !== undefined ? stats.to_annotate_count.toLocaleString() : '-';
+        if (uniqueVids) uniqueVids.textContent = stats.unique_videos !== undefined ? stats.unique_videos.toLocaleString() : '-';
+        if (scrapedVids) scrapedVids.textContent = stats.scraped_videos !== undefined ? stats.scraped_videos.toLocaleString() : '-';
+        if (annotatedVids) annotatedVids.textContent = stats.annotated_videos !== undefined ? stats.annotated_videos.toLocaleString() : '-';
     }
 }
 
@@ -364,12 +502,9 @@ function collectFormData(row) {
         let value = input.value;
 
         // Parse Types
-        if (field === 'INCLUDE_ZEESCHUIMER_DATA' || field === 'INCLUDE_DONATION_DATA') {
-            data[field] = (value === 'true');
-        }
-        else if (field === 'SELECTED_DONATIONS') {
+        if (field === 'SELECTED_DONATIONS') {
             try {
-                // For the new UI, the input.value is already a clean JSON string set by updateDonationSelection.
+                // For the new UI, the input.value is already a clean JSON string set by updateCollectionSelection.
                 // But let's be robust.
                 if (value && value.trim()) {
                     // It should be stringified array. 
@@ -439,6 +574,12 @@ function saveStudy(btn, event) {
 
     try {
         const formData = collectFormData(detailRow);
+
+        if (formData.SELECTED_DONATIONS && formData.SELECTED_DONATIONS.length === 0) {
+            alert("Please select at least one collection to save the study definition.");
+            return;
+        }
+
         const saveSettings = collectSaveSettings(detailRow);
 
         // Merge settings into formData (backend will strip them)
@@ -567,11 +708,13 @@ window.updateStudyEstimates = function (btn, event) {
 
                     // Update specific elements in THIS row (not re-rendering whole table)
                     const container = btn.parentElement;
-                    const toScrape = container.querySelector('.stat-to-scrape');
-                    const toAnnotate = container.querySelector('.stat-to-annotate');
+                    const uniqueVids = container.querySelector('.stat-unique-vids');
+                    const scrapedVids = container.querySelector('.stat-scraped-vids');
+                    const annotatedVids = container.querySelector('.stat-annotated-vids');
 
-                    if (toScrape) toScrape.textContent = stats.to_scrape_count !== undefined ? stats.to_scrape_count.toLocaleString() : '0';
-                    if (toAnnotate) toAnnotate.textContent = stats.to_annotate_count !== undefined ? stats.to_annotate_count.toLocaleString() : '0';
+                    if (uniqueVids) uniqueVids.textContent = stats.unique_videos !== undefined ? stats.unique_videos.toLocaleString() : '0';
+                    if (scrapedVids) scrapedVids.textContent = stats.scraped_videos !== undefined ? stats.scraped_videos.toLocaleString() : '0';
+                    if (annotatedVids) annotatedVids.textContent = stats.annotated_videos !== undefined ? stats.annotated_videos.toLocaleString() : '0';
 
                 } else {
                     alert("Error updating estimates: " + data.error);
@@ -618,6 +761,20 @@ function deleteStudy(btn, event) {
         .catch(err => alert("Delete failed: " + err));
 }
 
+function populateEnrichmentStudySelect(studies) {
+    const select = document.getElementById('enrichment-study-select');
+    if (!select) return;
+
+    // Keep the first default option
+    select.innerHTML = '<option value="">-- Select Study --</option>';
+
+    studies.forEach(study => {
+        const opt = document.createElement('option');
+        opt.value = study.STUDY_NAME;
+        opt.textContent = study.STUDY_NAME;
+        select.appendChild(opt);
+    });
+}
 
 // --- Modal ---
 
@@ -649,7 +806,7 @@ function createStudy(event) {
         STUDY_NAME: name,
         START_DATE: "2024-05-18",
         END_DATE: "2024-05-25",
-        INCLUDE_ZEESCHUIMER_DATA: true,
+        INCLUDE_ZEESCHUIMER_DATA: false,
         INCLUDE_DONATION_DATA: true,
         USER_ACCESS: ["all"],
         DONATION_SAMPLE_FRAME: "off",
@@ -675,38 +832,98 @@ function createStudy(event) {
 }
 
 // Init
-// Assuming csrfToken is available globally (it usually is in main layout or main.js)
-// If not, we might need to get it from meta tag.
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
-// Hook into tab open?
-// Or just load when file loaded? 
-// Better to expose init function or run loadStudies if tab is active?
-// main.js usually handles tab switching. We can add to the tab onclick or just load once.
-// Let's rely on explicit call or just run it:
-// Load donations FIRST, then studies to ensure selector populates correctly
-// Load donations FIRST, then studies
-loadAvailableDonations();
-// Also load roles
+// Load collections FIRST, then studies to ensure selector populates correctly
+loadAvailableCollections();
 loadSystemRoles();
 
-// --- Enrichment Stats ---
+// --- Enrichment Stats & Logic ---
 
 function fetchEnrichmentStats() {
     fetch('/api/manage/enrichment/stats')
         .then(res => res.json())
         .then(data => {
             // Stats
-            document.getElementById('enrich_total_videos').textContent = data.total_videos.toLocaleString();
-            document.getElementById('enrich_scraped').textContent = data.scraped_videos.toLocaleString();
-            document.getElementById('enrich_annotated').textContent = data.annotated_videos.toLocaleString();
-            document.getElementById('enrich_unique_donations').textContent = data.unique_donations.toLocaleString();
+            document.getElementById('enrich_total_videos').textContent = (data.total_videos !== undefined) ? data.total_videos.toLocaleString() : '-';
+            document.getElementById('enrich_scraped').textContent = (data.scraped_videos !== undefined) ? data.scraped_videos.toLocaleString() : '-';
+            document.getElementById('enrich_annotated').textContent = (data.annotated_videos !== undefined) ? data.annotated_videos.toLocaleString() : '-';
+            document.getElementById('enrich_unique_donations').textContent = (data.unique_donations !== undefined) ? data.unique_donations.toLocaleString() : '-';
 
-            // Queues
-            document.getElementById('enrich_scrape_queue').textContent = data.scrape_queue_len.toLocaleString();
-            document.getElementById('enrich_annotate_queue').textContent = data.annotate_queue_len.toLocaleString();
+            // Queues (If they still exist or are used for Annotations)
+            // Legacy code removed, annotate queues are study-specific now.
         })
         .catch(err => console.error("Error fetching enrichment stats:", err));
+}
+
+function calculateVideosToScrape() {
+    const studyName = document.getElementById('enrichment-study-select').value;
+    const targetsDisplay = document.getElementById('enrich_scrape_targets');
+
+    if (!studyName) {
+        alert("Please select a study from the dropdown first.");
+        return;
+    }
+
+    targetsDisplay.textContent = "Calculating...";
+    targetsDisplay.style.color = "#aaa";
+
+    fetch('/api/manage/enrichment/calculate_to_scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ study_name: studyName })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                targetsDisplay.textContent = data.videos_to_scrape.toLocaleString();
+                targetsDisplay.style.color = "#4cd964";
+            } else {
+                targetsDisplay.textContent = "Error";
+                targetsDisplay.style.color = "#ff4444";
+                alert("Error: " + data.error);
+            }
+        })
+        .catch(err => {
+            targetsDisplay.textContent = "Failed";
+            targetsDisplay.style.color = "#ff4444";
+            console.error(err);
+        });
+}
+
+function calculateVideosToAnnotate() {
+    const studyName = document.getElementById('enrichment-study-select').value;
+    const targetsDisplay = document.getElementById('enrich_annotate_targets');
+
+    if (!studyName) {
+        alert("Please select a study from the dropdown first.");
+        return;
+    }
+
+    targetsDisplay.textContent = "Calculating...";
+    targetsDisplay.style.color = "#aaa";
+
+    fetch('/api/manage/enrichment/calculate_to_annotate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ study_name: studyName })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                targetsDisplay.textContent = data.videos_to_annotate.toLocaleString();
+                targetsDisplay.style.color = "#4cd964";
+            } else {
+                targetsDisplay.textContent = "Error";
+                targetsDisplay.style.color = "#ff4444";
+                alert("Error: " + data.error);
+            }
+        })
+        .catch(err => {
+            targetsDisplay.textContent = "Failed";
+            targetsDisplay.style.color = "#ff4444";
+            console.error(err);
+        });
 }
 
 function emptyQueues() {
@@ -728,6 +945,46 @@ function emptyQueues() {
         .catch(err => alert("Failed to empty queues: " + err));
 }
 
+function consolidateEnrichmentData(btn) {
+    if (!confirm("Are you sure you want to consolidate enrichment data? This may take a moment.")) return;
+
+    const originalText = btn.textContent;
+    btn.textContent = "Consolidating...";
+    btn.disabled = true;
+
+    fetch('/api/manage/enrichment/consolidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert("Enrichment data consolidated successfully.");
+                fetchEnrichmentStats();
+            } else {
+                alert("Error: " + data.error);
+            }
+        })
+        .catch(err => alert("Failed to consolidate: " + err))
+        .finally(() => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        });
+}
+
 // Call on load
 fetchEnrichmentStats();
 
+function toggleSection(contentId, arrowId) {
+    const content = document.getElementById(contentId);
+    const arrow = document.getElementById(arrowId);
+    if (!content || !arrow) return;
+
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        arrow.innerHTML = '▼'; // Down arrow
+    } else {
+        content.style.display = 'none';
+        arrow.innerHTML = '▶'; // Right arrow
+    }
+}

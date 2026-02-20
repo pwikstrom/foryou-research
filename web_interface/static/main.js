@@ -223,6 +223,8 @@ async function startProcess(name) {
         studyNameInputId = 'overview-study-name';
     } else if (['create_event_log', 'recode_event_log', 'calculate_pca', 'regenerate_datasets'].includes(name)) {
         studyNameInputId = 'build-study-name';
+    } else if (['queue_scraper', 'queue_annotator'].includes(name)) {
+        studyNameInputId = 'enrichment-study-select';
     }
 
     let studyName = "";
@@ -234,8 +236,13 @@ async function startProcess(name) {
     let maxBatches = null;
 
     if (name === 'queue_scraper') {
-        const bsEl = document.getElementById('enrichment-batch-size');
-        const mbEl = document.getElementById('enrichment-max-batches');
+        const bsEl = document.getElementById('scrapes-batch-size');
+        const mbEl = document.getElementById('scrapes-max-batches');
+        batchSize = bsEl ? bsEl.value : null;
+        maxBatches = mbEl ? mbEl.value : null;
+    } else if (name === 'queue_annotator') {
+        const bsEl = document.getElementById('annotations-batch-size');
+        const mbEl = document.getElementById('annotations-max-batches');
         batchSize = bsEl ? bsEl.value : null;
         maxBatches = mbEl ? mbEl.value : null;
     } else {
@@ -245,9 +252,9 @@ async function startProcess(name) {
         maxBatches = mbEl ? mbEl.value : null;
     }
 
-    if (['downloader', 'annotator', 'create_subsets', 'regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'].includes(name)) {
+    if (['downloader', 'annotator', 'create_subsets', 'regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca', 'queue_scraper', 'queue_annotator'].includes(name)) {
         if (!studyName) {
-            alert("Please enter a study name.");
+            alert("Please select or enter a study name.");
             return;
         }
         body = {
@@ -338,12 +345,13 @@ async function updateStatus() {
         setStatus('annotator', data.annotator);
         //setStatus('create_subsets', data.create_subsets);
         setStatus('queue_scraper', data.queue_scraper);
+        setStatus('queue_annotator', data.queue_annotator);
         setStatus('meta_refresh_viewer', data.meta_refresh_viewer);
         setStatus('meta_refresh_groups', data.meta_refresh_groups);
         setStatus('timelines_refresh', data.timelines_refresh);
 
         // Discreet processes
-        const discreetProcesses = ['regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'];
+        const discreetProcesses = ['create_event_log', 'recode_event_log', 'calculate_pca'];
 
         discreetProcesses.forEach(name => {
             setDiscreetStatus(name, data[name]);
@@ -435,7 +443,7 @@ function setStatus(name, data) {
 function setDiscreetStatus(name, data) {
     const dot = document.getElementById(`dot-${name}`);
     const text = document.getElementById(`text-${name}`);
-    if (!dot || !text) return;
+    if (!dot || !text || !data) return;
 
     const state = data.state;
 
@@ -568,6 +576,7 @@ async function updateLogs() {
     await fetchLogs('annotator');
     //await fetchLogs('create_subsets');
     await fetchLogs('queue_scraper');
+    await fetchLogs('queue_annotator');
     await fetchLogs('meta_refresh_viewer');
     await fetchLogs('meta_refresh_groups');
     await fetchLogs('timelines_refresh');

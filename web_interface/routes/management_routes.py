@@ -7,6 +7,7 @@ from fyp.organize_datasets import create_study_recoded_dataset
 from fyp.pca import calculate_scaled_pca_scores
 from fyp.studies import init_study_defs, save_study_defs
 from .. import explorer_backend as explorer
+import pandas as pd
 from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable, calculate_inter_coder_reliability
 
 management_bp = Blueprint('management_bp', __name__)
@@ -82,24 +83,6 @@ def _calculate_stats(study_config, save_to_cache=True):
                 study_item_ids = df_study['item_id'].unique()
                 matched_status = df_status.loc[df_status.index.isin(study_item_ids)].fillna(False).copy()
             
-            to_scrape_list = matched_status[(~matched_status.scraped_ok & ~matched_status.scrape_fail)].index.to_list()
-            to_annotate_list = matched_status[(matched_status.scraped_ok & ~matched_status.annotated_ok)].index.to_list()
-            to_scrape_count = len(to_scrape_list)
-            to_annotate_count = len(to_annotate_list)
-            if data_io.exists(storage_location='cache', filename='to_scrape.json'):
-                to_scrape_list_old = data_io.load_json(storage_location='cache', filename='to_scrape.json')
-                to_scrape_list = list(set(to_scrape_list + to_scrape_list_old))
-                data_io.save_json(storage_location='cache', filename='to_scrape.json', data=to_scrape_list)
-            else:
-                data_io.save_json(storage_location='cache', filename='to_scrape.json', data=to_scrape_list)
-            if data_io.exists(storage_location='cache', filename='to_annotate.json'):
-                to_annotate_list_old = data_io.load_json(storage_location='cache', filename='to_annotate.json')
-                to_annotate_list = list(set(to_annotate_list + to_annotate_list_old))
-                data_io.save_json(storage_location='cache', filename='to_annotate.json', data=to_annotate_list)
-            else:
-                data_io.save_json(storage_location='cache', filename='to_annotate.json', data=to_annotate_list)
-            print(f"In scrape queue: {len(to_scrape_list)}  |  In annotation queue: {len(to_annotate_list)}")
-            
             # Calculate counts
             if 'scraped_ok' in matched_status.columns:
                 scraped_videos = int(matched_status['scraped_ok'].sum())
@@ -110,9 +93,7 @@ def _calculate_stats(study_config, save_to_cache=True):
             "unique_videos": int(unique_videos),
             "scraped_videos": scraped_videos,
             "annotated_videos": annotated_videos,
-            "unique_donations": int(unique_donations),
-            "to_scrape_count": to_scrape_count if 'to_scrape_count' in locals() else 0,
-            "to_annotate_count": to_annotate_count if 'to_annotate_count' in locals() else 0
+            "unique_donations": int(unique_donations)
         }
 
     if False:#except Exception as e:
@@ -422,9 +403,9 @@ def delete_study():
 
 
 
-@management_bp.route('/api/manage/donations', methods=['GET'])
+@management_bp.route('/api/manage/collections', methods=['GET'])
 @login_required
-def list_donations():
+def list_collections():
     
     if not current_user.is_admin():
          return jsonify([])
@@ -441,17 +422,62 @@ def list_donations():
             # Filter for accepted donations
             if ('other', 'accepted') in df.columns:
                 df = df[df[('other', 'accepted')]]
+                
+            # Load annotations
+            annotations = {}
+            if data_io.exists(storage_location="ddp_main", filename="donation_annotations.json"):
+                annotations = data_io.load_json(storage_location="ddp_main", filename="donation_annotations.json")
+                
+            # Construct structured dictionaries
+            collections = []
             
-            donations = df.index.to_list()
-            donations.sort()
+            # Make sure we don't have pd.NA or similar incompatible types for JSON serialization
+            df = df.where(pd.notnull(df), None)
+            
+            # Helper to convert pandas/pyarrow types cleanly to standard Python types
+            def safe_val(val):
+                if pd.isna(val) or val is None:
+                    return None
+                if hasattr(val, "item"):
+                    try:
+                        val = val.item()
+                    except Exception:
+                        pass
+                if hasattr(val, "isoformat"):
+                    return val.isoformat()
+                return val
 
-            return jsonify(donations)
+            for index, row in df.iterrows():
+                item = {
+                    "id": str(index),
+                    "participants": {},
+                    "other": {},
+                    "personas": {}
+                }
+                
+                # Fetch participant info
+                for c in df.columns:
+                    if c[0] == 'participants':
+                        item['participants'][c[1]] = safe_val(row[c])
+                    elif c[0] == 'other':
+                        item['other'][c[1]] = safe_val(row[c])
+                    elif c[0] == 'personas':
+                        item['personas'][c[1]] = safe_val(row[c])
+                        
+                # Attach annotations
+                ann = annotations.get(str(index), {})
+                item['displayId'] = ann.get('display_donation_id', None)
+                item['tags'] = ann.get('annotation_tags', [])
+
+                collections.append(item)
+
+            return jsonify(collections)
         else:
             print("ddp_metadata.parquet not found in ddp_main")
             return jsonify([])
             
     if False:#except Exception as e:
-        print(f"Error listing donations: {e}")
+        print(f"Error listing collections: {e}")
 
 
 
@@ -528,6 +554,177 @@ def empty_enrichment_queues():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@management_bp.route('/api/manage/enrichment/calculate_to_scrape', methods=['POST'])
+@login_required
+def calculate_to_scrape():
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.json or {}
+    study_name = data.get("study_name")
+    if not study_name:
+        return jsonify({"error": "No study name provided"}), 400
+
+    try:
+        # Check for cached recoded dataset first
+        recoded_fn = f"{study_name}_recoded.parquet"
+        df_study = None
+        
+        if data_io.exists(storage_location="cache", filename=recoded_fn):
+            # Load only the required column if possible, but load_parquet loads all if columns not provided properly or we can just load the whole file. 
+            # Actually, calculate_to_scrape only really needs item_id. The full load is fine as the files are usually small enough, but let's just load it.
+            df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
+            
+        if df_study is None or df_study.empty:
+            # If not cached or empty, generate from scratch
+            df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
+            
+        if df_study is None or df_study.empty:
+            return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
+
+        # Load global enrichment status
+        df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+
+        unscraped_videos = []
+        if df_status is not None and not df_status.empty:
+            # item_id is usually the index in enrichment_status
+            if 'item_id' not in df_status.columns:
+                df_status = df_status.reset_index()
+                # If index was unnamed, it might become 'index'
+                if 'index' in df_status.columns and 'item_id' not in df_status.columns:
+                    df_status = df_status.rename(columns={'index': 'item_id'})
+
+            # Map enrichment_status to our study videos
+            study_videos = df_study[['item_id']].copy()
+            study_status = study_videos.merge(df_status, on='item_id', how='left')
+            
+            # Find videos where scraped_ok is fundamentally False or NaN AND scrape_fail is fundamentally False or NaN
+            not_scraped = pd.isna(study_status['scraped_ok']) | (study_status['scraped_ok'] == False)
+            
+            if 'scrape_fail' in study_status.columns:
+                not_failed = pd.isna(study_status['scrape_fail']) | (study_status['scrape_fail'] == False)
+                unscraped_mask = not_scraped & not_failed
+            elif 'scraped_fail' in study_status.columns:
+                not_failed = pd.isna(study_status['scraped_fail']) | (study_status['scraped_fail'] == False)
+                unscraped_mask = not_scraped & not_failed
+            else:
+                unscraped_mask = not_scraped
+                
+            unscraped_videos = study_status.loc[unscraped_mask, 'item_id'].tolist()
+        else:
+            unscraped_videos = df_study['item_id'].tolist()
+            
+        unscraped_videos = list(set(unscraped_videos))
+
+        # Cache target payload for scraper_loop
+        data_io.save_json(
+            data=unscraped_videos,
+            storage_location="cache",
+            filename=f"to_scrape_{study_name}.json"
+        )
+
+        return jsonify({"status": "success", "videos_to_scrape": len(unscraped_videos)})
+
+    except Exception as e:
+        print(f"Error calculating scrape targets: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@management_bp.route('/api/manage/enrichment/calculate_to_annotate', methods=['POST'])
+@login_required
+def calculate_to_annotate():
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.json or {}
+    study_name = data.get("study_name")
+    if not study_name:
+        return jsonify({"error": "No study name provided"}), 400
+
+    try:
+        from fyp.fyp_config import fyp_cf
+        
+        # Check for cached recoded dataset first
+        recoded_fn = f"{study_name}_recoded.parquet"
+        df_study = None
+        
+        if data_io.exists(storage_location="cache", filename=recoded_fn):
+            df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
+            
+        if df_study is None or df_study.empty:
+            df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
+            
+        if df_study is None or df_study.empty:
+            return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
+
+        # Load global enrichment status
+        df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+
+        unannotated_videos = []
+        if df_status is not None and not df_status.empty:
+            if 'item_id' not in df_status.columns:
+                df_status = df_status.reset_index()
+                if 'index' in df_status.columns and 'item_id' not in df_status.columns:
+                    df_status = df_status.rename(columns={'index': 'item_id'})
+
+            if 'S_video_duration' in df_study.columns:
+                study_videos = df_study[['item_id', 'S_video_duration']].copy()
+            else:
+                study_videos = df_study[['item_id']].copy()
+                
+            study_status = study_videos.merge(df_status, on='item_id', how='left')
+            
+            is_scraped_ok = study_status['scraped_ok'].fillna(False) == True
+            
+            if 'annotated_ok' in study_status.columns:
+                not_annotated_ok = pd.isna(study_status['annotated_ok']) | (study_status['annotated_ok'] == False)
+            else:
+                not_annotated_ok = True
+                
+            if 'annotated_fail' in study_status.columns:
+                not_annotated_fail = pd.isna(study_status['annotated_fail']) | (study_status['annotated_fail'] == False)
+            else:
+                not_annotated_fail = True
+                
+            unannotated_mask = is_scraped_ok & not_annotated_ok & not_annotated_fail
+            
+            if 'S_video_duration' in study_status.columns:
+                max_dur = fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600)
+                duration_ok = (study_status['S_video_duration'] < max_dur) | pd.isna(study_status['S_video_duration'])
+                unannotated_mask = unannotated_mask & duration_ok
+
+            unannotated_videos = study_status.loc[unannotated_mask, 'item_id'].tolist()
+        else:
+            unannotated_videos = []
+            
+        unannotated_videos = list(set(unannotated_videos))
+
+        # Cache target payload for annotation_loop
+        data_io.save_json(
+            data=unannotated_videos,
+            storage_location="cache",
+            filename=f"to_annotate_{study_name}.json"
+        )
+
+        return jsonify({"status": "success", "videos_to_annotate": len(unannotated_videos)})
+
+    except Exception as e:
+        print(f"Error calculating annotate targets: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@management_bp.route('/api/manage/enrichment/consolidate', methods=['POST'])
+@login_required
+def api_consolidate_enrichment():
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    try:
+        from fyp.organize_datasets import consolidate_enrichment_data
+        consolidate_enrichment_data(force_consolidation=False, verbose=False)
+        return jsonify({"status": "success", "message": "Enrichment data consolidated."})
+    except Exception as e:
+        print(f"Error consolidating enrichment data: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @management_bp.route('/api/manage/schema/reload', methods=['POST'])
 @login_required

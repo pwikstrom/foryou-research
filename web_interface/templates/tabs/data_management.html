@@ -1,195 +1,290 @@
 <div id="data_management" class="tab-pane">
-    <div class="control-bar"
-        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2>Data Management: Study Definitions</h2>
+    <div style="height: 100%; overflow-y: auto; padding: 20px;">
+
+        <!-- Study Definitions Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('studies-content', 'studies-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
+                <div style="display: flex; align-items: center;">
+                    <span id="studies-arrow"
+                        style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                    <h2 style="margin: 0;">Data Management: Study Definitions</h2>
+                </div>
+                {% if current_user.is_admin() %}
+                <button type="button" class="action-btn" onclick="openNewStudyModal(); event.stopPropagation();">Define
+                    new study</button>
+                {% endif %}
+            </div>
+
+            <div id="studies-content" style="padding: 0 20px 20px 20px;">
+                <table class="data-table" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid #555;">
+                            <th style="width: 30px; padding: 10px;"></th>
+                            <th style="text-align: left; padding: 10px;">Study Name</th>
+                            <th style="text-align: left; padding: 10px;">Start Date</th>
+                            <th style="text-align: left; padding: 10px;">End Date</th>
+                            <th style="text-align: right; padding: 10px;">Unique Collections</th>
+                            <th style="text-align: right; padding: 10px;">Unique Videos</th>
+                            <th style="text-align: right; padding: 10px;">Scraped</th>
+                            <th style="text-align: right; padding: 10px;">Annotated</th>
+                            <th style="text-align: right; padding: 10px;">Last Updated</th>
+                            <th style="padding: 10px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="studies_table_body">
+                        <!-- Rows injected by JS -->
+                    </tbody>
+                </table>
+            </div> <!-- End studies-content -->
+        </div> <!-- End Study Definitions Container -->
+
         {% if current_user.is_admin() %}
-        <button type="button" class="action-btn" onclick="openNewStudyModal()">Define new study</button>
+        <!-- Enrichment Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('enrichment-content', 'enrichment-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
+                <span id="enrichment-arrow"
+                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                <h2 style="margin: 0;">Data Management: Enrichment</h2>
+            </div>
+            <div id="enrichment-content" style="padding: 0 20px 20px 20px;">
+                <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid #555;">
+                            <th style="text-align: left; padding: 10px;">Enrichment Status</th>
+                            <th style="text-align: right; padding: 10px;">Count</th>
+                            <th style="text-align: right; padding: 10px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 10px;">Total Videos</td>
+                            <td style="text-align: right; padding: 10px;" id="enrich_total_videos">-</td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px;">Total Unique Collections</td>
+                            <td style="text-align: right; padding: 10px;" id="enrich_unique_donations">-</td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px;">Videos Scraped</td>
+                            <td style="text-align: right; padding: 10px;" id="enrich_scraped">-</td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px;">Videos Annotated</td>
+                            <td style="text-align: right; padding: 10px;" id="enrich_annotated">-</td>
+                            <td></td>
+                        </tr>
+                        <tr style="border-top: 1px solid #555;">
+                            <td colspan="3" style="padding: 15px 10px;">
+                                <!-- Shared Study Selection -->
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+                                    <span style="font-weight: bold; font-size: 1.1em;">Target Study:</span>
+                                    <select id="enrichment-study-select"
+                                        style="background: #333; border: 1px solid #555; color: #ddd; padding: 6px; border-radius: 3px; min-width: 200px;">
+                                        <option value="">-- Select Study --</option>
+                                    </select>
+                                    <button type="button" class="action-btn" onclick="consolidateEnrichmentData(this)"
+                                        style="background-color: #8b5cf6; font-size: 0.9em; padding: 6px 12px; margin-left: auto;">Consolidate
+                                        Enrichment Data</button>
+                                </div>
+
+                                <!-- Side-by-side Scraper and Annotator -->
+                                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+
+                                    <!-- Scraper Block -->
+                                    <div
+                                        style="flex: 1; min-width: 400px; background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42;">
+                                        <div
+                                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                            <div style="display: flex; align-items: center; gap: 10px;">
+                                                <span style="font-weight: bold; font-size: 1.1em;">Scrape Queue:</span>
+                                                <button type="button" class="action-btn"
+                                                    onclick="calculateVideosToScrape()"
+                                                    style="background-color: #3b82f6; font-size: 0.8em; padding: 4px 8px;">Calculate
+                                                    videos still to be scraped</button>
+                                                <span id="enrich_scrape_targets"
+                                                    style="color: #4cd964; margin-left: 5px; font-weight: bold;">-</span><span>
+                                                    pending</span>
+                                            </div>
+                                        </div>
+
+                                        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
+                                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                                <label style="color: #aaa; font-size: 0.75em;">BATCH SIZE</label>
+                                                <input type="number" id="scrapes-batch-size" value="500"
+                                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
+                                            </div>
+                                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                                <label style="color: #aaa; font-size: 0.75em;">MAX BATCHES</label>
+                                                <input type="number" id="scrapes-max-batches" placeholder="Inf"
+                                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
+                                            </div>
+
+                                            <div style="width: 1px; height: 30px; background: #3e3e42;"></div>
+
+                                            <div class="controls" style="display: flex; gap: 5px; align-items: center;">
+                                                <span id="queue_scraper-status"
+                                                    class="status-indicator status-stopped"></span>
+                                                <button class="btn-primary" onclick="startProcess('queue_scraper')"
+                                                    style="padding: 4px 12px;">Start Scraper</button>
+                                                <button class="btn-stop" onclick="stopProcess('queue_scraper')"
+                                                    style="padding: 4px 12px;">Stop</button>
+                                            </div>
+                                        </div>
+
+                                        <div class="progress-container">
+                                            <div class="progress-bar" id="queue_scraper-bar"></div>
+                                            <div class="progress-text" id="queue_scraper-text">Idle</div>
+                                        </div>
+                                        <div class="log-window" id="queue_scraper-logs"
+                                            style="height: 80px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
+                                            Logs...</div>
+                                    </div>
+
+                                    <!-- Annotator Block -->
+                                    <div
+                                        style="flex: 1; min-width: 400px; background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42;">
+                                        <div
+                                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                            <div style="display: flex; align-items: center; gap: 10px;">
+                                                <span style="font-weight: bold; font-size: 1.1em;">Annotation
+                                                    Queue:</span>
+                                                <button type="button" class="action-btn"
+                                                    onclick="calculateVideosToAnnotate()"
+                                                    style="background-color: #3b82f6; font-size: 0.8em; padding: 4px 8px;">Calculate
+                                                    videos still to be annotated</button>
+                                                <span id="enrich_annotate_targets"
+                                                    style="color: #4cd964; margin-left: 5px; font-weight: bold;">-</span><span>
+                                                    pending</span>
+                                            </div>
+                                        </div>
+
+                                        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
+                                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                                <label style="color: #aaa; font-size: 0.75em;">BATCH SIZE</label>
+                                                <input type="number" id="annotations-batch-size" value="500"
+                                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
+                                            </div>
+                                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                                <label style="color: #aaa; font-size: 0.75em;">MAX BATCHES</label>
+                                                <input type="number" id="annotations-max-batches" placeholder="Inf"
+                                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
+                                            </div>
+
+                                            <div style="width: 1px; height: 30px; background: #3e3e42;"></div>
+
+                                            <div class="controls" style="display: flex; gap: 5px; align-items: center;">
+                                                <span id="queue_annotator-status"
+                                                    class="status-indicator status-stopped"></span>
+                                                <button class="btn-primary" onclick="startProcess('queue_annotator')"
+                                                    style="padding: 4px 12px;">Start Annotator</button>
+                                                <button class="btn-stop" onclick="stopProcess('queue_annotator')"
+                                                    style="padding: 4px 12px;">Stop</button>
+                                            </div>
+                                        </div>
+
+                                        <div class="progress-container">
+                                            <div class="progress-bar" id="queue_annotator-bar"></div>
+                                            <div class="progress-text" id="queue_annotator-text">Idle</div>
+                                        </div>
+                                        <div class="log-window" id="queue_annotator-logs"
+                                            style="height: 80px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
+                                            Logs...</div>
+                                    </div>
+
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                </table>
+            </div> <!-- End enrichment-content -->
+        </div> <!-- End Enrichment Container -->
+
+        <!-- Recalculate datasets Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('recalculate-content', 'recalculate-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
+                <span id="recalculate-arrow"
+                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                <h2 style="margin: 0;">Recalculate datasets</h2>
+            </div>
+            <div id="recalculate-content" style="padding: 0 20px 20px 20px;">
+                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+
+                    <!-- 1. Video Analysis Metadata -->
+                    <div
+                        style="background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42; flex: 1; min-width: 300px;">
+                        <div style="margin-bottom: 10px; font-weight: bold;">Video Analysis Metadata</div>
+                        <div class="controls"
+                            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+                            <span id="meta_refresh_viewer-status" class="status-indicator status-stopped"></span>
+                            <button class="btn-primary" onclick="startProcess('meta_refresh_viewer')"
+                                style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Studies)</button>
+                            <button class="btn-stop" onclick="stopProcess('meta_refresh_viewer')"
+                                style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-bar" id="meta_refresh_viewer-bar"></div>
+                            <div class="progress-text" id="meta_refresh_viewer-text">Idle</div>
+                        </div>
+                        <div class="log-window" id="meta_refresh_viewer-logs"
+                            style="height: 60px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
+                            Logs...</div>
+                    </div>
+
+                    <!-- 2. Group Comparisons Metadata -->
+                    <div
+                        style="background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42; flex: 1; min-width: 300px;">
+                        <div style="margin-bottom: 10px; font-weight: bold;">Group Comparisons Metadata</div>
+                        <div class="controls"
+                            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+                            <span id="meta_refresh_groups-status" class="status-indicator status-stopped"></span>
+                            <button class="btn-primary" onclick="startProcess('meta_refresh_groups')"
+                                style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Studies)</button>
+                            <button class="btn-stop" onclick="stopProcess('meta_refresh_groups')"
+                                style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-bar" id="meta_refresh_groups-bar"></div>
+                            <div class="progress-text" id="meta_refresh_groups-text">Idle</div>
+                        </div>
+                        <div class="log-window" id="meta_refresh_groups-logs"
+                            style="height: 60px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
+                            Logs...</div>
+                    </div>
+
+                    <!-- 3. Timelines -->
+                    <div
+                        style="background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42; flex: 1; min-width: 300px;">
+                        <div style="margin-bottom: 10px; font-weight: bold;">Timelines</div>
+                        <div class="controls"
+                            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+                            <span id="timelines_refresh-status" class="status-indicator status-stopped"></span>
+                            <button class="btn-primary" onclick="startProcess('timelines_refresh')"
+                                style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Collections)</button>
+                            <button class="btn-stop" onclick="stopProcess('timelines_refresh')"
+                                style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-bar" id="timelines_refresh-bar"></div>
+                            <div class="progress-text" id="timelines_refresh-text">Idle</div>
+                        </div>
+                        <div class="log-window" id="timelines_refresh-logs"
+                            style="height: 60px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
+                            Logs...</div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
         {% endif %}
-    </div>
 
-    <table class="data-table" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-        <thead>
-            <tr style="border-bottom: 2px solid #555;">
-                <th style="width: 30px; padding: 10px;"></th>
-                <th style="text-align: left; padding: 10px;">Study Name</th>
-                <th style="text-align: left; padding: 10px;">Start Date</th>
-                <th style="text-align: left; padding: 10px;">End Date</th>
-                <th style="text-align: right; padding: 10px;">Unique Donations</th>
-                <th style="text-align: right; padding: 10px;">Unique Videos</th>
-                <th style="text-align: right; padding: 10px;">Scraped</th>
-                <th style="text-align: right; padding: 10px;">Annotated</th>
-                <th style="text-align: right; padding: 10px;">Last Updated</th>
-                <th style="padding: 10px;">Actions</th>
-            </tr>
-        </thead>
-        <tbody id="studies_table_body">
-            <!-- Rows injected by JS -->
-        </tbody>
-    </table>
-
-    {% if current_user.is_admin() %}
-    <div style="margin-top: 40px; border-top: 1px solid #555; padding-top: 20px;">
-        <div class="control-bar"
-            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h2>Data Management: Enrichment</h2>
-        </div>
-
-        <table class="data-table" style="width: 100%; border-collapse: collapse;">
-            <thead>
-                <tr style="border-bottom: 2px solid #555;">
-                    <th style="text-align: left; padding: 10px;">Enrichment Status</th>
-                    <th style="text-align: right; padding: 10px;">Count</th>
-                    <th style="text-align: right; padding: 10px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td style="padding: 10px;">Total Videos</td>
-                    <td style="text-align: right; padding: 10px;" id="enrich_total_videos">-</td>
-                    <td></td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px;">Total Unique Donations</td>
-                    <td style="text-align: right; padding: 10px;" id="enrich_unique_donations">-</td>
-                    <td></td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px;">Videos Scraped</td>
-                    <td style="text-align: right; padding: 10px;" id="enrich_scraped">-</td>
-                    <td></td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px;">Videos Annotated</td>
-                    <td style="text-align: right; padding: 10px;" id="enrich_annotated">-</td>
-                    <td></td>
-                </tr>
-                <tr style="border-top: 1px solid #555;">
-                    <td colspan="3" style="padding: 10px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-weight: bold; font-size: 1.1em;">Scrape Queue: <span
-                                    id="enrich_scrape_queue" style="color: #4cd964;">-</span> items</span>
-                            <button type="button" class="action-btn" onclick="emptyQueues()"
-                                style="background-color: #a33; font-size: 0.8em; padding: 4px 8px;">Empty All
-                                Queues</button>
-                        </div>
-
-                        <!-- Scraper Controls -->
-                        <div
-                            style="margin-top: 10px; background: #252526; padding: 10px; border-radius: 4px; border: 1px solid #3e3e42;">
-                            <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
-                                <div style="display: flex; flex-direction: column; gap: 2px;">
-                                    <label style="color: #aaa; font-size: 0.75em;">BATCH SIZE</label>
-                                    <input type="number" id="enrichment-batch-size" value="500"
-                                        style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
-                                </div>
-                                <div style="display: flex; flex-direction: column; gap: 2px;">
-                                    <label style="color: #aaa; font-size: 0.75em;">MAX BATCHES</label>
-                                    <input type="number" id="enrichment-max-batches" placeholder="Inf"
-                                        style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
-                                </div>
-
-                                <div style="width: 1px; height: 30px; background: #3e3e42;"></div>
-
-                                <div class="controls" style="display: flex; gap: 5px; align-items: center;">
-                                    <span id="queue_scraper-status" class="status-indicator status-stopped"></span>
-                                    <button class="btn-primary" onclick="startProcess('queue_scraper')"
-                                        style="padding: 4px 12px;">Start Scraper</button>
-                                    <button class="btn-stop" onclick="stopProcess('queue_scraper')"
-                                        style="padding: 4px 12px;">Stop</button>
-                                </div>
-                            </div>
-
-                            <div class="progress-container">
-                                <div class="progress-bar" id="queue_scraper-bar"></div>
-                                <div class="progress-text" id="queue_scraper-text">Idle</div>
-                            </div>
-                            <div class="log-window" id="queue_scraper-logs"
-                                style="height: 80px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333;">
-                                Logs...</div>
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td colspan="3" style="padding: 10px;">
-                        <span style="font-weight: bold;">Annotation Queue: <span id="enrich_annotate_queue">-</span>
-                            items</span>
-                        <!-- Placeholder for future annotation controls -->
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
-    <div style="margin-top: 40px; border-top: 1px solid #555; padding-top: 20px;">
-        <div class="control-bar" style="margin-bottom: 20px;">
-            <h2>Recalculate datasets</h2>
-        </div>
-
-        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-
-            <!-- 1. Video Analysis Metadata -->
-            <div
-                style="background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42; flex: 1; min-width: 300px;">
-                <div style="margin-bottom: 10px; font-weight: bold;">Video Analysis Metadata</div>
-                <div class="controls" style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
-                    <span id="meta_refresh_viewer-status" class="status-indicator status-stopped"></span>
-                    <button class="btn-primary" onclick="startProcess('meta_refresh_viewer')"
-                        style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Studies)</button>
-                    <button class="btn-stop" onclick="stopProcess('meta_refresh_viewer')"
-                        style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
-                </div>
-                <div class="progress-container">
-                    <div class="progress-bar" id="meta_refresh_viewer-bar"></div>
-                    <div class="progress-text" id="meta_refresh_viewer-text">Idle</div>
-                </div>
-                <div class="log-window" id="meta_refresh_viewer-logs"
-                    style="height: 60px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
-                    Logs...</div>
-            </div>
-
-            <!-- 2. Group Comparisons Metadata -->
-            <div
-                style="background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42; flex: 1; min-width: 300px;">
-                <div style="margin-bottom: 10px; font-weight: bold;">Group Comparisons Metadata</div>
-                <div class="controls" style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
-                    <span id="meta_refresh_groups-status" class="status-indicator status-stopped"></span>
-                    <button class="btn-primary" onclick="startProcess('meta_refresh_groups')"
-                        style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Studies)</button>
-                    <button class="btn-stop" onclick="stopProcess('meta_refresh_groups')"
-                        style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
-                </div>
-                <div class="progress-container">
-                    <div class="progress-bar" id="meta_refresh_groups-bar"></div>
-                    <div class="progress-text" id="meta_refresh_groups-text">Idle</div>
-                </div>
-                <div class="log-window" id="meta_refresh_groups-logs"
-                    style="height: 60px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
-                    Logs...</div>
-            </div>
-
-            <!-- 3. Timelines -->
-            <div
-                style="background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42; flex: 1; min-width: 300px;">
-                <div style="margin-bottom: 10px; font-weight: bold;">Timelines</div>
-                <div class="controls" style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
-                    <span id="timelines_refresh-status" class="status-indicator status-stopped"></span>
-                    <button class="btn-primary" onclick="startProcess('timelines_refresh')"
-                        style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Donations)</button>
-                    <button class="btn-stop" onclick="stopProcess('timelines_refresh')"
-                        style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
-                </div>
-                <div class="progress-container">
-                    <div class="progress-bar" id="timelines_refresh-bar"></div>
-                    <div class="progress-text" id="timelines_refresh-text">Idle</div>
-                </div>
-                <div class="log-window" id="timelines_refresh-logs"
-                    style="height: 60px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
-                    Logs...</div>
-            </div>
-
-        </div>
-    </div>
-    {% endif %}
+    </div> <!-- End height 100% overflow -->
 
     <!-- New Study Modal -->
     <div id="newStudyModal" class="modal"
@@ -214,7 +309,7 @@
 <template id="study_detail_template">
     <tr class="detail-row" style="background-color: #2d2d30; display: none;">
         <td colspan="10" style="padding: 30px;">
-            <div class="study-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+            <div class="study-form" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px;">
                 <!-- Column 1 -->
                 <div>
                     <div class="form-group-row">
@@ -229,36 +324,23 @@
                         <input type="text" data-field="END_DATE" class="control-input" {% if not current_user.is_admin()
                             %}disabled{% endif %}>
                     </div>
-                    <div class="form-group-row">
-                        <label title="DEFAULT: true">INCLUDE_ZEESCHUIMER_DATA <i class="info-icon">ℹ️</i></label>
-                        <select data-field="INCLUDE_ZEESCHUIMER_DATA" class="control-input" {% if not
-                            current_user.is_admin() %}disabled{% endif %}>
-                            <option value="true">True</option>
-                            <option value="false">False</option>
-                        </select>
-                    </div>
-                    <div class="form-group-row">
-                        <label title="DEFAULT: true">INCLUDE_DONATION_DATA <i class="info-icon">ℹ️</i></label>
-                        <select data-field="INCLUDE_DONATION_DATA" class="control-input" {% if not
-                            current_user.is_admin() %}disabled{% endif %}>
-                            <option value="true">True</option>
-                            <option value="false">False</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group-row" style="align-items: flex-start;">
-                        <label title="User Access List">USER_ACCESS <i class="info-icon">ℹ️</i></label>
+                </div>
+                <!-- Column 2 -->
+                <div>
+                    <div class="form-group-row" style="align-items: flex-start; flex-direction: column;">
+                        <label title="User Access List" style="margin-bottom: 8px;">USER_ACCESS <i
+                                class="info-icon">ℹ️</i></label>
                         <div class="checkbox-group" data-field-group="USER_ACCESS"
-                            style="text-align: right; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
+                            style="text-align: left; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
                             <div class="dynamic-roles-container">Loading roles...</div>
                         </div>
                     </div>
                 </div>
-                <!-- Column 2 -->
+                <!-- Column 3 -->
                 <div>
                     <div class="form-group-row">
                         <label
-                            title="Control if and how donations are sampled: off, events, scraped, annotated">DONATION_SAMPLE_FRAME
+                            title="Control if and how collections are sampled: off, events, scraped, annotated">COLLECTION_SAMPLE_FRAME
                             <i class="info-icon">ℹ️</i></label>
                         <select data-field="DONATION_SAMPLE_FRAME" class="control-input"
                             onchange="toggleSamplingOptions(this)" {% if not current_user.is_admin() %}disabled{% endif
@@ -287,14 +369,14 @@
                         </div>
                         <div class="form-group-row">
                             <label
-                                title="donations w less than this number of accepted groups are excluded [DEFAULT: 10]">MIN_GROUP_COUNT...
+                                title="collections w less than this number of accepted groups are excluded [DEFAULT: 10]">MIN_GROUP_COUNT...
                                 <i class="info-icon">ℹ️</i></label>
                             <input type="number" data-field="MIN_GROUP_COUNT_REQUIRED_PER_DONATION"
                                 class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                         </div>
                         <div class="form-group-row">
                             <label
-                                title="donations w more than this number of accepted groups are downsampled [DEFAULT: 100]">MAX_GROUP_COUNT...
+                                title="collections w more than this number of accepted groups are downsampled [DEFAULT: 100]">MAX_GROUP_COUNT...
                                 <i class="info-icon">ℹ️</i></label>
                             <input type="number" data-field="MAX_GROUP_COUNT_SELECTED_PER_DONATION"
                                 class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
@@ -304,30 +386,48 @@
             </div>
             {% if current_user.is_admin() %}
             <div class="form-group" style="margin-top: 20px;">
-                <label title="List of specific donation IDs to include. Leave empty for all."
-                    style="display: block; margin-bottom: 8px;">SELECTED_DONATIONS <i class="info-icon">ℹ️</i></label>
+                <label title="List of specific collection IDs to include. Leave empty for all."
+                    style="display: block; margin-bottom: 8px;">SELECTED_COLLECTIONS <i class="info-icon">ℹ️</i></label>
 
                 <div class="donation-selector" style="border: 1px solid #555; padding: 10px; background: #3e3e42;">
-                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                        <input type="text" placeholder="Search donations..." class="control-input donation-search-input"
-                            style="flex: 1;" onkeyup="filterDonations(this)" {% if not current_user.is_admin()
-                            %}disabled{% endif %}>
-                        <button type="button" onclick="selectAllDonations(this, true)" style="padding: 5px 10px;" {% if
-                            not current_user.is_admin() %}disabled{% endif %}>All</button>
-                        <button type="button" onclick="selectAllDonations(this, false)" style="padding: 5px 10px;" {% if
-                            not current_user.is_admin() %}disabled{% endif %}>None</button>
+                    <div
+                        style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; justify-content: space-between;">
+                        <input type="text" placeholder="Search collections by ID or metadata..."
+                            class="control-input donation-search-input" style="width: 300px;"
+                            onkeyup="filterCollections(this)" {% if not current_user.is_admin() %}disabled{% endif %}>
+                        <div
+                            style="display: flex; gap: 15px; font-size: 0.9em; flex: 1; margin-left: 10px; color: #ccc; align-items: center; flex-wrap: wrap;">
+                            <span>Collections: <strong class="selected-count">0</strong></span>
+                            <span>Events: <strong class="selected-events-count">0</strong></span>
+                            <div
+                                style="display: flex; gap: 15px; align-items: center; border-left: 1px solid #555; padding-left: 15px;">
+                                <input type="hidden" data-field="stats" value="{}">
+                                <button type="button" onclick="updateStudyEstimates(this, event)"
+                                    style="font-size: 0.8em; padding: 2px 5px; cursor: pointer; background: #555; border: none; color: #eee; border-radius: 3px;"
+                                    {% if not current_user.is_admin() %}disabled{% endif %}>Update Estimates</button>
+                                <span>Filtered/sampled Unique vids: <strong class="stat-unique-vids"
+                                        style="color: #fff;">-</strong></span>
+                                <span>Scraped: <strong class="stat-scraped-vids" style="color: #fff;">-</strong></span>
+                                <span>Annotated: <strong class="stat-annotated-vids"
+                                        style="color: #fff;">-</strong></span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 5px;">
+                            <button type="button" onclick="selectAllCollections(this, true)" style="padding: 5px 10px;"
+                                {% if not current_user.is_admin() %}disabled{% endif %}>All</button>
+                            <button type="button" onclick="selectAllCollections(this, false)" style="padding: 5px 10px;"
+                                {% if not current_user.is_admin() %}disabled{% endif %}>None</button>
+                        </div>
                     </div>
                     <div class="donation-checklist-container"
                         style="max-height: 200px; overflow-y: auto; text-align: left; background: #2d2d30; padding: 5px; border: 1px solid #555;">
                         <!-- Checkboxes injected by JS -->
-                        <div style="padding: 10px; color: #ccc;">Loading donations...</div>
-                    </div>
-                    <div style="text-align: right; font-size: 0.8em; color: #aaa; margin-top: 5px;">
-                        <span class="selected-count">0</span> selected
+                        <div style="padding: 10px; color: #ccc;">Loading collections...</div>
                     </div>
                 </div>
-                <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
-                <input type="hidden" data-field="SELECTED_DONATIONS" value="[]">
+            </div>
+            <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
+            <input type="hidden" data-field="SELECTED_DONATIONS" value="[]">
             </div>
             {% endif %}
 
@@ -377,7 +477,7 @@
                         <label
                             style="font-size: 0.85em; color: #ddd; display: flex; align-items: center; cursor: pointer;"
                             title="If unchecked, old files are still deleted to prevent version mismatch.">
-                            <input type="checkbox" class="save-setting-pca" checked style="margin-right: 5px;"> Refresh
+                            <input type="checkbox" class="save-setting-pca" style="margin-right: 5px;"> Refresh
                             PCA
                         </label>
                         <label
@@ -388,27 +488,14 @@
                         </label>
                     </div>
 
-                    <div
-                        style="display: flex; flex-direction: column; gap: 5px; margin-left: 10px; background: #3e3e42; padding: 5px 10px; border-radius: 4px; border: 1px solid #555;">
-                        <input type="hidden" data-field="stats" value="{}">
-                        <div style="font-size: 0.9em; color: #ddd;">
-                            Not Scraped: <span class="stat-to-scrape" style="font-weight: bold; color: #fff;">-</span>
-                        </div>
-                        <div style="font-size: 0.9em; color: #ddd;">
-                            Scraped Not Annotated: <span class="stat-to-annotate"
-                                style="font-weight: bold; color: #fff;">-</span>
-                        </div>
-                        <button type="button" onclick="updateStudyEstimates(this, event)"
-                            style="font-size: 0.8em; padding: 2px 5px; margin-top: 5px; cursor: pointer; background: #555; border: none; color: #eee;">Update
-                            Estimates</button>
-                    </div>
                 </div>
-                {% endif %}
+            </div>
+            {% endif %}
 
-                {% if current_user.is_admin() %}
-                <button type="button" class="action-btn" style="background-color: #dc3545;"
-                    onclick="deleteStudy(this, event)">Delete Study</button>
-                {% endif %}
+            {% if current_user.is_admin() %}
+            <button type="button" class="action-btn" style="background-color: #dc3545;"
+                onclick="deleteStudy(this, event)">Delete Study</button>
+            {% endif %}
             </div>
         </td>
     </tr>

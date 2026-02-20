@@ -1629,6 +1629,48 @@ def annotate_from_scrape_data_file(
 
 
 
+def queue_annotation_loop(
+    study_name = None,
+    batch_size = 500,
+    max_batches = None,
+    verbose = False,
+    dry_run = False
+):
+    if not study_name:
+        print("    ERROR: No study_name provided to queue_annotation_loop.")
+        return None
+
+    import fyp.data_io as data_io
+    target_cache_file = f"to_annotate_{study_name}.json"
+    
+    if not data_io.exists(storage_location="cache", filename=target_cache_file):
+        print(f"    ERROR: Could not find target file '{target_cache_file}' in cache. Make sure you calculated targets first.")
+        return None
+
+    video_list = data_io.load_json(storage_location="cache", filename=target_cache_file)
+    
+    if not video_list or len(video_list) == 0:
+        print(f"    No videos to annotate found in '{target_cache_file}'.")
+        return None
+
+    print(f"    Loaded {len(video_list)} videos from queue '{target_cache_file}'")
+
+    return annotate_videos_loop_from_list(
+        video_list = video_list,
+        batch_size = batch_size,
+        max_batches = max_batches,
+        verbose = verbose,
+        dry_run = dry_run
+    )
+
+
+
+
+
+
+
+
+
 def annotate_videos_loop_from_list(
     video_list = None,
     batch_size = 500,

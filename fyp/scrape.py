@@ -592,6 +592,7 @@ def download_video_threads(
 
 def scraper_loop_from_list(
     video_list = [],
+    study_name = None,
     batch_size = 500,
     max_batches = None,
     verbose = False,
@@ -648,9 +649,14 @@ def scraper_loop_from_list(
     # ----------------
     # Update scrape queue file, by removing the items that have been scraped - both good and failed
     # -----------------
-    if data_io.exists(storage_location='cache', filename='to_scrape.json', verbose=verbose):
+    if study_name is not None:
+        target_queue_file = f'to_scrape_{study_name}.json'
+    else:
+        target_queue_file = 'to_scrape.json'
+
+    if data_io.exists(storage_location='cache', filename=target_queue_file, verbose=verbose):
         # Load the existing queue
-        to_scrape_queue = data_io.load_json(storage_location='cache', filename='to_scrape.json', verbose=verbose)
+        to_scrape_queue = data_io.load_json(storage_location='cache', filename=target_queue_file, verbose=verbose)
         
         if isinstance(to_scrape_queue, list):
             # Identify items to remove (both good and failed are considered "processed" in this context)
@@ -662,7 +668,7 @@ def scraper_loop_from_list(
             
             # Save if changed
             if len(updated_queue) < original_len:
-                data_io.save_json(data=updated_queue, storage_location='cache', filename='to_scrape.json', verbose=verbose)
+                data_io.save_json(data=updated_queue, storage_location='cache', filename=target_queue_file, verbose=verbose)
                 if verbose:
                     print(f"    Updated scrape queue: Removed {original_len - len(updated_queue)} items. New length: {len(updated_queue)}")
 
@@ -764,6 +770,7 @@ def scraper_loop(
 
 
 def queue_scraper_loop(
+    study_name = None,
     batch_size = 500,
     max_batches = 10,
     verbose = False,
@@ -772,9 +779,15 @@ def queue_scraper_loop(
 
 
     # Load queue
+    if study_name is None:
+        print("ERROR: Queue scraper running without study_name target.")
+        return
+        
+    target_queue_file = f'to_scrape_{study_name}.json'
+    
     video_list = []
-    if data_io.exists(storage_location='cache', filename='to_scrape.json'):
-            video_list = data_io.load_json(storage_location='cache', filename='to_scrape.json')
+    if data_io.exists(storage_location='cache', filename=target_queue_file):
+            video_list = data_io.load_json(storage_location='cache', filename=target_queue_file)
     
     if not video_list or not isinstance(video_list, list) or len(video_list) == 0:
         print("Queue is empty or invalid. Nothing to scrape.")
@@ -784,12 +797,12 @@ def queue_scraper_loop(
 
     scraper_loop_from_list(
         video_list=video_list,
+        study_name=study_name,
         batch_size=batch_size,
         max_batches=max_batches,
         verbose=verbose,
         dry_run=dry_run
     )
-
 
 
 
@@ -908,6 +921,8 @@ def consolidate_and_save_scrape_data(
 
     if top_verbose:
         print("...done")
+    
+    
 
     return True, scrape_df
 
