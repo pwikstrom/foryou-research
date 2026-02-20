@@ -879,6 +879,8 @@ def get_accessible_studies(username, role, is_admin):
                     continue
                 
                 stats = study_config.get('stats', {})
+                #print("DEBUG: stats = ", stats)
+                #print("DEBUG: unique_videos = ", stats.get('unique_videos', 0))
                 if stats.get('unique_videos', 0) <= 0:
                     continue
 

@@ -27,6 +27,7 @@ def load_study_datasets(
     verbose=False
     ):
 
+
     if study_name is None:
         raise ValueError("study_name must be specified")
 
@@ -101,6 +102,10 @@ def load_study_datasets(
         del tutti_data["donations"]
 
 
+    for k in tutti_data.keys():
+        if tutti_data.get(k, None) is None:
+            tutti_data[k] = pd.DataFrame()
+
 
     if tutti_data.get("donations", pd.DataFrame()).empty and tutti_data.get("zeeschuimer", pd.DataFrame()).empty:
         print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
@@ -169,11 +174,10 @@ def load_study_datasets(
         sel = [("item_id", "in", list(unique_videos))]
 
 
-
     # --------------------------------------------------------------------
     # load scraped data
     # --------------------------------------------------------------------
-    if tutti_data.get("scrape") is None:
+    if tutti_data.get("scrape") is None or tutti_data.get("scrape").empty:
         print("    [Scrape] Loading scraped data from main storage...", end="", flush=True)
         if verbose: print()
         tutti_data["scrape"] = data_io.load_parquet(storage_location="recoded", filename="scrape_recoded.parquet", filters=sel, verbose=verbose)
@@ -186,7 +190,7 @@ def load_study_datasets(
     # --------------------------------------------------------------------
     # load machine annotations
     # --------------------------------------------------------------------
-    if tutti_data.get("machine_annotations") is None:
+    if tutti_data.get("machine_annotations") is None or tutti_data.get("machine_annotations").empty:
         print("    [Machine annotations] Loading machine annotations from main storage...", end="", flush=True)
         if verbose: print()
         tutti_data["machine_annotations"] = data_io.load_parquet(storage_location="recoded", filename="machine_annotations_recoded.parquet", filters=sel, verbose=verbose)
@@ -536,18 +540,32 @@ def check_unique_videos_to_scrape_and_annotate(
 
 def update_enrichment_status(
     all_datasets:dict = {},
+    save_to_disk = True,
     verbose:bool = False):
     
+    collection_id_column = "D_donation_id"
+
+    if "zeeschuimer_logs" in all_datasets and "ddp_logs" in all_datasets:
+        combined_activity_data= pd.concat([
+                all_datasets["zeeschuimer_logs"][['item_id', collection_id_column]],
+                all_datasets["ddp_logs"][['item_id', collection_id_column]]
+            ])
+    elif "zeeschuimer_logs" in all_datasets:
+        combined_activity_data = all_datasets["zeeschuimer_logs"][['item_id', collection_id_column]]
+    elif "ddp_logs" in all_datasets:
+        combined_activity_data = all_datasets["ddp_logs"][['item_id', collection_id_column]]
+    else:
+        raise ValueError("No activity data found")
 
 
-    enrichment_status_df = pd.concat([
-            all_datasets["zeeschuimer_logs"][['item_id','D_donation_id']],
-            all_datasets["ddp_logs"][['item_id','D_donation_id']]
-        ]).groupby("item_id").agg(
-            nunique_donations=pd.NamedAgg(column="D_donation_id", aggfunc="nunique"),
-            total_observations=pd.NamedAgg(column="D_donation_id", aggfunc="count")
+
+    enrichment_status_df = combined_activity_data.groupby("item_id").agg(
+            nunique_donations=pd.NamedAgg(column=collection_id_column, aggfunc="nunique"),
+            total_observations=pd.NamedAgg(column=collection_id_column, aggfunc="count")
         )
-        
+
+
+
     enrichment_status_df["nunique_donations"] = enrichment_status_df["nunique_donations"].astype("int64[pyarrow]")
 
     enrichment_status_df.reset_index(inplace=True)
@@ -570,7 +588,8 @@ def update_enrichment_status(
 
     enrichment_status_df.set_index("item_id", inplace=True)
 
-    data_io.save_parquet(df=enrichment_status_df, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+    if save_to_disk:
+        data_io.save_parquet(df=enrichment_status_df, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
 
     return enrichment_status_df
 
@@ -674,7 +693,7 @@ def consolidate_fyp_core_data(force_consolidation=False, verbose=False):
 
     fine_results = {
         "new_zeeschuimer_logs": new_zeeschuimer_logs,
-        "zeeschuimer_logs": zeeschuimer_logs,
+        #"zeeschuimer_logs": zeeschuimer_logs,
         "new_ddp_logs": new_ddp_logs,
         "ddp_logs": ddp_logs,
         "new_annotations": new_annotations,

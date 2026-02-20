@@ -29,7 +29,7 @@ if __name__ == "__main__":
             try:
                 # Load Data
                 # This might take time
-                df, col_types = load_data(fyp_cf, study_name, verbose=False)
+                df, col_types = load_data(study_name, verbose=False)
                 
                 if df is None: 
                     print(f"Skipping {study_name}: No data found.")

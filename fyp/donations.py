@@ -30,7 +30,9 @@ from fyp.studies import init_study_defs
 
 
 
-
+collection_id_column = "D_donation_id"
+timestamp_column = "T_local_timestamp"
+event_type_column = "D_feature_name"
 
 
 
@@ -319,7 +321,7 @@ def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_00
     ddp_log = ddp_log_in.copy()
 
     all_sessions = []
-    if len(ddp_log) and ("D_donation_id" in ddp_log.columns):
+    if len(ddp_log) and (collection_id_column in ddp_log.columns):
 
         
         # Collect all updates, then apply in bulk at the end
@@ -334,13 +336,13 @@ def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_00
         ddp_log['event_pos_in_session'] = ddp_log['event_pos_in_session'].astype("double[pyarrow]")
 
 
-        for one_donation_id,one_donation in ddp_log.groupby("D_donation_id"):
+        for one_donation_id,one_donation in ddp_log.groupby(collection_id_column):
 
-            watch = (one_donation.sort_values(['T_local_timestamp','event_order_in_session'])).copy()
+            watch = (one_donation.sort_values([timestamp_column,'event_order_in_session'])).copy()
 
-            watch['delta'] = watch['T_local_timestamp'].shift(-1) - watch['T_local_timestamp']
+            watch['delta'] = watch[timestamp_column].shift(-1) - watch[timestamp_column]
             # timedelta conversion to seconds
-            #print(watch[['delta','T_local_timestamp','event_order_in_session','session_id']].head(10))
+            #print(watch[['delta',timestamp_column,'event_order_in_session','session_id']].head(10))
             watch['delta'] = watch['delta'].dt.total_seconds()
 
 
@@ -363,13 +365,13 @@ def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_00
 
             session_stats = watch.groupby('session_id').agg(
                 session_duration=('delta', 'sum'),
-                session_start_ts=('T_local_timestamp', 'min'),
+                session_start_ts=(timestamp_column, 'min'),
                 n_videos_in_session=('event_order_in_session', 'max'),
             )
 
             session_stats = session_stats.astype(int)
             session_stats["session_end_ts"] = session_stats["session_start_ts"] + session_stats["session_duration"]
-            session_stats["D_donation_id"] = one_donation_id
+            session_stats[collection_id_column] = one_donation_id
 
             watch['n_videos_in_session'] = watch['session_id'].map(session_stats['n_videos_in_session'].to_dict())
             watch['event_pos_in_session'] = watch['event_order_in_session'] / watch['n_videos_in_session']
@@ -394,7 +396,7 @@ def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_00
             ddp_log.loc[all_updates.index, 'D_watch_duration'] = all_updates['delta']
         
         if verbose:
-            print(f"Adding session stats to DDP data {ddp_log.shape}. Unique donations: {ddp_log.D_donation_id.nunique()}")
+            print(f"Adding session stats to DDP data {ddp_log.shape}. Unique donations: {ddp_log[collection_id_column].nunique()}")
         
     else:
         if verbose:
@@ -942,7 +944,7 @@ def refine_one_raw_ddp_log_from_dict(
 
     # -----------------------------------------------------
     # Sort by timestamp and reset index
-    all_ddp_events_df.sort_values("T_local_timestamp", inplace=True)
+    all_ddp_events_df.sort_values(timestamp_column, inplace=True)
     all_ddp_events_df.reset_index(drop=True, inplace=True)
 
 
@@ -1134,7 +1136,7 @@ def generate_donation_metadata(
         Events DataFrame used to calculate metadata statistics.
     update_col : pandas.Series, optional
         A Series representing a single column to update or add to existing metadata.
-        The index must be 'D_donation_id'.
+        The index must be collection_id_column.
     sort_by : str, optional
         Column name to sort the resulting DataFrame by.
     verbose : bool, default False
@@ -1161,8 +1163,8 @@ def generate_donation_metadata(
     if ddp_events_df is None:
         if isinstance(update_col, pd.Series):
             print("Updating a single column | ", end="", flush=True)
-            if update_col.index.name != "D_donation_id":
-                update_col.index.name = "D_donation_id"
+            if update_col.index.name != collection_id_column:
+                update_col.index.name = collection_id_column
             if set(update_col.index) != set(old_metadata_df.index):
                 print("Error: Update column index don't match the index of the existing metadata DF. Exiting.")
                 return old_metadata_df
@@ -1182,10 +1184,10 @@ def generate_donation_metadata(
             return old_metadata_df
 
 
-    donation_ids_in_the_incoming_df = set(ddp_events_df.D_donation_id.unique())
+    donation_ids_in_the_incoming_df = set(ddp_events_df[collection_id_column].unique())
 
 
-    if 'D_donation_id' not in ddp_events_df.columns:
+    if collection_id_column not in ddp_events_df.columns:
         print("Shape of the donation stats DF: (0,0)")
         return pd.DataFrame()
     
@@ -1205,10 +1207,10 @@ def generate_donation_metadata(
     if verbose:
         print(f"Calculating metadata for {len(new_donations)} new donations")
 
-    ddp_events_df_new = ddp_events_df[ddp_events_df.D_donation_id.isin(new_donations)].copy()
+    ddp_events_df_new = ddp_events_df[ddp_events_df[collection_id_column].isin(new_donations)].copy()
 
 
-    df1 = ddp_events_df_new.groupby('D_donation_id')["D_feature_name"].value_counts().unstack().fillna(0).astype(int)
+    df1 = ddp_events_df_new.groupby(collection_id_column)[event_type_column].value_counts().unstack().fillna(0).astype(int)
     df1['total'] = df1.sum(axis=1)
     if sort_by is None:
         df1 = df1.sort_values("total").copy()
@@ -1219,8 +1221,8 @@ def generate_donation_metadata(
     df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
 
 
-    a = ddp_events_df_new[["D_donation_id","ts_added_to_dataset"]].drop_duplicates()
-    b = a.set_index("D_donation_id", inplace=False)
+    a = ddp_events_df_new[[collection_id_column,"ts_added_to_dataset"]].drop_duplicates()
+    b = a.set_index(collection_id_column, inplace=False)
     these_donation_dates = b.to_dict()["ts_added_to_dataset"]
     df1["other","ts_added_to_dataset"] = df1.index.map(lambda x: these_donation_dates[x])
 
@@ -1231,8 +1233,8 @@ def generate_donation_metadata(
 
 
     donation_personas = generate_personas(ddp_events_df_new)
-    if not donation_personas.empty and "D_donation_id" in donation_personas.columns:
-        donation_personas.set_index("D_donation_id", inplace=True)
+    if not donation_personas.empty and collection_id_column in donation_personas.columns:
+        donation_personas.set_index(collection_id_column, inplace=True)
         donation_personas.columns = pd.MultiIndex.from_product([['personas'], donation_personas.columns])
 
 
@@ -1300,7 +1302,7 @@ def _identify_similar_donations(
     Parameters
     ----------
     donation_events : pandas.DataFrame
-        DataFrame containing the donation events. Must contain 'D_donation_id' and 'T_local_timestamp' columns.
+        DataFrame containing the donation events. Must contain <collection_id_column> and 'timestamp_column' columns.
     overlap_threshold : float, default 0.5
         The threshold for timestamp overlap ratio to consider donations as similar.
 
@@ -1316,13 +1318,13 @@ def _identify_similar_donations(
         raise ValueError("donation_events cannot be None")
 
     # dropping df cols and changing timestamp column to integers which makes set operations faster
-    fine_events_df = donation_events[['D_donation_id','T_local_timestamp']].copy()
-    fine_events_df['T_local_timestamp'] = fine_events_df['T_local_timestamp'].astype('int64') / 1e9
+    fine_events_df = donation_events[[collection_id_column, timestamp_column]].copy()
+    fine_events_df[timestamp_column] = fine_events_df[timestamp_column].astype('int64') / 1e9
 
 
     # the logic is based on comparing sets of timestamps, assuming that it is unlikely that two donations have
     # the same collection of timestamps
-    ts_sets = fine_events_df.groupby('D_donation_id', observed=False)['T_local_timestamp'].apply(set).to_dict()
+    ts_sets = fine_events_df.groupby(collection_id_column, observed=False)[timestamp_column].apply(set).to_dict()
     unique_donations = list(ts_sets.keys())
     unique_donations = sorted(unique_donations, key=lambda x: len(ts_sets[x]), reverse=False)
 
@@ -1383,6 +1385,8 @@ def consolidate_ddp_logs(
         A tuple containing a boolean indicating whether updates were performed
         and the resulting consolidated DataFrame.
     """
+
+
 
 
     top_verbose = True
@@ -1470,7 +1474,7 @@ def consolidate_ddp_logs(
             if top_verbose:
                 print("Loading existing DDP logs from main storage...", end="", flush=True)
             many_ddp_logs = [data_io.load_parquet(storage_location="recoded", filename="donations_recoded.parquet")]
-        print(f"...done. Shape: {many_ddp_logs[0].shape}. Unique donations: {many_ddp_logs[0].D_donation_id.nunique()}.")
+        print(f"...done. Shape: {many_ddp_logs[0].shape}. Unique donations: {many_ddp_logs[0][collection_id_column].nunique()}.")
 
     # --------------------------------------------------------------------------------------
     # if there is a df in many_ddp_logs at this stage, it means that I found a previously consolidated df and that 
@@ -1512,44 +1516,46 @@ def consolidate_ddp_logs(
 
     concatenated_ddp_logs = pd.concat(many_ddp_logs)
     if top_verbose:
-        print(f"    ...done - initial shape of the concatenated dataframe: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
+        print(
+            f"    ...done - initial shape of the concatenated dataframe: {concatenated_ddp_logs.shape}."
+            f"Unique donations: {concatenated_ddp_logs[collection_id_column].nunique()}")
 
 
 
     # --------------------------------------------------------------------------------------
     # naive drop_dupes based on these three columns
-    concatenated_ddp_logs = concatenated_ddp_logs.drop_duplicates(subset=["D_donation_id","T_local_timestamp","item_id"], keep="first").copy()
+    concatenated_ddp_logs = concatenated_ddp_logs.drop_duplicates(subset=[collection_id_column, timestamp_column, "item_id"], keep="first").copy()
     if top_verbose:
-        print(f"Shape after naive duplication drop: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
+        print(f"Shape after naive duplication drop: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs[collection_id_column].nunique()}")
 
-    if set(concatenated_ddp_logs["D_donation_id"].unique()) == set(latest_donation_ids):
+    if set(concatenated_ddp_logs[collection_id_column].unique()) == set(latest_donation_ids):
         if top_verbose:
             print("Donation dataset have not changed. Returning dataset. (1)")
-        return concatenated_ddp_logs
+        return False, concatenated_ddp_logs
         
 
 
-    donation_counts = concatenated_ddp_logs.groupby('D_donation_id')["D_feature_name"].value_counts().unstack().fillna(0).astype(int)
+    donation_counts = concatenated_ddp_logs.groupby(collection_id_column)[event_type_column].value_counts().unstack().fillna(0).astype(int)
 
 
     # --------------------------------------------------------------------------------------
     # create list of donations which has a very small number of watched videos
-    too_small_donations = list(donation_counts[(donation_counts["watch"]<5)].index)
-    too_small_donations = list(set(concatenated_ddp_logs.D_donation_id.unique()) & set(too_small_donations))
+    too_small_donations_ids = list(donation_counts[(donation_counts["watch"]<5)].index)
+    too_small_donations_ids = list(set(concatenated_ddp_logs[collection_id_column].unique()) & set(too_small_donations_ids))
 
-    if len(too_small_donations) > 0:
+    if len(too_small_donations_ids) > 0:
         if verbose:
-            print(f"The following donations have fewer than 5 watch events and will be dropped: \n  - {'\n  - '.join(too_small_donations)}")
+            print(f"The following donations have fewer than 5 watch events and will be dropped: \n  - {'\n  - '.join(too_small_donations_ids)}")
 
-        concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs.D_donation_id.isin(too_small_donations)].copy()
+        concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs[collection_id_column].isin(too_small_donations_ids)].copy()
         if top_verbose:
-            print(f"Shape after dropping donations with fewer than 5 watch events: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
+            print(f"Shape after dropping donations with fewer than 5 watch events: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs[collection_id_column].nunique()}")
 
 
-    if set(concatenated_ddp_logs["D_donation_id"].unique()) == set(latest_donation_ids):
+    if set(concatenated_ddp_logs[collection_id_column].unique()) == set(latest_donation_ids):
         if top_verbose:
             print("Donation dataset have not changed. Returning dataset. (2)")
-        return concatenated_ddp_logs
+        return False, concatenated_ddp_logs
         
 
 
@@ -1558,23 +1564,24 @@ def consolidate_ddp_logs(
     if top_verbose:
         print(f"Identifying for similar/overlapping donations and only keeping the bigger one of these...")
 
-    similarity_results = _identify_similar_donations(donation_events=concatenated_ddp_logs, overlap_threshold=0.2)
+    similarity_results = _identify_similar_donations(donation_events=concatenated_ddp_logs, overlap_threshold=0.2)    
 
-    accepted_new_refined_files = list(set(new_refined_files) & set(similarity_results["keepers"]))
+
+    accepted_new_refined_files = list(set(new_refined_files) & set([u+".parquet" for u in similarity_results["keepers"]]))
     #if len(accepted_new_refined_files) > 0:
     # drop the events in these donations
-    concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs["D_donation_id"].isin(similarity_results["drops"])].copy()
+    concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs[collection_id_column].isin(similarity_results["drops"])].copy()
     if top_verbose:
         if len(similarity_results["drops"])>0:
             print(f"Dropped {len(similarity_results["drops"])} donation(s) which were too similar to other donations.")
 
     if len(accepted_new_refined_files) > 0:
         if verbose:
-            print(f"    ...done. New shape: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()}")
+            print(f"    ...done. New shape: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs[collection_id_column].nunique()}")
     else:
         if verbose:
             print("    ...done. No new donations were accepted. Returning dataset. (3)")
-        return concatenated_ddp_logs
+        return False, concatenated_ddp_logs
         
 
     # --------------------------------------------------------------------------------------
@@ -1583,7 +1590,7 @@ def consolidate_ddp_logs(
     # all donations, even those that are overlapping or are too small to be included in the dataset.  
     if top_verbose:
         print("Updating 'accepted' status in donation metadata file...")
-    accepted_donation_ids = concatenated_ddp_logs["D_donation_id"].unique()
+    accepted_donation_ids = concatenated_ddp_logs[collection_id_column].unique()
     donation_metadata = generate_donation_metadata(
         ddp_events_df=concatenated_ddp_logs, 
         update_col=None,
@@ -1624,7 +1631,7 @@ def consolidate_ddp_logs(
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
     if top_verbose:
-        print(f"...done. Combined all logs into shape: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs.D_donation_id.nunique()} (memory usage: {total_memory_mb:.2f} MB)")
+        print(f"...done. Combined all logs into shape: {concatenated_ddp_logs.shape}. Unique donations: {concatenated_ddp_logs[collection_id_column].nunique()} (memory usage: {total_memory_mb:.2f} MB)")
 
 
     # ---------------------------------------------------------------
@@ -1692,12 +1699,12 @@ def load_donation_data(
         except ValueError:
             END_DATE = _dt.datetime(2099,12,31).date()
 
-    sel = [("T_local_timestamp", ">=", START_DATE),("T_local_timestamp", "<=", END_DATE)]
+    sel = [(timestamp_column, ">=", START_DATE),(timestamp_column, "<=", END_DATE)]
 
     the_selected_donations = fyp_cf["study_defs"][study_name].get("SELECTED_DONATIONS",[])
     if len(the_selected_donations) > 0:
         the_selected_donations = [re.search(r'\[(.*?)\]', str(x)).group(1) if re.search(r'\[(.*?)\]', str(x)) else x for x in the_selected_donations]
-        sel.append(("D_donation_id", "in", the_selected_donations))
+        sel.append((collection_id_column, "in", the_selected_donations))
 
     if all_data is None:
         if verbose:
@@ -1708,20 +1715,20 @@ def load_donation_data(
         if verbose:
             print(f"    [DDP] Selecting date range from cached donation data")
         cached_ddp_events_df = all_data.copy()
-        out_df = cached_ddp_events_df[(cached_ddp_events_df.T_local_timestamp>=START_DATE) & (cached_ddp_events_df.T_local_timestamp<=END_DATE)].copy()
+        out_df = cached_ddp_events_df[(cached_ddp_events_df[timestamp_column]>=START_DATE) & (cached_ddp_events_df[timestamp_column]<=END_DATE)].copy()
 
-        if not "D_donation_id" in out_df.columns or not "T_local_timestamp" in out_df.columns or len(out_df) == 0:
+        if not collection_id_column in out_df.columns or not timestamp_column in out_df.columns or len(out_df) == 0:
             print(f"!!! [DDP] No events found in date range. Returning None.")
             return None
 
         if len(the_selected_donations) > 0:
-            out_df = out_df[out_df["D_donation_id"].isin(the_selected_donations)].copy()
+            out_df = out_df[out_df[collection_id_column].isin(the_selected_donations)].copy()
 
-        if not "D_donation_id" in out_df.columns or not "T_local_timestamp" in out_df.columns or len(out_df) == 0:
+        if not collection_id_column in out_df.columns or not timestamp_column in out_df.columns or len(out_df) == 0:
             print(f"!!! [DDP] The selected donations have no events in the date range. Returning None.")
             return None
 
-    print(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique donations: {out_df.D_donation_id.nunique()} | Date range: {out_df.T_local_timestamp.min():%Y-%m-%d} -- {out_df.T_local_timestamp.max():%Y-%m-%d}")
+    print(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique donations: {out_df[collection_id_column].nunique()} | Date range: {out_df[timestamp_column].min():%Y-%m-%d} -- {out_df[timestamp_column].max():%Y-%m-%d}")
 
 
     return out_df
@@ -1773,12 +1780,12 @@ def simple_sample_ddp_events(
     if len(grouping_factors) != 2:
         raise ValueError("!!! [DD Sampling] Group factors must be exactly 2")
 
-    if not "D_donation_id" in grouping_factors:
-        raise ValueError("!!! [DD Sampling] Group factors must include D_donation_id")
+    if not collection_id_column in grouping_factors:
+        raise ValueError("!!! [DD Sampling] Group factors must include collection_id_column")
 
-    # make sure D_donation_id is the first element 
-    grouping_factors.remove("D_donation_id")
-    grouping_factors = ["D_donation_id"] + grouping_factors
+    # make sure collection_id_column is the first element 
+    grouping_factors.remove(collection_id_column)
+    grouping_factors = [collection_id_column] + grouping_factors
 
     if verbose:
         print(f"    [DD Sampling] Group factors: {grouping_factors}")
@@ -1795,13 +1802,13 @@ def simple_sample_ddp_events(
     #donation_metadata_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
     #donation_to_d_dict = donation_metadata_df[("other","D_id")].to_dict()
 
-    #the_df["D_id"] = the_df["D_donation_id"].map(donation_to_d_dict)
+    #the_df["D_id"] = the_df[collection_id_column].map(donation_to_d_dict)
     #the_df = the_df.sort_values(by=["D_id","event_id"])
 
 
     # Separate watch and non-watch events 
-    all_watch_events_df = the_df[the_df.D_feature_name=="watch"].copy()
-    all_nonwatch_events_df = the_df[the_df.D_feature_name!="watch"].copy()
+    all_watch_events_df = the_df[the_df[event_type_column]=="watch"].copy()
+    all_nonwatch_events_df = the_df[the_df[event_type_column]!="watch"].copy()
     sample_frame_size = len(all_watch_events_df)
 
     if verbose:

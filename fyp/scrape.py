@@ -270,7 +270,7 @@ def download_single_video(
                     )
 
                     # upload the video slideshow to the storage bucket if it is large enough
-                    if local_getsize(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}.mp4")) > fyp_cf["misc"]["min_media_object_size"]:
+                    if os.path.getsize(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}.mp4")) > fyp_cf["misc"]["min_media_object_size"]:
                         if verbose:
                             print(f"Uploading video file to storage bucket...")
                         blob = fyp_cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
