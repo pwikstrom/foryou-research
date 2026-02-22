@@ -61,6 +61,7 @@ def transform_new_activity_data_format_to_old_format():
     zeeschuimer_collections.add_local_time_features()
     ddp_collections.add_local_time_features()
 
+    # this is a bit special
     zeeschuimer_collections.data.loc[zeeschuimer_collections.data.loc[zeeschuimer_collections.data.collection_id.map(lambda x:x.startswith("SYD_"))].index,"collection_id"] = "BASELINE_2024"
     zeeschuimer_collections.data.loc[zeeschuimer_collections.data.loc[zeeschuimer_collections.data.collection_id.map(lambda x:x.startswith("BNE_"))].index,"collection_id"] = "BASELINE_2024"
     zeeschuimer_collections.data.loc[zeeschuimer_collections.data.loc[zeeschuimer_collections.data.collection_id.map(lambda x:x != "BASELINE_2024")].index,"collection_id"] = "Zee_generic"
@@ -69,23 +70,24 @@ def transform_new_activity_data_format_to_old_format():
 
     #{u:u for u in combined_events_df.columns}
         
-    combined_events_df_2 = combined_events_df.rename(columns={'ts_added_to_dataset': 'ts_added_to_dataset',
-    'utc_timestamp': 'T_utc_timestamp',
-    'extra_data': 'extra_data',
-    'source_platform': 'source_platform',
-    'tz_offset': 'T_tz_offset',
-    'raw_file': 'raw_file',
-    'event_type': 'D_feature_name',
-    'item_id': 'item_id',
-    'data_source': 'data_source',
-    'collection_id': 'D_donation_id',
-    'local_timestamp': 'T_local_timestamp',
-    'local_weekday': 'T_local_weekday',
-    'local_week': 'T_local_week',
-    'local_day_segment': 'T_local_day_segment',
-    'local_date': 'T_local_date',
-    "watch_duration": "D_watch_duration",
-    "extra_data":"D_primary_value"}, inplace=False).copy()
+    combined_events_df_2 = combined_events_df.rename(columns={
+            'ts_added_to_dataset': 'ts_added_to_dataset',
+            'utc_timestamp': 'T_utc_timestamp',
+            'source_platform': 'source_platform',
+            'tz_offset': 'T_tz_offset',
+            'raw_file': 'raw_file',
+            'event_type': 'D_feature_name',
+            'item_id': 'item_id',
+            'data_source': 'data_source',
+            'collection_id': 'D_donation_id',
+            'local_timestamp': 'T_local_timestamp',
+            'local_weekday': 'T_local_weekday',
+            'local_week': 'T_local_week',
+            'local_day_segment': 'T_local_day_segment',
+            'local_date': 'T_local_date',
+            "watch_duration": "D_watch_duration",
+            "extra_data":"D_primary_value"
+        }, inplace=False).copy()
     
     combined_events_df_2.drop(["source_platform","raw_file","data_source"], axis=1, inplace=True)
     combined_events_df_2 = don._add_session_info_to_ddp_log(ddp_log_in=combined_events_df_2)

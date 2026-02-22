@@ -602,7 +602,7 @@ def update_enrichment_status(
 
 
 
-def OLD_consolidate_and_save_activity_logs(
+"""def OLD_consolidate_and_save_activity_logs(
     force_consolidation:bool = False, 
     verbose:bool = False):
 
@@ -626,7 +626,7 @@ def OLD_consolidate_and_save_activity_logs(
     # be treated separately. This is specifically for the case when data is generated from zeeschuimer and
     # not from ddp logs. I assume that this data is 'baseline' even though it can certainly be other things
     # as well.
-    """if new_z or new_d:
+    if new_z or new_d:
         print("\nMatching up columns between zeeschuimer and donation data...")
         for c in set(z1.columns) | set(d1.columns):
             if not c in z1.columns:
@@ -655,11 +655,11 @@ def OLD_consolidate_and_save_activity_logs(
                     if verbose:
                         print(f"    Adding {c} to d1 | string")
                     d1[c] = pd.Series(pd.NA, index=d1.index, dtype="string[pyarrow]")
-        print(f"...done matching columns Zeeshuimer shape {z1.shape} and DDP shape {d1.shape}")
+        print(f"...done matching columns Zeeschuimer shape {z1.shape} and DDP shape {d1.shape}")
 
     if new_z:
         print(f"Saving Zeeschuimer dataset. Shape {z1.shape} to 'recoded' folder")
-        _ = data_io.save_parquet(df=z1, storage_location="recoded", filename="zeeschuimer_recoded.parquet", verbose=verbose)"""
+        _ = data_io.save_parquet(df=z1, storage_location="recoded", filename="zeeschuimer_recoded.parquet", verbose=verbose)
 
     if new_d:
         print(f"Saving DDP dataset. Shape {d1.shape} to 'recoded' folder")
@@ -669,7 +669,12 @@ def OLD_consolidate_and_save_activity_logs(
         print("...done saving datasets")
     
     return (new_d, d1)
-    #return (new_z, z1), (new_d, d1)
+    #return (new_z, z1), (new_d, d1)"""
+
+
+
+
+
 
 
 

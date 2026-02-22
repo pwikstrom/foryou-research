@@ -2,9 +2,6 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required
 import web_interface.auth as auth
 from fyp.fyp_config import (
-    DOWNLOADER_SCRIPT, INGEST_SCRIPT, ANNOTATOR_SCRIPT, MONITOR_SCRIPT, 
-    CREATE_EVENT_LOG_SCRIPT, #REGENERATE_DATASETS_SCRIPT, CREATE_SUBSETS_SCRIPT, 
-    RECODE_EVENT_LOG_SCRIPT, CALCULATE_PCA_SCRIPT,
     QUEUE_SCRAPER_SCRIPT, QUEUE_ANNOTATOR_SCRIPT, META_REFRESH_VIEWER_SCRIPT, 
     META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT
 )
@@ -35,14 +32,6 @@ def api_start(name):
     study_name = data.get("study_name") 
 
     script_map = {
-        "downloader": DOWNLOADER_SCRIPT,
-        "monitor": MONITOR_SCRIPT,
-        "annotator": ANNOTATOR_SCRIPT,
-        #"create_subsets": CREATE_SUBSETS_SCRIPT,
-        #"regenerate_datasets": REGENERATE_DATASETS_SCRIPT,
-        "create_event_log": CREATE_EVENT_LOG_SCRIPT,
-        "recode_event_log": RECODE_EVENT_LOG_SCRIPT,
-        "calculate_pca": CALCULATE_PCA_SCRIPT,
         "queue_scraper": QUEUE_SCRAPER_SCRIPT,
         "queue_annotator": QUEUE_ANNOTATOR_SCRIPT,
         "meta_refresh_viewer": META_REFRESH_VIEWER_SCRIPT,

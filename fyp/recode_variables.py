@@ -54,7 +54,7 @@ def rename_columns(some_events):
 
 
 
-def _day_segment_from_hour(hour: int) -> str:
+"""def _day_segment_from_hour(hour: int) -> str:
     if not (0 <= hour <= 23):
         raise ValueError(f"hour must be in 0..23, got {hour}")
     if hour <= 5:
@@ -63,7 +63,7 @@ def _day_segment_from_hour(hour: int) -> str:
         return "morning"
     if hour <= 17:
         return "afternoon"
-    return "evening"
+    return "evening"""
 
 
 
@@ -168,13 +168,13 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
 
 
 
-def extract_local_time_features(
+"""def extract_local_time_features(
     some_events_df_in = None,
     kind_of_log = None,
     verbose = False):
-    """
+    "-""
     Integrates per-donation timezone offsets from persona_stats_cache.
-    """
+    "-""
 
 
 
@@ -292,7 +292,7 @@ def extract_local_time_features(
     if verbose:
         print("...done")
 
-    return df
+    return df"""
 
 
 

@@ -225,7 +225,7 @@ def get_recent_data_donations_from_aio_aws(
 
 
 
-def add_session_info_to_generic_event_log(ddp_log_in, session_id_counter = np.int64(10_000_000), session_time_limit=900, verbose=False):
+"""def add_session_info_to_generic_event_log(ddp_log_in, session_id_counter = np.int64(10_000_000), session_time_limit=900, verbose=False):
     # attach session stats to donation events
 
     ddp_log = ddp_log_in.copy()
@@ -304,7 +304,7 @@ def add_session_info_to_generic_event_log(ddp_log_in, session_id_counter = np.in
         print(f"Adding session stats to activity data {ddp_log.shape}. Unique collections: {ddp_log.collection_id.nunique()}")
         
 
-    return ddp_log
+    return ddp_log"""
 
 
 
@@ -412,7 +412,7 @@ def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_00
 
 
 
-def propagate_timestamps(
+"""def propagate_timestamps(
     df, 
     time_col='local_timestamp', 
     prop_col='primary_value', 
@@ -424,7 +424,7 @@ def propagate_timestamps(
     fill_missing_items=True
     ):
 
-    """
+    "-""
     Propagates timestamps from non-target rows to the closest preceding target row indices.
     
     Args:
@@ -437,7 +437,7 @@ def propagate_timestamps(
                           If False, propagates based on strict chronological order (index) ignoring item_id.
         status_col: Name of the new column to store row classification.
         fill_missing_items: If True, fills NA item_ids in non-orphan rows with the item_id of their target.
-    """
+    "-""
     
     
     # Ensure preservation of original index for correct updates
@@ -574,7 +574,7 @@ def propagate_timestamps(
         df['engagement'] = False
 
 
-    return df
+    return df"""
 
 
 
@@ -582,7 +582,7 @@ def propagate_timestamps(
 
 
 
-def flatten_single_tiktok_ddp_from_raw_file(
+"""def flatten_single_tiktok_ddp_from_raw_file(
     filename: str = None,
     collection_id: str = None,
     collection_group: str = None,
@@ -662,7 +662,7 @@ def flatten_single_tiktok_ddp_from_raw_file(
     )
 
     # keep only item_ids that are pure digit strings, everything else -> <NA>
-    digits = item_ids_from_url.str.fullmatch(r"\d+")
+    digits = item_ids_from_url.str.fullmatch(r"-d+")
     item_ids = item_ids_from_url.where(digits)
 
     mask = (
@@ -784,6 +784,7 @@ def flatten_single_tiktok_ddp_from_raw_file(
     return all_ddp_events_df
 
 
+"""
 
 
 
@@ -793,8 +794,7 @@ def flatten_single_tiktok_ddp_from_raw_file(
 
 
 
-
-def refine_one_raw_ddp_log_from_dict(
+"""def refine_one_raw_ddp_log_from_dict(
     donation_id: str = None,
     donation_dict: dict = None,
     ts_added_to_dataset: _dt.datetime = None,
@@ -872,7 +872,7 @@ def refine_one_raw_ddp_log_from_dict(
     )
 
     # keep only pure digit strings, everything else -> <NA>
-    digits = item_ids_from_url.str.fullmatch(r"\d+")
+    digits = item_ids_from_url.str.fullmatch(r"-d+")
     item_ids = item_ids_from_url.where(digits)
 
     mask = (
@@ -962,8 +962,8 @@ def refine_one_raw_ddp_log_from_dict(
     relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in all_ddp_events_df.columns]
     all_ddp_events_df = all_ddp_events_df[relevant_cols].copy()
     if verbose and dropped_vars_str:
-        joined_vars = '\n'.join(dropped_vars_str)
-        print(f"Dropped these columns, which are not in the variable schema:\n{joined_vars}\nCurrent shape: {all_ddp_events_df.shape}")
+        joined_vars = ' '.join(dropped_vars_str)
+        print(f"Dropped these columns, which are not in the variable schema: {joined_vars} Current shape: {all_ddp_events_df.shape}")
     
 
 
@@ -978,7 +978,7 @@ def refine_one_raw_ddp_log_from_dict(
 
     if verbose:
         print(f"Final shape of this collection: {all_ddp_events_df.shape}")
-    return all_ddp_events_df
+    return all_ddp_events_df"""
 
 
 
@@ -990,7 +990,7 @@ def refine_one_raw_ddp_log_from_dict(
 
 
 
-def refine_one_raw_ddp_log_file(
+"""def refine_one_raw_ddp_log_file(
     filename: str | None = None,
     donation_id: str | None = None,
     verbose: bool = False):
@@ -1028,13 +1028,13 @@ def refine_one_raw_ddp_log_file(
         donation_dict = donation_dict,
         ts_added_to_dataset = mod_time_timestamp,
         verbose = verbose
-    )
+    )"""
 
 
 
 
 
-def refine_all_raw_ddp_logs_and_save(verbose=False):
+"""def refine_all_raw_ddp_logs_and_save(verbose=False):
 
     result = {}
     
@@ -1087,7 +1087,7 @@ def refine_all_raw_ddp_logs_and_save(verbose=False):
     refined_ddp_files = [u for u in refined_ddp_files if u.endswith(".parquet")]
     result["refined_files_after"] = len(refined_ddp_files)
 
-    return result
+    return result"""
 
 
 
@@ -1289,11 +1289,11 @@ def generate_donation_metadata(
 
 
 
-def _identify_similar_donations(
+"""def _identify_similar_donations(
     donation_events: pd.DataFrame = None,
     overlap_threshold: float = 0.5
 ) -> dict:
-    """
+    "-""
     Identify similar donations based on timestamp overlap.
 
     check for similarities in the donations by looking for the same timestamps in the donations. 
@@ -1312,7 +1312,7 @@ def _identify_similar_donations(
         A dictionary containing sets of donation IDs:
         - "drops": IDs of donations to be dropped.
         - "keepers": IDs of donations to keep.
-    """
+    "-""
 
     if donation_events is None:
         raise ValueError("donation_events cannot be None")
@@ -1344,7 +1344,7 @@ def _identify_similar_donations(
 
     keeper_donations = set(unique_donations) - drop_candidates
 
-    return {"drops": drop_candidates, "keepers": keeper_donations}
+    return {"drops": drop_candidates, "keepers": keeper_donations}"""
 
 
 
@@ -1357,7 +1357,7 @@ def _identify_similar_donations(
 
 
 
-def consolidate_ddp_logs(
+"""def consolidate_ddp_logs(
     force_consolidation: bool = False,
     consolidate_from_scratch: bool = False,
     return_saved_data: bool = True,
@@ -1365,7 +1365,7 @@ def consolidate_ddp_logs(
     save_to_disk_ok: bool = True,
     verbose: bool = False,
 ) -> tuple[bool, pd.DataFrame]:
-    """
+    "-""
     Consolidate and refine raw DDP logs into a processed format.
 
     This function orchestrates the refinement of raw logs and returns the consolidated df. 
@@ -1384,7 +1384,7 @@ def consolidate_ddp_logs(
     tuple[bool, pd.DataFrame]
         A tuple containing a boolean indicating whether updates were performed
         and the resulting consolidated DataFrame.
-    """
+    "-""
 
 
 
@@ -1545,7 +1545,7 @@ def consolidate_ddp_logs(
 
     if len(too_small_donations_ids) > 0:
         if verbose:
-            print(f"The following donations have fewer than 5 watch events and will be dropped: \n  - {'\n  - '.join(too_small_donations_ids)}")
+            print(f"The following donations have fewer than 5 watch events and will be dropped:   - {'  - '.join(too_small_donations_ids)}")
 
         concatenated_ddp_logs = concatenated_ddp_logs[~concatenated_ddp_logs[collection_id_column].isin(too_small_donations_ids)].copy()
         if top_verbose:
@@ -1643,7 +1643,7 @@ def consolidate_ddp_logs(
         _ = data_io.save_json(dataset_meta, "recoded", "dataset_meta.json")
 
 
-    return True, concatenated_ddp_logs
+    return True, concatenated_ddp_logs"""
 
 
 

@@ -132,15 +132,6 @@ fyp_cf = _connect_to_google(fyp_cf, verbose = True)
 fyp_cf = load_var_schema(fyp_cf, verbose=True)
 
 
-DOWNLOADER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_downloader.py"
-INGEST_SCRIPT = PROJECT_ROOT / "web_interface" / "run_ingest_ndjson.py"
-ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_annotator.py"
-MONITOR_SCRIPT = PROJECT_ROOT / "web_interface" / "monitor_scrape_folder_and_annotate.py"
-#CREATE_SUBSETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_subsets.py"
-#REGENERATE_DATASETS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_regenerate_datasets.py"
-CREATE_EVENT_LOG_SCRIPT = PROJECT_ROOT / "web_interface" / "run_create_event_log.py"
-RECODE_EVENT_LOG_SCRIPT = PROJECT_ROOT / "web_interface" / "run_recode_event_log.py"
-CALCULATE_PCA_SCRIPT = PROJECT_ROOT / "web_interface" / "run_calculate_pca.py"
 QUEUE_SCRAPER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_queue_scraper.py"
 QUEUE_ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_queue_annotator.py"
 META_REFRESH_VIEWER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_meta_refresh_viewer.py"
