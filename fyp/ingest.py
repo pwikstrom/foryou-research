@@ -20,7 +20,7 @@ from fyp.types import convert_dtypes_to_pyarrow
 from fyp.utils import clean_url
 from zoneinfo import ZoneInfo
 import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
+#from fyp.fyp_config import fyp_cf
 
 from typing import Literal
 from abc import ABC, abstractmethod

@@ -10,3 +10,5 @@
 ## Key Files
 - `fyp/data_io.py`: always use this module for file access.
 - `web_interface/`: contains the Flask app routes and templates.
+## Tests
+- All test files should be saved in the tests folder.
