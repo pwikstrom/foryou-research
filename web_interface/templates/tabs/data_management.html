@@ -8,7 +8,7 @@
                 <div style="display: flex; align-items: center;">
                     <span id="studies-arrow"
                         style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
-                    <h2 style="margin: 0;">Data Management: Study Definitions</h2>
+                    <h2 style="margin: 0;">Define Study Datasets</h2>
                 </div>
                 {% if current_user.is_admin() %}
                 <button type="button" class="action-btn" onclick="openNewStudyModal(); event.stopPropagation();">Define
@@ -40,168 +40,184 @@
         </div> <!-- End Study Definitions Container -->
 
         {% if current_user.is_admin() %}
+        <!-- Data Ingestion Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('ingestion-content', 'ingestion-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
+                <div style="display: flex; align-items: center;">
+                    <span id="ingestion-arrow"
+                        style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                    <h2 style="margin: 0;">Ingest Activity Data</h2>
+                </div>
+                <button type="button" class="action-btn"
+                    onclick="refreshIngestionCollection(this); event.stopPropagation();"
+                    style="background-color: #8b5cf6; padding: 6px 12px;">Process Local Raw Files</button>
+            </div>
+            <div id="ingestion-content" style="padding: 0 20px 20px 20px;">
+                <p style="color: #aaa; margin-bottom: 15px; font-size: 0.9em;">Upload raw data files directly to the
+                    respective collection directories. They will be processed and appended into local dataset store when
+                    'Process Local Raw Files' is clicked.</p>
+                <div id="ingestion-sources-container" style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <div style="color: #ccc;">Loading registered subclasses...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Activity Data Section -->
+        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+            <div onclick="toggleSection('edit-activity-content', 'edit-activity-arrow')"
+                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
+                <span id="edit-activity-arrow"
+                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                <h2 style="margin: 0;">Edit Activity Data</h2>
+            </div>
+            <div id="edit-activity-content" style="padding: 0 20px 20px 20px;">
+                <div style="margin-bottom: 15px;">
+                    <input type="text" id="edit-activity-search" placeholder="Search collections by ID or metadata..."
+                        class="control-input"
+                        style="width: 300px; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;"
+                        onkeyup="filterEditActivityCollections(this)">
+                </div>
+                <div class="edit-activity-selector" style="border: 1px solid #555; background: #3e3e42;">
+                    <!-- The table will be injected here by JS -->
+                    <div id="edit-activity-list-container" class="edit-activity-checklist-container"
+                        style="max-height: 400px; overflow-y: auto; text-align: left; background: #2d2d30; padding: 0;">
+                        <div style="padding: 10px; color: #ccc;">Loading collections...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Enrichment Section -->
         <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
             <div onclick="toggleSection('enrichment-content', 'enrichment-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
                 <span id="enrichment-arrow"
                     style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
-                <h2 style="margin: 0;">Data Management: Enrichment</h2>
+                <h2 style="margin: 0;">Scrape and Annotate</h2>
             </div>
             <div id="enrichment-content" style="padding: 0 20px 20px 20px;">
-                <table class="data-table" style="width: 100%; border-collapse: collapse;">
-                    <thead>
-                        <tr style="border-bottom: 2px solid #555;">
-                            <th style="text-align: left; padding: 10px;">Enrichment Status</th>
-                            <th style="text-align: right; padding: 10px;">Count</th>
-                            <th style="text-align: right; padding: 10px;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td style="padding: 10px;">Total Videos</td>
-                            <td style="text-align: right; padding: 10px;" id="enrich_total_videos">-</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px;">Total Unique Collections</td>
-                            <td style="text-align: right; padding: 10px;" id="enrich_unique_donations">-</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px;">Videos Scraped</td>
-                            <td style="text-align: right; padding: 10px;" id="enrich_scraped">-</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px;">Videos Annotated</td>
-                            <td style="text-align: right; padding: 10px;" id="enrich_annotated">-</td>
-                            <td></td>
-                        </tr>
-                        <tr style="border-top: 1px solid #555;">
-                            <td colspan="3" style="padding: 15px 10px;">
-                                <!-- Shared Study Selection -->
-                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-                                    <span style="font-weight: bold; font-size: 1.1em;">Target Study:</span>
-                                    <select id="enrichment-study-select"
-                                        style="background: #333; border: 1px solid #555; color: #ddd; padding: 6px; border-radius: 3px; min-width: 200px;">
-                                        <option value="">-- Select Study --</option>
-                                    </select>
-                                    <button type="button" class="action-btn" onclick="consolidateEnrichmentData(this)"
-                                        style="background-color: #8b5cf6; font-size: 0.9em; padding: 6px 12px; margin-left: auto;">Consolidate
-                                        Enrichment Data</button>
-                                </div>
+                <div
+                    style="display: flex; gap: 40px; margin-bottom: 25px; padding: 15px; background: #1e1e1e; border-radius: 6px; border: 1px solid #333; text-align: center; justify-content: space-around;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #aaa; text-transform: uppercase;">Total Videos</div>
+                        <div style="font-size: 1.5em; font-weight: bold; color: #ddd;" id="enrich_total_videos">-</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #aaa; text-transform: uppercase;">Unique Collections</div>
+                        <div style="font-size: 1.5em; font-weight: bold; color: #ddd;" id="enrich_unique_donations">-
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #aaa; text-transform: uppercase;">Scraped</div>
+                        <div style="font-size: 1.5em; font-weight: bold; color: #4cd964;" id="enrich_scraped">-</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #aaa; text-transform: uppercase;">Annotated</div>
+                        <div style="font-size: 1.5em; font-weight: bold; color: #3b82f6;" id="enrich_annotated">-</div>
+                    </div>
+                </div>
 
-                                <!-- Side-by-side Scraper and Annotator -->
-                                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
 
-                                    <!-- Scraper Block -->
-                                    <div
-                                        style="flex: 1; min-width: 400px; background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42;">
-                                        <div
-                                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                                            <div style="display: flex; align-items: center; gap: 10px;">
-                                                <span style="font-weight: bold; font-size: 1.1em;">Scrape Queue:</span>
-                                                <button type="button" class="action-btn"
-                                                    onclick="calculateVideosToScrape()"
-                                                    style="background-color: #3b82f6; font-size: 0.8em; padding: 4px 8px;">Calculate
-                                                    videos still to be scraped</button>
-                                                <span id="enrich_scrape_targets"
-                                                    style="color: #4cd964; margin-left: 5px; font-weight: bold;">-</span><span>
-                                                    pending</span>
-                                            </div>
-                                        </div>
+                    <!-- Scraper Block -->
+                    <div
+                        style="flex: 1; min-width: 400px; background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-weight: bold; font-size: 1.1em;">Scrape Queue:</span>
+                                <button type="button" class="action-btn" onclick="calculateVideosToScrape()"
+                                    style="background-color: #3b82f6; font-size: 0.8em; padding: 4px 8px;">Calculate
+                                    videos still to be scraped</button>
+                                <span id="enrich_scrape_targets"
+                                    style="color: #4cd964; margin-left: 5px; font-weight: bold;">-</span><span>
+                                    pending</span>
+                            </div>
+                        </div>
 
-                                        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
-                                            <div style="display: flex; flex-direction: column; gap: 2px;">
-                                                <label style="color: #aaa; font-size: 0.75em;">BATCH SIZE</label>
-                                                <input type="number" id="scrapes-batch-size" value="500"
-                                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
-                                            </div>
-                                            <div style="display: flex; flex-direction: column; gap: 2px;">
-                                                <label style="color: #aaa; font-size: 0.75em;">MAX BATCHES</label>
-                                                <input type="number" id="scrapes-max-batches" placeholder="Inf"
-                                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
-                                            </div>
+                        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
+                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                <label style="color: #aaa; font-size: 0.75em;">BATCH SIZE</label>
+                                <input type="number" id="scrapes-batch-size" value="500"
+                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                <label style="color: #aaa; font-size: 0.75em;">MAX BATCHES</label>
+                                <input type="number" id="scrapes-max-batches" placeholder="Inf"
+                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
+                            </div>
 
-                                            <div style="width: 1px; height: 30px; background: #3e3e42;"></div>
+                            <div style="width: 1px; height: 30px; background: #3e3e42;"></div>
 
-                                            <div class="controls" style="display: flex; gap: 5px; align-items: center;">
-                                                <span id="queue_scraper-status"
-                                                    class="status-indicator status-stopped"></span>
-                                                <button class="btn-primary" onclick="startProcess('queue_scraper')"
-                                                    style="padding: 4px 12px;">Start Scraper</button>
-                                                <button class="btn-stop" onclick="stopProcess('queue_scraper')"
-                                                    style="padding: 4px 12px;">Stop</button>
-                                            </div>
-                                        </div>
+                            <div class="controls" style="display: flex; gap: 5px; align-items: center;">
+                                <span id="queue_scraper-status" class="status-indicator status-stopped"></span>
+                                <button class="btn-primary" onclick="startProcess('queue_scraper')"
+                                    style="padding: 4px 12px;">Start Scraper</button>
+                                <button class="btn-stop" onclick="stopProcess('queue_scraper')"
+                                    style="padding: 4px 12px;">Stop</button>
+                            </div>
+                        </div>
 
-                                        <div class="progress-container">
-                                            <div class="progress-bar" id="queue_scraper-bar"></div>
-                                            <div class="progress-text" id="queue_scraper-text">Idle</div>
-                                        </div>
-                                        <div class="log-window" id="queue_scraper-logs"
-                                            style="height: 80px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
-                                            Logs...</div>
-                                    </div>
+                        <div class="progress-container">
+                            <div class="progress-bar" id="queue_scraper-bar"></div>
+                            <div class="progress-text" id="queue_scraper-text">Idle</div>
+                        </div>
+                        <div class="log-window" id="queue_scraper-logs"
+                            style="height: 80px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
+                            Logs...</div>
+                    </div>
 
-                                    <!-- Annotator Block -->
-                                    <div
-                                        style="flex: 1; min-width: 400px; background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42;">
-                                        <div
-                                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                                            <div style="display: flex; align-items: center; gap: 10px;">
-                                                <span style="font-weight: bold; font-size: 1.1em;">Annotation
-                                                    Queue:</span>
-                                                <button type="button" class="action-btn"
-                                                    onclick="calculateVideosToAnnotate()"
-                                                    style="background-color: #3b82f6; font-size: 0.8em; padding: 4px 8px;">Calculate
-                                                    videos still to be annotated</button>
-                                                <span id="enrich_annotate_targets"
-                                                    style="color: #4cd964; margin-left: 5px; font-weight: bold;">-</span><span>
-                                                    pending</span>
-                                            </div>
-                                        </div>
+                    <!-- Annotator Block -->
+                    <div
+                        style="flex: 1; min-width: 400px; background: #252526; padding: 15px; border-radius: 4px; border: 1px solid #3e3e42;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-weight: bold; font-size: 1.1em;">Annotation
+                                    Queue:</span>
+                                <button type="button" class="action-btn" onclick="calculateVideosToAnnotate()"
+                                    style="background-color: #3b82f6; font-size: 0.8em; padding: 4px 8px;">Calculate
+                                    videos still to be annotated</button>
+                                <span id="enrich_annotate_targets"
+                                    style="color: #4cd964; margin-left: 5px; font-weight: bold;">-</span><span>
+                                    pending</span>
+                            </div>
+                        </div>
 
-                                        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
-                                            <div style="display: flex; flex-direction: column; gap: 2px;">
-                                                <label style="color: #aaa; font-size: 0.75em;">BATCH SIZE</label>
-                                                <input type="number" id="annotations-batch-size" value="500"
-                                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
-                                            </div>
-                                            <div style="display: flex; flex-direction: column; gap: 2px;">
-                                                <label style="color: #aaa; font-size: 0.75em;">MAX BATCHES</label>
-                                                <input type="number" id="annotations-max-batches" placeholder="Inf"
-                                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
-                                            </div>
+                        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
+                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                <label style="color: #aaa; font-size: 0.75em;">BATCH SIZE</label>
+                                <input type="number" id="annotations-batch-size" value="500"
+                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                <label style="color: #aaa; font-size: 0.75em;">MAX BATCHES</label>
+                                <input type="number" id="annotations-max-batches" placeholder="Inf"
+                                    style="width: 70px; background: #333; border: 1px solid #555; color: #ddd; padding: 3px;">
+                            </div>
 
-                                            <div style="width: 1px; height: 30px; background: #3e3e42;"></div>
+                            <div style="width: 1px; height: 30px; background: #3e3e42;"></div>
 
-                                            <div class="controls" style="display: flex; gap: 5px; align-items: center;">
-                                                <span id="queue_annotator-status"
-                                                    class="status-indicator status-stopped"></span>
-                                                <button class="btn-primary" onclick="startProcess('queue_annotator')"
-                                                    style="padding: 4px 12px;">Start Annotator</button>
-                                                <button class="btn-stop" onclick="stopProcess('queue_annotator')"
-                                                    style="padding: 4px 12px;">Stop</button>
-                                            </div>
-                                        </div>
+                            <div class="controls" style="display: flex; gap: 5px; align-items: center;">
+                                <span id="queue_annotator-status" class="status-indicator status-stopped"></span>
+                                <button class="btn-primary" onclick="startProcess('queue_annotator')"
+                                    style="padding: 4px 12px;">Start Annotator</button>
+                                <button class="btn-stop" onclick="stopProcess('queue_annotator')"
+                                    style="padding: 4px 12px;">Stop</button>
+                            </div>
+                        </div>
 
-                                        <div class="progress-container">
-                                            <div class="progress-bar" id="queue_annotator-bar"></div>
-                                            <div class="progress-text" id="queue_annotator-text">Idle</div>
-                                        </div>
-                                        <div class="log-window" id="queue_annotator-logs"
-                                            style="height: 80px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
-                                            Logs...</div>
-                                    </div>
+                        <div class="progress-container">
+                            <div class="progress-bar" id="queue_annotator-bar"></div>
+                            <div class="progress-text" id="queue_annotator-text">Idle</div>
+                        </div>
+                        <div class="log-window" id="queue_annotator-logs"
+                            style="height: 80px; margin-top: 5px; font-size: 0.8em; background: #1e1e1e; border: 1px solid #333; overflow-y: auto; padding: 5px; font-family: monospace;">
+                            Logs...</div>
+                    </div>
 
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                </table>
+                </div>
             </div> <!-- End enrichment-content -->
         </div> <!-- End Enrichment Container -->
 
@@ -211,7 +227,7 @@
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
                 <span id="recalculate-arrow"
                     style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
-                <h2 style="margin: 0;">Recalculate datasets</h2>
+                <h2 style="margin: 0;">Refresh UI Datasets</h2>
             </div>
             <div id="recalculate-content" style="padding: 0 20px 20px 20px;">
                 <div style="display: flex; gap: 20px; flex-wrap: wrap;">
@@ -303,202 +319,260 @@
             </div>
         </div>
     </div>
-</div>
 
-<!-- Template for Row Details (Hidden) -->
-<template id="study_detail_template">
-    <tr class="detail-row" style="background-color: #2d2d30; display: none;">
-        <td colspan="10" style="padding: 30px;">
-            <div class="study-form" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px;">
-                <!-- Column 1 -->
-                <div>
-                    <div class="form-group-row">
-                        <label title="yyyy-mm-dd only include events after this date">START_DATE <i
-                                class="info-icon">ℹ️</i></label>
-                        <input type="text" data-field="START_DATE" class="control-input" {% if not
-                            current_user.is_admin() %}disabled{% endif %}>
-                    </div>
-                    <div class="form-group-row">
-                        <label title="yyyy-mm-dd only include events before this date">END_DATE <i
-                                class="info-icon">ℹ️</i></label>
-                        <input type="text" data-field="END_DATE" class="control-input" {% if not current_user.is_admin()
-                            %}disabled{% endif %}>
-                    </div>
-                </div>
-                <!-- Column 2 -->
-                <div>
-                    <div class="form-group-row" style="align-items: flex-start; flex-direction: column;">
-                        <label title="User Access List" style="margin-bottom: 8px;">USER_ACCESS <i
-                                class="info-icon">ℹ️</i></label>
-                        <div class="checkbox-group" data-field-group="USER_ACCESS"
-                            style="text-align: left; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
-                            <div class="dynamic-roles-container">Loading roles...</div>
-                        </div>
-                    </div>
-                </div>
-                <!-- Column 3 -->
-                <div>
-                    <div class="form-group-row">
-                        <label
-                            title="Control if and how collections are sampled: off, events, scraped, annotated">COLLECTION_SAMPLE_FRAME
-                            <i class="info-icon">ℹ️</i></label>
-                        <select data-field="DONATION_SAMPLE_FRAME" class="control-input"
-                            onchange="toggleSamplingOptions(this)" {% if not current_user.is_admin() %}disabled{% endif
-                            %}>
-                            <option value="off">off</option>
-                            <option value="events">events</option>
-                            <option value="scraped">scraped</option>
-                            <option value="annotated">annotated</option>
-                        </select>
-                    </div>
+    <!-- Edit Collection Modal -->
+    <div id="editCollectionModal" class="modal"
+        style="display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div class="modal-content"
+            style="background-color: #252526; margin: 15% auto; padding: 20px; border: 1px solid #3e3e42; width: 50%; color: #d4d4d4;">
+            <span class="close" onclick="closeEditCollectionModal()"
+                style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            <h2 style="margin-top: 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
 
-                    <div id="sampling-options-container">
-                        <div class="form-group-row">
-                            <label
-                                title="groups w less than this number of events are excluded [DEFAULT: 10]">MIN_EVENT_COUNT...
-                                <i class="info-icon">ℹ️</i></label>
-                            <input type="number" data-field="MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP"
-                                class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                        </div>
-                        <div class="form-group-row">
-                            <label
-                                title="groups w more than this number of events are downsampled [DEFAULT: 100]">MAX_EVENT_COUNT...
-                                <i class="info-icon">ℹ️</i></label>
-                            <input type="number" data-field="MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP"
-                                class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                        </div>
-                        <div class="form-group-row">
-                            <label
-                                title="collections w less than this number of accepted groups are excluded [DEFAULT: 10]">MIN_GROUP_COUNT...
-                                <i class="info-icon">ℹ️</i></label>
-                            <input type="number" data-field="MIN_GROUP_COUNT_REQUIRED_PER_DONATION"
-                                class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                        </div>
-                        <div class="form-group-row">
-                            <label
-                                title="collections w more than this number of accepted groups are downsampled [DEFAULT: 100]">MAX_GROUP_COUNT...
-                                <i class="info-icon">ℹ️</i></label>
-                            <input type="number" data-field="MAX_GROUP_COUNT_SELECTED_PER_DONATION"
-                                class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                        </div>
-                    </div>
+            <input type="hidden" id="edit-collection-id" value="">
+
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 5px;">Display ID:</label>
+                <input type="text" id="edit-collection-display-id" class="control-input"
+                    style="width: 100%; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;">
+            </div>
+
+            <div class="form-group">
+                <label style="display: block; margin-bottom: 5px;">Tags:</label>
+                <div id="edit-collection-tags-container"
+                    style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;">
+                    <!-- Chips rendered by JS -->
+                </div>
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="edit-collection-new-tag" class="control-input"
+                        style="flex: 1; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;"
+                        placeholder="Add new tag..."
+                        onkeydown="if(event.key === 'Enter') { dm_addNewTag(); event.preventDefault(); }">
+                    <button type="button" class="action-btn" onclick="dm_addNewTag()" style="padding: 8px 15px;"><i
+                            class="fas fa-plus"></i> Add Tag</button>
                 </div>
             </div>
-            {% if current_user.is_admin() %}
-            <div class="form-group" style="margin-top: 20px;">
-                <label title="List of specific collection IDs to include. Leave empty for all."
-                    style="display: block; margin-bottom: 8px;">SELECTED_COLLECTIONS <i class="info-icon">ℹ️</i></label>
 
-                <div class="donation-selector" style="border: 1px solid #555; padding: 10px; background: #3e3e42;">
-                    <div
-                        style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; justify-content: space-between;">
-                        <input type="text" placeholder="Search collections by ID or metadata..."
-                            class="control-input donation-search-input" style="width: 300px;"
-                            onkeyup="filterCollections(this)" {% if not current_user.is_admin() %}disabled{% endif %}>
-                        <div
-                            style="display: flex; gap: 15px; font-size: 0.9em; flex: 1; margin-left: 10px; color: #ccc; align-items: center; flex-wrap: wrap;">
-                            <span>Collections: <strong class="selected-count">0</strong></span>
-                            <span>Events: <strong class="selected-events-count">0</strong></span>
-                            <div
-                                style="display: flex; gap: 15px; align-items: center; border-left: 1px solid #555; padding-left: 15px;">
-                                <input type="hidden" data-field="stats" value="{}">
-                                <button type="button" onclick="updateStudyEstimates(this, event)"
-                                    style="font-size: 0.8em; padding: 2px 5px; cursor: pointer; background: #555; border: none; color: #eee; border-radius: 3px;"
-                                    {% if not current_user.is_admin() %}disabled{% endif %}>Update Estimates</button>
-                                <span>Filtered/sampled Unique vids: <strong class="stat-unique-vids"
-                                        style="color: #fff;">-</strong></span>
-                                <span>Scraped: <strong class="stat-scraped-vids" style="color: #fff;">-</strong></span>
-                                <span>Annotated: <strong class="stat-annotated-vids"
-                                        style="color: #fff;">-</strong></span>
+            <div class="form-group" style="margin-top: 20px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="edit-collection-hidden" style="width: auto; cursor: pointer;">
+                    Hide Collection
+                </label>
+                <span style="font-size: 0.85em; color: #aaa; margin-left: 25px; display: block;">Hidden collections are
+                    not shown in the primary study interface.</span>
+            </div>
+
+            <div style="margin-top: 25px; text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="action-btn" style="background-color: #555;"
+                    onclick="closeEditCollectionModal()">Cancel</button>
+                <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save
+                    Annotations</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template for Row Details (Hidden) -->
+    <template id="study_detail_template">
+        <tr class="detail-row" style="background-color: #2d2d30; display: none;">
+            <td colspan="10" style="padding: 30px;">
+                <div class="study-form" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px;">
+                    <!-- Column 1 -->
+                    <div>
+                        <div class="form-group-row">
+                            <label title="yyyy-mm-dd only include events after this date">START_DATE <i
+                                    class="info-icon">ℹ️</i></label>
+                            <input type="text" data-field="START_DATE" class="control-input" {% if not
+                                current_user.is_admin() %}disabled{% endif %}>
+                        </div>
+                        <div class="form-group-row">
+                            <label title="yyyy-mm-dd only include events before this date">END_DATE <i
+                                    class="info-icon">ℹ️</i></label>
+                            <input type="text" data-field="END_DATE" class="control-input" {% if not
+                                current_user.is_admin() %}disabled{% endif %}>
+                        </div>
+                    </div>
+                    <!-- Column 2 -->
+                    <div>
+                        <div class="form-group-row" style="align-items: flex-start; flex-direction: column;">
+                            <label title="User Access List" style="margin-bottom: 8px;">USER_ACCESS <i
+                                    class="info-icon">ℹ️</i></label>
+                            <div class="checkbox-group" data-field-group="USER_ACCESS"
+                                style="text-align: left; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
+                                <div class="dynamic-roles-container">Loading roles...</div>
                             </div>
                         </div>
-                        <div style="display: flex; gap: 5px;">
-                            <button type="button" onclick="selectAllCollections(this, true)" style="padding: 5px 10px;"
-                                {% if not current_user.is_admin() %}disabled{% endif %}>All</button>
-                            <button type="button" onclick="selectAllCollections(this, false)" style="padding: 5px 10px;"
-                                {% if not current_user.is_admin() %}disabled{% endif %}>None</button>
+                    </div>
+                    <!-- Column 3 -->
+                    <div>
+                        <div class="form-group-row">
+                            <label
+                                title="Control if and how collections are sampled: off, events, scraped, annotated">COLLECTION_SAMPLE_FRAME
+                                <i class="info-icon">ℹ️</i></label>
+                            <select data-field="DONATION_SAMPLE_FRAME" class="control-input"
+                                onchange="toggleSamplingOptions(this)" {% if not current_user.is_admin() %}disabled{%
+                                endif %}>
+                                <option value="off">off</option>
+                                <option value="events">events</option>
+                                <option value="scraped">scraped</option>
+                                <option value="annotated">annotated</option>
+                            </select>
+                        </div>
+
+                        <div id="sampling-options-container">
+                            <div class="form-group-row">
+                                <label
+                                    title="groups w less than this number of events are excluded [DEFAULT: 10]">MIN_EVENT_COUNT...
+                                    <i class="info-icon">ℹ️</i></label>
+                                <input type="number" data-field="MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP"
+                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                            </div>
+                            <div class="form-group-row">
+                                <label
+                                    title="groups w more than this number of events are downsampled [DEFAULT: 100]">MAX_EVENT_COUNT...
+                                    <i class="info-icon">ℹ️</i></label>
+                                <input type="number" data-field="MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP"
+                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                            </div>
+                            <div class="form-group-row">
+                                <label
+                                    title="collections w less than this number of accepted groups are excluded [DEFAULT: 10]">MIN_GROUP_COUNT...
+                                    <i class="info-icon">ℹ️</i></label>
+                                <input type="number" data-field="MIN_GROUP_COUNT_REQUIRED_PER_DONATION"
+                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                            </div>
+                            <div class="form-group-row">
+                                <label
+                                    title="collections w more than this number of accepted groups are downsampled [DEFAULT: 100]">MAX_GROUP_COUNT...
+                                    <i class="info-icon">ℹ️</i></label>
+                                <input type="number" data-field="MAX_GROUP_COUNT_SELECTED_PER_DONATION"
+                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                            </div>
                         </div>
                     </div>
-                    <div class="donation-checklist-container"
-                        style="max-height: 200px; overflow-y: auto; text-align: left; background: #2d2d30; padding: 5px; border: 1px solid #555;">
-                        <!-- Checkboxes injected by JS -->
-                        <div style="padding: 10px; color: #ccc;">Loading collections...</div>
+                </div>
+                {% if current_user.is_admin() %}
+                <div class="form-group" style="margin-top: 20px;">
+                    <label title="List of specific collection IDs to include. Leave empty for all."
+                        style="display: block; margin-bottom: 8px;">SELECTED_COLLECTIONS <i
+                            class="info-icon">ℹ️</i></label>
+
+                    <div class="donation-selector" style="border: 1px solid #555; padding: 10px; background: #3e3e42;">
+                        <div
+                            style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; justify-content: space-between;">
+                            <input type="text" placeholder="Search collections by ID or metadata..."
+                                class="control-input donation-search-input" style="width: 300px;"
+                                onkeyup="filterCollections(this)" {% if not current_user.is_admin() %}disabled{% endif
+                                %}>
+                            <div
+                                style="display: flex; gap: 15px; font-size: 0.9em; flex: 1; margin-left: 10px; color: #ccc; align-items: center; flex-wrap: wrap;">
+                                <span>Collections: <strong class="selected-count">0</strong></span>
+                                <span>Events: <strong class="selected-events-count">0</strong></span>
+                                <div
+                                    style="display: flex; gap: 15px; align-items: center; border-left: 1px solid #555; padding-left: 15px;">
+                                    <input type="hidden" data-field="stats" value="{}">
+                                    <button type="button" onclick="updateStudyEstimates(this, event)"
+                                        style="font-size: 0.8em; padding: 2px 5px; cursor: pointer; background: #555; border: none; color: #eee; border-radius: 3px;"
+                                        {% if not current_user.is_admin() %}disabled{% endif %}>Update
+                                        Estimates</button>
+                                    <span>Filtered/sampled Unique vids: <strong class="stat-unique-vids"
+                                            style="color: #fff;">-</strong></span>
+                                    <span>Scraped: <strong class="stat-scraped-vids"
+                                            style="color: #fff;">-</strong></span>
+                                    <span>Annotated: <strong class="stat-annotated-vids"
+                                            style="color: #fff;">-</strong></span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 5px;">
+                                <button type="button" onclick="selectAllCollections(this, true)"
+                                    style="padding: 5px 10px;" {% if not current_user.is_admin() %}disabled{% endif
+                                    %}>All</button>
+                                <button type="button" onclick="selectAllCollections(this, false)"
+                                    style="padding: 5px 10px;" {% if not current_user.is_admin() %}disabled{% endif
+                                    %}>None</button>
+                            </div>
+                        </div>
+                        <div class="donation-checklist-container"
+                            style="max-height: 200px; overflow-y: auto; text-align: left; background: #2d2d30; padding: 5px; border: 1px solid #555;">
+                            <!-- Checkboxes injected by JS -->
+                            <div style="padding: 10px; color: #ccc;">Loading collections...</div>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
-            <input type="hidden" data-field="SELECTED_DONATIONS" value="[]">
-            </div>
-            {% endif %}
+                <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
+                <input type="hidden" data-field="SELECTED_DONATIONS" value="[]">
+                {% endif %}
 
-            <style>
-                /* Scoped styles for this template's use */
-                .form-group-row {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 20px;
-                }
+                <style>
+                    /* Scoped styles for this template's use */
+                    .form-group-row {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        margin-bottom: 20px;
+                    }
 
-                .form-group-row label {
-                    flex: 1;
-                    text-align: left;
-                    margin-right: 15px;
-                    color: #ccc;
-                }
+                    .form-group-row label {
+                        flex: 1;
+                        text-align: left;
+                        margin-right: 15px;
+                        color: #ccc;
+                    }
 
-                .form-group-row .control-input {
-                    flex: 1;
-                    max-width: 50%;
-                    /* Box on the right */
-                    text-align: right;
-                    /* text inside box? or box alignment? user said "boxes to be right aligned" */
-                }
+                    .form-group-row .control-input {
+                        flex: 1;
+                        max-width: 50%;
+                        /* Box on the right */
+                        text-align: right;
+                        /* text inside box? or box alignment? user said "boxes to be right aligned" */
+                    }
 
-                /* Ensure inputs themselves align right if desired, or just the element 
+                    /* Ensure inputs themselves align right if desired, or just the element 
                 .form-group-row input,
                 .form-group-row select {
                     /* width: 100%; taken by flex /
                 }*/
-            </style>
+                </style>
 
-            <div style="margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
-                {% if current_user.is_admin() %}
-                <div style="display: flex; gap: 10px;">
-                    <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                        <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Study
-                            Definition</button>
-                    </div>
-
-                    <div
-                        style="display: flex; flex-direction: column; gap: 2px; margin-left: 10px; background: #3e3e42; padding: 5px 10px; border-radius: 4px; border: 1px solid #555;">
-                        <div style="font-size: 0.9em; font-weight:bold; color: #ccc; margin-bottom: 3px;">Save settings:
+                <div style="margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
+                    {% if current_user.is_admin() %}
+                    <div style="display: flex; gap: 10px;">
+                        <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                            <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Study
+                                Definition</button>
                         </div>
-                        <label
-                            style="font-size: 0.85em; color: #ddd; display: flex; align-items: center; cursor: pointer;"
-                            title="If unchecked, old files are still deleted to prevent version mismatch.">
-                            <input type="checkbox" class="save-setting-pca" style="margin-right: 5px;"> Refresh
-                            PCA
-                        </label>
-                        <label
-                            style="font-size: 0.85em; color: #ddd; display: flex; align-items: center; cursor: pointer;"
-                            title="If unchecked, old files are still deleted to prevent version mismatch.">
-                            <input type="checkbox" class="save-setting-meta" checked style="margin-right: 5px;"> Refresh
-                            Metadata
-                        </label>
+
+                        <div
+                            style="display: flex; flex-direction: column; gap: 2px; margin-left: 10px; background: #3e3e42; padding: 5px 10px; border-radius: 4px; border: 1px solid #555;">
+                            <div style="font-size: 0.9em; font-weight:bold; color: #ccc; margin-bottom: 3px;">Save
+                                settings:
+                            </div>
+                            <label
+                                style="font-size: 0.85em; color: #ddd; display: flex; align-items: center; cursor: pointer;"
+                                title="If unchecked, old files are still deleted to prevent version mismatch.">
+                                <input type="checkbox" class="save-setting-pca" style="margin-right: 5px;"> Refresh
+                                PCA
+                            </label>
+                            <label
+                                style="font-size: 0.85em; color: #ddd; display: flex; align-items: center; cursor: pointer;"
+                                title="If unchecked, old files are still deleted to prevent version mismatch.">
+                                <input type="checkbox" class="save-setting-meta" checked style="margin-right: 5px;">
+                                Refresh
+                                Metadata
+                            </label>
+                        </div>
+
                     </div>
-
                 </div>
-            </div>
-            {% endif %}
+                {% endif %}
 
-            {% if current_user.is_admin() %}
-            <button type="button" class="action-btn" style="background-color: #dc3545;"
-                onclick="deleteStudy(this, event)">Delete Study</button>
-            {% endif %}
-            </div>
-        </td>
-    </tr>
-</template>
+                {% if current_user.is_admin() %}
+                <button type="button" class="action-btn" style="background-color: #dc3545;"
+                    onclick="deleteStudy(this, event)">Delete
+                    Study</button>
+                {% endif %}
+            </td>
+        </tr>
+    </template>
+</div>
 
 <script src="/static/js/data_management.js"></script>

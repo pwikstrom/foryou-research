@@ -57,11 +57,12 @@ window.timelines = {
         listContainer.innerHTML = '';
 
         const simpleList = this.donationList.filter(d => {
+            if (d.hidden) return false; // Hide collections flagged as hidden
             if (!query) return true;
-            // Search by D_donation_id or D_id
-            //const did = (d.D_id || '').toLowerCase();
+            // Search by D_donation_id or display_donation_id
             const ddon = (d.D_donation_id || '').toLowerCase();
-            return ddon.includes(query);
+            const disp = (d.display_donation_id || '').toLowerCase();
+            return ddon.includes(query) || disp.includes(query);
         });
 
         if (simpleList.length === 0) {
@@ -92,6 +93,7 @@ window.timelines = {
                 label = d.D_donation_id;
             }
             item.innerText = label;
+            item.title = d.D_donation_id; // Add tooltip of original raw ID
 
             item.onclick = () => {
                 this.selectDonation(d.D_donation_id);

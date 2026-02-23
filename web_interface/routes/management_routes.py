@@ -1,7 +1,10 @@
+import os
 from flask import Blueprint, jsonify, request
+from werkzeug.utils import secure_filename
 from flask_login import login_required, current_user
 from datetime import datetime
 from fyp.fyp_config import fyp_cf, load_var_schema
+from fyp.ingest import get_main_collection
 import fyp.data_io as data_io
 from fyp.organize_datasets import create_study_recoded_dataset
 from fyp.pca import calculate_scaled_pca_scores
@@ -468,6 +471,7 @@ def list_collections():
                 ann = annotations.get(str(index), {})
                 item['displayId'] = ann.get('display_donation_id', None)
                 item['tags'] = ann.get('annotation_tags', [])
+                item['hidden'] = ann.get('hidden', False)
 
                 collections.append(item)
 
@@ -754,3 +758,70 @@ def get_inter_coder_reliability():
     except Exception as e:
         print(f"Error calculating reliability: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@management_bp.route('/api/manage/ingestion/sources', methods=['GET'])
+@login_required
+def get_ingestion_sources():
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    try:
+        main_collection = get_main_collection(verbose=False)
+        sources = []
+        for col in main_collection.collections:
+            sources.append({
+                "source_platform": col.source_platform,
+                "data_source": col.data_source,
+                "raw_path": col.raw_path,
+                "class_name": col.__class__.__name__
+            })
+        return jsonify({"status": "success", "sources": sources})
+    except Exception as e:
+        print(f"Error getting ingestion sources: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@management_bp.route('/api/manage/ingestion/upload', methods=['POST'])
+@login_required
+def upload_ingestion_file():
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+        
+    file = request.files['file']
+    raw_path = request.form.get('raw_path')
+    
+    if file.filename == '' or not raw_path:
+        return jsonify({"error": "No selected file or raw_path missing"}), 400
+        
+    if not os.path.exists(raw_path):
+        try:
+            os.makedirs(raw_path, exist_ok=True)
+        except Exception as e:
+            return jsonify({"error": f"Failed to create directory {raw_path}: {str(e)}"}), 500
+            
+    try:
+        filename = secure_filename(file.filename)
+        save_path = os.path.join(raw_path, filename)
+        file.save(save_path)
+        return jsonify({"status": "success", "message": f"File {filename} uploaded successfully."})
+    except Exception as e:
+        print(f"Error uploading file: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@management_bp.route('/api/manage/ingestion/refresh', methods=['POST'])
+@login_required
+def refresh_ingestion_collection():
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    try:
+        main_collection = get_main_collection(verbose=True)
+        main_collection.refresh_collection()
+        return jsonify({"status": "success", "message": "Collection refreshed successfully."})
+    except Exception as e:
+        print(f"Error refreshing collection: {e}")
+        return jsonify({"error": str(e)}), 500
+

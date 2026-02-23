@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 import fyp.data_io as data_io
 #from fyp.fyp_config import fyp_cf
 
-from typing import Literal
+from typing import Literal, Type
 from abc import ABC, abstractmethod
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
@@ -611,7 +611,12 @@ class ForYouCollection(ForYouBaseCollection):
 
 
 
-
+    def refresh_collection(self):
+        self.load_processed()
+        self.load_raw()
+        self.process()
+        self.migrate_sub_collections()
+        self.save_processed()
 
 
 
@@ -941,16 +946,15 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         return df
 
 
-        
 
 
 
 
 
-
-
-
-
-
-
-
+def get_main_collection(verbose: bool = False) -> ForYouCollection:
+    """Factory function to initialize and configure the main collection."""
+    main_collection = ForYouCollection(verbose=verbose)
+    main_collection.register_collection_class(TikTokDDPCollection)
+    main_collection.register_collection_class(TikTokZeeschuimerCollection)
+    
+    return main_collection

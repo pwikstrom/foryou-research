@@ -51,49 +51,12 @@
                             <li><span class="stat-label">Age:</span> <span id="pe-stat-age"></span></li>
                             <li><span class="stat-label">Country:</span> <span id="pe-stat-country"></span></li>
                             <li><span class="stat-label">Post Code:</span> <span id="pe-stat-postcode"></span></li>
-                            <li><span class="stat-label">Date Added to Dataset:</span> <span id="pe-stat-donation-date"></span>
+                            <li><span class="stat-label">Date Added to Dataset:</span> <span
+                                    id="pe-stat-donation-date"></span>
                             </li>
+                            <li><span class="stat-label">Display ID:</span> <span id="pe-stat-display-id"></span></li>
                         </ul>
                     </div>
-
-                    <!-- Donation Annotations -->
-                    {% if current_user.is_admin() %}
-                    <div class="stats-section">
-                        <div class="section-title">Collection Annotations</div>
-                        <ul class="stats-list" style="display: flex; flex-direction: column; gap: 8px;">
-                            <li style="flex-direction: column; align-items: flex-start; border: none; padding: 0;">
-                                <span class="stat-label" style="font-size: 0.9em; margin-bottom: 2px;">Display
-                                    ID:</span>
-                                <input type="text" id="pe-annot-display-id" class="full-width-select"
-                                    style="margin: 0; padding: 4px; font-size: 0.9em;" placeholder="e.g. D123">
-                            </li>
-                            <li style="flex-direction: column; align-items: flex-start; border: none; padding: 0;">
-                                <span class="stat-label" style="font-size: 0.9em; margin-bottom: 2px;">Tags
-                                    (Manage):</span>
-
-                                <div id="pe-annot-tags-container"
-                                    style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 5px; width: 100%;">
-                                    <!-- Chips rendered by JS -->
-                                </div>
-
-                                <div style="display: flex; gap: 5px; width: 100%;">
-                                    <input type="text" id="pe-annot-new-tag" class="full-width-select"
-                                        style="margin: 0; padding: 4px; font-size: 0.9em;" placeholder="Add new tag..."
-                                        onkeydown="if(event.key === 'Enter') { pe_addNewTag(); event.preventDefault(); }">
-                                    <button onclick="pe_addNewTag()" class="config-btn"
-                                        style="width: 30px; justify-content: center;" title="Add Tag"><i
-                                            class="fas fa-plus"></i></button>
-                                </div>
-                            </li>
-                            <li style="border: none; padding-top: 5px;">
-                                <button onclick="pe_saveAnnotation()" class="apply-btn"
-                                    style="width: 100%; display: flex; justify-content: center; align-items: center; gap: 5px;">
-                                    <i class="fas fa-save"></i> Save Annotations
-                                </button>
-                            </li>
-                        </ul>
-                    </div>
-                    {% endif %}
 
                     <!-- Activity Stats -->
                     <div class="stats-section">
@@ -104,7 +67,8 @@
                             <li><span class="stat-label">Active Days:</span> <span id="pe-stat-active-days"></span></li>
                             <li><span class="stat-label">Total Events:</span> <span id="pe-stat-total-events"></span>
                             </li>
-                            <li><span class="stat-label">Peak Day Segment:</span> <span id="pe-stat-peak-segment"></span>
+                            <li><span class="stat-label">Peak Day Segment:</span> <span
+                                    id="pe-stat-peak-segment"></span>
                             </li>
                             <li><span class="stat-label">Watch Time:</span> <span id="pe-stat-watch-time"></span></li>
                             <li><span class="stat-label">First Event:</span> <span id="pe-stat-first-event"></span></li>
@@ -121,7 +85,8 @@
         <div class="pe-main">
             <div class="panel-card" style="overflow-y: auto;">
                 <h4>Distribution by Metric</h4>
-                <p class="helper-text">Click on any box to select that collection. Selected collection is highlighted in red
+                <p class="helper-text">Click on any box to select that collection. Selected collection is highlighted in
+                    red
                     across all metrics.</p>
                 <div id="pe-strips-container" class="strips-container">
                     <!-- Strip plots will be generated dynamically -->

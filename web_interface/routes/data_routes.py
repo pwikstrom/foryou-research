@@ -1014,6 +1014,7 @@ def api_donation_annotate():
     # Fields to update
     tags = data.get("tags") # list
     display_id = data.get("display_donation_id") # string
+    hidden = data.get("hidden") # boolean
     
     # Validation?
     
@@ -1034,6 +1035,9 @@ def api_donation_annotate():
         
     if display_id is not None:
         annotations[donation_id]['display_donation_id'] = str(display_id).strip()
+        
+    if hidden is not None:
+        annotations[donation_id]['hidden'] = bool(hidden)
         
     # Save
     data_io.save_json(data=annotations, storage_location="processed_activities", filename=da_filename)
@@ -1303,9 +1307,11 @@ def api_timeline_donations():
                  annot_data = annotations[uid_str]
                  disp = annot_data.get('display_donation_id')
                  tags = annot_data.get('annotation_tags')
+                 hidden = annot_data.get('hidden')
                  
                  if disp: item['display_donation_id'] = disp
                  if tags: item['annotation_tags'] = tags
+                 if hidden is not None: item['hidden'] = bool(hidden)
             
             final_list.append(item)
         

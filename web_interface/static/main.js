@@ -354,17 +354,20 @@ async function updateStatus() {
         const discreetProcesses = ['create_event_log', 'recode_event_log', 'calculate_pca'];
 
         discreetProcesses.forEach(name => {
-            setDiscreetStatus(name, data[name]);
+            const pData = data[name];
+            setDiscreetStatus(name, pData);
 
-            // Check for process completion to refresh file list
-            if (previousProcessStates[name] === 'running' && data[name].state !== 'running') {
-                // Process just finished
-                const buildStudySelect = document.getElementById('build-study-name');
-                if (buildStudySelect && buildStudySelect.value) {
-                    fetchStudyFiles(buildStudySelect.value);
+            if (pData) {
+                // Check for process completion to refresh file list
+                if (previousProcessStates[name] === 'running' && pData.state !== 'running') {
+                    // Process just finished
+                    const buildStudySelect = document.getElementById('build-study-name');
+                    if (buildStudySelect && buildStudySelect.value) {
+                        fetchStudyFiles(buildStudySelect.value);
+                    }
                 }
+                previousProcessStates[name] = pData.state;
             }
-            previousProcessStates[name] = data[name].state;
         });
 
     } catch (e) {
@@ -375,6 +378,7 @@ async function updateStatus() {
 
 
 function setStatus(name, data) {
+    if (!data) return;
     const status = data.state;
     const info = data.progress || {};
 

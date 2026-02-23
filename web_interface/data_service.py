@@ -653,7 +653,8 @@ def get_timeline_data(donation_id, interval='day'):
         
         if has_val:
             # Numeric
-            vals = df[f"{var}_val"].where(pd.notnull(df[f"{var}_val"]), None).tolist()
+            # Using list comprehension to avoid PyArrow Result bug with .where(..., None)
+            vals = [None if pd.isna(x) else float(x) for x in df[f"{var}_val"]]
             variables[var] = {
                 "type": "numeric",
                 "values": vals,

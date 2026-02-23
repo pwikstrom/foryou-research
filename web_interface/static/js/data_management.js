@@ -23,17 +23,19 @@ function loadAvailableCollections() {
     fetch('/api/manage/collections')
         .then(res => res.json())
         .then(data => {
-            availableCollections = data; // Array of objects containing metadata
-            // After collections are loaded, assume studies can be rendered correctly?
-            // If loadStudies was called before, we might need to re-render.
-            // But we chained init order to call loadAvailableCollections first.
-            // So we trigger loadStudies HERE.
+            availableCollections = data;
+
             loadStudies();
+
+            const editContainer = document.getElementById('edit-activity-list-container');
+            if (editContainer) renderEditActivityTable(editContainer);
         })
         .catch(err => {
             console.error("Error loading collections list:", err);
-            // Even if collections fail, load studies
             loadStudies();
+
+            const editContainer = document.getElementById('edit-activity-list-container');
+            if (editContainer) renderEditActivityTable(editContainer);
         });
 }
 
@@ -76,8 +78,7 @@ function renderCollectionSelector(container, selectedList) {
     thead.innerHTML = `
         <tr style="text-align: left;">
             <th style="padding: 8px 5px; width: 30px; position: sticky; top: 0; background: #3e3e42; z-index: 10; border-bottom: 2px solid #555;"></th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Collection ID</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Display ID</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Collection / Display ID</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Tags</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Email</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Name</th>
@@ -133,6 +134,11 @@ function renderCollectionSelector(container, selectedList) {
 
         tr.setAttribute('data-search', searchString.toLowerCase());
 
+        // Omit hidden collections here
+        if (itemInfo.hidden) {
+            return;
+        }
+
         // Checkbox Cell
         const tdCheck = document.createElement('td');
         tdCheck.style.padding = '5px';
@@ -146,17 +152,20 @@ function renderCollectionSelector(container, selectedList) {
         };
         tdCheck.appendChild(cb);
 
-        const createCell = (text, isBold = false) => {
+        const createCell = (text, isBold = false, tooltip = null) => {
             const td = document.createElement('td');
             td.style.padding = '5px';
+            if (tooltip) {
+                td.title = tooltip;
+            }
             if (isBold) td.innerHTML = `<strong>${text}</strong>`;
             else td.textContent = text;
             return td;
         }
 
         tr.appendChild(tdCheck);
-        tr.appendChild(createCell(item, true));
-        tr.appendChild(createCell(pDisplayId));
+        const primaryId = pDisplayId ? pDisplayId : item;
+        tr.appendChild(createCell(primaryId, true, item));
         tr.appendChild(createCell(pTags));
         tr.appendChild(createCell(pEmail));
         tr.appendChild(createCell(pName));
@@ -177,6 +186,19 @@ function renderCollectionSelector(container, selectedList) {
 
     // Initial count update
     updateCollectionSelection(container.parentElement);
+
+    // Apply saved sort state
+    const studyRow = container.closest('.detail-row');
+    if (studyRow && studyRow.dataset.studyName) {
+        const savedState = tableSortStates.get(`study-${studyRow.dataset.studyName}`);
+        if (savedState) {
+            const headers = Array.from(thead.querySelectorAll('th'));
+            const targetHeader = headers.find(h => h.textContent.trim() === savedState.text);
+            if (targetHeader) {
+                window.sortCollectionTable(targetHeader, savedState.dir);
+            }
+        }
+    }
 }
 
 function updateCollectionSelection(selectorDiv) {
@@ -210,15 +232,17 @@ function updateCollectionSelection(selectorDiv) {
     }
 }
 
-window.sortCollectionTable = function (th) {
+let tableSortStates = new Map();
+
+window.sortCollectionTable = function (th, forceDir = null) {
     const table = th.closest('table');
     const tbody = table.querySelector('tbody');
-    const rows = Array.from(tbody.querySelectorAll('tr.donation-item'));
+    const rows = Array.from(tbody.querySelectorAll('tr'));
     const headerRow = th.parentElement;
     const columnIndex = Array.from(headerRow.children).indexOf(th);
 
     let currentDir = th.dataset.sortDir || 'desc';
-    let newDir = currentDir === 'asc' ? 'desc' : 'asc';
+    let newDir = forceDir ? forceDir : (currentDir === 'asc' ? 'desc' : 'asc');
 
     headerRow.querySelectorAll('th').forEach(header => {
         header.dataset.sortDir = '';
@@ -229,6 +253,20 @@ window.sortCollectionTable = function (th) {
     th.textContent += newDir === 'asc' ? ' ▲' : ' ▼';
 
     const textContent = th.textContent.replace(/ [▼▲]$/, '');
+
+    if (!forceDir) {
+        // Save sort state
+        const editContainer = th.closest('#edit-activity-list-container');
+        if (editContainer) {
+            tableSortStates.set('edit-activity', { dir: newDir, text: textContent });
+        } else {
+            const studyRow = th.closest('.detail-row');
+            if (studyRow && studyRow.dataset.studyName) {
+                tableSortStates.set(`study-${studyRow.dataset.studyName}`, { dir: newDir, text: textContent });
+            }
+        }
+    }
+
     const isNumeric = ['Age', 'Active Days', 'Total Events'].includes(textContent);
 
     rows.sort((a, b) => {
@@ -837,6 +875,7 @@ const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribut
 // Load collections FIRST, then studies to ensure selector populates correctly
 loadAvailableCollections();
 loadSystemRoles();
+loadIngestionSources();
 
 // --- Enrichment Stats & Logic ---
 
@@ -987,4 +1026,434 @@ function toggleSection(contentId, arrowId) {
         content.style.display = 'none';
         arrow.innerHTML = '▶'; // Right arrow
     }
+}
+
+// --- Data Ingestion Logic ---
+
+function loadIngestionSources() {
+    fetch('/api/manage/ingestion/sources')
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                renderIngestionSources(data.sources);
+            } else {
+                console.error("Failed to load ingestion sources:", data.error);
+            }
+        })
+        .catch(err => console.error("Error loading ingestion sources:", err));
+}
+
+function renderIngestionSources(sources) {
+    const container = document.getElementById('ingestion-sources-container');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (sources.length === 0) {
+        container.innerHTML = '<div style="color: #aaa; padding: 10px;">No collection subclasses registered.</div>';
+        return;
+    }
+
+    sources.forEach(source => {
+        const card = document.createElement('div');
+        card.style.background = '#3e3e42';
+        card.style.padding = '15px';
+        card.style.borderRadius = '4px';
+        card.style.border = '1px solid #555';
+        card.style.flex = '1';
+        card.style.minWidth = '300px';
+        card.style.marginBottom = '10px';
+
+        card.innerHTML = `
+            <div style="font-weight: bold; margin-bottom: 5px; font-size: 1.1em;">${source.class_name}</div>
+            <div style="font-size: 0.85em; color: #aaa; margin-bottom: 15px;">
+                <strong>Platform:</strong> ${source.source_platform} | <strong>Source:</strong> ${source.data_source}<br>
+                <strong>Raw Path:</strong> ${source.raw_path}
+            </div>
+            <div style="margin-top: 10px;">
+                <input type="file" id="file-${source.class_name}" style="display: none;" onchange="uploadIngestionFile('${source.class_name}', '${source.raw_path}')">
+                <button type="button" class="action-btn" style="background-color: #3b82f6;" onclick="document.getElementById('file-${source.class_name}').click()">
+                    Browse and Upload File
+                </button>
+                <div id="upload-status-${source.class_name}" style="margin-top: 5px; font-size: 0.85em; font-weight: bold; display: none;"></div>
+            </div>
+        `;
+
+        container.appendChild(card);
+    });
+}
+
+window.uploadIngestionFile = function (className, rawPath) {
+    const fileInput = document.getElementById(`file-${className}`);
+    const statusDiv = document.getElementById(`upload-status-${className}`);
+
+    if (!fileInput.files || fileInput.files.length === 0) return;
+
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('raw_path', rawPath);
+
+    statusDiv.textContent = "Uploading...";
+    statusDiv.style.color = "#aaa";
+    statusDiv.style.display = "block";
+
+    fetch('/api/manage/ingestion/upload', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken },
+        body: formData
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                statusDiv.textContent = "Upload successful!";
+                statusDiv.style.color = "#4cd964";
+                fileInput.value = ''; // clear input
+                setTimeout(() => { statusDiv.style.display = 'none'; }, 4000);
+            } else {
+                statusDiv.textContent = "Error: " + data.error;
+                statusDiv.style.color = "#dc3545";
+            }
+        })
+        .catch(err => {
+            statusDiv.textContent = "Upload failed.";
+            statusDiv.style.color = "#dc3545";
+        });
+}
+
+window.refreshIngestionCollection = function (btn) {
+    const originalText = btn.textContent;
+    btn.textContent = "Refreshing Collection...";
+    btn.disabled = true;
+
+    fetch('/api/manage/ingestion/refresh', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken }
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert("Collection successfully refreshed and processed.");
+                loadAvailableCollections();
+            } else {
+                alert("Error: " + data.error);
+            }
+        })
+        .catch(err => alert("Error triggering refresh: " + err))
+        .finally(() => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        });
+}
+
+// --- Edit Activity Data Modal Logic ---
+
+function renderEditActivityTable(container) {
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (availableCollections.length === 0) {
+        container.innerHTML = '<div style="padding: 10px; color: #aaa;">No collections available.</div>';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'collection-table';
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.style.color = '#ddd';
+    table.style.fontSize = '0.9em';
+
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr style="text-align: left;">
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Collection / Display ID</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Tags</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Email</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Name</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">TikTok</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Age</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Country</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">PostCode</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Active Days</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Total Events</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Last Event</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Added</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+
+    availableCollections.forEach(itemInfo => {
+        const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
+        let pEmail = '', pName = '', pTiktok = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
+        let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
+        let searchString = item;
+
+        if (typeof itemInfo === 'object') {
+            if (itemInfo.displayId) pDisplayId = itemInfo.displayId;
+            if (itemInfo.tags && Array.isArray(itemInfo.tags)) pTags = itemInfo.tags.join(', ');
+
+            if (itemInfo.participants) {
+                pEmail = itemInfo.participants.email || '';
+                pName = itemInfo.participants.name || '';
+                pTiktok = itemInfo.participants.tiktokHandle || '';
+                pAge = itemInfo.participants.age || '';
+                pCountry = itemInfo.participants.country || '';
+                pPostCode = itemInfo.participants.postCode || '';
+            }
+            if (itemInfo.personas) {
+                pActiveDays = itemInfo.personas.active_days ?? '';
+                pTotalEvents = itemInfo.personas.total_events ?? '';
+                if (itemInfo.personas.last_event_ts) {
+                    pLastEvent = String(itemInfo.personas.last_event_ts).split('T')[0];
+                }
+            }
+            if (itemInfo.other && itemInfo.other.ts_added_to_dataset) {
+                pAdded = String(itemInfo.other.ts_added_to_dataset).split('T')[0];
+            }
+            searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pTiktok} ${pAge} ${pCountry} ${pPostCode} ${pActiveDays} ${pTotalEvents} ${pLastEvent} ${pAdded}`;
+        }
+
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid #444';
+        tr.style.cursor = 'pointer';
+        tr.className = 'edit-activity-item';
+        tr.setAttribute('data-search', searchString.toLowerCase());
+
+        // Apply distinct styling to hidden collections
+        if (itemInfo.hidden) {
+            tr.style.opacity = '0.5';
+            tr.style.color = '#888';
+        }
+
+        tr.onmouseover = () => { tr.style.background = '#333'; }
+        tr.onmouseout = () => { tr.style.background = 'transparent'; }
+        tr.onclick = () => { openEditCollectionModal(itemInfo); }
+
+        const createCell = (text, isBold = false, tooltip = null) => {
+            const td = document.createElement('td');
+            td.style.padding = '5px';
+            if (tooltip) {
+                td.title = tooltip;
+            }
+            if (isBold) td.innerHTML = `<strong>${text}</strong>`;
+            else td.textContent = text;
+            return td;
+        }
+
+        const primaryId = pDisplayId ? pDisplayId : item;
+        tr.appendChild(createCell(primaryId, true, item));
+        tr.appendChild(createCell(pTags));
+        tr.appendChild(createCell(pEmail));
+        tr.appendChild(createCell(pName));
+        tr.appendChild(createCell(pTiktok));
+        tr.appendChild(createCell(pAge));
+        tr.appendChild(createCell(pCountry));
+        tr.appendChild(createCell(pPostCode));
+        tr.appendChild(createCell(pActiveDays));
+        tr.appendChild(createCell(pTotalEvents));
+        tr.appendChild(createCell(pLastEvent));
+        tr.appendChild(createCell(pAdded));
+
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    container.appendChild(table);
+
+    // Apply saved sort state
+    const savedState = tableSortStates.get('edit-activity');
+    if (savedState) {
+        const headers = Array.from(thead.querySelectorAll('th'));
+        const targetHeader = headers.find(h => h.textContent.trim() === savedState.text);
+        if (targetHeader) {
+            window.sortCollectionTable(targetHeader, savedState.dir);
+        }
+    }
+}
+
+function filterEditActivityCollections(inputElement) {
+    const searchText = inputElement.value.toLowerCase();
+    const selectorDiv = inputElement.closest('.edit-activity-content') || document.getElementById('edit-activity-content');
+    const items = selectorDiv.querySelectorAll('.edit-activity-item');
+
+    items.forEach(item => {
+        const text = item.getAttribute('data-search') || item.textContent.toLowerCase();
+        if (text.includes(searchText)) {
+            item.style.display = 'table-row';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+let currentEditCollectionId = null;
+let currentEditCollectionTags = [];
+
+function openEditCollectionModal(collectionObj) {
+    if (typeof collectionObj === 'string') {
+        const found = availableCollections.find(c => c.id === collectionObj);
+        if (found) collectionObj = found;
+        else collectionObj = { id: collectionObj };
+    }
+
+    currentEditCollectionId = collectionObj.id;
+    currentEditCollectionTags = Array.isArray(collectionObj.tags) ? [...collectionObj.tags] : [];
+
+    document.getElementById('edit-collection-id-display').innerText = currentEditCollectionId;
+    document.getElementById('edit-collection-id').value = currentEditCollectionId;
+    document.getElementById('edit-collection-display-id').value = collectionObj.displayId || currentEditCollectionId;
+
+    const hiddenCheckbox = document.getElementById('edit-collection-hidden');
+    if (hiddenCheckbox) {
+        hiddenCheckbox.checked = !!collectionObj.hidden;
+    }
+
+    dm_renderTags();
+    document.getElementById('editCollectionModal').style.display = 'block';
+}
+
+function closeEditCollectionModal() {
+    document.getElementById('editCollectionModal').style.display = 'none';
+    currentEditCollectionId = null;
+}
+
+function dm_renderTags() {
+    const container = document.getElementById('edit-collection-tags-container');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    const allTagsSet = new Set();
+    availableCollections.forEach(c => {
+        if (typeof c === 'object' && c.tags && Array.isArray(c.tags)) {
+            c.tags.forEach(t => allTagsSet.add(t));
+        }
+    });
+
+    currentEditCollectionTags.forEach(t => allTagsSet.add(t));
+
+    const allTags = Array.from(allTagsSet).sort();
+
+    allTags.forEach(tag => {
+        const isSelected = currentEditCollectionTags.includes(tag);
+        const chip = document.createElement('div');
+
+        const bg = isSelected ? '#007acc' : '#444';
+        const border = isSelected ? '1px solid #009ce6' : '1px solid #555';
+
+        chip.style.cssText = `
+            background: ${bg};
+            color: white;
+            border: ${border};
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.1s;
+        `;
+        chip.textContent = tag;
+        chip.onclick = () => dm_toggleTag(tag);
+
+        container.appendChild(chip);
+    });
+}
+
+function dm_toggleTag(tag) {
+    if (!currentEditCollectionId) return;
+    const idx = currentEditCollectionTags.indexOf(tag);
+    if (idx !== -1) {
+        currentEditCollectionTags.splice(idx, 1);
+    } else {
+        currentEditCollectionTags.push(tag);
+    }
+    dm_renderTags();
+}
+
+function dm_addNewTag() {
+    const input = document.getElementById('edit-collection-new-tag');
+    if (!input) return;
+
+    const val = input.value.trim();
+    if (!val) return;
+
+    const newTags = val.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    if (newTags.length > 0) {
+        newTags.forEach(tag => {
+            if (!currentEditCollectionTags.includes(tag)) {
+                currentEditCollectionTags.push(tag);
+            }
+        });
+        input.value = '';
+        dm_renderTags();
+    }
+}
+
+function dm_saveAnnotation() {
+    if (!currentEditCollectionId) return;
+
+    const displayIdInput = document.getElementById('edit-collection-display-id');
+    const displayId = displayIdInput.value;
+
+    const hiddenCheckbox = document.getElementById('edit-collection-hidden');
+    const isHidden = hiddenCheckbox ? hiddenCheckbox.checked : false;
+
+    const payload = {
+        donation_id: currentEditCollectionId,
+        display_donation_id: displayId,
+        tags: currentEditCollectionTags,
+        hidden: isHidden
+    };
+
+    const btn = document.getElementById('save-collection-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Saving...";
+    }
+
+    fetch('/api/donation/annotate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(payload)
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                if (btn) {
+                    btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
+                    btn.style.backgroundColor = '#2e7d32';
+
+                    setTimeout(() => {
+                        btn.innerText = 'Save Annotations';
+                        btn.style.backgroundColor = '';
+                        btn.disabled = false;
+                        closeEditCollectionModal();
+                        loadAvailableCollections();
+                    }, 1000);
+                } else {
+                    closeEditCollectionModal();
+                    loadAvailableCollections();
+                }
+            } else {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = 'Save Annotations';
+                }
+                alert('Error: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(err => {
+            console.error('Error saving annotations:', err);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = 'Save Annotations';
+            }
+            alert('Error saving annotations. Check console.');
+        });
 }
