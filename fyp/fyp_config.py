@@ -91,17 +91,21 @@ def initialize(
     # Resolve relative paths against the project root for consistent file access.
     cf["paths"]["local_data"] = os.path.abspath(os.path.join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
 
+
+    cf["paths"]["activity_data"] = os.path.join(cf["paths"]["local_data"],"activity_data")
+    cf["paths"]["processed_activities"] = os.path.join(cf["paths"]["activity_data"],"processed")
+
     # paths to zeeschuimer data
-    cf["paths"]["zeeschuimer"] = os.path.join(cf["paths"]["local_data"],"activity_data", "zeeschuimer")
+    cf["paths"]["zeeschuimer"] = os.path.join(cf["paths"]["activity_data"], "zeeschuimer")
     cf["paths"]["zeeschuimer_raw"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")
-    cf["paths"]["zeeschuimer_refined"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
+    #cf["paths"]["zeeschuimer_refined"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_refined")
     #cf["paths"]["zeeschuimer_main"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_main")
 
     # paths to ddp data
-    cf["paths"]["ddp"] = os.path.join(cf["paths"]["local_data"],"activity_data", "ddp")
+    cf["paths"]["ddp"] = os.path.join(cf["paths"]["activity_data"], "ddp")
     cf["paths"]["ddp_raw"] = os.path.join(cf["paths"]["ddp"], "ddp_raw")
-    cf["paths"]["ddp_processed"] = os.path.join(cf["paths"]["ddp"], "ddp_processed")
-    cf["paths"]["ddp_main"] = os.path.join(cf["paths"]["ddp"], "ddp_main")
+    #cf["paths"]["ddp_processed"] = os.path.join(cf["paths"]["ddp"], "ddp_processed")
+    #cf["paths"]["ddp_main"] = os.path.join(cf["paths"]["ddp"], "ddp_main")
     cf["paths"]["ddp_participants"] = os.path.join(cf["paths"]["ddp"], "ddp_participants")
 
     # paths to scrape data

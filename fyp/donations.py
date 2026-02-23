@@ -310,9 +310,9 @@ def get_recent_data_donations_from_aio_aws(
 
 
 
+"""
 
-
-def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_000_000), verbose=False):
+def add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_000_000), verbose=False):
     # attach session stats to donation events
 
     from pandas import isna as pd_isna, concat
@@ -402,7 +402,7 @@ def _add_session_info_to_ddp_log(ddp_log_in, session_id_counter = np.int64(10_00
         if verbose:
             print("no ddp data")
 
-    return ddp_log
+    return ddp_log"""
 
 
 
@@ -1150,8 +1150,8 @@ def generate_donation_metadata(
 
     old_metadata_df = pd.DataFrame()
     if load_from_disk:
-        if data_io.exists(storage_location="ddp_main", filename="ddp_metadata.parquet"):
-            old_metadata_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
+        if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
+            old_metadata_df = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet")
             if verbose:
                 print(f"Loaded existing metadata from storage. Shape: {old_metadata_df.shape}")
     else:
@@ -1175,7 +1175,7 @@ def generate_donation_metadata(
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
             #new_metadata_df = new_metadata_df.sort_index(axis='columns').sort_values(('other','D_id')).copy()
             if save_to_disk_ok:
-                data_io.save_parquet(df=new_metadata_df, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
+                data_io.save_parquet(df=new_metadata_df, storage_location="processed_activities", filename="ddp_metadata.parquet", verbose=verbose)
                 print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
             return new_metadata_df
 
@@ -1266,7 +1266,7 @@ def generate_donation_metadata(
     if save_to_disk_ok:
         if verbose:
             print(f"Saving updated metadata to disk. Shape: {combined_ddp_metadata.shape}")
-        data_io.save_parquet(df=combined_ddp_metadata, storage_location="ddp_main", filename="ddp_metadata.parquet", verbose=verbose)
+        data_io.save_parquet(df=combined_ddp_metadata, storage_location="processed_activities", filename="ddp_metadata.parquet", verbose=verbose)
 
     if verbose:
         print(f"Shape of the combined metadata DF: {combined_ddp_metadata.shape}")
@@ -1424,9 +1424,9 @@ def generate_donation_metadata(
         print(f"Number of donations in the latest successful run of this process: {len(latest_donation_ids)}")
 
     # get a list of accepted refined ddp files
-    if data_io.exists(storage_location="ddp_main",filename="ddp_metadata.parquet",verbose=verbose):
+    if data_io.exists(storage_location="processed_activities",filename="ddp_metadata.parquet",verbose=verbose):
         ddp_meta_file_exists = True
-        ddp_meta = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
+        ddp_meta = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet")
         if exclude_rejected:
             rejected_refined_ddp_files = ddp_meta[~ddp_meta[('other','accepted')]].index.to_list()
             rejected_refined_ddp_files = [f"{u}.parquet" for u in rejected_refined_ddp_files]
@@ -1799,7 +1799,7 @@ def simple_sample_ddp_events(
     MAX_GROUP_COUNT_SELECTED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_SELECTED_PER_DONATION",100)
 
     # sorting the events by donation and event id in order to have a replicable sample
-    #donation_metadata_df = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
+    #donation_metadata_df = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet")
     #donation_to_d_dict = donation_metadata_df[("other","D_id")].to_dict()
 
     #the_df["D_id"] = the_df[collection_id_column].map(donation_to_d_dict)

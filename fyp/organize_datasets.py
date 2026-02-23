@@ -22,7 +22,6 @@ def load_study_datasets(
     study_name = None,
     all_datasets = {},
     load_from_cache = True,
-    save_to_cache = True,
     verbose=False
     ):
 
@@ -45,7 +44,7 @@ def load_study_datasets(
     if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         tutti_data = {}
         cached_core_datasets = {}
-        for k in ['scrape','machine_annotations','donations']:#,'zeeschuimer']:
+        for k in ['scrape','machine_annotations','donations']:
             tutti_data[k] = None
 
             # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
@@ -85,20 +84,10 @@ def load_study_datasets(
     # load activity data
     # --------------------------------------------------------------------
 
-    # if zeeschuimer data is to be included in the analysis
-    #if fyp_cf["study_defs"][study_name].get("INCLUDE_ZEESCHUIMER_DATA",True):
-    #    tutti_data["zeeschuimer"] = load_zeeschuimer_data(study_name = study_name, all_data = tutti_data.get("zeeschuimer", None), verbose=verbose)
-    # if it should not be included, remove it from the dictionary if it exists
-    #elif "zeeschuimer" in tutti_data:
-    #    del tutti_data["zeeschuimer"]
 
 
     # if donation data is to be included in the analysis
-    if fyp_cf["study_defs"][study_name].get("INCLUDE_DONATION_DATA",True):
-        tutti_data["donations"] = load_donation_data(study_name = study_name, all_data = tutti_data.get("donations", None), verbose=verbose)
-    # if it should not be included, remove it from the dictionary if it exists
-    elif "donations" in tutti_data:
-        del tutti_data["donations"]
+    tutti_data["donations"] = load_donation_data(study_name = study_name, all_data = tutti_data.get("donations", None), verbose=verbose)
 
 
     for k in tutti_data.keys():
@@ -106,13 +95,13 @@ def load_study_datasets(
             tutti_data[k] = pd.DataFrame()
 
 
-    if tutti_data.get("donations", pd.DataFrame()).empty:# and tutti_data.get("zeeschuimer", pd.DataFrame()).empty:
+    if tutti_data.get("donations", pd.DataFrame()).empty:
         print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
         return None
 
 
     # --------------------------------------------------------------------
-    # sample donation data
+    # sample activity data
     # --------------------------------------------------------------------
     enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
 
@@ -147,7 +136,7 @@ def load_study_datasets(
             all_ddp_events_df = sample_frame, 
             verbose = verbose)
 
-    if tutti_data.get("donations", pd.DataFrame()).empty:# and tutti_data.get("zeeschuimer", pd.DataFrame()).empty:
+    if tutti_data.get("donations", pd.DataFrame()).empty:
         print(f"!!! [Core datasets] Sampling resulted in empty datasets for study definition '{study_name}'. Returning None")
         return None
 
@@ -159,11 +148,7 @@ def load_study_datasets(
 
     # I only want to download the enrichment data that are needed for this particular study. So I check which videos are in the
     # activity datasets, and use that to filter the enrichment metadata. 
-    unique_videos = set()
-    #if "zeeschuimer" in tutti_data:
-    #    unique_videos = unique_videos | set(tutti_data["zeeschuimer"]["item_id"].dropna().values.tolist())
-    if "donations" in tutti_data:
-        unique_videos = unique_videos | set(tutti_data["donations"]["item_id"].dropna().values.tolist())
+    unique_videos = set(tutti_data["donations"]["item_id"].dropna().values.tolist())
     print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets")
 
     # If the study is the special 'everything' study then I don't need to do this.
@@ -418,7 +403,7 @@ def select_videos_from_study_dataset(
 
 
 
-def generate_unique_videos_to_scrape_and_annotate(
+"""def generate_unique_videos_to_scrape_and_annotate(
     study_name = None,
     study_dataset = None,
     load_from_cache = True,
@@ -499,7 +484,7 @@ def generate_unique_videos_to_scrape_and_annotate(
     return {
         "annotate": selected_annotate_videos,
         "scrape": selected_scrape_videos
-    }
+    }"""
 
 
 
@@ -509,7 +494,7 @@ def generate_unique_videos_to_scrape_and_annotate(
 
 
 
-def check_unique_videos_to_scrape_and_annotate(
+"""def check_unique_videos_to_scrape_and_annotate(
     study_name = None,
     load_from_cache = True,
     save_to_cache = True,
@@ -529,7 +514,7 @@ def check_unique_videos_to_scrape_and_annotate(
     return {
         "annotate": interesting_videos["annotate"].shape,
         "scrape": interesting_videos["scrape"].shape
-    }
+    }"""
 
 
 
@@ -714,7 +699,7 @@ def consolidate_enrichment_data(force_consolidation=False, verbose=False):
 
 
 
-def OLD_consolidate_fyp_core_data(force_consolidation=False, verbose=False):
+"""def OLD_consolidate_fyp_core_data(force_consolidation=False, verbose=False):
 
 
     #(new_zeeschuimer_logs, zeeschuimer_logs), 
@@ -743,7 +728,7 @@ def OLD_consolidate_fyp_core_data(force_consolidation=False, verbose=False):
     print("...done.")
 
 
-    return fine_results
+    return fine_results"""
 
 
 
@@ -779,8 +764,8 @@ def new_merge(
     
 
 
-    if 'zeeschuimer' in all_datasets.keys():
-        del all_datasets['zeeschuimer']
+    #if 'zeeschuimer' in all_datasets.keys():
+    #    del all_datasets['zeeschuimer']
 
 
 
@@ -911,7 +896,6 @@ def create_study_recoded_dataset(
         study_name = study_name,
         all_datasets = all_datasets,
         load_from_cache = True,
-        save_to_cache = save_to_cache,
         verbose = verbose)
 
     if all_datasets == None:

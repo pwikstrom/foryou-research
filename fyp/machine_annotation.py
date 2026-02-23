@@ -1588,17 +1588,17 @@ def annotate_from_video_id_list(
 
 
 
-def annotate_from_scrape_data_file(
+"""def annotate_from_scrape_data_file(
     scrape_data_filename = None,
     verbose = False,
     notebook_mode = False):
 
     if notebook_mode:
         verbose = True
-    """
+    "-""
     This is a wrapper that is reading a scrape metadata file and extracts a list of video IDs
     to process. It then calls annotate_from_video_id_list.
-    """
+    "-""
 
     initialize_machine()
 
@@ -1618,7 +1618,7 @@ def annotate_from_scrape_data_file(
         fine_list = work_with_these_videos_list,
         verbose = verbose, 
         notebook_mode = notebook_mode
-        )
+        )"""
 
 
 
@@ -1728,7 +1728,7 @@ def annotate_videos_loop_from_list(
 
 
 
-def annotate_videos_loop(
+"""def annotate_videos_loop(
     study_name = None,
     study_dataset = None,
     load_from_cache = True,
@@ -1814,7 +1814,7 @@ def annotate_videos_loop(
 
 
 
-    print(f"Loop ended: {_dt.datetime.now()}")
+    print(f"Loop ended: {_dt.datetime.now()}")"""
 
 
 

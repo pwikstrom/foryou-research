@@ -564,8 +564,12 @@ def get_timeline_data(donation_id, interval='day'):
 
 
     # Ensure Cache Exists
-    if not check_and_update_timeline_cache(donation_id, viz_vars):
-        print("ERROR: Failed to update timeline cache.")
+    try:
+        if not check_and_update_timeline_cache(donation_id, viz_vars):
+            print("ERROR: Failed to update timeline cache.")
+            return {}
+    except Exception as e:
+        print(f"ERROR: Failed to update timeline cache: {e}")
         return {}
         
     # Get Counts Metadata (Load all 3 aggs to get lengths)
@@ -705,8 +709,8 @@ def load_display_id_map():
     mapping = {}
     da_filename = "donation_annotations.json"
     try:
-        if data_io.exists(storage_location="ddp_main", filename=da_filename):
-            annotations = data_io.load_json(storage_location="ddp_main", filename=da_filename) or {}
+        if data_io.exists(storage_location="processed_activities", filename=da_filename):
+            annotations = data_io.load_json(storage_location="processed_activities", filename=da_filename) or {}
             for raw_id, data in annotations.items():
                 disp = data.get('display_donation_id')
                 if disp and str(disp).strip():

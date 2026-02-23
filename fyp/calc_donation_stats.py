@@ -43,7 +43,7 @@ def generate_moniker(pers: dict, time_of_day_shares: dict) -> str:
         
     # Composite scores
     composite_expressiveness = pers.get("chattiness", 0)
-    composite_watching = (pers.get("patience", 0) + pers.get("binge_level", 0)) / 2
+    composite_watching = pers.get("patience", 0)
 
     adjectives_for_expressiveness = [
         "Quiet", "Reserved", "Mellow", "Chatty", "Talkative", "Expressive", "Vocal", "Outgoing"
@@ -153,22 +153,22 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     #df['is_new_session'] = (df['diff_sec'] > input_session_gap) | (df['diff_sec'].isna())
     #df['session_id'] = df['is_new_session'].astype(int).cumsum()
     
-    num_sessions = df['session_id'].nunique()
+    #num_sessions = df['session_id'].nunique()
 
     # Session Durations
-    session_stats = df.groupby('session_id')['T_local_timestamp'].agg(start_time='min', end_time='max')
-    session_stats['duration'] = (session_stats['end_time'] - session_stats['start_time']).dt.total_seconds()
+    #session_stats = df.groupby('session_id')['T_local_timestamp'].agg(start_time='min', end_time='max')
+    #session_stats['duration'] = (session_stats['end_time'] - session_stats['start_time']).dt.total_seconds()
     
-    if len(session_stats) == 0:
-        avg_session_duration = 0
-        longest_session = 0
-    else:
-        avg_session_duration = session_stats['duration'].mean()
-        longest_session = session_stats['duration'].max()
+    #if len(session_stats) == 0:
+    #    avg_session_duration = 0
+    #    longest_session = 0
+    #else:
+    #    avg_session_duration = session_stats['duration'].mean()
+    #    longest_session = session_stats['duration'].max()
 
     # Binge Level: % sessions longer than 20 mins (1200s)
-    long_sessions = (session_stats['duration'] > 1200).sum()
-    binge_level = long_sessions / max(1, num_sessions)
+    #long_sessions = (session_stats['duration'] > 1200).sum()
+    #binge_level = long_sessions / max(1, num_sessions)
     
     # 7. Engagement Rates
     # Comments
@@ -192,11 +192,11 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     # A. Session Velocity (Doomscroll Index)
     # Videos per minute of active session time
     # Check for valid session duration
-    total_session_minutes = session_stats['duration'].sum() / 60.0
-    if total_session_minutes > 1.0:
-        session_velocity_vpm = len(watch_df) / total_session_minutes
-    else:
-        session_velocity_vpm = 0.0 # undefined or too short
+    #total_session_minutes = session_stats['duration'].sum() / 60.0
+    #if total_session_minutes > 1.0:
+    #    session_velocity_vpm = len(watch_df) / total_session_minutes
+    #else:
+    #    session_velocity_vpm = 0.0 # undefined or too short
         
     # B. Weekend Bias
     # Ratio of avg events/day (Sat-Sun) vs (Mon-Fri)
@@ -307,7 +307,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     pers_input = {
         "chattiness": chattiness,
         "patience": patience,
-        "binge_level": binge_level,
+        #"binge_level": binge_level,
         "enthusiasm": enthusiasm
     }
     moniker = generate_moniker(pers_input, tod_shares)
@@ -332,7 +332,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
         'lifespan_days': int(lifespan_days),
         'total_events': int(total_events),
         'events_per_active_day': float(events_per_day),
-        'sessions_per_day': float(num_sessions / max(1, lifespan_days)),
+        #'sessions_per_day': float(num_sessions / max(1, lifespan_days)),
         'videos_per_day': float(videos_per_day),
         'comments_per_day': float(comments_per_day),
         'likes_per_day': float(likes_per_day),
@@ -344,10 +344,10 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
         'avg_watch_time_s': float(avg_watch_time),
         'median_watch_time_s': float(median_watch_time),
             
-        'num_sessions': int(num_sessions),
-        'avg_session_duration_s': float(avg_session_duration),
-        'longest_session_s': float(longest_session),
-        'binge_level': float(binge_level),
+        #'num_sessions': int(num_sessions),
+        #'avg_session_duration_s': float(avg_session_duration),
+        #'longest_session_s': float(longest_session),
+        #'binge_level': float(binge_level),
         
         'num_comments': int(num_comments),
         'num_likes': int(num_likes),
@@ -361,7 +361,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
         'consistency_top_2_hours': float(consistency_top_2),
         
         # New Detailed Metrics
-        'session_velocity_vpm': float(session_velocity_vpm),
+        #'session_velocity_vpm': float(session_velocity_vpm),
         'weekend_bias': float(weekend_bias),
         'avg_comment_len_chars': float(avg_comment_len_chars),
         #'activity_trend_slope': float(activity_trend_slope),

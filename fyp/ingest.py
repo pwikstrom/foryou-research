@@ -16,6 +16,7 @@ import numpy as np
 import datetime as _dt
 
 from fyp.recode_variables import infer_timezone_offset
+from fyp.donations import generate_donation_metadata#, add_session_info_to_ddp_log
 from fyp.types import convert_dtypes_to_pyarrow 
 from fyp.utils import clean_url
 from zoneinfo import ZoneInfo
@@ -40,72 +41,6 @@ def _day_segment_from_hour(hour: int) -> str:
     if hour <= 17:
         return "afternoon"
     return "evening"
-
-
-
-
-
-def transform_new_activity_data_format_to_old_format():
-    ddp_collections = TikTokDDPCollection()
-    zeeschuimer_collections = TikTokZeeschuimerCollection()
-
-    zeeschuimer_collections.load_raw(raw_path="/Users/<user>/fyp_local/activity_data/zeeschuimer/zeeschuimer_raw")
-    ddp_collections.load_raw(raw_path="/Users/<user>/fyp_local/activity_data/ddp/ddp_raw")
-
-    zeeschuimer_collections.process()
-    ddp_collections.process()
-
-    zeeschuimer_collections.identify_similar_file_content(drop_them=True)
-    ddp_collections.identify_similar_file_content(drop_them=True)
-
-    zeeschuimer_collections.add_local_time_features()
-    ddp_collections.add_local_time_features()
-
-    # this is a bit special
-    zeeschuimer_collections.data.loc[zeeschuimer_collections.data.loc[zeeschuimer_collections.data.collection_id.map(lambda x:x.startswith("SYD_"))].index,"collection_id"] = "BASELINE_2024"
-    zeeschuimer_collections.data.loc[zeeschuimer_collections.data.loc[zeeschuimer_collections.data.collection_id.map(lambda x:x.startswith("BNE_"))].index,"collection_id"] = "BASELINE_2024"
-    zeeschuimer_collections.data.loc[zeeschuimer_collections.data.loc[zeeschuimer_collections.data.collection_id.map(lambda x:x != "BASELINE_2024")].index,"collection_id"] = "Zee_generic"
-
-    combined_events_df = pd.concat([zeeschuimer_collections.data,ddp_collections.data], ignore_index=True)
-
-    #{u:u for u in combined_events_df.columns}
-        
-    combined_events_df_2 = combined_events_df.rename(columns={
-            'ts_added_to_dataset': 'ts_added_to_dataset',
-            'utc_timestamp': 'T_utc_timestamp',
-            'source_platform': 'source_platform',
-            'tz_offset': 'T_tz_offset',
-            'raw_file': 'raw_file',
-            'event_type': 'D_feature_name',
-            'item_id': 'item_id',
-            'data_source': 'data_source',
-            'collection_id': 'D_donation_id',
-            'local_timestamp': 'T_local_timestamp',
-            'local_weekday': 'T_local_weekday',
-            'local_week': 'T_local_week',
-            'local_day_segment': 'T_local_day_segment',
-            'local_date': 'T_local_date',
-            "watch_duration": "D_watch_duration",
-            "extra_data":"D_primary_value"
-        }, inplace=False).copy()
-    
-    combined_events_df_2.drop(["source_platform","raw_file","data_source"], axis=1, inplace=True)
-    combined_events_df_2 = don._add_session_info_to_ddp_log(ddp_log_in=combined_events_df_2)
-    
-    _ = data_io.save_parquet(df=combined_events_df_2, storage_location="recoded",filename="donations_recoded.parquet", asyncronous=False)
-
-
-    new_stats = don.generate_donation_metadata(
-        combined_events_df_2, 
-        update_col = None, 
-        sort_by=None, 
-        verbose=True, 
-        save_to_disk_ok=True,
-        load_from_disk=False)
-    new_stats[('other','accepted')] = True
-    new_stats[('participants', 'date')] = new_stats[('other', 'ts_added_to_dataset')]
-
-    _ = data_io.save_parquet(df=new_stats, storage_location="ddp_main",filename="ddp_metadata.parquet", asyncronous=False)
 
 
 
@@ -140,8 +75,14 @@ class ForYouBaseCollection(ABC):
         self.verbose = verbose
         self.data = pd.DataFrame()
         self.state: Literal["empty", "raw", "processed"] = "empty"
-        #self.ts_added_to_dataset = None # Should be set by subclasses
         self.additional_columns = {}
+        self.raw_path = None
+        self.processed_storage_location = "processed_activities"
+        self.min_required_rows_per_raw_file = 10
+        self.discarded_raw_files = []
+        self.source_platform = None
+        self.data_source = None
+        self.collections = []
 
 
     def clear(self):
@@ -153,15 +94,17 @@ class ForYouBaseCollection(ABC):
     def load_processed(
         self, 
         processed_fn: str, 
-        storage_location: str = "cache",
-        drop_similar_event_sequences: bool = True
-        ):
+        drop_similar_event_sequences: bool = True):
         
-        new_processed_data = data_io.load_parquet(storage_location=storage_location,filename=processed_fn, verbose=self.verbose)
+        new_processed_data = data_io.load_parquet(
+            storage_location=self.processed_storage_location,
+            filename=processed_fn,
+            verbose=self.verbose
+        )
 
         if len(self.data) > 0:
             if self.state != "processed":
-                print(f"Warning: There is data in this collection but the state is {self.state}. Existing data must be processed. Terminating.")
+                print(f"Warning: There is data in this collection but the state is '{self.state}'. Existing data must be processed. Cannot load new data.")
                 return
             print(f"Adding {len( new_processed_data):,} new processed events to existing {len(self.data):,} events.")
             self.data = pd.concat([self.data, new_processed_data], ignore_index=True)
@@ -180,24 +123,62 @@ class ForYouBaseCollection(ABC):
 
 
 
+    def save_processed(self):
+
+        if self.state != "processed":
+            print(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first.")
+            return
+        
+        fn = f"{self.source_platform}_{self.data_source}_processed.parquet"
+
+        if len(self.data) > 0:
+            local_time_cols = [c for c in self.data.columns if c.startswith("local_")]
+            if len(local_time_cols) > 0:
+                print("This dataset seem to have 'local time features' added. I am dropping these columns when saving.")
+                self.data.drop(local_time_cols, axis=1, inplace=True)
+                
+            _ = data_io.save_parquet(df=self.data, storage_location='processed_activities', filename=fn)
+
+        for collection in self.collections:
+            self.discarded_raw_files.extend(collection.discarded_raw_files)
+        self.discarded_raw_files = list(set(self.discarded_raw_files))
 
 
-    def load_raw(self, raw_path: str, min_required_rows_per_file: int = 10):
+        data_io.save_json(
+            data=self.discarded_raw_files,
+            storage_location=self.processed_storage_location,
+            filename=f"discarded_raw_files.json",
+            verbose=self.verbose
+        )
+
+
+
+
+
+
+    def load_raw(self, skip_these_raw_files: list[str] = []):
 
         if self.state != "empty":
-            print("Note that this collection is not empty. The current data will be replaced.")
+            print(f"This collection '{self.source_platform}_{self.data_source}' is not empty. The current data will be replaced.")
 
+        if self.raw_path is None:
+            raise ValueError("No raw path has been set for this collection.")
 
-        if os.path.isdir(raw_path):
-            all_the_files = [os.path.join(raw_path, f) for f in os.listdir(raw_path) if not f.startswith(".")]
+        if os.path.isdir(self.raw_path):
+            all_the_files = [os.path.join(self.raw_path, f) for f in os.listdir(self.raw_path) if not f.startswith(".")]
         else:
-            all_the_files = [raw_path]
+            all_the_files = [self.raw_path]
+
+
+        all_the_files = [f for f in all_the_files if os.path.basename(f) not in skip_these_raw_files+self.discarded_raw_files]
+
+
 
         many_dfs = []
         # load all files in the directory
         for fn in all_the_files:
             one_df = pd.DataFrame()
-            try:
+            if True:#try:
 
                 one_df = self.load_single_raw(fn)
 
@@ -206,14 +187,15 @@ class ForYouBaseCollection(ABC):
                     one_df["raw_file"] = os.path.basename(fn)
 
                     if self.verbose: print(f"Loaded file: {fn}. Number of rows: {len(one_df)}")
-            except Exception as e:
+            if False:#except Exception as e:
                 if self.verbose: print(f"Cannot load file: {fn}")
 
             # I will keep data from this file if there are at least 10 events. (just an arbitrary number)
-            if len(one_df) >= min_required_rows_per_file:
+            if len(one_df) >= self.min_required_rows_per_raw_file:
                 many_dfs.append(one_df)
             else:
                 if self.verbose: print(f"Discarding file: {fn}. Too few rows: {len(one_df)}")
+                self.discarded_raw_files.append(os.path.basename(fn))
             
 
         if len(many_dfs) > 1:
@@ -239,7 +221,8 @@ class ForYouBaseCollection(ABC):
     def process(self):
 
         if self.state != "raw":
-            raise ValueError("Collection is not in raw state. Please load raw data first.")
+            print(f"Collection '{self.source_platform}_{self.data_source}' is not in raw state. Cannot process. Please load raw data first.")
+            return
 
         df = self.process_single(self.data.copy())
 
@@ -256,39 +239,6 @@ class ForYouBaseCollection(ABC):
         """Subclasses must implement this logic."""
         pass
 
-
-
-        
-
-    def save(self):
-        if self.state != "processed":
-            raise ValueError("Collection is not in processed state. Please process data first.")
-        
-        collection_id_count = self.data['collection_id'].nunique()
-        print(f"There are {collection_id_count} collection IDs in this dataset")
-        for i,grp in self.data.groupby("collection_id"):
-            print(f"Saving collection ID: {i}")
-            metadata = {
-                "collection_id": i,
-                "source_platform": self.source_platform,
-                "data_source": self.data_source,
-                "ts_added_to_dataset": self.ts_added_to_dataset,
-                "state": self.state
-            }
-
-            data_io.save_parquet(
-                df=grp,
-                storage_location = "events",
-                filename=f"{i}.parquet",
-                verbose=self.verbose
-            )
-            data_io.save_json(
-                data = metadata,
-                storage_location = "events",
-                filename = f"{i}.json",
-                verbose=self.verbose
-            )
-        
 
 
 
@@ -327,10 +277,25 @@ class ForYouBaseCollection(ABC):
         """
 
         if self.state != "processed":
-            raise ValueError("Collection is not in processed state. Please process the collection first.")
+            print(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot identify similar file content. Please process data first.")
+            return {"drops": set(), "keepers": set()}
+
+
+
+        raw_files_1 = set(self.data["raw_file"].values)
 
         # starting off with basic deduplication.
         self.data = self.data.drop_duplicates(subset=["item_id","utc_timestamp","event_type","tz_offset"]).copy()
+
+        raw_files_2 = set(self.data["raw_file"].values)
+
+        dropped_raw_files = raw_files_1 - raw_files_2
+        self.discarded_raw_files.extend(dropped_raw_files)
+
+        if self.verbose:
+            print(f"Dropped {len(dropped_raw_files)} raw files from the dataset.")
+
+
 
         # dropping df cols and changing timestamp column to integers which makes set operations faster
         fine_events_df = self.data[[group_identifier,timestamp_column]].copy()
@@ -356,8 +321,9 @@ class ForYouBaseCollection(ABC):
                             else:
                                 drops.add(identifier_b)
                             break
-
         keepers = set(unique_idenfifiers) - drops
+
+        self.discarded_raw_files += list(drops)
 
         if drop_them:
             if self.verbose:
@@ -456,15 +422,195 @@ class ForYouBaseCollection(ABC):
 
 
 
+
+
+
+
+
+
+
+
+
 class ForYouCollection(ForYouBaseCollection):
     def __init__(self, collection_id: str = None, verbose: bool = False):
         super().__init__(collection_id, verbose)
+        self.source_platform = "all"
+        self.data_source = "foryou"
+        self.collections = []
+        if data_io.exists(storage_location=self.processed_storage_location, filename="discarded_raw_files.json"):
+            self.discarded_raw_files = data_io.load_json(
+                storage_location=self.processed_storage_location,
+                filename=f"discarded_raw_files.json",
+                verbose=self.verbose
+            )
+        else:
+            self.discarded_raw_files = []
+
 
     def load_single_raw(self, fn: str) -> pd.DataFrame:
         raise ValueError("Don't use this class to load raw data")
     
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Don't use this class to process raw data")
+
+
+
+    def register_collection_class(self, collection_class: Type[ForYouBaseCollection]):
+        if not issubclass(collection_class, ForYouBaseCollection):
+            raise ValueError(f"{collection_class} is not a subclass of ForYouBaseCollection")
+        if collection_class in [type(x) for x in self.collections]:
+            if self.verbose:
+                print(f"{collection_class} is already registered.")
+            return
+        self.collections.append(collection_class(verbose=self.verbose))
+        self.collections[-1].discarded_raw_files = self.discarded_raw_files
+
+
+
+    def load_processed(self):
+
+        processed_activity_files = [fn for fn in data_io.listdir(storage_location=self.processed_storage_location) if fn.endswith("_processed.parquet")]
+
+        if len(processed_activity_files) == 0:
+            if self.verbose:
+                print("No processed activity files found.")
+            return
+
+        concatation_required = len(processed_activity_files)>1 or len(self.data)>0
+
+        for i,fn in enumerate(processed_activity_files):
+            print(i, end=": ")
+            ForYouBaseCollection.load_processed(
+                self, 
+                processed_fn=fn, 
+                drop_similar_event_sequences=(concatation_required and i>=len(processed_activity_files)-1) # drop similar on the last one only
+            )
+
+
+
+
+    def process(self):
+        if len(self.collections) == 0:
+            print(f"This ForYouCollection does not have any sub collections. You need to register a collection class first.")
+            return
+        if self.verbose:
+            print("Processing the registered sub collections...")
+        for collection in self.collections:
+            collection.process()
+        if self.verbose:
+            print("Done processing the registered sub collections.")
+
+
+
+
+    def load_raw(self):
+        if len(self.collections) == 0:
+            print(f"This ForYouCollection does not have any sub collections. You need to register a collection class first.")
+            return
+        if self.verbose:
+            print("Loading new raw data for the registered sub collections...")
+
+        for collection in self.collections:
+            self.discarded_raw_files.extend(collection.discarded_raw_files)
+        self.discarded_raw_files = list(set(self.discarded_raw_files))
+
+        if len(self.data) > 0:
+            skip_these_raw_files = [os.path.basename(fn) for fn in self.data['raw_file'].unique()] + self.discarded_raw_files
+            print(f"Skipping {len(skip_these_raw_files):,} raw files that are already discarded or already in the collection.")
+        else:
+            skip_these_raw_files = self.discarded_raw_files
+        for collection in self.collections:
+            collection.load_raw(skip_these_raw_files=skip_these_raw_files)
+        if self.verbose:
+            print(f"Done loading raw {sum([len(collection.data) for collection in self.collections])} rows for the registered sub collections.")
+
+
+
+
+    def migrate_sub_collections(self):
+
+        states = [collection.state for collection in self.collections]
+        if not all(state == "processed" for state in states):
+            print(f"All sub collections must be processed before merging. Current states: {" | ".join(states)}")
+            return
+
+        if self.verbose:
+            print("Migrating the sub collections...")
+
+        if len(self.data) > 0:
+            self.data = pd.concat([self.data]+[collection.data for collection in self.collections], ignore_index=True)
+        else:
+            self.data = pd.concat([collection.data for collection in self.collections], ignore_index=True)
+
+        self.state = "processed"
+        self.identify_similar_file_content(drop_them=True)
+
+        for collection in self.collections:
+            self.discarded_raw_files.extend(collection.discarded_raw_files)
+        self.discarded_raw_files = list(set(self.discarded_raw_files))
+
+
+        for collection in self.collections:
+            print(f"Migrated {len(collection.data):,} events from {collection.collection_id} to {self.collection_id}.")
+            collection.data = pd.DataFrame()
+            collection.state = "empty"
+
+        if self.verbose:
+            print(f"Done migrating the sub collections. There are now {len(self.data):,} events in the collection.")
+
+
+
+
+
+    def convert_to_old_format(self):
+
+        mask = (self.data.data_source=="zeeschuimer") & (self.data.collection_id.map(lambda x:x.startswith("SYD_")))
+        self.data.loc[mask,"collection_id"] = "BASELINE_2024"
+        mask = (self.data.data_source=="zeeschuimer") & (self.data.collection_id.map(lambda x:x.startswith("BNE_")))
+        self.data.loc[mask,"collection_id"] = "BASELINE_2024"
+        mask = (self.data.data_source=="zeeschuimer") & (self.data.collection_id.map(lambda x:x != "BASELINE_2024"))
+        self.data.loc[mask,"collection_id"] = "Zee_generic"
+
+        #{u:u for u in combined_events_df.columns}
+            
+        self.data_old_format = self.data.rename(columns={
+                #'ts_added_to_dataset': 'ts_added_to_dataset',
+                'utc_timestamp': 'T_utc_timestamp',
+                #'source_platform': 'source_platform',
+                'tz_offset': 'T_tz_offset',
+                #'raw_file': 'raw_file',
+                'event_type': 'D_feature_name',
+                #'item_id': 'item_id',
+                #'data_source': 'data_source',
+                'collection_id': 'D_donation_id',
+                'local_timestamp': 'T_local_timestamp',
+                'local_weekday': 'T_local_weekday',
+                'local_week': 'T_local_week',
+                'local_day_segment': 'T_local_day_segment',
+                'local_date': 'T_local_date',
+                "watch_duration": "D_watch_duration",
+                "extra_data":"D_primary_value"
+            }, inplace=False).copy()
+        
+        self.data_old_format.drop(["source_platform","raw_file","data_source"], axis=1, inplace=True)
+        
+        _ = data_io.save_parquet(df=self.data_old_format, storage_location="recoded",filename="donations_recoded.parquet", asyncronous=False)
+
+
+        self.stats = generate_donation_metadata(
+            self.data_old_format, 
+            update_col = None, 
+            sort_by=None, 
+            verbose=True, 
+            save_to_disk_ok=True,
+            load_from_disk=False)
+        self.stats[('other','accepted')] = True
+        self.stats[('participants', 'date')] = self.stats[('other', 'ts_added_to_dataset')]
+
+        _ = data_io.save_parquet(df=self.stats, storage_location="processed_activities",filename="ddp_metadata.parquet", asyncronous=False)
+
+
+
 
 
 
@@ -481,6 +627,8 @@ class TikTokDDPCollection(ForYouBaseCollection):
         super().__init__(collection_id, verbose)
         self.source_platform = "tiktok"
         self.data_source = "ddp"
+        self.raw_path = "/Users/<user>/fyp_local/activity_data/ddp/ddp_raw"
+        self.min_required_rows_per_raw_file = 10
 
         self.additional_columns = {
             "watch_duration": "int64[pyarrow]"
@@ -489,8 +637,8 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
 
 
-    def load_single_raw(self, fn: str) -> pd.DataFrame:
-        with open(fn, "r") as f:
+    def load_single_raw(self, filename: str) -> pd.DataFrame:
+        with open(filename, "r") as f:
             donation_dict = json.load(f)
 
         # find list of dicts
@@ -513,16 +661,16 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
         # initialising the dataframe from the raw data.
         if len(donation_items) > 0:
-            one_df = pd.DataFrame.from_records(donation_items)
+            df = pd.DataFrame.from_records(donation_items)
 
         # a data donation package without at least a few watch events is not useful       
         # watch events are referred to as 'videolist' by TikTok 
-        n_watch_events = len(one_df[one_df['event_type'] == 'videolist'])
+        n_watch_events = len(df[df['event_type'] == 'videolist'])
         if n_watch_events <= 10:
-            if self.verbose: print(f"Discarding {fn} as it only has {n_watch_events} watch events.")
+            if self.verbose: print(f"Discarding {filename} as it only has {n_watch_events} watch events.")
             return pd.DataFrame()
 
-        return one_df
+        return df
 
 
 
@@ -687,6 +835,8 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         # The extra_data column is used for the timezone name
 
         super().__init__(collection_id, verbose)
+        self.raw_path = "/Users/<user>/fyp_local/activity_data/zeeschuimer/zeeschuimer_raw"
+        self.min_required_rows_per_raw_file = 1
         self.source_platform = "tiktok"
         self.data_source = "zeeschuimer"
         self.accepted_tiktok_urls = [
@@ -699,20 +849,20 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
 
 
-    def load_single_raw(self, fn: str) -> pd.DataFrame:
+    def load_single_raw(self, filename: str) -> pd.DataFrame:
         data = []
-        with open(fn, 'r') as file:
+        with open(filename, 'r') as file:
             for line in file:
                 data.append(json.loads(line))
 
         if len(data) > 0:
-            one_df = pd.json_normalize(data)
+            df = pd.json_normalize(data)
 
             # Only keeping data from accepted tiktok urls
-            if 'source_platform_url' in one_df.columns:
-                one_df = one_df[one_df['source_platform_url'].isin(self.accepted_tiktok_urls)].copy()
+            if 'source_platform_url' in df.columns:
+                df = df[df['source_platform_url'].isin(self.accepted_tiktok_urls)].copy()
         
-        return one_df
+        return df
 
 
 

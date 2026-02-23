@@ -411,10 +411,10 @@ def list_collections():
          return jsonify([])
 
     if True:#try:
-        # Load ddp_metadata from ddp_main
-        if data_io.exists(storage_location="ddp_main", filename="ddp_metadata.parquet"):
+        # Load ddp_metadata from processed_activities
+        if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
             df = data_io.load_parquet(
-                storage_location="ddp_main", 
+                storage_location="processed_activities", 
                 filename="ddp_metadata.parquet", 
                 verbose=False,
             )
@@ -425,8 +425,8 @@ def list_collections():
                 
             # Load annotations
             annotations = {}
-            if data_io.exists(storage_location="ddp_main", filename="donation_annotations.json"):
-                annotations = data_io.load_json(storage_location="ddp_main", filename="donation_annotations.json")
+            if data_io.exists(storage_location="processed_activities", filename="donation_annotations.json"):
+                annotations = data_io.load_json(storage_location="processed_activities", filename="donation_annotations.json")
                 
             # Construct structured dictionaries
             collections = []
@@ -473,7 +473,7 @@ def list_collections():
 
             return jsonify(collections)
         else:
-            print("ddp_metadata.parquet not found in ddp_main")
+            print("ddp_metadata.parquet not found in processed_activities")
             return jsonify([])
             
     if False:#except Exception as e:
@@ -506,7 +506,7 @@ def get_enrichment_stats():
         if 'annotated_ok' in enrichment_status.columns:
             annotated_videos = int(enrichment_status['annotated_ok'].sum())
     
-    ddp_metadata = data_io.load_parquet(storage_location="ddp_main", filename="ddp_metadata.parquet")
+    ddp_metadata = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet")
     if ddp_metadata is not None and not ddp_metadata.empty:
         unique_donations = int(ddp_metadata[ddp_metadata[('other','accepted')]].index.nunique())
         
