@@ -145,11 +145,17 @@ function changeViewerStudy(val) {
     viewerData.filters = {};
     viewerData.filteredIds = [];
     viewerData.currentIndex = -1;
+    viewerData.searchQuery = "";
 
+    // Reset Search UI
+    const searchInput = document.getElementById('viewer-search-input');
+    if (searchInput) searchInput.value = "";
+
+    // Parallel fetch: Load metadata (builds UI) AND immediately load unfiltered IDs to play first video 
     loadViewerMetadata();
+    applyViewerFilters(); // Fetch IDs in the background immediately
+
     // Also clear player
-    document.getElementById('viewer-video').src = "";
-    document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "";
     document.getElementById('viewer-video').src = "";
     document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "";
 
@@ -189,8 +195,8 @@ async function loadViewerMetadata() {
         viewerData.metadata = data;
         renderViewerFilters(data);
 
-        // Initial fetch of IDs with empty filters
-        applyViewerFilters();
+        // We removed `applyViewerFilters()` from here because `changeViewerStudy()` now
+        // calls it in parallel immediately, significantly speeding up the initial video load!
 
     } catch (e) {
         console.error(e);
@@ -602,14 +608,50 @@ async function applyViewerFilters() {
             return;
         }
 
+        // Capture the currently playing video ID before overwriting the array
+        const previousItemId = (viewerData.itemCount > 0 && viewerData.currentIndex >= 0)
+            ? viewerData.filteredIds[viewerData.currentIndex]
+            : null;
+
         viewerData.filteredIds = data.ids;
-        viewerData.itemCount = data.count;
+        viewerData.itemCount = data.count; // True total number of matching items
         viewerData.displayIds = data.display_ids || {};
+
+        // Let the user know if we capped the slider out at 10k
+        const isTruncated = data.truncated;
 
         // Reset to first item
         if (viewerData.itemCount > 0) {
-            viewerData.currentIndex = 0;
-            loadViewerItem(0);
+
+            // Check if the previously playing video survived the filter change
+            const newIndex = previousItemId ? viewerData.filteredIds.indexOf(previousItemId) : -1;
+
+            if (newIndex !== -1) {
+                // Video is still in the list! Just update index internally and skip reloading the video.
+                viewerData.currentIndex = newIndex;
+            } else {
+                // Video was filtered out, load the first item in the new list.
+                viewerData.currentIndex = 0;
+                loadViewerItem(0);
+            }
+
+            // Re-run nav update to ensure slider logic applies
+            updateNavUI();
+
+            // Override the index display to show truncation warning natively
+            if (isTruncated) {
+                document.getElementById('viewer-index').innerText = `${viewerData.currentIndex + 1} / ${viewerData.itemCount} (capped at 1k)`;
+                document.getElementById('viewer-index').title = "Result list is too large to fully load in browser. Only first 1,000 videos are scrollable. Apply more filters to narrow down.";
+
+                const slider = document.getElementById('viewer-slider');
+                if (slider) {
+                    slider.max = data.ids.length; // Max slider is the truncated length
+                    slider.value = viewerData.currentIndex + 1;
+                }
+            } else {
+                document.getElementById('viewer-index').title = "";
+            }
+
         } else {
             viewerData.currentIndex = -1;
             updateNavUI();

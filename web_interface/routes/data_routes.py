@@ -538,6 +538,17 @@ def api_viewer_ids():
 
     
     ids = filtered_df[id_col].astype(str).tolist()
+    
+    total_count = len(ids)
+    
+    # TRUNCATION OPTIMIZATION: 
+    # Sending 750,000 massive string IDs to the frontend takes many seconds just to serialize
+    # and causes browser jank when parsing. Humans can't scrub 750k videos manually anyway.
+    # We cap at 1,000 to keep the UI ultra-snappy while still showing accurate totals.
+    truncated = False
+    if len(ids) > 1000:
+        ids = ids[:1000]
+        truncated = True
 
     # Return display IDs map for the returned filtered IDs
     display_map = load_display_id_map()
@@ -546,7 +557,12 @@ def api_viewer_ids():
         if i in display_map:
             relevant_display_ids[i] = display_map[i]
 
-    return jsonify({"ids": ids, "count": len(ids), "display_ids": relevant_display_ids})
+    return jsonify({
+        "ids": ids, 
+        "count": total_count, # True total count
+        "display_ids": relevant_display_ids,
+        "truncated": truncated
+    })
 
 
 @data_bp.route('/api/viewer/tags', methods=['GET'])
@@ -1050,8 +1066,20 @@ def api_viewer_item(study, item_id):
     df, col_types = get_explorer_data(study, context="viewer")
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
+        
+    id_col = 'item_id'
+    if id_col not in df.columns:
+        if 'video_id' in df.columns: id_col = 'video_id'
+        else: return jsonify({"error": "ID column missing"}), 500
+
+    # OPTIMIZATION: Filter down to the item FIRST before running huge global filters and tag enrichment!
+    # This turns an O(N) operation heavily bottlenecked by dataset size into an O(1) instantaneous fetch
+    df = df[df[id_col].astype(str) == str(item_id)]
     
-    # Enrich with User Tags
+    if df.empty:
+        return jsonify({"error": "Item not found in current context"}), 404
+    
+    # Enrich with User Tags (now extremely fast since df is tiny)
     username = current_user.username
     
     # Check for Shared Annotations
@@ -1072,26 +1100,22 @@ def api_viewer_item(study, item_id):
     df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
 
     # Apply Context Filters if provided (POST)
+    # We still need this in case duplicate rows exist for the same item_id, 
+    # to find the specific duplicate row that matched the global filters.
     if request.method == 'POST':
         data = request.json or {}
         filters = data.get("filters", {})
         search_query = data.get("search_query")
         
         if filters or search_query:
-            df = explorer.filter_dataframe(df, col_types, filters, search_query)
-
-    id_col = 'item_id'
-    if id_col not in df.columns:
-        if 'video_id' in df.columns: id_col = 'video_id'
-        else: return jsonify({"error": "ID column missing"}), 500
-
-    row = df[df[id_col].astype(str) == str(item_id)]
-    
-    if row.empty:
-        return jsonify({"error": "Item not found in current context"}), 404
-    
-    record = row.iloc[0].replace({np.nan: None}).to_dict()
-    
+            filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
+            # If the filter dropped all duplicates, we fallback to the first unfiltered one
+            # to avoid returning a 404 when clicking next/prev immediately after a filter change.
+            if not filtered_df.empty:
+                 df = filtered_df
+    # Since we sliced df to the specific item at the completely top, 
+    # df now only contains exactly the matching duplicate row(s).
+    record = df.iloc[0].replace({np.nan: None}).to_dict()
     # Inject Shared Annotations for this item
     if shared_detailed_map:
         str_id = str(item_id)

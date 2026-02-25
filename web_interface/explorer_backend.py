@@ -188,11 +188,55 @@ def filter_dataframe(df, column_types, filters, search_query=None):
             original_indices = filtered_df.index
             final_mask = pd.Series(True, index=original_indices)
             
+            # Extract explicitly searchable columns from schema
+            explicit_searchable_vars = set()
+            if 'var_schema' in fyp_cf and isinstance(fyp_cf['var_schema'], pd.DataFrame):
+                vs = fyp_cf['var_schema']
+                if 'searchable' in vs.columns and 'variable_name' in vs.columns:
+                    # Look for '1' or 1.0
+                    is_searchable = vs['searchable'].astype(str).str.strip().str.startswith('1')
+                    explicit_searchable_vars = set(vs.loc[is_searchable, 'variable_name'].astype(str).tolist())
+            
+            # Pre-filter columns to search
+            # Avoid casting huge numeric arrays to string if the search term isn't a number
+            searchable_cols = []
+            for col in filtered_df.columns:
+                # If the column is in the schema, it MUST have searchable == 1
+                if explicit_searchable_vars and 'var_schema' in fyp_cf:
+                    # To handle dynamic columns not in schema (like User Tags), we still check schema presence
+                    if col in vs['variable_name'].values and col not in explicit_searchable_vars:
+                         continue # Skip this column if it's in schema but not searchable
+
+                dtype = column_types.get(col)
+                if dtype in ["category", "long_text", "identifier", "list"]:
+                    searchable_cols.append(col)
+            
             for term in terms:
                 term_mask = pd.Series(False, index=original_indices)
-                for col in filtered_df.columns:
+                term_is_numeric = term.replace('.', '', 1).isdigit()
+                
+                cols_to_search = searchable_cols.copy()
+                if term_is_numeric:
+                    # Add numeric columns if the term looks like a number
+                    for col in filtered_df.columns:
+                        if column_types.get(col) == "number":
+                            cols_to_search.append(col)
+                
+                for col in cols_to_search:
                     try:
-                        mask = filtered_df[col].astype(str).str.contains(term, case=False, na=False)
+                        dtype = column_types.get(col)
+                        if dtype == "list":
+                            # Lists are complex, fallback to standard object string casting
+                            mask = filtered_df[col].astype(str).str.lower().str.contains(term, regex=False, na=False)
+                        else:
+                            try:
+                                # Attempt fast PyArrow string engine
+                                col_str = filtered_df[col].astype("string[pyarrow]").str.lower()
+                                mask = col_str.str.contains(term, regex=False, na=False)
+                            except:
+                                # Fallback if PyArrow string conversion fails
+                                mask = filtered_df[col].astype(str).str.lower().str.contains(term, regex=False, na=False)
+                                
                         term_mask |= mask
                     except:
                         continue
