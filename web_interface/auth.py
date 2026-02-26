@@ -126,7 +126,7 @@ def verify_password(stored_password, provided_password):
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None):
         self.id = username
         self.username = username
         self.role = role
@@ -134,8 +134,7 @@ class User(UserMixin):
         self.approved = approved
         self.last_login = last_login
         self.settings = settings if settings is not None else {}
-
-
+        self.machine_annotation_votes = machine_annotation_votes if machine_annotation_votes is not None else {}
 
     def is_admin(self):
         return self.role == ROLE_ADMIN and self.approved
@@ -147,7 +146,8 @@ class User(UserMixin):
             "password_hash": self.password_hash,
             "approved": self.approved,
             "last_login": self.last_login,
-            "settings": self.settings
+            "settings": self.settings,
+            "machine_annotation_votes": self.machine_annotation_votes
         }
 
 # --- User Manager ---
@@ -262,7 +262,8 @@ class UserManager:
                             password_hash=user_data.get('password_hash'),
                             approved=user_data.get('approved', True),
                             last_login=user_data.get('last_login'),
-                            settings=user_data.get('settings', {})
+                            settings=user_data.get('settings', {}),
+                            machine_annotation_votes=user_data.get('machine_annotation_votes', {})
                         )
                 except Exception as e:
                     logger.error(f"Failed to load user file {f}: {e}")
@@ -392,6 +393,25 @@ class UserManager:
         self.users[username].settings.update(settings)
         self.save_user(username)
         return True, "Settings updated"
+
+    def register_annotation_vote(self, username, collection_id, period):
+        if username not in self.users:
+            return False, "User not found"
+            
+        user = self.users[username]
+        votes = user.machine_annotation_votes
+        
+        # Initialize list for this collection if missing
+        if collection_id not in votes:
+             votes[collection_id] = []
+             
+        # Add the period if they haven't voted for it already
+        if period not in votes[collection_id]:
+             votes[collection_id].append(period)
+             self.save_user(username)
+             return True, "Vote registered"
+             
+        return True, "Already voted"
 
     def verify_user(self, username, password):
         user = self.users.get(username)

@@ -56,9 +56,35 @@
             </div>
 
             <div id="timelines-charts-container">
-                <p class="text-muted" style="margin-top: 50px; text-align: center;">Select a collection to view timelines.
+                <p class="text-muted" style="margin-top: 50px; text-align: center;">Select a collection to view
+                    timelines.
                 </p>
             </div>
+
+            <!-- Timeline Stats Modal -->
+            <div id="timeline-stats-modal" class="modal"
+                onclick="document.getElementById('timeline-stats-modal').style.display='none'">
+                <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 600px;">
+                    <span class="close"
+                        onclick="document.getElementById('timeline-stats-modal').style.display='none'">&times;</span>
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; margin-right: 30px;">
+                        <h3 id="timeline-stats-title" style="margin-top: 0; margin-bottom: 0; color: #fff;">Period Stats
+                        </h3>
+                        <button id="timeline-vote-btn" class="btn"
+                            style="background-color: #007bff; color: white; padding: 6px 12px; font-size: 0.9em; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s;"
+                            onmouseover="this.style.backgroundColor='#0056b3'"
+                            onmouseout="this.style.backgroundColor='#007bff'"
+                            onclick="window.timelines.voteMachineAnnotation()">
+                            Vote to machine annotate
+                        </button>
+                    </div>
+                    <div id="timeline-stats-content" style="max-height: 60vh; overflow-y: auto; margin-bottom: 5px;">
+                        <p style="color: #bbb;">Loading stats...</p>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>

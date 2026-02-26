@@ -28,6 +28,9 @@ if __name__ == "__main__":
         load_schema_metadata(meta)
         viz_vars = meta.get('timeline_priority', [])
         
+        if 'machine_state' not in viz_vars:
+            viz_vars = ['machine_state'] + viz_vars
+            
         if not viz_vars:
             print("Warning: No timeline variables defined in schema (timeline_priority).")
         

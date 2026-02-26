@@ -11,6 +11,7 @@ let viewerData = {
     sortOrder: 'asc',
     currentIndex: -1,
     userTags: {},
+    userVotes: [],
     activeModal: { item_id: null, variable: null, currentTags: [] },
     displayIds: {} // Map of raw_id -> display_id
 };
@@ -21,6 +22,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (document.getElementById('video_viewer')) {
         loadViewerStudies();
         loadUserTags();
+        loadUserVotes();
 
         // Tagging Input Listener
         const tagInput = document.getElementById('tagging-input');
@@ -96,6 +98,42 @@ async function loadUserTags() {
             viewerData.userTags = await res.json();
         }
     } catch (e) { console.error("Failed to load tags", e); }
+}
+
+async function loadUserVotes() {
+    try {
+        const res = await fetch('/api/viewer/votes');
+        if (res.ok) {
+            viewerData.userVotes = await res.json();
+        }
+    } catch (e) { console.error("Failed to load votes", e); }
+}
+
+async function submitVote(itemId) {
+    if (!itemId) return;
+    try {
+        const res = await fetch('/api/viewer/vote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: itemId })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.votes) {
+                viewerData.userVotes = data.votes;
+                // Re-render just the button text
+                const container = document.getElementById('viewer-vote-container');
+                if (container) {
+                    container.innerHTML = '<span style="color: #aaa; font-style: italic;">Voted</span>';
+                }
+            }
+        } else {
+            alert("Failed to record vote.");
+        }
+    } catch (e) {
+        console.error("Failed to submit vote", e);
+        alert("Failed to submit vote");
+    }
 }
 
 async function loadViewerStudies() {
@@ -746,6 +784,29 @@ function linkify(text) {
 function renderMetadata(item) {
     const tbody = document.getElementById('viewer-metadata').querySelector('tbody');
     tbody.innerHTML = '';
+
+    // Update Vote Button Container
+    const voteContainer = document.getElementById('viewer-vote-container');
+    if (voteContainer && item.item_id) {
+        const itemIdStr = String(item.item_id);
+        const ann_ok = item['annotated_ok'];
+        const mach_ann = item['Machine Annotations'];
+
+        const isSuccess = mach_ann === 'Machine Annotation Success' || ann_ok === true || ann_ok === 'True' || ann_ok === 1;
+        const isFailed = mach_ann === 'Cannot Machine Annotate' || ann_ok === false || ann_ok === 'False' || ann_ok === 0;
+
+        if (isSuccess) {
+            voteContainer.innerHTML = '<span style="color: #4CAF50;">Machine Annotation Success</span>';
+        } else if (isFailed) {
+            voteContainer.innerHTML = '<span style="color: #e57373;">Cannot Machine Annotate</span>';
+        } else {
+            if (viewerData.userVotes && viewerData.userVotes.includes(itemIdStr)) {
+                voteContainer.innerHTML = '<span style="color: #aaa; font-style: italic;">Voted</span>';
+            } else {
+                voteContainer.innerHTML = `<button class="btn-primary" style="padding: 2px 8px; font-size: 0.85em; cursor: pointer; border: none; border-radius: 4px; background-color: #007acc; color: white;" onclick="submitVote('${itemIdStr}')">Vote to machine annotate</button>`;
+            }
+        }
+    }
 
     // Inject Display ID if present at top
     if (item.display_donation_id) {

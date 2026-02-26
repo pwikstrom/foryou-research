@@ -401,8 +401,6 @@ def api_explorer_filter():
     username = current_user.username
     df, col_types = enrich_with_user_tags(df, col_types, username)
     
-    """df = df[df.annotated_ok].copy()
-    print(f"    Filtered to {len(df):,} annotated events")"""
 
     filters = data.get("filters", {})
     search_query = data.get("search_query")
@@ -444,7 +442,7 @@ def api_explorer_filter():
             result['stats'] = res1['stats']
             result['count'] = res1['count']
     
-    # --- SLICE 2 ---
+
     # --- SLICE 2 ---
     if "filters2" in data and (trigger_slice is None or trigger_slice == 2):
         filters2 = data.get("filters2", {})
@@ -542,9 +540,9 @@ def api_viewer_ids():
     total_count = len(ids)
     
     # TRUNCATION OPTIMIZATION: 
-    # Sending 750,000 massive string IDs to the frontend takes many seconds just to serialize
-    # and causes browser jank when parsing. Humans can't scrub 750k videos manually anyway.
-    # We cap at 1,000 to keep the UI ultra-snappy while still showing accurate totals.
+    # Sending a lot of massive string IDs to the frontend takes many seconds just to serialize
+    # and causes browser jank when parsing. 
+    # I cap at 1,000 to keep the UI snappy while still showing accurate totals.
     truncated = False
     if len(ids) > 1000:
         ids = ids[:1000]
@@ -705,11 +703,68 @@ def api_delete_tag(tag_name):
         user_file_data['annotations'] = user_data # Update annotations block
         data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
         return jsonify({"status": "success", "message": f"Tag '{tag_name}' deleted"})
-    else:
         return jsonify({"status": "success", "message": "Tag not found in any item"}), 200
 
 
+@data_bp.route('/api/viewer/votes', methods=['GET'])
+@login_required
+def api_get_votes():
+    username = current_user.username
+    filename = f"{username}.json"
+    
+    if data_io.exists(storage_location="users", filename=filename):
+        user_data = data_io.load_json(storage_location="users", filename=filename) or {}
+        votes = user_data.get('votes', [])
+        return jsonify(votes)
+    else:
+        return jsonify([])
 
+
+@data_bp.route('/api/viewer/vote', methods=['POST'])
+@login_required
+def api_save_vote():
+    data = request.json or {}
+    item_id = str(data.get("item_id"))
+    
+    if not item_id or item_id == "None":
+        return jsonify({"error": "Missing required item_id"}), 400
+        
+    username = current_user.username
+    print(f"[VOTES] Saving vote for {username} on item {item_id}")
+    filename = f"{username}.json"
+    
+    user_file_data = {}
+    if data_io.exists(storage_location="users", filename=filename):
+        user_file_data = data_io.load_json(storage_location="users", filename=filename) or {}
+        
+    votes = user_file_data.get('votes', [])
+    if item_id not in votes:
+        votes.append(item_id)
+        user_file_data['votes'] = votes
+        data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
+        
+    return jsonify({"status": "success", "votes": votes})
+
+@data_bp.route('/api/timelines/vote_annotation', methods=['POST'])
+@login_required
+def api_save_annotation_vote():
+    data = request.json or {}
+    collection_id = data.get("collection_id")
+    period = data.get("period")
+    
+    if not collection_id or not period:
+        return jsonify({"error": "Missing required collection_id or period"}), 400
+        
+    username = current_user.username
+    print(f"[VOTES] Saving machine annotation vote for {username} on collection {collection_id} for period {period}")
+    
+    # Use user_manager directly
+    success, msg = user_manager.register_annotation_vote(username, collection_id, period)
+    
+    if success:
+         return jsonify({"status": "success", "message": msg})
+    else:
+         return jsonify({"error": msg}), 400
 
 
 

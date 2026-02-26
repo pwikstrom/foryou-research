@@ -243,9 +243,17 @@ window.timelines = {
         //console.log("TIMELINE DEBUG: Dates length", dates.length);
         //console.log("TIMELINE DEBUG: Variables keys", Object.keys(data.variables));
 
+        let varKeys = Object.keys(data.variables);
+        // Ensure machine_state is always first
+        if (varKeys.includes('machine_state')) {
+            varKeys = varKeys.filter(k => k !== 'machine_state');
+            varKeys.unshift('machine_state');
+        }
+
         // Iterate over variables
-        Object.keys(data.variables).forEach(varName => {
+        varKeys.forEach(varName => {
             const varData = data.variables[varName];
+            const displayTitle = varName === 'machine_state' ? 'Scrape and Annotation States' : varName;
 
             const chartWrapper = document.createElement('div');
             chartWrapper.className = 'timeline-chart-wrapper';
@@ -260,7 +268,7 @@ window.timelines = {
             controlsDiv.style.width = '200px';
             controlsDiv.style.paddingRight = '10px';
             controlsDiv.style.borderRight = '1px solid #333';
-            controlsDiv.innerHTML = `<h4>${varName}</h4>`;
+            controlsDiv.innerHTML = `<h4>${displayTitle}</h4>`;
 
             const plotDiv = document.createElement('div');
             plotDiv.style.flex = 1;
@@ -282,7 +290,8 @@ window.timelines = {
             // Logic per type
             if (varData.type === 'categorical') {
                 // Initialize or retrieve selected categories from state
-                const selectedCats = this.timelineState.categoricalSelections[varName] || (varData.top_categories ? varData.top_categories.slice(0, 3) : []);
+                const defaultCats = varData.default_all ? (varData.top_categories || []) : (varData.top_categories ? varData.top_categories.slice(0, 3) : []);
+                const selectedCats = this.timelineState.categoricalSelections[varName] || defaultCats;
 
                 // Store in state if not already
                 if (!this.timelineState.categoricalSelections[varName]) {
@@ -304,7 +313,7 @@ window.timelines = {
                 // (This block recreates the checkboxes every time)
                 // In production might want to only create once, but here we redraw all.
                 controlsDiv.innerHTML = `
-                    <h4>${varName}</h4>
+                    <h4>${displayTitle}</h4>
                     <div style="font-size:0.85em; margin-bottom:5px; color:#aaa;">Select Categories:</div>
                     <div style="max-height:100px; overflow-y:auto; border:1px solid #444; padding:5px;">
                         ${allCategories.map(cat => `
@@ -413,6 +422,14 @@ window.timelines = {
             }
 
             Plotly.newPlot(plotId, traces, layout, { displayModeBar: true, responsive: true });
+
+            // Bind click event to show stats modal
+            document.getElementById(plotId).on('plotly_click', (eventData) => {
+                if (eventData && eventData.points && eventData.points.length > 0) {
+                    window.timelines.showPeriodStats(eventData.points[0].x);
+                }
+            });
+
         });
 
         // Restore scroll position
@@ -436,6 +453,150 @@ window.timelines = {
         }
 
         this.renderTimelineCharts();
+    },
+
+    voteMachineAnnotation: function () {
+        if (!this.currentStatsPeriod || !this.currentDonationId) {
+            alert('Selection data missing.');
+            return;
+        }
+
+        // Grab current context
+        const periodStr = this.currentStatsPeriod;
+        const collectionId = this.currentDonationId;
+
+        const btn = document.getElementById('timeline-vote-btn');
+        btn.disabled = true;
+        const originalText = btn.innerText;
+        btn.innerText = 'Voting...';
+
+        fetch('/api/timelines/vote_annotation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                collection_id: collectionId,
+                period: periodStr
+            })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    btn.innerText = 'Voted \u2713'; // Unicode checkmark
+                    btn.style.backgroundColor = '#28a745'; // Green success
+                    // Disable button completely or leave it success state (allow re-click but backend handles dupes)
+                } else {
+                    alert('Failed to vote: ' + data.error);
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Network error submitting vote.');
+                btn.innerText = originalText;
+                btn.disabled = false;
+            });
+    },
+
+    showPeriodStats: function (clickedDate) {
+        if (!this.timelineData || !this.timelineData.dates) return;
+
+        const dateIndex = this.timelineData.dates.indexOf(clickedDate);
+        if (dateIndex === -1) return;
+
+        // Find formatted label
+        const formattedLabel = this.timelineData.date_labels ? this.timelineData.date_labels[dateIndex] : clickedDate;
+
+        const modal = document.getElementById('timeline-stats-modal');
+        const titleEl = document.getElementById('timeline-stats-title');
+        const contentEl = document.getElementById('timeline-stats-content');
+
+        if (!modal || !titleEl || !contentEl) return;
+
+        // Determine formatted period string based on current active interval
+        const intervalInput = document.querySelector('input[name="timeline-interval"]:checked');
+        const interval = intervalInput ? intervalInput.value : 'day';
+
+        let periodStr = clickedDate; // Day: 'YYYY-MM-DD'
+        if (interval === 'month') {
+            periodStr = clickedDate.substring(0, 7); // 'YYYY-MM'
+        } else if (interval === 'week') {
+            // For weeks, the backend date_label is 'YYYY-WW' (e.g., '2023-41')
+            if (formattedLabel && /^\d{4}-\d{2}$/.test(formattedLabel)) {
+                periodStr = formattedLabel.replace('-', '-W'); // '2023-W41'
+            } else {
+                periodStr = 'Week-of-' + clickedDate; // fallback
+            }
+        }
+
+        // Save state for voting button
+        this.currentStatsPeriod = periodStr;
+
+        titleEl.innerText = `Stats for: ${formattedLabel}`;
+
+        // Reset vote button state from previous clicks
+        const btn = document.getElementById('timeline-vote-btn');
+        if (btn) {
+            btn.innerText = 'Vote to machine annotate';
+            btn.style.backgroundColor = '#007bff';
+            btn.disabled = false;
+        }
+
+        let html = '<table style="width: 100%; border-collapse: collapse; margin-top: 10px; color: #eee;">';
+        html += '<thead style="border-bottom: 2px solid #555;"><tr><th style="padding: 8px; text-align: left;">Variable</th><th style="padding: 8px; text-align: left;">Value</th></tr></thead>';
+        html += '<tbody>';
+
+        // Use the ordered keys to keep machine_state at top
+        let varKeys = Object.keys(this.timelineData.variables);
+        if (varKeys.includes('machine_state')) {
+            varKeys = varKeys.filter(k => k !== 'machine_state');
+            varKeys.unshift('machine_state');
+        }
+
+        varKeys.forEach(varName => {
+            const varData = this.timelineData.variables[varName];
+            const displayTitle = varName === 'machine_state' ? 'Scrape/Annotation States' : varName;
+
+            html += `<tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; vertical-align: top; font-weight: bold;">${displayTitle}</td>`;
+            html += `<td style="padding: 8px; vertical-align: top;">`;
+
+            if (varData.type === 'categorical' && varData.counts) {
+                const dayCounts = varData.counts[dateIndex] || {};
+
+                // Sort categories by count descending for this specific day
+                const sortedCats = Object.keys(dayCounts).sort((a, b) => dayCounts[b] - dayCounts[a]);
+
+                if (sortedCats.length === 0) {
+                    html += `<span style="color: #888;">No Data</span>`;
+                } else {
+                    html += `<ul style="margin: 0; padding-left: 20px;">`;
+                    sortedCats.forEach(cat => {
+                        html += `<li>${cat}: <b>${dayCounts[cat]}</b></li>`;
+                    });
+                    html += `</ul>`;
+                }
+            } else if (varData.type === 'numeric' && varData.values) {
+                let val = varData.values[dateIndex];
+                if (val === null || val === undefined) {
+                    html += `<span style="color: #888;">No Data</span>`;
+                } else {
+                    // Format numeric
+                    if (Number.isInteger(val)) {
+                        html += `<b>${val}</b>`;
+                    } else {
+                        html += `<b>${val.toFixed(2)}</b>`;
+                    }
+                }
+            } else {
+                html += `<span style="color: #888;">Unknown</span>`;
+            }
+
+            html += `</td></tr>`;
+        });
+
+        html += '</tbody></table>';
+        contentEl.innerHTML = html;
+        modal.style.display = 'block';
     }
 };
 

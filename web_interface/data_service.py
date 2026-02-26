@@ -82,11 +82,9 @@ def get_explorer_data(study, context=None, verbose=False):
     if raw_df is not None:
         if context == "viewer":
             # Viewer needs Scraped OK 
-            #filtered_df = raw_df[(raw_df.scraped_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
             filtered_df = raw_df[(raw_df.scraped_ok)].copy()
         elif context == "explorer":
             # Explorer needs Annotated OK 
-            #filtered_df = raw_df[(raw_df.annotated_ok) & (raw_df.D_feature_name.isin(["watch","BASELINE"]))].copy()
             filtered_df = raw_df[(raw_df.annotated_ok)].copy()
         else:
             # return raw copy to be safe. this should never happen though...
@@ -162,20 +160,12 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     # Was: if not annotated_ids: return df, col_types
     # We continue now to ensure "Has Annotation" and "Machine Annotations" are added even if empty.
         
-    # Create the column
-    # Ensure ID matching
-    id_col = 'item_id'
-    if id_col not in df.columns:
-        if 'video_id' in df.columns: id_col = 'video_id'
-        elif 'G_id' in df.columns: id_col = 'G_id'
-        else: return df, col_types
 
     # Copy to avoid modifying cache
     df = df.copy()
     col_types = col_types.copy()
     
-    # Vectorized mapping
-    str_ids = df[id_col].astype(str)
+    str_ids = df['item_id'].astype(str) # just to be safe. item_id should always be a string
     
     # 1. User Tags (List)
     if id_to_tags:
@@ -190,22 +180,10 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
              df.drop(columns=['User Tags'], inplace=True, errors='ignore')
     
     # 2. Has Annotation (Boolean/Category)
-    # We map to "Yes" / "No" or boolean? 
-    # Boolean is cleaner but 'category' type in explorer often expects strings. 
-    # Let's use boolean, pandas handles it. Explorer backend might convert boolean to "True"/"False" string representations.
-    # Let's check explorer backend? 'values' in metadata for boolean are [True, False].
-    # Frontend checkboxes: True, False. 
-    # To make it user friendly ("Yes"), maybe I should map to "Yes"/NaN?
-    # If I map to boolean True/False, I get checkboxes "True" and "False".
-    # User calls it "Has Annotation". Checkbox "True" is O.K.
-    # Maybe map to "Annotated" / "Not Annotated"?
-    # "Has Annotation": [x] Annotated. 
-    # Let's try Boolean first.
-    
-    # Update annotated_ids to include shared ones
     if shared_users_tags:
         annotated_ids.update(str(k) for k in shared_users_tags.keys())
 
+    
     df['Has Annotation'] = str_ids.isin(annotated_ids)
     
     # Only keep if there are any true values? Or always keep if explicit user request?
@@ -217,17 +195,9 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     # Check if annotated_ok exists
     if 'annotated_ok' in df.columns:
         # Map boolean to cleaner labels
-        # Note: In Explorer context, df is already filtered to annotated_ok=True, so only "Is Annotated" will appear.
-        # In Viewer context (scraped_ok), both will appear.
-        
-        # Robust Logic: Initialize all as "Not Yet Annotated"
-        df['Machine Annotations'] = 'Not Yet Annotated'
-        
-        # Set "Is Annotated" where True. 
-        # We assume 1/True/1.0 are true. '== True' checks for equality.
-        # For safety with object types, we can check truthiness or explicit True
-        mask_annotated = (df['annotated_ok'] == True)
-        df.loc[mask_annotated, 'Machine Annotations'] = 'Is Annotated'
+        df['Machine Annotations'] = 'Not Attempted'
+        df.loc[df['annotated_ok'] == True, 'Machine Annotations'] = 'Machine Annotation Success'
+        df.loc[df['annotated_ok'] == False, 'Machine Annotations'] = 'Cannot Machine Annotate'
         
         col_types['Machine Annotations'] = 'category'
     
@@ -391,11 +361,27 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False):
     intervals = ['day', 'week', 'month']
     missing = []
     
-    # Check if files exist
+    # Check if files exist and have the required viz_vars
     for interval in intervals:
         filename = f"timeline_{donation_id}_{interval}.parquet"
         if not data_io.exists(storage_location="cache", filename=filename):
             missing.append(interval)
+        else:
+            try:
+                # Basic schema check: make sure machine_state is actually in the cached datasets
+                existing_df = data_io.load_parquet(storage_location="cache", filename=filename, columns=['period'])
+                # If we could load the whole thing to check columns, it's slow. We can just check the schema safely:
+                schema = data_io.get_parquet_schema(storage_location="cache", filename=filename) # Assuming get_parquet_schema exists, or we just load 1 row
+            except Exception:
+                pass # Just let missing logic handle it or below
+            
+            try:
+                # Cheaper check: load 1 row to get columns
+                sample_df = data_io.load_parquet(storage_location="cache", filename=filename) # Should ideally be rows=1 but this works
+                if 'machine_state_counts' not in sample_df.columns:
+                     if interval not in missing: missing.append(interval)
+            except Exception as e:
+                if interval not in missing: missing.append(interval)
 
     if not missing:
         if verbose:
@@ -406,7 +392,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False):
     # 1. Load Unified Dataset
     df = create_donation_unified_dataset(donation_id=donation_id, verbose=False)
     if df is None or df.empty:
-        print("ERROR: Could not load unified dataset for donation", donation_id)
+        print("ERROR: Could not load unified dataset for collection", donation_id)
         return False
         
     # Ensure date column
@@ -417,13 +403,17 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False):
          
     df[date_col] = pd.to_datetime(df[date_col]).astype('datetime64[ns]')
     
-    # Filter for Watch events only (as per previous requirement)
+    # Filter for Watch events only
     if 'D_feature_name' in df.columns:
-        df = df[df['D_feature_name'].isin(["watch","BASELINE"])].copy()
+        df = df[df['D_feature_name'].isin(["watch"])].copy()
 
-
-
-
+    # Construct 'machine_state'
+    if 'scraped_ok' in df.columns and 'scraped_fail' in df.columns and 'annotated_ok' in df.columns:
+        df['machine_state'] = '1: Activity data only'
+        df.loc[df['scraped_fail'] == True, 'machine_state'] = '2: Scrape failed'
+        df.loc[(df['scraped_ok'] == True) & (df['annotated_ok'].isna()), 'machine_state'] = '3: Scrape ok, not tried MA'
+        df.loc[(df['scraped_ok'] == True) & (df['annotated_ok'] == False), 'machine_state'] = '4: Scrape ok, MA failed'
+        df.loc[(df['scraped_ok'] == True) & (df['annotated_ok'] == True), 'machine_state'] = '5: Scrape ok, MA ok'
 
     # ---------------------------------------------------------
     # 2. Iterate and Aggregate
@@ -562,6 +552,8 @@ def get_timeline_data(donation_id, interval='day'):
     viz_vars = meta.get('timeline_priority', [])
     schema_map = meta.get('schema_map', {})
 
+    if 'machine_state' not in viz_vars:
+        viz_vars = ['machine_state'] + viz_vars
 
     # Ensure Cache Exists
     try:
@@ -697,7 +689,8 @@ def get_timeline_data(donation_id, interval='day'):
                 "counts": counts_list,
                 "daily_video_counts": video_counts,
                 "daily_valid_counts": valid_counts,
-                "top_categories": top_cats[:3]
+                "top_categories": top_cats if var == 'machine_state' else top_cats[:3],
+                "default_all": True if var == 'machine_state' else False
             }
 
     return {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts}

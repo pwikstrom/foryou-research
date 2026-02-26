@@ -15,6 +15,8 @@ from fyp.studies import init_study_defs, save_study_defs
 
 
 
+collection_id_column = "D_donation_id"
+
 
 
 
@@ -403,123 +405,6 @@ def select_videos_from_study_dataset(
 
 
 
-"""def generate_unique_videos_to_scrape_and_annotate(
-    study_name = None,
-    study_dataset = None,
-    load_from_cache = True,
-    save_to_cache = True,
-    verbose = False
-    ):
-
-
-
-    print(f"Generating unique videos to scrape and annotate...")
-
-    if study_name is None and study_dataset is None:
-        print("  This process cannot run without a study name or a study dataset as input. Process failed.")
-        return None
-
-
-    if load_from_cache and study_name is not None:
-        if data_io.exists(storage_location="cache", filename=f"{study_name}_recoded.parquet"):
-            if verbose:
-                print(f"    Loading study recoded dataset from cache...", end=" ", flush=True)
-            
-
-            study_dataset = data_io.load_parquet(
-                filename=f"{study_name}_recoded.parquet", 
-                storage_location="cache")
-            if verbose:
-                print(f"Shape: {study_dataset.shape}")
-        else:
-            print("@@ No cached study dataset found. I must run the process to create it. Please wait a moment...")
-            study_dataset = create_study_recoded_dataset(
-                study_name = study_name,
-                load_from_cache = True,
-                save_to_cache = True,
-                verbose = verbose
-            )
-            if study_dataset is None:
-                raise ValueError("No study dataset found for study '{study_name}'")
-            confirmed_cols = list(set(study_dataset.columns) & set(_build_agg_dict_to_generate_basic_video_stats()[1]))
-            study_dataset = study_dataset[confirmed_cols].copy()
-            print("@@ I'm back after having created the unified study dataset. I will now resume generating unique videos to scrape and annotate.")
-
-
-    if study_dataset is None:
-        print("    This process cannot run without a study dataset. Process failed.")
-        return None
-
-    study_dataset_small = study_dataset[["item_id","S_video_duration","annotated_ok","annotated_fail","scraped_ok","scraped_fail"]].copy()
-
-    selected_annotate_videos = select_videos_from_study_dataset(
-        study_dataset = study_dataset_small,
-        query_string = "scraped_ok & ~annotated_ok & ~annotated_fail & duration_ok_to_annotate",
-        verbose = verbose,
-        notebook_mode = False)
-
-    selected_scrape_videos = select_videos_from_study_dataset(
-        study_dataset = study_dataset_small,
-        query_string = "~scraped_ok & ~scraped_fail",
-        verbose = verbose,
-        notebook_mode = False)
-    
-    if save_to_cache:
-        t1 = _dt.datetime.now()
-        if verbose:
-            print("  Saving datasets to cache...")
-        selected_annotate_videos.attrs['study_name'] = study_name
-        selected_scrape_videos.attrs['study_name'] = study_name
-        data_io.save_parquet(
-            df=selected_annotate_videos,
-            storage_location="cache",
-            filename=f"{study_name}_unique_items_to_annotate.parquet")
-        data_io.save_parquet(
-            df=selected_scrape_videos,
-            storage_location="cache",
-            filename=f"{study_name}_unique_items_to_scrape.parquet")
-        if verbose:
-            print(f"  ...done. Time taken to save datasets to cache: {(_dt.datetime.now() - t1).total_seconds():.1f} seconds")
-
-    return {
-        "annotate": selected_annotate_videos,
-        "scrape": selected_scrape_videos
-    }"""
-
-
-
-
-
-
-
-
-
-"""def check_unique_videos_to_scrape_and_annotate(
-    study_name = None,
-    load_from_cache = True,
-    save_to_cache = True,
-    verbose = False
-    ):
-
-
-    print(f"Checking unique videos to scrape and annotate...")
-
-    interesting_videos = generate_unique_videos_to_scrape_and_annotate(
-        study_name = study_name,
-        load_from_cache = load_from_cache,
-        save_to_cache = save_to_cache,
-        verbose = verbose)
-
-
-    return {
-        "annotate": interesting_videos["annotate"].shape,
-        "scrape": interesting_videos["scrape"].shape
-    }"""
-
-
-
-
-
 
 
 def update_enrichment_status(
@@ -527,19 +412,6 @@ def update_enrichment_status(
     save_to_disk = True,
     verbose:bool = False):
     
-    collection_id_column = "D_donation_id"
-
-    """if "zeeschuimer_logs" in all_datasets and "ddp_logs" in all_datasets:
-        combined_activity_data= pd.concat([
-                all_datasets["zeeschuimer_logs"][['item_id', collection_id_column]],
-                all_datasets["ddp_logs"][['item_id', collection_id_column]]
-            ])
-    elif "zeeschuimer_logs" in all_datasets:
-        combined_activity_data = all_datasets["zeeschuimer_logs"][['item_id', collection_id_column]]
-    elif "ddp_logs" in all_datasets:
-        combined_activity_data = all_datasets["ddp_logs"][['item_id', collection_id_column]]
-    else:
-        raise ValueError("No activity data found")"""
 
 
     combined_activity_data = all_datasets["ddp_logs"][['item_id', collection_id_column]]
@@ -549,14 +421,20 @@ def update_enrichment_status(
             total_observations=pd.NamedAgg(column=collection_id_column, aggfunc="count")
         )
 
+    if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+        annotation_votes = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+        if "annotation_votes" in annotation_votes.columns:
+            annotation_votes = annotation_votes[["annotation_votes"]].copy()
+        else:
+            annotation_votes = pd.DataFrame()
 
 
     enrichment_status_df["nunique_donations"] = enrichment_status_df["nunique_donations"].astype("int64[pyarrow]")
 
     enrichment_status_df.reset_index(inplace=True)
 
-    most_common_item_id_length = enrichment_status_df.item_id.str.len().value_counts().index[0]
-    enrichment_status_df = enrichment_status_df[enrichment_status_df.item_id.str.len()==most_common_item_id_length].copy()
+    most_common_item_id_length = enrichment_status_df["item_id"].str.len().value_counts().index[0]
+    enrichment_status_df = enrichment_status_df[enrichment_status_df["item_id"].str.len()==most_common_item_id_length].copy()
 
     enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets['scrape_data'][['item_id','scraped_ok','S_video_downloaded']], on='item_id', how='left')
 
@@ -573,88 +451,17 @@ def update_enrichment_status(
 
     enrichment_status_df.set_index("item_id", inplace=True)
 
+    if not annotation_votes.empty:
+        enrichment_status_df = pd.merge(left=enrichment_status_df, right=annotation_votes, on="item_id", how="left").copy()
+    else:
+        enrichment_status_df["annotation_votes"] = pd.Series(0, index=enrichment_status_df.index, dtype="int64[pyarrow]")
+
+
     if save_to_disk:
         data_io.save_parquet(df=enrichment_status_df, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
 
     return enrichment_status_df
 
-
-
-
-
-
-
-
-
-
-"""def OLD_consolidate_and_save_activity_logs(
-    force_consolidation:bool = False, 
-    verbose:bool = False):
-
-    
-    #print("\n*** Zeeschuimer")
-    #new_z, z1 = consolidate_zeeschuimer_logs(
-    #    force_consolidation=force_consolidation, 
-    #    verbose=verbose)
-    
-    print("\n*** Donations")
-    new_d, d1 = consolidate_ddp_logs(
-        force_consolidation=force_consolidation, 
-        consolidate_from_scratch=True, 
-        verbose = verbose)
-
-    # I need all columns in both datasets. When concatenating, the columns will be created with null values.
-    # But sometimes the separate datasets will be used on its own. And in those situations I need to match
-    # up the columns as I'm doing here. Previously I had some idea that the new columns should not be NA,
-    # which is why the code is a bit complex. I've kept it since I might change my mind again.
-    # Update Feb'26: I realised that I D_donation_id is crucial for most analyses to function and have to 
-    # be treated separately. This is specifically for the case when data is generated from zeeschuimer and
-    # not from ddp logs. I assume that this data is 'baseline' even though it can certainly be other things
-    # as well.
-    if new_z or new_d:
-        print("\nMatching up columns between zeeschuimer and donation data...")
-        for c in set(z1.columns) | set(d1.columns):
-            if not c in z1.columns:
-                if c=="D_donation_id": 
-                    if verbose:
-                        print(f"    Adding {c} to z1 | string")
-                    z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
-                elif c=="D_feature_name": 
-                    if verbose:
-                        print(f"    Adding {c} to z1 | string")
-                    z1[c] = pd.Series("BASELINE", index=z1.index, dtype="string[pyarrow]")
-                elif pd.api.types.is_numeric_dtype(d1[c]): 
-                    if verbose:
-                        print(f"    Adding {c} to z1 | numeric")
-                    z1[c] = pd.Series(pd.NA, index=z1.index, dtype="int64[pyarrow]")
-                else:
-                    if verbose:
-                        print(f"    Adding {c} to z1 | string")
-                    z1[c] = pd.Series(pd.NA, index=z1.index, dtype="string[pyarrow]")
-            if not c in d1.columns:
-                if pd.api.types.is_numeric_dtype(z1[c]):
-                    if verbose:
-                        print(f"    Adding {c} to d1 | numeric")
-                    d1[c] = pd.Series(pd.NA, index=d1.index, dtype="int64[pyarrow]")
-                else:
-                    if verbose:
-                        print(f"    Adding {c} to d1 | string")
-                    d1[c] = pd.Series(pd.NA, index=d1.index, dtype="string[pyarrow]")
-        print(f"...done matching columns Zeeschuimer shape {z1.shape} and DDP shape {d1.shape}")
-
-    if new_z:
-        print(f"Saving Zeeschuimer dataset. Shape {z1.shape} to 'recoded' folder")
-        _ = data_io.save_parquet(df=z1, storage_location="recoded", filename="zeeschuimer_recoded.parquet", verbose=verbose)
-
-    if new_d:
-        print(f"Saving DDP dataset. Shape {d1.shape} to 'recoded' folder")
-        _ = data_io.save_parquet(df=d1, storage_location="recoded", filename="donations_recoded.parquet", verbose=verbose)
-    
-    if new_d:# or new_z:
-        print("...done saving datasets")
-    
-    return (new_d, d1)
-    #return (new_z, z1), (new_d, d1)"""
 
 
 
@@ -691,44 +498,6 @@ def consolidate_enrichment_data(force_consolidation=False, verbose=False):
     print("...done.")
 
     return fine_results
-
-
-
-
-
-
-
-
-"""def OLD_consolidate_fyp_core_data(force_consolidation=False, verbose=False):
-
-
-    #(new_zeeschuimer_logs, zeeschuimer_logs), 
-    (new_ddp_logs, ddp_logs) = _consolidate_and_save_activity_logs(force_consolidation=force_consolidation,
-                                                                                                            verbose=verbose)
-    print("\n*** Annotations")
-    (new_annotations, annotations) = consolidate_and_save_refined_annotations(force_consolidation=force_consolidation,
-                                                                            verbose=verbose)
-    print("\n*** Scrape")
-    (new_scrape_data, scrape_data) = consolidate_and_save_scrape_data(force_consolidation=force_consolidation,
-                                                                     verbose=verbose)
-
-    fine_results = {
-        #"new_zeeschuimer_logs": new_zeeschuimer_logs,
-        #"zeeschuimer_logs": zeeschuimer_logs,
-        "new_ddp_logs": new_ddp_logs,
-        "ddp_logs": ddp_logs,
-        "new_annotations": new_annotations,
-        "annotations": annotations,
-        "new_scrape_data": new_scrape_data,
-        "scrape_data": scrape_data
-        }
-
-    print("\n*** Updating (and saving) data enrichment status...")
-    update_enrichment_status(all_datasets=fine_results, verbose=verbose)
-    print("...done.")
-
-
-    return fine_results"""
 
 
 
