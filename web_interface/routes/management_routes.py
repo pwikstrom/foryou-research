@@ -541,21 +541,163 @@ def get_enrichment_stats():
 
 
 
-@management_bp.route('/api/manage/enrichment/empty_queues', methods=['POST'])
+@management_bp.route('/api/manage/enrichment/empty_queue/<queue_type>', methods=['POST'])
 @login_required
-def empty_enrichment_queues():
+def empty_enrichment_queue(queue_type):
     if not (current_user.is_admin()):
         return jsonify({"error": "Unauthorized"}), 403
         
     try:
-        if data_io.exists(storage_location='cache', filename='to_scrape.json'):
-            data_io.remove(storage_location='cache', filename='to_scrape.json')
+        if queue_type == "scrape":
+            if data_io.exists(storage_location='cache', filename='to_scrape.json'):
+                data_io.remove(storage_location='cache', filename='to_scrape.json')
+        elif queue_type == "annotate":
+            if data_io.exists(storage_location='cache', filename='to_annotate.json'):
+                data_io.remove(storage_location='cache', filename='to_annotate.json')
+        else:
+            return jsonify({"error": "Invalid queue type"}), 400
             
-        if data_io.exists(storage_location='cache', filename='to_annotate.json'):
-            data_io.remove(storage_location='cache', filename='to_annotate.json')
-            
-        return jsonify({"status": "success", "message": "Queues emptied."})
+        return jsonify({"status": "success", "message": f"{queue_type.capitalize()} queue emptied."})
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@management_bp.route('/api/manage/enrichment/queue_voted', methods=['POST'])
+@login_required
+def queue_voted_videos():
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    try:
+        from web_interface.security import user_manager
+        
+        # 1. Gather all votes across all users
+        all_votes = {} # dict of collection_id -> set of periods
+        for user in user_manager.users.values():
+            if not user.machine_annotation_votes:
+                continue
+            for coll_id, periods in user.machine_annotation_votes.items():
+                if coll_id not in all_votes:
+                    all_votes[coll_id] = set()
+                all_votes[coll_id].update(periods)
+                
+        if not all_votes:
+            return jsonify({"status": "no_votes", "message": "No votes found for machine annotation."})
+
+        # 2. Map periods to item_ids 
+        from fyp.organize_datasets import create_donation_unified_dataset
+        import pandas as pd
+        target_item_ids = set()
+        
+        for coll_id, periods in all_votes.items():
+            try:
+                # Need to load using standard DDP logic since timeline cache aggregates and removes item_id
+                df_donation = create_donation_unified_dataset(donation_id=coll_id, verbose=False)
+                
+                if df_donation is not None and not df_donation.empty and 'item_id' in df_donation.columns and 'T_local_date' in df_donation.columns:
+                    # Time periods can be 'YYYY-MM-DD' or 'YYYY-Wxx' or 'YYYY-MM'
+                    ts_series = pd.to_datetime(df_donation['T_local_date'], errors='coerce')
+                    
+                    for p in periods:
+                        # yyyy-mm-dd
+                        if len(p) == 10 and p.count('-') == 2:
+                            match_mask = ts_series.dt.strftime('%Y-%m-%d') == p
+                        # yyyy-mm
+                        elif len(p) == 7 and p.count('-') == 1:
+                            match_mask = ts_series.dt.strftime('%Y-%m') == p
+                        # yyyy-Wxx
+                        elif 'W' in p:
+                            # pandas isocalendar week
+                            def format_week(dt):
+                                if pd.isna(dt): return ""
+                                iso = dt.isocalendar()
+                                return f"{iso.year}-W{iso.week:02d}"
+                            match_mask = ts_series.apply(format_week) == p
+                        else:
+                            continue # Unknown format
+                        
+                        hits = df_donation.loc[match_mask, 'item_id'].dropna().unique().tolist()
+                        target_item_ids.update(hits)
+                        
+            except Exception as e:
+                print(f"Error processing timeline for collection {coll_id}: {e}")
+
+        if not target_item_ids:
+             return jsonify({"status": "no_matches", "message": "No specific videos matched the voted time periods."})
+
+        # 3. Check Enrichment Status
+        df_status = None
+        if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+             df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+
+        new_scrape = []
+        new_annotate = []
+
+        if df_status is not None and not df_status.empty:
+            if 'item_id' not in df_status.columns:
+                df_status = df_status.reset_index()
+                if 'index' in df_status.columns and 'item_id' not in df_status.columns:
+                     df_status = df_status.rename(columns={'index': 'item_id'})
+            
+            # Convert status ids to set for fast lookup
+            status_records = df_status.set_index('item_id').to_dict('index')
+            
+            for item in target_item_ids:
+                if item in status_records:
+                    rec = status_records[item]
+                    is_scraped = rec.get('scraped_ok', False)
+                    is_annotated = rec.get('annotated_ok', False)
+                    scrape_fail = rec.get('scrape_fail', False)
+                    annotated_fail = rec.get('annotated_fail', False)
+                    
+                    # Same logic from user request
+                    if not is_scraped and not scrape_fail:
+                        new_scrape.append(item)
+                    elif is_scraped and not is_annotated and not annotated_fail:
+                        new_annotate.append(item)
+                else:
+                    # Item not in enrichment status -> hasn't been scraped yet
+                    new_scrape.append(item)
+        else:
+            # No enrichment file -> everything needs scraping
+            new_scrape = list(target_item_ids)
+
+        new_scrape = list(set(new_scrape))
+        new_annotate = list(set(new_annotate))
+
+        # 4. Append to Queues
+        def load_queue(fname):
+            if data_io.exists(storage_location="cache", filename=fname):
+                try:
+                    q = data_io.load_json(storage_location="cache", filename=fname)
+                    if isinstance(q, list): return q
+                except Exception:
+                     pass
+            return []
+
+        def save_queue(fname, q):
+            # deduplicate and save
+            q_clean = list(set(q))
+            data_io.save_json(data=q_clean, storage_location="cache", filename=fname)
+
+        if new_scrape:
+             # We store scrape targets globally 
+             current_scrape = load_queue("to_scrape.json")
+             current_scrape.extend(new_scrape)
+             save_queue("to_scrape.json", current_scrape)
+
+        if new_annotate:
+             current_annotate = load_queue("to_annotate.json")
+             current_annotate.extend(new_annotate)
+             save_queue("to_annotate.json", current_annotate)
+
+        return jsonify({
+            "status": "success", 
+            "added_to_scrape": len(new_scrape),
+            "added_to_annotate": len(new_annotate)
+        })
+
+    except Exception as e:
+        print(f"Error queueing voted videos: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -621,14 +763,25 @@ def calculate_to_scrape():
             
         unscraped_videos = list(set(unscraped_videos))
 
-        # Cache target payload for scraper_loop
+        # Append target payload to global scrape queue
+        current_queue = []
+        if data_io.exists(storage_location="cache", filename="to_scrape.json"):
+            try:
+                q = data_io.load_json(storage_location="cache", filename="to_scrape.json")
+                if isinstance(q, list): current_queue = q
+            except Exception:
+                pass
+                
+        current_queue.extend(unscraped_videos)
+        current_queue = list(set(current_queue))
+        
         data_io.save_json(
-            data=unscraped_videos,
+            data=current_queue,
             storage_location="cache",
-            filename=f"to_scrape_{study_name}.json"
+            filename="to_scrape.json"
         )
 
-        return jsonify({"status": "success", "videos_to_scrape": len(unscraped_videos)})
+        return jsonify({"status": "success", "videos_to_scrape": len(current_queue)})
 
     except Exception as e:
         print(f"Error calculating scrape targets: {e}")
@@ -703,14 +856,25 @@ def calculate_to_annotate():
             
         unannotated_videos = list(set(unannotated_videos))
 
-        # Cache target payload for annotation_loop
+        # Append target payload to global annotate queue
+        current_queue = []
+        if data_io.exists(storage_location="cache", filename="to_annotate.json"):
+            try:
+                q = data_io.load_json(storage_location="cache", filename="to_annotate.json")
+                if isinstance(q, list): current_queue = q
+            except Exception:
+                pass
+                
+        current_queue.extend(unannotated_videos)
+        current_queue = list(set(current_queue))
+
         data_io.save_json(
-            data=unannotated_videos,
+            data=current_queue,
             storage_location="cache",
-            filename=f"to_annotate_{study_name}.json"
+            filename="to_annotate.json"
         )
 
-        return jsonify({"status": "success", "videos_to_annotate": len(unannotated_videos)})
+        return jsonify({"status": "success", "videos_to_annotate": len(current_queue)})
 
     except Exception as e:
         print(f"Error calculating annotate targets: {e}")

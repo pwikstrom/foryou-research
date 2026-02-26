@@ -649,10 +649,7 @@ def scraper_loop_from_list(
     # ----------------
     # Update scrape queue file, by removing the items that have been scraped - both good and failed
     # -----------------
-    if study_name is not None:
-        target_queue_file = f'to_scrape_{study_name}.json'
-    else:
-        target_queue_file = 'to_scrape.json'
+    target_queue_file = 'to_scrape.json'
 
     if data_io.exists(storage_location='cache', filename=target_queue_file, verbose=verbose):
         # Load the existing queue
@@ -770,7 +767,6 @@ def scraper_loop(
 
 
 def queue_scraper_loop(
-    study_name = None,
     batch_size = 500,
     max_batches = 10,
     verbose = False,
@@ -779,11 +775,7 @@ def queue_scraper_loop(
 
 
     # Load queue
-    if study_name is None:
-        print("ERROR: Queue scraper running without study_name target.")
-        return
-        
-    target_queue_file = f'to_scrape_{study_name}.json'
+    target_queue_file = 'to_scrape.json'
     
     video_list = []
     if data_io.exists(storage_location='cache', filename=target_queue_file):
@@ -797,7 +789,6 @@ def queue_scraper_loop(
 
     scraper_loop_from_list(
         video_list=video_list,
-        study_name=study_name,
         batch_size=batch_size,
         max_batches=max_batches,
         verbose=verbose,

@@ -1630,18 +1630,14 @@ def annotate_from_video_id_list(
 
 
 def queue_annotation_loop(
-    study_name = None,
     batch_size = 500,
     max_batches = None,
     verbose = False,
     dry_run = False
 ):
-    if not study_name:
-        print("    ERROR: No study_name provided to queue_annotation_loop.")
-        return None
 
     import fyp.data_io as data_io
-    target_cache_file = f"to_annotate_{study_name}.json"
+    target_cache_file = "to_annotate.json"
     
     if not data_io.exists(storage_location="cache", filename=target_cache_file):
         print(f"    ERROR: Could not find target file '{target_cache_file}' in cache. Make sure you calculated targets first.")

@@ -889,99 +889,108 @@ function fetchEnrichmentStats() {
             document.getElementById('enrich_annotated').textContent = (data.annotated_videos !== undefined) ? data.annotated_videos.toLocaleString() : '-';
             document.getElementById('enrich_unique_donations').textContent = (data.unique_donations !== undefined) ? data.unique_donations.toLocaleString() : '-';
 
-            // Queues (If they still exist or are used for Annotations)
-            // Legacy code removed, annotate queues are study-specific now.
+            // Queues
+            if (data.scrape_queue_len !== undefined) {
+                document.getElementById('enrich_scrape_targets').textContent = data.scrape_queue_len.toLocaleString();
+                document.getElementById('enrich_scrape_targets').style.color = "#4cd964";
+            }
+            if (data.annotate_queue_len !== undefined) {
+                document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
+                document.getElementById('enrich_annotate_targets').style.color = "#4cd964";
+            }
         })
         .catch(err => console.error("Error fetching enrichment stats:", err));
 }
 
-function calculateVideosToScrape() {
+function queueVideosFromTargetStudy(btnElement) {
     const studyName = document.getElementById('enrichment-study-select').value;
-    const targetsDisplay = document.getElementById('enrich_scrape_targets');
+    const scrapeTargetsDisplay = document.getElementById('enrich_scrape_targets');
+    const annotateTargetsDisplay = document.getElementById('enrich_annotate_targets');
 
     if (!studyName) {
-        alert("Please select a study from the dropdown first.");
+        alert("Please select a target study from the dropdown first.");
         return;
     }
 
-    targetsDisplay.textContent = "Calculating...";
-    targetsDisplay.style.color = "#aaa";
+    // UI Loading state
+    const originalText = btnElement.textContent;
+    btnElement.textContent = "Queueing...";
+    btnElement.disabled = true;
 
-    fetch('/api/manage/enrichment/calculate_to_scrape', {
+    scrapeTargetsDisplay.textContent = "Calc...";
+    scrapeTargetsDisplay.style.color = "#aaa";
+    annotateTargetsDisplay.textContent = "Calc...";
+    annotateTargetsDisplay.style.color = "#aaa";
+
+    const fetchScrape = fetch('/api/manage/enrichment/calculate_to_scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         body: JSON.stringify({ study_name: studyName })
-    })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                targetsDisplay.textContent = data.videos_to_scrape.toLocaleString();
-                targetsDisplay.style.color = "#4cd964";
-            } else {
-                targetsDisplay.textContent = "Error";
-                targetsDisplay.style.color = "#ff4444";
-                alert("Error: " + data.error);
-            }
-        })
-        .catch(err => {
-            targetsDisplay.textContent = "Failed";
-            targetsDisplay.style.color = "#ff4444";
-            console.error(err);
-        });
-}
+    }).then(res => res.json());
 
-function calculateVideosToAnnotate() {
-    const studyName = document.getElementById('enrichment-study-select').value;
-    const targetsDisplay = document.getElementById('enrich_annotate_targets');
-
-    if (!studyName) {
-        alert("Please select a study from the dropdown first.");
-        return;
-    }
-
-    targetsDisplay.textContent = "Calculating...";
-    targetsDisplay.style.color = "#aaa";
-
-    fetch('/api/manage/enrichment/calculate_to_annotate', {
+    const fetchAnnotate = fetch('/api/manage/enrichment/calculate_to_annotate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         body: JSON.stringify({ study_name: studyName })
-    })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                targetsDisplay.textContent = data.videos_to_annotate.toLocaleString();
-                targetsDisplay.style.color = "#4cd964";
+    }).then(res => res.json());
+
+    Promise.all([fetchScrape, fetchAnnotate])
+        .then(([scrapeData, annotateData]) => {
+            // Restore button
+            btnElement.textContent = originalText;
+            btnElement.disabled = false;
+
+            // Update scrape display
+            if (scrapeData.status === 'success') {
+                scrapeTargetsDisplay.textContent = scrapeData.videos_to_scrape.toLocaleString();
+                scrapeTargetsDisplay.style.color = "#4cd964";
             } else {
-                targetsDisplay.textContent = "Error";
-                targetsDisplay.style.color = "#ff4444";
-                alert("Error: " + data.error);
+                scrapeTargetsDisplay.textContent = "Error";
+                scrapeTargetsDisplay.style.color = "#ff4444";
+                console.error("Scrape Error:", scrapeData.error);
             }
+
+            // Update annotate display
+            if (annotateData.status === 'success') {
+                annotateTargetsDisplay.textContent = annotateData.videos_to_annotate.toLocaleString();
+                annotateTargetsDisplay.style.color = "#4cd964";
+            } else {
+                annotateTargetsDisplay.textContent = "Error";
+                annotateTargetsDisplay.style.color = "#ff4444";
+                console.error("Annotate Error:", annotateData.error);
+            }
+
+            // Refresh total stats
+            fetchEnrichmentStats();
         })
         .catch(err => {
-            targetsDisplay.textContent = "Failed";
-            targetsDisplay.style.color = "#ff4444";
-            console.error(err);
+            btnElement.textContent = originalText;
+            btnElement.disabled = false;
+            scrapeTargetsDisplay.textContent = "Failed";
+            scrapeTargetsDisplay.style.color = "#ff4444";
+            annotateTargetsDisplay.textContent = "Failed";
+            annotateTargetsDisplay.style.color = "#ff4444";
+            console.error("Error queueing from target study:", err);
+            alert("Error queueing videos from target study.");
         });
 }
 
-function emptyQueues() {
-    if (!confirm("Are you sure you want to empty the Scrape and Annotation queues? This action cannot be undone.")) return;
+function emptyQueue(queueType) {
+    if (!queueType) return;
 
-    fetch('/api/manage/enrichment/empty_queues', {
+    fetch(`/api/manage/enrichment/empty_queue/${queueType}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
     })
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                alert(data.message);
                 fetchEnrichmentStats();
             } else {
                 alert("Error: " + data.error);
             }
         })
-        .catch(err => alert("Failed to empty queues: " + err));
+        .catch(err => console.error("Failed to empty queue: " + err));
 }
 
 function consolidateEnrichmentData(btn) {
@@ -1408,52 +1417,71 @@ function dm_saveAnnotation() {
         hidden: isHidden
     };
 
-    const btn = document.getElementById('save-collection-btn');
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = "Saving...";
-    }
-
-    fetch('/api/donation/annotate', {
+    fetch('/api/manage/collection/save_annotation', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
     })
-        .then(response => response.json())
+        .then(r => r.json())
         .then(data => {
             if (data.status === 'success') {
-                if (btn) {
-                    btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
-                    btn.style.backgroundColor = '#2e7d32';
-
-                    setTimeout(() => {
-                        btn.innerText = 'Save Annotations';
-                        btn.style.backgroundColor = '';
-                        btn.disabled = false;
-                        closeEditCollectionModal();
-                        loadAvailableCollections();
-                    }, 1000);
-                } else {
-                    closeEditCollectionModal();
-                    loadAvailableCollections();
+                dm_closeEditModal();
+                // Optionally manually update the array or re-render
+                const item = dm_collectionsData.find(c => c.id === currentEditCollectionId);
+                if (item) {
+                    item.displayId = displayId;
+                    item.tags = currentEditCollectionTags;
+                    item.hidden = isHidden;
                 }
+                dm_renderCollectionsTable();
             } else {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerText = 'Save Annotations';
-                }
-                alert('Error: ' + (data.error || 'Unknown error'));
+                alert('Failed to save: ' + (data.error || 'Unknown error'));
             }
         })
         .catch(err => {
-            console.error('Error saving annotations:', err);
-            if (btn) {
-                btn.disabled = false;
-                btn.innerText = 'Save Annotations';
-            }
-            alert('Error saving annotations. Check console.');
+            console.error("Error saving annotation:", err);
+            alert("Error saving annotation.");
         });
 }
+
+function dm_closeEditModal() {
+    document.getElementById('edit-collection-modal').style.display = 'none';
+}
+
+function queueVotedVideos(btnElement) {
+    if (!confirm("Are you sure you want to add all machine-voted videos to the scrape and annotation queues?")) {
+        return;
+    }
+
+    const originalText = btnElement.textContent;
+    btnElement.textContent = "Processing...";
+    btnElement.disabled = true;
+
+    fetch('/api/manage/enrichment/queue_voted', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+        .then(response => response.json())
+        .then(data => {
+            btnElement.textContent = originalText;
+            btnElement.disabled = false;
+
+            if (data.status === 'success') {
+                alert(`Success: Added ${data.added_to_scrape} to scrape queue and ${data.added_to_annotate} to annotate queue.`);
+                fetchEnrichmentStats(); // Refresh the stats
+            } else if (data.status === 'no_votes' || data.status === 'no_matches') {
+                alert(data.message);
+            } else {
+                alert('Error queuing voted videos: ' + data.error);
+            }
+        })
+        .catch(error => {
+            btnElement.textContent = originalText;
+            btnElement.disabled = false;
+            console.error('Error queuing voted videos:', error);
+            alert('Error queuing voted videos.');
+        });
+}
+

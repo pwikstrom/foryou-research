@@ -223,8 +223,6 @@ async function startProcess(name) {
         studyNameInputId = 'overview-study-name';
     } else if (['create_event_log', 'recode_event_log', 'calculate_pca', 'regenerate_datasets'].includes(name)) {
         studyNameInputId = 'build-study-name';
-    } else if (['queue_scraper', 'queue_annotator'].includes(name)) {
-        studyNameInputId = 'enrichment-study-select';
     }
 
     let studyName = "";
@@ -252,7 +250,7 @@ async function startProcess(name) {
         maxBatches = mbEl ? mbEl.value : null;
     }
 
-    if (['downloader', 'annotator', 'create_subsets', 'regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca', 'queue_scraper', 'queue_annotator'].includes(name)) {
+    if (['downloader', 'annotator', 'create_subsets', 'regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'].includes(name)) {
         if (!studyName) {
             alert("Please select or enter a study name.");
             return;

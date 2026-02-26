@@ -97,6 +97,31 @@
                 <h2 style="margin: 0;">Scrape and Annotate</h2>
             </div>
             <div id="enrichment-content" style="padding: 0 20px 20px 20px;">
+                <!-- Enrichment Header & Study Selection -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <label style="color: #aaa; font-weight: bold;">Target Study:</label>
+                        <select id="enrichment-study-select" class="control-input" style="width: 250px;"
+                            onchange="fetchEnrichmentStats()">
+                            <option value="">-- Select Study --</option>
+                            <!-- Populated by JS -->
+                        </select>
+                        <button type="button" class="action-btn" id="btn-queue-study"
+                            onclick="queueVideosFromTargetStudy(this)"
+                            style="background-color: #3b82f6; margin-left: 10px;">Queue videos from target
+                            study</button>
+                    </div>
+
+                    <div style="display: flex; gap: 10px;">
+                        <button type="button" id="btn-queue-voted" class="action-btn" style="background-color: #28a745;"
+                            onclick="queueVotedVideos(this)">Queue User Voted
+                            Videos</button>
+
+                        <button type="button" class="action-btn" style="background-color: #8b5cf6;"
+                            onclick="consolidateEnrichmentData(this)">Consolidate
+                            New Scrapes & Annotations</button>
+                    </div>
+                </div>
                 <div
                     style="display: flex; gap: 40px; margin-bottom: 25px; padding: 15px; background: #1e1e1e; border-radius: 6px; border: 1px solid #333; text-align: center; justify-content: space-around;">
                     <div>
@@ -127,12 +152,12 @@
                             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span style="font-weight: bold; font-size: 1.1em;">Scrape Queue:</span>
-                                <button type="button" class="action-btn" onclick="calculateVideosToScrape()"
-                                    style="background-color: #3b82f6; font-size: 0.8em; padding: 4px 8px;">Calculate
-                                    videos still to be scraped</button>
                                 <span id="enrich_scrape_targets"
                                     style="color: #4cd964; margin-left: 5px; font-weight: bold;">-</span><span>
                                     pending</span>
+                                <button type="button" class="action-btn" onclick="emptyQueue('scrape')"
+                                    style="background-color: #dc3545; font-size: 0.8em; padding: 4px 8px; margin-left: 10px;">Empty
+                                    Queue</button>
                             </div>
                         </div>
 
@@ -176,12 +201,12 @@
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span style="font-weight: bold; font-size: 1.1em;">Annotation
                                     Queue:</span>
-                                <button type="button" class="action-btn" onclick="calculateVideosToAnnotate()"
-                                    style="background-color: #3b82f6; font-size: 0.8em; padding: 4px 8px;">Calculate
-                                    videos still to be annotated</button>
                                 <span id="enrich_annotate_targets"
                                     style="color: #4cd964; margin-left: 5px; font-weight: bold;">-</span><span>
                                     pending</span>
+                                <button type="button" class="action-btn" onclick="emptyQueue('annotate')"
+                                    style="background-color: #dc3545; font-size: 0.8em; padding: 4px 8px; margin-left: 10px;">Empty
+                                    Queue</button>
                             </div>
                         </div>
 

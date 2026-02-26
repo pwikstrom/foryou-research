@@ -14,16 +14,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run queue scraper")
     parser.add_argument("--batch-size", type=int, default=5, help="Batch size")
     parser.add_argument("--max-batches", type=int, default=1, help="Max batches")
-    parser.add_argument("study_name", help="Target study name to scrape")
     
     args = parser.parse_args()
 
     print(f"Starting Queue Scraper")
-    print(f"Target Study: {args.study_name} | Batch settings: Size={args.batch_size}, Max={args.max_batches}")
+    print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
 
     try:
         queue_scraper_loop(
-            study_name=args.study_name,
             batch_size=args.batch_size,
             max_batches=args.max_batches,
             verbose=False,
