@@ -10,8 +10,18 @@ window.timelines = {
         categoricalSelections: {}
     },
 
-    init: function () {
+    init: async function () {
         console.log("Initializing Timelines Tab");
+        // Ensure stats are loaded for the left panel Radar + Details
+        if (!window.pe_data || window.pe_data.length === 0) {
+            if (typeof window.pe_loadCachedStats === 'function') {
+                try {
+                    await window.pe_loadCachedStats();
+                } catch (e) {
+                    console.error('Failed to load pe stats in timelines:', e);
+                }
+            }
+        }
         // No study selection anymore, load all valid donations directly
         this.loadDonations();
     },
@@ -171,6 +181,99 @@ window.timelines = {
 
                 title.appendChild(tagsContainer);
             }
+        }
+
+        // --- Left Panel Details & Radar ---
+        const detailsCard = document.getElementById('timelines-details-card');
+        const radarCard = document.getElementById('timelines-radar-card');
+
+        let pe_donation = null;
+        if (window.pe_data && window.pe_data.length > 0) {
+            pe_donation = window.pe_data.find(d => d.D_donation_id === donationId);
+        }
+
+        if (pe_donation) {
+            if (detailsCard) detailsCard.classList.remove('hidden');
+            if (radarCard) radarCard.style.display = 'block';
+
+            document.getElementById('timelines-details-id').innerText = donationId;
+            document.getElementById('timelines-details-moniker').innerText = pe_donation.moniker || 'Unknown Persona';
+
+            // Helper to dynamically hide empty items just like PE
+            let visibleInfoCount = 0;
+            const updateInfoStat = (elementId, value) => {
+                const el = document.getElementById(elementId);
+                if (!el) return;
+
+                const li = el.closest('li');
+                if (value !== null && value !== undefined && value !== '') {
+                    el.innerText = value;
+                    if (li) li.style.display = 'flex';
+                    visibleInfoCount++;
+                } else {
+                    if (li) li.style.display = 'none';
+                }
+            };
+
+            // Participant Info
+            updateInfoStat('timelines-stat-name', pe_donation.name);
+            updateInfoStat('timelines-stat-email', pe_donation.email);
+            updateInfoStat('timelines-stat-tiktok', pe_donation.tiktokHandle);
+            updateInfoStat('timelines-stat-age', pe_donation.age);
+            updateInfoStat('timelines-stat-country', pe_donation.country);
+            updateInfoStat('timelines-stat-postcode', pe_donation.postCode);
+            updateInfoStat('timelines-stat-display-id', pe_donation.display_donation_id);
+
+            const pInfoSection = document.getElementById('timelines-participant-info-section');
+            if (pInfoSection) {
+                pInfoSection.style.display = visibleInfoCount > 0 ? 'block' : 'none';
+            }
+
+            const fmtDate = (ts) => {
+                if (!ts) return 'not provided';
+                const d = new Date(ts);
+                return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+            };
+            document.getElementById('timelines-stat-donation-date').innerText = fmtDate(pe_donation.date);
+
+            // Activity Stats
+            const tz = pe_donation.inferred_tz_offset;
+            const tzStr = tz !== null && tz !== undefined ? `UTC${tz >= 0 ? '+' : ''}${tz}` : 'Unknown';
+            document.getElementById('timelines-stat-timezone').innerText = tzStr;
+            document.getElementById('timelines-stat-active-days').innerText = pe_donation.active_days || 0;
+            document.getElementById('timelines-stat-total-events').innerText = (pe_donation.total_events || 0).toLocaleString();
+            document.getElementById('timelines-stat-peak-segment').innerText = pe_donation.peak_day_segment || 'Unknown';
+
+            const watchHours = ((pe_donation.total_watch_time_s || 0) / 3600).toFixed(1);
+            document.getElementById('timelines-stat-watch-time').innerText = `${watchHours} hrs`;
+            document.getElementById('timelines-stat-first-event').innerText = fmtDate(pe_donation.first_event_ts);
+            document.getElementById('timelines-stat-last-event').innerText = fmtDate(pe_donation.last_event_ts);
+
+            // Tags
+            const currentTags = Array.isArray(pe_donation.annotation_tags) ? pe_donation.annotation_tags : [];
+            const tagsDisplay = document.getElementById('timelines-stat-tags');
+            if (tagsDisplay) {
+                if (currentTags.length > 0) {
+                    tagsDisplay.innerText = currentTags.join(', ');
+                    const li = tagsDisplay.closest('li');
+                    if (li) li.style.display = 'flex';
+                } else {
+                    tagsDisplay.innerText = '';
+                    const li = tagsDisplay.closest('li');
+                    if (li) li.style.display = 'none';
+                }
+            }
+
+            // Radar
+            const radarTitle = document.getElementById('timelines-radar-title');
+            if (radarTitle) radarTitle.innerText = pe_donation.display_donation_id || pe_donation.D_donation_id || 'Radar Chart';
+            if (typeof window.pe_renderRadar === 'function') {
+                window.pe_renderRadar(pe_donation, null, 'timelines-radar-plot');
+            }
+        } else {
+            // Hide if data not found
+            if (detailsCard) detailsCard.classList.add('hidden');
+            if (radarCard) radarCard.style.display = 'none';
         }
 
         const container = document.getElementById('timelines-charts-container');
@@ -597,6 +700,122 @@ window.timelines = {
         html += '</tbody></table>';
         contentEl.innerHTML = html;
         modal.style.display = 'block';
+    }
+};
+
+// --- Config Modal Logic for Timelines ---
+window.timelines_openConfig = function () {
+    const modal = document.getElementById('timelines-config-modal');
+    const container = document.getElementById('timelines-config-checkboxes');
+    if (!modal || !container) return;
+
+    container.innerHTML = '';
+
+    // Fallback if global is missing
+    const PE_METRIC_INFO = window.PE_METRIC_INFO || {};
+    // pe_radar_metrics in pe namespace
+    const PE_RADAR_METRICS = JSON.parse(localStorage.getItem('pe_selected_radar_metrics') || '["chattiness", "enthusiasm", "patience", "binge_level", "consistency"]');
+
+    Object.keys(PE_METRIC_INFO).sort().forEach(metric => {
+        const info = PE_METRIC_INFO[metric];
+
+        const label = document.createElement('label');
+        label.className = 'config-checkbox';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = metric;
+        cb.checked = PE_RADAR_METRICS.includes(metric);
+
+        cb.onchange = window.timelines_updateRadarPreview;
+
+        const span = document.createElement('span');
+        span.innerText = info.label;
+
+        label.appendChild(cb);
+        label.appendChild(span);
+        container.appendChild(label);
+    });
+
+    modal.classList.remove('hidden');
+};
+
+window.timelines_updateRadarPreview = function () {
+    const container = document.getElementById('timelines-config-checkboxes');
+    if (!container) return;
+
+    const selected = [];
+    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) selected.push(cb.value);
+    });
+
+    if (selected.length < 3 || selected.length > 8) return;
+
+    if (typeof window.pe_calculatePercentileRanks === 'function') {
+        window.pe_calculatePercentileRanks(selected);
+    }
+
+    if (window.timelines.currentDonationId && window.pe_data) {
+        const donation = window.pe_data.find(d => d.D_donation_id === window.timelines.currentDonationId);
+        if (donation && typeof window.pe_renderRadar === 'function') {
+            window.pe_renderRadar(donation, selected, 'timelines-radar-plot');
+        }
+    }
+};
+
+window.timelines_closeConfig = function () {
+    document.getElementById('timelines-config-modal').classList.add('hidden');
+
+    if (window.timelines.currentDonationId && window.pe_data) {
+        const donation = window.pe_data.find(d => d.D_donation_id === window.timelines.currentDonationId);
+        if (donation && typeof window.pe_renderRadar === 'function') {
+            // Re-render with null to use default/saved metrics
+            window.pe_renderRadar(donation, null, 'timelines-radar-plot');
+        }
+    }
+};
+
+window.timelines_applyConfig = function () {
+    const container = document.getElementById('timelines-config-checkboxes');
+    if (!container) return;
+
+    const selected = [];
+    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) selected.push(cb.value);
+    });
+
+    if (selected.length < 3 || selected.length > 8) {
+        alert("Please select between 3 and 8 metrics for the radar chart.");
+        return;
+    }
+
+    localStorage.setItem('pe_selected_radar_metrics', JSON.stringify(selected));
+
+    if (typeof window.pe_setRadarMetrics === 'function') {
+        window.pe_setRadarMetrics(selected);
+    }
+
+    if (typeof window.pe_calculatePercentileRanks === 'function') {
+        window.pe_calculatePercentileRanks(selected);
+    }
+
+    if (window.timelines.currentDonationId && window.pe_data) {
+        const donation = window.pe_data.find(d => d.D_donation_id === window.timelines.currentDonationId);
+        if (donation && typeof window.pe_renderRadar === 'function') {
+            window.pe_renderRadar(donation, selected, 'timelines-radar-plot');
+        }
+    }
+
+    window.timelines_closeConfig();
+
+    // Also quietly update the PE Radar preview if it's currently rendered without switching tabs
+    if (typeof window.pe_onShow === 'function') {
+        // Just calling pe_onShow isn't reliable if we haven't clicked the tab, 
+        // we can just let it handle itself on focus or force a redraw:
+        const oldRadar = document.getElementById('pe-radar-plot');
+        if (oldRadar && window.pe_selectedId === window.timelines.currentDonationId) {
+            window.pe_renderRadar(donation, selected, 'pe-radar-plot');
+        }
     }
 };
 

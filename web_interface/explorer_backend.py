@@ -64,7 +64,12 @@ def get_metadata(df, column_types, verbose=False):
         elif dtype == "category":
             # Strict limit for UI filters
             # Only send top 50 most frequent values for filtering to save DOM
-            vc = df[col].value_counts().head(50)
+            is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
+            col_data = df[col]
+            if is_dt or "date" in col.lower():
+                col_data = df[col].astype(str).str[:10]
+            
+            vc = col_data.value_counts().head(50)
             
             # Sort alphabetically for consistency
             #top_50_keys = sorted(vc.index.tolist(), key=lambda x: str(x))
@@ -158,7 +163,11 @@ def filter_dataframe(df, column_types, filters, search_query=None):
 
         elif dtype == "category":
             if isinstance(val, (list, np.ndarray)) and len(val) > 0:
-                value_mask = filtered_df[col].astype(str).isin(val)
+                is_dt = pd.api.types.is_datetime64_any_dtype(filtered_df[col])
+                if is_dt or "date" in col.lower():
+                    value_mask = filtered_df[col].astype(str).str[:10].isin([str(v)[:10] for v in val])
+                else:
+                    value_mask = filtered_df[col].astype(str).isin(val)
                 has_value_criteria = True
         
         elif dtype == "list":

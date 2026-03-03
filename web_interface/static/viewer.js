@@ -636,7 +636,9 @@ async function applyViewerFilters() {
                 search_query: viewerData.searchQuery,
                 sort_by: viewerData.sortBy,
                 sort_order: viewerData.sortOrder,
-                hide_duplicates: hideDuplicates
+                hide_duplicates: hideDuplicates,
+                offset: 0,
+                limit: 1000
             })
         });
         const data = await res.json();
@@ -653,6 +655,8 @@ async function applyViewerFilters() {
 
         viewerData.filteredIds = data.ids;
         viewerData.itemCount = data.count; // True total number of matching items
+        viewerData.currentOffset = data.offset || 0; // The base index of the downloaded chunk
+        viewerData.chunkLimit = 1000; // Expected max size of the downloaded chunk
         viewerData.displayIds = data.display_ids || {};
 
         // Let the user know if we capped the slider out at 10k
@@ -665,7 +669,7 @@ async function applyViewerFilters() {
             const newIndex = previousItemId ? viewerData.filteredIds.indexOf(previousItemId) : -1;
 
             if (newIndex !== -1) {
-                // Video is still in the list! Just update index internally and skip reloading the video.
+                // Video is still in the loaded chunk! Just update index internally and skip reloading the video.
                 viewerData.currentIndex = newIndex;
             } else {
                 // Video was filtered out, load the first item in the new list.
@@ -675,20 +679,6 @@ async function applyViewerFilters() {
 
             // Re-run nav update to ensure slider logic applies
             updateNavUI();
-
-            // Override the index display to show truncation warning natively
-            if (isTruncated) {
-                document.getElementById('viewer-index').innerText = `${viewerData.currentIndex + 1} / ${viewerData.itemCount} (capped at 1k)`;
-                document.getElementById('viewer-index').title = "Result list is too large to fully load in browser. Only first 1,000 videos are scrollable. Apply more filters to narrow down.";
-
-                const slider = document.getElementById('viewer-slider');
-                if (slider) {
-                    slider.max = data.ids.length; // Max slider is the truncated length
-                    slider.value = viewerData.currentIndex + 1;
-                }
-            } else {
-                document.getElementById('viewer-index').title = "";
-            }
 
         } else {
             viewerData.currentIndex = -1;
@@ -710,9 +700,74 @@ async function applyViewerFilters() {
 }
 
 async function loadViewerItem(index) {
-    if (index < 0 || index >= viewerData.itemCount) return;
+    console.log(`[Viewer] loadViewerItem requested index: ${index} (Type: ${typeof index})`);
+    console.log(`[Viewer] Current State - itemCount: ${viewerData.itemCount}, currentOffset: ${viewerData.currentOffset}, chunkLimit: ${viewerData.chunkLimit}`);
 
-    const itemId = viewerData.filteredIds[index];
+    // Ensure index is an integer, sometimes it comes in as a string from slider
+    index = parseInt(index);
+
+    if (index < 0 || index >= viewerData.itemCount) {
+        console.warn(`[Viewer] Index ${index} out of bounds (0 to ${viewerData.itemCount - 1})`);
+        return;
+    }
+
+    // Check if the requested index is outside the currently loaded chunk
+    const relativeIndex = index - (viewerData.currentOffset || 0);
+    const loadedCount = viewerData.filteredIds ? viewerData.filteredIds.length : 0;
+    const inRange = relativeIndex >= 0 && relativeIndex < loadedCount;
+
+    console.log(`[Viewer] relativeIndex: ${relativeIndex}, loadedCount: ${loadedCount}, inRange: ${inRange}`);
+
+    if (!inRange) {
+        console.log(`[Viewer] Index ${index} is outside current cache. Triggering fetch.`);
+        document.getElementById('viewer-status').innerText = `Fetching next chunk...`;
+
+        // Calculate the base offset for the chunk containing this index
+        const newOffset = Math.floor(index / (viewerData.chunkLimit || 1000)) * (viewerData.chunkLimit || 1000);
+        const hideDuplicates = document.getElementById('viewer-hide-duplicates')?.checked || false;
+
+        console.log(`[Viewer] Fetching from /api/viewer/ids with offset: ${newOffset}, limit: ${viewerData.chunkLimit || 1000}`);
+
+        try {
+            const res = await fetch('/api/viewer/ids', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    study: viewerData.activeStudy,
+                    filters: viewerData.filters,
+                    search_query: viewerData.searchQuery,
+                    sort_by: viewerData.sortBy,
+                    sort_order: viewerData.sortOrder,
+                    hide_duplicates: hideDuplicates,
+                    offset: newOffset,
+                    limit: viewerData.chunkLimit || 1000
+                })
+            });
+            const data = await res.json();
+            console.log(`[Viewer] Fetch returned ${data.ids ? data.ids.length : 0} items. Error: ${data.error}`);
+
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+
+            viewerData.filteredIds = data.ids;
+            viewerData.currentOffset = newOffset;
+            viewerData.displayIds = { ...viewerData.displayIds, ...(data.display_ids || {}) }; // Append new displays
+
+            // Re-call loadViewerItem now that the data is loaded
+            console.log(`[Viewer] Re-calling loadViewerItem(${index}) after fetch.`);
+            await loadViewerItem(index);
+            return;
+
+        } catch (e) {
+            console.error("[Viewer] Failed to load chunk", e);
+            document.getElementById('viewer-status').innerText = "Error loading chunk";
+            return;
+        }
+    }
+
+    const itemId = viewerData.filteredIds[relativeIndex];
     const displayId = viewerData.displayIds[itemId] || itemId;
 
     // Update UI Loading state?
@@ -1137,7 +1192,10 @@ function prevVideo() {
 function updateNavUI() {
     const indexStr = viewerData.currentIndex >= 0 ? (viewerData.currentIndex + 1) : 0;
     const count = viewerData.itemCount;
+
     document.getElementById('viewer-index').innerText = `${indexStr} / ${count}`;
+    document.getElementById('viewer-index').title = "";
+
     document.getElementById('viewer-status').innerText = "Ready";
 
     // Update Slider

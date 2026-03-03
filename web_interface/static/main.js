@@ -679,6 +679,11 @@ function openTab(evt, tabName) {
             pe_init();
         }
     }
+
+    // Trigger window resize so any charts (Plotly, etc.) can recalculate their width now that their container is visible
+    setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+    }, 100);
 }
 
 async function fetchStudyFiles(studyName) {

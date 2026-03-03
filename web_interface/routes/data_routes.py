@@ -503,6 +503,10 @@ def api_viewer_ids():
     search_query = data.get("search_query")
     sort_by = data.get("sort_by")
     
+    # Pagination Optional Params
+    offset = data.get("offset", 0)
+    limit = data.get("limit", 1000)
+    
     filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
     
     if sort_by and sort_by in filtered_df.columns:
@@ -535,31 +539,25 @@ def api_viewer_ids():
         filtered_df = filtered_df.drop_duplicates(subset=[dedup_col], keep='first')
 
     
-    ids = filtered_df[id_col].astype(str).tolist()
+    # Calculate true total count before slicing
+    total_count = len(filtered_df)
     
-    total_count = len(ids)
+    # Slice the series according to pagination
+    chunked_ids = filtered_df[id_col].iloc[offset : offset + limit].astype(str).tolist()
     
-    # TRUNCATION OPTIMIZATION: 
-    # Sending a lot of massive string IDs to the frontend takes many seconds just to serialize
-    # and causes browser jank when parsing. 
-    # I cap at 1,000 to keep the UI snappy while still showing accurate totals.
-    truncated = False
-    if len(ids) > 1000:
-        ids = ids[:1000]
-        truncated = True
-
-    # Return display IDs map for the returned filtered IDs
+    # Return display IDs map ONLY for the returned filtered IDs to save bandwidth
     display_map = load_display_id_map()
     relevant_display_ids = {}
-    for i in ids:
+    for i in chunked_ids:
         if i in display_map:
             relevant_display_ids[i] = display_map[i]
 
     return jsonify({
-        "ids": ids, 
-        "count": total_count, # True total count
+        "ids": chunked_ids, 
+        "count": total_count, # True total count for the frontend to compute UI bounds
+        "offset": offset,
         "display_ids": relevant_display_ids,
-        "truncated": truncated
+        "truncated": False # Deprecated flag, kept for backward compat while frontend transitions
     })
 
 

@@ -710,7 +710,7 @@ def flatten_one_machine_response(
         del flat_response['faces']
 
         for k in flat_response:
-            if (k.startswith("faces_")) and (flat_response[k].endswith(" | ")):
+            if (k.startswith("faces_")) and (isinstance(flat_response[k],str)) and (flat_response[k].endswith(" | ")):
                 flat_response[k] = flat_response[k][:-3]    
 
 
@@ -1588,41 +1588,6 @@ def annotate_from_video_id_list(
 
 
 
-"""def annotate_from_scrape_data_file(
-    scrape_data_filename = None,
-    verbose = False,
-    notebook_mode = False):
-
-    if notebook_mode:
-        verbose = True
-    "-""
-    This is a wrapper that is reading a scrape metadata file and extracts a list of video IDs
-    to process. It then calls annotate_from_video_id_list.
-    "-""
-
-    initialize_machine()
-
-
-    if scrape_data_filename is None or not data_io.exists(storage_location="scrape", filename=scrape_data_filename):
-        if verbose:
-            print(f"File {scrape_data_filename} does not exist. Cannot process this file.")
-        return None
-
-    df = data_io.load_parquet(storage_location="scrape", filename=scrape_data_filename, columns=["item_id", "video_downloaded", "video_duration"], verbose=verbose)
-
-
-    # we're only annotating the videos that are downloaded and shorter than a certain max duration
-    work_with_these_videos_list = df[(df["video_downloaded"]) & (df["video_duration"] < fyp_cf["machine"]["max_duration_for_annotation"])]["item_id"].tolist()
-
-    annotate_from_video_id_list(
-        fine_list = work_with_these_videos_list,
-        verbose = verbose, 
-        notebook_mode = notebook_mode
-        )"""
-
-
-
-
 
 
 
@@ -1722,95 +1687,6 @@ def annotate_videos_loop_from_list(
 
 
 
-
-
-"""def annotate_videos_loop(
-    study_name = None,
-    study_dataset = None,
-    load_from_cache = True,
-    batch_size = 500,
-    max_batches = None,
-    verbose = False,
-    notebook_mode = False,
-    dry_run = False
-    ):
-
-    if notebook_mode:
-        verbose = True
-
-
-    max_batches = max_batches if max_batches is not None else np.inf
-
-    if study_name is None and study_dataset is None:
-        print("    ERROR: The annotation loop cannot run without a study name or a study dataset as input. Process failed.")
-        return None
-
-
-    initialize_machine()
-
-
-    if study_name is not None:
-        if load_from_cache and data_io.exists(storage_location = "cache", filename = f"{study_name}_recoded.parquet"):
-            if verbose:
-                print("    Loading study dataset from cache", end=" ", flush=True)
-            study_dataset = data_io.load_parquet(storage_location="cache", filename=f"{study_name}_recoded.parquet", verbose=verbose)
-            #print(study_dataset.attrs['study_name'])
-            if verbose:
-                print(f" | Shape: {study_dataset.shape}")
-        else:
-            print("@@  No cached recoded study dataset found. I must run the process to create it. Please wait a moment...")
-            study_dataset = create_study_recoded_dataset(
-                study_name = study_name,
-                load_from_cache = True,
-                save_to_cache = True,
-                verbose = verbose
-            )
-            print("@@  I'm back after creating the recoded study dataset. I'm now resuming the annotation loop.")
-
-    if study_dataset is None:
-        print("    ERROR: This process cannot run without a study dataset. Process failed.")
-        return None
-
-
-    print(f"    Annotating downloaded videos, study '{study_name}', batch size: {batch_size}, max batches: {max_batches}")
-    print(f"    Now: {_dt.datetime.now()}")
-
-    selected_videos_df = select_videos_from_study_dataset(
-        study_dataset = study_dataset,
-        query_string = "scraped_ok & ~annotated_ok & ~annotated_fail & duration_ok_to_annotate",
-        verbose = verbose,
-        notebook_mode = False
-    )
-
-    batch_number = 1
-
-    batch_target = min(max_batches, len(selected_videos_df.index) // batch_size + 1)
-
-    print(f"  Starting loop... There are {len(selected_videos_df):,} videos to process in {batch_target:,} batches")
-
-    for batch in fyp_utils.chunk_list(selected_videos_df.index.to_list(), batch_size):
-
-        print(f"  Batch {batch_number} of {max_batches:,}")
-
-        _ = annotate_from_video_id_list(
-            fine_list = batch,
-            verbose = verbose,
-            notebook_mode = notebook_mode,
-            dry_run = dry_run
-            )
-
-
-        if max_batches is not None and batch_number >= max_batches:
-            break
-
-        batch_number += 1
-
-        if dry_run:
-            break
-
-
-
-    print(f"Loop ended: {_dt.datetime.now()}")"""
 
 
 

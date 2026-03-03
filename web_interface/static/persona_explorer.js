@@ -180,6 +180,7 @@ function pe_updateRadarPreview() {
         if (donation) pe_renderRadar(donation, selected);
     }
 }
+window.pe_updateRadarPreview = pe_updateRadarPreview;
 
 function pe_applyConfig() {
     const container = document.getElementById('pe-config-checkboxes');
@@ -212,6 +213,11 @@ function pe_applyConfig() {
     // Let's just call close, the double render is negligible.
     pe_closeConfig();
 }
+
+window.pe_setRadarMetrics = function (metrics) {
+    PE_RADAR_METRICS = metrics;
+};
+
 
 // Radar chart metrics
 // const PE_RADAR_METRICS = ... (Moved to top)
@@ -274,7 +280,7 @@ function pe_loadCachedStats() {
     const container = document.getElementById('pe-strips-container');
     if (container) container.innerHTML = '<p style="text-align:center; color:#999;">Loading cached stats...</p>';
 
-    fetch('/api/persona_stats_cached')
+    return fetch('/api/persona_stats_cached')
         .then(response => {
             // Extract MTime header
             const mtimeHeader = response.headers.get('X-Metadata-MTime');
@@ -292,16 +298,17 @@ function pe_loadCachedStats() {
         })
         .then(data => {
             if (data.error) {
-                container.innerHTML = `<p style="text-align:center; color:#999;">${data.error}</p>`;
+                if (container) container.innerHTML = `<p style="text-align:center; color:#999;">${data.error}</p>`;
                 return;
             }
             pe_handleStatsData(data);
         })
         .catch(err => {
             console.error('Fetch error:', err);
-            container.innerHTML = '<p style="text-align:center; color:#e63946;">Failed to load cached stats.</p>';
+            if (container) container.innerHTML = '<p style="text-align:center; color:#e63946;">Failed to load cached stats.</p>';
         });
 }
+window.pe_loadCachedStats = pe_loadCachedStats;
 
 function pe_handleStatsData(data) {
     // console.log('Stats loaded:', data.length, 'donations');
@@ -386,8 +393,9 @@ function pe_calculatePercentileRanks(metrics = null) {
         });
     });
 }
+window.pe_calculatePercentileRanks = pe_calculatePercentileRanks;
 
-function pe_renderRadar(donation, metrics = null) {
+function pe_renderRadar(donation, metrics = null, targetDivId = 'pe-radar-plot') {
     if (!donation) return;
 
     const targetMetrics = metrics || PE_RADAR_METRICS;
@@ -444,14 +452,15 @@ function pe_renderRadar(donation, metrics = null) {
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',
         showlegend: false,
-        margin: { t: 30, b: 30, l: 100, r: 100 }, // Increased margins again
+        margin: { t: 30, b: 30, l: 30, r: 30 },
         height: 300,
         font: { color: '#d4d4d4', size: 10 }
     };
 
     // Use Plotly.react for efficient updates (handles newPlot vs update automatically)
-    Plotly.react('pe-radar-plot', data, layout, { displayModeBar: false });
+    Plotly.react(targetDivId, data, layout, { displayModeBar: false, responsive: true });
 }
+window.pe_renderRadar = pe_renderRadar;
 
 function pe_renderAllStrips() {
     const container = document.getElementById('pe-strips-container');
@@ -550,6 +559,8 @@ function pe_formatValue(v) {
     if (Math.abs(v) >= 1) return v.toFixed(2);
     return v.toFixed(3);
 }
+window.pe_formatValue = pe_formatValue;
+window.PE_METRIC_INFO = PE_METRIC_INFO;
 
 function pe_updateStripSelection() {
     // Update selected class on all boxes

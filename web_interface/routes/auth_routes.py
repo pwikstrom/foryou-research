@@ -227,6 +227,12 @@ def api_admin_users():
 
         return jsonify({"error": "Invalid action"}), 400
 
+    elif request.method == 'DELETE':
+        username = request.args.get('username')
+        
+        if not username:
+             return jsonify({"error": "Missing username"}), 400
+
         success, msg = user_manager.delete_user(username)
         if success:
              return jsonify({"status": "success", "message": msg})
