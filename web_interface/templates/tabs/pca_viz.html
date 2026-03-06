@@ -32,38 +32,52 @@
 
             <!-- Plot Controls -->
             <div
-                style="padding: 10px; border-bottom: 1px solid #333; background: #2d2d30; display: flex; gap: 20px; align-items: center;">
-                <div>
-                    <label style="font-weight: bold; color: #ccc; margin-right: 5px;">X Axis:</label>
-                    <select id="pca-x-select" class="dropdown" onchange="updatePcaPlot()"
-                        style="width: 150px; background: #3c3c3c; color: white;">
-                    </select>
+                style="padding: 10px; border-bottom: 1px solid #333; background: #2d2d30; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+
+                <!-- View Toggle -->
+                <div style="display: flex; align-items: center; gap: 5px; border-right: 1px solid #555; padding-right: 15px;">
+                    <button id="pca-view-scatter" class="btn-primary" onclick="setPcaView('scatter')"
+                        style="padding: 4px 12px; font-size: 0.85em;">Scatter</button>
+                    <button id="pca-view-heatmap" class="btn-save" onclick="setPcaView('heatmap')"
+                        style="padding: 4px 12px; font-size: 0.85em;">Heatmap</button>
                 </div>
-                <div>
-                    <label style="font-weight: bold; color: #ccc; margin-right: 5px;">Y Axis:</label>
-                    <select id="pca-y-select" class="dropdown" onchange="updatePcaPlot()"
-                        style="width: 150px; background: #3c3c3c; color: white;">
-                    </select>
+
+                <!-- Scatter Controls (hidden when heatmap active) -->
+                <div id="pca-scatter-controls" style="display: flex; gap: 15px; align-items: center;">
+                    <div>
+                        <label style="font-weight: bold; color: #ccc; margin-right: 5px;">X Axis:</label>
+                        <select id="pca-x-select" class="dropdown" onchange="updatePcaPlot()"
+                            style="width: 180px; background: #3c3c3c; color: white;">
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-weight: bold; color: #ccc; margin-right: 5px;">Y Axis:</label>
+                        <select id="pca-y-select" class="dropdown" onchange="updatePcaPlot()"
+                            style="width: 180px; background: #3c3c3c; color: white;">
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-weight: bold; color: #ccc; margin-right: 5px;">Color By:</label>
+                        <select id="pca-color-select" class="dropdown" onchange="updatePcaPlot()"
+                            style="width: 150px; background: #3c3c3c; color: white;">
+                        </select>
+                    </div>
+                    <!-- Stats Toggle -->
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <input type="checkbox" id="pca-show-stats" onchange="updatePcaPlot()">
+                        <label for="pca-show-stats" style="color: #ccc; cursor: pointer;">Stats</label>
+                    </div>
+                    <!-- Ellipses Toggle -->
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <input type="checkbox" id="pca-show-ellipses" onchange="updatePcaPlot()">
+                        <label for="pca-show-ellipses" style="color: #ccc; cursor: pointer;">Ellipses</label>
+                    </div>
                 </div>
-                <div>
-                    <label style="font-weight: bold; color: #ccc; margin-right: 5px;">Color By:</label>
-                    <select id="pca-color-select" class="dropdown" onchange="updatePcaPlot()"
-                        style="width: 150px; background: #3c3c3c; color: white;">
-                    </select>
+
+                <!-- Point Count (right-aligned) -->
+                <div style="margin-left: auto;">
+                    <span id="pca-point-count" style="color: #888; font-size: 0.85em;"></span>
                 </div>
-                <!-- Stats Toggle -->
-                <div style="display: flex; align-items: center; gap: 5px;">
-                    <input type="checkbox" id="pca-show-stats" onchange="updatePcaPlot()">
-                    <label for="pca-show-stats" style="color: #ccc; cursor: pointer;">Show Stats</label>
-                </div>
-                <!-- Ellipses Toggle -->
-                <div style="display: flex; align-items: center; gap: 5px;">
-                    <input type="checkbox" id="pca-show-ellipses" onchange="updatePcaPlot()">
-                    <label for="pca-show-ellipses" style="color: #ccc; cursor: pointer;">Show Ellipses</label>
-                </div>
-                <!-- 
-                <button class="btn-primary" onclick="updatePcaPlot()">Update Plot</button>
-                 -->
             </div>
 
             <!-- Plot Area -->

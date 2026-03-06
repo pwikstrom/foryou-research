@@ -1,11 +1,13 @@
-const USE_FIXED_AXIS_RANGE = true; // Switch to control axis range behavior
+const USE_FIXED_AXIS_RANGE = true;
 
 let pcaData = {
     activeStudy: null,
     metadata: null,
     filters: {},
-    plotData: null
+    plotData: null,
+    currentView: 'scatter'      // 'scatter' or 'heatmap'
 };
+
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function () {
@@ -14,10 +16,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 
+
 async function loadPcaStudies() {
     const selector = document.getElementById('pca-study-select');
     try {
-        // Reuse the generic studies endpoint
         const res = await fetch('/api/studies/defined');
         const studies = await res.json();
 
@@ -29,7 +31,6 @@ async function loadPcaStudies() {
                 opt.text = s;
                 selector.appendChild(opt);
             });
-            // Auto select first? No, let user choose.
         } else {
             selector.innerHTML = '<option disabled>No studies found</option>';
         }
@@ -38,6 +39,7 @@ async function loadPcaStudies() {
         selector.innerHTML = '<option disabled>Error loading studies</option>';
     }
 }
+
 
 function changePcaStudy() {
     const selector = document.getElementById('pca-study-select');
@@ -48,6 +50,7 @@ function changePcaStudy() {
     pcaData.filters = {};
     loadPcaMetadata();
 }
+
 
 async function loadPcaMetadata() {
     document.getElementById('pca-status').innerText = "Loading metadata...";
@@ -71,14 +74,19 @@ async function loadPcaMetadata() {
         renderPcaControls(data);
         renderPcaFilters(data);
 
-        // Initial Plot
-        updatePcaPlot();
+        // Initial render based on current view
+        if (pcaData.currentView === 'scatter') {
+            updatePcaPlot();
+        } else {
+            loadCorrelationHeatmap();
+        }
 
     } catch (e) {
         console.error(e);
         document.getElementById('pca-status').innerText = "Error loading metadata";
     }
 }
+
 
 function renderPcaControls(data) {
     const xSelect = document.getElementById('pca-x-select');
@@ -89,50 +97,57 @@ function renderPcaControls(data) {
     ySelect.innerHTML = '';
     colorSelect.innerHTML = '';
 
-    // X/Y Axis: Numeric Columns (Components + Outcomes)
+    // Build display labels with explained variance for components
+    const inter = data.interpretations || {};
+
+    // X/Y Axis: Numeric Columns with variance info
     data.numeric_cols.forEach(col => {
+        const variance = inter[col]?.explained_variance_pct;
+        const label = variance ? `${col} (${variance}%)` : col;
+
         const optX = document.createElement('option');
         optX.value = col;
-        optX.text = col;
+        optX.text = label;
         xSelect.appendChild(optX);
 
         const optY = document.createElement('option');
         optY.value = col;
-        optY.text = col;
+        optY.text = label;
         ySelect.appendChild(optY);
     });
 
-    // Defaults: C0 and C1 if available
-    if (data.numeric_cols.includes('C0')) xSelect.value = 'C0';
-    if (data.numeric_cols.includes('C1')) ySelect.value = 'C1';
+    // Defaults: first two components
+    if (data.numeric_cols.length > 0) xSelect.value = data.numeric_cols[0];
+    if (data.numeric_cols.length > 1) ySelect.value = data.numeric_cols[1];
 
-    // Color: Factors (Filterable columns)
+    // Color: Factors — use display_name from schema_map if available
+    const schemaMap = data.schema_map || {};
     data.factor_cols.forEach(col => {
         const opt = document.createElement('option');
         opt.value = col;
-        opt.text = col;
+        opt.text = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
         colorSelect.appendChild(opt);
     });
 
-    // Default color: First factor
     if (data.factor_cols.length > 0) colorSelect.value = data.factor_cols[0];
 }
+
 
 function renderPcaFilters(data) {
     const container = document.getElementById('pca-filters');
     container.innerHTML = '';
 
-    data.factor_cols.forEach(col => {
-        // We only support categorical/list filtering for factors in this view
-        // assuming factors are categorical.
-        // We need values for these factors. Metadata should provide unique values.
+    const schemaMap = data.schema_map || {};
+    const displayIds = data.display_ids || {};
 
+    data.factor_cols.forEach(col => {
         const wrapper = document.createElement('div');
         wrapper.className = 'filter-group';
         wrapper.style.marginBottom = '15px';
 
         const label = document.createElement('div');
-        label.innerText = col;
+        // Use display_name from schema_map if available
+        label.innerText = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
         label.style.fontWeight = 'bold';
         label.style.marginBottom = '5px';
         wrapper.appendChild(label);
@@ -153,7 +168,6 @@ function renderPcaFilters(data) {
             cb.value = val;
             cb.style.marginRight = '5px';
 
-            // Check if active
             if (pcaData.filters[col] && pcaData.filters[col].includes(val)) {
                 cb.checked = true;
             }
@@ -165,11 +179,21 @@ function renderPcaFilters(data) {
                 } else {
                     delete pcaData.filters[col];
                 }
-                updatePcaPlot();
+                // Refresh the current view
+                if (pcaData.currentView === 'scatter') {
+                    updatePcaPlot();
+                } else {
+                    loadCorrelationHeatmap();
+                }
             };
 
             const span = document.createElement('span');
-            span.innerText = val;
+            // For D_donation_id, show display_donation_id if available
+            if (col === 'D_donation_id' && displayIds[val]) {
+                span.innerText = displayIds[val];
+            } else {
+                span.innerText = val;
+            }
             span.style.fontSize = '0.9em';
 
             row.appendChild(cb);
@@ -182,12 +206,43 @@ function renderPcaFilters(data) {
     });
 }
 
+
 function resetPcaFilters() {
     pcaData.filters = {};
-    // Re-render filters to clear checkboxes
     renderPcaFilters(pcaData.metadata);
-    updatePcaPlot();
+    if (pcaData.currentView === 'scatter') {
+        updatePcaPlot();
+    } else {
+        loadCorrelationHeatmap();
+    }
 }
+
+
+// --- View Toggle ---
+
+function setPcaView(view) {
+    pcaData.currentView = view;
+
+    // Update button styles
+    const scatterBtn = document.getElementById('pca-view-scatter');
+    const heatmapBtn = document.getElementById('pca-view-heatmap');
+    const scatterControls = document.getElementById('pca-scatter-controls');
+
+    if (view === 'scatter') {
+        scatterBtn.className = 'btn-primary';
+        heatmapBtn.className = 'btn-save';
+        scatterControls.style.display = 'flex';
+        updatePcaPlot();
+    } else {
+        scatterBtn.className = 'btn-save';
+        heatmapBtn.className = 'btn-primary';
+        scatterControls.style.display = 'none';
+        loadCorrelationHeatmap();
+    }
+}
+
+
+// --- Scatter Plot ---
 
 async function updatePcaPlot() {
     if (!pcaData.activeStudy) return;
@@ -217,6 +272,16 @@ async function updatePcaPlot() {
             return;
         }
 
+        // Update point count
+        const countEl = document.getElementById('pca-point-count');
+        if (countEl) {
+            const shown = data.data.length;
+            const total = data.total_count || shown;
+            countEl.innerText = shown < total
+                ? `Showing ${shown.toLocaleString()} / ${total.toLocaleString()} points`
+                : `${total.toLocaleString()} points`;
+        }
+
         renderPlotlyChart(data.data, xCol, yCol, colorCol);
 
     } catch (e) {
@@ -224,53 +289,49 @@ async function updatePcaPlot() {
     }
 }
 
+
 function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
-    // Color Palette
     const colors = [
         '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
         '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
     ];
 
-    // Grouping logic
+    const displayIds = pcaData.metadata?.display_ids || {};
+
+    // Group by color value
     const groups = {};
     dataPoints.forEach(d => {
-        const g = d.color_val || 'Undefined';
-        if (!groups[g]) groups[g] = { x: [], y: [], text: [], name: g };
-        groups[g].x.push(d.x);
-        groups[g].y.push(d.y);
-        groups[g].text.push(d.text);
+        const rawColorVal = d.color_val || 'Undefined';
+        // Map D_donation_id to display names for the legend
+        const gName = (colorLabel === 'D_donation_id' && displayIds[rawColorVal]) ? displayIds[rawColorVal] : rawColorVal;
+
+        if (!groups[gName]) groups[gName] = { x: [], y: [], text: [], name: gName };
+        groups[gName].x.push(d.x);
+        groups[gName].y.push(d.y);
+        groups[gName].text.push(d.text);
     });
 
     const groupsKeys = Object.keys(groups);
     let traces = [];
 
-    // Ellipses Logic
-    // We render ellipses BEFORE scatter points so points are on top, 
-    // OR we rely on opacity. Rendering before is safer for visibility.
+    // Ellipses
     const showEllipses = document.getElementById('pca-show-ellipses')?.checked;
 
     if (showEllipses) {
         groupsKeys.forEach((g, i) => {
             const groupData = groups[g];
-            if (groupData.x.length < 2) return; // Need variance
+            if (groupData.x.length < 2) return;
 
             const n = groupData.x.length;
             const meanX = groupData.x.reduce((a, b) => a + b, 0) / n;
             const meanY = groupData.y.reduce((a, b) => a + b, 0) / n;
 
-            // Variance (Sample)
             const varX = groupData.x.reduce((a, b) => a + Math.pow(b - meanX, 2), 0) / (n - 1);
             const varY = groupData.y.reduce((a, b) => a + Math.pow(b - meanY, 2), 0) / (n - 1);
 
-            // Radii = Standard Deviation (sqrt of variance)
-            // Scaling? User said "size determined by variance". Usually this visually means SD.
-            // Let's use 2 * SD to cover ~95% if normal, which looks like a "cluster".
-            // Or just 1 SD. User asked for "size determined by variance". 
-            // sqrt(var) = std dev.
             const rx = Math.sqrt(varX) * 2;
             const ry = Math.sqrt(varY) * 2;
 
-            // Generate Ellipse Points
             const numPoints = 50;
             let ellipseX = [];
             let ellipseY = [];
@@ -287,17 +348,17 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 y: ellipseY,
                 mode: 'lines',
                 name: `${g} (Ellipse)`,
-                showlegend: false, // Don't clutter legend? Or maybe logical to hide.
-                line: { width: 0 }, // No border line? or thin?
+                showlegend: false,
+                line: { width: 0 },
                 fill: 'toself',
                 fillcolor: color,
-                opacity: 0.2, // High transparency
+                opacity: 0.2,
                 hoverinfo: 'skip'
             });
         });
     }
 
-    // Scatter Traces
+    // Scatter traces
     groupsKeys.forEach((g, i) => {
         const color = colors[i % colors.length];
         traces.push({
@@ -316,7 +377,14 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
         });
     });
 
-    // Axis Range Configuration
+    // Build axis labels with variance info
+    const inter = pcaData.metadata?.interpretations || {};
+    const xVariance = inter[xLabel]?.explained_variance_pct;
+    const yVariance = inter[yLabel]?.explained_variance_pct;
+    const xTitle = xVariance ? `${xLabel} (${xVariance}% var.)` : xLabel;
+    const yTitle = yVariance ? `${yLabel} (${yVariance}% var.)` : yLabel;
+
+    // Axis Configuration
     const axisConfig = {
         title: { font: { size: 14, color: '#ccc' } },
         gridcolor: '#444',
@@ -327,23 +395,20 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
         axisConfig.range = [-4, 4];
     }
 
-    // Build Layout
     const layout = {
-        title: `${xLabel} vs ${yLabel} (Color: ${colorLabel})`,
-        xaxis: { title: xLabel, ...axisConfig },
-        yaxis: { title: yLabel, ...axisConfig },
+        title: `${xTitle} vs ${yTitle} (Color: ${colorLabel})`,
+        xaxis: { title: xTitle, ...axisConfig },
+        yaxis: { title: yTitle, ...axisConfig },
         hovermode: 'closest',
         paper_bgcolor: '#1e1e1e',
         plot_bgcolor: '#1e1e1e',
         font: { color: '#ccc' },
-        annotations: []
+        annotations: [],
+        margin: { t: 50, r: 20, b: 60, l: 60 }
     };
 
-    // Add Interpretation Annotations
-    if (pcaData.metadata && pcaData.metadata.interpretations) {
-        const inter = pcaData.metadata.interpretations;
-
-        // Helper to format long text to multi-line (approx 30 chars per line)
+    // Interpretation annotations on axes
+    if (inter) {
         const formatLabel = (txt) => {
             if (!txt) return '';
             const maxLen = 30;
@@ -367,8 +432,8 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
             const isX = axis === 'x';
 
             let ann = {
-                xref: isX ? 'paper' : 'paper',
-                yref: isX ? 'paper' : 'paper',
+                xref: 'paper',
+                yref: 'paper',
                 text: formatLabel(text),
                 showarrow: false,
                 font: { size: 10, color: '#aaa' },
@@ -380,30 +445,22 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
 
             if (isX) {
                 if (direction === 'pos') {
-                    ann.x = 1;
-                    ann.y = 0.5;
-                    ann.xanchor = 'right';
-                    ann.yanchor = 'middle';
+                    ann.x = 1; ann.y = 0.5;
+                    ann.xanchor = 'right'; ann.yanchor = 'middle';
                     ann.xshift = -10;
                 } else {
-                    ann.x = 0;
-                    ann.y = 0.5;
-                    ann.xanchor = 'left';
-                    ann.yanchor = 'middle';
+                    ann.x = 0; ann.y = 0.5;
+                    ann.xanchor = 'left'; ann.yanchor = 'middle';
                     ann.xshift = 10;
                 }
             } else {
                 if (direction === 'pos') {
-                    ann.x = 0.5;
-                    ann.y = 1;
-                    ann.xanchor = 'center';
-                    ann.yanchor = 'top';
+                    ann.x = 0.5; ann.y = 1;
+                    ann.xanchor = 'center'; ann.yanchor = 'top';
                     ann.yshift = -10;
                 } else {
-                    ann.x = 0.5;
-                    ann.y = 0;
-                    ann.xanchor = 'center';
-                    ann.yanchor = 'bottom';
+                    ann.x = 0.5; ann.y = 0;
+                    ann.xanchor = 'center'; ann.yanchor = 'bottom';
                     ann.yshift = 10;
                 }
             }
@@ -420,25 +477,15 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
         }
     }
 
-    // Regression Logic
+    // Regression line
     const showStats = document.getElementById('pca-show-stats')?.checked;
     if (showStats && dataPoints.length > 1) {
         const reg = calculateRegression(dataPoints);
         if (reg) {
-            // Regression Line Trace
-            // Need range of X values in data to draw line
-            const xVals = dataPoints.map(d => d.x);
-            const minX = Math.min(...xVals);
-            const maxX = Math.max(...xVals);
-
-            // To make the line extend to the edges of the fixed axis range (if active),
-            // we could evaluate at -4 and 4.
-            // But usually safer to draw within data range or slightly beyond.
-            // If fixed axis, let's draw across the visible area [-4, 4] for visual continuity.
-            const lineX = USE_FIXED_AXIS_RANGE ? [-4, 4] : [minX, maxX];
+            const lineX = USE_FIXED_AXIS_RANGE ? [-4, 4] : [Math.min(...dataPoints.map(d => d.x)), Math.max(...dataPoints.map(d => d.x))];
             const lineY = lineX.map(x => reg.slope * x + reg.intercept);
 
-            const lineTrace = {
+            traces.push({
                 x: lineX,
                 y: lineY,
                 mode: 'lines',
@@ -446,28 +493,18 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 name: 'Regression',
                 line: { color: 'rgba(255, 255, 255, 0.5)', width: 2, dash: 'dash' },
                 hoverinfo: 'none'
-            };
-            traces.push(lineTrace);
+            });
 
-            // Stats Annotation (Top Left)
-            // Position: x=0 (left), y=1 (top) in paper coordinates
             const sign = reg.intercept >= 0 ? '+' : '-';
-            const eq = `y = ${reg.slope.toFixed(2)}x ${sign} ${Math.abs(reg.intercept).toFixed(2)}`;
-            const r2Text = `R² = ${reg.r2.toFixed(2)}`;
-
             layout.annotations.push({
-                xref: 'paper',
-                yref: 'paper',
-                x: 0.02,
-                y: 0.98,
-                xanchor: 'left',
-                yanchor: 'top',
-                text: `${r2Text}`,
+                xref: 'paper', yref: 'paper',
+                x: 0.02, y: 0.98,
+                xanchor: 'left', yanchor: 'top',
+                text: `R² = ${reg.r2.toFixed(2)}`,
                 showarrow: false,
                 font: { size: 12, color: '#fff' },
                 bgcolor: 'rgba(0,0,0,0.7)',
-                bordercolor: '#666',
-                borderwidth: 1,
+                bordercolor: '#666', borderwidth: 1,
                 align: 'left'
             });
         }
@@ -475,6 +512,101 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
 
     Plotly.newPlot('pca-plot', traces, layout);
 }
+
+
+// --- Correlation Heatmap ---
+
+async function loadCorrelationHeatmap() {
+    if (!pcaData.activeStudy) return;
+
+    const countEl = document.getElementById('pca-point-count');
+    if (countEl) countEl.innerText = 'Loading heatmap...';
+
+    try {
+        const res = await fetch('/api/pca/correlation_matrix', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                study: pcaData.activeStudy,
+                filters: pcaData.filters
+            })
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            console.error(data.error);
+            if (countEl) countEl.innerText = `Error: ${data.error}`;
+            return;
+        }
+
+        if (countEl) {
+            countEl.innerText = `${data.count.toLocaleString()} observations`;
+        }
+
+        renderCorrelationHeatmap(data.columns, data.matrix);
+
+    } catch (e) {
+        console.error(e);
+        if (countEl) countEl.innerText = 'Error loading heatmap';
+    }
+}
+
+
+function renderCorrelationHeatmap(columns, matrix) {
+    // Build hover text with correlation values
+    const hoverText = matrix.map((row, i) =>
+        row.map((val, j) => `${columns[i]} × ${columns[j]}<br>r = ${val.toFixed(3)}`)
+    );
+
+    const trace = {
+        z: matrix,
+        x: columns,
+        y: columns,
+        type: 'heatmap',
+        colorscale: [
+            [0, '#2166ac'],
+            [0.25, '#67a9cf'],
+            [0.5, '#1e1e1e'],
+            [0.75, '#ef8a62'],
+            [1, '#b2182b']
+        ],
+        zmin: -1,
+        zmax: 1,
+        text: hoverText,
+        hoverinfo: 'text',
+        colorbar: {
+            title: { text: 'Pearson r', font: { color: '#ccc' } },
+            tickfont: { color: '#ccc' },
+            len: 0.8
+        }
+    };
+
+    const layout = {
+        title: {
+            text: 'Correlation Matrix',
+            font: { color: '#ccc' }
+        },
+        paper_bgcolor: '#1e1e1e',
+        plot_bgcolor: '#1e1e1e',
+        font: { color: '#ccc', size: 10 },
+        xaxis: {
+            tickangle: -45,
+            tickfont: { size: 9 },
+            gridcolor: '#333'
+        },
+        yaxis: {
+            autorange: 'reversed',
+            tickfont: { size: 9 },
+            gridcolor: '#333'
+        },
+        margin: { t: 50, r: 80, b: 120, l: 120 }
+    };
+
+    Plotly.newPlot('pca-plot', [trace], layout);
+}
+
+
+// --- Regression Helper ---
 
 function calculateRegression(data) {
     const n = data.length;
@@ -491,12 +623,11 @@ function calculateRegression(data) {
     }
 
     const denominator = (n * sumXX - sumX * sumX);
-    if (denominator === 0) return null; // Vertical line or single point
+    if (denominator === 0) return null;
 
     const slope = (n * sumXY - sumX * sumY) / denominator;
     const intercept = (sumY - slope * sumX) / n;
 
-    // R-squared
     const meanY = sumY / n;
     let ssTot = 0, ssRes = 0;
     for (let i = 0; i < n; i++) {
@@ -506,7 +637,6 @@ function calculateRegression(data) {
         ssRes += (y - yPred) * (y - yPred);
     }
 
-    // Avoid division by zero if all Y are same
     const r2 = ssTot === 0 ? 0 : 1 - (ssRes / ssTot);
 
     return { slope, intercept, r2 };

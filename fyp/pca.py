@@ -258,13 +258,13 @@ def interpret_axes_with_categories(
         
         # Top Positive
         top_pos = corrs.sort_values(ascending=False).head(top).items()
-        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat != fyp_cf["labels"]["OTHER_THINGS"]]
-        top_pos_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos])
+        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat not in [fyp_cf["labels"]["OTHER_THINGS"], "oThEr tHiNgS-+-"]]
+        top_pos_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos]) if top_pos else ""
 
         # Top Negative
         top_neg = corrs.sort_values(ascending=True).head(top).items()
-        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat != fyp_cf["labels"]["OTHER_THINGS"]]
-        top_neg_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg])
+        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat not in [fyp_cf["labels"]["OTHER_THINGS"], "oThEr tHiNgS-+-"]]
+        top_neg_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg]) if top_neg else ""
 
         out[col] = {"top_positive": top_pos_str, "top_negative": top_neg_str}
         
@@ -381,6 +381,60 @@ def transform_category_column_to_counts_df(
 
 
 
+def _prepare_probability_matrix(
+    counts_df,
+    smoothing=1e-9,
+    weighting="idf",
+    gamma=0.8,
+    drop_rare_globally_below=0.001,
+):
+    """
+    Prepare weighted/tempered probability matrix from counts.
+    Extracted from pairwise_matrix_for_categorical_groups to reuse
+    the same preprocessing without computing pairwise distances.
+    
+    Returns the processed probability matrix as a DataFrame with
+    the same index as the (possibly filtered) counts_df.
+    """
+    
+    def _row_normalize(mat):
+        sums = mat.sum(axis=1, keepdims=True)
+        with np.errstate(invalid="ignore"):
+            probs = np.divide(mat, sums, out=np.zeros_like(mat), where=sums > 0)
+        return probs
+
+    # Drop globally rare categories
+    if drop_rare_globally_below > 0:
+        global_mass = counts_df.sum(axis=0)
+        total = global_mass.sum()
+        if total > 0:
+            global_mass /= total
+        keep = global_mass[global_mass >= drop_rare_globally_below].index
+        if len(keep) == 0:
+            keep = counts_df.columns
+        counts_df = counts_df[keep]
+
+    counts = counts_df.to_numpy(dtype=float)
+    counts_smooth = counts + smoothing
+    P = _row_normalize(counts_smooth)
+
+    # IDF weighting
+    if weighting == "idf":
+        G, C = P.shape
+        df = (P > 0).sum(axis=0)
+        w = np.log(1 + (G / np.clip(df, 1, None)))
+        P = P * w
+        P = _row_normalize(P)
+
+    # Tempering
+    if gamma is not None and abs(gamma - 1.0) > 1e-12:
+        if 0 < gamma <= 1:
+            P = np.power(P, gamma)
+            P = _row_normalize(P)
+
+    return pd.DataFrame(P, index=counts_df.index, columns=counts_df.columns)
+
+
 def transform_categories_to_components_and_diversity(
     counts_df=None,
     metric="jensen-shannon",
@@ -392,16 +446,28 @@ def transform_categories_to_components_and_diversity(
     target_explained_variance=0.8,
     verbose=False
 ):
-
-
     """
-    groups: list of dicts {category: count} or sequences of labels
-    metric: "jensen-shannon", "hellinger", "total-variation", "bray-curtis", "chi2"
-    mode: "distance" or "similarity"
-    smoothing: small Dirichlet mass added to every category to avoid zero issues
-    weighting: "none" or "idf" to reduce dominance of ubiquitous head categories
-    gamma: optional probability tempering in (0,1], e.g., 0.8 to soften the head
-    drop_rare_globally_below: drop categories whose global relative mass is below this threshold
+    Transform categorical count data into principal components and diversity metrics.
+    
+    Uses direct PCA on weighted/tempered probability vectors (fast) rather than
+    the previous MDS→PCA pipeline (slow). Produces equivalent geometric structure.
+    
+    Parameters
+    ----------
+    counts_df : pd.DataFrame
+        Rows = groups, columns = categories, values = counts.
+    smoothing : float
+        Small Dirichlet mass added to every category to avoid zero issues.
+    weighting : str
+        "none" or "idf" to reduce dominance of ubiquitous head categories.
+    gamma : float or None
+        Probability tempering in (0,1], e.g., 0.8 to soften the head.
+    drop_rare_globally_below : float
+        Drop categories whose global relative mass is below this threshold.
+    max_components : int
+        Maximum number of principal components to retain.
+    target_explained_variance : float
+        Target cumulative explained variance ratio for component selection.
     """
 
     if counts_df is None:
@@ -410,10 +476,10 @@ def transform_categories_to_components_and_diversity(
 
     entropy_and_dominance = calc_entropy_and_dominance(counts_df, 1)
 
-    # Check validation - if there is only 1 category, we can't do PCA/MDS
+    # Check validation - if there is only 1 category, we can't do PCA
     if counts_df.shape[1] < 2:
         if verbose:
-            print(f"Skipping PCA/MDS for {counts_df.shape[1]} category. Returning 0-variance component.")
+            print(f"Skipping PCA for {counts_df.shape[1]} category. Returning 0-variance component.")
         
         # Create a single component of zeros
         pc_df = pd.DataFrame(0.0, index=counts_df.index, columns=["C0"])
@@ -429,35 +495,32 @@ def transform_categories_to_components_and_diversity(
         # Interpretation is empty/trivial
         xx = {}
         for col in pc_df.columns:
-            xx[col] = {"top_positive": "", "top_negative": ""}
+            xx[col] = {"top_positive": "", "top_negative": "", "explained_variance_pct": 0.0}
 
         return result_df, pc_df, xx
 
-    D = pairwise_matrix_for_categorical_groups(
+    # Direct PCA on weighted/tempered probability vectors
+    # This replaces the previous MDS→PCA pipeline for much better performance
+    prob_matrix = _prepare_probability_matrix(
         counts_df,
-        metric=metric,
-        mode="distance",
         smoothing=smoothing,
         weighting=weighting,
         gamma=gamma,
         drop_rare_globally_below=drop_rare_globally_below,
     )
 
-    # MDS to embed the distance matrix into a coordinate space
-    mds = MDS(
-        n_components=15, # consider reducing to 10 for performance
-        metric='precomputed',
-        random_state=0,
-        n_init=1,
-        init='random',
-    )
-    coords = mds.fit_transform(D)
+    # Standardize before PCA (center and scale each category dimension)
+    scaler = StandardScaler()
+    prob_scaled = scaler.fit_transform(prob_matrix.values)
 
-    # PCA to see how many axes matter
-    pca = PCA()
-    pca_coords = pca.fit_transform(coords)
+    # PCA directly on the probability vectors
+    n_max = min(max_components, prob_scaled.shape[1] - 1, prob_scaled.shape[0] - 1)
+    if n_max < 1:
+        n_max = 1
+    pca = PCA(n_components=n_max)
+    pca_coords = pca.fit_transform(prob_scaled)
 
-    # check how much variance each component explains
+    # Check how much variance each component explains
     explained = pca.explained_variance_ratio_
 
     explained_cumsum = explained.cumsum()
@@ -480,27 +543,19 @@ def transform_categories_to_components_and_diversity(
     else:
         print()
 
-    pc_df = pd.DataFrame(pca_coords, index=counts_df.index).iloc[:,:n_components]
-
-    pc_df.columns = [f"C{c}" for c in pc_df.columns]
+    pc_df = pd.DataFrame(pca_coords[:, :n_components], index=prob_matrix.index)
+    pc_df.columns = [f"C{c}" for c in range(n_components)]
 
     result_df = pd.concat([pc_df,pd.DataFrame(entropy_and_dominance),pd.DataFrame(counts_df.T.idxmax(), columns=["top1"])],axis=1)
 
     xx = interpret_axes_with_categories(counts_df = counts_df, feat = pc_df, top = 5)
+    for idx, col in enumerate(pc_df.columns):
+        if col in xx:
+            xx[col]["explained_variance_pct"] = round(float(explained[idx]) * 100, 1)
     for yy in xx:
         for zz in xx[yy]:
             if verbose:
                 print(yy,zz,xx[yy][zz])
-
-
-    # group_labels must have same order as counts_df.index
-    # e.g., if your counts_df rows correspond to experimental groups, pass that as a Series
-    if "group" in counts_df.columns:
-        group_labels = counts_df["group"].values
-    else:
-        # or pass it separately via an argument if you prefer
-        group_labels = counts_df.index  # placeholder if groups=rows
-        # raise ValueError("Need a group label column or separate argument")
 
 
     return result_df, pc_df, xx

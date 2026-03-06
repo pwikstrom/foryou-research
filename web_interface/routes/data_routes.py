@@ -766,11 +766,42 @@ def api_pca_metadata():
     if not factors:
         raise Exception("No factors found in var_schema")
 
+    # Exclude session_id from factors — not useful for filtering
+    factors = [f for f in factors if f.lower() != 'session_id']
+
+    # Build schema_map with display_name from var_schema
+    schema_map = {}
+    if 'var_schema' in fyp_cf and isinstance(fyp_cf['var_schema'], pd.DataFrame):
+        vs = fyp_cf['var_schema']
+        for _, row in vs.iterrows():
+            var_name = str(row.get('variable_name', ''))
+            entry = {}
+            if 'display_name' in row:
+                dname = str(row['display_name'])
+                if dname and dname.lower() != 'nan' and dname.strip():
+                    entry['display_name'] = dname.strip()
+            if entry:
+                schema_map[var_name] = entry
+
+    # Build factor_values with date handling
     factor_values = {}
     for f in factors:
-        vals = df[f].dropna().unique().tolist()
+        is_dt = pd.api.types.is_datetime64_any_dtype(df[f])
+        if is_dt or "date" in f.lower():
+            vals = df[f].dropna().astype(str).str[:10].unique().tolist()
+        else:
+            vals = df[f].dropna().unique().tolist()
         if len(vals) < 500: 
             factor_values[f] = sorted([str(v) for v in vals])
+
+    # Load display_ids for D_donation_id values
+    display_ids = {}
+    if 'D_donation_id' in factors:
+        display_map = load_display_id_map()
+        don_vals = factor_values.get('D_donation_id', [])
+        for v in don_vals:
+            if v in display_map:
+                display_ids[v] = display_map[v]
 
     interpretations = {}
     try:
@@ -783,7 +814,9 @@ def api_pca_metadata():
         "numeric_cols": sorted(numeric_cols),
         "factor_cols": sorted(factors),
         "factor_values": factor_values,
-        "interpretations": interpretations
+        "interpretations": interpretations,
+        "schema_map": schema_map,
+        "display_ids": display_ids
     })
 
 
@@ -806,18 +839,30 @@ def api_pca_data():
     mask = pd.Series(True, index=df.index)
     for col, vals in filters.items():
         if col in df.columns:
-            mask &= df[col].astype(str).isin(vals)
+            is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
+            if is_dt or "date" in col.lower():
+                mask &= df[col].astype(str).str[:10].isin([str(v)[:10] for v in vals])
+            else:
+                mask &= df[col].astype(str).isin(vals)
     
     filtered_df = df[mask].copy()
 
     filtered_df = filtered_df.dropna(subset=[x_col, y_col])
 
+    total_count = len(filtered_df)
+
     MAX_POINTS = 5000
     if len(filtered_df) > MAX_POINTS:
         filtered_df = filtered_df.sample(MAX_POINTS)
     
+    # Get factor columns for richer hover tooltips
+    factors, _ = get_factors_and_features_from_var_schema(some_events_df=df, verbose=False)
+    
     result_data = []
     has_color = color_col and color_col in filtered_df.columns
+    
+    # Build richer hover text with grouping factors
+    factor_cols_in_df = [f for f in factors if f in filtered_df.columns and f != color_col]
     
     for row in filtered_df.itertuples():
         x_val = getattr(row, x_col)
@@ -827,7 +872,13 @@ def api_pca_data():
         if has_color:
             c_val = str(getattr(row, color_col))
         
-        txt = f"{color_col}: {c_val}"
+        # Build hover text with all grouping factors
+        hover_parts = [f"{color_col}: {c_val}"]
+        for fc in factor_cols_in_df:
+            fv = getattr(row, fc, None)
+            if fv is not None:
+                hover_parts.append(f"{fc}: {fv}")
+        txt = "<br>".join(hover_parts)
         
         result_data.append({
             "x": x_val,
@@ -836,7 +887,50 @@ def api_pca_data():
             "text": txt
         })
 
-    return jsonify({"data": result_data})
+    return jsonify({"data": result_data, "total_count": total_count})
+
+
+@data_bp.route('/api/pca/correlation_matrix', methods=['POST'])
+@admin_required
+def api_pca_correlation_matrix():
+    data = request.json or {}
+    study = data.get("study")
+    filters = data.get("filters", {})
+
+    if not study:
+        return jsonify({"error": "No study"}), 400
+
+    df = get_pca_df(study)
+    if df is None:
+        return jsonify({"error": "PCA data not found"}), 404
+
+    # Apply filters
+    mask = pd.Series(True, index=df.index)
+    for col, vals in filters.items():
+        if col in df.columns:
+            is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
+            if is_dt or "date" in col.lower():
+                mask &= df[col].astype(str).str[:10].isin([str(v)[:10] for v in vals])
+            else:
+                mask &= df[col].astype(str).isin(vals)
+    filtered_df = df[mask].copy()
+
+    # Select only numeric columns for correlation
+    numeric_df = filtered_df.select_dtypes(include=['number'])
+    if numeric_df.shape[1] < 2:
+        return jsonify({"error": "Not enough numeric columns for correlation"}), 400
+
+    # Compute Pearson correlations
+    corr = numeric_df.corr()
+
+    # Replace NaN with 0 for serialization
+    corr = corr.fillna(0.0)
+
+    return jsonify({
+        "columns": corr.columns.tolist(),
+        "matrix": corr.values.tolist(),
+        "count": len(filtered_df)
+    })
 
 
 @data_bp.route('/api/persona_stats_info', methods=['GET'])
