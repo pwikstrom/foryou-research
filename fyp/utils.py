@@ -2,9 +2,15 @@ from difflib import SequenceMatcher
 from urllib.parse import unquote
 import pandas as pd
 import pyarrow as pa
-from typing import Iterable, List
+from typing import Iterable, List, Callable, Optional
 
 import http.client
+import threading
+import time
+import sys
+import os
+import shutil
+import json
 
 
 # check internet connectivity
@@ -148,3 +154,121 @@ def flatten_list(nested_list):
     return [item for sublist in nested_list for item in sublist]
 
 
+
+def start_monitor(
+    futures,
+    submit_times,
+    interval=5,
+    label="monitor",
+    bar_width=30,
+    result_checker: Optional[Callable] = None,
+):
+    """
+    Monitor progress of concurrent futures with a live progress bar.
+
+    Args:
+        futures: list of Future objects to monitor
+        submit_times: dict mapping Future -> time.time() at submission
+        interval: seconds between status updates
+        label: label for the progress bar
+        bar_width: width of the progress bar in characters
+        result_checker: optional callable(future) -> bool. If provided,
+            called on each completed future to compute a success rate.
+            E.g. for scraping: lambda f: isinstance(f.result()[1], pd.DataFrame)
+    """
+
+    def _fmt_secs(s):
+        if s is None:
+            return "n/a"
+        s = int(s)
+        h, r = divmod(s, 3600)
+        m, s = divmod(r, 60)
+        if h: return f"{h}h{m}m{s}s"
+        if m: return f"{m}m{s}s"
+        return f"{s}s"
+
+    def _bar(done, total, width=30, fill="#", empty="-"):
+        if total <= 0:
+            return "[" + empty * width + "] 0%"
+        frac = max(0.0, min(1.0, done / total))
+        n_fill = int(round(frac * width))
+        n_empty = max(0, width - n_fill)
+        pct = int(round(frac * 100))
+        return f"[{fill * n_fill}{empty * n_empty}] {pct:3d}%"
+
+    def _run():
+        start = min(submit_times.values()) if submit_times else time.time()
+        seen_done = set()
+        durations = []
+
+        total = len(futures)
+        while True:
+            now = time.time()
+            done_futs = [f for f in futures if f.done()]
+
+            # Optional success-rate tracking
+            n_good = None
+            if result_checker is not None:
+                n_good = sum(1 for fut in done_futs if result_checker(fut))
+
+            running = sum(f.running() for f in futures)
+            done = len(done_futs)
+            pending = total - done - running
+
+            # record turnaround times (submission to completion)
+            for f in done_futs:
+                if f not in seen_done:
+                    seen_done.add(f)
+                    durations.append(now - submit_times.get(f, start))
+
+            elapsed = now - start
+            throughput = (done / elapsed) if elapsed > 0 else 0.0
+            remaining = total - done
+            eta = (remaining / throughput) if throughput > 0 else None
+
+            bar = _bar(done, total, width=bar_width)
+
+            # Build status line
+            success_part = ""
+            if n_good is not None and done > 0:
+                success_rate = n_good / done
+                success_part = f"success {success_rate:.0%}  "
+
+            line = (
+                f"[{label}] {bar}  "
+                f"done {done:,}/{total:,}  {success_part}pending {pending:,}  "
+                f"rate {throughput:.2f}/s  ETA {_fmt_secs(eta)}     "
+            )
+
+            # trim to terminal width if needed
+            try:
+                term_width = shutil.get_terminal_size(fallback=(140, 20)).columns
+            except Exception:
+                term_width = 140
+            if len(line) > term_width:
+                line = line[:max(0, term_width - 1)]
+
+            # single-line update (web interface vs terminal)
+            if "WEB_INTERFACE" in os.environ:
+                 progress_data = {
+                     "done": done,
+                     "total": total,
+                     "rate": throughput,
+                     "eta": eta if eta is not None else 0
+                 }
+                 print(f"::PROGRESS::{json.dumps(progress_data)}", flush=True)
+            else:
+                 sys.stdout.write("\r" + line)
+                 sys.stdout.flush()
+
+            if done == total:
+                break
+            time.sleep(interval)
+
+        # finish with a newline so the next print does not overwrite the last status
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t

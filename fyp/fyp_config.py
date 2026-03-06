@@ -148,8 +148,16 @@ def initialize(
     # This is not set by the config so I'm setting it to None
     cf["data_io"]["bucket"] = None
 
+    # If running on Cloud Run, force all storage to GCS
+    if os.environ.get("K_SERVICE"):
+        print("Cloud Run detected. Forcing all storage to GCS.")
+        cf['data_io']['use_gcs_for_data'] = True
+        cf['data_io']['use_gcs_for_cache'] = True
+        cf['data_io']['use_gcs_for_media'] = True
+        cf['misc']['local_mode'] = False
+
     # If local mode is enabled, set the GCS flags to False
-    if cf['misc']['local_mode']:
+    elif cf['misc']['local_mode']:
         print("Local mode is enabled. GCS data will not be used.")
         cf['data_io']['use_gcs_for_data'] = False
         cf['data_io']['use_gcs_for_cache'] = False

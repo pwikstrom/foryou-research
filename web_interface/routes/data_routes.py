@@ -76,23 +76,6 @@ def _enforce_study_donations(metadata, study, verbose=False):
 
 
 
-"""@data_bp.route('/api/explorer/studies', methods=['GET'])
-@login_required
-def api_explorer_studies():
-    studies = []
-    if data_io.exists(
-        storage_location="cache",
-        filename="_recoded.parquet",
-        ):
-        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%does this ever happen?")
-        recoded_files = [fn for fn in data_io.listdir(storage_location="cache") if fn.endswith("_recoded.parquet")]
-        for fn in recoded_files:
-            study_name = fn.replace("_recoded.parquet", "")
-            studies.append(study_name)
-    
-    return jsonify(sorted(studies))"""
-
-
 @data_bp.route('/api/studies/defined', methods=['GET'])
 @login_required
 def api_get_study_defs():

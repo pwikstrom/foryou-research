@@ -31,6 +31,7 @@ from fyp.types import convert_dtypes_to_pyarrow
 #from fyp.organize_datasets import select_videos_from_study_dataset
 from fyp.recode_variables import rename_columns, recode_events_df, recode_fuzzy_match
 import fyp.utils as fyp_utils
+from fyp.utils import start_monitor
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 
@@ -238,108 +239,7 @@ def call_machine(
 
 
 
-def _start_monitor(
-    futures, 
-    submit_times, 
-    interval=5, 
-    label="monitor", 
-    bar_width=30,
-    ):
-    """
-    futures: list[Future]
-    submit_times: dict[Future -> float]  time.time() at submission
-    """
 
-
-
-
-    def _fmt_secs(s):
-        if s is None:
-            return "n/a"
-        s = int(s)
-        h, r = divmod(s, 3600)
-        m, s = divmod(r, 60)
-        if h: return f"{h}h{m}m{s}s"
-        if m: return f"{m}m{s}s"
-        return f"{s}s"
-
-    def _bar(done, total, width=30, fill="#", empty="-"):
-        if total <= 0:
-            return "[" + empty * width + "] 0%"
-        frac = max(0.0, min(1.0, done / total))
-        n_fill = int(round(frac * width))
-        n_empty = max(0, width - n_fill)
-        pct = int(round(frac * 100))
-        return f"[{fill * n_fill}{empty * n_empty}] {pct:3d}%"
-
-    def _run():
-        start = min(submit_times.values()) if submit_times else time.time()
-        seen_done = set()
-        durations = []
-
-        total = len(futures)
-        while True:
-            now = time.time()
-            done_futs = [f for f in futures if f.done()]
-            
-            running = sum(f.running() for f in futures)
-            done = len(done_futs)
-            pending = total - done - running
-            failed = sum(1 for f in done_futs if f.exception() is not None)
-
-            # record turnaround times (submission to completion)
-            for f in done_futs:
-                if f not in seen_done:
-                    seen_done.add(f)
-                    durations.append(now - submit_times.get(f, start))
-
-            elapsed = now - start
-            avg_turnaround = (sum(durations) / len(durations)) if durations else None
-            throughput = (done / elapsed) if elapsed > 0 else 0.0
-            remaining = total - done
-            eta = (remaining / throughput) if throughput > 0 else None
-
-            bar = _bar(done, total, width=bar_width)
-
-            line = (
-                f"[{label}] {bar}  "
-                f"done {done:,}/{total:,}  running {running}  pending {pending:,}  "#failed {failed}  "
-                f"elapsed {_fmt_secs(elapsed)}  "#avg {_fmt_secs(avg_turnaround)}  "
-                f"rate {throughput:.2f}/s  ETA {_fmt_secs(eta)}     "
-            )
-
-            # trim to terminal width if needed
-            try:
-                term_width = shutil.get_terminal_size(fallback=(160, 20)).columns
-            except Exception:
-                term_width = 160
-            if len(line) > term_width:
-                line = line[:max(0, term_width - 1)]
-
-            # single-line update
-            if "WEB_INTERFACE" in os.environ:
-                 progress_data = {
-                     "done": done,
-                     "total": total,
-                     "rate": throughput,
-                     "eta": eta if eta is not None else 0
-                 }
-                 print(f"::PROGRESS::{json.dumps(progress_data)}", flush=True)
-            else:
-                 sys.stdout.write("\r" + line)
-                 sys.stdout.flush()
-
-            if done == total:
-                break
-            time.sleep(interval)
-
-        # finish with a newline so the next print does not overwrite the last status
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    return t
 
 
 
@@ -396,7 +296,7 @@ def call_machine_threads(
             futures.append(fut)
             submit_times[fut] = time.time()
 
-        monitor_thread = _start_monitor(futures, submit_times, interval=5, label="machine", bar_width=32)
+        monitor_thread = start_monitor(futures, submit_times, interval=5, label="machine", bar_width=32)
 
 
         for fut in as_completed(futures):

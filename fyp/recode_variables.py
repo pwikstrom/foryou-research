@@ -53,24 +53,6 @@ def rename_columns(some_events):
 
 
 
-
-"""def _day_segment_from_hour(hour: int) -> str:
-    if not (0 <= hour <= 23):
-        raise ValueError(f"hour must be in 0..23, got {hour}")
-    if hour <= 5:
-        return "night"
-    if hour <= 11:
-        return "morning"
-    if hour <= 17:
-        return "afternoon"
-    return "evening"""
-
-
-
-
-
-
-
 def infer_timezone_offset(timestamps: pd.Series) -> float:
     """
     Infers timezone offset by finding the 4-hour window with minimum activity.
@@ -155,149 +137,6 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
     return round(offset) # Round to nearest hour for simplicity (or keeping half hours?)
                          # User said rough guess. 
                          
-
-
-
-
-
-
-
-
-
-
-
-
-
-"""def extract_local_time_features(
-    some_events_df_in = None,
-    kind_of_log = None,
-    verbose = False):
-    "-""
-    Integrates per-donation timezone offsets from persona_stats_cache.
-    "-""
-
-
-
-
-    df = some_events_df_in.copy()
-
-    if verbose:
-        print(f"Processing timestamps in dataset to extract local time features... ")
-
-    # ---------------------------------------------------------------------
-    # 1. Build local_timestamp depending on log type
-    # ---------------------------------------------------------------------
-    if kind_of_log == "baseline":
-        # the 'baseline' timestamp is not utc - it is in the timezone of the device
-        tz_col = "source_url.tz_name"
-        ts_col = "timestamp_collected"
-
-        from zoneinfo import ZoneInfo
-
-        unique_tz = df[tz_col].dropna().unique()
-
-        # 1. Rename to Local Timestamp (avoid copy)
-        df = df.rename(columns={ts_col: "local_timestamp"})
-
-        # 2. Derive UTC Timestamp using the renamed column
-        if len(unique_tz) == 1:
-            # Fast path: everything in same tz
-            tz = ZoneInfo(unique_tz[0])
-            # Localize -> Convert to UTC
-            df["T_utc_timestamp"] = (
-                df["local_timestamp"]
-                .dt.tz_localize(tz, ambiguous='NaT', nonexistent='NaT')
-                .dt.tz_convert("UTC")
-            )
-        else:
-            print("slow extraction of local time based features")
-            # Slower path: per-timezone blocks
-            utc_parts = []
-            for tz_name, block in df.groupby(tz_col, sort=False):
-                tz = ZoneInfo(tz_name)
-                # Localize -> Convert to UTC immediately
-                part = (
-                    block["local_timestamp"]
-                    .dt.tz_localize(tz, ambiguous='NaT', nonexistent='NaT')
-                    .dt.tz_convert("UTC")
-                )
-                utc_parts.append(part)
-            # Concatenate identical Dtypes (all UTC)
-            df["T_utc_timestamp"] = pd.concat(utc_parts).sort_index()
-
-        # 3. Enforce PyArrow dtypes
-        df["local_timestamp"] = df["local_timestamp"].astype("timestamp[ns][pyarrow]")
-        df["T_utc_timestamp"] = df["T_utc_timestamp"].astype("timestamp[ns][pyarrow]")
-        df["T_tz_offset"] = df["local_timestamp"] - df["T_utc_timestamp"]
-        df["T_tz_offset"] = df["T_tz_offset"].dt.total_seconds() / 3600
-        df["T_tz_offset"] = df["T_tz_offset"].astype("int64[pyarrow]")
-
-        df = df.rename(columns={tz_col: "T_tz_name"}).astype({"T_tz_name": "string[pyarrow]"})
-
-    elif kind_of_log == "ddp":
-
-        # rename timestamp to T_utc_timestamp
-        if "T_utc_timestamp" not in df.columns:
-            df = df.rename(columns={"timestamp": "T_utc_timestamp"})
-        
-        # 2. Ensure UTC Timestamp is valid Datetime
-        if not pd.api.types.is_datetime64_any_dtype(df['T_utc_timestamp']):
-            df["T_utc_timestamp"] = pd.to_datetime(df["T_utc_timestamp"], unit='s', utc=True)
-
-        # 3. Infer Timezone Offset
-        df["T_tz_offset"] = infer_timezone_offset(df["T_utc_timestamp"])
-        df["T_tz_offset"] = df["T_tz_offset"].astype("int64[pyarrow]")
-        
-        # 4. Calculate Local Timestamp
-        # Add offset (hours) to UTC time
-        offset_timedelta = pd.to_timedelta(df['T_tz_offset'], unit='h')
-        df["local_timestamp"] = df["T_utc_timestamp"] + offset_timedelta
-        
-        # Convert to Naive Local Time (so it represents wall clock time in that timezone)
-        df["local_timestamp"] = df["local_timestamp"].dt.tz_localize(None)
-
-        # 5. Enforce PyArrow dtypes
-        df["local_timestamp"] = df["local_timestamp"].astype("timestamp[ns][pyarrow]")
-        df["T_utc_timestamp"] = df["T_utc_timestamp"].astype("timestamp[ns][pyarrow]")
- 
-
-    else:
-        raise ValueError("kind_of_log can only be 'baseline' or 'ddp'")
-
-    # ---------------------------------------------------------------------
-    # 2. Derive local time features
-    # ---------------------------------------------------------------------
-
-
-
-    ts = df["local_timestamp"]
-    
-    iso = ts.dt.isocalendar()  # DataFrame: year, week, day
-    iso["day"] = iso["day"].map(WEEKDAY_MAPPER)
-    iso["year_week"] = iso["year"].astype(str) + "-" + iso["week"].astype(str)
-
-    # these dtype fixes feel stupid, but I cannot seem to get around it any other way
-    df["local_weekday"] = iso["day"].to_list()
-    df["local_weekday"] = df["local_weekday"].convert_dtypes(dtype_backend="pyarrow")
-    df["local_week"] = iso["year_week"].to_list()
-    df["local_week"] = df["local_week"].convert_dtypes(dtype_backend="pyarrow")
-
-    local_hour = ts.dt.hour.astype("uint8[pyarrow]")
-
-    df["local_day_segment"] = local_hour.map(_day_segment_from_hour).convert_dtypes(dtype_backend="pyarrow")
-
-    df["local_date"] = ts.dt.date
-    df["local_date"] = pd.to_datetime(df["local_date"]).convert_dtypes(dtype_backend="pyarrow")
-
-    if verbose:
-        print("...done")
-
-    return df"""
-
-
-
-
-
 
 
 
@@ -459,7 +298,6 @@ def recode_call_to_action(
     a_text: str | pd.Series, 
     recoding_policy: dict = {}) -> dict | pd.Series:
     
-    #import pandas as pd
     
     if isinstance(a_text, pd.Series):
         def _fast_parse_cta(text):
@@ -501,13 +339,11 @@ def recode_speech_vs_music(
     a_string: str | pd.Series, 
     recoding_policy: dict = {}) -> float | pd.Series | None:
     
-    #import pandas as pd
     
     if isinstance(a_string, pd.Series):
         extracted = a_string.astype(str).str.extract(r'(\d+)% speech')[0]
         return pd.to_numeric(extracted, errors='coerce') / 100.0
 
-    #from numpy import array, int64, float64
 
     if not isinstance(a_string, str):
         return a_string
@@ -539,9 +375,6 @@ def recode_scores(
     """
     takes a string of this template: "<numeral><, ><text>" and returns the numeral split by 100
     """
-    #import pandas as pd
-    #from pandas import NA as pd.NA
-    #from numpy import int64
     
     if isinstance(a_string, pd.Series):
         val_str = a_string.astype(str).str.split(", ", n=1).str[0]
@@ -564,8 +397,6 @@ def recode_long_strings(
     s: str | list | pd.Series, 
     recoding_policy) -> str | pd.Series:
 
-    #import pandas as pd
-    #from copy import copy
     
     if isinstance(s, pd.Series):
         def _get_first_if_list(x):
@@ -700,7 +531,6 @@ def recode_challenges(
     challenges : str | pd.Series,
     recoding_policy : dict = {}) -> list | pd.Series:
 
-    #import pandas as pd
     
     if isinstance(challenges, pd.Series):
         # Result should be list of strings
@@ -748,8 +578,7 @@ def recode_main_activity(
     fine_actitivies_string : str | pd.Series, 
     recoding_policy : dict = {}):
     
-    #import pandas as pd
-    #from pandas import NA as pd.NA
+
     
     if isinstance(fine_actitivies_string, pd.Series):
         # Parse stringified list
@@ -861,32 +690,11 @@ def recode_main_activity(
 
 
 
-"""def recode_timestamp(
-    timestamp : pd.Timestamp | pd.Series, 
-    recoding_policy : dict = {}) -> int | pd.Series:
-
-    #import pandas as pd
-    #from numpy import int64
-    
-    if isinstance(timestamp, pd.Series):
-        # Optimize for datetime series
-        if pd.api.types.is_datetime64_any_dtype(timestamp):
-           return timestamp.astype('int64') // 10**9
-        else:
-           # coerce
-           return pd.to_datetime(timestamp, errors='coerce').astype('int64') // 10**9
-
-    return np.int64(timestamp.timestamp())"""
-    
-
-
 def recode_stringified_list(
     a_string_representing_a_list, 
     recoding_policy
     ) -> list | pd.Series:
 
-    #import pandas as pd
-    #from pandas import isna, NA as pd.NA
     
     if isinstance(a_string_representing_a_list, pd.Series):
         # This function is the heavy lifter for parsing stringified lists.
