@@ -12,7 +12,8 @@ let explorerDataV2 = {
     count1: 0,
     stats2: null,
     count2: 0,
-    sortMode: 'total'
+    sortMode: 'total',
+    dualSliceMode: false
 };
 
 // Initialization
@@ -49,6 +50,57 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 });
+
+function setExplorerV2SliceMode(isDual) {
+    if (explorerDataV2.dualSliceMode === isDual) return;
+    explorerDataV2.dualSliceMode = isDual;
+
+    // Update segmented control styling
+    const singleBtn = document.getElementById('explorer-v2-toggle-single');
+    const dualBtn = document.getElementById('explorer-v2-toggle-dual');
+    if (singleBtn && dualBtn) {
+        if (isDual) {
+            singleBtn.style.background = '#3c3c3c';
+            singleBtn.style.color = '#aaa';
+            singleBtn.style.fontWeight = 'normal';
+            dualBtn.style.background = '#2196F3';
+            dualBtn.style.color = '#fff';
+            dualBtn.style.fontWeight = 'bold';
+        } else {
+            singleBtn.style.background = '#4CAF50';
+            singleBtn.style.color = '#fff';
+            singleBtn.style.fontWeight = 'bold';
+            dualBtn.style.background = '#3c3c3c';
+            dualBtn.style.color = '#aaa';
+            dualBtn.style.fontWeight = 'normal';
+        }
+    }
+
+    // Show/hide Slice 2 panel
+    const slice2Panel = document.getElementById('explorer-v2-slice2-panel');
+    if (slice2Panel) slice2Panel.style.display = isDual ? 'flex' : 'none';
+
+    // Show/hide 'vs' label and Slice 2 count
+    const vsLabel = document.getElementById('explorer-v2-vs-label');
+    if (vsLabel) vsLabel.style.display = isDual ? '' : 'none';
+    const count2 = document.getElementById('explorer-v2-count-2');
+    if (count2) count2.style.display = isDual ? '' : 'none';
+
+    // Show/hide Slice 2 sort option
+    const sortSlice2 = document.getElementById('explorer-v2-sort-slice2');
+    if (sortSlice2) sortSlice2.style.display = isDual ? '' : 'none';
+
+    // If sort is currently 'slice2' and switching to single, reset to 'total'
+    if (!isDual && explorerDataV2.sortMode === 'slice2') {
+        explorerDataV2.sortMode = 'total';
+        const sortSelect = document.getElementById('explorer-v2-sort');
+        if (sortSelect) sortSelect.value = 'total';
+    }
+
+    // Re-fetch stats
+    updateExplorerV2Stats();
+}
+
 
 async function loadExplorerV2Studies() {
     const selector = document.getElementById('explorer-v2-study-select');
@@ -505,11 +557,15 @@ async function updateExplorerV2Stats(triggerSlice = null) {
         const payload = {
             study: explorerDataV2.activeStudy,
             filters: explorerDataV2.filters1,
-            filters2: explorerDataV2.filters2,
             search_query: explorerDataV2.searchQuery1,
-            search_query2: explorerDataV2.searchQuery2,
             trigger_slice: triggerSlice
         };
+
+        // Only include Slice 2 data in dual-slice mode
+        if (explorerDataV2.dualSliceMode) {
+            payload.filters2 = explorerDataV2.filters2;
+            payload.search_query2 = explorerDataV2.searchQuery2;
+        }
 
         const res = await fetch('/api/explorer/filter', {
             method: 'POST',
@@ -540,15 +596,18 @@ async function updateExplorerV2Stats(triggerSlice = null) {
         }
 
         // --- RENDER ---
-        countEl1.innerText = `Slice 1: ${explorerDataV2.count1} items`;
+        const isDual = explorerDataV2.dualSliceMode;
+        countEl1.innerText = isDual ? `Slice 1: ${explorerDataV2.count1} items` : `${explorerDataV2.count1} items`;
 
-        if (explorerDataV2.stats2) {
-            countEl2.innerText = `Slice 2: ${explorerDataV2.count2} items`;
-        } else {
-            countEl2.innerText = `Slice 2: N/A`;
+        if (isDual) {
+            if (explorerDataV2.stats2) {
+                countEl2.innerText = `Slice 2: ${explorerDataV2.count2} items`;
+            } else {
+                countEl2.innerText = `Slice 2: N/A`;
+            }
         }
 
-        renderStatsV2(explorerDataV2.stats1, explorerDataV2.stats2);
+        renderStatsV2(explorerDataV2.stats1, isDual ? explorerDataV2.stats2 : null);
 
     } catch (e) {
         console.error(e);
@@ -586,12 +645,15 @@ function renderStatsV2(stats1, stats2) {
         colsToRender = keys1.sort();
     }
 
+    const isDual = explorerDataV2.dualSliceMode;
+
     colsToRender.forEach(col => {
         const s1 = stats1[col];
         const s2 = stats2 ? stats2[col] : null; // Slice 2 data
         const info = metadata[col];
 
-        if (!s1 || !s2) return;
+        if (!s1) return;
+        if (isDual && !s2) return;
 
         const card = document.createElement('div');
         card.className = 'stats-card';
@@ -610,9 +672,11 @@ function renderStatsV2(stats1, stats2) {
         let meanHtml = '';
         if (s1.mean !== undefined) {
             const m1 = parseFloat(s1.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
-            meanHtml += `<span style="font-size:0.8em; margin-left:10px; color:#4CAF50;">S1: ${m1}</span>`;
+            meanHtml += isDual
+                ? `<span style="font-size:0.8em; margin-left:10px; color:#4CAF50;">S1: ${m1}</span>`
+                : `<span style="font-size:0.8em; margin-left:10px; color:#aaa;">Mean: ${m1}</span>`;
         }
-        if (s2.mean !== undefined) {
+        if (isDual && s2 && s2.mean !== undefined) {
             const m2 = parseFloat(s2.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
             // Significance Test (Welch's t-test: Slice 1 vs Slice 2)
@@ -662,7 +726,8 @@ function renderStatsV2(stats1, stats2) {
         const plotDiv = document.createElement('div');
         plotDiv.id = `plot-v2-${col.replace(/[^a-zA-Z0-9]/g, '')}`;
         plotDiv.style.width = '100%';
-        plotDiv.style.height = '150px';
+        const isCategorical = s1.type !== 'density';
+        plotDiv.style.height = (!isDual && isCategorical) ? '60px' : '150px';
         card.appendChild(plotDiv);
         container.appendChild(card);
 
@@ -671,31 +736,32 @@ function renderStatsV2(stats1, stats2) {
                 x: s1.x,
                 y: s1.y,
                 type: 'bar',
-                name: 'Slice 1',
-                marker: { color: 'rgba(76, 175, 80, 0.6)', line: { color: 'rgba(76, 175, 80, 1.0)', width: 1 } },
+                name: isDual ? 'Slice 1' : 'Count',
+                marker: {
+                    color: isDual ? 'rgba(76, 175, 80, 0.6)' : 'rgba(100, 180, 220, 0.7)',
+                    line: { color: isDual ? 'rgba(76, 175, 80, 1.0)' : 'rgba(100, 180, 220, 1.0)', width: 1 }
+                },
                 hoverinfo: 'x+y'
             };
 
-            const trace2 = {
-                x: s2.x,
-                y: s2.y,
-                type: 'bar',
-                name: 'Slice 2',
-                marker: { color: 'rgba(33, 150, 243, 0.6)', line: { color: 'rgba(33, 150, 243, 1.0)', width: 1 } },
-                hoverinfo: 'x+y'
-            };
+            const traces = [trace1];
 
-            const traces = [trace1, trace2];
-
-            // Determine combined range logic?
-            // Actually Plotly handles it nicely if we just pass data.
-            // But we need to handle Log vs Linear
+            if (isDual && s2) {
+                traces.push({
+                    x: s2.x,
+                    y: s2.y,
+                    type: 'bar',
+                    name: 'Slice 2',
+                    marker: { color: 'rgba(33, 150, 243, 0.6)', line: { color: 'rgba(33, 150, 243, 1.0)', width: 1 } },
+                    hoverinfo: 'x+y'
+                });
+            }
 
             const layout = {
                 margin: { t: 0, b: 20, l: 30, r: 20 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
-                showlegend: true,
+                showlegend: isDual,
                 legend: { x: 1, xanchor: 'right', y: 1 },
                 barmode: 'overlay',
                 bargap: 0,
@@ -720,13 +786,12 @@ function renderStatsV2(stats1, stats2) {
 
         } else {
             // Stacked Bar (Horizontal) normalized to %
-            // Need to merge keys from s1 and s2
-
-            // Counts
             const count1 = Object.values(s1).reduce((a, b) => a + b, 0);
-            const count2 = Object.values(s2).reduce((a, b) => a + b, 0);
+            const count2 = (isDual && s2) ? Object.values(s2).reduce((a, b) => a + b, 0) : 0;
 
-            const allCats = new Set([...Object.keys(s1), ...Object.keys(s2)]);
+            const allCats = isDual && s2
+                ? new Set([...Object.keys(s1), ...Object.keys(s2)])
+                : new Set(Object.keys(s1));
             const cats = Array.from(allCats).sort((a, b) => {
                 const mode = explorerDataV2.sortMode || 'total';
 
@@ -738,14 +803,14 @@ function renderStatsV2(stats1, stats2) {
                 }
 
                 const v1a = s1[a] || 0;
-                const v2a = s2[a] || 0;
+                const v2a = (isDual && s2) ? (s2[a] || 0) : 0;
                 const v1b = s1[b] || 0;
-                const v2b = s2[b] || 0;
+                const v2b = (isDual && s2) ? (s2[b] || 0) : 0;
 
                 const p1a = v1a / Math.max(1, count1);
-                const p2a = v2a / Math.max(1, count2);
+                const p2a = v2a / Math.max(1, count2 || 1);
                 const p1b = v1b / Math.max(1, count1);
-                const p2b = v2b / Math.max(1, count2);
+                const p2b = v2b / Math.max(1, count2 || 1);
 
                 let scoreA = 0;
                 let scoreB = 0;
@@ -757,7 +822,7 @@ function renderStatsV2(stats1, stats2) {
                     scoreA = p2a;
                     scoreB = p2b;
                 } else {
-                    // Total (default)
+                    // Total (default) — in single-slice mode just use S1
                     scoreA = p1a + p2a;
                     scoreB = p1b + p2b;
                 }
@@ -777,35 +842,53 @@ function renderStatsV2(stats1, stats2) {
             ];
 
             const traces = [];
+            const yLabels = isDual ? ['Slice 1', 'Slice 2'] : ['Distribution'];
 
             cats.forEach((cat, idx) => {
                 const val1 = s1[cat] || 0;
-                const val2 = s2[cat] || 0;
-
                 const pct1 = (val1 / Math.max(1, count1)) * 100;
-                const pct2 = (val2 / Math.max(1, count2)) * 100;
 
-                traces.push({
-                    x: [pct1, pct2],
-                    y: ['Slice 1', 'Slice 2'],
-                    name: cat,
-                    marker: { color: palette[idx % palette.length] },
-                    orientation: 'h',
-                    type: 'bar',
-                    text: [cat, cat],
-                    hoverinfo: 'text+x+name',
-                });
+                if (isDual && s2) {
+                    const val2 = s2[cat] || 0;
+                    const pct2 = (val2 / Math.max(1, count2)) * 100;
+                    traces.push({
+                        x: [pct1, pct2],
+                        y: yLabels,
+                        name: cat,
+                        marker: { color: palette[idx % palette.length] },
+                        orientation: 'h',
+                        type: 'bar',
+                        text: [cat, cat],
+                        textposition: 'inside',
+                        customdata: [[cat, pct1.toFixed(1)], [cat, pct2.toFixed(1)]],
+                        hovertemplate: '%{customdata[0]}<br>Share: %{customdata[1]}%<extra></extra>',
+                    });
+                } else {
+                    traces.push({
+                        x: [pct1],
+                        y: yLabels,
+                        name: cat,
+                        marker: { color: palette[idx % palette.length] },
+                        orientation: 'h',
+                        type: 'bar',
+                        text: [cat],
+                        textposition: 'inside',
+                        customdata: [[cat, pct1.toFixed(1)]],
+                        hovertemplate: '%{customdata[0]}<br>Share: %{customdata[1]}%<extra></extra>',
+                    });
+                }
             });
 
             const layout = {
                 barmode: 'stack',
-                margin: { t: 0, b: 20, l: 60, r: 20 }, // Increased left margin for labels
+                margin: { t: 0, b: 2, l: isDual ? 60 : 2, r: 2 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 showlegend: false,
                 font: { color: '#d4d4d4' },
-                xaxis: { range: [0, 100], showgrid: false },
-                yaxis: { tickfont: { color: '#d4d4d4' } }
+                xaxis: { range: [0, 100], showgrid: false, showticklabels: false },
+                yaxis: { showticklabels: isDual, tickfont: { color: '#d4d4d4' } },
+                height: isDual ? undefined : 60
             };
 
             Plotly.newPlot(plotDiv, traces, layout, { displayModeBar: false, responsive: true });

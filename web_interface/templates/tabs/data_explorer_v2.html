@@ -3,7 +3,7 @@
     <div class="control-bar"
         style="display: flex; align-items: center; padding: 10px; background-color: #252526; margin-bottom: 20px; border-bottom: 1px solid #3e3e42;">
         <div class="header-with-help" style="margin-right: 20px;">
-            <h3 style="margin: 0; color: #eee; font-size: 1.1em;">Group Comparisons</h3>
+            <h3 style="margin: 0; color: #eee; font-size: 1.1em;">Explore</h3>
             <button class="help-icon" onclick="showHelp('data_explorer_v2')">?</button>
         </div>
         <label for="explorer-v2-study-select" style="margin-right: 10px; font-weight: bold; color: #eee;">Select
@@ -40,11 +40,24 @@
         <div class="panel"
             style="flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #1e1e1e;">
             <div class="header" style="flex: 0 0 auto; padding: 10px; text-align: center;">
-                <h2 style="margin: 0 0 5px 0;">Comparison</h2>
-                <div style="display: flex; justify-content: center; gap: 20px; font-size: 1.1em;">
+                <div style="display: flex; justify-content: center; align-items: center;">
+                    <div id="explorer-v2-slice-toggle"
+                        style="display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid #555; font-size: 1.1em; cursor: pointer;">
+                        <div id="explorer-v2-toggle-single" onclick="setExplorerV2SliceMode(false)"
+                            style="padding: 7px 20px; background: #4CAF50; color: #fff; font-weight: bold; transition: all 0.2s;">
+                            Distribution
+                        </div>
+                        <div id="explorer-v2-toggle-dual" onclick="setExplorerV2SliceMode(true)"
+                            style="padding: 7px 20px; background: #3c3c3c; color: #aaa; transition: all 0.2s;"
+                            title="Compare two filtered groups side by side">
+                            ⇄ Compare Slices
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: center; gap: 20px; font-size: 1.1em; margin-top: 5px;">
                     <span id="explorer-v2-count-1" style="color: #4CAF50;">Slice 1: ...</span>
-                    <span style="color: #666;">vs</span>
-                    <span id="explorer-v2-count-2" style="color: #2196F3;">Slice 2: ...</span>
+                    <span id="explorer-v2-vs-label" style="color: #666; display: none;">vs</span>
+                    <span id="explorer-v2-count-2" style="color: #2196F3; display: none;">Slice 2: ...</span>
                 </div>
                 <div style="margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px;">
                     <label for="explorer-v2-sort" style="color: #bbb; font-size: 0.9em;">Sort by:</label>
@@ -52,7 +65,8 @@
                         style="padding: 4px; background: #3c3c3c; border: 1px solid #555; color: white; border-radius: 4px; font-size: 0.9em;">
                         <option value="total">Total Frequency</option>
                         <option value="slice1">Slice 1 Frequency</option>
-                        <option value="slice2">Slice 2 Frequency</option>
+                        <option id="explorer-v2-sort-slice2" value="slice2" style="display: none;">Slice 2 Frequency
+                        </option>
                         <option value="name">Name (A-Z)</option>
                     </select>
                 </div>
@@ -63,8 +77,8 @@
         </div>
 
         <!-- Filters Panel Slice 2 (Right) -->
-        <div class="panel"
-            style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid #444;">
+        <div id="explorer-v2-slice2-panel" class="panel"
+            style="flex: 0 0 300px; display: none; flex-direction: column; overflow: hidden; border-left: 1px solid #444;">
             <div class="header" style="flex: 0 0 auto; background: #2d2d30; padding: 10px;">
                 <h3 style="margin: 0;">Filters Slice 2</h3>
                 <button class="btn-save" style="font-size: 0.8em; padding: 2px 8px; margin-top: 5px;"

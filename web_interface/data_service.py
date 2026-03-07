@@ -403,10 +403,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False):
          
     df[date_col] = pd.to_datetime(df[date_col]).astype('datetime64[ns]')
     
-    # Filter for Watch events only
-    if 'D_feature_name' in df.columns:
-        df = df[df['D_feature_name'].isin(["watch"])].copy()
-
+    # Filter for Watch events only removed - now processing all events
     # Construct 'machine_state'
     if 'scraped_ok' in df.columns and 'scraped_fail' in df.columns and 'annotated_ok' in df.columns:
         df['machine_state'] = '1: Activity data only'

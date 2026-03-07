@@ -21,8 +21,10 @@
 
 
 
+    {% if user.is_admin() %}
     <button class="tab-button" onclick="openTab(event, 'persona_explorer')">Collections</button>
-    <button class="tab-button" onclick="openTab(event, 'data_explorer_v2')">Group Comparisons</button>
+    {% endif %}
+    <button class="tab-button" onclick="openTab(event, 'data_explorer_v2')">Explore</button>
     <button class="tab-button" onclick="openTab(event, 'video_viewer')">Video Analysis</button>
     <button class="tab-button" onclick="openTab(event, 'pca_viz')">Correlations</button>
     <button class="tab-button" onclick="openTab(event, 'timelines')">Timelines</button>
@@ -39,7 +41,9 @@
 <div class="tab-content">
     {% include 'tabs/home.html' %}
 
+    {% if user.is_admin() %}
     {% include 'tabs/persona_explorer.html' %}
+    {% endif %}
     {% include 'tabs/data_explorer_v2.html' %}
     {% include 'tabs/video_viewer.html' %}
     {% include 'tabs/pca_viz.html' %}

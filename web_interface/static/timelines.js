@@ -238,6 +238,9 @@ window.timelines = {
             document.getElementById('timelines-stat-first-event').innerText = fmtDate(pe_donation.first_event_ts);
             document.getElementById('timelines-stat-last-event').innerText = fmtDate(pe_donation.last_event_ts);
 
+            // Store first event date for the 'exclude before first activity' filter
+            this.firstActivityDate = pe_donation.first_event_ts ? pe_donation.first_event_ts.substring(0, 10) : null;
+
             // Tags
             const currentTags = Array.isArray(pe_donation.annotation_tags) ? pe_donation.annotation_tags : [];
             const tagsDisplay = document.getElementById('timelines-stat-tags');
@@ -340,8 +343,21 @@ window.timelines = {
         container.innerHTML = '';
 
         const excludeNoData = document.getElementById('timelines-exclude-nodata').checked;
+        const excludeBeforeFirst = document.getElementById('timelines-exclude-before-first-activity').checked;
         const data = this.timelineData;
-        const dates = data.dates;
+        let dates = data.dates;
+
+        // Filter out dates before first main activity if checkbox checked
+        let startIdx = 0;
+        if (excludeBeforeFirst && this.firstActivityDate) {
+            startIdx = dates.findIndex(d => d >= this.firstActivityDate);
+            if (startIdx < 0) startIdx = 0;
+        }
+
+        // Slice dates from startIdx if needed
+        if (startIdx > 0) {
+            dates = dates.slice(startIdx);
+        }
 
         //console.log("TIMELINE DEBUG: Dates length", dates.length);
         //console.log("TIMELINE DEBUG: Variables keys", Object.keys(data.variables));
@@ -380,7 +396,8 @@ window.timelines = {
 
             // Title Above Plot
             const titleDiv = document.createElement('div');
-            titleDiv.innerHTML = `<h3 style="margin-top: 0; margin-bottom: 10px; font-size: 1.25em;">${displayTitle}</h3>`;
+            const subtitle = varData.type !== 'categorical' ? '<span style="font-size: 0.75em; color: #aaa; font-weight: normal;"> (mean values)</span>' : '';
+            titleDiv.innerHTML = `<h3 style="margin-top: 0; margin-bottom: 10px; font-size: 1.25em;">${displayTitle}${subtitle}</h3>`;
             chartWrapper.appendChild(titleDiv);
 
             // Container for Controls and Plot
@@ -428,9 +445,12 @@ window.timelines = {
                 }
 
                 // Setup Sidebar Category Selection
-                // Calculate total frequency for sorting
+                // Calculate total frequency for sorting (use sliced counts)
+                const slicedCounts = startIdx > 0 ? varData.counts.slice(startIdx) : varData.counts;
+                const slicedVideoCounts = startIdx > 0 && varData.daily_video_counts ? varData.daily_video_counts.slice(startIdx) : varData.daily_video_counts;
+                const slicedValidCounts = startIdx > 0 && varData.daily_valid_counts ? varData.daily_valid_counts.slice(startIdx) : varData.daily_valid_counts;
                 const catTotals = {};
-                varData.counts.forEach(day => {
+                slicedCounts.forEach(day => {
                     Object.keys(day).forEach(c => {
                         catTotals[c] = (catTotals[c] || 0) + day[c];
                     });
@@ -484,11 +504,22 @@ window.timelines = {
                 ];
 
                 selectedCats.forEach((cat, idx) => {
-                    const yVals = dates.map((d, i) => {
-                        const dailyRecord = varData.counts[i] || {};
+                    const yVals = [];
+                    const hoverTexts = [];
+                    const slicedDateLabels = startIdx > 0 ? (data.date_labels || dates).slice(startIdx) : (data.date_labels || dates);
+
+                    dates.forEach((d, i) => {
+                        const dailyRecord = slicedCounts[i] || {};
                         const val = dailyRecord[cat] || 0;
-                        const total = varData.daily_valid_counts ? varData.daily_valid_counts[i] : (varData.daily_video_counts ? varData.daily_video_counts[i] : 1);
-                        return total > 0 ? (val / total) * 100 : 0;
+                        const total = slicedValidCounts ? slicedValidCounts[i] : (slicedVideoCounts ? slicedVideoCounts[i] : 1);
+                        const share = total > 0 ? (val / total) * 100 : 0;
+                        yVals.push(share);
+                        hoverTexts.push(
+                            `<b>${cat}</b><br>` +
+                            `Period: ${slicedDateLabels[i] || d}<br>` +
+                            `Share: ${share.toFixed(1)}%<br>` +
+                            `Count: ${val.toLocaleString()}`
+                        );
                     });
 
                     traces.push({
@@ -496,7 +527,10 @@ window.timelines = {
                         y: yVals,
                         type: 'bar',
                         marker: { color: colors[idx % colors.length] },
-                        name: cat // Legend will show category name
+                        name: cat,
+                        text: hoverTexts,
+                        hoverinfo: 'text',
+                        hovertemplate: '%{text}<extra></extra>'
                     });
                 });
 
@@ -512,9 +546,10 @@ window.timelines = {
                     yAxisTitle = 'Value';
                 }
 
+                const slicedValues = startIdx > 0 ? varData.values.slice(startIdx) : varData.values;
                 traces.push({
                     x: xVals,
-                    y: varData.values,
+                    y: slicedValues,
                     type: 'bar',
                     marker: { color: '#2196F3' },
                     name: varName
@@ -527,6 +562,7 @@ window.timelines = {
             // Formatted Axis Labels Logic
             // We use 'date_labels' from backend.
             const allLabels = data.date_labels || dates; // fallback
+            const slicedLabels = startIdx > 0 ? allLabels.slice(startIdx) : allLabels;
 
             // Limit number of labels to avoid overcrowding
             const maxLabels = 15;
@@ -538,7 +574,7 @@ window.timelines = {
             dates.forEach((d, i) => {
                 if (i % skip === 0) {
                     tickVals.push(d);
-                    tickText.push(allLabels[i]);
+                    tickText.push(slicedLabels[i]);
                 }
             });
 

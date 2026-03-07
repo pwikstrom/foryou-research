@@ -76,16 +76,32 @@
                                     id="timelines-stat-timezone"></span></li>
                             <li><span class="stat-label">Active Days:</span> <span
                                     id="timelines-stat-active-days"></span></li>
-                            <li><span class="stat-label">Total Events:</span> <span
+                            <li><span class="stat-label">Total Activities:</span> <span
                                     id="timelines-stat-total-events"></span></li>
                             <li><span class="stat-label">Peak Day Segment:</span> <span
                                     id="timelines-stat-peak-segment"></span></li>
-                            <li><span class="stat-label">First Event:</span> <span
+                            <li><span class="stat-label">First main activity date:</span> <span
                                     id="timelines-stat-first-event"></span></li>
-                            <li><span class="stat-label">Last Event:</span> <span id="timelines-stat-last-event"></span>
+                            <li><span class="stat-label">Last activity date:</span> <span
+                                    id="timelines-stat-last-event"></span>
                             </li>
                             <li><span class="stat-label">Tags:</span> <span id="timelines-stat-tags"></span></li>
                         </ul>
+                    </div>
+
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #3e3e42;">
+                        <label
+                            style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #d4d4d4; font-size: 0.9em; margin-bottom: 8px;">
+                            <input type="checkbox" id="timelines-exclude-nodata"
+                                onchange="timelines.renderTimelineCharts()" checked>
+                            Exclude dates with no data
+                        </label>
+                        <label
+                            style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #d4d4d4; font-size: 0.9em;">
+                            <input type="checkbox" id="timelines-exclude-before-first-activity"
+                                onchange="timelines.renderTimelineCharts()">
+                            Exclude data before first main activity
+                        </label>
                     </div>
                 </div>
             </div>
@@ -95,13 +111,6 @@
         <div class="timelines-main" style="flex: 1; padding: 20px; overflow-y: auto;">
             <div id="timelines-header" style="margin-bottom: 20px; display: none;">
                 <h2 id="timelines-title">Collection Timeline</h2>
-                <div class="controls" style="display: flex; gap: 20px; align-items: center;">
-                    <label style="display: flex; align-items: center; gap: 5px;">
-                        <input type="checkbox" id="timelines-exclude-nodata" onchange="timelines.renderTimelineCharts()"
-                            checked>
-                        Exclude dates with no data
-                    </label>
-                </div>
             </div>
 
             <div id="timelines-charts-container">

@@ -862,6 +862,10 @@ def api_pca_metadata():
                 schema_map[col] = {'display_name': display_name}
                 break
 
+    import re
+    def natural_sort_key(s):
+        return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+
     # Build factor_values with date handling
     factor_values = {}
     for f in factors:
@@ -870,8 +874,22 @@ def api_pca_metadata():
             vals = df[f].dropna().astype(str).str[:10].unique().tolist()
         else:
             vals = df[f].dropna().unique().tolist()
+            
         if len(vals) < 500: 
-            factor_values[f] = sorted([str(v) for v in vals])
+            formatted_vals = []
+            for v in vals:
+                v_str = str(v)
+                if "week" in f.lower():
+                    parts = v_str.split('-')
+                    if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
+                        v_str = f"{parts[0]}-{int(parts[1]):02d}"
+                    elif len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].lower().startswith('w'):
+                        week_num = parts[1][1:]
+                        if week_num.isdigit():
+                            v_str = f"{parts[0]}-{int(week_num):02d}"
+                formatted_vals.append(v_str)
+                
+            factor_values[f] = sorted(formatted_vals, key=natural_sort_key)
 
     # Load display_ids for D_donation_id values
     display_ids = {}
@@ -928,6 +946,18 @@ def api_pca_data():
             is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
             if is_dt or "date" in col.lower():
                 mask &= df[col].astype(str).str[:10].isin([str(v)[:10] for v in vals])
+            elif "week" in col.lower():
+                def format_week(v_str):
+                    parts = str(v_str).split('-')
+                    if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
+                        return f"{parts[0]}-{int(parts[1]):02d}"
+                    elif len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].lower().startswith('w'):
+                        week_num = parts[1][1:]
+                        if week_num.isdigit():
+                            return f"{parts[0]}-{int(week_num):02d}"
+                    return str(v_str)
+                formatted_col = df[col].apply(format_week)
+                mask &= formatted_col.astype(str).isin(vals)
             else:
                 mask &= df[col].astype(str).isin(vals)
     
@@ -972,6 +1002,15 @@ def api_pca_data():
         # Truncate dates to just YYYY-MM-DD
         if "date" in col_name.lower() or isinstance(val, (pd.Timestamp, np.datetime64)):
             return str(val)[:10]
+        if "week" in col_name.lower():
+            v_str = str(val)
+            parts = v_str.split('-')
+            if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
+                return f"{parts[0]}-{int(parts[1]):02d}"
+            elif len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].lower().startswith('w'):
+                week_num = parts[1][1:]
+                if week_num.isdigit():
+                    return f"{parts[0]}-{int(week_num):02d}"
         # Resolve display IDs
         if col_name == 'D_donation_id' and str(val) in display_map:
             return display_map[str(val)]
@@ -1074,6 +1113,18 @@ def api_pca_correlation_matrix():
             is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
             if is_dt or "date" in col.lower():
                 mask &= df[col].astype(str).str[:10].isin([str(v)[:10] for v in vals])
+            elif "week" in col.lower():
+                def format_week(v_str):
+                    parts = str(v_str).split('-')
+                    if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
+                        return f"{parts[0]}-{int(parts[1]):02d}"
+                    elif len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].lower().startswith('w'):
+                        week_num = parts[1][1:]
+                        if week_num.isdigit():
+                            return f"{parts[0]}-{int(week_num):02d}"
+                    return str(v_str)
+                formatted_col = df[col].apply(format_week)
+                mask &= formatted_col.astype(str).isin(vals)
             else:
                 mask &= df[col].astype(str).isin(vals)
     filtered_df = df[mask].copy()
@@ -1122,6 +1173,8 @@ def api_pca_correlation_matrix():
 
 
 @data_bp.route('/api/persona_stats_info', methods=['GET'])
+@login_required
+@admin_required
 def api_persona_stats_info():
     if True:
         if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
@@ -1132,12 +1185,16 @@ def api_persona_stats_info():
 
 
 @data_bp.route('/api/persona_stats_cached', methods=['GET'])
+@login_required
+@admin_required
 def api_persona_stats_cached():
     # Alias to the main stats endpoint since we no longer distinguish between cached and calculated
     return api_persona_stats()
 
 
 @data_bp.route('/api/persona_stats', methods=['POST', 'GET']) # Allow GET for convenience
+@login_required
+@admin_required
 def api_persona_stats():
     try:
         # --- ACCESS CONTROL ---
