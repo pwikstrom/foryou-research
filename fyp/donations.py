@@ -511,7 +511,7 @@ def simple_sample_ddp_events(
 
     def _filter_and_sample(df, group_cols, x_threshold, y_samples):
         """
-        Filters groups by size and samples rows.
+        Filters aggregation groups by size and samples rows.
         """
         # 1. Filter groups 
         group_sizes = df.groupby(group_cols)[group_cols[0]].transform('size')
@@ -530,7 +530,7 @@ def simple_sample_ddp_events(
 
     
     if all_ddp_events_df is None:
-        raise ValueError("[DD Sampling] all_ddp_events_df cannot be None")
+        raise ValueError("[Sampling] all_ddp_events_df cannot be None")
 
     the_df = all_ddp_events_df.copy()
 
@@ -540,17 +540,17 @@ def simple_sample_ddp_events(
     grouping_factors = get_grouping_factors_from_var_schema(some_events_df = the_df, verbose=False)
 
     if len(grouping_factors) != 2:
-        raise ValueError("!!! [DD Sampling] Group factors must be exactly 2")
+        raise ValueError("!!! [Sampling] Group factors must be exactly 2")
 
     if not collection_id_column in grouping_factors:
-        raise ValueError("!!! [DD Sampling] Group factors must include collection_id_column")
+        raise ValueError(f"!!! [Sampling] Group factors must include '{collection_id_column}'")
 
     # make sure collection_id_column is the first element 
     grouping_factors.remove(collection_id_column)
     grouping_factors = [collection_id_column] + grouping_factors
 
     if verbose:
-        print(f"    [DD Sampling] Group factors: {grouping_factors}")
+        print(f"    [Sampling] Grouping factors: {grouping_factors}")
 
     if not "study_defs" in fyp_cf:
         init_study_defs()
@@ -560,13 +560,6 @@ def simple_sample_ddp_events(
     MIN_GROUP_COUNT_REQUIRED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MIN_GROUP_COUNT_REQUIRED_PER_DONATION",10)
     MAX_GROUP_COUNT_SELECTED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_SELECTED_PER_DONATION",100)
 
-    # sorting the events by donation and event id in order to have a replicable sample
-    #donation_metadata_df = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet")
-    #donation_to_d_dict = donation_metadata_df[("other","D_id")].to_dict()
-
-    #the_df["D_id"] = the_df[collection_id_column].map(donation_to_d_dict)
-    #the_df = the_df.sort_values(by=["D_id","event_id"])
-
 
     # Separate watch and non-watch events 
     all_watch_events_df = the_df[the_df[event_type_column]=="watch"].copy()
@@ -574,29 +567,29 @@ def simple_sample_ddp_events(
     sample_frame_size = len(all_watch_events_df)
 
     if verbose:
-        print(f"    [DD Sampling] Watch events: {len(all_watch_events_df):,}  |  Non-watch events: {len(all_nonwatch_events_df):,}")
+        print(f"    [Sampling] Watch events: {len(all_watch_events_df):,}  |  Non-watch events: {len(all_nonwatch_events_df):,}")
 
 
     if verbose:
-        print(f"    [DD Sampling] Dropping groups with less than {MIN_EVENTS_REQUIRED} events")
-        print(f"    [DD Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment...")
+        print(f"    [Sampling] Dropping aggregation groups with less than {MIN_EVENTS_REQUIRED} events")
+        print(f"    [Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment...")
     # select agg groups with the required number of events
     ddp_watch_events_within_agg_group_size_limits = _filter_and_sample(all_watch_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED)
     if verbose:
         sample_size = len(ddp_watch_events_within_agg_group_size_limits)
         if sample_frame_size > 0:
-            print(f"    [DD Sampling] Watch events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            print(f"    [Sampling] Watch events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     # build a df with unique pairs of the two group factors
     unique_group_factor_pairs = ddp_watch_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
 
     if verbose:
-        print(f"    [DD Sampling] Dropping donations with less than {MIN_GROUP_COUNT_REQUIRED_PER_DONATION} groups within the limits")
-        print(f"    [DD Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_DONATION} groups from each remaining donation. This might take a moment...")
+        print(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_DONATION} aggregation groups within the limits")
+        print(f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_DONATION} aggregation groups from each remaining collection. This might take a moment...")
     # select collections with a required number of groups
     donations_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION)
     if verbose:
-        print(f"    [DD Sampling] Donations groups remaining after sampling: {len(donations_within_group_count_limits):,}")
+        print(f"    [Sampling] Aggregation groups remaining after sampling: {len(donations_within_group_count_limits):,}")
 
 
     # ----------------------------------------------------------------------
@@ -610,7 +603,7 @@ def simple_sample_ddp_events(
     if verbose:
         sample_size = len(ddp_watch_events_in_selected_groups)
         if sample_frame_size > 0:
-            print(f"    [DD Sampling] Watch events remaining in the sampled groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            print(f"    [Sampling] Watch events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     # ----------------------------------------------------------------------
     # find the non-watch events in the selected groups - note that since the non-watch events are not
@@ -631,13 +624,13 @@ def simple_sample_ddp_events(
     mask = all_nonwatch_events_df.set_index(grouping_factors).index.isin(selected_nonwatch_groups)
     ddp_nonwatch_events_in_selected_groups = all_nonwatch_events_df[mask]
     if verbose:
-        print(f"    [DD Sampling] Non-Watch events remaining in the selected groups: {len(ddp_nonwatch_events_in_selected_groups):,} (100% of original)")
+        print(f"    [Sampling] Non-Watch events remaining in the selected aggregation groups: {len(ddp_nonwatch_events_in_selected_groups):,} (100% of original)")
     #print(ddp_nonwatch_events_in_selected_groups[:5])
     #ddp_nonwatch_events_in_selected_groups.reset_index(inplace=True)
 
     combined = pd.concat([ddp_watch_events_in_selected_groups, ddp_nonwatch_events_in_selected_groups])
     if verbose:
-        print(f"    [DD Sampling] Combining the (not sampled) non-watch events with the sampled watch events with : {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+        print(f"    [Sampling] Combining the (not sampled) non-watch events with the sampled watch events with : {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     combined.drop("D_id", axis=1, inplace=True, errors='ignore')
 
 
@@ -654,13 +647,13 @@ def simple_sample_ddp_events(
 
     mapper = fyp_cf['var_schema'][['variable_name','display_name']].dropna().set_index('variable_name').to_dict()['display_name']
 
-    print(f"    [DD Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
-    print(f"    [DD Sampling] - Unique videos: {len(combined_deduped_enrichment_status):,}")
+    print(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+    print(f"    [Sampling] - Unique items: {len(combined_deduped_enrichment_status):,}")
     for k in enrichment_summary:
         if len(combined_deduped_enrichment_status) > 0:
-            print(f"    [DD Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k]/len(combined_deduped_enrichment_status):.0%})")
+            print(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k]/len(combined_deduped_enrichment_status):.0%})")
         else:
-            print(f"    [DD Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} (N/A)")
+            print(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} (N/A)")
 
     return combined
 

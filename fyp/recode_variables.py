@@ -159,6 +159,22 @@ def get_factors_and_features_from_var_schema(some_events_df = None, verbose = Fa
 
 
 
+def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False):
+    
+    var_schema = fyp_cf["var_schema"]
+    
+    the_grouping_factors = sorted(list(set(var_schema[var_schema["role"]=='group_factor'].variable_name)))
+    if some_events_df is not None:
+        the_grouping_factors = [c for c in the_grouping_factors if c in some_events_df.columns]
+    
+    if verbose  and len(the_grouping_factors) > 0:
+        print("    Grouping Factors:",", ".join(the_grouping_factors))
+
+    return the_grouping_factors
+
+
+
+
 
 
 
@@ -177,24 +193,6 @@ def _is_emoji(s: str) -> bool:
 
     """Return True if the string is a valid emoji (including multi-char ones)."""
     return s in EMOJI_DATA
-
-
-
-
-
-
-def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False):
-    
-    var_schema = fyp_cf["var_schema"]
-    
-    the_grouping_factors = sorted(list(set(var_schema[var_schema["role"]=='group_factor'].variable_name)))
-    if some_events_df is not None:
-        the_grouping_factors = [c for c in the_grouping_factors if c in some_events_df.columns]
-    
-    if verbose  and len(the_grouping_factors) > 0:
-        print("    Group Factors:",", ".join(the_grouping_factors))
-
-    return the_grouping_factors
 
 
 

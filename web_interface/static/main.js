@@ -486,7 +486,7 @@ function setDiscreetStatus(name, data) {
             }
 
             let outcome = data.last_run_outcome || "Unknown";
-            // Color code outcome? simpler to just text for now as requested.
+            // Colour code outcome? simpler to just text for now as requested.
 
             let durationStr = "00:00";
             if (data.last_run_duration !== undefined) {

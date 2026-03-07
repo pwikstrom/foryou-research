@@ -120,7 +120,7 @@ function renderPcaControls(data) {
     if (data.numeric_cols.length > 0) xSelect.value = data.numeric_cols[0];
     if (data.numeric_cols.length > 1) ySelect.value = data.numeric_cols[1];
 
-    // Color: Factors — use display_name from schema_map if available
+    // Colour: Factors — use display_name from schema_map if available
     const schemaMap = data.schema_map || {};
     data.factor_cols.forEach(col => {
         const opt = document.createElement('option');
@@ -396,7 +396,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
     }
 
     const layout = {
-        title: `${xTitle} vs ${yTitle} (Color: ${colorLabel})`,
+        title: `${xTitle} vs ${yTitle} (Colour: ${colorLabel})`,
         xaxis: { title: xTitle, ...axisConfig },
         yaxis: { title: yTitle, ...axisConfig },
         hovermode: 'closest',

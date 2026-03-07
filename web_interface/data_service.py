@@ -796,12 +796,10 @@ def get_pca_df(study_name):
     if True:# try:
         
         pca_filename = f"{study_name}_PCA.parquet"
-        
-        if data_io.exists(
-            storage_location="cache",
-            filename=pca_filename,
-            ):
-            
+        comp_inter_filename = f"{study_name}_comp_interpretations.json"
+
+        if data_io.exists(storage_location="cache", filename=pca_filename) and data_io.exists(storage_location="cache", filename=comp_inter_filename):         
+            print("Loading PCA scores for study from cache: ", study_name)
             events_pca_scores_scaled = data_io.load_parquet(
                 storage_location="cache",
                 filename=pca_filename,
@@ -816,6 +814,8 @@ def get_pca_df(study_name):
                 target_explained_variance = 0.8,
                 drop_rare_globally_below = 0.01,
             )
+            if events_pca_scores_scaled is None:
+                return None
             data_io.save_parquet(
                 df=events_pca_scores_scaled,
                 storage_location="cache",

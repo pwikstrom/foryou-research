@@ -435,9 +435,16 @@ def _prepare_probability_matrix(
     return pd.DataFrame(P, index=counts_df.index, columns=counts_df.columns)
 
 
+
+
+
+
+
+
+
+
 def transform_categories_to_components_and_diversity(
     counts_df=None,
-    metric="jensen-shannon",
     smoothing=1e-9,
     weighting="idf",
     gamma=0.8,
@@ -499,8 +506,9 @@ def transform_categories_to_components_and_diversity(
 
         return result_df, pc_df, xx
 
+
+
     # Direct PCA on weighted/tempered probability vectors
-    # This replaces the previous MDS→PCA pipeline for much better performance
     prob_matrix = _prepare_probability_matrix(
         counts_df,
         smoothing=smoothing,
@@ -572,26 +580,18 @@ def calculate_scaled_pca_scores(
     target_explained_variance = 0.8,
     drop_rare_globally_below = 0.01,
     scale_it = True,
-    down_sample = 1,
-    min_sample_size = 20000,
     load_from_cache = True,
-    save_to_cache = False,
+    save_to_cache = True,
     verbose = False,
     ):
     
-    
-
     print(
         f"Starting Principal Component Analysis. Now: {_dt.datetime.now()}...")
-
-
 
 
     if study_name is None and study_recoded_dataset is None:
         print("    [PCA] ERROR: This process cannot run without a study name or a recoded study dataset as input. Process failed.")
         return None
-
-
 
 
     if load_from_cache and study_name is not None:
@@ -625,23 +625,23 @@ def calculate_scaled_pca_scores(
 
 
     # I was experimenting with this column during one stage - dropping it in case it lingers in the dataset somewhere
-    # It is NA for zeeschuimer data and causes trouble
     study_recoded_dataset.drop(columns=['dd_event_id'], errors='ignore', inplace=True)
 
-
+    # checking that the groupubg factors are properly defined and present in the dataset
     targeted_grouping_factors = get_grouping_factors_from_var_schema(some_events_df = None, verbose=verbose)
     grouping_factors = get_grouping_factors_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
     if targeted_grouping_factors != grouping_factors:
         print(f"    [PCA] Targeted grouping factors {targeted_grouping_factors} differ from those available in the dataset {grouping_factors}. Terminating.")
         return None, None
+    del targeted_grouping_factors
 
     for gf in grouping_factors:
         if study_recoded_dataset[gf].dropna().nunique() <= 1:
             print(f"    [PCA] Grouping factor {gf} is all NA or has only 1 unique value. Terminating.")
             return None, None
 
-    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
 
+    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
 
     pre_len = len(study_recoded_dataset)
     study_recoded_dataset = study_recoded_dataset[study_recoded_dataset.annotated_ok]
@@ -654,45 +654,27 @@ def calculate_scaled_pca_scores(
     columns_to_be_dropped = not_na_columns[not_na_columns<=0.9].index
     study_recoded_dataset = study_recoded_dataset.drop(columns=columns_to_be_dropped)
     if verbose:
-        print(f"    [PCA] Dropping features and group factors with more than 10% missing values -> {len(columns_to_be_dropped)} columns dropped. Shape: {study_recoded_dataset.shape}")
+        print(f"    [PCA] Dropping features and grouping factors with more than 10% missing values -> {len(columns_to_be_dropped)} columns dropped. Shape: {study_recoded_dataset.shape}")
 
     # I need to do this again in case some factors or features were dropped in the previous step
-    grouping_factors = get_grouping_factors_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
     fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
-
 
     pre_len = len(study_recoded_dataset)
     study_recoded_dataset = study_recoded_dataset.dropna(subset = fyp_features + grouping_factors)
     post_len = len(study_recoded_dataset)
     if verbose:
-        print(f"    [PCA] Dropping rows with missing values in features and group factors -> {pre_len - post_len} rows dropped. Shape: {study_recoded_dataset.shape}")
+        print(f"    [PCA] Dropping rows with missing values in features and grouping factors -> {(pre_len - post_len):,} rows dropped. Shape: {study_recoded_dataset.shape}")
     del pre_len, post_len, columns_to_be_dropped
 
 
-
-
-    
-    if down_sample < 1:
-        down_sample_count = max(min_sample_size, int(down_sample*len(study_recoded_dataset)))
-        down_sample_count = min(down_sample_count, len(study_recoded_dataset))
-        if down_sample_count < len(study_recoded_dataset):
-            sampled_events_df = study_recoded_dataset.sample(n=down_sample_count)
-            if verbose:
-                print(f"    [PCA] Down sampling to {down_sample_count/len(study_recoded_dataset):.0%} of the dataset -> Shape: {sampled_events_df.shape}")
-        else:
-            sampled_events_df = study_recoded_dataset.copy()
-    else:
-        sampled_events_df = study_recoded_dataset.copy()
-
-    study_recoded_dataset = sampled_events_df.copy()
-
+    # ----------------------------
+    # Dropping groups that are too small
+    # ----------------------------
     if verbose:
-        print(f"    [PCA] Dropping '{'-'.join(grouping_factors)}' groups that are smaller than {minimum_group_size} rows")
+        print(f"    [PCA] Dropping <{'|'.join(grouping_factors)}> groups that are smaller than {minimum_group_size} rows")
 
     group_sizes = study_recoded_dataset[grouping_factors].groupby(grouping_factors).agg(group_size = pd.NamedAgg(column=grouping_factors[0], aggfunc="count"))
-
     good_sized_groups = group_sizes[list((group_sizes>=minimum_group_size).to_dict()["group_size"].values())]
-
 
     if len(good_sized_groups) < 10:
         print(f"    [PCA] ERROR: Less than 10 groups of {len(group_sizes):,} have at least {minimum_group_size} elements. I refuse to do PCA with soo few groups. Terminating.")
@@ -720,21 +702,21 @@ def calculate_scaled_pca_scores(
         if verbose:
             print("    [PCA] No groups were below the threshold")
 
-
+    # ----------------------------
+    # PCA transformation
+    # ----------------------------
     if verbose:
-        print("    [PCA] Consolidating events into groups and performing PCA transformation on categorical variables")
+        print("    [PCA] Consolidating events into aggregation groups and performing PCA transformation on categorical variables")
 
     events_pca_scores = []
     comp_interpretations = {}
 
-    # first, run through the numerical features. This doesn't take much time. Most of my features are categorical anyway...
+    # first, run through the numerical features.
     for i,c in enumerate(study_recoded_dataset[fyp_features].columns):
         if c in study_recoded_dataset.select_dtypes(include=["number"]).columns:
             the_pc_df = None
             one_comp_interpretation = {}
             wer = pd.DataFrame(study_recoded_dataset[[c] + grouping_factors].groupby(grouping_factors).mean())
-
-
 
             events_pca_scores += [wer.copy()]
 
@@ -753,7 +735,6 @@ def calculate_scaled_pca_scores(
         print(f"    [PCA] {(i+1):02}/{len(counts_list)}. {col_name}, {counts_df.shape}", end=": ", flush=True)
         wer, the_pc_df, comp_interpretation = transform_categories_to_components_and_diversity(
             counts_df=counts_df,
-            metric="hellinger",#"jensen-shannon",
             gamma=0.8,
             max_components=15,
             target_explained_variance=target_explained_variance,
@@ -832,8 +813,6 @@ def calculate_scaled_pca_scores(
 
     if save_to_cache and study_name is not None:
         pca_filename = f"{study_name}_PCA.parquet"
-        comp_inter_filename = f"{study_name}_comp_interpretations.json"
-
         events_pca_scores_scaled.attrs['study_name'] = study_name
         data_io.save_parquet(
             df=events_pca_scores_scaled,
@@ -841,17 +820,17 @@ def calculate_scaled_pca_scores(
             filename=pca_filename,
             verbose=verbose,
             )
-
         if verbose:
             print(f"    [PCA] Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'.")
 
+
+        comp_inter_filename = f"{study_name}_comp_interpretations.json"
         data_io.save_json(
             data=comp_interpretations,
             storage_location="cache",
             filename=comp_inter_filename,
             verbose=verbose,
             )
-
         if verbose:
             print(f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'.")
 
