@@ -639,6 +639,11 @@ def get_timeline_data(donation_id, interval='day'):
         elif isinstance(schema, dict) and schema.get(var, {}).get('web_viz_log') == 'yes':
              use_log = True
              
+        # Get Display Name
+        display_name = schema_map.get(var, {}).get('display_name', var)
+        if var == 'machine_state':
+            display_name = 'Scrape and Annotation States'
+             
         # Metadata common props
         valid_counts = df.get(f"{var}_valid", pd.Series([0]*len(df))).tolist()
         video_counts = df['video_count'].tolist() # Total videos per period
@@ -652,7 +657,8 @@ def get_timeline_data(donation_id, interval='day'):
                 "values": vals,
                 "log": use_log,
                 "daily_valid_counts": valid_counts,
-                "daily_video_counts": video_counts
+                "daily_video_counts": video_counts,
+                "display_name": display_name
             }
         elif has_counts:
             # Categorical
@@ -690,10 +696,11 @@ def get_timeline_data(donation_id, interval='day'):
                 "daily_video_counts": video_counts,
                 "daily_valid_counts": valid_counts,
                 "top_categories": top_cats if var == 'machine_state' else top_cats[:3],
-                "default_all": True if var == 'machine_state' else False
+                "default_all": True if var == 'machine_state' else False,
+                "display_name": display_name
             }
 
-    return {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts}
+    return {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts, "variables_order": viz_vars}
 
 
 def load_display_id_map():

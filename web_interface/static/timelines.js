@@ -75,6 +75,12 @@ window.timelines = {
             return ddon.includes(query) || disp.includes(query);
         });
 
+        // Update the header with the count
+        const headerTitle = document.getElementById('timelines-sidebar-header');
+        if (headerTitle) {
+            headerTitle.innerText = `Collection Timelines (${simpleList.length})`;
+        }
+
         if (simpleList.length === 0) {
             listContainer.innerHTML = '<div style="padding:10px;">No matches found.</div>';
             return;
@@ -117,20 +123,8 @@ window.timelines = {
         // Auto-select first donation if none selected
         if (!this.currentDonationId && simpleList.length > 0) {
             this.selectDonation(simpleList[0].D_donation_id);
-            // We don't need to recursively call renderDonationList because selectDonation will handle UI updates
-            // But we should visually highlight the first item (which we just created) or simpler: just re-render once.
-            // Actually, calling selectDonation sets currentDonationId, so next render will highlight it.
-            // Let's just set the ID and let the user click? No, request was "preload data".
-            // So calling selectDonation triggers the fetch.
-            // To update the highlight, we can re-run renderDonationList or manually update.
-            // Re-running renderDonationList might be infinite loop if called from inside.
-            // SAFE WAY:
-            // Just select it. The UI list is already built. We can update the class manually or just leave it unhighlighted until next render?
-            // Better: Set the highlight on the element we just created?
-            // Actually, renderDonationList is called during filter changes too.
-            // We want this ONLY on initial load?
-            // "Preload data... immediately after user logged in".
-            // So if (!this.currentDonationId) covers initial load.
+            // Re-render so the highlight applies to the newly auto-selected item
+            this.renderDonationList();
         }
     },
 
@@ -196,9 +190,6 @@ window.timelines = {
             if (detailsCard) detailsCard.classList.remove('hidden');
             if (radarCard) radarCard.style.display = 'block';
 
-            document.getElementById('timelines-details-id').innerText = donationId;
-            document.getElementById('timelines-details-moniker').innerText = pe_donation.moniker || 'Unknown Persona';
-
             // Helper to dynamically hide empty items just like PE
             let visibleInfoCount = 0;
             const updateInfoStat = (elementId, value) => {
@@ -244,8 +235,6 @@ window.timelines = {
             document.getElementById('timelines-stat-total-events').innerText = (pe_donation.total_events || 0).toLocaleString();
             document.getElementById('timelines-stat-peak-segment').innerText = pe_donation.peak_day_segment || 'Unknown';
 
-            const watchHours = ((pe_donation.total_watch_time_s || 0) / 3600).toFixed(1);
-            document.getElementById('timelines-stat-watch-time').innerText = `${watchHours} hrs`;
             document.getElementById('timelines-stat-first-event').innerText = fmtDate(pe_donation.first_event_ts);
             document.getElementById('timelines-stat-last-event').innerText = fmtDate(pe_donation.last_event_ts);
 
@@ -337,6 +326,17 @@ window.timelines = {
         const scrollContainer = document.querySelector('.timelines-main');
         const scrollPos = scrollContainer ? scrollContainer.scrollTop : 0;
 
+        // Save scroll positions of category lists before clearing container
+        const catScrollPositions = {};
+        if (container) {
+            container.querySelectorAll('[id^="controls-timeline-plot-"]').forEach(menu => {
+                const scroller = menu.querySelector('div[style*="overflow-y:auto"]');
+                if (scroller) {
+                    catScrollPositions[menu.id] = scroller.scrollTop;
+                }
+            });
+        }
+
         container.innerHTML = '';
 
         const excludeNoData = document.getElementById('timelines-exclude-nodata').checked;
@@ -346,17 +346,30 @@ window.timelines = {
         //console.log("TIMELINE DEBUG: Dates length", dates.length);
         //console.log("TIMELINE DEBUG: Variables keys", Object.keys(data.variables));
 
+        // Sort variables according to variables_order if provided from backend (web_timeline_prio)
         let varKeys = Object.keys(data.variables);
-        // Ensure machine_state is always first
+        if (data.variables_order && Array.isArray(data.variables_order)) {
+            varKeys.sort((a, b) => {
+                const idxA = data.variables_order.indexOf(a);
+                const idxB = data.variables_order.indexOf(b);
+                // If not in array, push to bottom. Otherwise, sort by index
+                if (idxA === -1 && idxB === -1) return 0;
+                if (idxA === -1) return 1;
+                if (idxB === -1) return -1;
+                return idxA - idxB;
+            });
+        }
+
+        // Ensure machine_state is always last
         if (varKeys.includes('machine_state')) {
             varKeys = varKeys.filter(k => k !== 'machine_state');
-            varKeys.unshift('machine_state');
+            varKeys.push('machine_state');
         }
 
         // Iterate over variables
         varKeys.forEach(varName => {
             const varData = data.variables[varName];
-            const displayTitle = varName === 'machine_state' ? 'Scrape and Annotation States' : varName;
+            const displayTitle = varData.display_name || (varName === 'machine_state' ? 'Scrape and Annotation States' : varName);
 
             const chartWrapper = document.createElement('div');
             chartWrapper.className = 'timeline-chart-wrapper';
@@ -364,26 +377,39 @@ window.timelines = {
             chartWrapper.style.background = '#1e1e1e';
             chartWrapper.style.padding = '10px';
             chartWrapper.style.borderRadius = '5px';
-            chartWrapper.style.display = 'flex';
 
-            // Left Menu for Categorical
+            // Title Above Plot
+            const titleDiv = document.createElement('div');
+            titleDiv.innerHTML = `<h3 style="margin-top: 0; margin-bottom: 10px; font-size: 1.25em;">${displayTitle}</h3>`;
+            chartWrapper.appendChild(titleDiv);
+
+            // Container for Controls and Plot
+            const innerFlexDiv = document.createElement('div');
+            innerFlexDiv.style.display = 'flex';
+            innerFlexDiv.style.flexDirection = 'row';
+
+            // Left Menu for Categorical (or placeholder for alignment)
             const controlsDiv = document.createElement('div');
             controlsDiv.style.width = '200px';
-            controlsDiv.style.paddingRight = '10px';
-            controlsDiv.style.borderRight = '1px solid #333';
-            controlsDiv.innerHTML = `<h4>${displayTitle}</h4>`;
+            controlsDiv.style.flexShrink = '0';
+
+            if (varData.type === 'categorical') {
+                controlsDiv.style.paddingRight = '10px';
+                controlsDiv.style.borderRight = '1px solid #333';
+            }
 
             const plotDiv = document.createElement('div');
             plotDiv.style.flex = 1;
             plotDiv.style.minWidth = '0'; // Critical for flex child resizing
-            plotDiv.style.minHeight = '300px'; // fixed height for plot
+            plotDiv.style.height = '400px'; // fixed height for plot to prevent resizing issues
 
             // Unique ID
-            const plotId = `timeline-plot-${varName.replace(/\s+/g, '_')}`;
+            const plotId = `timeline-plot-${varName.replace(/\\s+/g, '_')}`;
             plotDiv.id = plotId;
 
-            chartWrapper.appendChild(controlsDiv);
-            chartWrapper.appendChild(plotDiv);
+            innerFlexDiv.appendChild(controlsDiv);
+            innerFlexDiv.appendChild(plotDiv);
+            chartWrapper.appendChild(innerFlexDiv);
             container.appendChild(chartWrapper);
 
             const traces = [];
@@ -412,25 +438,43 @@ window.timelines = {
 
                 const allCategories = Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]);
 
+                // Preserve scroll position if re-rendering an existing menu
+                const catScrollPos = catScrollPositions[`controls-${plotId}`] || 0;
+
                 // Keep UI container logic SAME
                 // (This block recreates the checkboxes every time)
                 // In production might want to only create once, but here we redraw all.
+                controlsDiv.id = `controls-${plotId}`;
                 controlsDiv.innerHTML = `
-                    <h4>${displayTitle}</h4>
                     <div style="font-size:0.85em; margin-bottom:5px; color:#aaa;">Select Categories:</div>
-                    <div style="max-height:100px; overflow-y:auto; border:1px solid #444; padding:5px;">
+                    <div style="max-height:300px; overflow-y:auto; border:1px solid #444; padding:5px;">
                         ${allCategories.map(cat => `
-                            <div style="display:flex; align-items:center;">
+                            <div style="display:flex; align-items:flex-start; margin-bottom:3px;">
                                 <input type="checkbox"
                                        value="${cat}"
                                        ${selectedCats.includes(cat) ? 'checked' : ''}
                                        onchange="window.timelines.toggleCategory('${varName}', '${cat}')"
-                                       style="margin-right:5px;">
-                                <span>${cat}</span>
+                                       style="margin-right:5px; margin-top:2px;">
+                                <span style="line-height:1.2;">
+                                    ${cat} 
+                                    <span style="color:#aaa; font-size:0.85em; white-space:nowrap;">(${catTotals[cat].toLocaleString()})</span>
+                                </span>
                             </div>
                         `).join('')}
                     </div>
                 `;
+
+                // Restore scroll position
+                if (catScrollPos > 0) {
+                    // Small timeout ensures the DOM is painted first before we try to scroll
+                    setTimeout(() => {
+                        const newMenu = document.getElementById(`controls-${plotId}`);
+                        if (newMenu) {
+                            const scroller = newMenu.querySelector('div[style*="overflow-y:auto"]');
+                            if (scroller) scroller.scrollTop = catScrollPos;
+                        }
+                    }, 0);
+                }
 
                 // Calculate Values (Stacked)
                 // We need one trace per selected category
@@ -499,7 +543,7 @@ window.timelines = {
             });
 
             const layout = {
-                margin: { t: 20, r: 20, b: 40, l: 40 },
+                margin: { t: 20, r: 20, b: (varData.type === 'categorical' ? 60 : 40), l: 40 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 font: { color: '#ccc' },
@@ -518,6 +562,16 @@ window.timelines = {
                 barmode: 'stack', // STACKED BARS
                 showlegend: (varData.type === 'categorical') // Only show legend for categorical
             };
+
+            if (varData.type === 'categorical') {
+                layout.legend = {
+                    orientation: 'h',
+                    y: -0.2, // Move legend below the plot
+                    x: 0.5,
+                    xanchor: 'center',
+                    yanchor: 'top'
+                };
+            }
 
             // Log Axis specific
             if (varData.type !== 'categorical' && varData.log) {
@@ -649,16 +703,28 @@ window.timelines = {
         html += '<thead style="border-bottom: 2px solid #555;"><tr><th style="padding: 8px; text-align: left;">Variable</th><th style="padding: 8px; text-align: left;">Value</th></tr></thead>';
         html += '<tbody>';
 
-        // Use the ordered keys to keep machine_state at top
+        // Use the ordered keys to keep machine_state at top and preserve schema priorities
         let varKeys = Object.keys(this.timelineData.variables);
+
+        if (this.timelineData.variables_order && Array.isArray(this.timelineData.variables_order)) {
+            varKeys.sort((a, b) => {
+                const idxA = this.timelineData.variables_order.indexOf(a);
+                const idxB = this.timelineData.variables_order.indexOf(b);
+                if (idxA === -1 && idxB === -1) return 0;
+                if (idxA === -1) return 1;
+                if (idxB === -1) return -1;
+                return idxA - idxB;
+            });
+        }
+
         if (varKeys.includes('machine_state')) {
             varKeys = varKeys.filter(k => k !== 'machine_state');
-            varKeys.unshift('machine_state');
+            varKeys.push('machine_state');
         }
 
         varKeys.forEach(varName => {
             const varData = this.timelineData.variables[varName];
-            const displayTitle = varName === 'machine_state' ? 'Scrape/Annotation States' : varName;
+            const displayTitle = varData.display_name || (varName === 'machine_state' ? 'Scrape/Annotation States' : varName);
 
             html += `<tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; vertical-align: top; font-weight: bold;">${displayTitle}</td>`;
             html += `<td style="padding: 8px; vertical-align: top;">`;

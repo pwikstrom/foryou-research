@@ -199,6 +199,8 @@ def calc_entropy_and_dominance(
 
     entropy = -(probs * np.log2(np.clip(probs, 1e-12, 1))).sum(axis=1)
 
+    return {"entropy":entropy} # simplifying things
+
     return {"dominance":dom, "entropy":entropy}
 
 
@@ -258,21 +260,23 @@ def interpret_axes_with_categories(
         
         # Top Positive
         top_pos = corrs.sort_values(ascending=False).head(top).items()
-        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat not in [fyp_cf["labels"]["OTHER_THINGS"], "oThEr tHiNgS-+-"]]
+        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat not in [fyp_cf["labels"]["OTHER_THINGS"]]]
         top_pos_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos]) if top_pos else ""
+        top_pos_cat = top_pos[0][0] if top_pos else None
 
         # Top Negative
         top_neg = corrs.sort_values(ascending=True).head(top).items()
-        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat not in [fyp_cf["labels"]["OTHER_THINGS"], "oThEr tHiNgS-+-"]]
+        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat not in [fyp_cf["labels"]["OTHER_THINGS"]]]
         top_neg_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg]) if top_neg else ""
+        top_neg_cat = top_neg[0][0] if top_neg else None
 
-        out[col] = {"top_positive": top_pos_str, "top_negative": top_neg_str}
+        out[col] = {"top_positive": top_pos_str, "top_negative": top_neg_str, "top_positive_cat": top_pos_cat, "top_negative_cat": top_neg_cat}
         
     return out
 
 
 
-def interpret_pca_axes(
+"""def interpret_pca_axes(
     c = None,
     scaled_pca_scores = None, 
     events_df_recoded = None):
@@ -299,7 +303,7 @@ def interpret_pca_axes(
         for zz in xx[yy]:
             print(yy,zz,xx[yy][zz])
     
-    return xx
+    return xx"""
 
 
 
@@ -351,19 +355,19 @@ def transform_category_column_to_counts_df(
         # Handle case where column is empty or all null
          return pd.DataFrame(index=some_events.set_index(grouping_factors).index.unique())
 
-    mask = (df_exploded[the_column].notna()) & \
-           (~df_exploded[the_column].isin(["DDP", "BASELINE"]))
-    df_filtered = df_exploded[mask]
+    #mask = (df_exploded[the_column].notna()) & \
+    #       (~df_exploded[the_column].isin(["DDP", "BASELINE"]))
+    #df_filtered = df_exploded[mask]
 
-    if df_filtered.empty:
+    if df_exploded.empty:
          return pd.DataFrame(index=some_events.set_index(grouping_factors).index.unique())
 
     # 3. Crosstab / Pivot
     # groupby factors + category column -> size -> unstack
     # Using crosstab is generally cleaner for frequency counts
     counts_df = pd.crosstab(
-        index=[df_filtered[c] for c in grouping_factors],
-        columns=df_filtered[the_column]
+        index=[df_exploded[c] for c in grouping_factors],
+        columns=df_exploded[the_column]
     )
     
     # Crosstab returns ints, convert to float as per original return type expectations
@@ -530,12 +534,15 @@ def transform_categories_to_components_and_diversity(
 
     # Check how much variance each component explains
     explained = pca.explained_variance_ratio_
+    
+    # Handle the case where total variance is 0, causing NaNs in explained_variance_ratio_
+    explained = np.nan_to_num(explained, nan=0.0)
 
     explained_cumsum = explained.cumsum()
     for i in range(len(explained_cumsum), 0, -1):
         if (explained_cumsum[i-1] < target_explained_variance):
             required_components = i+1
-            n_components = min(max_components,i+1)
+            n_components = min(max_components, i+1, pca_coords.shape[1])
             break
         required_components = 1
         n_components = 1
@@ -554,12 +561,42 @@ def transform_categories_to_components_and_diversity(
     pc_df = pd.DataFrame(pca_coords[:, :n_components], index=prob_matrix.index)
     pc_df.columns = [f"C{c}" for c in range(n_components)]
 
+    # Resolve PCA sign ambiguity (eigenvectors can point in either +/- direction arbitrarily)
+    # For dichotomous variables specifically, we want "yes" to be the positive/top direction.
+    probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
+    for i, col in enumerate(pc_df.columns):
+        target_cat = None
+        for cat in ["yes", "Yes", "True", "true"]:
+            if cat in probs.columns:
+                target_cat = cat
+                break
+                
+        if target_cat is not None:
+            # If the vector aligned oppositely to "yes", flip it so "yes" goes UP.
+            corr = probs[target_cat].corr(pc_df[col])
+            if pd.notna(corr) and corr < -1e-5:
+                pc_df[col] *= -1
+
     result_df = pd.concat([pc_df,pd.DataFrame(entropy_and_dominance),pd.DataFrame(counts_df.T.idxmax(), columns=["top1"])],axis=1)
 
     xx = interpret_axes_with_categories(counts_df = counts_df, feat = pc_df, top = 5)
+    
+    # Pre-calculate variance percentages
     for idx, col in enumerate(pc_df.columns):
         if col in xx:
             xx[col]["explained_variance_pct"] = round(float(explained[idx]) * 100, 1)
+
+    # Inject True 0-1 proportions for the dominant category of each component as its `_raw` absolute value
+    # Only injected for components that explain exactly 100% of the variance to reduce tooltip bloat
+    probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
+    raw_prob_cols = {}
+    for col in pc_df.columns:
+        if col in xx and xx.get(col, {}).get("top_positive_cat") and xx[col].get("explained_variance_pct") == 100.0:
+            raw_prob_cols[f"{col}_raw"] = probs[xx[col]["top_positive_cat"]]
+    
+    if raw_prob_cols:
+        result_df = pd.concat([result_df, pd.DataFrame(raw_prob_cols, index=result_df.index)], axis=1)
+
     for yy in xx:
         for zz in xx[yy]:
             if verbose:
@@ -791,12 +828,25 @@ def calculate_scaled_pca_scores(
     time_columns_to_put_back = time_columns_to_put_back.set_index(grouping_factors)
     pca_indexed = events_pca_scores_scaled.set_index(grouping_factors)
 
+    # Extract raw numerical features and append them with '_raw' suffix
+    raw_num_cols = [c for c in study_recoded_dataset[fyp_features].columns if c in study_recoded_dataset.select_dtypes(include=["number"]).columns]
+    raw_num_df = events_pca_scores[raw_num_cols].rename(columns={c: f"{c}_raw" for c in raw_num_cols})
+    
+    # Extract previously injected raw proportion columns from PCA categories
+    raw_cat_cols = [c for c in events_pca_scores.columns if str(c).endswith("_raw")]
+    raw_cat_df = events_pca_scores[raw_cat_cols]
 
-    events_pca_scores_scaled = pd.concat([time_columns_to_put_back, pca_indexed], axis=1).reset_index().copy()
+    # Combine all raw unscaled columns
+    raw_df = pd.concat([raw_num_df, raw_cat_df], axis=1)
+
+    # Drop standard scaled versions of _raw category columns so we can securely inject the unscaled ones
+    pca_indexed = pca_indexed.drop(columns=raw_cat_cols, errors="ignore")
+
+    events_pca_scores_scaled = pd.concat([time_columns_to_put_back, pca_indexed, raw_df], axis=1).reset_index().copy()
 
 
     # TODO: avoid making direct references to column names
-    events_pca_scores_scaled["T_local_month"] = events_pca_scores_scaled["T_local_date"].map(lambda x:x.month)
+    #events_pca_scores_scaled["T_local_month"] = events_pca_scores_scaled["T_local_date"].map(lambda x:x.month)
 
     if verbose:
         print(f"    [PCA] Shape of scaled PCA scores table: {events_pca_scores_scaled.shape}")

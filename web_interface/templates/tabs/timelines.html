@@ -4,7 +4,7 @@
         <div class="timelines-sidebar"
             style="flex: 0 0 400px; width: 400px; padding: 20px; border-right: 1px solid #444; overflow-y: auto;">
             <div class="header-with-help">
-                <h3>Timelines</h3>
+                <h3 id="timelines-sidebar-header">Collection Timelines</h3>
                 <button class="help-icon" onclick="showHelp('timelines')">?</button>
             </div>
             <!-- Study selection removed as per refactor -->
@@ -42,7 +42,6 @@
                     </button>
                 </div>
                 <div id="timelines-radar-plot" style="width: 100%; height: 300px;"></div>
-                <p id="timelines-details-moniker" class="moniker-text"></p>
             </div>
 
             <div class="form-group" style="margin-top: 20px;">
@@ -56,9 +55,9 @@
                 </div>
 
                 <div id="timelines-details-card" class="details-card hidden" style="margin-top: 20px;">
-                    <h5 id="timelines-details-id"></h5>
+                    <div style="height: 10px;"></div>
 
-                    <!-- Participant Info -->
+                    <!-- Combined Info and Activity Stats -->
                     <div id="timelines-participant-info-section" class="stats-section">
                         <div class="section-title">Collection Info</div>
                         <ul class="stats-list">
@@ -70,29 +69,17 @@
                             <li><span class="stat-label">Post Code:</span> <span id="timelines-stat-postcode"></span>
                             </li>
                             <li><span class="stat-label">Date Added to Dataset:</span> <span
-                                    id="timelines-stat-donation-date"></span>
-                            </li>
+                                    id="timelines-stat-donation-date"></span></li>
                             <li><span class="stat-label">Display ID:</span> <span id="timelines-stat-display-id"></span>
                             </li>
-                        </ul>
-                    </div>
-
-                    <!-- Activity Stats -->
-                    <div class="stats-section">
-                        <div class="section-title">Activity Stats</div>
-                        <ul class="stats-list">
                             <li><span class="stat-label">TZ (inferred from data):</span> <span
                                     id="timelines-stat-timezone"></span></li>
                             <li><span class="stat-label">Active Days:</span> <span
                                     id="timelines-stat-active-days"></span></li>
                             <li><span class="stat-label">Total Events:</span> <span
-                                    id="timelines-stat-total-events"></span>
-                            </li>
+                                    id="timelines-stat-total-events"></span></li>
                             <li><span class="stat-label">Peak Day Segment:</span> <span
-                                    id="timelines-stat-peak-segment"></span>
-                            </li>
-                            <li><span class="stat-label">Watch Time:</span> <span id="timelines-stat-watch-time"></span>
-                            </li>
+                                    id="timelines-stat-peak-segment"></span></li>
                             <li><span class="stat-label">First Event:</span> <span
                                     id="timelines-stat-first-event"></span></li>
                             <li><span class="stat-label">Last Event:</span> <span id="timelines-stat-last-event"></span>

@@ -31,6 +31,12 @@ async function loadPcaStudies() {
                 opt.text = s;
                 selector.appendChild(opt);
             });
+
+            // Auto-load the first accessible study if no study is currently active
+            if (!pcaData.activeStudy && studies.length > 0) {
+                selector.value = studies[0];
+                changePcaStudy();
+            }
         } else {
             selector.innerHTML = '<option disabled>No studies found</option>';
         }
@@ -48,6 +54,13 @@ function changePcaStudy() {
 
     pcaData.activeStudy = study;
     pcaData.filters = {};
+
+    // Clear the existing plot so stale data isn't displayed on error
+    const plotDiv = document.getElementById('pca-plot');
+    if (plotDiv) {
+        Plotly.purge(plotDiv);
+    }
+
     loadPcaMetadata();
 }
 
@@ -74,12 +87,8 @@ async function loadPcaMetadata() {
         renderPcaControls(data);
         renderPcaFilters(data);
 
-        // Initial render based on current view
-        if (pcaData.currentView === 'scatter') {
-            updatePcaPlot();
-        } else {
-            loadCorrelationHeatmap();
-        }
+        // Initial render based on current view (also applies active button styles)
+        setPcaView(pcaData.currentView);
 
     } catch (e) {
         console.error(e);
@@ -93,6 +102,10 @@ function renderPcaControls(data) {
     const ySelect = document.getElementById('pca-y-select');
     const colorSelect = document.getElementById('pca-color-select');
 
+    // Preserve previously selected axes if the user had chosen them and they exist in the new study
+    const prevX = xSelect.value;
+    const prevY = ySelect.value;
+
     xSelect.innerHTML = '';
     ySelect.innerHTML = '';
     colorSelect.innerHTML = '';
@@ -101,9 +114,12 @@ function renderPcaControls(data) {
     const inter = data.interpretations || {};
 
     // X/Y Axis: Numeric Columns with variance info
+    const schemaMap = data.schema_map || {};
+
     data.numeric_cols.forEach(col => {
         const variance = inter[col]?.explained_variance_pct;
-        const label = variance ? `${col} (${variance}%)` : col;
+        const displayName = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
+        const label = variance ? `${displayName} (${variance}%)` : displayName;
 
         const optX = document.createElement('option');
         optX.value = col;
@@ -116,12 +132,31 @@ function renderPcaControls(data) {
         ySelect.appendChild(optY);
     });
 
-    // Defaults: first two components
-    if (data.numeric_cols.length > 0) xSelect.value = data.numeric_cols[0];
-    if (data.numeric_cols.length > 1) ySelect.value = data.numeric_cols[1];
+    // Check if the previous selections are still valid options in this new study
+    const hasPrevX = data.numeric_cols.includes(prevX);
+    const hasPrevY = data.numeric_cols.includes(prevY);
+
+    if (hasPrevX && hasPrevY) {
+        // Carry over the existing user selections
+        xSelect.value = prevX;
+        ySelect.value = prevY;
+    } else {
+        // Otherwise, pick two random different components
+        if (data.numeric_cols.length > 0) {
+            let idx1 = Math.floor(Math.random() * data.numeric_cols.length);
+            xSelect.value = data.numeric_cols[idx1];
+
+            if (data.numeric_cols.length > 1) {
+                let idx2 = idx1;
+                while (idx2 === idx1) {
+                    idx2 = Math.floor(Math.random() * data.numeric_cols.length);
+                }
+                ySelect.value = data.numeric_cols[idx2];
+            }
+        }
+    }
 
     // Colour: Factors — use display_name from schema_map if available
-    const schemaMap = data.schema_map || {};
     data.factor_cols.forEach(col => {
         const opt = document.createElement('option');
         opt.value = col;
@@ -223,19 +258,20 @@ function resetPcaFilters() {
 function setPcaView(view) {
     pcaData.currentView = view;
 
-    // Update button styles
+    // Update button styles to highlight active selection
     const scatterBtn = document.getElementById('pca-view-scatter');
     const heatmapBtn = document.getElementById('pca-view-heatmap');
     const scatterControls = document.getElementById('pca-scatter-controls');
 
+    // btn-start is green (active), btn-save is brown (inactive)
     if (view === 'scatter') {
-        scatterBtn.className = 'btn-primary';
+        scatterBtn.className = 'btn-start';
         heatmapBtn.className = 'btn-save';
         scatterControls.style.display = 'flex';
         updatePcaPlot();
     } else {
         scatterBtn.className = 'btn-save';
-        heatmapBtn.className = 'btn-primary';
+        heatmapBtn.className = 'btn-start';
         scatterControls.style.display = 'none';
         loadCorrelationHeatmap();
     }
@@ -379,14 +415,19 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
 
     // Build axis labels with variance info
     const inter = pcaData.metadata?.interpretations || {};
+    const schemaMap = pcaData.metadata?.schema_map || {};
+
+    const xDisplayName = (schemaMap[xLabel] && schemaMap[xLabel].display_name) ? schemaMap[xLabel].display_name : xLabel;
+    const yDisplayName = (schemaMap[yLabel] && schemaMap[yLabel].display_name) ? schemaMap[yLabel].display_name : yLabel;
+
     const xVariance = inter[xLabel]?.explained_variance_pct;
     const yVariance = inter[yLabel]?.explained_variance_pct;
-    const xTitle = xVariance ? `${xLabel} (${xVariance}% var.)` : xLabel;
-    const yTitle = yVariance ? `${yLabel} (${yVariance}% var.)` : yLabel;
+    const xTitle = xVariance ? `${xDisplayName} (${xVariance}% var.)` : xDisplayName;
+    const yTitle = yVariance ? `${yDisplayName} (${yVariance}% var.)` : yDisplayName;
 
     // Axis Configuration
     const axisConfig = {
-        title: { font: { size: 14, color: '#ccc' } },
+        title: { text: '' }, // We use annotations for titles instead
         gridcolor: '#444',
         zerolinecolor: '#888'
     };
@@ -396,15 +437,42 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
     }
 
     const layout = {
-        title: `${xTitle} vs ${yTitle} (Colour: ${colorLabel})`,
-        xaxis: { title: xTitle, ...axisConfig },
-        yaxis: { title: yTitle, ...axisConfig },
+        xaxis: { ...axisConfig },
+        yaxis: { ...axisConfig },
         hovermode: 'closest',
         paper_bgcolor: '#1e1e1e',
         plot_bgcolor: '#1e1e1e',
         font: { color: '#ccc' },
-        annotations: [],
-        margin: { t: 50, r: 20, b: 60, l: 60 }
+        annotations: [
+            // X-Axis Title Annotation (Anchored at data coordinate 2,0)
+            {
+                xref: 'x',
+                yref: 'y',
+                x: 2.0,
+                y: 0.0,
+                yshift: -15, // Push slightly below the line
+                xanchor: 'center',
+                yanchor: 'top',
+                text: xTitle,
+                showarrow: false,
+                font: { size: 16, color: '#ccc' }
+            },
+            // Y-Axis Title Annotation (Anchored at data coordinate 0,2)
+            {
+                xref: 'x',
+                yref: 'y',
+                x: 0.0,
+                y: 2.0,
+                xshift: -15, // Push slightly left of the line
+                xanchor: 'right',
+                yanchor: 'center',
+                text: yTitle,
+                showarrow: false,
+                font: { size: 16, color: '#ccc' },
+                textangle: -90
+            }
+        ],
+        margin: { t: 60, r: 40, b: 70, l: 70 }
     };
 
     // Interpretation annotations on axes
@@ -510,7 +578,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
         }
     }
 
-    Plotly.newPlot('pca-plot', traces, layout);
+    Plotly.newPlot('pca-plot', traces, layout, { responsive: true, displayModeBar: true });
 }
 
 
@@ -553,15 +621,22 @@ async function loadCorrelationHeatmap() {
 
 
 function renderCorrelationHeatmap(columns, matrix) {
+    const schemaMap = pcaData.metadata?.schema_map || {};
+
+    // Map columns to display names
+    const displayColumns = columns.map(col => {
+        return (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
+    });
+
     // Build hover text with correlation values
     const hoverText = matrix.map((row, i) =>
-        row.map((val, j) => `${columns[i]} × ${columns[j]}<br>r = ${val.toFixed(3)}`)
+        row.map((val, j) => `${displayColumns[i]} × ${displayColumns[j]}<br>r = ${val.toFixed(3)}`)
     );
 
     const trace = {
         z: matrix,
-        x: columns,
-        y: columns,
+        x: displayColumns,
+        y: displayColumns,
         type: 'heatmap',
         colorscale: [
             [0, '#2166ac'],
@@ -602,7 +677,7 @@ function renderCorrelationHeatmap(columns, matrix) {
         margin: { t: 50, r: 80, b: 120, l: 120 }
     };
 
-    Plotly.newPlot('pca-plot', [trace], layout);
+    Plotly.newPlot('pca-plot', [trace], layout, { responsive: true, displayModeBar: true });
 }
 
 

@@ -479,14 +479,16 @@ function pe_createStrip(metric) {
 
     // Sort data by this metric
     const sortedData = [...pe_data].sort((a, b) => {
-        const aVal = a[metric] !== null && a[metric] !== undefined ? a[metric] : 0;
-        const bVal = b[metric] !== null && b[metric] !== undefined ? b[metric] : 0;
+        let aVal = a[metric] !== null && a[metric] !== undefined ? a[metric] : 0;
+        let bVal = b[metric] !== null && b[metric] !== undefined ? b[metric] : 0;
+        aVal = parseFloat(aVal) || 0;
+        bVal = parseFloat(bVal) || 0;
         return aVal - bVal;
     });
 
     // Get min/max for axis labels
-    const minVal = sortedData.length > 0 ? sortedData[0][metric] || 0 : 0;
-    const maxVal = sortedData.length > 0 ? sortedData[sortedData.length - 1][metric] || 0 : 0;
+    const minVal = sortedData.length > 0 ? parseFloat(sortedData[0][metric]) || 0 : 0;
+    const maxVal = sortedData.length > 0 ? parseFloat(sortedData[sortedData.length - 1][metric]) || 0 : 0;
 
     // Create row container
     const row = document.createElement('div');
@@ -552,6 +554,8 @@ function pe_createStrip(metric) {
 
 function pe_formatValue(v) {
     if (v === null || v === undefined) return 'N/A';
+    v = parseFloat(v);
+    if (isNaN(v)) return 'N/A';
     if (Math.abs(v) >= 10000) return (v / 1000).toFixed(0) + 'k';
     if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + 'k';
     if (Math.abs(v) >= 100) return v.toFixed(0);
