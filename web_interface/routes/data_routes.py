@@ -1174,7 +1174,6 @@ def api_pca_correlation_matrix():
 
 @data_bp.route('/api/persona_stats_info', methods=['GET'])
 @login_required
-@admin_required
 def api_persona_stats_info():
     if True:
         if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
@@ -1186,7 +1185,6 @@ def api_persona_stats_info():
 
 @data_bp.route('/api/persona_stats_cached', methods=['GET'])
 @login_required
-@admin_required
 def api_persona_stats_cached():
     # Alias to the main stats endpoint since we no longer distinguish between cached and calculated
     return api_persona_stats()
@@ -1194,7 +1192,6 @@ def api_persona_stats_cached():
 
 @data_bp.route('/api/persona_stats', methods=['POST', 'GET']) # Allow GET for convenience
 @login_required
-@admin_required
 def api_persona_stats():
     try:
         # --- ACCESS CONTROL ---
