@@ -352,7 +352,7 @@ def get_viz_config():
 
 
 
-def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False):
+def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloaded_df=None):
     """
     Ensures that timeline aggregations for day, week, and month exist in cache.
     If not, calculates them from the unified donation dataset.
@@ -390,7 +390,13 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False):
             
     # Generate Data
     # 1. Load Unified Dataset
-    df = create_donation_unified_dataset(donation_id=donation_id, verbose=False)
+    if preloaded_df is not None:
+        if verbose:
+            print(f"    [TIMELINE] Using locally provided dataframe for {donation_id} (shape: {preloaded_df.shape})")
+        df = preloaded_df.copy()
+    else:
+        df = create_donation_unified_dataset(donation_id=donation_id, verbose=False)
+        
     if df is None or df.empty:
         print("ERROR: Could not load unified dataset for collection", donation_id)
         return False

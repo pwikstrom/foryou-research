@@ -3,7 +3,7 @@ from flask_login import login_required
 import web_interface.auth as auth
 from fyp.fyp_config import (
     QUEUE_SCRAPER_SCRIPT, QUEUE_ANNOTATOR_SCRIPT, META_REFRESH_VIEWER_SCRIPT, 
-    META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT
+    META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT, RECODE_REFRESH_STUDIES_SCRIPT
 )
 from ..process_manager import (
     processes, process_stats, start_process, stop_process
@@ -36,7 +36,8 @@ def api_start(name):
         "queue_annotator": QUEUE_ANNOTATOR_SCRIPT,
         "meta_refresh_viewer": META_REFRESH_VIEWER_SCRIPT,
         "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
-        "timelines_refresh": TIMELINES_REFRESH_SCRIPT
+        "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
+        "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT
     }
     
     success, msg = start_process(name, script_map[name], args, study_name=study_name)

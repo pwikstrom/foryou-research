@@ -520,8 +520,11 @@ def get_enrichment_stats():
     annotate_queue_len = 0
     
     if data_io.exists(storage_location='cache', filename='to_scrape.json'):
-        q = data_io.load_json(storage_location='cache', filename='to_scrape.json')
-        if isinstance(q, list): scrape_queue_len = len(q)
+        try:
+            q = data_io.load_json(storage_location='cache', filename='to_scrape.json')
+            if isinstance(q, list): scrape_queue_len = len(q)
+        except Exception:
+            pass
         
     if data_io.exists(storage_location='cache', filename='to_annotate.json'):
         q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
@@ -757,11 +760,12 @@ def calculate_to_scrape():
             else:
                 unscraped_mask = not_scraped
                 
-            unscraped_videos = study_status.loc[unscraped_mask, 'item_id'].tolist()
+            unscraped_videos = study_status.loc[unscraped_mask, 'item_id'].dropna().tolist()
         else:
-            unscraped_videos = df_study['item_id'].tolist()
-            
-        unscraped_videos = list(set(unscraped_videos))
+            unscraped_videos = df_study['item_id'].dropna().tolist()
+
+        # Ensure all values are plain Python strings (not PyArrow scalars)
+        unscraped_videos = list({str(v) for v in unscraped_videos})
 
         # Append target payload to global scrape queue
         current_queue = []
@@ -850,11 +854,12 @@ def calculate_to_annotate():
                 duration_ok = (study_status['S_video_duration'] < max_dur) | pd.isna(study_status['S_video_duration'])
                 unannotated_mask = unannotated_mask & duration_ok
 
-            unannotated_videos = study_status.loc[unannotated_mask, 'item_id'].tolist()
+            unannotated_videos = study_status.loc[unannotated_mask, 'item_id'].dropna().tolist()
         else:
             unannotated_videos = []
-            
-        unannotated_videos = list(set(unannotated_videos))
+
+        # Ensure all values are plain Python strings (not PyArrow scalars)
+        unannotated_videos = list({str(v) for v in unannotated_videos})
 
         # Append target payload to global annotate queue
         current_queue = []

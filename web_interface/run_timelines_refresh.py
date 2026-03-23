@@ -79,6 +79,30 @@ if __name__ == "__main__":
             
         print(f"Found {len(all_donations)} donations to process.")
         
+        # --- PRELOAD ALL DATA FOR EFFICIENCY ---
+        giant_df = None
+        if all_donations:
+            print("Preloading core datasets to optimize timeline compilation...")
+            from fyp.organize_datasets import new_merge
+            all_datasets = {}
+            for k, f in [('donations', 'donations_recoded.parquet'), 
+                         ('scrape', 'scrape_recoded.parquet'), 
+                         ('machine_annotations', 'machine_annotations_recoded.parquet')]:
+                 if data_io.exists(storage_location="recoded", filename=f):
+                     all_datasets[k] = data_io.load_parquet(storage_location="recoded", filename=f, verbose=False)
+                 else:
+                     all_datasets[k] = pd.DataFrame()
+            try:
+                giant_df = new_merge(study_name=None, all_datasets=all_datasets, save_to_cache=False, verbose=False)
+                if giant_df is not None and not giant_df.empty and 'D_donation_id' in giant_df.columns:
+                    giant_df['D_donation_id'] = giant_df['D_donation_id'].astype(str)
+                else:
+                     print("Warning: giant_df is empty or missing 'D_donation_id'.")
+            except Exception as e:
+                print(f"Error merging core datasets: {e}")
+                giant_df = None
+        # ---------------------------------------
+        
         valid_count = 0
         total = len(all_donations)
         
@@ -92,10 +116,15 @@ if __name__ == "__main__":
                 if data_io.exists(storage_location="cache", filename=filename):
                     data_io.remove(storage_location="cache", filename=filename)
             
+            # Extract slice for this donation
+            preloaded_slice = None
+            if giant_df is not None and not giant_df.empty and 'D_donation_id' in giant_df.columns:
+                preloaded_slice = giant_df[giant_df['D_donation_id'] == str(donation_id)]
+            
             # Regenerate using the data_service logic
             # This function will regenerate if missing (which we just ensured)
             try:
-                if check_and_update_timeline_cache(donation_id, viz_vars):
+                if check_and_update_timeline_cache(donation_id, viz_vars, preloaded_df=preloaded_slice):
                     valid_count += 1
             except Exception as e:
                 print(f"Error processing {donation_id}: {e}")
