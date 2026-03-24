@@ -36,6 +36,7 @@ if __name__ == "__main__":
         
         # Identify accepted donations
         all_donations = set()
+        donation_first_event = {}
         
         # Load from ddp_metadata.parquet
         if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
@@ -69,6 +70,22 @@ if __name__ == "__main__":
                         elif 'D_donation_id' in df.columns:
                              all_donations = set(df['D_donation_id'].astype(str))
                              
+                    # Extract first_event_ts map for analysis filtering
+                    first_event_col = None
+                    if ('personas', 'first_event_ts') in df.columns:
+                        first_event_col = ('personas', 'first_event_ts')
+                    elif 'first_event_ts' in df.columns:
+                        first_event_col = 'first_event_ts'
+
+                    donation_first_event = {}
+                    if first_event_col is not None:
+                        for did in all_donations:
+                            if did in df.index:
+                                ts = df.loc[did, first_event_col]
+                                if pd.notna(ts):
+                                    donation_first_event[did] = str(ts)[:10]
+                        print(f"Loaded first_event_ts for {len(donation_first_event)} donations.")
+
             except Exception as e:
                 print(f"Error loading ddp_metadata: {e}")
         
@@ -126,6 +143,21 @@ if __name__ == "__main__":
             try:
                 if check_and_update_timeline_cache(donation_id, viz_vars, preloaded_df=preloaded_slice):
                     valid_count += 1
+
+                    # Generate analysis data for each interval
+                    from fyp.timeline_analysis import analyse_timeline
+                    from web_interface.data_service import get_timeline_data
+                    for a_interval in ['day', 'week', 'month']:
+                        try:
+                            tdata = get_timeline_data(donation_id, interval=a_interval)
+                            if tdata and tdata.get("dates"):
+                                first_date = donation_first_event.get(donation_id)
+                                analysis = analyse_timeline(tdata, interval=a_interval, first_activity_date=first_date)
+                                if analysis:
+                                    analysis_fname = f"timeline_analysis_{donation_id}_{a_interval}.json"
+                                    data_io.save_json(analysis, storage_location="cache", filename=analysis_fname)
+                        except Exception as ae:
+                            print(f"  Warning: Analysis failed for {donation_id}/{a_interval}: {ae}")
             except Exception as e:
                 print(f"Error processing {donation_id}: {e}")
                 

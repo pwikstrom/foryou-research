@@ -7,7 +7,9 @@ window.timelines = {
     donationList: [],
     timelineData: null,
     timelineState: {
-        categoricalSelections: {}
+        categoricalSelections: {},
+        analysisToggles: {},
+        smoothing: 1
     },
 
     init: async function () {
@@ -136,6 +138,26 @@ window.timelines = {
         if (this.currentDonationId) {
             this.selectDonation(this.currentDonationId);
         }
+    },
+
+    onSmoothingChange: function (value) {
+        const w = parseInt(value, 10) || 1;
+        this.timelineState.smoothing = w;
+        const label = document.getElementById('timelines-smoothing-label');
+        if (label) {
+            label.textContent = w <= 1 ? 'Off' : `${w}-pt`;
+        }
+        if (this.timelineData) {
+            this.renderTimelineCharts(this.timelineData);
+        }
+    },
+
+    _movingAvg: function (arr, window) {
+        return arr.map((_, i, a) => {
+            const start = Math.max(0, i - window + 1);
+            const slice = a.slice(start, i + 1);
+            return slice.reduce((s, v) => s + v, 0) / slice.length;
+        });
     },
 
     selectDonation: async function (donationId) {
@@ -362,6 +384,9 @@ window.timelines = {
         //console.log("TIMELINE DEBUG: Dates length", dates.length);
         //console.log("TIMELINE DEBUG: Variables keys", Object.keys(data.variables));
 
+        // Collect all plotIds for zoom sync
+        const allPlotIds = [];
+
         // Sort variables according to variables_order if provided from backend (web_timeline_prio)
         let varKeys = Object.keys(data.variables);
         if (data.variables_order && Array.isArray(data.variables_order)) {
@@ -396,8 +421,90 @@ window.timelines = {
 
             // Title Above Plot
             const titleDiv = document.createElement('div');
+            titleDiv.style.display = 'flex';
+            titleDiv.style.alignItems = 'center';
+            titleDiv.style.gap = '10px';
             const subtitle = varData.type !== 'categorical' ? '<span style="font-size: 0.75em; color: #aaa; font-weight: normal;"> (mean values)</span>' : '';
             titleDiv.innerHTML = `<h3 style="margin-top: 0; margin-bottom: 10px; font-size: 1.25em;">${displayTitle}${subtitle}</h3>`;
+
+            // Analysis toggle button for categorical charts
+            if (varData.type === 'categorical' && data.analysis && data.analysis[varName]) {
+                const toggleBtn = document.createElement('button');
+                const isActive = this.timelineState.analysisToggles && this.timelineState.analysisToggles[varName];
+                toggleBtn.innerHTML = '📊';
+                toggleBtn.title = isActive ? 'Hide trend analysis' : 'Show trend analysis';
+                toggleBtn.style.cssText = `background: ${isActive ? '#4ec9b0' : '#3c3c3c'}; border: 1px solid ${isActive ? '#4ec9b0' : '#555'}; color: ${isActive ? '#1e1e1e' : '#ccc'}; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 0.85em; margin-bottom: 10px; transition: all 0.2s;`;
+                toggleBtn.onmouseenter = () => { if (!isActive) toggleBtn.style.background = '#505050'; };
+                toggleBtn.onmouseleave = () => { if (!isActive) toggleBtn.style.background = '#3c3c3c'; };
+                toggleBtn.onclick = () => {
+                    if (!this.timelineState.analysisToggles) this.timelineState.analysisToggles = {};
+                    this.timelineState.analysisToggles[varName] = !this.timelineState.analysisToggles[varName];
+                    this.renderTimelineCharts();
+                };
+                titleDiv.appendChild(toggleBtn);
+
+                // --- Summary Badge ---
+                let badgeText = '— Stable';
+                let badgeColor = 'rgba(120, 120, 120, 0.2)';
+                let badgeTextColor = '#aaa';
+                let badgeBorderColor = '#555';
+                
+                const anData = data.analysis[varName];
+                let highestRise = {val: 0, cat: null};
+                let lowestFall = {val: 0, cat: null};
+                let hasAnomaly = false;
+                let anomCount = 0;
+                let highlightBreakCat = null;
+                
+                // Evaluate all categories for conditions
+                for (let cat in anData) {
+                    const cd = anData[cat];
+                    if (!cd || cd.error) continue;
+                    
+                    if (cd.trend && cd.trend.total_change > highestRise.val) {
+                        highestRise = {val: cd.trend.total_change, cat: cat};
+                    }
+                    if (cd.trend && cd.trend.total_change < lowestFall.val) {
+                        lowestFall = {val: cd.trend.total_change, cat: cat};
+                    }
+                    if (cd.anomalies && cd.anomalies.length > 0) {
+                        hasAnomaly = true;
+                        anomCount += cd.anomalies.length;
+                    }
+                    if (cd.break && Math.abs(cd.break.delta) > 4 && !highlightBreakCat) {
+                        highlightBreakCat = cat;
+                    }
+                }
+                
+                // Apply highest priority badge
+                if (highestRise.val > 4) {
+                    badgeText = `↑ Rising: ${highestRise.cat}`;
+                    badgeColor = 'rgba(78, 201, 176, 0.15)';
+                    badgeTextColor = '#4ec9b0';
+                    badgeBorderColor = 'rgba(78, 201, 176, 0.5)';
+                } else if (lowestFall.val < -4) {
+                    badgeText = `↓ Falling: ${lowestFall.cat}`;
+                    badgeColor = 'rgba(244, 135, 113, 0.15)';
+                    badgeTextColor = '#f48771';
+                    badgeBorderColor = 'rgba(244, 135, 113, 0.5)';
+                } else if (hasAnomaly) {
+                    badgeText = `◎ ${anomCount} spike(s)`;
+                    badgeColor = 'rgba(206, 145, 120, 0.15)';
+                    badgeTextColor = '#ce9178';
+                    badgeBorderColor = 'rgba(206, 145, 120, 0.5)';
+                } else if (highlightBreakCat) {
+                    badgeText = `⋮ Step change: ${highlightBreakCat}`;
+                    badgeColor = 'rgba(86, 156, 214, 0.15)';
+                    badgeTextColor = '#569cd6';
+                    badgeBorderColor = 'rgba(86, 156, 214, 0.5)';
+                }
+                
+                const badge = document.createElement('span');
+                badge.textContent = badgeText;
+                badge.style.cssText = `background: ${badgeColor}; color: ${badgeTextColor}; padding: 3px 10px; border-radius: 12px; font-size: 0.75em; border: 1px solid ${badgeBorderColor}; font-weight: 500; margin-left: 10px; margin-bottom: 10px; white-space: nowrap;`;
+                
+                titleDiv.appendChild(badge);
+            }
             chartWrapper.appendChild(titleDiv);
 
             // Container for Controls and Plot
@@ -432,6 +539,13 @@ window.timelines = {
             const traces = [];
             let yAxisTitle = '';
             const xVals = dates; // Use dates for x-axis
+
+            // Shared color palette for categorical charts and overlays
+            const colors = [
+                '#4CAF50', '#2196F3', '#FFC107', '#E91E63', '#9C27B0',
+                '#00BCD4', '#CDDC39', '#FF5722', '#795548', '#607D8B',
+                '#26A69A', '#AB47BC', '#EF5350', '#66BB6A'
+            ];
 
             // Logic per type
             if (varData.type === 'categorical') {
@@ -496,12 +610,9 @@ window.timelines = {
                     }, 0);
                 }
 
-                // Calculate Values (Stacked)
-                // We need one trace per selected category
-                const colors = [
-                    '#4CAF50', '#2196F3', '#FFC107', '#E91E63', '#9C27B0',
-                    '#00BCD4', '#CDDC39', '#FF5722', '#795548', '#607D8B'
-                ];
+                // Calculate share values and render as line/area charts
+
+                let allYVals = []; // Track all y-values for axis range
 
                 selectedCats.forEach((cat, idx) => {
                     const yVals = [];
@@ -522,17 +633,36 @@ window.timelines = {
                         );
                     });
 
+                    // Apply smoothing if active
+                    const smoothW = this.timelineState.smoothing || 1;
+                    const displayY = smoothW > 1 ? this._movingAvg(yVals, smoothW) : yVals;
+
+                    allYVals = allYVals.concat(displayY);
+                    const catColor = colors[idx % colors.length];
+
+                    // Line trace
                     traces.push({
                         x: xVals,
-                        y: yVals,
-                        type: 'bar',
-                        marker: { color: colors[idx % colors.length] },
+                        y: displayY,
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { width: 2, shape: 'spline', color: catColor },
+                        fill: 'tozeroy',
+                        fillcolor: catColor + '12',
                         name: cat,
                         text: hoverTexts,
                         hoverinfo: 'text',
                         hovertemplate: '%{text}<extra></extra>'
                     });
                 });
+
+                // Compute y-axis range from actual data
+                if (allYVals.length > 0) {
+                    const yMax = Math.max(...allYVals);
+                    const yMin = Math.min(...allYVals);
+                    const padding = Math.max((yMax - yMin) * 0.1, 2);
+                    chartWrapper._catYRange = [Math.max(0, yMin - padding), Math.min(100, yMax + padding)];
+                }
 
                 yAxisTitle = 'Share (%)';
 
@@ -547,9 +677,14 @@ window.timelines = {
                 }
 
                 const slicedValues = startIdx > 0 ? varData.values.slice(startIdx) : varData.values;
+
+                // Apply smoothing if active
+                const smoothW = this.timelineState.smoothing || 1;
+                const displayValues = smoothW > 1 ? this._movingAvg(slicedValues, smoothW) : slicedValues;
+
                 traces.push({
                     x: xVals,
-                    y: slicedValues,
+                    y: displayValues,
                     type: 'bar',
                     marker: { color: '#2196F3' },
                     name: varName
@@ -578,25 +713,26 @@ window.timelines = {
                 }
             });
 
+            const isCategorical = (varData.type === 'categorical');
+
             const layout = {
-                margin: { t: 20, r: 20, b: (varData.type === 'categorical' ? 60 : 40), l: 40 },
+                margin: { t: 20, r: 20, b: (isCategorical ? 60 : 40), l: 40 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 font: { color: '#ccc' },
                 xaxis: {
                     type: excludeNoData ? 'category' : 'date',
-                    matches: 'x', // Sync zoom!
                     tickmode: 'array',
                     tickvals: tickVals,
                     ticktext: tickText,
-                    tickangle: 0 // Do not tilt
+                    tickangle: 0
                 },
                 yaxis: {
                     title: yAxisTitle,
-                    range: (varData.type !== 'categorical' && !varData.log) ? undefined : undefined // Let plotly handle range unless specific need
+                    range: isCategorical && chartWrapper._catYRange ? chartWrapper._catYRange : undefined
                 },
-                barmode: 'stack', // STACKED BARS
-                showlegend: (varData.type === 'categorical') // Only show legend for categorical
+                barmode: isCategorical ? undefined : 'stack',
+                showlegend: isCategorical
             };
 
             if (varData.type === 'categorical') {
@@ -615,6 +751,103 @@ window.timelines = {
             }
 
             Plotly.newPlot(plotId, traces, layout, { displayModeBar: true, responsive: true });
+            allPlotIds.push(plotId);
+
+            // Render analysis overlays if toggled on
+            if (isCategorical && data.analysis && data.analysis[varName]
+                && this.timelineState.analysisToggles && this.timelineState.analysisToggles[varName]) {
+
+                const analysisData = data.analysis[varName];
+                const overlayTraces = [];
+                const shapes = [];
+                const cats = analysisData.categories || [];
+                const selectedSet = new Set(this.timelineState.categoricalSelections[varName] || []);
+
+                // Only overlay for selected categories
+                cats.forEach((catData, cIdx) => {
+                    if (!selectedSet.has(catData.id)) return;
+                    const catColor = colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
+
+                    // Trend line (dashed line from regression)
+                    // Note: trend was computed on the FULL series — adjust intercept for sliced view
+                    if (catData.trend && Math.abs(catData.trend.total_change) > 4) {
+                        const n = xVals.length;
+                        const adjIntercept = catData.trend.intercept + catData.trend.slope * startIdx;
+                        const trendY0 = adjIntercept;
+                        const trendY1 = adjIntercept + catData.trend.slope * (n - 1);
+                        overlayTraces.push({
+                            x: [xVals[0], xVals[n - 1]],
+                            y: [trendY0, trendY1],
+                            type: 'scatter',
+                            mode: 'lines',
+                            line: { color: catColor, width: 2, dash: 'dash' },
+                            name: `${catData.label} trend`,
+                            showlegend: false,
+                            hoverinfo: 'text',
+                            text: [`Trend: ${catData.trend.total_change > 0 ? '+' : ''}${catData.trend.total_change}pp over entire series`],
+                            hovertemplate: '%{text}<extra></extra>'
+                        });
+                    }
+
+                    // Anomaly markers (circles)
+                    // Adjust indices for sliced view
+                    if (catData.anomalies && catData.anomalies.length > 0) {
+                        const anomX = [];
+                        const anomY = [];
+                        const anomText = [];
+                        catData.anomalies.forEach(a => {
+                            const adjIdx = a.index - startIdx;
+                            if (adjIdx >= 0 && adjIdx < xVals.length) {
+                                anomX.push(xVals[adjIdx]);
+                                anomY.push(a.value);
+                                anomText.push(
+                                    `<b>Anomaly: ${catData.label}</b><br>` +
+                                    `Value: ${a.value}%<br>` +
+                                    `Z-score: ${a.z}<br>` +
+                                    `Mean: ${a.mean}%`
+                                );
+                            }
+                        });
+                        if (anomX.length > 0) {
+                            overlayTraces.push({
+                                x: anomX,
+                                y: anomY,
+                                type: 'scatter',
+                                mode: 'markers',
+                                marker: { color: 'rgba(0,0,0,0)', size: 14, line: { color: catColor, width: 2.5 } },
+                                name: `${catData.label} anomalies`,
+                                showlegend: false,
+                                text: anomText,
+                                hoverinfo: 'text',
+                                hovertemplate: '%{text}<extra></extra>'
+                            });
+                        }
+                    }
+
+                    // Structural break (vertical dashed line)
+                    // Adjust index for sliced view
+                    const adjBreakIdx = catData.break ? catData.break.index - startIdx : -1;
+                    if (catData.break && Math.abs(catData.break.delta) > 4 && adjBreakIdx > 0 && adjBreakIdx < xVals.length) {
+                        shapes.push({
+                            type: 'line',
+                            x0: xVals[adjBreakIdx],
+                            x1: xVals[adjBreakIdx],
+                            y0: 0,
+                            y1: 1,
+                            yref: 'paper',
+                            line: { color: catColor, width: 1.5, dash: 'dot' },
+                        });
+                    }
+                });
+
+                // Add overlay traces and shapes
+                if (overlayTraces.length > 0) {
+                    Plotly.addTraces(plotId, overlayTraces);
+                }
+                if (shapes.length > 0) {
+                    Plotly.relayout(plotId, { shapes: shapes });
+                }
+            }
 
             // Bind click event to show stats modal
             document.getElementById(plotId).on('plotly_click', (eventData) => {
@@ -623,6 +856,34 @@ window.timelines = {
                 }
             });
 
+        });
+
+        // Synced zoom across all charts
+        let _syncingZoom = false;
+        allPlotIds.forEach(srcId => {
+            const srcDiv = document.getElementById(srcId);
+            if (!srcDiv) return;
+            srcDiv.on('plotly_relayout', (relayoutData) => {
+                if (_syncingZoom) return;
+
+                const update = {};
+                if (relayoutData['xaxis.range[0]'] !== undefined && relayoutData['xaxis.range[1]'] !== undefined) {
+                    update['xaxis.range[0]'] = relayoutData['xaxis.range[0]'];
+                    update['xaxis.range[1]'] = relayoutData['xaxis.range[1]'];
+                } else if (relayoutData['xaxis.autorange']) {
+                    update['xaxis.autorange'] = true;
+                } else {
+                    return;
+                }
+
+                _syncingZoom = true;
+                allPlotIds.forEach(tgtId => {
+                    if (tgtId === srcId) return;
+                    Plotly.relayout(tgtId, update);
+                });
+                // Reset after async events have propagated
+                setTimeout(() => { _syncingZoom = false; }, 200);
+            });
         });
 
         // Restore scroll position

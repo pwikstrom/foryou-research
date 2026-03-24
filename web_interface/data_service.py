@@ -703,7 +703,19 @@ def get_timeline_data(donation_id, interval='day'):
                 "display_name": display_name
             }
 
-    return {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts, "variables_order": viz_vars}
+    result = {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts, "variables_order": viz_vars}
+
+    # Attach pre-computed analysis data if available
+    analysis_fname = f"timeline_analysis_{donation_id}_{interval}.json"
+    try:
+        if data_io.exists(storage_location="cache", filename=analysis_fname):
+            analysis = data_io.load_json(storage_location="cache", filename=analysis_fname)
+            if analysis:
+                result["analysis"] = analysis
+    except Exception as e:
+        print(f"Warning: Could not load analysis for {donation_id}/{interval}: {e}")
+
+    return result
 
 
 def load_display_id_map():
