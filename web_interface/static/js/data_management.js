@@ -28,14 +28,26 @@ function loadAvailableCollections() {
             loadStudies();
 
             const editContainer = document.getElementById('edit-activity-list-container');
-            if (editContainer) renderEditActivityTable(editContainer);
+            if (editContainer) {
+                renderEditActivityTable(editContainer);
+                const searchInput = document.getElementById('edit-activity-search');
+                if (searchInput && searchInput.value) {
+                    filterEditActivityCollections(searchInput);
+                }
+            }
         })
         .catch(err => {
             console.error("Error loading collections list:", err);
             loadStudies();
 
             const editContainer = document.getElementById('edit-activity-list-container');
-            if (editContainer) renderEditActivityTable(editContainer);
+            if (editContainer) {
+                renderEditActivityTable(editContainer);
+                const searchInput = document.getElementById('edit-activity-search');
+                if (searchInput && searchInput.value) {
+                    filterEditActivityCollections(searchInput);
+                }
+            }
         });
 }
 
@@ -1419,21 +1431,14 @@ function dm_saveAnnotation() {
 
     fetch('/api/manage/collection/save_annotation', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         body: JSON.stringify(payload)
     })
         .then(r => r.json())
         .then(data => {
             if (data.status === 'success') {
-                dm_closeEditModal();
-                // Optionally manually update the array or re-render
-                const item = dm_collectionsData.find(c => c.id === currentEditCollectionId);
-                if (item) {
-                    item.displayId = displayId;
-                    item.tags = currentEditCollectionTags;
-                    item.hidden = isHidden;
-                }
-                dm_renderCollectionsTable();
+                closeEditCollectionModal();
+                loadAvailableCollections();
             } else {
                 alert('Failed to save: ' + (data.error || 'Unknown error'));
             }

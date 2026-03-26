@@ -26,8 +26,10 @@ def compute_linreg(vals: list[float]) -> dict[str, float]:
 
 
 
-def compute_anomalies(vals: list[float], threshold: float = 1.75) -> list[dict[str, Any]]:
+def compute_anomalies(vals: list[float], threshold: float = 3.5) -> list[dict[str, Any]]:
     """Detect anomalies via z-scores.
+
+    Threshold aggressively raised to 3.5 to compensate for the fact that a 7-day moving average collapses standard deviation, naturally inflating Z-scores.
 
     Args:
         vals: Array of share % values.
@@ -115,6 +117,8 @@ def compute_volatility(vals: list[float]) -> dict[str, float]:
 
 
 
+import math
+
 def compute_interestingness(metrics: dict) -> float:
     """Compute a composite interestingness score from per-category metrics.
 
@@ -132,10 +136,28 @@ def compute_interestingness(metrics: dict) -> float:
     anomaly_score = max(anomaly_z_vals, default=0) * 4.0
     break_score = abs(metrics["break"]["delta"]) * 1.2
     volatility_score = metrics["volatility"]["std"] * 0.8
-    return round(trend_score + anomaly_score + break_score + volatility_score, 1)
+    
+    raw_score = trend_score + anomaly_score + break_score + volatility_score
+    
+    # Penalize visually flat/noisy categories that have tiny absolute shares
+    # Heavily compressed logarithmic multiplier (0.8x to ~1.2x) so volume carries minimal weight
+    mean_share = metrics["trend"]["mean"]
+    volume_multiplier = (math.log10(mean_share + 1) * 0.2) + 0.8
+    
+    return round(raw_score * volume_multiplier, 1)
 
 
 
+
+
+def moving_average(vals: list[float], window: int = 7) -> list[float]:
+    """Compute a trailing moving average matching the frontend."""
+    smoothed = []
+    for i in range(len(vals)):
+        start = max(0, i - window + 1)
+        slice_vals = vals[start:i+1]
+        smoothed.append(round(sum(slice_vals) / len(slice_vals), 2))
+    return smoothed
 
 
 def analyse_timeline(timeline_data: dict, interval: str = "day",
@@ -227,11 +249,14 @@ def analyse_timeline(timeline_data: dict, interval: str = "day",
                 share = (count / total) * 100
                 vals.append(share)
 
+            # Smooth the values before analysis using a 7-day trailing average to match UI
+            vals = moving_average(vals, window=7)
+
             # Skip categories with no meaningful data
             if not vals or max(vals) == 0:
                 continue
 
-            # Compute metrics on post-first-activity data
+            # Compute metrics on smoothed post-first-activity data
             trend = compute_linreg(vals)
             anomalies = compute_anomalies(vals)
             brk = compute_break(vals)

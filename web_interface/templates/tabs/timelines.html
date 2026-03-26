@@ -10,7 +10,7 @@
             <!-- Study selection removed as per refactor -->
             <div id="timelines-study-select-container" style="display:none;"></div>
 
-            <div class="form-group" style="margin-top: 20px;">
+            <div class="form-group" style="margin-top: 20px; display: none;">
                 <label>Aggregation</label>
                 <div style="display: flex; gap: 15px; margin-top: 5px;">
                     <label style="cursor: pointer;">
@@ -31,10 +31,10 @@
                 </div>
             </div>
 
-            <div class="form-group" style="margin-top: 10px;">
+            <div class="form-group" style="margin-top: 10px; display: none;">
                 <label style="display: flex; align-items: center; gap: 8px;">
                     Smoothing
-                    <input type="range" id="timelines-smoothing" min="1" max="14" value="1"
+                    <input type="range" id="timelines-smoothing" min="1" max="14" value="7"
                         style="flex: 1; accent-color: #4ec9b0;"
                         oninput="timelines.onSmoothingChange(this.value)">
                     <span id="timelines-smoothing-label"
@@ -109,7 +109,7 @@
                         <label
                             style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #d4d4d4; font-size: 0.9em;">
                             <input type="checkbox" id="timelines-exclude-before-first-activity"
-                                onchange="timelines.renderTimelineCharts()">
+                                onchange="timelines.renderTimelineCharts()" checked>
                             Exclude data before first main activity
                         </label>
                     </div>

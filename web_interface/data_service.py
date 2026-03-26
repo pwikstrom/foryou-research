@@ -675,10 +675,18 @@ def get_timeline_data(donation_id, interval='day'):
             
             global_cat_counts = {}
             
+            ignore_cats = {
+                fyp_cf.get('labels', {}).get('OTHER_THINGS', 'Other things'),
+                fyp_cf.get('labels', {}).get('UNABLE_TO_DETECT', 'Unable to detect'),
+                fyp_cf.get('labels', {}).get('NOT_CODED', 'Not coded')
+            }
+            
             for json_str in df[f"{var}_counts"]:
                 try:
                     if json_str and isinstance(json_str, str):
                         c_dict = json.loads(json_str)
+                        for igc in ignore_cats:
+                            c_dict.pop(igc, None)
                     else:
                         c_dict = {}
                 except:
@@ -705,15 +713,51 @@ def get_timeline_data(donation_id, interval='day'):
 
     result = {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts, "variables_order": viz_vars}
 
-    # Attach pre-computed analysis data if available
+    # Attach pre-computed analysis data if available, or generate if missing
     analysis_fname = f"timeline_analysis_{donation_id}_{interval}.json"
     try:
         if data_io.exists(storage_location="cache", filename=analysis_fname):
             analysis = data_io.load_json(storage_location="cache", filename=analysis_fname)
             if analysis:
                 result["analysis"] = analysis
+        else:
+            # Analysis is missing, generate it on the fly
+            from fyp.timeline_analysis import analyse_timeline
+            
+            # Try to fetch first_activity_date from ddp_metadata.parquet
+            first_date = None
+            try:
+                if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
+                    ddp_meta = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet", verbose=False)
+                    if ddp_meta is not None:
+                        # Check index or column for donation_id
+                        if ddp_meta.index.name == 'D_donation_id' or ddp_meta.index.name is None:
+                            mask = ddp_meta.index.astype(str) == str(donation_id)
+                        elif 'D_donation_id' in ddp_meta.columns:
+                            mask = ddp_meta['D_donation_id'].astype(str) == str(donation_id)
+                        else:
+                            mask = ddp_meta.index.astype(str) == str(donation_id)
+                            
+                        row = ddp_meta[mask]
+                        if not row.empty:
+                            if ('personas', 'first_event_ts') in row.columns:
+                                ts = row[('personas', 'first_event_ts')].iloc[0]
+                                if pd.notna(ts):
+                                    first_date = str(ts)[:10]
+                            elif 'first_event_ts' in row.columns:
+                                ts = row['first_event_ts'].iloc[0]
+                                if pd.notna(ts):
+                                    first_date = str(ts)[:10]
+            except Exception as e:
+                print(f"Warning: Could not get first_event_ts for analysis generation: {e}")
+
+            analysis = analyse_timeline(result, interval=interval, first_activity_date=first_date)
+            if analysis:
+                data_io.save_json(analysis, storage_location="cache", filename=analysis_fname)
+                result["analysis"] = analysis
+
     except Exception as e:
-        print(f"Warning: Could not load analysis for {donation_id}/{interval}: {e}")
+        print(f"Warning: Could not load or generate analysis for {donation_id}/{interval}: {e}")
 
     return result
 

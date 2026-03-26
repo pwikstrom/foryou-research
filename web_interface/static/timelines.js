@@ -9,7 +9,8 @@ window.timelines = {
     timelineState: {
         categoricalSelections: {},
         analysisToggles: {},
-        smoothing: 1
+        activeFilters: {},
+        smoothing: 7
     },
 
     init: async function () {
@@ -427,84 +428,8 @@ window.timelines = {
             const subtitle = varData.type !== 'categorical' ? '<span style="font-size: 0.75em; color: #aaa; font-weight: normal;"> (mean values)</span>' : '';
             titleDiv.innerHTML = `<h3 style="margin-top: 0; margin-bottom: 10px; font-size: 1.25em;">${displayTitle}${subtitle}</h3>`;
 
-            // Analysis toggle button for categorical charts
-            if (varData.type === 'categorical' && data.analysis && data.analysis[varName]) {
-                const toggleBtn = document.createElement('button');
-                const isActive = this.timelineState.analysisToggles && this.timelineState.analysisToggles[varName];
-                toggleBtn.innerHTML = '📊';
-                toggleBtn.title = isActive ? 'Hide trend analysis' : 'Show trend analysis';
-                toggleBtn.style.cssText = `background: ${isActive ? '#4ec9b0' : '#3c3c3c'}; border: 1px solid ${isActive ? '#4ec9b0' : '#555'}; color: ${isActive ? '#1e1e1e' : '#ccc'}; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 0.85em; margin-bottom: 10px; transition: all 0.2s;`;
-                toggleBtn.onmouseenter = () => { if (!isActive) toggleBtn.style.background = '#505050'; };
-                toggleBtn.onmouseleave = () => { if (!isActive) toggleBtn.style.background = '#3c3c3c'; };
-                toggleBtn.onclick = () => {
-                    if (!this.timelineState.analysisToggles) this.timelineState.analysisToggles = {};
-                    this.timelineState.analysisToggles[varName] = !this.timelineState.analysisToggles[varName];
-                    this.renderTimelineCharts();
-                };
-                titleDiv.appendChild(toggleBtn);
-
-                // --- Summary Badge ---
-                let badgeText = '— Stable';
-                let badgeColor = 'rgba(120, 120, 120, 0.2)';
-                let badgeTextColor = '#aaa';
-                let badgeBorderColor = '#555';
-                
-                const anData = data.analysis[varName];
-                let highestRise = {val: 0, cat: null};
-                let lowestFall = {val: 0, cat: null};
-                let hasAnomaly = false;
-                let anomCount = 0;
-                let highlightBreakCat = null;
-                
-                // Evaluate all categories for conditions
-                for (let cat in anData) {
-                    const cd = anData[cat];
-                    if (!cd || cd.error) continue;
-                    
-                    if (cd.trend && cd.trend.total_change > highestRise.val) {
-                        highestRise = {val: cd.trend.total_change, cat: cat};
-                    }
-                    if (cd.trend && cd.trend.total_change < lowestFall.val) {
-                        lowestFall = {val: cd.trend.total_change, cat: cat};
-                    }
-                    if (cd.anomalies && cd.anomalies.length > 0) {
-                        hasAnomaly = true;
-                        anomCount += cd.anomalies.length;
-                    }
-                    if (cd.break && Math.abs(cd.break.delta) > 4 && !highlightBreakCat) {
-                        highlightBreakCat = cat;
-                    }
-                }
-                
-                // Apply highest priority badge
-                if (highestRise.val > 4) {
-                    badgeText = `↑ Rising: ${highestRise.cat}`;
-                    badgeColor = 'rgba(78, 201, 176, 0.15)';
-                    badgeTextColor = '#4ec9b0';
-                    badgeBorderColor = 'rgba(78, 201, 176, 0.5)';
-                } else if (lowestFall.val < -4) {
-                    badgeText = `↓ Falling: ${lowestFall.cat}`;
-                    badgeColor = 'rgba(244, 135, 113, 0.15)';
-                    badgeTextColor = '#f48771';
-                    badgeBorderColor = 'rgba(244, 135, 113, 0.5)';
-                } else if (hasAnomaly) {
-                    badgeText = `◎ ${anomCount} spike(s)`;
-                    badgeColor = 'rgba(206, 145, 120, 0.15)';
-                    badgeTextColor = '#ce9178';
-                    badgeBorderColor = 'rgba(206, 145, 120, 0.5)';
-                } else if (highlightBreakCat) {
-                    badgeText = `⋮ Step change: ${highlightBreakCat}`;
-                    badgeColor = 'rgba(86, 156, 214, 0.15)';
-                    badgeTextColor = '#569cd6';
-                    badgeBorderColor = 'rgba(86, 156, 214, 0.5)';
-                }
-                
-                const badge = document.createElement('span');
-                badge.textContent = badgeText;
-                badge.style.cssText = `background: ${badgeColor}; color: ${badgeTextColor}; padding: 3px 10px; border-radius: 12px; font-size: 0.75em; border: 1px solid ${badgeBorderColor}; font-weight: 500; margin-left: 10px; margin-bottom: 10px; white-space: nowrap;`;
-                
-                titleDiv.appendChild(badge);
-            }
+            // Analysis toggle button for categorical charts removed.
+            // Findings panel is now natively visible and selection-driven.
             chartWrapper.appendChild(titleDiv);
 
             // Container for Controls and Plot
@@ -572,18 +497,95 @@ window.timelines = {
 
                 const allCategories = Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]);
 
+                // --- 99% Coverage Heuristic ---
+                const grandTotal = allCategories.reduce((sum, cat) => sum + catTotals[cat], 0);
+                const keptCategories = [];
+                let cumulativeSum = 0;
+                let omittedCount = 0;
+                let omittedObservations = 0;
+                
+                const minCategories = 5;
+                const coverageTarget = 0.99;
+                
+                for (let i = 0; i < allCategories.length; i++) {
+                    const cat = allCategories[i];
+                    const catTarget = catTotals[cat];
+                    
+                    const isSelected = selectedCats.includes(cat);
+                    const isWithinMin = i < minCategories;
+                    const isMeaningfulSize = catTarget >= 5; // Hard cutoff for noisy tiny categories
+                    
+                    // Keep if explicitly selected, within top 5, or (within 99% coverage AND has meaningful size)
+                    if (isSelected || isWithinMin || (cumulativeSum < (coverageTarget * grandTotal) && isMeaningfulSize)) {
+                        keptCategories.push(cat);
+                    } else {
+                        omittedCount++;
+                        omittedObservations += catTarget;
+                    }
+                    cumulativeSum += catTarget;
+                }
+
                 // Preserve scroll position if re-rendering an existing menu
                 const catScrollPos = catScrollPositions[`controls-${plotId}`] || 0;
 
                 // Keep UI container logic SAME
                 // (This block recreates the checkboxes every time)
                 // In production might want to only create once, but here we redraw all.
+                const omittedPercent = grandTotal > 0 ? ((omittedObservations / grandTotal) * 100).toFixed(1) : 0;
+                
+                const analysisMap = {};
+                const varAnalysis = window.timelines.timelineData.analysis && window.timelines.timelineData.analysis[varName];
+                if (varAnalysis && Array.isArray(varAnalysis.categories)) {
+                    varAnalysis.categories.forEach(a => {
+                        analysisMap[a.id] = a;
+                    });
+                }
+                const activeFilter = this.timelineState.activeFilters[varName] || 'all';
+                
                 controlsDiv.id = `controls-${plotId}`;
                 controlsDiv.innerHTML = `
-                    <div style="font-size:0.85em; margin-bottom:5px; color:#aaa;">Select Categories:</div>
-                    <div style="max-height:300px; overflow-y:auto; border:1px solid #444; padding:5px;">
-                        ${allCategories.map(cat => `
-                            <div style="display:flex; align-items:flex-start; margin-bottom:3px;">
+                    <div style="font-size:0.85em; margin-bottom:5px; color:#aaa; display:flex; justify-content:space-between; align-items:center;">
+                        <span>Select Categories:</span>
+                    </div>
+                    
+                    <!-- Quick Filter Chips -->
+                    <div id="chips-${plotId}" style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
+                        <div class="filter-chip" id="chip-${plotId}-all" onclick="window.timelines.setFilter('${varName}', 'all')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:#444; color:#fff; border:1px solid #666; opacity:${activeFilter === 'all' ? '1.0' : '0.4'};">All</div>
+                        <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(78, 201, 176, 0.15); color:#4ec9b0; border:1px solid rgba(78, 201, 176, 0.5); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
+                        <div class="filter-chip" id="chip-${plotId}-falling" onclick="window.timelines.setFilter('${varName}', 'falling')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(244, 135, 113, 0.15); color:#f48771; border:1px solid rgba(244, 135, 113, 0.5); opacity:${activeFilter === 'falling' ? '1.0' : '0.4'};">↓ Falling</div>
+                        <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(206, 145, 120, 0.15); color:#ce9178; border:1px solid rgba(206, 145, 120, 0.5); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
+                        <div class="filter-chip" id="chip-${plotId}-breaks" onclick="window.timelines.setFilter('${varName}', 'breaks')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(86, 156, 214, 0.15); color:#569cd6; border:1px solid rgba(86, 156, 214, 0.5); opacity:${activeFilter === 'breaks' ? '1.0' : '0.4'};">⋮ Breaks</div>
+                        <div class="filter-chip" id="chip-${plotId}-volatile" onclick="window.timelines.setFilter('${varName}', 'volatile')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(218, 112, 214, 0.15); color:#da70d6; border:1px solid rgba(218, 112, 214, 0.5); opacity:${activeFilter === 'volatile' ? '1.0' : '0.4'};">~ Volatile</div>
+                        <div class="filter-chip" id="chip-${plotId}-stable" onclick="window.timelines.setFilter('${varName}', 'stable')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(120, 120, 120, 0.2); color:#aaa; border:1px solid #555; opacity:${activeFilter === 'stable' ? '1.0' : '0.4'};">— Stable</div>
+                    </div>
+
+                    <div id="cat-list-${plotId}" style="max-height:300px; overflow-y:auto; border:1px solid #444; padding:5px;">
+                        ${keptCategories.map(cat => {
+                            const cd = analysisMap[cat] || {};
+                            const isRising = (cd.trend && cd.trend.total_change > 4);
+                            const isFalling = (cd.trend && cd.trend.total_change < -4);
+                            const hasSpikes = (cd.anomalies && cd.anomalies.length > 0);
+                            const hasBreak = (cd.break && Math.abs(cd.break.delta) > 4);
+                            const isVolatile = (cd.volatility && cd.volatility.std > 2.5);
+                            const isStable = (!isRising && !isFalling && !hasSpikes && !hasBreak && !isVolatile);
+                            
+                            const isVisible = (activeFilter === 'all' || 
+                                               (activeFilter === 'rising' && isRising) ||
+                                               (activeFilter === 'falling' && isFalling) ||
+                                               (activeFilter === 'spikes' && hasSpikes) ||
+                                               (activeFilter === 'breaks' && hasBreak) ||
+                                               (activeFilter === 'volatile' && isVolatile) ||
+                                               (activeFilter === 'stable' && isStable));
+
+                            return `
+                            <div class="category-item" 
+                                 data-rising="${isRising}" 
+                                 data-falling="${isFalling}" 
+                                 data-spikes="${hasSpikes}" 
+                                 data-breaks="${hasBreak}" 
+                                 data-volatile="${isVolatile}" 
+                                 data-stable="${isStable}"
+                                 style="display:${isVisible ? 'flex' : 'none'}; align-items:flex-start; margin-bottom:3px;">
                                 <input type="checkbox"
                                        value="${cat}"
                                        ${selectedCats.includes(cat) ? 'checked' : ''}
@@ -594,8 +596,10 @@ window.timelines = {
                                     <span style="color:#aaa; font-size:0.85em; white-space:nowrap;">(${catTotals[cat].toLocaleString()})</span>
                                 </span>
                             </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
+                    ${omittedCount > 0 ? `<div style="font-size:0.75em; color:#888; margin-top:5px; font-style:italic;">${omittedCount} categories with ${omittedObservations.toLocaleString()} obs. omitted (~${omittedPercent}% total)</div>` : ''}
                 `;
 
                 // Restore scroll position
@@ -847,6 +851,124 @@ window.timelines = {
                 if (shapes.length > 0) {
                     Plotly.relayout(plotId, { shapes: shapes });
                 }
+
+                // --- NEW FINDINGS PANEL CODE ---
+                const selectedCatsForPanel = this.timelineState.categoricalSelections[varName] || [];
+                if (data.analysis && data.analysis[varName] && selectedCatsForPanel.length > 0) {
+                    const analysisData = data.analysis[varName];
+                    const catsList = analysisData.categories || [];
+                    const selectedSet = new Set(selectedCatsForPanel);
+
+                    const findingsContainer = document.createElement('div');
+                    findingsContainer.style.cssText = 'margin-top: 20px; border-top: 1px solid #333; padding-top: 15px; display: flex; flex-direction: column; gap: 10px;';
+                    
+                    catsList.forEach((catData, index) => {
+                        if (!selectedSet.has(catData.id)) return;
+                        
+                        const globalRank = index + 1;
+                        const catColor = colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
+                        
+                        const card = document.createElement('div');
+                        card.style.cssText = 'background: #2a2d31; padding: 15px; border-radius: 8px; border-left: 4px solid ' + catColor + ';';
+                        
+                        // Card Header: Rank + Dot + Label + Badges
+                        const headerRow = document.createElement('div');
+                        headerRow.style.cssText = 'display: flex; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;';
+                        
+                        const titleWrap = document.createElement('div');
+                        titleWrap.style.cssText = 'font-weight: 600; font-size: 1.1em; color: #e1e1e1; margin-right: 15px;';
+                        titleWrap.innerHTML = `<span style="color:#888; font-size:0.9em; margin-right:5px;">#${globalRank}</span> <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${catColor}; margin-right:6px;"></span> ${catData.label}`;
+                        headerRow.appendChild(titleWrap);
+                        
+                        const bullets = [];
+                        
+                        // Helper to make badge
+                        const makeBadge = (text, bg, fg, border) => {
+                            return `<span style="background:${bg}; color:${fg}; padding:3px 8px; border-radius:12px; font-size:0.75em; border:1px solid ${border}; font-weight:500; white-space:nowrap;">${text}</span>`;
+                        };
+                        
+                        let isStable = true;
+                        
+                        // 1. Trend
+                        if (catData.trend && Math.abs(catData.trend.total_change) > 4) {
+                            isStable = false;
+                            const isRising = catData.trend.total_change > 0;
+                            if (isRising) {
+                                headerRow.innerHTML += makeBadge('↑ Rising', 'rgba(78, 201, 176, 0.15)', '#4ec9b0', 'rgba(78, 201, 176, 0.5)');
+                                bullets.push(`Overall upward trend — total shift of +${catData.trend.total_change} pp over the period.`);
+                            } else {
+                                headerRow.innerHTML += makeBadge('↓ Falling', 'rgba(244, 135, 113, 0.15)', '#f48771', 'rgba(244, 135, 113, 0.5)');
+                                bullets.push(`Overall downward trend — total shift of ${catData.trend.total_change} pp over the period.`);
+                            }
+                        }
+                        
+                        // 2. Step Change
+                        if (catData.break && Math.abs(catData.break.delta) > 4) {
+                            isStable = false;
+                            headerRow.innerHTML += makeBadge('⋮ Step change', 'rgba(86, 156, 214, 0.15)', '#569cd6', 'rgba(86, 156, 214, 0.5)');
+                            
+                            let bDate = "the period";
+                            const bIdx = catData.break.index;
+                            if (data.date_labels && bIdx >= 0 && bIdx < data.date_labels.length) {
+                                 bDate = data.date_labels[bIdx];
+                            } else if (data.dates && bIdx >= 0 && bIdx < data.dates.length) {
+                                 bDate = data.dates[bIdx];
+                            }
+                            const dir = catData.break.delta > 0 ? "jumped" : "dropped";
+                            const sign = catData.break.delta > 0 ? "+" : "";
+                            bullets.push(`Step change around ${bDate}: share ${dir} from ~${catData.break.mean_before}% to ~${catData.break.mean_after}% (${sign}${catData.break.delta} pp).`);
+                        }
+                        
+                        // 3. Anomalies
+                        if (catData.anomalies && catData.anomalies.length > 0) {
+                            isStable = false;
+                            headerRow.innerHTML += makeBadge(`◎ ${catData.anomalies.length} spike(s)`, 'rgba(206, 145, 120, 0.15)', '#ce9178', 'rgba(206, 145, 120, 0.5)');
+                            
+                            catData.anomalies.slice(0, 2).forEach(a => {
+                                let aDate = "Unknown Date";
+                                if (data.date_labels && a.index >= 0 && a.index < data.date_labels.length) {
+                                    aDate = data.date_labels[a.index];
+                                } else if (data.dates && a.index >= 0 && a.index < data.dates.length) {
+                                    aDate = data.dates[a.index];
+                                }
+                                const dir = a.value > a.mean ? "Peak" : "Trough";
+                                const sign = a.z > 0 ? "+" : "";
+                                bullets.push(`${dir} at ${aDate}: ${a.value}% vs. mean ${a.mean}% (${sign}${a.z} σ).`);
+                            });
+                        }
+                        
+                        // 4. Volatility
+                        if (catData.volatility && catData.volatility.std > 2.5) {
+                            isStable = false;
+                            headerRow.innerHTML += makeBadge('~ Volatile', 'rgba(218, 112, 214, 0.15)', '#da70d6', 'rgba(218, 112, 214, 0.5)');
+                            bullets.push(`High variation — standard dev ${catData.volatility.std} pp around mean of ${catData.volatility.mean}%.`);
+                        }
+                        
+                        // 5. Stable
+                        if (isStable) {
+                            headerRow.innerHTML += makeBadge('— Stable', 'rgba(120, 120, 120, 0.2)', '#aaa', '#555');
+                            let m = catData.volatility ? catData.volatility.mean : "?";
+                            bullets.push(`No significant dynamics detected. Steady around ${m}% with low variation.`);
+                        }
+                        
+                        card.appendChild(headerRow);
+                        
+                        // Render Bullets
+                        const ul = document.createElement('ul');
+                        ul.style.cssText = 'margin: 0; padding-left: 20px; color: #ccc; font-size: 0.9em; line-height: 1.5;';
+                        bullets.forEach(b => {
+                            const li = document.createElement('li');
+                            li.innerText = b;
+                            li.style.marginBottom = '4px';
+                            ul.appendChild(li);
+                        });
+                        
+                        card.appendChild(ul);
+                        findingsContainer.appendChild(card);
+                    });
+                    
+                    chartWrapper.appendChild(findingsContainer);
+                }
             }
 
             // Bind click event to show stats modal
@@ -891,6 +1013,44 @@ window.timelines = {
             scrollContainer.scrollTop = scrollPos;
         }
 
+    },
+
+    setFilter: function (varName, filterType) {
+        if (!this.timelineState.activeFilters) this.timelineState.activeFilters = {};
+        
+        // Toggle off if already active, else set
+        if (this.timelineState.activeFilters[varName] === filterType) {
+            this.timelineState.activeFilters[varName] = 'all';
+        } else {
+            this.timelineState.activeFilters[varName] = filterType;
+        }
+        
+        const activeFilter = this.timelineState.activeFilters[varName];
+        const plotId = `timeline-plot-${varName}`;
+        
+        // Update chip UI styles
+        const chipsContainer = document.getElementById(`chips-${plotId}`);
+        if (chipsContainer) {
+            chipsContainer.querySelectorAll('.filter-chip').forEach(chip => {
+                chip.style.opacity = '0.4';
+            });
+            const activeChip = document.getElementById(`chip-${plotId}-${activeFilter}`);
+            if (activeChip) activeChip.style.opacity = '1.0';
+        }
+        
+        // Filter the DOM items instantly
+        const catList = document.getElementById(`cat-list-${plotId}`);
+        if (catList) {
+            catList.querySelectorAll('.category-item').forEach(el => {
+                if (activeFilter === 'all') {
+                    el.style.display = 'flex';
+                } else if (el.getAttribute(`data-${activeFilter}`) === 'true') {
+                    el.style.display = 'flex';
+                } else {
+                    el.style.display = 'none';
+                }
+            });
+        }
     },
 
     toggleCategory: function (varName, cat) {

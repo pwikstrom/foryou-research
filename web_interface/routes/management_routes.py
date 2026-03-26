@@ -76,21 +76,21 @@ def _calculate_stats(study_config, save_to_cache=True):
                 try:
                     status_ids = df_status['item_id'].astype("string[pyarrow]")
                     study_ids = df_study['item_id'].astype("string[pyarrow]")
-                    matched_status = df_status.loc[status_ids.isin(study_ids)].fillna(False).copy()
+                    matched_status = df_status.loc[status_ids.isin(study_ids)].copy()
                 except Exception as e:
                     print(f"Error during robust index matching: {e}. Falling back to standard matching.")
                     study_item_ids = df_study['item_id'].unique()
-                    matched_status = df_status.loc[df_status.index.isin(study_item_ids)].fillna(False).copy()
+                    matched_status = df_status.loc[df_status.index.isin(study_item_ids)].copy()
             else:
                 # Fallback if we couldn't get item_id column
                 study_item_ids = df_study['item_id'].unique()
-                matched_status = df_status.loc[df_status.index.isin(study_item_ids)].fillna(False).copy()
+                matched_status = df_status.loc[df_status.index.isin(study_item_ids)].copy()
             
             # Calculate counts
             if 'scraped_ok' in matched_status.columns:
-                scraped_videos = int(matched_status['scraped_ok'].sum())
+                scraped_videos = int(matched_status['scraped_ok'].fillna(False).sum())
             if 'annotated_ok' in matched_status.columns:
-                annotated_videos = int(matched_status['annotated_ok'].sum())
+                annotated_videos = int(matched_status['annotated_ok'].fillna(False).sum())
         
         return {
             "unique_videos": int(unique_videos),
@@ -484,7 +484,42 @@ def list_collections():
         print(f"Error listing collections: {e}")
 
 
+@management_bp.route('/api/manage/collection/save_annotation', methods=['POST'])
+@login_required
+def save_collection_annotation():
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
 
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    donation_id = data.get('donation_id')
+    if not donation_id:
+        return jsonify({"error": "Missing donation_id"}), 400
+
+    try:
+        annotations = {}
+        if data_io.exists(storage_location="processed_activities", filename="donation_annotations.json"):
+            annotations = data_io.load_json(storage_location="processed_activities", filename="donation_annotations.json")
+
+        annotations[str(donation_id)] = {
+            "display_donation_id": data.get('display_donation_id', None),
+            "annotation_tags": data.get('tags', []),
+            "hidden": data.get('hidden', False)
+        }
+
+        data_io.save_json(
+            data=annotations,
+            storage_location="processed_activities",
+            filename="donation_annotations.json",
+            verbose=False
+        )
+
+        return jsonify({"status": "success"})
+    except Exception as e:
+        print(f"Error saving annotation: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @management_bp.route('/api/manage/enrichment/stats', methods=['GET'])
