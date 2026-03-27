@@ -1190,9 +1190,6 @@ function renderEditActivityTable(container) {
         <tr style="text-align: left;">
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Collection / Display ID</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Tags</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Email</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Name</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">TikTok</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Age</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Country</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">PostCode</th>
@@ -1200,6 +1197,7 @@ function renderEditActivityTable(container) {
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Total Events</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Last Event</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Added</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; border-bottom: 2px solid #555; width: 40px;"></th>
         </tr>
     `;
     table.appendChild(thead);
@@ -1242,6 +1240,7 @@ function renderEditActivityTable(container) {
         tr.style.cursor = 'pointer';
         tr.className = 'edit-activity-item';
         tr.setAttribute('data-search', searchString.toLowerCase());
+        tr.setAttribute('data-donation-id', item);
 
         // Apply distinct styling to hidden collections
         if (itemInfo.hidden) {
@@ -1249,9 +1248,19 @@ function renderEditActivityTable(container) {
             tr.style.color = '#888';
         }
 
-        tr.onmouseover = () => { tr.style.background = '#333'; }
-        tr.onmouseout = () => { tr.style.background = 'transparent'; }
-        tr.onclick = () => { openEditCollectionModal(itemInfo); }
+        tr.onmouseover = () => {
+            tr.style.background = '#333';
+        };
+        tr.onmouseout = () => {
+            tr.style.background = (window.pe_selectedId === item) ? '#333' : 'transparent';
+        };
+        tr.onclick = () => {
+            // Sync with bee swarm selection
+            if (typeof pe_selectDonation === 'function') {
+                pe_selectDonation(item);
+            }
+        };
+        tr.style.cursor = 'pointer';
 
         const createCell = (text, isBold = false, tooltip = null) => {
             const td = document.createElement('td');
@@ -1267,9 +1276,6 @@ function renderEditActivityTable(container) {
         const primaryId = pDisplayId ? pDisplayId : item;
         tr.appendChild(createCell(primaryId, true, item));
         tr.appendChild(createCell(pTags));
-        tr.appendChild(createCell(pEmail));
-        tr.appendChild(createCell(pName));
-        tr.appendChild(createCell(pTiktok));
         tr.appendChild(createCell(pAge));
         tr.appendChild(createCell(pCountry));
         tr.appendChild(createCell(pPostCode));
@@ -1277,6 +1283,21 @@ function renderEditActivityTable(container) {
         tr.appendChild(createCell(pTotalEvents));
         tr.appendChild(createCell(pLastEvent));
         tr.appendChild(createCell(pAdded));
+
+        // Edit button
+        const editTd = document.createElement('td');
+        editTd.style.padding = '5px';
+        editTd.style.textAlign = 'center';
+        const editBtn = document.createElement('button');
+        editBtn.innerHTML = '<i class="fas fa-pen"></i>';
+        editBtn.style.cssText = 'background: #555; border: none; color: #ccc; cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 0.8em;';
+        editBtn.title = 'Edit collection';
+        editBtn.onclick = (e) => {
+            e.stopPropagation();
+            openEditCollectionModal(itemInfo);
+        };
+        editTd.appendChild(editBtn);
+        tr.appendChild(editTd);
 
         tbody.appendChild(tr);
     });

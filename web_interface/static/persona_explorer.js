@@ -2,13 +2,8 @@
 window.pe_data = window.pe_data || [];
 let pe_data = window.pe_data;
 let pe_selectedId = null;
-let pe_percentileRanks = {};
-
 // Metrics to display as strip plots - now dynamically loaded
 let PE_METRICS = []; // Will be populated from PE_METRIC_INFO
-
-// Radar chart metrics - configurable
-let PE_RADAR_METRICS = ['chattiness', 'enthusiasm', 'patience', 'binge_level', 'consistency'];
 
 // Available metrics and their info
 const PE_METRIC_INFO = {
@@ -73,174 +68,36 @@ const PE_METRIC_INFO = {
     'consistency': { label: 'Consistency', tooltip: 'How concentrated activity is in peak hours' }
 };
 
-// Default Radar Metrics
-const PE_DEFAULT_RADAR_METRICS = ['chattiness', 'enthusiasm', 'patience', 'binge_level', 'consistency'];
-
 function pe_loadSettings() {
-    // Load Radar Settings
-    const savedRadar = localStorage.getItem('pe_selected_radar_metrics');
-    let loadedRadar = false;
-
-    // Reset to defaults first to be safe
-    PE_METRICS = Object.keys(PE_METRIC_INFO); // Strip metrics = All
-
-    if (savedRadar) {
-        try {
-            const parsed = JSON.parse(savedRadar);
-            // Validate array and length
-            if (Array.isArray(parsed) && parsed.length >= 3 && parsed.length <= 8) {
-                // Validate metrics exist
-                const valid = parsed.filter(m => PE_METRIC_INFO[m]);
-                if (valid.length >= 3) {
-                    PE_RADAR_METRICS = valid;
-                    loadedRadar = true;
-                }
-            }
-        } catch (e) { console.warn('Error loading PE Radar settings', e); }
-    }
-
-    if (!loadedRadar) {
-        // Fallback to defaults
-        PE_RADAR_METRICS = [...PE_DEFAULT_RADAR_METRICS];
-        // Save defaults so subsequent localized loads work immediately
-        pe_saveSettings();
-    }
+    PE_METRICS = Object.keys(PE_METRIC_INFO);
 }
-
-function pe_saveSettings() {
-    localStorage.setItem('pe_selected_radar_metrics', JSON.stringify(PE_RADAR_METRICS));
-}
-
-// Open the configuration modal
-function pe_openConfig() {
-    const modal = document.getElementById('pe-config-modal');
-    const container = document.getElementById('pe-config-checkboxes');
-    if (!modal || !container) return;
-
-    container.innerHTML = '';
-
-    container.innerHTML = '';
-
-    // Create checkboxes for all available metrics
-    Object.keys(PE_METRIC_INFO).sort().forEach(metric => {
-        const info = PE_METRIC_INFO[metric];
-
-        const label = document.createElement('label');
-        label.className = 'config-checkbox';
-
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.value = metric;
-        cb.checked = PE_RADAR_METRICS.includes(metric);
-
-        // Live Preview: Update chart immediately on toggle
-        cb.onchange = pe_updateRadarPreview;
-
-        const span = document.createElement('span');
-        span.innerText = info.label;
-
-        label.appendChild(cb);
-        label.appendChild(span);
-        container.appendChild(label);
-    });
-
-    modal.classList.remove('hidden');
-}
-
-function pe_closeConfig() {
-    document.getElementById('pe-config-modal').classList.add('hidden');
-
-    // Restore render to saved settings (cancels preview if not applied)
-    if (pe_selectedId && pe_data) {
-        const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
-        if (donation) pe_renderRadar(donation);
-    }
-}
-
-function pe_updateRadarPreview() {
-    const container = document.getElementById('pe-config-checkboxes');
-    if (!container) return;
-
-    const selected = [];
-    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        if (cb.checked) selected.push(cb.value);
-    });
-
-    if (selected.length < 3 || selected.length > 8) {
-        // Optional: Visual warning? For now just don't render invalid state
-        return;
-    }
-
-    // Calculate ranks for temporary metrics
-    pe_calculatePercentileRanks(selected);
-
-    // Render with temporary metrics
-    if (pe_selectedId && pe_data) {
-        const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
-        if (donation) pe_renderRadar(donation, selected);
-    }
-}
-window.pe_updateRadarPreview = pe_updateRadarPreview;
-
-function pe_applyConfig() {
-    const container = document.getElementById('pe-config-checkboxes');
-    if (!container) return;
-
-    const selected = [];
-    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        if (cb.checked) selected.push(cb.value);
-    });
-
-    if (selected.length < 3 || selected.length > 8) {
-        alert("Please select between 3 and 8 metrics for the radar chart.");
-        return;
-    }
-
-    PE_RADAR_METRICS = selected;
-    pe_saveSettings();
-    pe_calculatePercentileRanks(); // Recalculate ranks for new metrics if needed
-
-    // Re-render radar if a donation is selected
-    if (pe_selectedId && pe_data) {
-        const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
-        if (donation) pe_renderRadar(donation);
-    }
-
-    // We don't need to call pe_closeConfig here if we want to follow standard flow, 
-    // but the button says "Apply Changes", implying close. 
-    // pe_closeConfig() will re-render, which is redundant but safe.
-    // To avoid double render, we can just hide it manually or let it be.
-    // Let's just call close, the double render is negligible.
-    pe_closeConfig();
-}
-
-window.pe_setRadarMetrics = function (metrics) {
-    PE_RADAR_METRICS = metrics;
-};
-
-
-// Radar chart metrics
-// const PE_RADAR_METRICS = ... (Moved to top)
-// const PE_RADAR_INFO = ... (Merged into PE_METRIC_INFO)
 
 // Initialize when tab is shown - check for cached stats
 // pe_onShow logic called by main.js
 function pe_onShow() {
+    // Ensure settings (PE_METRICS) are always loaded
+    if (PE_METRICS.length === 0) {
+        pe_loadSettings();
+    }
+
     // If not initialized, init
     if (!window.pe_data || window.pe_data.length === 0) {
         if (typeof pe_init === 'function') pe_init();
         return;
     }
 
-    // Force resize/redraw of plots
-    // Force redraw to ensure layout updates (margins) and data is fresh
-    if (pe_selectedId && pe_data) {
-        const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
-        if (donation) pe_renderRadar(donation);
-    } else {
-        // Fallback if no selection yet
-        const radarDiv = document.getElementById('pe-radar-plot');
-        if (radarDiv) Plotly.Plots.resize(radarDiv);
+    // If strips are missing (e.g. after page reload), re-render them
+    const container = document.getElementById('pe-strips-container');
+    if (container && container.querySelectorAll('.strip-row').length === 0) {
+        pe_renderAllStrips();
+    }
+
+    // Ensure edit activity table is populated
+    const editContainer = document.getElementById('edit-activity-list-container');
+    if (editContainer && editContainer.querySelectorAll('.edit-activity-item').length === 0) {
+        if (typeof renderEditActivityTable === 'function') {
+            renderEditActivityTable(editContainer);
+        }
     }
 }
 // Expose pe_onShow
@@ -249,14 +106,6 @@ window.pe_onShow = pe_onShow;
 
 function pe_init() {
     pe_loadSettings();
-
-    // Setup Search Listener
-    const searchInput = document.getElementById('pe-donation-search');
-    if (searchInput) {
-        searchInput.addEventListener('input', pe_filterDonationList);
-    } else {
-        console.warn("pe_init: Search input not found");
-    }
 
     // Fetch stats info to update timestamp display
     fetch('/api/persona_stats_info')
@@ -338,11 +187,6 @@ function pe_handleStatsData(data) {
         if (!Array.isArray(d.annotation_tags)) d.annotation_tags = [];
     });
 
-    pe_calculatePercentileRanks();
-
-    // Populate Donation List (Timelines Style)
-    pe_renderDonationList();
-
     // Render all strip plots
     pe_renderAllStrips();
 
@@ -353,114 +197,6 @@ function pe_handleStatsData(data) {
 }
 
 
-function pe_calculatePercentileRanks(metrics = null) {
-    if (!pe_data || pe_data.length === 0) return;
-
-    // Use provided metrics or global default
-    const targetMetrics = metrics || PE_RADAR_METRICS;
-
-    // Ensure metrics exist - Fallback to defaults if empty and global
-    if (!metrics && (!targetMetrics || targetMetrics.length === 0)) {
-        console.warn("PE_RADAR_METRICS empty, using default.");
-        PE_RADAR_METRICS = [...PE_DEFAULT_RADAR_METRICS];
-        return pe_calculatePercentileRanks(); // Retry
-    }
-
-    // Reset ranks for target metrics
-    targetMetrics.forEach(metric => {
-        pe_percentileRanks[metric] = {};
-    });
-
-    targetMetrics.forEach(metric => {
-        const valuesWithIds = pe_data.map(d => {
-            let val = d[metric];
-            // Safe number parsing
-            if (val === null || val === undefined || val === '') val = 0;
-            val = parseFloat(val);
-            if (isNaN(val)) val = 0;
-            return {
-                id: d.D_donation_id,
-                value: val
-            };
-        });
-
-        const sortedValues = [...valuesWithIds].sort((a, b) => a.value - b.value);
-        const n = sortedValues.length;
-
-        sortedValues.forEach((item, idx) => {
-            // Percentile rank: 0 to 1
-            pe_percentileRanks[metric][item.id] = n > 1 ? idx / (n - 1) : 0.5;
-        });
-    });
-}
-window.pe_calculatePercentileRanks = pe_calculatePercentileRanks;
-
-function pe_renderRadar(donation, metrics = null, targetDivId = 'pe-radar-plot') {
-    if (!donation) return;
-
-    const targetMetrics = metrics || PE_RADAR_METRICS;
-
-    // Ensure ranks are calculated if missing (backup safety)
-    if (Object.keys(pe_percentileRanks).length === 0) {
-        pe_calculatePercentileRanks(targetMetrics);
-    }
-
-    // Check if we need to calculate specifically for these metrics (if not in cache)
-    // Simple check: take first metric
-    if (targetMetrics.length > 0 && !pe_percentileRanks[targetMetrics[0]]) {
-        pe_calculatePercentileRanks(targetMetrics);
-    }
-
-    // Calculate values (ranks)
-    const rValues = targetMetrics.map(m => {
-        const ranks = pe_percentileRanks[m];
-        if (!ranks) return 0;
-        return ranks[donation.D_donation_id] || 0;
-    });
-
-    // Close the loop
-    const rPlot = [...rValues, rValues[0]];
-    const thetaPlot = targetMetrics.map(m => (PE_METRIC_INFO[m] ? PE_METRIC_INFO[m].label : m));
-    const theta = [...thetaPlot, thetaPlot[0]];
-
-    const data = [{
-        type: 'scatterpolar',
-        r: rPlot,
-        theta: theta,
-        fill: 'toself',
-        name: donation.moniker || 'Donation',
-        line: { color: '#4ec9b0' }
-    }];
-
-    const layout = {
-        polar: {
-            radialaxis: {
-                visible: true,
-                range: [0, 1],
-                tickfont: { size: 8, color: '#888' },
-                // Fix grid colors
-                gridcolor: '#444',
-                linecolor: '#444'
-            },
-            angularaxis: {
-                tickfont: { size: 10, color: '#d4d4d4' },
-                gridcolor: '#444',
-                linecolor: '#444'
-            },
-            bgcolor: '#252526',
-        },
-        paper_bgcolor: 'rgba(0,0,0,0)',
-        plot_bgcolor: 'rgba(0,0,0,0)',
-        showlegend: false,
-        margin: { t: 30, b: 30, l: 30, r: 30 },
-        height: 300,
-        font: { color: '#d4d4d4', size: 10 }
-    };
-
-    // Use Plotly.react for efficient updates (handles newPlot vs update automatically)
-    Plotly.react(targetDivId, data, layout, { displayModeBar: false, responsive: true });
-}
-window.pe_renderRadar = pe_renderRadar;
 
 function pe_renderAllStrips() {
     const container = document.getElementById('pe-strips-container');
@@ -469,33 +205,127 @@ function pe_renderAllStrips() {
     container.innerHTML = '';
 
     PE_METRICS.forEach(metric => {
+        // Skip metrics where all values are identical (no variation to show)
+        const values = pe_data.map(d => parseFloat(d[metric])).filter(v => !isNaN(v));
+        if (values.length === 0) return;
+        const first = values[0];
+        if (values.every(v => v === first)) return;
+
         const stripRow = pe_createStrip(metric);
         container.appendChild(stripRow);
     });
 }
 
+
+function pe_buildSwarmPoints(values, donationIds, width, height, padding) {
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min;
+    const plotW = width - padding.left - padding.right;
+    const plotH = height - padding.top - padding.bottom;
+    const midY = padding.top + plotH / 2;
+    const radius = 3;
+    const spacing = radius * 2 + 1;
+
+    // Map each donation to an x position based on its value
+    const points = values.map((v, i) => ({
+        value: v,
+        donationId: donationIds[i],
+        x: range > 0 ? padding.left + ((v - min) / range) * plotW : padding.left + plotW / 2,
+        y: midY
+    }));
+
+    // Sort by x so we can jitter efficiently
+    points.sort((a, b) => a.x - b.x);
+
+    // Bee swarm jitter: push overlapping points vertically
+    for (let i = 0; i < points.length; i++) {
+        for (let j = i - 1; j >= 0; j--) {
+            const dx = points[i].x - points[j].x;
+            if (dx > spacing) break;
+            const dist = Math.sqrt(dx * dx + (points[i].y - points[j].y) ** 2);
+            if (dist < spacing) {
+                // Alternate pushing up and down
+                const direction = (i % 2 === 0) ? -1 : 1;
+                points[i].y = points[j].y + direction * spacing;
+                // Clamp within bounds
+                points[i].y = Math.max(padding.top + radius, Math.min(padding.top + plotH - radius, points[i].y));
+            }
+        }
+    }
+
+    return { points, min, max };
+}
+
+
+function pe_drawSwarmCanvas(canvas, swarmData, selectedId) {
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    const { points } = swarmData;
+
+    // Draw non-selected dots first
+    points.forEach(p => {
+        if (p.donationId === selectedId) return;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(74, 144, 217, 0.6)';
+        ctx.fill();
+    });
+
+    // Draw selected dot on top (larger, red)
+    const selected = points.find(p => p.donationId === selectedId);
+    if (selected) {
+        ctx.beginPath();
+        ctx.arc(selected.x, selected.y, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#e63946';
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+    }
+}
+
+
 function pe_createStrip(metric) {
     const info = PE_METRIC_INFO[metric] || { label: metric, tooltip: '' };
 
-    // Sort data by this metric
-    const sortedData = [...pe_data].sort((a, b) => {
-        let aVal = a[metric] !== null && a[metric] !== undefined ? a[metric] : 0;
-        let bVal = b[metric] !== null && b[metric] !== undefined ? b[metric] : 0;
-        aVal = parseFloat(aVal) || 0;
-        bVal = parseFloat(bVal) || 0;
-        return aVal - bVal;
+    // Extract numeric values and donation IDs for this metric
+    const values = [];
+    const donationIds = [];
+    pe_data.forEach(d => {
+        const v = parseFloat(d[metric]);
+        if (!isNaN(v)) {
+            values.push(v);
+            donationIds.push(d.D_donation_id);
+        }
     });
 
-    // Get min/max for axis labels
-    const minVal = sortedData.length > 0 ? parseFloat(sortedData[0][metric]) || 0 : 0;
-    const maxVal = sortedData.length > 0 ? parseFloat(sortedData[sortedData.length - 1][metric]) || 0 : 0;
+    // Get selected value and percentile
+    let selectedVal = null;
+    let percentile = null;
+    if (pe_selectedId) {
+        const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
+        if (donation) {
+            selectedVal = parseFloat(donation[metric]);
+            if (!isNaN(selectedVal)) {
+                const below = values.filter(v => v < selectedVal).length;
+                percentile = Math.round((below / values.length) * 100);
+            }
+        }
+    }
 
     // Create row container
     const row = document.createElement('div');
     row.className = 'strip-row';
     row.dataset.metric = metric;
 
-    // Header with label and selected value
+    // Header with label, percentile badge, and selected value
     const header = document.createElement('div');
     header.className = 'strip-header';
 
@@ -505,49 +335,97 @@ function pe_createStrip(metric) {
     label.title = info.tooltip;
     header.appendChild(label);
 
+    const rightInfo = document.createElement('span');
+    rightInfo.className = 'strip-right-info';
+
     const selectedValue = document.createElement('span');
     selectedValue.className = 'strip-selected-value';
     selectedValue.id = `pe-strip-value-${metric}`;
-    header.appendChild(selectedValue);
+    if (selectedVal !== null && !isNaN(selectedVal)) {
+        selectedValue.innerText = pe_formatValue(selectedVal);
+    }
+    rightInfo.appendChild(selectedValue);
 
+    const pctBadge = document.createElement('span');
+    pctBadge.className = 'strip-percentile-badge';
+    pctBadge.id = `pe-strip-pct-${metric}`;
+    if (percentile !== null) {
+        pctBadge.innerText = `P${percentile}`;
+        pctBadge.title = `${percentile}th percentile`;
+    }
+    rightInfo.appendChild(pctBadge);
+
+    header.appendChild(rightInfo);
     row.appendChild(header);
 
-    // Boxes container
-    const boxesContainer = document.createElement('div');
-    boxesContainer.className = 'strip-boxes';
+    // Canvas for bee swarm
+    const canvas = document.createElement('canvas');
+    canvas.className = 'strip-swarm';
+    canvas.dataset.metric = metric;
+    row.appendChild(canvas);
 
-    sortedData.forEach(d => {
-        const box = document.createElement('div');
-        box.className = 'strip-box';
-        box.dataset.donationId = d.D_donation_id;
-        box.title = `${d.D_donation_id}\nValue: ${pe_formatValue(d[metric])}`;
-
-        if (d.D_donation_id === pe_selectedId) {
-            box.classList.add('selected');
-        }
-
-        box.addEventListener('click', () => {
-            pe_selectDonation(d.D_donation_id);
-        });
-
-        boxesContainer.appendChild(box);
-    });
-
-    row.appendChild(boxesContainer);
-
-    // Axis labels (5 labels: min, 25%, 50%, 75%, max)
+    // Axis labels
+    const minVal = values.length > 0 ? Math.min(...values) : 0;
+    const maxVal = values.length > 0 ? Math.max(...values) : 0;
     const axis = document.createElement('div');
     axis.className = 'strip-axis';
-
-    const range = maxVal - minVal;
-    const axisVals = [minVal, minVal + range * 0.25, minVal + range * 0.5, minVal + range * 0.75, maxVal];
-    axisVals.forEach(v => {
+    [minVal, (minVal + maxVal) / 2, maxVal].forEach(v => {
         const span = document.createElement('span');
         span.innerText = pe_formatValue(v);
         axis.appendChild(span);
     });
-
     row.appendChild(axis);
+
+    // Draw after DOM insertion (requestAnimationFrame ensures canvas has layout)
+    requestAnimationFrame(() => {
+        const padding = { left: 6, right: 6, top: 6, bottom: 6 };
+        const swarmData = pe_buildSwarmPoints(values, donationIds, canvas.clientWidth, canvas.clientHeight, padding);
+        canvas._swarmData = swarmData;
+        pe_drawSwarmCanvas(canvas, swarmData, pe_selectedId);
+    });
+
+    // Click to select donation
+    canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const swarmData = canvas._swarmData;
+        if (!swarmData) return;
+
+        let closest = null;
+        let closestDist = 8;
+        swarmData.points.forEach(p => {
+            const dist = Math.sqrt((p.x - x) ** 2 + (p.y - y) ** 2);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closest = p;
+            }
+        });
+        if (closest) {
+            pe_selectDonation(closest.donationId);
+        }
+    });
+
+    // Tooltip and cursor on hover
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const swarmData = canvas._swarmData;
+        if (!swarmData) return;
+
+        let closest = null;
+        let closestDist = 8;
+        swarmData.points.forEach(p => {
+            const dist = Math.sqrt((p.x - x) ** 2 + (p.y - y) ** 2);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closest = p;
+            }
+        });
+        canvas.style.cursor = closest ? 'pointer' : 'default';
+        canvas.title = closest ? `${closest.donationId}\nValue: ${pe_formatValue(closest.value)}` : '';
+    });
 
     return row;
 }
@@ -567,28 +445,36 @@ window.pe_formatValue = pe_formatValue;
 window.PE_METRIC_INFO = PE_METRIC_INFO;
 
 function pe_updateStripSelection() {
-    // Update selected class on all boxes
-    document.querySelectorAll('.strip-box').forEach(box => {
-        if (box.dataset.donationId === pe_selectedId) {
-            box.classList.add('selected');
-        } else {
-            box.classList.remove('selected');
+    if (!pe_selectedId) return;
+
+    const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
+    if (!donation) return;
+
+    PE_METRICS.forEach(metric => {
+        const selectedVal = parseFloat(donation[metric]);
+
+        // Update value display
+        const valueEl = document.getElementById(`pe-strip-value-${metric}`);
+        if (valueEl) {
+            valueEl.innerText = !isNaN(selectedVal) ? pe_formatValue(selectedVal) : 'N/A';
+        }
+
+        // Update percentile badge
+        const pctEl = document.getElementById(`pe-strip-pct-${metric}`);
+        if (pctEl && !isNaN(selectedVal)) {
+            const values = pe_data.map(d => parseFloat(d[metric])).filter(v => !isNaN(v));
+            const below = values.filter(v => v < selectedVal).length;
+            const percentile = Math.round((below / values.length) * 100);
+            pctEl.innerText = `P${percentile}`;
+            pctEl.title = `${percentile}th percentile`;
+        }
+
+        // Redraw swarm canvas with new selection
+        const canvas = document.querySelector(`canvas.strip-swarm[data-metric="${metric}"]`);
+        if (canvas && canvas._swarmData) {
+            pe_drawSwarmCanvas(canvas, canvas._swarmData, pe_selectedId);
         }
     });
-
-    // Update selected value display for each metric
-    if (pe_selectedId) {
-        const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
-        if (donation) {
-            PE_METRICS.forEach(metric => {
-                const valueEl = document.getElementById(`pe-strip-value-${metric}`);
-                if (valueEl) {
-                    const val = donation[metric];
-                    valueEl.innerText = `Selected: ${pe_formatValue(val)}`;
-                }
-            });
-        }
-    }
 }
 
 
@@ -596,75 +482,6 @@ function pe_updateStripSelection() {
 
 // function pe_onDonationSelect() { ... } // Removed
 
-function pe_filterDonationList() {
-    const input = document.getElementById('pe-donation-search');
-    if (!input) {
-        console.error("PE Search: Input element not found");
-        return;
-    }
-    const query = input.value.trim().toLowerCase();
-    // console.log("PE Search Query:", query);
-    pe_renderDonationList(query);
-}
-// Expose to window to ensure HTML onkeyup can find it
-window.pe_filterDonationList = pe_filterDonationList;
-
-function pe_renderDonationList(query = "") {
-    const listContainer = document.getElementById('pe-donation-list');
-    if (!listContainer) return;
-
-    listContainer.innerHTML = '';
-
-    if (!pe_data || pe_data.length === 0) {
-        listContainer.innerHTML = '<div style="padding:10px; color:#777;">No donations found.</div>';
-        return;
-    }
-
-    const filtered = pe_data.filter(d => {
-        if (!query) return true;
-        // Robust checking
-        //const did = String(d.D_id || '').toLowerCase();
-        const ddon = String(d.D_donation_id || '').toLowerCase();
-        const display = String(d.display_donation_id || '').toLowerCase();
-
-        return ddon.includes(query) || display.includes(query);
-    });
-
-    if (filtered.length === 0) {
-        listContainer.innerHTML = '<div style="padding:10px; color:#777;">No matches.</div>';
-        return;
-    }
-
-    filtered.forEach(d => {
-        const item = document.createElement('div');
-        item.style.padding = '8px 10px';
-        item.style.cursor = 'pointer';
-        item.style.borderBottom = '1px solid #333';
-        item.style.color = '#ccc';
-
-        if (d.D_donation_id === pe_selectedId) {
-            item.style.background = '#007acc'; // Blue selection
-            item.style.color = 'white';
-        } else {
-            // Hover effect handled by CSS or inline
-            item.onmouseover = () => { if (d.D_donation_id !== pe_selectedId) item.style.background = '#333'; }
-            item.onmouseout = () => { if (d.D_donation_id !== pe_selectedId) item.style.background = 'transparent'; }
-        }
-
-        let label = d.display_donation_id;
-        if (!label || label.trim() === '') {
-            label = d.D_donation_id;
-        }
-        item.innerText = label;
-
-        item.onclick = () => {
-            pe_selectDonation(d.D_donation_id);
-            pe_renderDonationList(query); // Re-render to update selection highlight
-        };
-
-        listContainer.appendChild(item);
-    });
-}
 
 function pe_selectDonation(donationId) {
     if (!pe_data) return;
@@ -673,12 +490,11 @@ function pe_selectDonation(donationId) {
     if (!donation) return;
 
     pe_selectedId = donationId;
+    window.pe_selectedId = donationId;
 
-    // Update Searchable List Selection (if not already handled by re-render)
-    // Document.getElementById('pe-donation-select').value = donationId; // Removed
-    document.getElementById('pe-details-card').classList.remove('hidden');
     document.getElementById('pe-details-id').innerText = donationId;
-    document.getElementById('pe-details-moniker').innerText = donation.moniker || 'Unknown Persona';
+    const monikerEl = document.getElementById('pe-details-moniker');
+    if (monikerEl) monikerEl.innerText = donation.moniker || 'Unknown Persona';
 
     // Populate Annotations
     const annotDisplayId = document.getElementById('pe-annot-display-id');
@@ -719,11 +535,6 @@ function pe_selectDonation(donationId) {
     updateInfoStat('pe-stat-country', donation.country);
     updateInfoStat('pe-stat-postcode', donation.postCode);
 
-    // Hide entire section if no info
-    if (pInfoSection) {
-        pInfoSection.style.display = visibleInfoCount > 0 ? 'block' : 'none';
-    }
-
     // Donation date formatting
     const fmtDate = (ts) => {
         if (!ts) return 'not provided';
@@ -752,17 +563,26 @@ function pe_selectDonation(donationId) {
     document.getElementById('pe-stat-last-event').innerText = fmtDate(donation.last_event_ts);
 
 
-    // Update Radar Title
-    const radarTitle = document.getElementById('pe-radar-title');
-    if (radarTitle) {
-        radarTitle.innerText = donation.display_donation_id || donation.D_donation_id || 'Radar Chart';
-    }
-
-    // Render Radar Chart
-    pe_renderRadar(donation);
-
     // Update strip selection highlighting
     pe_updateStripSelection();
+
+    // Sync with edit activity table row highlighting and scroll into view
+    const scrollContainer = document.getElementById('edit-activity-list-container');
+    let matchedRow = null;
+    document.querySelectorAll('.edit-activity-item').forEach(row => {
+        if (row.getAttribute('data-donation-id') === donationId) {
+            row.style.background = '#333';
+            matchedRow = row;
+        } else {
+            row.style.background = 'transparent';
+        }
+    });
+    if (matchedRow && scrollContainer) {
+        const containerH = scrollContainer.clientHeight;
+        const rowTop = matchedRow.offsetTop - scrollContainer.offsetTop;
+        const rowH = matchedRow.offsetHeight;
+        scrollContainer.scrollTop = rowTop - (containerH / 2) + (rowH / 2);
+    }
 }
 
 // Tag Management

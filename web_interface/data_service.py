@@ -354,11 +354,11 @@ def get_viz_config():
 
 def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloaded_df=None):
     """
-    Ensures that timeline aggregations for day, week, and month exist in cache.
-    If not, calculates them from the unified donation dataset.
+    Ensures that timeline aggregation for day exists in cache.
+    If not, calculates it from the unified donation dataset.
     """
-    
-    intervals = ['day', 'week', 'month']
+
+    intervals = ['day']
     missing = []
     
     # Check if files exist and have the required viz_vars
@@ -429,12 +429,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloa
         
         # Grouping
         temp_df = df.copy()
-        if interval == 'week':
-            temp_df['period'] = temp_df[date_col].dt.to_period('W').apply(lambda r: r.start_time).dt.date.astype(str)
-        elif interval == 'month':
-             temp_df['period'] = temp_df[date_col].dt.to_period('M').apply(lambda r: r.start_time).dt.date.astype(str)
-        else: # day
-             temp_df['period'] = temp_df[date_col].dt.date.astype(str)
+        temp_df['period'] = temp_df[date_col].dt.date.astype(str)
              
         group_col = 'period'
         periods = sorted(temp_df[group_col].unique())
@@ -580,7 +575,7 @@ def get_timeline_data(donation_id, interval='day'):
 
     # Load all to get counts
     aggs = {}
-    for inv in ['day', 'week', 'month']:
+    for inv in ['day']:
         df_agg = load_interval_df(inv)
         if df_agg is not None:
              period_counts[inv] = len(df_agg)
@@ -603,20 +598,8 @@ def get_timeline_data(donation_id, interval='day'):
     date_labels = []
     for d_str in dates:
         try:
-            # We assume d_str is YYYY-MM-DD or similar from the generation step
-            # Note: generation step produces:
-            # Day: YYYY-MM-DD
-            # Week: YYYY-MM-DD (start date)
-            # Month: YYYY-MM-DD (start date)
             dt = pd.to_datetime(d_str)
-            if interval == 'day':
-                lbl = dt.strftime('%d/%m/%y')
-            elif interval == 'week':
-                lbl = dt.strftime('%Y-%V')
-            elif interval == 'month':
-                lbl = dt.strftime('%b-%y')
-            else:
-                lbl = d_str
+            lbl = dt.strftime('%d/%m/%y')
             date_labels.append(lbl)
         except:
             date_labels.append(str(d_str))

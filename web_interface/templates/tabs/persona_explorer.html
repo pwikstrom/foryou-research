@@ -10,40 +10,32 @@
         </div>
     </div>
 
-    <div class="pe-container">
-        <!-- Left Panel: Lists & Controls -->
-        <div class="pe-sidebar">
-            <!-- Radar Chart first -->
-            <div class="panel-card" style="margin-bottom: 20px;">
-                <div class="header-with-help">
-                    <h4 id="pe-radar-title" style="margin: 0;">Radar Chart</h4>
-                    <button class="config-btn" onclick="pe_openConfig()" style="font-size: 0.8em; padding: 2px 6px;">
-                        <i class="fas fa-cog"></i> Configure
-                    </button>
-                </div>
-                <div id="pe-radar-plot" style="width: 100%; height: 300px;"></div>
-                <p id="pe-details-moniker" class="moniker-text"></p>
+    <!-- Edit Activity Data Table -->
+    <div class="pe-edit-activity-section">
+        <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 15px;">
+            <h4 style="margin: 0;">Edit Activity Data</h4>
+            <input type="text" id="edit-activity-search" placeholder="Search collections..."
+                class="control-input"
+                style="width: 250px; padding: 6px 8px; background: #3c3c3c; border: 1px solid #555; color: white; font-size: 0.85em; border-radius: 3px;"
+                onkeyup="filterEditActivityCollections(this)">
+        </div>
+        <div class="edit-activity-selector" style="border: 1px solid #555; background: #3e3e42; border-radius: 4px;">
+            <div id="edit-activity-list-container" class="edit-activity-checklist-container"
+                style="max-height: 250px; overflow-y: auto; text-align: left; background: #2d2d30; padding: 0;">
+                <div style="padding: 10px; color: #ccc;">Loading collections...</div>
             </div>
+        </div>
+    </div>
 
+    <div class="pe-container">
+        <!-- Left Panel: Collection Info -->
+        <div class="pe-sidebar">
             <div class="panel-card">
-                <h4>Select Collection</h4>
-                <!-- Replaced simple select with Searchable List (Timelines style) -->
-                <div class="form-group">
-                    <input type="text" id="pe-donation-search" placeholder="Search ID..." class="full-width-select"
-                        onkeyup="pe_filterDonationList()">
-                    <div id="pe-donation-list" class="simple-list"
-                        style="height: 300px; overflow-y: auto; margin-top: 5px; border: 1px solid #3e3e42; background: #1e1e1e;">
-                        <div style="padding: 10px; color: #777;">Loading collections...</div>
-                    </div>
-                </div>
+                <div id="pe-details-card" class="details-card">
+                    <h4>Collection Info</h4>
+                    <p id="pe-details-id" style="font-size: 0.8em; color: #888; word-break: break-all; margin: 5px 0 10px 0;">Hover over a dot to view collection details</p>
 
-                <div id="pe-details-card" class="details-card hidden">
-                    <h5 id="pe-details-id"></h5>
-
-
-                    <!-- Participant Info -->
                     <div id="pe-participant-info-section" class="stats-section">
-                        <div class="section-title">Collection Info</div>
                         <ul class="stats-list">
                             <li><span class="stat-label">Name:</span> <span id="pe-stat-name"></span></li>
                             <li><span class="stat-label">Email:</span> <span id="pe-stat-email"></span></li>
@@ -51,25 +43,12 @@
                             <li><span class="stat-label">Age:</span> <span id="pe-stat-age"></span></li>
                             <li><span class="stat-label">Country:</span> <span id="pe-stat-country"></span></li>
                             <li><span class="stat-label">Post Code:</span> <span id="pe-stat-postcode"></span></li>
-                            <li><span class="stat-label">Date Added to Dataset:</span> <span
-                                    id="pe-stat-donation-date"></span>
-                            </li>
+                            <li><span class="stat-label">Date Added:</span> <span id="pe-stat-donation-date"></span></li>
                             <li><span class="stat-label">Display ID:</span> <span id="pe-stat-display-id"></span></li>
-                        </ul>
-                    </div>
-
-                    <!-- Activity Stats -->
-                    <div class="stats-section">
-                        <div class="section-title">Activity Stats</div>
-                        <ul class="stats-list">
-                            <li><span class="stat-label">TZ (inferred from data):</span> <span
-                                    id="pe-stat-timezone"></span></li>
+                            <li><span class="stat-label">Timezone:</span> <span id="pe-stat-timezone"></span></li>
                             <li><span class="stat-label">Active Days:</span> <span id="pe-stat-active-days"></span></li>
-                            <li><span class="stat-label">Total Events:</span> <span id="pe-stat-total-events"></span>
-                            </li>
-                            <li><span class="stat-label">Peak Day Segment:</span> <span
-                                    id="pe-stat-peak-segment"></span>
-                            </li>
+                            <li><span class="stat-label">Total Events:</span> <span id="pe-stat-total-events"></span></li>
+                            <li><span class="stat-label">Peak Segment:</span> <span id="pe-stat-peak-segment"></span></li>
                             <li><span class="stat-label">Watch Time:</span> <span id="pe-stat-watch-time"></span></li>
                             <li><span class="stat-label">First Event:</span> <span id="pe-stat-first-event"></span></li>
                             <li><span class="stat-label">Last Event:</span> <span id="pe-stat-last-event"></span></li>
@@ -78,16 +57,13 @@
                     </div>
                 </div>
             </div>
-
         </div>
 
         <!-- Main Panel: Metric Strip Plots -->
         <div class="pe-main">
             <div class="panel-card" style="overflow-y: auto;">
                 <h4>Distribution by Metric</h4>
-                <p class="helper-text">Click on any box to select that collection. Selected collection is highlighted in
-                    red
-                    across all metrics.</p>
+                <p class="helper-text">Each dot represents a collection. Click any dot to select it. The selected collection is highlighted in red.</p>
                 <div id="pe-strips-container" class="strips-container">
                     <!-- Strip plots will be generated dynamically -->
                 </div>
@@ -95,32 +71,68 @@
         </div>
     </div>
 
-    <!-- Configuration Modal -->
-    <div id="pe-config-modal" class="pe-modal hidden">
-        <div class="pe-modal-content">
-            <div class="pe-modal-header">
-                <h4>Configure Radar Chart</h4>
-                <button onclick="pe_closeConfig()" class="close-btn">&times;</button>
+    <!-- Edit Collection Modal -->
+    <div id="editCollectionModal" class="modal"
+        style="display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div class="modal-content"
+            style="background-color: #252526; margin: 15% auto; padding: 20px; border: 1px solid #3e3e42; width: 50%; color: #d4d4d4;">
+            <span class="close" onclick="closeEditCollectionModal()"
+                style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            <h2 style="margin-top: 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
+
+            <input type="hidden" id="edit-collection-id" value="">
+
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 5px;">Display ID:</label>
+                <input type="text" id="edit-collection-display-id" class="control-input"
+                    style="width: 100%; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;">
             </div>
-            <div class="pe-modal-body">
-                <p class="helper-text">Select metrics to display in the radar chart:</p>
-                <div id="pe-config-checkboxes" class="config-grid">
-                    <!-- Checkboxes generated by JS -->
+
+            <div class="form-group">
+                <label style="display: block; margin-bottom: 5px;">Tags:</label>
+                <div id="edit-collection-tags-container"
+                    style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;">
+                </div>
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="edit-collection-new-tag" class="control-input"
+                        style="flex: 1; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;"
+                        placeholder="Add new tag..."
+                        onkeydown="if(event.key === 'Enter') { dm_addNewTag(); event.preventDefault(); }">
+                    <button type="button" class="action-btn" onclick="dm_addNewTag()" style="padding: 8px 15px;"><i
+                            class="fas fa-plus"></i> Add Tag</button>
                 </div>
             </div>
-            <div class="pe-modal-footer">
-                <button onclick="pe_applyConfig()" class="apply-btn">Apply Changes</button>
+
+            <div class="form-group" style="margin-top: 20px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="edit-collection-hidden" style="width: auto; cursor: pointer;">
+                    Hide Collection
+                </label>
+                <span style="font-size: 0.85em; color: #aaa; margin-left: 25px; display: block;">Hidden collections are
+                    not shown in the primary study interface.</span>
+            </div>
+
+            <div style="margin-top: 25px; text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="action-btn" style="background-color: #555;"
+                    onclick="closeEditCollectionModal()">Cancel</button>
+                <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save
+                    Annotations</button>
             </div>
         </div>
     </div>
+
 </div>
 
 <style>
+    .pe-edit-activity-section {
+        padding: 10px 20px;
+    }
+
     .pe-container {
         display: flex;
         gap: 20px;
-        padding: 20px;
-        height: calc(100vh - 120px);
+        padding: 0 20px 20px 20px;
+        height: calc(100vh - 370px);
         overflow: hidden;
         /* Prevent container scroll, force child scroll */
     }
@@ -155,30 +167,7 @@
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
 
-    .full-width-select {
-        width: 100%;
-        padding: 8px;
-        margin-bottom: 10px;
-        background: #3c3c3c;
-        border: 1px solid #3e3e42;
-        color: #d4d4d4;
-        border-radius: 3px;
-    }
 
-    .moniker-text {
-        font-style: italic;
-        color: #d4d4d4;
-        font-weight: 500;
-        margin: 10px 0;
-        text-align: center;
-        min-height: 40px;
-    }
-
-    .emoji-display {
-        font-size: 2em;
-        text-align: center;
-        margin-bottom: 10px;
-    }
 
     .stats-table {
         width: 100%;
@@ -216,13 +205,13 @@
     .strips-container {
         display: flex;
         flex-direction: column;
-        gap: 20px;
+        gap: 14px;
     }
 
     .strip-row {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 2px;
     }
 
     .strip-header {
@@ -233,8 +222,14 @@
 
     .strip-label {
         font-weight: 600;
-        font-size: 0.9em;
+        font-size: 0.85em;
         color: #d4d4d4;
+    }
+
+    .strip-right-info {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
     }
 
     .strip-selected-value {
@@ -243,43 +238,29 @@
         font-weight: 500;
     }
 
-    .strip-boxes {
-        display: flex;
-        flex-wrap: nowrap;
+    .strip-percentile-badge {
+        font-size: 0.75em;
+        color: #e63946;
+        font-weight: 600;
+        background: rgba(230, 57, 70, 0.15);
+        padding: 1px 5px;
+        border-radius: 3px;
+        min-width: 28px;
+        text-align: center;
+    }
+
+    .strip-swarm {
         width: 100%;
-    }
-
-    .strip-box {
-        flex: 1;
-        height: 20px;
-        background: #4a90d9;
-        cursor: pointer;
-        transition: transform 0.1s;
-        border-right: 1px solid #252526;
-    }
-
-    .strip-box:last-child {
-        border-right: none;
-    }
-
-    .strip-box:hover {
-        transform: scaleY(1.3);
-        z-index: 10;
-        box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
-    }
-
-    .strip-box.selected {
-        background: #e63946;
-        border-right: 1px solid #252526;
-        z-index: 11;
+        height: 44px;
+        display: block;
     }
 
     .strip-axis {
         display: flex;
         justify-content: space-between;
-        font-size: 0.75em;
-        color: #888;
-        margin-top: 2px;
+        font-size: 0.7em;
+        color: #666;
+        margin-top: 0;
     }
 
     .stats-section {
@@ -313,117 +294,4 @@
         color: #ccc;
     }
 
-    /* Configuration Modal Styles */
-    .config-btn {
-        background: #3c3c3c;
-        border: 1px solid #3e3e42;
-        color: #d4d4d4;
-        padding: 5px 10px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 0.85em;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-    }
-
-    .config-btn:hover {
-        background: #505050;
-    }
-
-    .pe-modal {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.6);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1000;
-    }
-
-    .pe-modal.hidden {
-        display: none;
-    }
-
-    .pe-modal-content {
-        background: #252526;
-        border: 1px solid #3e3e42;
-        border-radius: 8px;
-        width: 600px;
-        max-width: 90%;
-        max-height: 80vh;
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    }
-
-    .pe-modal-header {
-        padding: 15px;
-        border-bottom: 1px solid #3e3e42;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .pe-modal-body {
-        padding: 15px;
-        overflow-y: auto;
-        flex: 1;
-    }
-
-    .pe-modal-footer {
-        padding: 15px;
-        border-top: 1px solid #3e3e42;
-        text-align: right;
-    }
-
-    .config-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-    }
-
-    .config-checkbox {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #d4d4d4;
-        font-size: 0.9em;
-        cursor: pointer;
-        padding: 4px;
-        border-radius: 4px;
-    }
-
-    .config-checkbox:hover {
-        background: #333;
-    }
-
-    .apply-btn {
-        background: #4ec9b0;
-        color: #1e1e1e;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-weight: 500;
-    }
-
-    .apply-btn:hover {
-        background: #3da892;
-    }
-
-    .close-btn {
-        background: none;
-        border: none;
-        color: #aaa;
-        font-size: 1.5em;
-        cursor: pointer;
-    }
-
-    .close-btn:hover {
-        color: #fff;
-    }
 </style>

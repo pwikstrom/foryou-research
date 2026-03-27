@@ -63,30 +63,6 @@
             </div>
         </div>
 
-        <!-- Edit Activity Data Section -->
-        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
-            <div onclick="toggleSection('edit-activity-content', 'edit-activity-arrow')"
-                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
-                <span id="edit-activity-arrow"
-                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
-                <h2 style="margin: 0;">Edit Activity Data</h2>
-            </div>
-            <div id="edit-activity-content" style="padding: 0 20px 20px 20px;">
-                <div style="margin-bottom: 15px;">
-                    <input type="text" id="edit-activity-search" placeholder="Search collections by ID or metadata..."
-                        class="control-input"
-                        style="width: 300px; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;"
-                        onkeyup="filterEditActivityCollections(this)">
-                </div>
-                <div class="edit-activity-selector" style="border: 1px solid #555; background: #3e3e42;">
-                    <!-- The table will be injected here by JS -->
-                    <div id="edit-activity-list-container" class="edit-activity-checklist-container"
-                        style="max-height: 400px; overflow-y: auto; text-align: left; background: #2d2d30; padding: 0;">
-                        <div style="padding: 10px; color: #ccc;">Loading collections...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
 
         <!-- Enrichment Section -->
         <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
@@ -366,56 +342,6 @@
         </div>
     </div>
 
-    <!-- Edit Collection Modal -->
-    <div id="editCollectionModal" class="modal"
-        style="display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
-        <div class="modal-content"
-            style="background-color: #252526; margin: 15% auto; padding: 20px; border: 1px solid #3e3e42; width: 50%; color: #d4d4d4;">
-            <span class="close" onclick="closeEditCollectionModal()"
-                style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
-            <h2 style="margin-top: 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
-
-            <input type="hidden" id="edit-collection-id" value="">
-
-            <div class="form-group" style="margin-bottom: 20px;">
-                <label style="display: block; margin-bottom: 5px;">Display ID:</label>
-                <input type="text" id="edit-collection-display-id" class="control-input"
-                    style="width: 100%; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;">
-            </div>
-
-            <div class="form-group">
-                <label style="display: block; margin-bottom: 5px;">Tags:</label>
-                <div id="edit-collection-tags-container"
-                    style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;">
-                    <!-- Chips rendered by JS -->
-                </div>
-                <div style="display: flex; gap: 5px;">
-                    <input type="text" id="edit-collection-new-tag" class="control-input"
-                        style="flex: 1; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white;"
-                        placeholder="Add new tag..."
-                        onkeydown="if(event.key === 'Enter') { dm_addNewTag(); event.preventDefault(); }">
-                    <button type="button" class="action-btn" onclick="dm_addNewTag()" style="padding: 8px 15px;"><i
-                            class="fas fa-plus"></i> Add Tag</button>
-                </div>
-            </div>
-
-            <div class="form-group" style="margin-top: 20px;">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                    <input type="checkbox" id="edit-collection-hidden" style="width: auto; cursor: pointer;">
-                    Hide Collection
-                </label>
-                <span style="font-size: 0.85em; color: #aaa; margin-left: 25px; display: block;">Hidden collections are
-                    not shown in the primary study interface.</span>
-            </div>
-
-            <div style="margin-top: 25px; text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
-                <button type="button" class="action-btn" style="background-color: #555;"
-                    onclick="closeEditCollectionModal()">Cancel</button>
-                <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save
-                    Annotations</button>
-            </div>
-        </div>
-    </div>
 
     <!-- Template for Row Details (Hidden) -->
     <template id="study_detail_template">

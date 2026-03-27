@@ -15,7 +15,7 @@ window.timelines = {
 
     init: async function () {
         console.log("Initializing Timelines Tab");
-        // Ensure stats are loaded for the left panel Radar + Details
+        // Ensure stats are loaded for the left panel Details
         if (!window.pe_data || window.pe_data.length === 0) {
             if (typeof window.pe_loadCachedStats === 'function') {
                 try {
@@ -34,12 +34,9 @@ window.timelines = {
     },
 
     loadDonations: async function () {
-        // No study arg
-        const listContainer = document.getElementById('timelines-donation-list');
-        listContainer.innerHTML = '<div style="padding:10px;">Loading donations...</div>';
+        const select = document.getElementById('timelines-collection-select');
 
         try {
-            // No body needed for POST if we just get all accepted
             const res = await fetch('/api/timelines/donations', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -48,96 +45,55 @@ window.timelines = {
 
             const data = await res.json();
             if (data.error) {
-                listContainer.innerHTML = `<div style="padding:10px; color:red;">Error: ${data.error}</div>`;
+                select.innerHTML = `<option value="" disabled selected>Error: ${data.error}</option>`;
                 return;
             }
 
-            this.donationList = data; // Array of objects
-            this.renderDonationList();
+            this.donationList = data.filter(d => !d.hidden);
+            this.renderCollectionDropdown();
 
         } catch (e) {
             console.error("Error loading donations:", e);
-            listContainer.innerHTML = '<div style="padding:10px; color:red;">Failed to load donations.</div>';
+            select.innerHTML = '<option value="" disabled selected>Failed to load</option>';
         }
     },
 
-    renderDonationList: function () {
-        const queryInput = document.getElementById('timelines-donation-search');
-        if (!queryInput) return;
+    renderCollectionDropdown: function () {
+        const select = document.getElementById('timelines-collection-select');
+        const countSpan = document.getElementById('timelines-collection-count');
+        select.innerHTML = '';
 
-        const query = queryInput.value.toLowerCase();
-        const listContainer = document.getElementById('timelines-donation-list');
-        listContainer.innerHTML = '';
-
-        const simpleList = this.donationList.filter(d => {
-            if (d.hidden) return false; // Hide collections flagged as hidden
-            if (!query) return true;
-            // Search by D_donation_id or display_donation_id
-            const ddon = (d.D_donation_id || '').toLowerCase();
-            const disp = (d.display_donation_id || '').toLowerCase();
-            return ddon.includes(query) || disp.includes(query);
-        });
-
-        // Update the header with the count
-        const headerTitle = document.getElementById('timelines-sidebar-header');
-        if (headerTitle) {
-            headerTitle.innerText = `Collection Timelines (${simpleList.length})`;
-        }
-
-        if (simpleList.length === 0) {
-            listContainer.innerHTML = '<div style="padding:10px;">No matches found.</div>';
+        if (this.donationList.length === 0) {
+            select.innerHTML = '<option value="" disabled selected>No collections found</option>';
             return;
         }
 
-        simpleList.forEach(d => {
-            const item = document.createElement('div');
-            item.className = 'donation-item';
-            item.style.padding = '8px 10px';
-            item.style.cursor = 'pointer';
-            item.style.borderBottom = '1px solid #333';
-
-            // Highlight selected
-            if (this.currentDonationId && d.D_donation_id === this.currentDonationId) {
-                item.style.background = '#007bff';
-                item.style.color = 'white';
-            } else {
-                item.style.color = '#ccc';
-                item.onmouseover = () => item.style.background = '#444';
-                item.onmouseout = () => item.style.background = 'transparent';
+        this.donationList.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.D_donation_id;
+            opt.textContent = d.display_donation_id && d.display_donation_id.trim() !== ''
+                ? d.display_donation_id
+                : d.D_donation_id;
+            if (d.D_donation_id === this.currentDonationId) {
+                opt.selected = true;
             }
-
-            // Display ID (custom) -> Filename (fallback)
-            let label = d.display_donation_id;
-            if (!label || label.trim() === '') {
-                label = d.D_donation_id;
-            }
-            item.innerText = label;
-            item.title = d.D_donation_id; // Add tooltip of original raw ID
-
-            item.onclick = () => {
-                this.selectDonation(d.D_donation_id);
-                // Re-render to update highlight (lazy way)
-                this.renderDonationList();
-            };
-
-            listContainer.appendChild(item);
+            select.appendChild(opt);
         });
 
-        // Auto-select first donation if none selected
-        if (!this.currentDonationId && simpleList.length > 0) {
-            this.selectDonation(simpleList[0].D_donation_id);
-            // Re-render so the highlight applies to the newly auto-selected item
-            this.renderDonationList();
+        if (countSpan) {
+            countSpan.textContent = `${this.donationList.length} collections`;
+        }
+
+        // Auto-select first if none selected
+        if (!this.currentDonationId && this.donationList.length > 0) {
+            this.selectDonation(this.donationList[0].D_donation_id);
         }
     },
 
-    filterDonations: function () {
-        this.renderDonationList();
-    },
-
-    onIntervalChange: function () {
-        if (this.currentDonationId) {
-            this.selectDonation(this.currentDonationId);
+    onCollectionChange: function () {
+        const select = document.getElementById('timelines-collection-select');
+        if (select && select.value) {
+            this.selectDonation(select.value);
         }
     },
 
@@ -202,18 +158,13 @@ window.timelines = {
             }
         }
 
-        // --- Left Panel Details & Radar ---
-        const detailsCard = document.getElementById('timelines-details-card');
-        const radarCard = document.getElementById('timelines-radar-card');
-
+        // --- Collection Info Tooltip ---
         let pe_donation = null;
         if (window.pe_data && window.pe_data.length > 0) {
             pe_donation = window.pe_data.find(d => d.D_donation_id === donationId);
         }
 
         if (pe_donation) {
-            if (detailsCard) detailsCard.classList.remove('hidden');
-            if (radarCard) radarCard.style.display = 'block';
 
             // Helper to dynamically hide empty items just like PE
             let visibleInfoCount = 0;
@@ -281,16 +232,6 @@ window.timelines = {
                 }
             }
 
-            // Radar
-            const radarTitle = document.getElementById('timelines-radar-title');
-            if (radarTitle) radarTitle.innerText = pe_donation.display_donation_id || pe_donation.D_donation_id || 'Radar Chart';
-            if (typeof window.pe_renderRadar === 'function') {
-                window.pe_renderRadar(pe_donation, null, 'timelines-radar-plot');
-            }
-        } else {
-            // Hide if data not found
-            if (detailsCard) detailsCard.classList.add('hidden');
-            if (radarCard) radarCard.style.display = 'none';
         }
 
         const container = document.getElementById('timelines-charts-container');
@@ -301,9 +242,6 @@ window.timelines = {
 
         container.innerHTML = '<p>Loading timeline data...</p>';
 
-        const intervalInput = document.querySelector('input[name="timeline-interval"]:checked');
-        const interval = intervalInput ? intervalInput.value : 'day';
-
         try {
             const res = await fetch('/api/timelines/data', {
                 method: 'POST',
@@ -311,7 +249,7 @@ window.timelines = {
                 body: JSON.stringify({
                     study: this.currentStudy,
                     donation_id: donationId,
-                    interval: interval
+                    interval: 'day'
                 })
             });
             const data = await res.json();
@@ -323,16 +261,6 @@ window.timelines = {
 
             //console.log("TIMELINE DEBUG: Received Data", data);
             this.timelineData = data;
-
-            // Update Aggregation Labels with Counts
-            if (data.counts) {
-                const dayLabel = document.getElementById('timelines-agg-label-day');
-                const weekLabel = document.getElementById('timelines-agg-label-week');
-                const monthLabel = document.getElementById('timelines-agg-label-month');
-                if (dayLabel) dayLabel.innerText = `Day (${data.counts.day})`;
-                if (weekLabel) weekLabel.innerText = `Week (${data.counts.week})`;
-                if (monthLabel) monthLabel.innerText = `Month (${data.counts.month})`;
-            }
 
             this.renderTimelineCharts();
 
@@ -441,7 +369,7 @@ window.timelines = {
 
             // Left Menu for Categorical (or placeholder for alignment)
             const controlsDiv = document.createElement('div');
-            controlsDiv.style.width = '200px';
+            controlsDiv.style.width = '300px';
             controlsDiv.style.flexShrink = '0';
             controlsDiv.style.display = 'flex';
             controlsDiv.style.flexDirection = 'column';
@@ -587,13 +515,8 @@ window.timelines = {
 
                 controlsDiv.id = `controls-${plotId}`;
                 controlsDiv.innerHTML = `
-                    <div style="font-size:0.85em; margin-bottom:5px; color:#aaa; display:flex; justify-content:space-between; align-items:center;">
-                        <span>Select Categories:</span>
-                    </div>
-
-                    <!-- Quick Filter Chips — clicking auto-selects matching categories -->
-                    <div id="chips-${plotId}" style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                        <div class="filter-chip" id="chip-${plotId}-all" onclick="window.timelines.setFilter('${varName}', 'all')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:#444; color:#fff; border:1px solid #666; opacity:${activeFilter === 'all' ? '1.0' : '0.4'};">All</div>
+                    <div style="font-size:0.85em; margin-bottom:5px; color:#aaa; display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
+                        <span style="margin-right:4px;">Select Categories:</span>
                         <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(78, 201, 176, 0.15); color:#4ec9b0; border:1px solid rgba(78, 201, 176, 0.5); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
                         <div class="filter-chip" id="chip-${plotId}-falling" onclick="window.timelines.setFilter('${varName}', 'falling')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(244, 135, 113, 0.15); color:#f48771; border:1px solid rgba(244, 135, 113, 0.5); opacity:${activeFilter === 'falling' ? '1.0' : '0.4'};">↓ Falling</div>
                         <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(206, 145, 120, 0.15); color:#ce9178; border:1px solid rgba(206, 145, 120, 0.5); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
@@ -644,7 +567,7 @@ window.timelines = {
                             `;
                         }).join('')}
                     </div>
-                    ${omittedCount > 0 ? `<div style="font-size:0.75em; color:#888; margin-top:5px; font-style:italic;">${omittedCount} categories with ${omittedObservations.toLocaleString()} obs. omitted (~${omittedPercent}% total)</div>` : ''}
+                    ${omittedCount > 0 ? `<div style="font-size:0.75em; color:#888; margin-top:5px; font-style:italic;">Dropped ${omittedCount} tiny cats → ${omittedPercent}% obs lost.</div>` : ''}
                 `;
 
                 // Restore scroll position
@@ -824,7 +747,12 @@ window.timelines = {
                 layout.yaxis.type = 'log';
             }
 
-            Plotly.newPlot(plotId, traces, layout, { displayModeBar: true, responsive: true });
+            Plotly.newPlot(plotId, traces, layout, {
+                displayModeBar: true,
+                responsive: true,
+                modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d', 'toggleSpikelines'],
+                displaylogo: false
+            });
             allPlotIds.push(plotId);
 
             // Render analysis overlays when findings panel is open
@@ -883,13 +811,17 @@ window.timelines = {
                     return count > 0 ? sum / count : null;
                 });
 
-                // Fixed mapping: evenness 0% → chart bottom, 100% → chart top.
-                // No min-max stretching — if evenness only varies 85-95% the
-                // band will be nearly flat near the top, which is honest.
+                // Min-max normalised mapping so the evenness band uses the
+                // full chart height, making variation clearly visible.
+                const validEntropy = smoothedEntropy.filter(e => e !== null);
+                const eMin = validEntropy.length > 0 ? Math.min(...validEntropy) : 0;
+                const eMax = validEntropy.length > 0 ? Math.max(...validEntropy) : 1;
+                const eSpan = eMax - eMin || 1;
+
                 const yRange = chartWrapper._catYRange || [0, 100];
                 const scaledEntropy = smoothedEntropy.map(e => {
                     if (e === null) return null;
-                    return yRange[0] + e * (yRange[1] - yRange[0]);
+                    return yRange[0] + ((e - eMin) / eSpan) * (yRange[1] - yRange[0]);
                 });
 
                 // Build hover text with actual evenness values
@@ -898,7 +830,7 @@ window.timelines = {
                     return `<b>Distribution Evenness</b><br>` +
                            `Period: ${dateLabel}<br>` +
                            `Evenness: ${(e * 100).toFixed(1)}%<br>` +
-                           `<span style="font-size:0.85em;color:#aaa;">100% = perfectly even, 0% = single category dominates</span>`;
+                           `<span style="font-size:0.85em;color:#aaa;">Range: ${(eMin * 100).toFixed(1)}% – ${(eMax * 100).toFixed(1)}%</span>`;
                 });
 
                 overlayTraces.push({
@@ -993,12 +925,26 @@ window.timelines = {
                     }
                 });
 
-                // Add overlay traces and shapes
+                // Add overlay traces, shapes, and evenness annotation
                 if (overlayTraces.length > 0) {
                     Plotly.addTraces(plotId, overlayTraces);
                 }
+                const relayoutUpdates = {};
                 if (shapes.length > 0) {
-                    Plotly.relayout(plotId, { shapes: shapes });
+                    relayoutUpdates.shapes = shapes;
+                }
+                if (validEntropy.length > 0) {
+                    relayoutUpdates.annotations = [{
+                        text: `Evenness: ${(eMin * 100).toFixed(1)}% – ${(eMax * 100).toFixed(1)}%`,
+                        xref: 'paper', yref: 'paper',
+                        x: 0, y: 1.02,
+                        xanchor: 'left', yanchor: 'bottom',
+                        showarrow: false,
+                        font: { size: 10, color: 'rgba(255,255,255,0.4)' }
+                    }];
+                }
+                if (Object.keys(relayoutUpdates).length > 0) {
+                    Plotly.relayout(plotId, relayoutUpdates);
                 }
 
             }
@@ -1311,21 +1257,7 @@ window.timelines = {
 
         if (!modal || !titleEl || !contentEl) return;
 
-        // Determine formatted period string based on current active interval
-        const intervalInput = document.querySelector('input[name="timeline-interval"]:checked');
-        const interval = intervalInput ? intervalInput.value : 'day';
-
-        let periodStr = clickedDate; // Day: 'YYYY-MM-DD'
-        if (interval === 'month') {
-            periodStr = clickedDate.substring(0, 7); // 'YYYY-MM'
-        } else if (interval === 'week') {
-            // For weeks, the backend date_label is 'YYYY-WW' (e.g., '2023-41')
-            if (formattedLabel && /^\d{4}-\d{2}$/.test(formattedLabel)) {
-                periodStr = formattedLabel.replace('-', '-W'); // '2023-W41'
-            } else {
-                periodStr = 'Week-of-' + clickedDate; // fallback
-            }
-        }
+        let periodStr = clickedDate;
 
         // Save state for voting button
         this.currentStatsPeriod = periodStr;
@@ -1407,122 +1339,6 @@ window.timelines = {
         html += '</tbody></table>';
         contentEl.innerHTML = html;
         modal.style.display = 'block';
-    }
-};
-
-// --- Config Modal Logic for Timelines ---
-window.timelines_openConfig = function () {
-    const modal = document.getElementById('timelines-config-modal');
-    const container = document.getElementById('timelines-config-checkboxes');
-    if (!modal || !container) return;
-
-    container.innerHTML = '';
-
-    // Fallback if global is missing
-    const PE_METRIC_INFO = window.PE_METRIC_INFO || {};
-    // pe_radar_metrics in pe namespace
-    const PE_RADAR_METRICS = JSON.parse(localStorage.getItem('pe_selected_radar_metrics') || '["chattiness", "enthusiasm", "patience", "binge_level", "consistency"]');
-
-    Object.keys(PE_METRIC_INFO).sort().forEach(metric => {
-        const info = PE_METRIC_INFO[metric];
-
-        const label = document.createElement('label');
-        label.className = 'config-checkbox';
-
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.value = metric;
-        cb.checked = PE_RADAR_METRICS.includes(metric);
-
-        cb.onchange = window.timelines_updateRadarPreview;
-
-        const span = document.createElement('span');
-        span.innerText = info.label;
-
-        label.appendChild(cb);
-        label.appendChild(span);
-        container.appendChild(label);
-    });
-
-    modal.classList.remove('hidden');
-};
-
-window.timelines_updateRadarPreview = function () {
-    const container = document.getElementById('timelines-config-checkboxes');
-    if (!container) return;
-
-    const selected = [];
-    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        if (cb.checked) selected.push(cb.value);
-    });
-
-    if (selected.length < 3 || selected.length > 8) return;
-
-    if (typeof window.pe_calculatePercentileRanks === 'function') {
-        window.pe_calculatePercentileRanks(selected);
-    }
-
-    if (window.timelines.currentDonationId && window.pe_data) {
-        const donation = window.pe_data.find(d => d.D_donation_id === window.timelines.currentDonationId);
-        if (donation && typeof window.pe_renderRadar === 'function') {
-            window.pe_renderRadar(donation, selected, 'timelines-radar-plot');
-        }
-    }
-};
-
-window.timelines_closeConfig = function () {
-    document.getElementById('timelines-config-modal').classList.add('hidden');
-
-    if (window.timelines.currentDonationId && window.pe_data) {
-        const donation = window.pe_data.find(d => d.D_donation_id === window.timelines.currentDonationId);
-        if (donation && typeof window.pe_renderRadar === 'function') {
-            // Re-render with null to use default/saved metrics
-            window.pe_renderRadar(donation, null, 'timelines-radar-plot');
-        }
-    }
-};
-
-window.timelines_applyConfig = function () {
-    const container = document.getElementById('timelines-config-checkboxes');
-    if (!container) return;
-
-    const selected = [];
-    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        if (cb.checked) selected.push(cb.value);
-    });
-
-    if (selected.length < 3 || selected.length > 8) {
-        alert("Please select between 3 and 8 metrics for the radar chart.");
-        return;
-    }
-
-    localStorage.setItem('pe_selected_radar_metrics', JSON.stringify(selected));
-
-    if (typeof window.pe_setRadarMetrics === 'function') {
-        window.pe_setRadarMetrics(selected);
-    }
-
-    if (typeof window.pe_calculatePercentileRanks === 'function') {
-        window.pe_calculatePercentileRanks(selected);
-    }
-
-    if (window.timelines.currentDonationId && window.pe_data) {
-        const donation = window.pe_data.find(d => d.D_donation_id === window.timelines.currentDonationId);
-        if (donation && typeof window.pe_renderRadar === 'function') {
-            window.pe_renderRadar(donation, selected, 'timelines-radar-plot');
-        }
-    }
-
-    window.timelines_closeConfig();
-
-    // Also quietly update the PE Radar preview if it's currently rendered without switching tabs
-    if (typeof window.pe_onShow === 'function') {
-        // Just calling pe_onShow isn't reliable if we haven't clicked the tab, 
-        // we can just let it handle itself on focus or force a redraw:
-        const oldRadar = document.getElementById('pe-radar-plot');
-        if (oldRadar && window.pe_selectedId === window.timelines.currentDonationId) {
-            window.pe_renderRadar(donation, selected, 'pe-radar-plot');
-        }
     }
 };
 
