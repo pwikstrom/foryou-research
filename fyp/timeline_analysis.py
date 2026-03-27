@@ -100,16 +100,26 @@ def compute_break(vals: list[float]) -> dict[str, Any]:
 
 
 def compute_volatility(vals: list[float]) -> dict[str, float]:
-    """Compute volatility metrics.
+    """Compute volatility metrics including detrended residual std.
+
+    Raw std conflates trend-driven spread with genuine noise.  The
+    residual_std removes the linear trend first so only the irregular
+    component remains — a category with a clean ramp from 5% to 25%
+    will have high std but low residual_std.
 
     Args:
         vals: Array of share % values.
 
     Returns:
-        Dictionary with std and mean.
+        Dictionary with std, residual_std, and mean.
     """
+    x = np.arange(len(vals))
+    slope, intercept = np.polyfit(x, vals, 1)
+    trend_line = slope * x + intercept
+    residuals = np.array(vals) - trend_line
     return {
         "std": round(float(np.std(vals)), 2),
+        "residual_std": round(float(np.std(residuals)), 2),
         "mean": round(float(np.mean(vals)), 2),
     }
 
@@ -122,28 +132,65 @@ import math
 def compute_interestingness(metrics: dict) -> float:
     """Compute a composite interestingness score from per-category metrics.
 
-    Higher scores indicate more visually salient patterns (strong trends,
-    anomalies, structural breaks, high volatility).
+    Higher scores indicate more visually salient patterns.  The score
+    combines four signals that capture different kinds of "interesting":
+
+    1. Trend — sustained directional change over the full period.
+    2. Anomalies — unusual spikes or dips.  Uses the sum of the top-3
+       z-scores so categories with multiple anomalies rank higher than
+       those with a single outlier.
+    3. Structural break — a step-change in the mean level.  When a
+       strong break is present the trend component is discounted to
+       avoid double-counting (a big break mechanically inflates the
+       linear trend).
+    4. Residual volatility — irregular fluctuation *after* removing the
+       linear trend.  This rewards genuinely erratic series rather than
+       those that simply ramp up/down smoothly.
+
+    All four sub-scores are normalised to roughly comparable 0-20
+    ranges before summing, so no single signal dominates via an
+    outsized multiplier.
 
     Args:
-        metrics: Dictionary with keys 'trend', 'anomalies', 'break', 'volatility'.
+        metrics: Dictionary with keys 'trend', 'anomalies', 'break',
+            'volatility'.
 
     Returns:
-        Float interestingness score.
+        Float interestingness score (higher = more interesting).
     """
-    trend_score = abs(metrics["trend"]["total_change"]) * 1.8
-    anomaly_z_vals = [abs(a["z"]) for a in metrics["anomalies"]]
-    anomaly_score = max(anomaly_z_vals, default=0) * 4.0
-    break_score = abs(metrics["break"]["delta"]) * 1.2
-    volatility_score = metrics["volatility"]["std"] * 0.8
-    
+    # --- 1. Trend score ---
+    trend_change = abs(metrics["trend"]["total_change"])
+    trend_score = trend_change * 1.5
+
+    # --- 2. Break score ---
+    break_delta = abs(metrics["break"]["delta"])
+    break_score = break_delta * 1.2
+
+    # Discount trend when a strong break explains most of the change.
+    # A break that accounts for > 50% of the trend means the "trend"
+    # is really just the break — halve the trend contribution.
+    if trend_change > 0 and break_delta > 0:
+        overlap_ratio = min(break_delta / trend_change, 1.0)
+        if overlap_ratio > 0.5:
+            trend_score *= (1.0 - overlap_ratio * 0.6)
+
+    # --- 3. Anomaly score (sum of top-3 z-scores) ---
+    anomaly_z_vals = sorted([abs(a["z"]) for a in metrics["anomalies"]], reverse=True)
+    top_z_sum = sum(anomaly_z_vals[:3])
+    anomaly_score = top_z_sum * 1.5
+
+    # --- 4. Residual volatility (detrended) ---
+    residual_std = metrics["volatility"].get("residual_std", metrics["volatility"]["std"])
+    volatility_score = residual_std * 1.5
+
     raw_score = trend_score + anomaly_score + break_score + volatility_score
-    
-    # Penalize visually flat/noisy categories that have tiny absolute shares
-    # Heavily compressed logarithmic multiplier (0.8x to ~1.2x) so volume carries minimal weight
+
+    # Volume multiplier — lightly boost categories with larger mean shares
+    # so that a 20% category edges out a 0.3% category at equal raw scores.
+    # Range ~0.8x to ~1.2x.
     mean_share = metrics["trend"]["mean"]
     volume_multiplier = (math.log10(mean_share + 1) * 0.2) + 0.8
-    
+
     return round(raw_score * volume_multiplier, 1)
 
 
@@ -151,11 +198,13 @@ def compute_interestingness(metrics: dict) -> float:
 
 
 def moving_average(vals: list[float], window: int = 7) -> list[float]:
-    """Compute a trailing moving average matching the frontend."""
+    """Compute a centred moving average matching the frontend."""
+    half = window // 2
     smoothed = []
     for i in range(len(vals)):
-        start = max(0, i - window + 1)
-        slice_vals = vals[start:i+1]
+        start = max(0, i - half)
+        end = min(len(vals), i + half + 1)
+        slice_vals = vals[start:end]
         smoothed.append(round(sum(slice_vals) / len(slice_vals), 2))
     return smoothed
 

@@ -65,7 +65,7 @@ class CustomJSONProvider(DefaultJSONProvider):
         return super().default(obj)
 
 app.json = CustomJSONProvider(app)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "local-dev-key")
 
 # Init Auth
 login_manager.init_app(app)

@@ -154,9 +154,11 @@ window.timelines = {
     },
 
     _movingAvg: function (arr, window) {
+        const half = Math.floor(window / 2);
         return arr.map((_, i, a) => {
-            const start = Math.max(0, i - window + 1);
-            const slice = a.slice(start, i + 1);
+            const start = Math.max(0, i - half);
+            const end = Math.min(a.length, i + half + 1);
+            const slice = a.slice(start, end);
             return slice.reduce((s, v) => s + v, 0) / slice.length;
         });
     },
@@ -428,19 +430,22 @@ window.timelines = {
             const subtitle = varData.type !== 'categorical' ? '<span style="font-size: 0.75em; color: #aaa; font-weight: normal;"> (mean values)</span>' : '';
             titleDiv.innerHTML = `<h3 style="margin-top: 0; margin-bottom: 10px; font-size: 1.25em;">${displayTitle}${subtitle}</h3>`;
 
-            // Analysis toggle button for categorical charts removed.
-            // Findings panel is now natively visible and selection-driven.
+            // Findings panel is rendered below each categorical chart with a show/hide toggle button.
             chartWrapper.appendChild(titleDiv);
 
-            // Container for Controls and Plot
+            // Container for Controls and Plot — height matches the plot (400px)
             const innerFlexDiv = document.createElement('div');
             innerFlexDiv.style.display = 'flex';
             innerFlexDiv.style.flexDirection = 'row';
+            innerFlexDiv.style.height = '400px';
 
             // Left Menu for Categorical (or placeholder for alignment)
             const controlsDiv = document.createElement('div');
             controlsDiv.style.width = '200px';
             controlsDiv.style.flexShrink = '0';
+            controlsDiv.style.display = 'flex';
+            controlsDiv.style.flexDirection = 'column';
+            controlsDiv.style.overflow = 'hidden';
 
             if (varData.type === 'categorical') {
                 controlsDiv.style.paddingRight = '10px';
@@ -474,8 +479,21 @@ window.timelines = {
 
             // Logic per type
             if (varData.type === 'categorical') {
-                // Initialize or retrieve selected categories from state
-                const defaultCats = varData.default_all ? (varData.top_categories || []) : (varData.top_categories ? varData.top_categories.slice(0, 3) : []);
+                // Build analysis lookup and interestingness-sorted category order
+                const analysisMap = {};
+                const varAnalysis = data.analysis && data.analysis[varName];
+                const interestingnessOrder = [];
+                if (varAnalysis && Array.isArray(varAnalysis.categories)) {
+                    varAnalysis.categories.forEach(a => {
+                        analysisMap[a.id] = a;
+                        interestingnessOrder.push(a.id);
+                    });
+                }
+
+                // Default selection: top 3 by interestingness (or all for machine_state)
+                const defaultCats = varData.default_all
+                    ? (varData.top_categories || [])
+                    : (interestingnessOrder.length > 0 ? interestingnessOrder.slice(0, 3) : (varData.top_categories ? varData.top_categories.slice(0, 3) : []));
                 const selectedCats = this.timelineState.categoricalSelections[varName] || defaultCats;
 
                 // Store in state if not already
@@ -484,7 +502,7 @@ window.timelines = {
                 }
 
                 // Setup Sidebar Category Selection
-                // Calculate total frequency for sorting (use sliced counts)
+                // Calculate total frequency (use sliced counts)
                 const slicedCounts = startIdx > 0 ? varData.counts.slice(startIdx) : varData.counts;
                 const slicedVideoCounts = startIdx > 0 && varData.daily_video_counts ? varData.daily_video_counts.slice(startIdx) : varData.daily_video_counts;
                 const slicedValidCounts = startIdx > 0 && varData.daily_valid_counts ? varData.daily_valid_counts.slice(startIdx) : varData.daily_valid_counts;
@@ -495,60 +513,85 @@ window.timelines = {
                     });
                 });
 
-                const allCategories = Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]);
+                // Sort categories by interestingness score (fall back to frequency for unscored)
+                const allCatsByFreq = Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]);
+                const allCategories = allCatsByFreq.slice().sort((a, b) => {
+                    const scoreA = analysisMap[a] ? analysisMap[a].score : -1;
+                    const scoreB = analysisMap[b] ? analysisMap[b].score : -1;
+                    return scoreB - scoreA;
+                });
 
-                // --- 99% Coverage Heuristic ---
-                const grandTotal = allCategories.reduce((sum, cat) => sum + catTotals[cat], 0);
+                // --- Adaptive Category Filtering Heuristic ---
+                // Balances two goals: keep the sidebar manageable, but don't drop too
+                // many observations.  High-cardinality variables (hashtags, brands) get
+                // more slots via the observation floor so they stay representative.
+                const grandTotal = allCatsByFreq.reduce((sum, cat) => sum + catTotals[cat], 0);
                 const keptCategories = [];
-                let cumulativeSum = 0;
                 let omittedCount = 0;
                 let omittedObservations = 0;
-                
+
                 const minCategories = 5;
-                const coverageTarget = 0.99;
-                
-                for (let i = 0; i < allCategories.length; i++) {
-                    const cat = allCategories[i];
-                    const catTarget = catTotals[cat];
-                    
+                const maxCategories = 25;
+                const coverageTarget = 0.95;
+                const minObservations = 10;
+                const minCoverageFloor = 0.50;
+
+                // First pass: apply standard filters (coverage target + max cap + min obs)
+                let cumulativeSum = 0;
+                const coveredSet = new Set();
+                for (let i = 0; i < allCatsByFreq.length; i++) {
+                    const cat = allCatsByFreq[i];
+                    const catCount = catTotals[cat];
                     const isSelected = selectedCats.includes(cat);
                     const isWithinMin = i < minCategories;
-                    const isMeaningfulSize = catTarget >= 5; // Hard cutoff for noisy tiny categories
-                    
-                    // Keep if explicitly selected, within top 5, or (within 99% coverage AND has meaningful size)
-                    if (isSelected || isWithinMin || (cumulativeSum < (coverageTarget * grandTotal) && isMeaningfulSize)) {
-                        keptCategories.push(cat);
-                    } else {
-                        omittedCount++;
-                        omittedObservations += catTarget;
+                    const isMeaningful = catCount >= minObservations;
+                    const isWithinMax = coveredSet.size < maxCategories;
+                    const isWithinCoverage = cumulativeSum < (coverageTarget * grandTotal);
+
+                    if (isSelected || isWithinMin || (isWithinCoverage && isMeaningful && isWithinMax)) {
+                        coveredSet.add(cat);
                     }
-                    cumulativeSum += catTarget;
+                    cumulativeSum += catCount;
                 }
+
+                // Second pass: if we've dropped more than 50% of observations,
+                // keep adding categories (by frequency) until we reach the floor
+                let coveredObs = allCatsByFreq.filter(c => coveredSet.has(c)).reduce((s, c) => s + catTotals[c], 0);
+                if (coveredObs < minCoverageFloor * grandTotal) {
+                    for (const cat of allCatsByFreq) {
+                        if (coveredSet.has(cat)) continue;
+                        coveredSet.add(cat);
+                        coveredObs += catTotals[cat];
+                        if (coveredObs >= minCoverageFloor * grandTotal) break;
+                    }
+                }
+
+                // Count omissions
+                for (const cat of allCatsByFreq) {
+                    if (!coveredSet.has(cat)) {
+                        omittedCount++;
+                        omittedObservations += catTotals[cat];
+                    }
+                }
+
+                // Build kept list in interestingness order
+                allCategories.forEach(cat => {
+                    if (coveredSet.has(cat)) keptCategories.push(cat);
+                });
 
                 // Preserve scroll position if re-rendering an existing menu
                 const catScrollPos = catScrollPositions[`controls-${plotId}`] || 0;
 
-                // Keep UI container logic SAME
-                // (This block recreates the checkboxes every time)
-                // In production might want to only create once, but here we redraw all.
                 const omittedPercent = grandTotal > 0 ? ((omittedObservations / grandTotal) * 100).toFixed(1) : 0;
-                
-                const analysisMap = {};
-                const varAnalysis = window.timelines.timelineData.analysis && window.timelines.timelineData.analysis[varName];
-                if (varAnalysis && Array.isArray(varAnalysis.categories)) {
-                    varAnalysis.categories.forEach(a => {
-                        analysisMap[a.id] = a;
-                    });
-                }
                 const activeFilter = this.timelineState.activeFilters[varName] || 'all';
-                
+
                 controlsDiv.id = `controls-${plotId}`;
                 controlsDiv.innerHTML = `
                     <div style="font-size:0.85em; margin-bottom:5px; color:#aaa; display:flex; justify-content:space-between; align-items:center;">
                         <span>Select Categories:</span>
                     </div>
-                    
-                    <!-- Quick Filter Chips -->
+
+                    <!-- Quick Filter Chips — clicking auto-selects matching categories -->
                     <div id="chips-${plotId}" style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
                         <div class="filter-chip" id="chip-${plotId}-all" onclick="window.timelines.setFilter('${varName}', 'all')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:#444; color:#fff; border:1px solid #666; opacity:${activeFilter === 'all' ? '1.0' : '0.4'};">All</div>
                         <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(78, 201, 176, 0.15); color:#4ec9b0; border:1px solid rgba(78, 201, 176, 0.5); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
@@ -556,10 +599,9 @@ window.timelines = {
                         <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(206, 145, 120, 0.15); color:#ce9178; border:1px solid rgba(206, 145, 120, 0.5); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
                         <div class="filter-chip" id="chip-${plotId}-breaks" onclick="window.timelines.setFilter('${varName}', 'breaks')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(86, 156, 214, 0.15); color:#569cd6; border:1px solid rgba(86, 156, 214, 0.5); opacity:${activeFilter === 'breaks' ? '1.0' : '0.4'};">⋮ Breaks</div>
                         <div class="filter-chip" id="chip-${plotId}-volatile" onclick="window.timelines.setFilter('${varName}', 'volatile')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(218, 112, 214, 0.15); color:#da70d6; border:1px solid rgba(218, 112, 214, 0.5); opacity:${activeFilter === 'volatile' ? '1.0' : '0.4'};">~ Volatile</div>
-                        <div class="filter-chip" id="chip-${plotId}-stable" onclick="window.timelines.setFilter('${varName}', 'stable')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(120, 120, 120, 0.2); color:#aaa; border:1px solid #555; opacity:${activeFilter === 'stable' ? '1.0' : '0.4'};">— Stable</div>
                     </div>
 
-                    <div id="cat-list-${plotId}" style="max-height:300px; overflow-y:auto; border:1px solid #444; padding:5px;">
+                    <div id="cat-list-${plotId}" style="flex:1; min-height:0; overflow-y:auto; border:1px solid #444; padding:5px;">
                         ${keptCategories.map(cat => {
                             const cd = analysisMap[cat] || {};
                             const isRising = (cd.trend && cd.trend.total_change > 4);
@@ -568,32 +610,35 @@ window.timelines = {
                             const hasBreak = (cd.break && Math.abs(cd.break.delta) > 4);
                             const isVolatile = (cd.volatility && cd.volatility.std > 2.5);
                             const isStable = (!isRising && !isFalling && !hasSpikes && !hasBreak && !isVolatile);
-                            
-                            const isVisible = (activeFilter === 'all' || 
-                                               (activeFilter === 'rising' && isRising) ||
-                                               (activeFilter === 'falling' && isFalling) ||
-                                               (activeFilter === 'spikes' && hasSpikes) ||
-                                               (activeFilter === 'breaks' && hasBreak) ||
-                                               (activeFilter === 'volatile' && isVolatile) ||
-                                               (activeFilter === 'stable' && isStable));
+
+                            // Build inline badge string
+                            let badges = '';
+                            if (isRising)   badges += '<span style="color:#4ec9b0; font-size:0.8em;" title="Rising">↑</span> ';
+                            if (isFalling)  badges += '<span style="color:#f48771; font-size:0.8em;" title="Falling">↓</span> ';
+                            if (hasSpikes)  badges += '<span style="color:#ce9178; font-size:0.8em;" title="Spikes">◎</span> ';
+                            if (hasBreak)   badges += '<span style="color:#569cd6; font-size:0.8em;" title="Step change">⋮</span> ';
+                            if (isVolatile) badges += '<span style="color:#da70d6; font-size:0.8em;" title="Volatile">~</span> ';
+                            if (isStable)   badges += '<span style="color:#aaa; font-size:0.8em;" title="Stable">—</span> ';
 
                             return `
-                            <div class="category-item" 
-                                 data-rising="${isRising}" 
-                                 data-falling="${isFalling}" 
-                                 data-spikes="${hasSpikes}" 
-                                 data-breaks="${hasBreak}" 
-                                 data-volatile="${isVolatile}" 
+                            <div class="category-item"
+                                 data-cat="${cat}"
+                                 data-rising="${isRising}"
+                                 data-falling="${isFalling}"
+                                 data-spikes="${hasSpikes}"
+                                 data-breaks="${hasBreak}"
+                                 data-volatile="${isVolatile}"
                                  data-stable="${isStable}"
-                                 style="display:${isVisible ? 'flex' : 'none'}; align-items:flex-start; margin-bottom:3px;">
+                                 style="display:flex; align-items:flex-start; margin-bottom:3px;">
                                 <input type="checkbox"
                                        value="${cat}"
                                        ${selectedCats.includes(cat) ? 'checked' : ''}
                                        onchange="window.timelines.toggleCategory('${varName}', '${cat}')"
                                        style="margin-right:5px; margin-top:2px;">
                                 <span style="line-height:1.2;">
-                                    ${cat} 
+                                    ${cat}
                                     <span style="color:#aaa; font-size:0.85em; white-space:nowrap;">(${catTotals[cat].toLocaleString()})</span>
+                                    ${badges ? '<span style="margin-left:3px;">' + badges + '</span>' : ''}
                                 </span>
                             </div>
                             `;
@@ -644,15 +689,32 @@ window.timelines = {
                     allYVals = allYVals.concat(displayY);
                     const catColor = colors[idx % colors.length];
 
+                    // Reduce data line prominence when analysis overlays are visible
+                    // Plotly's trace-level opacity doesn't fade line strokes, so we
+                    // bake the alpha directly into the line color via rgba.
+                    const overlaysActive = this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName];
+                    const lineAlpha = overlaysActive ? 0.25 : 1.0;
+                    const lineWidth = overlaysActive ? 1.5 : 2;
+                    const fillAlpha = overlaysActive ? '06' : '12';
+
+                    // Convert hex (#RRGGBB) to rgba string
+                    const hexToRgba = (hex, alpha) => {
+                        const r = parseInt(hex.slice(1, 3), 16);
+                        const g = parseInt(hex.slice(3, 5), 16);
+                        const b = parseInt(hex.slice(5, 7), 16);
+                        return `rgba(${r},${g},${b},${alpha})`;
+                    };
+                    const lineColor = hexToRgba(catColor, lineAlpha);
+
                     // Line trace
                     traces.push({
                         x: xVals,
                         y: displayY,
                         type: 'scatter',
                         mode: 'lines',
-                        line: { width: 2, shape: 'spline', color: catColor },
+                        line: { width: lineWidth, shape: 'spline', color: lineColor },
                         fill: 'tozeroy',
-                        fillcolor: catColor + '12',
+                        fillcolor: catColor + fillAlpha,
                         name: cat,
                         text: hoverTexts,
                         hoverinfo: 'text',
@@ -723,17 +785,25 @@ window.timelines = {
                 margin: { t: 20, r: 20, b: (isCategorical ? 60 : 40), l: 40 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
-                font: { color: '#ccc' },
+                font: { color: '#999', size: 11 },
                 xaxis: {
                     type: excludeNoData ? 'category' : 'date',
                     tickmode: 'array',
                     tickvals: tickVals,
                     ticktext: tickText,
-                    tickangle: 0
+                    tickangle: 0,
+                    gridcolor: 'rgba(255,255,255,0.06)',
+                    gridwidth: 1,
+                    zeroline: false,
+                    tickfont: { color: '#777' }
                 },
                 yaxis: {
-                    title: yAxisTitle,
-                    range: isCategorical && chartWrapper._catYRange ? chartWrapper._catYRange : undefined
+                    title: { text: yAxisTitle, font: { color: '#888', size: 11 } },
+                    range: isCategorical && chartWrapper._catYRange ? chartWrapper._catYRange : undefined,
+                    gridcolor: 'rgba(255,255,255,0.06)',
+                    gridwidth: 1,
+                    zeroline: false,
+                    tickfont: { color: '#777' }
                 },
                 barmode: isCategorical ? undefined : 'stack',
                 showlegend: isCategorical
@@ -757,13 +827,92 @@ window.timelines = {
             Plotly.newPlot(plotId, traces, layout, { displayModeBar: true, responsive: true });
             allPlotIds.push(plotId);
 
-            // Render analysis overlays if toggled on
+            // Render analysis overlays when findings panel is open
             if (isCategorical && data.analysis && data.analysis[varName]
-                && this.timelineState.analysisToggles && this.timelineState.analysisToggles[varName]) {
+                && this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName]) {
 
                 const analysisData = data.analysis[varName];
                 const overlayTraces = [];
                 const shapes = [];
+
+                // --- Entropy / Evenness band ---
+                // Compute Shannon evenness at each time point using a fixed N
+                // (total distinct categories across the whole series) so the
+                // denominator is stable and days with fewer categories present
+                // correctly score lower.
+                const entropyVals = [];
+                const slicedCountsForEntropy = startIdx > 0 ? varData.counts.slice(startIdx) : varData.counts;
+
+                // Fixed N: count all distinct categories across the sliced series
+                const allCatsInSeries = new Set();
+                for (const dayBucket of slicedCountsForEntropy) {
+                    for (const k of Object.keys(dayBucket || {})) {
+                        if ((dayBucket[k] || 0) > 0) allCatsInSeries.add(k);
+                    }
+                }
+                const fixedN = allCatsInSeries.size;
+                const fixedMaxH = fixedN > 1 ? Math.log(fixedN) : 1;
+
+                for (let ti = 0; ti < slicedCountsForEntropy.length; ti++) {
+                    const dayBucket = slicedCountsForEntropy[ti] || {};
+                    const total = Object.values(dayBucket).reduce((s, v) => s + (v || 0), 0);
+                    if (total === 0) {
+                        entropyVals.push(null);
+                        continue;
+                    }
+                    let H = 0;
+                    for (const v of Object.values(dayBucket)) {
+                        const p = (v || 0) / total;
+                        if (p > 0) H -= p * Math.log(p);
+                    }
+                    entropyVals.push(H / fixedMaxH);
+                }
+
+                // Heavy independent centred smoothing (14-period) — entropy is
+                // about the structural diversity trend, not daily fluctuations.
+                // Null-aware: skip no-data days in the averaging window.
+                const entropySmoothing = Math.max(14, this.timelineState.smoothing || 1);
+                const entropyHalf = Math.floor(entropySmoothing / 2);
+                const smoothedEntropy = entropyVals.map((_, i) => {
+                    const start = Math.max(0, i - entropyHalf);
+                    const end = Math.min(entropyVals.length, i + entropyHalf + 1);
+                    let sum = 0, count = 0;
+                    for (let j = start; j < end; j++) {
+                        if (entropyVals[j] !== null) { sum += entropyVals[j]; count++; }
+                    }
+                    return count > 0 ? sum / count : null;
+                });
+
+                // Fixed mapping: evenness 0% → chart bottom, 100% → chart top.
+                // No min-max stretching — if evenness only varies 85-95% the
+                // band will be nearly flat near the top, which is honest.
+                const yRange = chartWrapper._catYRange || [0, 100];
+                const scaledEntropy = smoothedEntropy.map(e => {
+                    if (e === null) return null;
+                    return yRange[0] + e * (yRange[1] - yRange[0]);
+                });
+
+                // Build hover text with actual evenness values
+                const entropyHoverText = smoothedEntropy.map((e, i) => {
+                    const dateLabel = (data.date_labels || dates)[startIdx + i] || xVals[i];
+                    return `<b>Distribution Evenness</b><br>` +
+                           `Period: ${dateLabel}<br>` +
+                           `Evenness: ${(e * 100).toFixed(1)}%<br>` +
+                           `<span style="font-size:0.85em;color:#aaa;">100% = perfectly even, 0% = single category dominates</span>`;
+                });
+
+                overlayTraces.push({
+                    x: xVals,
+                    y: scaledEntropy,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { width: 12, shape: 'spline', color: 'rgba(255,255,255,0.12)' },
+                    name: 'Evenness',
+                    showlegend: false,
+                    text: entropyHoverText,
+                    hoverinfo: 'text',
+                    hovertemplate: '%{text}<extra></extra>'
+                });
                 const cats = analysisData.categories || [];
                 const selectedSet = new Set(this.timelineState.categoricalSelections[varName] || []);
 
@@ -852,43 +1001,63 @@ window.timelines = {
                     Plotly.relayout(plotId, { shapes: shapes });
                 }
 
-                // --- NEW FINDINGS PANEL CODE ---
+            }
+
+            // --- FINDINGS PANEL (outside analysis toggle, always available for categorical) ---
+            if (isCategorical) {
                 const selectedCatsForPanel = this.timelineState.categoricalSelections[varName] || [];
                 if (data.analysis && data.analysis[varName] && selectedCatsForPanel.length > 0) {
                     const analysisData = data.analysis[varName];
                     const catsList = analysisData.categories || [];
                     const selectedSet = new Set(selectedCatsForPanel);
 
+                    // Toggle button
+                    const findingsToggleId = `findings-toggle-${varName}`;
+                    const toggleBtn = document.createElement('button');
+                    toggleBtn.id = findingsToggleId;
+                    toggleBtn.style.cssText = 'margin-top: 10px; padding: 6px 14px; background: #2a2d31; color: #ccc; border: 1px solid #444; border-radius: 6px; cursor: pointer; font-size: 0.85em;';
+                    const isOpen = this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName];
+                    toggleBtn.textContent = isOpen ? 'Hide Findings' : 'Show Findings';
+                    chartWrapper.appendChild(toggleBtn);
+
                     const findingsContainer = document.createElement('div');
-                    findingsContainer.style.cssText = 'margin-top: 20px; border-top: 1px solid #333; padding-top: 15px; display: flex; flex-direction: column; gap: 10px;';
-                    
+                    findingsContainer.id = `findings-panel-${varName}`;
+                    findingsContainer.style.cssText = 'margin-top: 10px; border-top: 1px solid #333; padding-top: 15px; display: ' + (isOpen ? 'flex' : 'none') + '; flex-direction: column; gap: 10px;';
+
+                    toggleBtn.addEventListener('click', () => {
+                        if (!this.timelineState.findingsPanelOpen) this.timelineState.findingsPanelOpen = {};
+                        const visible = findingsContainer.style.display !== 'none';
+                        this.timelineState.findingsPanelOpen[varName] = !visible;
+                        this.renderTimelineCharts();
+                    });
+
                     catsList.forEach((catData, index) => {
                         if (!selectedSet.has(catData.id)) return;
-                        
+
                         const globalRank = index + 1;
                         const catColor = colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
-                        
+
                         const card = document.createElement('div');
                         card.style.cssText = 'background: #2a2d31; padding: 15px; border-radius: 8px; border-left: 4px solid ' + catColor + ';';
-                        
+
                         // Card Header: Rank + Dot + Label + Badges
                         const headerRow = document.createElement('div');
                         headerRow.style.cssText = 'display: flex; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;';
-                        
+
                         const titleWrap = document.createElement('div');
                         titleWrap.style.cssText = 'font-weight: 600; font-size: 1.1em; color: #e1e1e1; margin-right: 15px;';
                         titleWrap.innerHTML = `<span style="color:#888; font-size:0.9em; margin-right:5px;">#${globalRank}</span> <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${catColor}; margin-right:6px;"></span> ${catData.label}`;
                         headerRow.appendChild(titleWrap);
-                        
+
                         const bullets = [];
-                        
+
                         // Helper to make badge
                         const makeBadge = (text, bg, fg, border) => {
                             return `<span style="background:${bg}; color:${fg}; padding:3px 8px; border-radius:12px; font-size:0.75em; border:1px solid ${border}; font-weight:500; white-space:nowrap;">${text}</span>`;
                         };
-                        
+
                         let isStable = true;
-                        
+
                         // 1. Trend
                         if (catData.trend && Math.abs(catData.trend.total_change) > 4) {
                             isStable = false;
@@ -901,12 +1070,12 @@ window.timelines = {
                                 bullets.push(`Overall downward trend — total shift of ${catData.trend.total_change} pp over the period.`);
                             }
                         }
-                        
+
                         // 2. Step Change
                         if (catData.break && Math.abs(catData.break.delta) > 4) {
                             isStable = false;
                             headerRow.innerHTML += makeBadge('⋮ Step change', 'rgba(86, 156, 214, 0.15)', '#569cd6', 'rgba(86, 156, 214, 0.5)');
-                            
+
                             let bDate = "the period";
                             const bIdx = catData.break.index;
                             if (data.date_labels && bIdx >= 0 && bIdx < data.date_labels.length) {
@@ -918,12 +1087,12 @@ window.timelines = {
                             const sign = catData.break.delta > 0 ? "+" : "";
                             bullets.push(`Step change around ${bDate}: share ${dir} from ~${catData.break.mean_before}% to ~${catData.break.mean_after}% (${sign}${catData.break.delta} pp).`);
                         }
-                        
+
                         // 3. Anomalies
                         if (catData.anomalies && catData.anomalies.length > 0) {
                             isStable = false;
                             headerRow.innerHTML += makeBadge(`◎ ${catData.anomalies.length} spike(s)`, 'rgba(206, 145, 120, 0.15)', '#ce9178', 'rgba(206, 145, 120, 0.5)');
-                            
+
                             catData.anomalies.slice(0, 2).forEach(a => {
                                 let aDate = "Unknown Date";
                                 if (data.date_labels && a.index >= 0 && a.index < data.date_labels.length) {
@@ -936,23 +1105,23 @@ window.timelines = {
                                 bullets.push(`${dir} at ${aDate}: ${a.value}% vs. mean ${a.mean}% (${sign}${a.z} σ).`);
                             });
                         }
-                        
+
                         // 4. Volatility
                         if (catData.volatility && catData.volatility.std > 2.5) {
                             isStable = false;
                             headerRow.innerHTML += makeBadge('~ Volatile', 'rgba(218, 112, 214, 0.15)', '#da70d6', 'rgba(218, 112, 214, 0.5)');
                             bullets.push(`High variation — standard dev ${catData.volatility.std} pp around mean of ${catData.volatility.mean}%.`);
                         }
-                        
+
                         // 5. Stable
                         if (isStable) {
                             headerRow.innerHTML += makeBadge('— Stable', 'rgba(120, 120, 120, 0.2)', '#aaa', '#555');
                             let m = catData.volatility ? catData.volatility.mean : "?";
                             bullets.push(`No significant dynamics detected. Steady around ${m}% with low variation.`);
                         }
-                        
+
                         card.appendChild(headerRow);
-                        
+
                         // Render Bullets
                         const ul = document.createElement('ul');
                         ul.style.cssText = 'margin: 0; padding-left: 20px; color: #ccc; font-size: 0.9em; line-height: 1.5;';
@@ -962,11 +1131,11 @@ window.timelines = {
                             li.style.marginBottom = '4px';
                             ul.appendChild(li);
                         });
-                        
+
                         card.appendChild(ul);
                         findingsContainer.appendChild(card);
                     });
-                    
+
                     chartWrapper.appendChild(findingsContainer);
                 }
             }
@@ -1017,40 +1186,55 @@ window.timelines = {
 
     setFilter: function (varName, filterType) {
         if (!this.timelineState.activeFilters) this.timelineState.activeFilters = {};
-        
+
         // Toggle off if already active, else set
         if (this.timelineState.activeFilters[varName] === filterType) {
             this.timelineState.activeFilters[varName] = 'all';
         } else {
             this.timelineState.activeFilters[varName] = filterType;
         }
-        
+
         const activeFilter = this.timelineState.activeFilters[varName];
-        const plotId = `timeline-plot-${varName}`;
-        
-        // Update chip UI styles
-        const chipsContainer = document.getElementById(`chips-${plotId}`);
-        if (chipsContainer) {
-            chipsContainer.querySelectorAll('.filter-chip').forEach(chip => {
-                chip.style.opacity = '0.4';
-            });
-            const activeChip = document.getElementById(`chip-${plotId}-${activeFilter}`);
-            if (activeChip) activeChip.style.opacity = '1.0';
+        const data = this.timelineData;
+        const varAnalysis = data && data.analysis && data.analysis[varName];
+
+        // Auto-select categories matching the filter.
+        // Categories are already sorted by interestingness score in the
+        // analysis data, so slicing gives us the most interesting matches.
+        const maxAutoSelect = 5;
+
+        if (activeFilter === 'all') {
+            // Reset to top 3 by interestingness
+            if (varAnalysis && Array.isArray(varAnalysis.categories)) {
+                this.timelineState.categoricalSelections[varName] = varAnalysis.categories.slice(0, 3).map(c => c.id);
+            }
+        } else {
+            // Collect all matching categories (in interestingness order)
+            const matching = [];
+            if (varAnalysis && Array.isArray(varAnalysis.categories)) {
+                varAnalysis.categories.forEach(cd => {
+                    const isRising = (cd.trend && cd.trend.total_change > 4);
+                    const isFalling = (cd.trend && cd.trend.total_change < -4);
+                    const hasSpikes = (cd.anomalies && cd.anomalies.length > 0);
+                    const hasBreak = (cd.break && Math.abs(cd.break.delta) > 4);
+                    const isVolatile = (cd.volatility && cd.volatility.std > 2.5);
+                    const isStable = (!isRising && !isFalling && !hasSpikes && !hasBreak && !isVolatile);
+
+                    if ((activeFilter === 'rising' && isRising) ||
+                        (activeFilter === 'falling' && isFalling) ||
+                        (activeFilter === 'spikes' && hasSpikes) ||
+                        (activeFilter === 'breaks' && hasBreak) ||
+                        (activeFilter === 'volatile' && isVolatile) ||
+                        (activeFilter === 'stable' && isStable)) {
+                        matching.push(cd.id);
+                    }
+                });
+            }
+            // Select the top N most interesting matches
+            this.timelineState.categoricalSelections[varName] = matching.slice(0, maxAutoSelect);
         }
-        
-        // Filter the DOM items instantly
-        const catList = document.getElementById(`cat-list-${plotId}`);
-        if (catList) {
-            catList.querySelectorAll('.category-item').forEach(el => {
-                if (activeFilter === 'all') {
-                    el.style.display = 'flex';
-                } else if (el.getAttribute(`data-${activeFilter}`) === 'true') {
-                    el.style.display = 'flex';
-                } else {
-                    el.style.display = 'none';
-                }
-            });
-        }
+
+        this.renderTimelineCharts();
     },
 
     toggleCategory: function (varName, cat) {
