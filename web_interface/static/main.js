@@ -92,7 +92,7 @@ async function loadAndRenderUserTags() {
     container.innerHTML = '<span style="color: #aaa;">Loading...</span>';
 
     try {
-        const res = await fetch('/api/viewer/tags');
+        const res = await fetch('/api/video_analysis/tags');
         const tagsData = await res.json();
 
         // Flatten and Count
@@ -153,7 +153,7 @@ async function deleteUserTag(tagName) {
     try {
         // Tag name needs to be URL encoded properly, but Flask path param handles basic, 
         // explicit encodeURIComponent is safer for special chars.
-        const res = await fetch(`/api/viewer/tags/${encodeURIComponent(tagName)}`, {
+        const res = await fetch(`/api/video_analysis/tags/${encodeURIComponent(tagName)}`, {
             method: 'DELETE'
         });
         const data = await res.json();
@@ -652,7 +652,7 @@ function openTab(evt, tabName) {
     }
 
     // Video Viewer Logic integration
-    if (tabName !== 'video_viewer') {
+    if (tabName !== 'video_analysis') {
         if (typeof pauseViewerVideo === 'function') pauseViewerVideo();
     } else {
         if (typeof playViewerVideo === 'function') {
@@ -672,7 +672,7 @@ function openTab(evt, tabName) {
     }
 
     // Persona Explorer - init on first open
-    if (tabName === 'persona_explorer') {
+    if (tabName === 'collections') {
         if (typeof pe_onShow === 'function') {
             pe_onShow();
         } else if (typeof pe_init === 'function' && (!window.pe_data || window.pe_data.length === 0)) {

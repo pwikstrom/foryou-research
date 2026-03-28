@@ -11,7 +11,7 @@ let pcaData = {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function () {
-    if (document.getElementById('pca_viz')) {
+    if (document.getElementById('correlations')) {
         loadPcaStudies();
     }
 });
@@ -69,7 +69,7 @@ async function loadPcaMetadata() {
     document.getElementById('pca-status').innerText = "Loading metadata...";
 
     try {
-        const res = await fetch(`/api/pca/metadata`, {
+        const res = await fetch(`/api/correlations/metadata`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ study: pcaData.activeStudy })
@@ -290,7 +290,7 @@ async function updatePcaPlot() {
     if (!xCol || !yCol) return;
 
     try {
-        const res = await fetch('/api/pca/data', {
+        const res = await fetch('/api/correlations/data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -591,7 +591,7 @@ async function loadCorrelationHeatmap() {
     if (countEl) countEl.innerText = 'Loading heatmap...';
 
     try {
-        const res = await fetch('/api/pca/correlation_matrix', {
+        const res = await fetch('/api/correlations/correlation_matrix', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

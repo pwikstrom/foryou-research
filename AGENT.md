@@ -99,21 +99,21 @@ fyp_main_v02/
 │   │   ├── login.html / signup.html
 │   │   └── tabs/                # Tab content templates
 │   │       ├── home.html
-│   │       ├── video_viewer.html
-│   │       ├── data_explorer_v2.html
+│   │       ├── video_analysis.html
+│   │       ├── explore.html
 │   │       ├── data_management.html
-│   │       ├── pca_viz.html
+│   │       ├── correlations.html
 │   │       ├── timelines.html
-│   │       ├── persona_explorer.html
+│   │       ├── collections.html
 │   │       ├── admin.html
 │   │       └── settings.html
 │   └── static/                  # JS + CSS (no bundler)
 │       ├── main.js              # Tab navigation controller
-│       ├── viewer.js            # Video viewer logic
-│       ├── explorer_v2.js       # Data explorer
-│       ├── pca_viz.js           # PCA visualisation
+│       ├── video_analysis.js     # Video analysis tab
+│       ├── explore.js           # Data explorer tab
+│       ├── correlations.js      # Correlations tab
 │       ├── timelines.js         # Timelines tab
-│       ├── persona_explorer.js  # Persona/Collections explorer
+│       ├── collections.js       # Collections tab
 │       ├── style.css            # Main stylesheet
 │       ├── js/
 │       │   └── data_management.js

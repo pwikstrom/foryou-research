@@ -142,7 +142,7 @@ def api_get_study_defs():
 
 
 
-@data_bp.route('/api/explorer/metadata', methods=['GET'])
+@data_bp.route('/api/explore/metadata', methods=['GET'])
 @login_required
 def api_explorer_metadata():
 
@@ -418,7 +418,7 @@ def api_explorer_metadata():
 
 
 
-@data_bp.route('/api/explorer/filter', methods=['POST'])
+@data_bp.route('/api/explore/filter', methods=['POST'])
 @login_required
 def api_explorer_filter():
     data = request.json or {}
@@ -513,7 +513,7 @@ def api_explorer_filter():
 
 
 
-@data_bp.route('/api/viewer/ids', methods=['POST'])
+@data_bp.route('/api/video_analysis/ids', methods=['POST'])
 @login_required
 def api_viewer_ids():
     data = request.json or {}
@@ -595,7 +595,7 @@ def api_viewer_ids():
     })
 
 
-@data_bp.route('/api/viewer/tags', methods=['GET'])
+@data_bp.route('/api/video_analysis/tags', methods=['GET'])
 @login_required
 def api_get_tags():
     username = current_user.username
@@ -609,7 +609,7 @@ def api_get_tags():
         return jsonify({})
 
 
-@data_bp.route('/api/viewer/tags/save', methods=['POST'])
+@data_bp.route('/api/video_analysis/tags/save', methods=['POST'])
 @login_required
 def api_save_tags():
     data = request.json or {}
@@ -682,7 +682,7 @@ def api_save_tags():
     return jsonify({"status": "success", "tags": tags, "notes": notes, "closed_tagging": closed_tagging})
 
 
-@data_bp.route('/api/viewer/tags/<path:tag_name>', methods=['DELETE'])
+@data_bp.route('/api/video_analysis/tags/<path:tag_name>', methods=['DELETE'])
 @login_required
 def api_delete_tag(tag_name):
     # Decode tag name (it might contain slashes or spaces, though path parameter handles slashes)
@@ -738,7 +738,7 @@ def api_delete_tag(tag_name):
         return jsonify({"status": "success", "message": "Tag not found in any item"}), 200
 
 
-@data_bp.route('/api/viewer/votes', methods=['GET'])
+@data_bp.route('/api/video_analysis/votes', methods=['GET'])
 @login_required
 def api_get_votes():
     username = current_user.username
@@ -752,7 +752,7 @@ def api_get_votes():
         return jsonify([])
 
 
-@data_bp.route('/api/viewer/vote', methods=['POST'])
+@data_bp.route('/api/video_analysis/vote', methods=['POST'])
 @login_required
 def api_save_vote():
     data = request.json or {}
@@ -800,7 +800,7 @@ def api_save_annotation_vote():
 
 
 
-@data_bp.route('/api/pca/metadata', methods=['POST'])
+@data_bp.route('/api/correlations/metadata', methods=['POST'])
 @login_required
 def api_pca_metadata():
     
@@ -924,7 +924,7 @@ def api_pca_metadata():
     })
 
 
-@data_bp.route('/api/pca/data', methods=['POST'])
+@data_bp.route('/api/correlations/data', methods=['POST'])
 @login_required
 def api_pca_data():
     data = request.json or {}
@@ -1092,7 +1092,7 @@ def api_pca_data():
     return jsonify({"data": result_data, "total_count": total_count})
 
 
-@data_bp.route('/api/pca/correlation_matrix', methods=['POST'])
+@data_bp.route('/api/correlations/correlation_matrix', methods=['POST'])
 @login_required
 def api_pca_correlation_matrix():
     data = request.json or {}
@@ -1172,7 +1172,7 @@ def api_pca_correlation_matrix():
     })
 
 
-@data_bp.route('/api/persona_stats_info', methods=['GET'])
+@data_bp.route('/api/collections/info', methods=['GET'])
 @login_required
 def api_persona_stats_info():
     if True:
@@ -1183,14 +1183,14 @@ def api_persona_stats_info():
         return jsonify({"exists": False, "timestamp": None})
 
 
-@data_bp.route('/api/persona_stats_cached', methods=['GET'])
+@data_bp.route('/api/collections/cached', methods=['GET'])
 @login_required
 def api_persona_stats_cached():
     # Alias to the main stats endpoint since we no longer distinguish between cached and calculated
     return api_persona_stats()
 
 
-@data_bp.route('/api/persona_stats', methods=['POST', 'GET']) # Allow GET for convenience
+@data_bp.route('/api/collections/stats', methods=['POST', 'GET']) # Allow GET for convenience
 @login_required
 def api_persona_stats():
     try:
@@ -1433,7 +1433,7 @@ def api_donation_annotate():
     return jsonify({"status": "success", "donation_id": donation_id, "data": annotations[donation_id]})
 
 
-@data_bp.route('/api/viewer/item/<study>/<item_id>', methods=['GET', 'POST'])
+@data_bp.route('/api/video_analysis/item/<study>/<item_id>', methods=['GET', 'POST'])
 def api_viewer_item(study, item_id):
     df, col_types = get_explorer_data(study, context="viewer")
     if df is None:

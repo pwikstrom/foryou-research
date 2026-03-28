@@ -23,7 +23,7 @@ global.localStorage = {
 global.fetch = () => Promise.resolve({json: () => Promise.resolve({})});
 
 try {
-    const script = fs.readFileSync('web_interface/static/persona_explorer.js', 'utf8')
+    const script = fs.readFileSync('web_interface/static/collections.js', 'utf8')
                      .replace('let PE_METRICS', 'var PE_METRICS')
                      .replace('let pe_selectedId', 'var pe_selectedId');
     eval(script);

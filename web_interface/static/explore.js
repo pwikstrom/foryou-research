@@ -19,7 +19,7 @@ let explorerDataV2 = {
 // Initialization
 document.addEventListener('DOMContentLoaded', function () {
     // Only init if tab exists
-    if (document.getElementById('data_explorer_v2')) {
+    if (document.getElementById('explore')) {
         loadExplorerV2Studies(); // Start by loading studies
 
         // Search Input Listeners
@@ -168,7 +168,7 @@ async function loadExplorerV2Metadata() {
     filterContainer2.innerHTML = funLoader;
 
     try {
-        const res = await fetch(`/api/explorer/metadata?study=${encodeURIComponent(explorerDataV2.activeStudy)}`);
+        const res = await fetch(`/api/explore/metadata?study=${encodeURIComponent(explorerDataV2.activeStudy)}`);
         const data = await res.json();
 
         if (data.error) {
@@ -567,7 +567,7 @@ async function updateExplorerV2Stats(triggerSlice = null) {
             payload.search_query2 = explorerDataV2.searchQuery2;
         }
 
-        const res = await fetch('/api/explorer/filter', {
+        const res = await fetch('/api/explore/filter', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)

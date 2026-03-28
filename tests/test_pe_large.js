@@ -27,7 +27,7 @@ global.localStorage = {
 global.fetch = () => Promise.resolve({json: () => Promise.resolve({})});
 
 try {
-    const content = fs.readFileSync('web_interface/static/persona_explorer.js', 'utf8');
+    const content = fs.readFileSync('web_interface/static/collections.js', 'utf8');
     eval(content);
 
     // Create 150 fake donations

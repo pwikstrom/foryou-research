@@ -19,7 +19,7 @@ let viewerData = {
 // Initialization
 document.addEventListener('DOMContentLoaded', function () {
     // Only init if tab exists
-    if (document.getElementById('video_viewer')) {
+    if (document.getElementById('video_analysis')) {
         loadViewerStudies();
         loadUserTags();
         loadUserVotes();
@@ -93,7 +93,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 async function loadUserTags() {
     try {
-        const res = await fetch('/api/viewer/tags');
+        const res = await fetch('/api/video_analysis/tags');
         if (res.ok) {
             viewerData.userTags = await res.json();
         }
@@ -102,7 +102,7 @@ async function loadUserTags() {
 
 async function loadUserVotes() {
     try {
-        const res = await fetch('/api/viewer/votes');
+        const res = await fetch('/api/video_analysis/votes');
         if (res.ok) {
             viewerData.userVotes = await res.json();
         }
@@ -112,7 +112,7 @@ async function loadUserVotes() {
 async function submitVote(itemId) {
     if (!itemId) return;
     try {
-        const res = await fetch('/api/viewer/vote', {
+        const res = await fetch('/api/video_analysis/vote', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ item_id: itemId })
@@ -212,7 +212,7 @@ async function loadViewerMetadata() {
     filterContainer.innerHTML = funLoader;
 
     try {
-        const res = await fetch(`/api/explorer/metadata?study=${encodeURIComponent(viewerData.activeStudy)}&context=viewer`);
+        const res = await fetch(`/api/explore/metadata?study=${encodeURIComponent(viewerData.activeStudy)}&context=viewer`);
         const data = await res.json();
 
         if (data.error) {
@@ -627,7 +627,7 @@ async function applyViewerFilters() {
     const hideDuplicates = document.getElementById('viewer-hide-duplicates')?.checked || false;
 
     try {
-        const res = await fetch('/api/viewer/ids', {
+        const res = await fetch('/api/video_analysis/ids', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -726,10 +726,10 @@ async function loadViewerItem(index) {
         const newOffset = Math.floor(index / (viewerData.chunkLimit || 1000)) * (viewerData.chunkLimit || 1000);
         const hideDuplicates = document.getElementById('viewer-hide-duplicates')?.checked || false;
 
-        console.log(`[Viewer] Fetching from /api/viewer/ids with offset: ${newOffset}, limit: ${viewerData.chunkLimit || 1000}`);
+        console.log(`[Viewer] Fetching from /api/video_analysis/ids with offset: ${newOffset}, limit: ${viewerData.chunkLimit || 1000}`);
 
         try {
-            const res = await fetch('/api/viewer/ids', {
+            const res = await fetch('/api/video_analysis/ids', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -775,7 +775,7 @@ async function loadViewerItem(index) {
 
     try {
         // Use POST to send context (filters) so backend picks the right row if duplicates exist
-        const res = await fetch(`/api/viewer/item/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`, {
+        const res = await fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -802,7 +802,7 @@ async function loadViewerItem(index) {
         document.getElementById('viewer-video-msg').style.display = "none";
 
         // Check if tab is visible before playing
-        const viewerTab = document.getElementById('video_viewer');
+        const viewerTab = document.getElementById('video_analysis');
         if (viewerTab && viewerTab.classList.contains('active')) {
             // Check User Settings for Autostart
             // If undefined, default to false (as requested "default unchecked")
@@ -1385,7 +1385,7 @@ async function saveTaggingModal() {
     if (!item_id) return; // Study not strictly required for key, but good to have active
 
     try {
-        const res = await fetch('/api/viewer/tags/save', {
+        const res = await fetch('/api/video_analysis/tags/save', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

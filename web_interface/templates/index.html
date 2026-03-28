@@ -22,11 +22,11 @@
 
 
     {% if user.is_admin() %}
-    <button class="tab-button" onclick="openTab(event, 'persona_explorer')">Collections</button>
+    <button class="tab-button" onclick="openTab(event, 'collections')">Collections</button>
     {% endif %}
-    <button class="tab-button" onclick="openTab(event, 'data_explorer_v2')">Explore</button>
-    <button class="tab-button" onclick="openTab(event, 'video_viewer')">Video Analysis</button>
-    <button class="tab-button" onclick="openTab(event, 'pca_viz')">Correlations</button>
+    <button class="tab-button" onclick="openTab(event, 'explore')">Explore</button>
+    <button class="tab-button" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
+    <button class="tab-button" onclick="openTab(event, 'correlations')">Correlations</button>
     <button class="tab-button" onclick="openTab(event, 'timelines')">Timelines</button>
     <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
 
@@ -42,11 +42,11 @@
     {% include 'tabs/home.html' %}
 
     {% if user.is_admin() %}
-    {% include 'tabs/persona_explorer.html' %}
+    {% include 'tabs/collections.html' %}
     {% endif %}
-    {% include 'tabs/data_explorer_v2.html' %}
-    {% include 'tabs/video_viewer.html' %}
-    {% include 'tabs/pca_viz.html' %}
+    {% include 'tabs/explore.html' %}
+    {% include 'tabs/video_analysis.html' %}
+    {% include 'tabs/correlations.html' %}
     {% include 'tabs/timelines.html' %}
     {% include 'tabs/data_management.html' %}
     {% include 'tabs/settings.html' %}
@@ -66,10 +66,10 @@
 
 <script>
     const helpContent = {
-        'persona_explorer': "This tab allows you to examine high level features of individual participants. Use the 'Select Collection' dropdown to choose a donation by one or the research participants. The left panel displays demographic and account metadata, alongside a radar chart summarizing their 'persona shape' based on aggregated metrics. The main panel features strip plots showing where the selected participant falls within the population distribution for various engagement metrics. Click on the 'Configure metrics' button to select which metrics you want to see in the strips. Click on any strip plot to highlight the participant's position among other participants. ",
-        'data_explorer_v2': "This tab facilitates comparative analysis between two distinct user cohorts. Define 'Slice 1' and 'Slice 2' using the respective filter panels on the left and right. The central panel displays comparative statistics and visualizations. For categorical variables, it shows frequency distributions; for numerical variables, it provides mean comparisons.",
-        'video_viewer': "This interface provides direct access to the video dataset for qualitative analysis and annotation. Use the left sidebar to filter videos based on metadata criteria. The central player allows for video playback. To annotate a video, use the metadata panel on the right; existing tags can be selected or new ones created. Hover over metadata fields to access extended tooltips. Crucially, this system supports shared annotations: you can view and act upon tags created by other researchers in your team. All qualitative tags are persisted and serve as filterable attributes across the entire platform.",
-        'pca_viz': "This visualization explores the structural relationships within the dataset using dimensionality reduction (PCA). Each point in the scatter plot represents a single 'Donation-Day' unit—a specific participant's aggregated activity for one calendar date. This granular unit of analysis reveals how individual behaviors evolve over time. The geometric projection maps these high-dimensional activity vectors into 2D space. Use the controls to assign variables to the X, Y, and Colour axes to identify clusters, temporal trajectories, and outliers within this donation-date structure.",
+        'collections': "This tab allows you to examine high level features of individual participants. Use the 'Select Collection' dropdown to choose a donation by one or the research participants. The left panel displays demographic and account metadata, alongside a radar chart summarizing their 'persona shape' based on aggregated metrics. The main panel features strip plots showing where the selected participant falls within the population distribution for various engagement metrics. Click on the 'Configure metrics' button to select which metrics you want to see in the strips. Click on any strip plot to highlight the participant's position among other participants. ",
+        'explore': "This tab facilitates comparative analysis between two distinct user cohorts. Define 'Slice 1' and 'Slice 2' using the respective filter panels on the left and right. The central panel displays comparative statistics and visualizations. For categorical variables, it shows frequency distributions; for numerical variables, it provides mean comparisons.",
+        'video_analysis': "This interface provides direct access to the video dataset for qualitative analysis and annotation. Use the left sidebar to filter videos based on metadata criteria. The central player allows for video playback. To annotate a video, use the metadata panel on the right; existing tags can be selected or new ones created. Hover over metadata fields to access extended tooltips. Crucially, this system supports shared annotations: you can view and act upon tags created by other researchers in your team. All qualitative tags are persisted and serve as filterable attributes across the entire platform.",
+        'correlations': "This visualization explores the structural relationships within the dataset using dimensionality reduction (PCA). Each point in the scatter plot represents a single 'Donation-Day' unit—a specific participant's aggregated activity for one calendar date. This granular unit of analysis reveals how individual behaviors evolve over time. The geometric projection maps these high-dimensional activity vectors into 2D space. Use the controls to assign variables to the X, Y, and Colour axes to identify clusters, temporal trajectories, and outliers within this donation-date structure.",
         'timelines': "This view visualizes temporal patterns in user activity. The sidebar allows for the selection of temporal aggregation levels (Day, Week, Month) and specific participants. The main chart displays activity volume over time, enabling the analysis of longitudinal trends, seasonal effects, and engagement spikes. Use this to contextualize user behavior within the broader timeframe of the study."
     };
 

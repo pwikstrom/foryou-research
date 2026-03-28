@@ -108,7 +108,7 @@ function pe_init() {
     pe_loadSettings();
 
     // Fetch stats info to update timestamp display
-    fetch('/api/persona_stats_info')
+    fetch('/api/collections/info')
         .then(response => response.json())
         .then(info => {
             const timestampEl = document.getElementById('pe-stats-timestamp');
@@ -129,7 +129,7 @@ function pe_loadCachedStats() {
     const container = document.getElementById('pe-strips-container');
     if (container) container.innerHTML = '<p style="text-align:center; color:#999;">Loading cached stats...</p>';
 
-    return fetch('/api/persona_stats_cached')
+    return fetch('/api/collections/cached')
         .then(response => {
             // Extract MTime header
             const mtimeHeader = response.headers.get('X-Metadata-MTime');
