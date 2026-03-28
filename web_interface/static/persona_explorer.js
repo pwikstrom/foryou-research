@@ -492,77 +492,6 @@ function pe_selectDonation(donationId) {
     pe_selectedId = donationId;
     window.pe_selectedId = donationId;
 
-    document.getElementById('pe-details-id').innerText = donationId;
-    const monikerEl = document.getElementById('pe-details-moniker');
-    if (monikerEl) monikerEl.innerText = donation.moniker || 'Unknown Persona';
-
-    // Populate Annotations
-    const annotDisplayId = document.getElementById('pe-annot-display-id');
-    if (annotDisplayId) {
-        // Default to D_donation_id if display ID is empty
-        annotDisplayId.value = donation.display_donation_id || donation.D_donation_id || '';
-    }
-
-    // Initialize Tags
-    pe_renderTags();
-
-    // Helper for missing values
-    const orNotProvided = (v) => (v !== null && v !== undefined && v !== '') ? v : 'not provided';
-
-    // Participant info - Hide missing items
-    const pInfoSection = document.getElementById('pe-participant-info-section');
-    let visibleInfoCount = 0;
-
-    const updateInfoStat = (elementId, value) => {
-        const el = document.getElementById(elementId);
-        if (!el) return;
-
-        const li = el.closest('li');
-        // Check if value is "meaningful" (not null, undefined, or empty string)
-        if (value !== null && value !== undefined && value !== '') {
-            el.innerText = value;
-            if (li) li.style.display = 'flex';
-            visibleInfoCount++;
-        } else {
-            if (li) li.style.display = 'none';
-        }
-    };
-
-    updateInfoStat('pe-stat-name', donation.name);
-    updateInfoStat('pe-stat-email', donation.email);
-    updateInfoStat('pe-stat-tiktok', donation.tiktokHandle);
-    updateInfoStat('pe-stat-age', donation.age);
-    updateInfoStat('pe-stat-country', donation.country);
-    updateInfoStat('pe-stat-postcode', donation.postCode);
-
-    // Donation date formatting
-    const fmtDate = (ts) => {
-        if (!ts) return 'not provided';
-        const d = new Date(ts);
-        return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
-    };
-    document.getElementById('pe-stat-donation-date').innerText = fmtDate(donation.date);
-
-    // Activity stats
-    const tz = donation.inferred_tz_offset;
-    const tzStr = tz !== null && tz !== undefined
-        ? `UTC${tz >= 0 ? '+' : ''}${tz}`
-        : 'Unknown';
-    document.getElementById('pe-stat-timezone').innerText = tzStr;
-
-
-
-    document.getElementById('pe-stat-active-days').innerText = donation.active_days || 0;
-    document.getElementById('pe-stat-total-events').innerText = (donation.total_events || 0).toLocaleString();
-    document.getElementById('pe-stat-peak-segment').innerText = donation.peak_day_segment || 'Unknown';
-
-    const watchHours = ((donation.total_watch_time_s || 0) / 3600).toFixed(1);
-    document.getElementById('pe-stat-watch-time').innerText = `${watchHours} hrs`;
-
-    document.getElementById('pe-stat-first-event').innerText = fmtDate(donation.first_event_ts);
-    document.getElementById('pe-stat-last-event').innerText = fmtDate(donation.last_event_ts);
-
-
     // Update strip selection highlighting
     pe_updateStripSelection();
 
@@ -571,7 +500,7 @@ function pe_selectDonation(donationId) {
     let matchedRow = null;
     document.querySelectorAll('.edit-activity-item').forEach(row => {
         if (row.getAttribute('data-donation-id') === donationId) {
-            row.style.background = '#333';
+            row.style.background = '#1b4d4d';
             matchedRow = row;
         } else {
             row.style.background = 'transparent';

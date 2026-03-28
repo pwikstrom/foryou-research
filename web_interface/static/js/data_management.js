@@ -279,7 +279,7 @@ window.sortCollectionTable = function (th, forceDir = null) {
         }
     }
 
-    const isNumeric = ['Age', 'Active Days', 'Total Events'].includes(textContent);
+    const isNumeric = ['Age', 'Active Days', 'Total Events', 'Watch Time'].includes(textContent);
 
     rows.sort((a, b) => {
         let cellA = a.children[columnIndex].textContent.trim();
@@ -1180,24 +1180,34 @@ function renderEditActivityTable(container) {
 
     const table = document.createElement('table');
     table.className = 'collection-table';
-    table.style.width = '100%';
+    table.style.minWidth = '100%';
+    table.style.width = 'max-content';
     table.style.borderCollapse = 'collapse';
     table.style.color = '#ddd';
     table.style.fontSize = '0.9em';
+    table.style.whiteSpace = 'nowrap';
 
+    const thStyle = 'padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;';
     const thead = document.createElement('thead');
     thead.innerHTML = `
         <tr style="text-align: left;">
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Collection / Display ID</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Tags</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Age</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Country</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">PostCode</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Active Days</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Total Events</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Last Event</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Added</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; border-bottom: 2px solid #555; width: 40px;"></th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Collection / Display ID</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Tags</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Name</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Email</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">TikTok</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Age</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Country</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">PostCode</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Timezone</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Active Days</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Total Events</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Peak Segment</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Watch Time</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">First Event</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Last Event</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Added</th>
         </tr>
     `;
     table.appendChild(thead);
@@ -1208,6 +1218,7 @@ function renderEditActivityTable(container) {
         const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
         let pEmail = '', pName = '', pTiktok = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
         let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
+        let pTimezone = '', pPeakSegment = '', pWatchTime = '', pFirstEvent = '';
         let searchString = item;
 
         if (typeof itemInfo === 'object') {
@@ -1228,11 +1239,23 @@ function renderEditActivityTable(container) {
                 if (itemInfo.personas.last_event_ts) {
                     pLastEvent = String(itemInfo.personas.last_event_ts).split('T')[0];
                 }
+                if (itemInfo.personas.first_event_ts) {
+                    pFirstEvent = String(itemInfo.personas.first_event_ts).split('T')[0];
+                }
+                const tz = itemInfo.personas.inferred_tz_offset;
+                if (tz !== null && tz !== undefined) {
+                    pTimezone = `UTC${tz >= 0 ? '+' : ''}${tz}`;
+                }
+                pPeakSegment = itemInfo.personas.peak_day_segment || '';
+                const watchSec = itemInfo.personas.total_watch_time_s;
+                if (watchSec !== null && watchSec !== undefined) {
+                    pWatchTime = `${(watchSec / 3600).toFixed(1)} hrs`;
+                }
             }
             if (itemInfo.other && itemInfo.other.ts_added_to_dataset) {
                 pAdded = String(itemInfo.other.ts_added_to_dataset).split('T')[0];
             }
-            searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pTiktok} ${pAge} ${pCountry} ${pPostCode} ${pActiveDays} ${pTotalEvents} ${pLastEvent} ${pAdded}`;
+            searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pTiktok} ${pAge} ${pCountry} ${pPostCode} ${pTimezone} ${pActiveDays} ${pTotalEvents} ${pPeakSegment} ${pWatchTime} ${pFirstEvent} ${pLastEvent} ${pAdded}`;
         }
 
         const tr = document.createElement('tr');
@@ -1248,13 +1271,18 @@ function renderEditActivityTable(container) {
             tr.style.color = '#888';
         }
 
-        tr.onmouseover = () => {
-            tr.style.background = '#333';
+        tr.onmouseenter = () => {
+            if (window.pe_selectedId !== item) tr.style.background = '#383838';
         };
-        tr.onmouseout = () => {
-            tr.style.background = (window.pe_selectedId === item) ? '#333' : 'transparent';
+        tr.onmouseleave = () => {
+            tr.style.background = (window.pe_selectedId === item) ? '#1b4d4d' : 'transparent';
         };
         tr.onclick = () => {
+            // Highlight the clicked row in the table
+            window.pe_selectedId = item;
+            document.querySelectorAll('.edit-activity-item').forEach(r => {
+                r.style.background = (r.getAttribute('data-donation-id') === item) ? '#1b4d4d' : 'transparent';
+            });
             // Sync with bee swarm selection
             if (typeof pe_selectDonation === 'function') {
                 pe_selectDonation(item);
@@ -1273,24 +1301,13 @@ function renderEditActivityTable(container) {
             return td;
         }
 
-        const primaryId = pDisplayId ? pDisplayId : item;
-        tr.appendChild(createCell(primaryId, true, item));
-        tr.appendChild(createCell(pTags));
-        tr.appendChild(createCell(pAge));
-        tr.appendChild(createCell(pCountry));
-        tr.appendChild(createCell(pPostCode));
-        tr.appendChild(createCell(pActiveDays));
-        tr.appendChild(createCell(pTotalEvents));
-        tr.appendChild(createCell(pLastEvent));
-        tr.appendChild(createCell(pAdded));
-
-        // Edit button
+        // Edit button (first column)
         const editTd = document.createElement('td');
         editTd.style.padding = '5px';
         editTd.style.textAlign = 'center';
         const editBtn = document.createElement('button');
         editBtn.innerHTML = '<i class="fas fa-pen"></i>';
-        editBtn.style.cssText = 'background: #555; border: none; color: #ccc; cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 0.8em;';
+        editBtn.style.cssText = 'background: #2d8f8f; border: none; color: #fff; cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 0.8em;';
         editBtn.title = 'Edit collection';
         editBtn.onclick = (e) => {
             e.stopPropagation();
@@ -1298,6 +1315,24 @@ function renderEditActivityTable(container) {
         };
         editTd.appendChild(editBtn);
         tr.appendChild(editTd);
+
+        const primaryId = pDisplayId ? pDisplayId : item;
+        tr.appendChild(createCell(primaryId, true, item));
+        tr.appendChild(createCell(pTags));
+        tr.appendChild(createCell(pName));
+        tr.appendChild(createCell(pEmail));
+        tr.appendChild(createCell(pTiktok));
+        tr.appendChild(createCell(pAge));
+        tr.appendChild(createCell(pCountry));
+        tr.appendChild(createCell(pPostCode));
+        tr.appendChild(createCell(pTimezone));
+        tr.appendChild(createCell(pActiveDays));
+        tr.appendChild(createCell(pTotalEvents));
+        tr.appendChild(createCell(pPeakSegment));
+        tr.appendChild(createCell(pWatchTime));
+        tr.appendChild(createCell(pFirstEvent));
+        tr.appendChild(createCell(pLastEvent));
+        tr.appendChild(createCell(pAdded));
 
         tbody.appendChild(tr);
     });
@@ -1318,7 +1353,7 @@ function renderEditActivityTable(container) {
 
 function filterEditActivityCollections(inputElement) {
     const searchText = inputElement.value.toLowerCase();
-    const selectorDiv = inputElement.closest('.edit-activity-content') || document.getElementById('edit-activity-content');
+    const selectorDiv = inputElement.closest('.pe-edit-activity-section') || document.getElementById('edit-activity-list-container');
     const items = selectorDiv.querySelectorAll('.edit-activity-item');
 
     items.forEach(item => {

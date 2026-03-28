@@ -21,45 +21,14 @@
         </div>
         <div class="edit-activity-selector" style="border: 1px solid #555; background: #3e3e42; border-radius: 4px;">
             <div id="edit-activity-list-container" class="edit-activity-checklist-container"
-                style="max-height: 250px; overflow-y: auto; text-align: left; background: #2d2d30; padding: 0;">
+                style="max-height: 250px; overflow-y: auto; overflow-x: auto; text-align: left; background: #2d2d30; padding: 0;">
                 <div style="padding: 10px; color: #ccc;">Loading collections...</div>
             </div>
         </div>
     </div>
 
     <div class="pe-container">
-        <!-- Left Panel: Collection Info -->
-        <div class="pe-sidebar">
-            <div class="panel-card">
-                <div id="pe-details-card" class="details-card">
-                    <h4>Collection Info</h4>
-                    <p id="pe-details-id" style="font-size: 0.8em; color: #888; word-break: break-all; margin: 5px 0 10px 0;">Hover over a dot to view collection details</p>
-
-                    <div id="pe-participant-info-section" class="stats-section">
-                        <ul class="stats-list">
-                            <li><span class="stat-label">Name:</span> <span id="pe-stat-name"></span></li>
-                            <li><span class="stat-label">Email:</span> <span id="pe-stat-email"></span></li>
-                            <li><span class="stat-label">TikTok:</span> <span id="pe-stat-tiktok"></span></li>
-                            <li><span class="stat-label">Age:</span> <span id="pe-stat-age"></span></li>
-                            <li><span class="stat-label">Country:</span> <span id="pe-stat-country"></span></li>
-                            <li><span class="stat-label">Post Code:</span> <span id="pe-stat-postcode"></span></li>
-                            <li><span class="stat-label">Date Added:</span> <span id="pe-stat-donation-date"></span></li>
-                            <li><span class="stat-label">Display ID:</span> <span id="pe-stat-display-id"></span></li>
-                            <li><span class="stat-label">Timezone:</span> <span id="pe-stat-timezone"></span></li>
-                            <li><span class="stat-label">Active Days:</span> <span id="pe-stat-active-days"></span></li>
-                            <li><span class="stat-label">Total Events:</span> <span id="pe-stat-total-events"></span></li>
-                            <li><span class="stat-label">Peak Segment:</span> <span id="pe-stat-peak-segment"></span></li>
-                            <li><span class="stat-label">Watch Time:</span> <span id="pe-stat-watch-time"></span></li>
-                            <li><span class="stat-label">First Event:</span> <span id="pe-stat-first-event"></span></li>
-                            <li><span class="stat-label">Last Event:</span> <span id="pe-stat-last-event"></span></li>
-                            <li><span class="stat-label">Tags:</span> <span id="pe-stat-tags"></span></li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Main Panel: Metric Strip Plots -->
+        <!-- Main Panel: Metric Strip Plots (full width) -->
         <div class="pe-main">
             <div class="panel-card" style="overflow-y: auto;">
                 <h4>Distribution by Metric</h4>
@@ -141,16 +110,6 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-    }
-
-    .pe-sidebar {
-        flex: 0 0 350px;
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
-        overflow-y: auto;
-        max-height: 100%;
-        /* Ensure it doesn't overflow parent */
     }
 
     .pe-main {
