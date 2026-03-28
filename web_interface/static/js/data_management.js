@@ -1093,7 +1093,7 @@ function renderIngestionSources(sources) {
             </div>
             <div style="margin-top: 10px;">
                 <input type="file" id="file-${source.class_name}" style="display: none;" onchange="uploadIngestionFile('${source.class_name}', '${source.raw_path}')">
-                <button type="button" class="action-btn" style="background-color: var(--color-info);" onclick="document.getElementById('file-${source.class_name}').click()">
+                <button type="button" class="action-btn" onclick="document.getElementById('file-${source.class_name}').click()">
                     Browse and Upload File
                 </button>
                 <div id="upload-status-${source.class_name}" style="margin-top: 5px; font-size: 0.85em; font-weight: bold; display: none;"></div>
