@@ -31,8 +31,38 @@ function getCSSVar(name) {
 let previousProcessStates = {};
 setInterval(updateLogs, 1000);
 
+// --- Theme Toggle ---
+function toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('fyp-theme', next);
+    updateThemeIcon(next);
+}
+
+function updateThemeIcon(theme) {
+    const icon = document.getElementById('theme-toggle');
+    if (icon) {
+        icon.innerHTML = theme === 'dark' ? '&#127769;' : '&#9728;&#65039;';
+        icon.title = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    }
+}
+
+// Apply saved theme immediately (before onload to avoid flash)
+(function () {
+    const saved = localStorage.getItem('fyp-theme');
+    if (saved && saved !== document.documentElement.getAttribute('data-theme')) {
+        document.documentElement.setAttribute('data-theme', saved);
+    }
+})();
+
 // Initial load
 window.onload = function () {
+    // Apply theme icon
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    updateThemeIcon(theme);
+
     updateStatus();
     setInterval(updateStatus, 1000); // 1 second interval
 
