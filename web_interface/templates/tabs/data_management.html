@@ -51,7 +51,7 @@
                 </div>
                 <button type="button" class="action-btn"
                     onclick="refreshIngestionCollection(this); event.stopPropagation();"
-                    style="background-color: var(--color-purple); padding: 6px 12px;">Process Local Raw Files</button>
+                    style="padding: 6px 12px;">Process Local Raw Files</button>
             </div>
             <div id="ingestion-content" style="padding: 0 20px 20px 20px;">
                 <p style="color: var(--color-text-tertiary); margin-bottom: 15px; font-size: 0.9em;">Upload raw data files directly to the
@@ -84,16 +84,16 @@
                         </select>
                         <button type="button" class="action-btn" id="btn-queue-study"
                             onclick="queueVideosFromTargetStudy(this)"
-                            style="background-color: var(--color-info); margin-left: 10px;">Queue videos from target
+                            style="margin-left: 10px;">Queue videos from target
                             study</button>
                     </div>
 
                     <div style="display: flex; gap: 10px;">
-                        <button type="button" id="btn-queue-voted" class="action-btn" style="background-color: var(--color-success);"
+                        <button type="button" id="btn-queue-voted" class="action-btn"
                             onclick="queueVotedVideos(this)">Queue User Voted
                             Videos</button>
 
-                        <button type="button" class="action-btn" style="background-color: var(--color-purple);"
+                        <button type="button" class="action-btn"
                             onclick="consolidateEnrichmentData(this)">Consolidate
                             New Scrapes & Annotations</button>
                     </div>
