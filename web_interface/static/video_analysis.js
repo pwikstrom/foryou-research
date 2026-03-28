@@ -124,7 +124,7 @@ async function submitVote(itemId) {
                 // Re-render just the button text
                 const container = document.getElementById('viewer-vote-container');
                 if (container) {
-                    container.innerHTML = '<span style="color: #aaa; font-style: italic;">Voted</span>';
+                    container.innerHTML = '<span style="color: var(--color-text-tertiary); font-style: italic;">Voted</span>';
                 }
             }
         } else {
@@ -216,7 +216,7 @@ async function loadViewerMetadata() {
         const data = await res.json();
 
         if (data.error) {
-            filterContainer.innerHTML = `<div style="color:red; text-align:center;">${data.error}</div>`;
+            filterContainer.innerHTML = `<div style="color:var(--color-danger); text-align:center;">${data.error}</div>`;
             return;
         }
 
@@ -238,7 +238,7 @@ async function loadViewerMetadata() {
 
     } catch (e) {
         console.error(e);
-        filterContainer.innerHTML = '<div style="color:red; text-align:center;">Failed to load metadata</div>';
+        filterContainer.innerHTML = '<div style="color:var(--color-danger); text-align:center;">Failed to load metadata</div>';
     }
 }
 
@@ -349,17 +349,17 @@ function renderViewerFilters(metadata) {
         const sectionDiv = document.createElement('div');
         sectionDiv.className = 'filter-section';
         sectionDiv.style.marginBottom = '10px';
-        sectionDiv.style.border = '1px solid #3e3e42';
+        sectionDiv.style.border = `1px solid ${getCSSVar('--color-border')}`;
         sectionDiv.style.borderRadius = '4px';
         sectionDiv.style.overflow = 'hidden';
 
         // Header
         const header = document.createElement('div');
-        header.style.background = '#3e3e42';
+        header.style.background = getCSSVar('--color-border');
         header.style.padding = '8px 10px';
         header.style.cursor = 'pointer';
         header.style.fontWeight = 'bold';
-        header.style.color = '#eee';
+        header.style.color = getCSSVar('--gray-50');
         header.style.userSelect = 'none';
         header.style.display = 'flex';
         header.style.alignItems = 'center';
@@ -372,7 +372,7 @@ function renderViewerFilters(metadata) {
         // Body (Variables)
         const body = document.createElement('div');
         body.style.padding = '10px';
-        body.style.background = '#252526';
+        body.style.background = getCSSVar('--color-bg-surface');
         body.style.display = isCollapsed ? 'none' : 'block';
 
         // Toggle Logic
@@ -405,7 +405,7 @@ function renderViewerFilters(metadata) {
             const wrapper = document.createElement('div');
             wrapper.className = 'filter-group';
             wrapper.style.marginBottom = '15px';
-            wrapper.style.borderBottom = '1px solid #333';
+            wrapper.style.borderBottom = `1px solid ${getCSSVar('--color-border-subtle')}`;
             wrapper.style.paddingBottom = '10px';
 
             const label = document.createElement('label');
@@ -419,7 +419,7 @@ function renderViewerFilters(metadata) {
             label.style.fontWeight = 'bold';
             label.style.display = 'block';
             label.style.marginBottom = '5px';
-            label.style.color = '#d4d4d4';
+            label.style.color = getCSSVar('--color-text-primary');
             wrapper.appendChild(label);
 
             if (info.type === 'number') {
@@ -434,7 +434,7 @@ function renderViewerFilters(metadata) {
                 labelRow.style.display = 'flex';
                 labelRow.style.justifyContent = 'space-between';
                 labelRow.style.fontSize = '0.85em';
-                labelRow.style.color = '#888';
+                labelRow.style.color = getCSSVar('--color-text-muted');
                 labelRow.style.marginTop = '-5px'; // Tweak spacing
 
                 const minLabel = document.createElement('span');
@@ -506,8 +506,8 @@ function renderViewerFilters(metadata) {
                 const listContainer = document.createElement('div');
                 listContainer.style.maxHeight = '150px';
                 listContainer.style.overflowY = 'auto';
-                listContainer.style.background = '#252526';
-                listContainer.style.border = '1px solid #3e3e42';
+                listContainer.style.background = getCSSVar('--color-bg-surface');
+                listContainer.style.border = `1px solid ${getCSSVar('--color-border')}`;
                 listContainer.style.padding = '5px';
 
                 info.values.forEach(val => {
@@ -832,7 +832,7 @@ function linkify(text) {
     // URL Regex
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     return escaped.replace(urlRegex, function (url) {
-        return `<a href="${url}" target="_blank" style="color: #4daafc; text-decoration: underline;">${url}</a>`;
+        return `<a href="${url}" target="_blank" style="color: var(--color-info); text-decoration: underline;">${url}</a>`;
     });
 }
 
@@ -851,14 +851,14 @@ function renderMetadata(item) {
         const isFailed = mach_ann === 'Cannot Machine Annotate' || ann_ok === false || ann_ok === 'False' || ann_ok === 0;
 
         if (isSuccess) {
-            voteContainer.innerHTML = '<span style="color: #4CAF50;">Machine Annotation Success</span>';
+            voteContainer.innerHTML = '<span style="color: var(--color-success);">Machine Annotation Success</span>';
         } else if (isFailed) {
-            voteContainer.innerHTML = '<span style="color: #e57373;">Cannot Machine Annotate</span>';
+            voteContainer.innerHTML = '<span style="color: var(--color-danger-soft);">Cannot Machine Annotate</span>';
         } else {
             if (viewerData.userVotes && viewerData.userVotes.includes(itemIdStr)) {
-                voteContainer.innerHTML = '<span style="color: #aaa; font-style: italic;">Voted</span>';
+                voteContainer.innerHTML = '<span style="color: var(--color-text-tertiary); font-style: italic;">Voted</span>';
             } else {
-                voteContainer.innerHTML = `<button class="btn-primary" style="padding: 2px 8px; font-size: 0.85em; cursor: pointer; border: none; border-radius: 4px; background-color: #007acc; color: white;" onclick="submitVote('${itemIdStr}')">Vote to machine annotate</button>`;
+                voteContainer.innerHTML = `<button class="btn-primary" style="padding: 2px 8px; font-size: 0.85em; cursor: pointer; border: none; border-radius: 4px; background-color: var(--color-info); color: white;" onclick="submitVote('${itemIdStr}')">Vote to machine annotate</button>`;
             }
         }
     }
@@ -866,8 +866,8 @@ function renderMetadata(item) {
     // Inject Display ID if present at top
     if (item.display_donation_id) {
         const didRow = document.createElement('tr');
-        didRow.style.background = '#333';
-        didRow.innerHTML = `<td style="padding:5px; font-weight:bold; color:#88e;">Display ID</td><td style="padding:5px; font-weight:bold; color:#fff;">${item.display_donation_id}</td>`;
+        didRow.style.background = getCSSVar('--color-border-subtle');
+        didRow.innerHTML = `<td style="padding:5px; font-weight:bold; color:var(--color-info);">Display ID</td><td style="padding:5px; font-weight:bold; color:var(--white);">${item.display_donation_id}</td>`;
         tbody.appendChild(didRow);
     }
 
@@ -955,14 +955,14 @@ function renderMetadata(item) {
         if (keys.length === 0) return;
 
         const headerRow = document.createElement('tr');
-        headerRow.style.background = '#3e3e42';
+        headerRow.style.background = getCSSVar('--color-border');
         headerRow.style.cursor = 'pointer';
 
         const headerCell = document.createElement('td');
         headerCell.colSpan = 2;
         headerCell.style.padding = '8px';
         headerCell.style.fontWeight = 'bold';
-        headerCell.style.color = '#fff';
+        headerCell.style.color = getCSSVar('--white');
         headerCell.innerHTML = `&#9662; ${sec}`; // Down arrow default
         headerRow.appendChild(headerCell);
 
@@ -1010,16 +1010,16 @@ function renderMetadata(item) {
             const hasMyAnnotation = myCount > 0 || itemNotes || itemCC;
 
             if (hasMyAnnotation) {
-                styleColor = '#4CAF50';
+                styleColor = getCSSVar('--color-success');
                 styleWeight = 'bold';
                 if (myCount > 0) displayText += ` [${myCount}]`;
 
                 if (itemNotes || itemCC) {
-                    decoration = 'underline dotted #4CAF50';
+                    decoration = `underline dotted ${getCSSVar('--color-success')}`;
                 }
             } else if (hasShared) {
                 // Only shared
-                styleColor = '#4daafc'; // Blue
+                styleColor = getCSSVar('--color-info');
                 styleWeight = 'normal'; // Or bold? Let's keep normal but colored to distinguish from mine
                 // Count total other tags?
                 let otherTagCount = 0;
@@ -1028,7 +1028,7 @@ function renderMetadata(item) {
                 });
                 if (otherTagCount > 0) displayText += ` [${otherTagCount}]`;
 
-                decoration = 'underline dotted #4daafc'; // Shared implie annotation
+                decoration = `underline dotted ${getCSSVar('--color-info')}`; // Shared implie annotation
             }
 
             if (styleColor) tdKey.style.color = styleColor;
@@ -1037,9 +1037,9 @@ function renderMetadata(item) {
 
             // If BOTH, add indicator for shared
             if (hasMyAnnotation && hasShared) {
-                suffix = ' <span style="color:#4daafc" title="Annotated by others">👥</span>';
+                suffix = ' <span style="color:var(--color-info)" title="Annotated by others">👥</span>';
             } else if (hasShared && !hasMyAnnotation) {
-                suffix = ' <span style="color:#4daafc" title="Annotated by others">👥</span>';
+                suffix = ' <span style="color:var(--color-info)" title="Annotated by others">👥</span>';
             }
 
             tdKey.innerHTML = displayText + suffix;
@@ -1322,9 +1322,9 @@ function renderModalChips() {
         const chip = document.createElement('div');
 
         // Style: Blue if selected, Gray if available
-        const bg = isSelected ? '#007acc' : '#444';
-        const color = '#fff';
-        const border = isSelected ? '1px solid #009ce6' : '1px solid #555';
+        const bg = isSelected ? getCSSVar('--chip-selected-bg') : getCSSVar('--chip-bg');
+        const color = getCSSVar('--chip-selected-text');
+        const border = isSelected ? `1px solid ${getCSSVar('--chip-selected-border')}` : `1px solid ${getCSSVar('--chip-border')}`;
 
         chip.style.cssText = `background:${bg};color:${color};border:${border};padding:4px 10px;border-radius:12px;display:flex;gap:5px;align-items:center;cursor:pointer;user-select:none;font-size:0.9em;transition:all 0.1s;`;
 

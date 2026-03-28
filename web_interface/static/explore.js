@@ -60,18 +60,18 @@ function setExplorerV2SliceMode(isDual) {
     const dualBtn = document.getElementById('explorer-v2-toggle-dual');
     if (singleBtn && dualBtn) {
         if (isDual) {
-            singleBtn.style.background = '#3c3c3c';
-            singleBtn.style.color = '#aaa';
+            singleBtn.style.background = getCSSVar('--color-bg-input');
+            singleBtn.style.color = getCSSVar('--color-text-tertiary');
             singleBtn.style.fontWeight = 'normal';
-            dualBtn.style.background = '#2196F3';
-            dualBtn.style.color = '#fff';
+            dualBtn.style.background = getCSSVar('--color-info');
+            dualBtn.style.color = getCSSVar('--white');
             dualBtn.style.fontWeight = 'bold';
         } else {
-            singleBtn.style.background = '#4CAF50';
-            singleBtn.style.color = '#fff';
+            singleBtn.style.background = getCSSVar('--color-success');
+            singleBtn.style.color = getCSSVar('--white');
             singleBtn.style.fontWeight = 'bold';
-            dualBtn.style.background = '#3c3c3c';
-            dualBtn.style.color = '#aaa';
+            dualBtn.style.background = getCSSVar('--color-bg-input');
+            dualBtn.style.color = getCSSVar('--color-text-tertiary');
             dualBtn.style.fontWeight = 'normal';
         }
     }
@@ -172,7 +172,7 @@ async function loadExplorerV2Metadata() {
         const data = await res.json();
 
         if (data.error) {
-            const errHtml = `<div style="color:red; text-align:center;">${data.error}</div>`;
+            const errHtml = `<div style="color:var(--color-danger); text-align:center;">${data.error}</div>`;
             filterContainer1.innerHTML = errHtml;
             filterContainer2.innerHTML = errHtml;
             return;
@@ -196,7 +196,7 @@ async function loadExplorerV2Metadata() {
         updateExplorerV2Stats();
     } catch (e) {
         console.error(e);
-        filterContainer1.innerHTML = '<div style="color:red; text-align:center;">Failed to load metadata</div>';
+        filterContainer1.innerHTML = '<div style="color:var(--color-danger); text-align:center;">Failed to load metadata</div>';
     }
 }
 
@@ -273,17 +273,17 @@ function renderFiltersV2(metadata, sliceId) {
         const sectionDiv = document.createElement('div');
         sectionDiv.className = 'filter-section';
         sectionDiv.style.marginBottom = '10px';
-        sectionDiv.style.border = '1px solid #3e3e42';
+        sectionDiv.style.border = `1px solid ${getCSSVar('--color-border')}`;
         sectionDiv.style.borderRadius = '4px';
         sectionDiv.style.overflow = 'hidden';
 
         // Header
         const header = document.createElement('div');
-        header.style.background = '#3e3e42';
+        header.style.background = getCSSVar('--color-border');
         header.style.padding = '8px 10px';
         header.style.cursor = 'pointer';
         header.style.fontWeight = 'bold';
-        header.style.color = '#eee';
+        header.style.color = getCSSVar('--gray-50');
         header.style.userSelect = 'none';
         header.style.display = 'flex';
         header.style.alignItems = 'center';
@@ -296,7 +296,7 @@ function renderFiltersV2(metadata, sliceId) {
         // Body (Variables)
         const body = document.createElement('div');
         body.style.padding = '10px';
-        body.style.background = '#252526';
+        body.style.background = getCSSVar('--color-bg-surface');
         body.style.display = isCollapsed ? 'none' : 'block';
 
         // Toggle Logic
@@ -326,7 +326,7 @@ function renderFiltersV2(metadata, sliceId) {
             const wrapper = document.createElement('div');
             wrapper.className = 'filter-group';
             wrapper.style.marginBottom = '15px';
-            wrapper.style.borderBottom = '1px solid #333';
+            wrapper.style.borderBottom = `1px solid ${getCSSVar('--color-border-subtle')}`;
             wrapper.style.paddingBottom = '10px';
 
             const label = document.createElement('label');
@@ -340,7 +340,7 @@ function renderFiltersV2(metadata, sliceId) {
             label.style.fontWeight = 'bold';
             label.style.display = 'block';
             label.style.marginBottom = '5px';
-            label.style.color = '#d4d4d4';
+            label.style.color = getCSSVar('--color-text-primary');
             wrapper.appendChild(label);
 
             if (info.type === 'number') {
@@ -355,7 +355,7 @@ function renderFiltersV2(metadata, sliceId) {
                 labelRow.style.display = 'flex';
                 labelRow.style.justifyContent = 'space-between';
                 labelRow.style.fontSize = '0.85em';
-                labelRow.style.color = '#888';
+                labelRow.style.color = getCSSVar('--color-text-muted');
                 labelRow.style.marginTop = '-5px';
 
                 const minLabel = document.createElement('span');
@@ -425,8 +425,8 @@ function renderFiltersV2(metadata, sliceId) {
                 const listContainer = document.createElement('div');
                 listContainer.style.maxHeight = '150px';
                 listContainer.style.overflowY = 'auto';
-                listContainer.style.background = '#252526';
-                listContainer.style.border = '1px solid #3e3e42';
+                listContainer.style.background = getCSSVar('--color-bg-surface');
+                listContainer.style.border = `1px solid ${getCSSVar('--color-border')}`;
                 listContainer.style.padding = '5px';
 
                 info.values.forEach(val => {
@@ -472,7 +472,7 @@ function renderFiltersV2(metadata, sliceId) {
                 });
 
                 if (info.values.length === 0) {
-                    listContainer.innerHTML = '<div style="color:#777; font-size:0.8em;">No values</div>';
+                    listContainer.innerHTML = '<div style="color:var(--color-text-faint); font-size:0.8em;">No values</div>';
                 }
 
                 wrapper.appendChild(listContainer);
@@ -657,7 +657,7 @@ function renderStatsV2(stats1, stats2) {
 
         const card = document.createElement('div');
         card.className = 'stats-card';
-        card.style.background = '#2d2d30';
+        card.style.background = getCSSVar('--color-bg-elevated');
         card.style.padding = '10px';
         card.style.marginBottom = '10px';
         card.style.borderRadius = '4px';
@@ -673,8 +673,8 @@ function renderStatsV2(stats1, stats2) {
         if (s1.mean !== undefined) {
             const m1 = parseFloat(s1.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
             meanHtml += isDual
-                ? `<span style="font-size:0.8em; margin-left:10px; color:#4CAF50;">S1: ${m1}</span>`
-                : `<span style="font-size:0.8em; margin-left:10px; color:#aaa;">Mean: ${m1}</span>`;
+                ? `<span style="font-size:0.8em; margin-left:10px; color:var(--color-success);">S1: ${m1}</span>`
+                : `<span style="font-size:0.8em; margin-left:10px; color:var(--color-text-tertiary);">Mean: ${m1}</span>`;
         }
         if (isDual && s2 && s2.mean !== undefined) {
             const m2 = parseFloat(s2.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -707,20 +707,20 @@ function renderStatsV2(stats1, stats2) {
 
                         if (sigMarker) {
                             const pVal = tStat > 3.29 ? '< 0.001' : (tStat > 2.58 ? '< 0.01' : '< 0.05');
-                            sigMarker = `<span title="p ${pVal} (Slice 1 vs Slice 2)" style="cursor:help; margin-left:5px; font-weight:bold; color:#FFD700;">${sigMarker}</span>`;
+                            sigMarker = `<span title="p ${pVal} (Slice 1 vs Slice 2)" style="cursor:help; margin-left:5px; font-weight:bold; color:var(--color-gold);">${sigMarker}</span>`;
                         }
                     }
                 }
             } catch (e) { console.error("Sig test error", e); }
 
-            meanHtml += `<span style="font-size:0.8em; margin-left:10px; color:#2196F3;">S2: ${m2}${sigMarker}</span>`;
+            meanHtml += `<span style="font-size:0.8em; margin-left:10px; color:var(--color-info);">S2: ${m2}${sigMarker}</span>`;
         }
 
         title.innerHTML = `${titleText} ${meanHtml}`;
         title.style.marginTop = '0';
         title.style.marginBottom = '5px';
         title.style.fontSize = '1em';
-        title.style.color = '#eee';
+        title.style.color = getCSSVar('--gray-50');
         card.appendChild(title);
 
         const plotDiv = document.createElement('div');
@@ -765,11 +765,11 @@ function renderStatsV2(stats1, stats2) {
                 legend: { x: 1, xanchor: 'right', y: 1 },
                 barmode: 'overlay',
                 bargap: 0,
-                font: { color: '#d4d4d4' },
+                font: { color: getCSSVar('--color-text-primary') },
                 xaxis: {
                     zeroline: false,
-                    gridcolor: '#444',
-                    tickfont: { color: '#d4d4d4' }
+                    gridcolor: getCSSVar('--chart-grid'),
+                    tickfont: { color: getCSSVar('--color-text-primary') }
                 },
                 yaxis: { showgrid: false, showticklabels: false }
             };
@@ -885,9 +885,9 @@ function renderStatsV2(stats1, stats2) {
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 showlegend: false,
-                font: { color: '#d4d4d4' },
+                font: { color: getCSSVar('--color-text-primary') },
                 xaxis: { range: [0, 100], showgrid: false, showticklabels: false },
-                yaxis: { showticklabels: isDual, tickfont: { color: '#d4d4d4' } },
+                yaxis: { showticklabels: isDual, tickfont: { color: getCSSVar('--color-text-primary') } },
                 height: isDual ? undefined : 60
             };
 

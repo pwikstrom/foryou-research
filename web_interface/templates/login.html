@@ -1,24 +1,19 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="login-container"
-    style="display: flex; height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #1e1e1e; color: #d4d4d4;">
+<div class="auth-container">
 
-    <!-- LEFT PANEL: Widgets (Fixed Width) -> Now contains Login Form -->
-    <div class="sidebar-section"
-        style="width: 400px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #333; background-color: #252526; overflow-y: auto;">
-
-        <!-- Banner Widget Removed -->
+    <!-- LEFT PANEL: Login Form -->
+    <div class="auth-sidebar">
 
         <!-- Login Widget -->
-        <div class="widget-box" style="padding: 30px 20px; border-bottom: 1px solid #333;">
-            <h3 style="margin-top: 0; color: #d4d4d4; font-size: 1.2em; margin-bottom: 20px; text-align: center;">Login
+        <div class="auth-form-container">
+            <h3 style="margin-top: 0; color: var(--color-text-primary); font-size: 1.2em; margin-bottom: 20px; text-align: center;">Login
             </h3>
 
             {% with messages = get_flashed_messages() %}
             {% if messages %}
-            <div
-                style="background: rgba(13, 110, 253, 0.2); border: 1px solid #0d6efd; color: #6ea8fe; padding: 10px; border-radius: 4px; margin-bottom: 20px; text-align: center;">
+            <div class="auth-flash-info">
                 {% for message in messages %}
                 <div>{{ message }}</div>
                 {% endfor %}
@@ -26,44 +21,39 @@
             {% endif %}
             {% endwith %}
 
-            <form method="POST" action="/login" style="display: flex; flex-direction: column; gap: 15px;">
+            <form method="POST" action="/login" class="auth-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                 <div>
-                    <label style="display: block; margin-bottom: 5px; color: #aaa;">Username</label>
-                    <input type="text" name="username" required
-                        style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #444; background: #333; color: white;">
+                    <label>Username</label>
+                    <input type="text" name="username" required>
                 </div>
                 <div>
-                    <label style="display: block; margin-bottom: 5px; color: #aaa;">Password</label>
-                    <input type="password" name="password" required
-                        style="width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #444; background: #333; color: white;">
+                    <label>Password</label>
+                    <input type="password" name="password" required>
                 </div>
-                <button type="submit"
-                    style="background: #007acc; color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 10px;">
+                <button type="submit" class="auth-submit-btn">
                     Sign In
                 </button>
             </form>
             <div style="text-align: center; margin-top: 15px; font-size: 0.9em;">
-                <a href="/signup" style="color: #4ec9b0; text-decoration: none;">Create an account</a>
+                <a href="/signup">Create an account</a>
             </div>
         </div>
 
         <!-- Slack Updates Widget -->
-        <div class="widget-box" style="padding: 20px; flex: 1;">
-            <h3 style="margin-top: 0; color: #d4d4d4; font-size: 1.1em; margin-bottom: 15px;">Latest Updates</h3>
-            <div class="slack-updates"
-                style="background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 6px; padding: 10px; max-height: 300px; overflow-y: auto;">
+        <div class="widget-box" style="flex: 1;">
+            <h3>Latest Updates</h3>
+            <div class="slack-updates" style="max-height: 300px;">
                 {% if slack_messages %}
                 {% for msg in slack_messages %}
-                <div class="slack-message"
-                    style="padding: 10px; border-bottom: 1px solid #333; font-size: 0.9em; line-height: 1.4;">
-                    <strong style="color: #4ec9b0;">{{ msg.user }}:</strong>
-                    <span style="color: #ccc;">{{ msg.text }}</span>
-                    <div style="font-size: 0.8em; color: #777; margin-top: 4px;">{{ msg.ts }}</div>
+                <div class="slack-message">
+                    <strong>{{ msg.user }}:</strong>
+                    <span>{{ msg.text }}</span>
+                    <div class="timestamp">{{ msg.ts }}</div>
                 </div>
                 {% endfor %}
                 {% else %}
-                <p style="color: #777; font-style: italic; text-align: center; padding: 20px;">No recent updates.</p>
+                <p style="color: var(--color-text-muted); font-style: italic; text-align: center; padding: 20px;">No recent updates.</p>
                 {% endif %}
             </div>
         </div>
@@ -71,63 +61,54 @@
     </div>
 
     <!-- RIGHT PANEL: Content (Scrollable) -->
-    <div class="content-section"
-        style="flex: 1; padding: 40px 60px; overflow-y: auto; background-color: #1e1e1e; position: relative;">
+    <div class="auth-content">
 
-        <!-- Spacer for alignment -->
         <div style="max-width: 800px; margin: 0 auto;">
 
-            <!-- Centered Hero Image added above title -->
+            <!-- Centered Hero Image -->
             <div style="text-align: center; margin-bottom: 30px;">
                 <img src="{{ url_for('static', filename='home_banner.png') }}" alt="For You Data Hub Banner"
-                    style="max-width: 500px; height: auto; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                    style="max-width: 500px; height: auto; border-radius: 10px; box-shadow: var(--shadow-lg);">
             </div>
 
-            <h1
-                style="color: #4ec9b0; margin-bottom: 20px; font-size: 2.5em; font-weight: 700; letter-spacing: -0.5px; text-align: center;">
+            <h1 class="hero-title">
                 {{ content.hero_title }}
             </h1>
 
-            <p style="font-size: 1.15em; line-height: 1.6; color: #d4d4d4; margin-bottom: 40px; text-align: center;">
+            <p class="hero-subtitle">
                 {{ content.intro | safe }}
             </p>
 
-            <hr style="border: 0; border-top: 1px solid #333; margin: 30px 0;">
+            <hr style="border: 0; border-top: 1px solid var(--color-border-subtle); margin: 30px 0;">
 
             <div class="text-block" style="margin-bottom: 40px;">
-                <h3 style="color: #d4d4d4; font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
+                <h3 style="color: var(--color-text-primary); font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
                     content.intentions_title }}</h3>
-                <p style="line-height: 1.6; color: #ccc;">
+                <p style="line-height: 1.6; color: var(--color-text-secondary);">
                     {{ content.intentions_text }}
                 </p>
             </div>
 
             <div class="text-block" style="margin-bottom: 40px;">
-                <h3 style="color: #d4d4d4; font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
+                <h3 style="color: var(--color-text-primary); font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
                     content.notes_title }}</h3>
-                <div
-                    style="background: #252526; border-left: 4px solid #ce9178; padding: 15px 20px; border-radius: 0 4px 4px 0; margin-bottom: 15px;">
-                    <p style="margin: 0; line-height: 1.6; color: #ccc;">
-                        {{ content.note_1 }}
-                    </p>
+                <div class="note-callout">
+                    <p>{{ content.note_1 }}</p>
                 </div>
-                <div
-                    style="background: #252526; border-left: 4px solid #ce9178; padding: 15px 20px; border-radius: 0 4px 4px 0;">
-                    <p style="margin: 0; line-height: 1.6; color: #ccc;">
-                        {{ content.note_2 }}
-                    </p>
+                <div class="note-callout">
+                    <p>{{ content.note_2 }}</p>
                 </div>
             </div>
 
             <div class="text-block" style="margin-bottom: 60px;">
-                <h3 style="color: #d4d4d4; font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
+                <h3 style="color: var(--color-text-primary); font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
                     content.ack_title }}</h3>
-                <p style="line-height: 1.6; color: #ccc;">
+                <p style="line-height: 1.6; color: var(--color-text-secondary);">
                     {{ content.ack_text }}
                 </p>
             </div>
 
-            <div style="text-align: center; color: #555; font-size: 0.9em; margin-top: 50px;">
+            <div style="text-align: center; color: var(--color-text-faint); font-size: 0.9em; margin-top: 50px;">
                 2026 Queensland University of Technology
             </div>
 

@@ -1,32 +1,30 @@
 <div id="timelines" class="tab-pane">
 
     <!-- Control Bar -->
-    <div class="control-bar"
-        style="display: flex; align-items: center; padding: 10px; background-color: #252526; margin-bottom: 20px; border-bottom: 1px solid #3e3e42;">
+    <div class="control-bar">
         <div class="header-with-help" style="margin-right: 20px;">
-            <h3 style="margin: 0; color: #eee; font-size: 1.1em;">Timelines</h3>
+            <h3>Timelines</h3>
             <button class="help-icon" onclick="showHelp('timelines')">?</button>
         </div>
 
-        <label for="timelines-collection-select" style="margin-right: 10px; font-weight: bold; color: #eee;">Collection:</label>
-        <select id="timelines-collection-select" class="dropdown" onchange="timelines.onCollectionChange()"
-            style="width: 300px; padding: 5px; background: #3c3c3c; border: 1px solid #555; color: white;">
+        <label for="timelines-collection-select" style="margin-right: 10px;">Collection:</label>
+        <select id="timelines-collection-select" class="dropdown" onchange="timelines.onCollectionChange()">
             <option value="" disabled selected>Loading collections...</option>
         </select>
 
-        <span id="timelines-collection-count" style="margin-left: 15px; color: #888; font-size: 0.9em;"></span>
+        <span id="timelines-collection-count" style="margin-left: 15px; color: var(--control-bar-info); font-size: 0.9em;"></span>
 
         <!-- Right-aligned checkboxes -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 20px;">
             <label class="switch" style="display: flex; align-items: center; cursor: pointer;">
                 <input type="checkbox" id="timelines-exclude-nodata"
                     onchange="timelines.renderTimelineCharts()" checked>
-                <span style="color: #eee; font-weight: bold; margin-left: 5px;">Exclude empty dates</span>
+                <span style="color: var(--control-bar-text); font-weight: bold; margin-left: 5px;">Exclude empty dates</span>
             </label>
             <label class="switch" style="display: flex; align-items: center; cursor: pointer;">
                 <input type="checkbox" id="timelines-exclude-before-first-activity"
                     onchange="timelines.renderTimelineCharts()" checked>
-                <span style="color: #eee; font-weight: bold; margin-left: 5px;">Exclude pre-activity</span>
+                <span style="color: var(--control-bar-text); font-weight: bold; margin-left: 5px;">Exclude pre-activity</span>
             </label>
         </div>
     </div>
@@ -74,18 +72,16 @@
                     onclick="document.getElementById('timeline-stats-modal').style.display='none'">&times;</span>
                 <div
                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; margin-right: 30px;">
-                    <h3 id="timeline-stats-title" style="margin-top: 0; margin-bottom: 0; color: #fff;">Period Stats
+                    <h3 id="timeline-stats-title" style="margin-top: 0; margin-bottom: 0; color: var(--white);">Period Stats
                     </h3>
-                    <button id="timeline-vote-btn" class="btn"
-                        style="background-color: #007bff; color: white; padding: 6px 12px; font-size: 0.9em; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s;"
-                        onmouseover="this.style.backgroundColor='#0056b3'"
-                        onmouseout="this.style.backgroundColor='#007bff'"
+                    <button id="timeline-vote-btn" class="action-btn"
+                        style="background-color: var(--color-info);"
                         onclick="window.timelines.voteMachineAnnotation()">
                         Vote to machine annotate
                     </button>
                 </div>
                 <div id="timeline-stats-content" style="max-height: 60vh; overflow-y: auto; margin-bottom: 5px;">
-                    <p style="color: #bbb;">Loading stats...</p>
+                    <p style="color: var(--color-text-secondary);">Loading stats...</p>
                 </div>
             </div>
         </div>
@@ -93,60 +89,3 @@
     </div>
 
 </div>
-
-<style>
-    .stats-section {
-        margin-top: 15px;
-    }
-
-    .stats-list {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-        font-size: 0.85em;
-    }
-
-    .stats-list li {
-        display: flex;
-        justify-content: space-between;
-        padding: 4px 0;
-        border-bottom: 1px solid #3e3e42;
-    }
-
-    .stat-label {
-        color: #ccc;
-    }
-
-    .timelines-title-wrapper {
-        position: relative;
-        display: inline-block;
-    }
-
-    .timelines-title-wrapper h2 {
-        cursor: default;
-        border-bottom: 1px dashed #666;
-        display: inline-block;
-        padding-bottom: 2px;
-    }
-
-    .timelines-info-tooltip {
-        display: none;
-        position: absolute;
-        top: 100%;
-        left: 0;
-        z-index: 100;
-        background: #2d2d30;
-        border: 1px solid #555;
-        border-radius: 6px;
-        padding: 12px 16px;
-        min-width: 340px;
-        max-width: 450px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-        margin-top: 6px;
-    }
-
-    .timelines-title-wrapper:hover .timelines-info-tooltip {
-        display: block;
-    }
-
-</style>

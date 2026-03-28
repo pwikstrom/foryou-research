@@ -1,37 +1,378 @@
+/* ============================================================
+   CSS Custom Properties — Design Token System
+   ============================================================
+   Tier 1: Primitive palette (raw colors by name)
+   Tier 2: Semantic tokens (named by purpose)
+   Tier 3: Component tokens (specific UI roles)
+   ============================================================ */
+
+:root {
+    /* --- Tier 1: Primitive Palette --- */
+    --gray-950: #1a1a1a;
+    --gray-900: #1e1e1e;
+    --gray-850: #252526;
+    --gray-800: #2d2d30;
+    --gray-750: #333333;
+    --gray-700: #3c3c3c;
+    --gray-650: #3e3e42;
+    --gray-600: #4e4e52;
+    --gray-500: #555555;
+    --gray-400: #888888;
+    --gray-300: #aaaaaa;
+    --gray-200: #cccccc;
+    --gray-100: #d4d4d4;
+    --gray-50: #eeeeee;
+    --white: #ffffff;
+    --black: #000000;
+
+    --teal-500: #4ec9b0;
+    --teal-900: #1b4d4d;
+    --blue-600: #0056b3;
+    --blue-500: #007acc;
+    --blue-400: #9cdcfe;
+    --red-500: #dc3545;
+    --red-400: #f48771;
+    --orange-400: #ce9178;
+    --green-500: #28a745;
+    --green-400: #4cd964;
+    --yellow-500: #ffd700;
+    --amber-500: #d97706;
+    --purple-500: #8b5cf6;
+
+    /* --- Tier 2: Semantic Tokens --- */
+
+    /* Backgrounds */
+    --color-bg-primary: var(--gray-900);
+    --color-bg-surface: var(--gray-850);
+    --color-bg-elevated: var(--gray-800);
+    --color-bg-input: var(--gray-700);
+    --color-bg-inset: var(--gray-900);
+    --color-bg-overlay: rgba(0, 0, 0, 0.5);
+
+    /* Text */
+    --color-text-primary: var(--gray-100);
+    --color-text-secondary: var(--gray-200);
+    --color-text-tertiary: var(--gray-300);
+    --color-text-muted: var(--gray-400);
+    --color-text-faint: var(--gray-500);
+    --color-text-heading: var(--blue-400);
+    --color-text-on-accent: var(--gray-900);
+    --color-text-on-surface: var(--gray-100);
+
+    /* Borders */
+    --color-border: var(--gray-650);
+    --color-border-subtle: var(--gray-750);
+    --color-border-strong: var(--gray-500);
+
+    /* Interactive */
+    --color-accent: var(--teal-500);
+    --color-info: var(--blue-500);
+    --color-success: var(--green-500);
+    --color-success-light: var(--green-400);
+    --color-danger: var(--red-500);
+    --color-danger-soft: var(--red-400);
+    --color-warning: var(--amber-500);
+    --color-save: var(--orange-400);
+    --color-purple: var(--purple-500);
+    --color-gold: var(--yellow-500);
+    --color-link: var(--teal-500);
+    --color-link-hover: var(--white);
+
+    /* Shadows */
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
+
+    /* Typography */
+    --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
+    /* --- Tier 3: Component Tokens --- */
+
+    /* Buttons */
+    --btn-primary-bg: var(--color-accent);
+    --btn-primary-text: var(--color-text-on-accent);
+    --btn-danger-bg: var(--color-danger-soft);
+    --btn-danger-text: var(--color-text-on-accent);
+    --btn-save-bg: var(--color-save);
+    --btn-save-text: var(--color-text-on-accent);
+    --btn-discreet-bg: var(--gray-650);
+    --btn-discreet-text: var(--color-text-primary);
+    --btn-discreet-border: var(--gray-500);
+    --btn-discreet-hover: var(--gray-600);
+    --btn-discreet-active: var(--gray-800);
+
+    /* Tab navigation */
+    --tab-bg: inherit;
+    --tab-text: var(--color-text-primary);
+    --tab-hover-bg: var(--gray-650);
+    --tab-active-bg: var(--color-bg-primary);
+    --tab-active-text: var(--white);
+    --tab-active-border: var(--color-accent);
+    --tab-border: var(--color-border);
+
+    /* Inputs */
+    --input-bg: var(--color-bg-input);
+    --input-border: var(--color-border);
+    --input-text: var(--color-text-primary);
+
+    /* Panels */
+    --panel-bg: var(--color-bg-surface);
+    --panel-border: var(--color-border);
+
+    /* Tables */
+    --table-header-bg: var(--color-bg-elevated);
+    --table-row-hover: #2a2a2d;
+    --table-row-selected: var(--teal-900);
+    --table-border: var(--color-border);
+
+    /* Chips / Filter pills */
+    --chip-bg: var(--gray-650);
+    --chip-border: var(--gray-500);
+    --chip-text: var(--white);
+    --chip-selected-bg: var(--color-info);
+    --chip-selected-border: #009ce6;
+    --chip-selected-text: var(--white);
+
+    /* Status indicators */
+    --status-idle: var(--gray-500);
+    --status-running: var(--color-accent);
+    --status-stopped: var(--color-danger-soft);
+    --status-error: var(--color-danger-soft);
+
+    /* Modal */
+    --modal-bg: var(--color-bg-surface);
+    --modal-border: var(--color-accent);
+    --modal-text: var(--color-text-primary);
+    --modal-overlay: var(--color-bg-overlay);
+
+    /* Progress */
+    --progress-bg: var(--color-bg-input);
+    --progress-fill: rgba(0, 100, 0, 0.53);
+    --progress-text: rgba(255, 255, 255, 0.74);
+
+    /* Slider (noUiSlider) */
+    --slider-track: var(--gray-750);
+    --slider-connect: var(--color-accent);
+    --slider-handle: var(--white);
+
+    /* Control bar (shared across tabs) */
+    --control-bar-bg: var(--color-bg-surface);
+    --control-bar-border: var(--color-border);
+    --control-bar-text: var(--gray-50);
+    --control-bar-label: var(--gray-50);
+    --control-bar-info: var(--gray-400);
+
+    /* Select dropdowns (within control bars) */
+    --select-bg: var(--color-bg-input);
+    --select-border: var(--gray-500);
+    --select-text: var(--white);
+
+    /* Sections (collapsible) */
+    --section-bg: var(--color-bg-surface);
+    --section-border: var(--color-border);
+
+    /* Cards */
+    --card-bg: var(--color-bg-surface);
+    --card-border: var(--color-border);
+
+    /* Tooltip */
+    --tooltip-bg: var(--gray-750);
+    --tooltip-text: var(--white);
+    --tooltip-border: var(--gray-500);
+
+    /* Plotly / chart overrides */
+    --chart-bg: var(--color-bg-primary);
+    --chart-text: var(--color-text-primary);
+    --chart-grid: var(--gray-650);
+    --chart-zeroline: var(--gray-400);
+
+    /* Accent variants for data-specific uses */
+    --color-slice1: #4CAF50;
+    --color-slice2: #2196F3;
+    --color-significance: var(--yellow-500);
+}
+
+
+/* ============================================================
+   Light Theme
+   ============================================================ */
+
+[data-theme="light"] {
+    --color-bg-primary: #f5f5f5;
+    --color-bg-surface: #ffffff;
+    --color-bg-elevated: #e8e8e8;
+    --color-bg-input: #ffffff;
+    --color-bg-inset: #f0f0f0;
+    --color-bg-overlay: rgba(0, 0, 0, 0.3);
+
+    --color-text-primary: #1e1e1e;
+    --color-text-secondary: #333333;
+    --color-text-tertiary: #555555;
+    --color-text-muted: #777777;
+    --color-text-faint: #999999;
+    --color-text-heading: #005a9e;
+    --color-text-on-accent: #ffffff;
+    --color-text-on-surface: #1e1e1e;
+
+    --color-border: #d0d0d0;
+    --color-border-subtle: #e0e0e0;
+    --color-border-strong: #b0b0b0;
+
+    --color-accent: #0e8a72;
+    --color-info: #0066b8;
+    --color-success: #1a7f37;
+    --color-success-light: #2da44e;
+    --color-danger: #cf222e;
+    --color-danger-soft: #d1242f;
+    --color-warning: #bf8700;
+    --color-save: #a0522d;
+    --color-link: #0e8a72;
+    --color-link-hover: #064e3b;
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.12);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.15);
+
+    --btn-primary-bg: var(--color-accent);
+    --btn-primary-text: var(--white);
+    --btn-danger-bg: var(--color-danger);
+    --btn-danger-text: var(--white);
+    --btn-save-bg: var(--color-save);
+    --btn-save-text: var(--white);
+    --btn-discreet-bg: #e8e8e8;
+    --btn-discreet-text: #333333;
+    --btn-discreet-border: #c0c0c0;
+    --btn-discreet-hover: #d8d8d8;
+    --btn-discreet-active: #c8c8c8;
+
+    --tab-hover-bg: #e0e0e0;
+    --tab-active-bg: #ffffff;
+    --tab-active-text: #1e1e1e;
+    --tab-active-border: var(--color-accent);
+
+    --input-bg: var(--color-bg-input);
+    --input-border: var(--color-border);
+    --input-text: var(--color-text-primary);
+
+    --panel-bg: var(--color-bg-surface);
+    --panel-border: var(--color-border);
+
+    --table-header-bg: #e8e8e8;
+    --table-row-hover: #f0f0f0;
+    --table-row-selected: #d5ece6;
+    --table-border: var(--color-border);
+
+    --chip-bg: #e8e8e8;
+    --chip-border: #c0c0c0;
+    --chip-text: #333333;
+    --chip-selected-bg: var(--color-info);
+    --chip-selected-border: #004e99;
+    --chip-selected-text: var(--white);
+
+    --status-idle: #bbbbbb;
+    --status-running: var(--color-accent);
+    --status-stopped: var(--color-danger);
+    --status-error: var(--color-danger);
+
+    --modal-bg: var(--color-bg-surface);
+    --modal-border: var(--color-accent);
+    --modal-text: var(--color-text-primary);
+
+    --progress-bg: #e0e0e0;
+    --progress-fill: rgba(0, 128, 0, 0.35);
+    --progress-text: rgba(0, 0, 0, 0.7);
+
+    --slider-track: #d0d0d0;
+    --slider-connect: var(--color-accent);
+    --slider-handle: var(--white);
+
+    --control-bar-bg: var(--color-bg-surface);
+    --control-bar-border: var(--color-border);
+    --control-bar-text: #333333;
+    --control-bar-label: #333333;
+    --control-bar-info: #777777;
+
+    --select-bg: var(--color-bg-input);
+    --select-border: var(--color-border);
+    --select-text: #1e1e1e;
+
+    --card-bg: var(--color-bg-surface);
+    --card-border: var(--color-border);
+
+    --tooltip-bg: #333333;
+    --tooltip-text: var(--white);
+    --tooltip-border: #555555;
+
+    --chart-bg: var(--color-bg-surface);
+    --chart-text: #333333;
+    --chart-grid: #e0e0e0;
+    --chart-zeroline: #bbbbbb;
+
+    --color-slice1: #2e7d32;
+    --color-slice2: #1565c0;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+        /* Uncomment block below to auto-detect OS preference: */
+        /* (Intentionally left empty — opt-in only via data-theme attribute) */
+    }
+}
+
+
+/* ============================================================
+   Global Reset & Base
+   ============================================================ */
+
 * {
     box-sizing: border-box;
 }
 
 body {
-    font-family: monospace;
-    background: #1e1e1e;
-    color: #d4d4d4;
+    font-family: var(--font-mono);
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
     margin: 0;
     padding: 20px;
     height: 100vh;
-    /* Fill full viewport */
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    /* Prevent body scroll, handle inside panels */
 }
 
-/* Tab Navigation - Fixed Height */
+/* Focus visible for accessibility */
+:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+a {
+    color: var(--color-link);
+}
+
+a:hover {
+    color: var(--color-link-hover);
+}
+
+
+/* ============================================================
+   Layout: Tabs
+   ============================================================ */
+
 .tab-nav {
     display: flex;
     flex: 0 0 auto;
-    background: #252526;
+    background: var(--color-bg-surface);
     margin-bottom: 20px;
-    border-bottom: 1px solid #3e3e42;
+    border-bottom: 1px solid var(--color-border);
 }
 
-/* Tab Content - Fills remaining space */
 .tab-content {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
-    /* Critical for flex shrinking */
     overflow: hidden;
 }
 
@@ -40,61 +381,60 @@ body {
     flex: 1;
     flex-direction: column;
     min-height: 0;
-    /* Critical */
 }
 
 .tab-pane.active {
     display: flex;
-    /* Activate flex column layout */
 }
 
-/* Specific scroll for Data Management which doesn't use the sidebar layout */
 #data_management {
     overflow-y: auto;
 }
 
-/* Panels Area - Fills remaining space in tab-pane */
+.tab-button {
+    background: var(--tab-bg);
+    border: none;
+    outline: none;
+    cursor: pointer;
+    padding: 10px 20px;
+    color: var(--tab-text);
+    transition: 0.3s;
+    font-size: 1rem;
+    border-right: 1px solid var(--color-border);
+}
+
+.tab-button:hover {
+    background: var(--tab-hover-bg);
+}
+
+.tab-button.active {
+    background: var(--tab-active-bg);
+    border-bottom: 2px solid var(--tab-active-border);
+    color: var(--tab-active-text);
+    font-weight: bold;
+}
+
+
+/* ============================================================
+   Layout: Container & Panels
+   ============================================================ */
+
 .container {
     display: flex;
     gap: 20px;
     flex: 1;
     min-height: 0;
-    /* Critical */
 }
 
-/* Individual Panel */
 .panel {
     flex: 1;
     display: flex;
     flex-direction: column;
-    background: #252526;
-    border: 1px solid #3e3e42;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
     padding: 10px;
     border-radius: 5px;
     min-height: 200px;
-    /* Force minimum height to ensure visibility */
-    /* Critical so internal scroll works */
-
-    /* If this panel is a control bar, it should override this with flex: 0 0 auto inline or via class */
-}
-
-/* ... existing styles ... */
-
-textarea {
-    flex: 1;
-    background: #1e1e1e;
-    border: 1px solid #3e3e42;
-    color: #d4d4d4;
-    font-family: monospace;
-    padding: 10px;
-    font-size: 0.9em;
-    resize: none;
-    min-height: 150px;
-    /* Force visibility */
-    display: block;
-    /* Ensure it's not hidden */
-    width: 100%;
-    /* Full width */
 }
 
 .header {
@@ -103,7 +443,6 @@ textarea {
     align-items: center;
     margin-bottom: 10px;
     flex: 0 0 auto;
-    /* Don't shrink header */
 }
 
 .controls {
@@ -112,35 +451,67 @@ textarea {
     align-items: center;
 }
 
-/* Log Window - The part that should scroll */
-.log-window {
-    flex: 1;
-    background: #1e1e1e;
-    border: 1px solid #3e3e42;
-    padding: 10px;
-    overflow-y: auto;
-    font-family: monospace;
-    white-space: pre-wrap;
-    font-size: 0.9em;
-    min-height: 0;
-    /* Critical */
-}
 
-/* ... Other Standard Styles ... */
+/* ============================================================
+   Typography
+   ============================================================ */
 
 h2 {
     margin: 0;
     font-size: 1.2em;
-    color: #9cdcfe;
+    color: var(--color-text-heading);
 }
 
-input[type="text"] {
-    background: #3c3c3c;
-    border: 1px solid #3e3e42;
-    color: #d4d4d4;
+
+/* ============================================================
+   Form Elements
+   ============================================================ */
+
+textarea {
+    flex: 1;
+    background: var(--color-bg-inset);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+    font-family: var(--font-mono);
+    padding: 10px;
+    font-size: 0.9em;
+    resize: none;
+    min-height: 150px;
+    display: block;
+    width: 100%;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"] {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--input-text);
     padding: 5px;
     border-radius: 3px;
 }
+
+select,
+.dropdown {
+    background: var(--select-bg);
+    border: 1px solid var(--select-border);
+    color: var(--select-text);
+    padding: 5px;
+    border-radius: 3px;
+}
+
+.control-input {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--input-text);
+    padding: 5px;
+    border-radius: 3px;
+}
+
+
+/* ============================================================
+   Buttons
+   ============================================================ */
 
 button {
     cursor: pointer;
@@ -150,52 +521,137 @@ button {
     font-weight: bold;
 }
 
-.btn-start {
-    background: #4ec9b0;
-    color: #1e1e1e;
+.btn-start,
+.btn-primary {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-text);
 }
 
 .btn-stop {
-    background: #f48771;
-    color: #1e1e1e;
+    background: var(--btn-danger-bg);
+    color: var(--btn-danger-text);
 }
 
-.btn-save {
-    background: #ce9178;
-    color: #1e1e1e;
+.btn-save,
+.btn-secondary {
+    background: var(--btn-save-bg);
+    color: var(--btn-save-text);
 }
 
-textarea {
-    flex: 1;
-    background: #1e1e1e;
-    border: 1px solid #3e3e42;
-    color: #d4d4d4;
-    font-family: monospace;
-    padding: 10px;
+.action-btn {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-text);
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.action-btn:hover {
+    opacity: 0.9;
+}
+
+.btn-discreet {
+    background: var(--btn-discreet-bg);
+    color: var(--btn-discreet-text);
+    padding: 5px 10px;
     font-size: 0.9em;
-    resize: none;
+    border: 1px solid var(--btn-discreet-border);
+    transition: background 0.2s;
 }
+
+.btn-discreet:hover {
+    background: var(--btn-discreet-hover);
+}
+
+.btn-discreet:active {
+    background: var(--btn-discreet-active);
+}
+
+.discreet-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-left: 1px solid var(--color-border);
+    padding-left: 15px;
+    margin-left: 15px;
+}
+
+
+/* ============================================================
+   Log Window
+   ============================================================ */
+
+.log-window {
+    flex: 1;
+    background: var(--color-bg-inset);
+    border: 1px solid var(--color-border);
+    padding: 10px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    white-space: pre-wrap;
+    font-size: 0.9em;
+    min-height: 0;
+}
+
+
+/* ============================================================
+   Status Indicators
+   ============================================================ */
 
 .status-indicator {
     width: 10px;
     height: 10px;
     border-radius: 50%;
     display: inline-block;
-    background: #555;
+    background: var(--status-idle);
     margin-right: 5px;
 }
 
 .status-running {
-    background: #4ec9b0;
-    box-shadow: 0 0 5px #4ec9b0;
+    background: var(--status-running);
+    box-shadow: 0 0 5px var(--status-running);
 }
 
 .status-stopped {
-    background: #f48771;
+    background: var(--status-stopped);
 }
 
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--status-idle);
+    display: inline-block;
+}
+
+.status-dot.running {
+    background: var(--status-running);
+    box-shadow: 0 0 4px var(--status-running);
+}
+
+.status-dot.stopped {
+    background: var(--status-idle);
+}
+
+.status-dot.error {
+    background: var(--status-error);
+}
+
+.tiny-text {
+    font-size: 0.75em;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+
+/* ============================================================
+   Progress Bar
+   ============================================================ */
+
 .progress-container {
-    background: #3c3c3c;
+    background: var(--progress-bg);
     height: 20px;
     border-radius: 3px;
     margin: 10px 0;
@@ -205,8 +661,7 @@ textarea {
 }
 
 .progress-bar {
-    background: #00640087;
-    /* Darker Green for better contrast with white text */
+    background: var(--progress-fill);
     height: 100%;
     width: 0%;
     transition: width 0.5s ease;
@@ -219,7 +674,7 @@ textarea {
     width: 100%;
     height: 100%;
     text-align: center;
-    color: #ffffffbc;
+    color: var(--progress-text);
     font-size: 0.8em;
     line-height: 20px;
     white-space: nowrap;
@@ -227,116 +682,36 @@ textarea {
     text-overflow: ellipsis;
 }
 
-.tab-button {
-    background: inherit;
-    border: none;
-    outline: none;
-    cursor: pointer;
-    padding: 10px 20px;
-    color: #d4d4d4;
-    transition: 0.3s;
-    font-size: 1rem;
-    border-right: 1px solid #3e3e42;
-}
 
-.tab-button:hover {
-    background: #3e3e42;
-}
+/* ============================================================
+   noUiSlider Overrides
+   ============================================================ */
 
-.tab-button.active {
-    background: #1e1e1e;
-    border-bottom: 2px solid #4ec9b0;
-    color: #fff;
-    font-weight: bold;
-}
-
-/* Discreet Control Styles */
-.discreet-control {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-left: 1px solid #3e3e42;
-    padding-left: 15px;
-    margin-left: 15px;
-}
-
-.btn-discreet {
-    background: #3e3e42;
-    color: #d4d4d4;
-    padding: 5px 10px;
-    font-size: 0.9em;
-    border: 1px solid #555;
-    transition: background 0.2s;
-}
-
-.btn-discreet:hover {
-    background: #4e4e52;
-}
-
-.btn-discreet:active {
-    background: #2d2d30;
-}
-
-.status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #555;
-    display: inline-block;
-}
-
-.status-dot.running {
-    background: #4ec9b0;
-    box-shadow: 0 0 4px #4ec9b0;
-}
-
-.status-dot.stopped {
-    background: #555;
-}
-
-.status-dot.error {
-    background: #f48771;
-}
-
-.tiny-text {
-    font-size: 0.75em;
-    color: #888;
-    white-space: nowrap;
-}
-
-/* noUiSlider Dark Mode Overrides - Sleek & Elegant */
-/* High Specificity to override library defaults */
 .noUi-target {
-    background: #333333;
+    background: var(--slider-track);
     border: none;
     box-shadow: none;
     height: 4px;
-    /* Thinner track */
     margin: 15px 0 10px 0;
 }
 
 .noUi-connect {
-    background: #4ec9b0;
+    background: var(--slider-connect);
 }
 
-/* Specificity Match: .noUi-horizontal .noUi-handle */
 .noUi-horizontal .noUi-handle {
     height: 8px;
-    /* Slightly larger than track for usability */
     width: 8px;
     top: -2px;
-    /* (8px handle - 4px track) / 2 = 2px overhang. top: -2px centers it. */
     right: -4px;
-    /* Half width */
     border-radius: 50%;
-    background: #fff;
+    background: var(--slider-handle);
     border: none;
     box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
     cursor: grab;
     outline: none;
 }
 
-/* Hide default library markers */
 .noUi-handle:before,
 .noUi-handle:after {
     display: none !important;
@@ -348,11 +723,15 @@ textarea {
 
 .noUi-active {
     cursor: grabbing;
-    background: #fff;
+    background: var(--slider-handle);
     transform: scale(1.2);
 }
 
-/* Help Modal Styles */
+
+/* ============================================================
+   Modal
+   ============================================================ */
+
 .modal {
     display: none;
     position: fixed;
@@ -362,26 +741,27 @@ textarea {
     width: 100%;
     height: 100%;
     overflow: auto;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: var(--modal-overlay);
     backdrop-filter: blur(2px);
 }
 
 .modal-content {
-    background-color: #252526;
+    background-color: var(--modal-bg);
     margin: 15% auto;
     padding: 20px;
-    border: 1px solid #4ec9b0;
+    border: 1px solid var(--modal-border);
     width: 50%;
-    color: #d4d4d4;
+    color: var(--modal-text);
     border-radius: 8px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--shadow-md);
     position: relative;
     font-size: 1.3em;
     line-height: 1.6;
 }
 
-.close-button {
-    color: #aaa;
+.close-button,
+.close {
+    color: var(--color-text-tertiary);
     float: right;
     font-size: 28px;
     font-weight: bold;
@@ -392,18 +772,25 @@ textarea {
 }
 
 .close-button:hover,
-.close-button:focus {
-    color: #fff;
+.close-button:focus,
+.close:hover,
+.close:focus {
+    color: var(--white);
     text-decoration: none;
     cursor: pointer;
 }
 
+
+/* ============================================================
+   Help Icon
+   ============================================================ */
+
 .help-icon {
     font-size: 1.2em;
-    color: #4ec9b0;
+    color: var(--color-accent);
     cursor: pointer;
     background: transparent;
-    border: 1px solid #4ec9b0;
+    border: 1px solid var(--color-accent);
     width: 24px;
     height: 24px;
     display: flex;
@@ -414,30 +801,689 @@ textarea {
 }
 
 .help-icon:hover {
-    background: #4ec9b0;
-    color: #1e1e1e;
+    background: var(--color-accent);
+    color: var(--color-text-on-accent);
 }
 
 .header-with-help {
     display: flex;
     align-items: center;
-    /* ensure vertical alignment */
 }
 
-/* Content Section Links */
+
+/* ============================================================
+   Links in Content Sections
+   ============================================================ */
+
 .content-section a {
-    color: #4ec9b0;
+    color: var(--color-link);
     text-decoration: none;
-    border-bottom: 1px dotted #4ec9b0;
+    border-bottom: 1px dotted var(--color-link);
     transition: all 0.2s;
 }
 
 .content-section a:hover {
-    color: #fff;
+    color: var(--color-link-hover);
     border-bottom-style: solid;
 }
 
-/* --- Fun Loading Animation (Pacman) --- */
+
+/* ============================================================
+   Control Bar (shared across tabs)
+   ============================================================ */
+
+.control-bar {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background-color: var(--control-bar-bg);
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--control-bar-border);
+}
+
+.control-bar h3 {
+    margin: 0;
+    color: var(--control-bar-text);
+    font-size: 1.1em;
+}
+
+.control-bar label {
+    font-weight: bold;
+    color: var(--control-bar-label);
+}
+
+.control-bar .dropdown {
+    width: 300px;
+    padding: 5px;
+    background: var(--select-bg);
+    border: 1px solid var(--select-border);
+    color: var(--select-text);
+}
+
+
+/* ============================================================
+   Section (collapsible blocks used in data_management, admin)
+   ============================================================ */
+
+.section-block {
+    background: var(--section-bg);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.section-header {
+    padding: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    user-select: none;
+}
+
+.section-content {
+    padding: 0 20px 20px 20px;
+}
+
+
+/* ============================================================
+   Cards
+   ============================================================ */
+
+.panel-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: var(--shadow-sm);
+}
+
+
+/* ============================================================
+   Tables
+   ============================================================ */
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th {
+    text-align: left;
+    padding: 10px;
+    background: var(--table-header-bg);
+    color: var(--color-text-primary);
+    border-bottom: 2px solid var(--table-border);
+}
+
+.data-table td {
+    padding: 10px;
+    border-bottom: 1px solid var(--table-border);
+    color: var(--color-text-primary);
+}
+
+.data-table tr:hover {
+    background: var(--table-row-hover);
+}
+
+
+/* ============================================================
+   Chips / Filter Pills
+   ============================================================ */
+
+.chip {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    cursor: pointer;
+    background: var(--chip-bg);
+    border: 1px solid var(--chip-border);
+    color: var(--chip-text);
+    transition: all 0.15s;
+}
+
+.chip.selected,
+.chip.active {
+    background: var(--chip-selected-bg);
+    border-color: var(--chip-selected-border);
+    color: var(--chip-selected-text);
+}
+
+
+/* ============================================================
+   Tooltip
+   ============================================================ */
+
+.meta-tooltip {
+    position: relative;
+    cursor: help;
+    text-decoration: underline dotted var(--color-text-muted);
+}
+
+.meta-tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    white-space: pre-wrap;
+    max-width: 300px;
+    width: max-content;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 1000;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--tooltip-border);
+}
+
+.meta-tooltip:hover::after {
+    opacity: 1;
+    bottom: 110%;
+}
+
+
+/* ============================================================
+   Collections Tab Styles (moved from inline)
+   ============================================================ */
+
+.pe-edit-activity-section {
+    padding: 10px 20px;
+}
+
+.pe-container {
+    display: flex;
+    gap: 20px;
+    padding: 0 20px 20px 20px;
+    height: calc(100vh - 370px);
+    overflow: hidden;
+}
+
+.pe-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.stats-table {
+    width: 100%;
+    font-size: 0.9em;
+}
+
+.stats-table td {
+    padding: 4px;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+}
+
+.stats-table td:last-child {
+    text-align: right;
+    font-weight: bold;
+}
+
+.plot-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.hidden {
+    display: none;
+}
+
+.helper-text {
+    font-size: 0.85em;
+    color: var(--color-text-tertiary);
+    margin-bottom: 15px;
+}
+
+.strips-container {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.strip-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.strip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.strip-label {
+    font-weight: 600;
+    font-size: 0.85em;
+    color: var(--color-text-primary);
+}
+
+.strip-right-info {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.strip-selected-value {
+    font-size: 0.8em;
+    color: var(--color-accent);
+    font-weight: 500;
+}
+
+.strip-percentile-badge {
+    font-size: 0.75em;
+    color: var(--color-danger);
+    font-weight: 600;
+    background: rgba(220, 53, 69, 0.15);
+    padding: 1px 5px;
+    border-radius: 3px;
+    min-width: 28px;
+    text-align: center;
+}
+
+.strip-swarm {
+    width: 100%;
+    height: 44px;
+    display: block;
+}
+
+.strip-axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7em;
+    color: var(--color-text-faint);
+    margin-top: 0;
+}
+
+.section-title {
+    font-size: 0.75em;
+    font-weight: 600;
+    color: var(--color-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 5px;
+}
+
+
+/* ============================================================
+   Timelines Tab Styles (moved from inline)
+   ============================================================ */
+
+.stats-section {
+    margin-top: 15px;
+}
+
+.stats-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 0.85em;
+}
+
+.stats-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.stat-label {
+    color: var(--color-text-secondary);
+}
+
+.timelines-title-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.timelines-title-wrapper h2 {
+    cursor: default;
+    border-bottom: 1px dashed var(--color-text-faint);
+    display: inline-block;
+    padding-bottom: 2px;
+}
+
+.timelines-info-tooltip {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 100;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border-strong);
+    border-radius: 6px;
+    padding: 12px 16px;
+    min-width: 340px;
+    max-width: 450px;
+    box-shadow: var(--shadow-lg);
+    margin-top: 6px;
+}
+
+.timelines-title-wrapper:hover .timelines-info-tooltip {
+    display: block;
+}
+
+
+/* ============================================================
+   Video Analysis Tab Styles (moved from inline)
+   ============================================================ */
+
+#viewer-metadata td {
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    color: var(--color-text-secondary);
+    vertical-align: top;
+}
+
+#viewer-metadata td:first-child {
+    font-weight: bold;
+    color: var(--color-text-tertiary);
+    min-width: 180px;
+    word-break: break-word;
+}
+
+#viewer-metadata td:last-child {
+    min-width: 200px;
+    word-break: break-word;
+}
+
+#viewer-metadata tr:hover {
+    background: var(--table-row-hover);
+}
+
+
+/* ============================================================
+   Data Management Styles (moved from inline)
+   ============================================================ */
+
+.form-group-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.form-group-row label {
+    flex: 1;
+    text-align: left;
+    margin-right: 15px;
+    color: var(--color-text-secondary);
+}
+
+.form-group-row .control-input {
+    flex: 1;
+    max-width: 50%;
+    text-align: right;
+}
+
+
+/* ============================================================
+   Auth Pages (login / signup shared styles)
+   ============================================================ */
+
+.auth-container {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    font-family: var(--font-sans);
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+}
+
+.auth-sidebar {
+    width: 400px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--color-border-subtle);
+    background-color: var(--color-bg-surface);
+    overflow-y: auto;
+}
+
+.auth-content {
+    flex: 1;
+    padding: 40px 60px;
+    overflow-y: auto;
+    background-color: var(--color-bg-primary);
+    position: relative;
+}
+
+.auth-form-container {
+    padding: 30px 20px;
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.auth-form label {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--color-text-tertiary);
+}
+
+.auth-form input[type="text"],
+.auth-form input[type="password"] {
+    width: 100%;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-input);
+    color: var(--input-text);
+}
+
+.auth-submit-btn {
+    background: var(--color-info);
+    color: var(--white);
+    border: none;
+    padding: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    margin-top: 10px;
+}
+
+.auth-submit-btn:hover {
+    opacity: 0.9;
+}
+
+.auth-flash-info {
+    background: rgba(0, 122, 204, 0.15);
+    border: 1px solid var(--color-info);
+    color: var(--color-info);
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.auth-flash-error {
+    background: rgba(220, 53, 69, 0.15);
+    border: 1px solid var(--color-danger);
+    color: var(--color-danger);
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+
+/* ============================================================
+   Home Page Styles
+   ============================================================ */
+
+.home-sidebar {
+    width: 400px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--color-border-subtle);
+    background-color: var(--color-bg-surface);
+    overflow-y: auto;
+}
+
+.widget-box {
+    padding: 20px;
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.widget-box h3 {
+    margin-top: 0;
+    color: var(--color-text-primary);
+    font-size: 1.1em;
+    margin-bottom: 15px;
+}
+
+.slack-updates {
+    background: var(--color-bg-inset);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 10px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.slack-message {
+    padding: 10px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.slack-message strong {
+    color: var(--color-accent);
+}
+
+.slack-message span {
+    color: var(--color-text-secondary);
+}
+
+.slack-message .timestamp {
+    font-size: 0.8em;
+    color: var(--color-text-muted);
+    margin-top: 4px;
+}
+
+.note-callout {
+    background: var(--color-bg-surface);
+    border-left: 4px solid var(--color-save);
+    padding: 15px 20px;
+    border-radius: 0 4px 4px 0;
+    margin-bottom: 15px;
+}
+
+.note-callout p {
+    margin: 0;
+    line-height: 1.6;
+    color: var(--color-text-secondary);
+}
+
+.hero-title {
+    color: var(--color-accent);
+    margin-bottom: 20px;
+    font-size: 2.5em;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    text-align: center;
+}
+
+.hero-subtitle {
+    font-size: 1.15em;
+    line-height: 1.6;
+    color: var(--color-text-primary);
+    margin-bottom: 40px;
+    text-align: center;
+}
+
+
+/* ============================================================
+   Auth Header (index.html)
+   ============================================================ */
+
+.auth-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background: var(--color-bg-surface);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.auth-header a {
+    color: var(--color-danger);
+    text-decoration: none;
+}
+
+
+/* ============================================================
+   Utility Classes
+   ============================================================ */
+
+.text-muted {
+    color: var(--color-text-muted);
+}
+
+.text-secondary {
+    color: var(--color-text-secondary);
+}
+
+.text-accent {
+    color: var(--color-accent);
+}
+
+.text-danger {
+    color: var(--color-danger);
+}
+
+.text-success {
+    color: var(--color-success);
+}
+
+.text-info {
+    color: var(--color-info);
+}
+
+.text-warning {
+    color: var(--color-warning);
+}
+
+.bg-surface {
+    background: var(--color-bg-surface);
+}
+
+.bg-elevated {
+    background: var(--color-bg-elevated);
+}
+
+.bg-inset {
+    background: var(--color-bg-inset);
+}
+
+.border-default {
+    border: 1px solid var(--color-border);
+}
+
+.border-subtle {
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+
+/* ============================================================
+   Loading Animation (Pacman)
+   ============================================================ */
+
 .fun-loader-container {
     display: flex;
     flex-direction: column;
@@ -453,54 +1499,49 @@ textarea {
     height: 80px;
 }
 
-/* Common Child Styles */
 .fun-loader div {
     position: absolute;
     border-radius: 50%;
     animation-timing-function: cubic-bezier(0, 1, 1, 0);
 }
 
-/* Top Jaw */
 .fun-loader div:nth-child(1) {
     width: 80px;
     height: 80px;
     top: 0;
     left: 0;
-    background: #ffd700;
+    background: var(--color-gold);
     clip-path: polygon(0 0, 100% 0, 100% 50%, 0 50%);
     transform-origin: 50% 50%;
     animation: pacman-top 0.5s infinite alternate ease-in-out;
     z-index: 1;
 }
 
-/* Bottom Jaw */
 .fun-loader div:nth-child(2) {
     width: 80px;
     height: 80px;
     top: 0;
     left: 0;
-    background: #ffd700;
+    background: var(--color-gold);
     clip-path: polygon(0 50%, 100% 50%, 100% 100%, 0 100%);
     transform-origin: 50% 50%;
     animation: pacman-bottom 0.5s infinite alternate ease-in-out;
     z-index: 1;
 }
 
-/* Food Dots */
 .fun-loader div:nth-child(3),
 .fun-loader div:nth-child(4),
 .fun-loader div:nth-child(5) {
     width: 15px;
     height: 15px;
-    background: #d4d4d4;
-    top: 32.5px; /* (80 - 15) / 2 */
+    background: var(--color-text-primary);
+    top: 32.5px;
     left: 90px;
     animation: pacman-food 1.5s infinite linear;
     z-index: 0;
     opacity: 0;
 }
 
-/* Stagger dots */
 .fun-loader div:nth-child(3) {
     animation-delay: 0s;
 }
@@ -522,20 +1563,20 @@ textarea {
 }
 
 @keyframes pacman-food {
-    0% { 
-        transform: translateX(0); 
-        opacity: 1; 
+    0% {
+        transform: translateX(0);
+        opacity: 1;
     }
-    100% { 
-        transform: translateX(-60px); 
-        opacity: 0; 
+    100% {
+        transform: translateX(-60px);
+        opacity: 0;
     }
 }
 
 .loading-text {
     margin-top: 15px;
-    color: #ffd700;
-    font-family: monospace;
+    color: var(--color-gold);
+    font-family: var(--font-mono);
     font-weight: bold;
     font-size: 1.2em;
     animation: pulse-text 1s infinite alternate;
@@ -544,4 +1585,19 @@ textarea {
 @keyframes pulse-text {
     from { opacity: 0.7; }
     to { opacity: 1; }
+}
+
+
+/* ============================================================
+   Accessibility: Reduced Motion
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }

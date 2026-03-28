@@ -74,7 +74,7 @@ function renderCollectionSelector(container, selectedList) {
     const selectedSet = new Set(selectedList || []);
 
     if (availableCollections.length === 0) {
-        container.innerHTML = '<div style="padding: 10px; color: #aaa;">No collections available.</div>';
+        container.innerHTML = '<div style="padding: 10px; color: var(--color-text-tertiary);">No collections available.</div>';
         return;
     }
 
@@ -82,26 +82,26 @@ function renderCollectionSelector(container, selectedList) {
     table.className = 'collection-table';
     table.style.width = '100%';
     table.style.borderCollapse = 'collapse';
-    table.style.color = '#ddd';
+    table.style.color = getCSSVar('--color-text-secondary');
     table.style.fontSize = '0.9em';
 
     // Create Header
     const thead = document.createElement('thead');
     thead.innerHTML = `
         <tr style="text-align: left;">
-            <th style="padding: 8px 5px; width: 30px; position: sticky; top: 0; background: #3e3e42; z-index: 10; border-bottom: 2px solid #555;"></th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Collection / Display ID</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Tags</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Email</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Name</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">TikTok</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Age</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Country</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">PostCode</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Active Days</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Total Events</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Last Event</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;" onclick="sortCollectionTable(this)">Added</th>
+            <th style="padding: 8px 5px; width: 30px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong);"></th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Collection / Display ID</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Tags</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Email</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Name</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">TikTok</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Age</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Country</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">PostCode</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Active Days</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Total Events</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Last Event</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Added</th>
         </tr>
     `;
     table.appendChild(thead);
@@ -112,7 +112,7 @@ function renderCollectionSelector(container, selectedList) {
         const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
 
         const tr = document.createElement('tr');
-        tr.style.borderBottom = '1px solid #444';
+        tr.style.borderBottom = `1px solid ${getCSSVar('--chart-grid')}`;
         tr.className = 'donation-item'; // Keep class for CSS/JS targeting
 
         let pEmail = '', pName = '', pTiktok = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
@@ -361,7 +361,7 @@ function renderStudiesTable() {
             <td style="text-align: right; padding: 10px;">${formatNum(stats.annotated_videos)}</td>
             <td style="text-align: right; padding: 10px;">${lastUpdated}</td>
             <td style="padding: 10px;">
-                ${savingStudies.has(study.STUDY_NAME) ? '<span style="color: #00ff00; font-weight: bold; text-shadow: 0 0 5px #00ff00;">Saving...</span>' : ''}
+                ${savingStudies.has(study.STUDY_NAME) ? '<span style="color: var(--color-success-light); font-weight: bold; text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>' : ''}
             </td>
         `;
 
@@ -395,8 +395,8 @@ function toggleDetail(event, index) {
     if (detailRow.style.display === 'none') {
         detailRow.style.display = 'table-row';
         icon.textContent = '▼';
-        row.style.backgroundColor = '#1e1e1e';
-        row.style.borderLeft = '4px solid #3b82f6';
+        row.style.backgroundColor = getCSSVar('--color-bg-primary');
+        row.style.borderLeft = `4px solid ${getCSSVar('--color-info')}`;
     } else {
         detailRow.style.display = 'none';
         icon.textContent = '▶';
@@ -646,7 +646,7 @@ function saveStudy(btn, event) {
         // Show Saving Indicator immediately (for instant feedback)
         const mainRow = detailRow.previousElementSibling;
         const actionCell = mainRow.cells[mainRow.cells.length - 1];
-        actionCell.innerHTML = '<span style="color: #00ff00; font-weight: bold; text-shadow: 0 0 5px #00ff00;">Saving...</span>';
+        actionCell.innerHTML = '<span style="color: var(--color-success-light); font-weight: bold; text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>';
 
         let isSuccess = false;
 
@@ -710,7 +710,7 @@ function saveStudy(btn, event) {
 
                                 if (saveBtn) {
                                     saveBtn.textContent = "Saved!";
-                                    saveBtn.style.backgroundColor = "#28a745";
+                                    saveBtn.style.backgroundColor = getCSSVar('--color-success');
 
                                     setTimeout(() => {
                                         saveBtn.textContent = "Save Study Definition";
@@ -904,11 +904,11 @@ function fetchEnrichmentStats() {
             // Queues
             if (data.scrape_queue_len !== undefined) {
                 document.getElementById('enrich_scrape_targets').textContent = data.scrape_queue_len.toLocaleString();
-                document.getElementById('enrich_scrape_targets').style.color = "#4cd964";
+                document.getElementById('enrich_scrape_targets').style.color = getCSSVar('--color-success-light');
             }
             if (data.annotate_queue_len !== undefined) {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
-                document.getElementById('enrich_annotate_targets').style.color = "#4cd964";
+                document.getElementById('enrich_annotate_targets').style.color = getCSSVar('--color-success-light');
             }
         })
         .catch(err => console.error("Error fetching enrichment stats:", err));
@@ -930,9 +930,9 @@ function queueVideosFromTargetStudy(btnElement) {
     btnElement.disabled = true;
 
     scrapeTargetsDisplay.textContent = "Calc...";
-    scrapeTargetsDisplay.style.color = "#aaa";
+    scrapeTargetsDisplay.style.color = getCSSVar('--color-text-tertiary');
     annotateTargetsDisplay.textContent = "Calc...";
-    annotateTargetsDisplay.style.color = "#aaa";
+    annotateTargetsDisplay.style.color = getCSSVar('--color-text-tertiary');
 
     const fetchScrape = fetch('/api/manage/enrichment/calculate_to_scrape', {
         method: 'POST',
@@ -955,20 +955,20 @@ function queueVideosFromTargetStudy(btnElement) {
             // Update scrape display
             if (scrapeData.status === 'success') {
                 scrapeTargetsDisplay.textContent = scrapeData.videos_to_scrape.toLocaleString();
-                scrapeTargetsDisplay.style.color = "#4cd964";
+                scrapeTargetsDisplay.style.color = getCSSVar('--color-success-light');
             } else {
                 scrapeTargetsDisplay.textContent = "Error";
-                scrapeTargetsDisplay.style.color = "#ff4444";
+                scrapeTargetsDisplay.style.color = getCSSVar('--color-danger');
                 console.error("Scrape Error:", scrapeData.error);
             }
 
             // Update annotate display
             if (annotateData.status === 'success') {
                 annotateTargetsDisplay.textContent = annotateData.videos_to_annotate.toLocaleString();
-                annotateTargetsDisplay.style.color = "#4cd964";
+                annotateTargetsDisplay.style.color = getCSSVar('--color-success-light');
             } else {
                 annotateTargetsDisplay.textContent = "Error";
-                annotateTargetsDisplay.style.color = "#ff4444";
+                annotateTargetsDisplay.style.color = getCSSVar('--color-danger');
                 console.error("Annotate Error:", annotateData.error);
             }
 
@@ -979,9 +979,9 @@ function queueVideosFromTargetStudy(btnElement) {
             btnElement.textContent = originalText;
             btnElement.disabled = false;
             scrapeTargetsDisplay.textContent = "Failed";
-            scrapeTargetsDisplay.style.color = "#ff4444";
+            scrapeTargetsDisplay.style.color = getCSSVar('--color-danger');
             annotateTargetsDisplay.textContent = "Failed";
-            annotateTargetsDisplay.style.color = "#ff4444";
+            annotateTargetsDisplay.style.color = getCSSVar('--color-danger');
             console.error("Error queueing from target study:", err);
             alert("Error queueing videos from target study.");
         });
@@ -1071,29 +1071,29 @@ function renderIngestionSources(sources) {
     container.innerHTML = '';
 
     if (sources.length === 0) {
-        container.innerHTML = '<div style="color: #aaa; padding: 10px;">No collection subclasses registered.</div>';
+        container.innerHTML = '<div style="color: var(--color-text-tertiary); padding: 10px;">No collection subclasses registered.</div>';
         return;
     }
 
     sources.forEach(source => {
         const card = document.createElement('div');
-        card.style.background = '#3e3e42';
+        card.style.background = getCSSVar('--color-border');
         card.style.padding = '15px';
         card.style.borderRadius = '4px';
-        card.style.border = '1px solid #555';
+        card.style.border = `1px solid ${getCSSVar('--color-border-strong')}`;
         card.style.flex = '1';
         card.style.minWidth = '300px';
         card.style.marginBottom = '10px';
 
         card.innerHTML = `
             <div style="font-weight: bold; margin-bottom: 5px; font-size: 1.1em;">${source.class_name}</div>
-            <div style="font-size: 0.85em; color: #aaa; margin-bottom: 15px;">
+            <div style="font-size: 0.85em; color: var(--color-text-tertiary); margin-bottom: 15px;">
                 <strong>Platform:</strong> ${source.source_platform} | <strong>Source:</strong> ${source.data_source}<br>
                 <strong>Raw Path:</strong> ${source.raw_path}
             </div>
             <div style="margin-top: 10px;">
                 <input type="file" id="file-${source.class_name}" style="display: none;" onchange="uploadIngestionFile('${source.class_name}', '${source.raw_path}')">
-                <button type="button" class="action-btn" style="background-color: #3b82f6;" onclick="document.getElementById('file-${source.class_name}').click()">
+                <button type="button" class="action-btn" style="background-color: var(--color-info);" onclick="document.getElementById('file-${source.class_name}').click()">
                     Browse and Upload File
                 </button>
                 <div id="upload-status-${source.class_name}" style="margin-top: 5px; font-size: 0.85em; font-weight: bold; display: none;"></div>
@@ -1116,7 +1116,7 @@ window.uploadIngestionFile = function (className, rawPath) {
     formData.append('raw_path', rawPath);
 
     statusDiv.textContent = "Uploading...";
-    statusDiv.style.color = "#aaa";
+    statusDiv.style.color = getCSSVar('--color-text-tertiary');
     statusDiv.style.display = "block";
 
     fetch('/api/manage/ingestion/upload', {
@@ -1128,17 +1128,17 @@ window.uploadIngestionFile = function (className, rawPath) {
         .then(data => {
             if (data.status === 'success') {
                 statusDiv.textContent = "Upload successful!";
-                statusDiv.style.color = "#4cd964";
+                statusDiv.style.color = getCSSVar('--color-success-light');
                 fileInput.value = ''; // clear input
                 setTimeout(() => { statusDiv.style.display = 'none'; }, 4000);
             } else {
                 statusDiv.textContent = "Error: " + data.error;
-                statusDiv.style.color = "#dc3545";
+                statusDiv.style.color = getCSSVar('--color-danger');
             }
         })
         .catch(err => {
             statusDiv.textContent = "Upload failed.";
-            statusDiv.style.color = "#dc3545";
+            statusDiv.style.color = getCSSVar('--color-danger');
         });
 }
 
@@ -1174,7 +1174,7 @@ function renderEditActivityTable(container) {
     container.innerHTML = '';
 
     if (availableCollections.length === 0) {
-        container.innerHTML = '<div style="padding: 10px; color: #aaa;">No collections available.</div>';
+        container.innerHTML = '<div style="padding: 10px; color: var(--color-text-tertiary);">No collections available.</div>';
         return;
     }
 
@@ -1183,15 +1183,15 @@ function renderEditActivityTable(container) {
     table.style.minWidth = '100%';
     table.style.width = 'max-content';
     table.style.borderCollapse = 'collapse';
-    table.style.color = '#ddd';
+    table.style.color = getCSSVar('--color-text-secondary');
     table.style.fontSize = '0.9em';
     table.style.whiteSpace = 'nowrap';
 
-    const thStyle = 'padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid #555;';
+    const thStyle = 'padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);';
     const thead = document.createElement('thead');
     thead.innerHTML = `
         <tr style="text-align: left;">
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: #3e3e42; z-index: 10; border-bottom: 2px solid #555; width: 40px;"></th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong); width: 40px;"></th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Collection / Display ID</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Tags</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Name</th>
@@ -1259,7 +1259,7 @@ function renderEditActivityTable(container) {
         }
 
         const tr = document.createElement('tr');
-        tr.style.borderBottom = '1px solid #444';
+        tr.style.borderBottom = `1px solid ${getCSSVar('--chart-grid')}`;
         tr.style.cursor = 'pointer';
         tr.className = 'edit-activity-item';
         tr.setAttribute('data-search', searchString.toLowerCase());
@@ -1268,20 +1268,20 @@ function renderEditActivityTable(container) {
         // Apply distinct styling to hidden collections
         if (itemInfo.hidden) {
             tr.style.opacity = '0.5';
-            tr.style.color = '#888';
+            tr.style.color = getCSSVar('--color-text-muted');
         }
 
         tr.onmouseenter = () => {
-            if (window.pe_selectedId !== item) tr.style.background = '#383838';
+            if (window.pe_selectedId !== item) tr.style.background = getCSSVar('--color-bg-input');
         };
         tr.onmouseleave = () => {
-            tr.style.background = (window.pe_selectedId === item) ? '#1b4d4d' : 'transparent';
+            tr.style.background = (window.pe_selectedId === item) ? getCSSVar('--table-row-selected') : 'transparent';
         };
         tr.onclick = () => {
             // Highlight the clicked row in the table
             window.pe_selectedId = item;
             document.querySelectorAll('.edit-activity-item').forEach(r => {
-                r.style.background = (r.getAttribute('data-donation-id') === item) ? '#1b4d4d' : 'transparent';
+                r.style.background = (r.getAttribute('data-donation-id') === item) ? getCSSVar('--table-row-selected') : 'transparent';
             });
             // Sync with bee swarm selection
             if (typeof pe_selectDonation === 'function') {
@@ -1307,7 +1307,7 @@ function renderEditActivityTable(container) {
         editTd.style.textAlign = 'center';
         const editBtn = document.createElement('button');
         editBtn.innerHTML = '<i class="fas fa-pen"></i>';
-        editBtn.style.cssText = 'background: #2d8f8f; border: none; color: #fff; cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 0.8em;';
+        editBtn.style.cssText = `background: ${getCSSVar('--color-accent')}; border: none; color: ${getCSSVar('--white')}; cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 0.8em;`;
         editBtn.title = 'Edit collection';
         editBtn.onclick = (e) => {
             e.stopPropagation();
@@ -1418,8 +1418,8 @@ function dm_renderTags() {
         const isSelected = currentEditCollectionTags.includes(tag);
         const chip = document.createElement('div');
 
-        const bg = isSelected ? '#007acc' : '#444';
-        const border = isSelected ? '1px solid #009ce6' : '1px solid #555';
+        const bg = isSelected ? getCSSVar('--chip-selected-bg') : getCSSVar('--chip-bg');
+        const border = isSelected ? `1px solid ${getCSSVar('--chip-selected-border')}` : `1px solid ${getCSSVar('--color-border-strong')}`;
 
         chip.style.cssText = `
             background: ${bg};

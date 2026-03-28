@@ -1,15 +1,15 @@
 <div id="settings" class="tab-pane">
-    <div style="background: #252526; padding: 20px; border-radius: 8px;">
+    <div style="background: var(--color-bg-surface); padding: 20px; border-radius: 8px;">
         <h2>User Settings</h2>
 
         <div class="setting-group" style="margin-bottom: 20px;">
             <h3>Video Player</h3>
             <div style="margin-top: 10px;">
-                <label style="display: flex; align-items: center; cursor: pointer; color: #d4d4d4;">
+                <label style="display: flex; align-items: center; cursor: pointer; color: var(--color-text-primary);">
                     <input type="checkbox" id="setting-video-autostart" style="margin-right: 10px;">
                     Video autostart
                 </label>
-                <p style="margin-left: 23px; color: #888; font-size: 0.9em; margin-top: 5px;">
+                <p style="margin-left: 23px; color: var(--color-text-muted); font-size: 0.9em; margin-top: 5px;">
                     If checked, videos in the Video Viewer will start playing automatically when loaded.
                 </p>
             </div>
@@ -18,7 +18,7 @@
         <div class="setting-group" style="margin-bottom: 20px;">
             <h3>Privacy</h3>
             <div style="margin-top: 10px;">
-                <label style="display: flex; align-items: center; cursor: pointer; color: #d4d4d4;">
+                <label style="display: flex; align-items: center; cursor: pointer; color: var(--color-text-primary);">
                     <input type="checkbox" id="setting-share-annotations" style="margin-right: 10px;">
                     Share my annotations anonymously with other researchers
                 </label>
@@ -27,20 +27,20 @@
 
         <button class="action-btn" onclick="saveSettingsTab()">Save Settings</button>
 
-        <hr style="border: 0; border-top: 1px solid #3e3e42; margin: 30px 0;">
+        <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 30px 0;">
 
         <h2>User Tags Manager</h2>
 
         <div class="setting-group" style="margin-bottom: 20px;">
-            <p style="color: #888; font-size: 0.9em; margin-bottom: 15px;">
+            <p style="color: var(--color-text-muted); font-size: 0.9em; margin-bottom: 15px;">
                 Manage your custom tags. Deleting a tag removes it from all videos where it is applied.
                 <br><br>
-                <em style="color: #666;">Note: Counts displayed here represent the number of unique items (e.g. videos)
+                <em style="color: var(--color-text-faint);">Note: Counts displayed here represent the number of unique items (e.g. videos)
                     tagged. In other views, counts may reflect total event occurrences and thus appear higher.</em>
             </p>
             <div id="settings-tags-container"
-                style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 300px; overflow-y: auto; background: #1e1e1e; padding: 10px; border-radius: 4px; border: 1px solid #3e3e42;">
-                <span style="color: #666; font-style: italic;">Loading tags...</span>
+                style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 300px; overflow-y: auto; background: var(--color-bg-primary); padding: 10px; border-radius: 4px; border: 1px solid var(--color-border);">
+                <span style="color: var(--color-text-faint); font-style: italic;">Loading tags...</span>
             </div>
         </div>
     </div>

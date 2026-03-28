@@ -127,7 +127,7 @@ function pe_loadCachedStats() {
     // console.log('Loading cached stats...');
 
     const container = document.getElementById('pe-strips-container');
-    if (container) container.innerHTML = '<p style="text-align:center; color:#999;">Loading cached stats...</p>';
+    if (container) container.innerHTML = '<p style="text-align:center; color:var(--color-text-muted);">Loading cached stats...</p>';
 
     return fetch('/api/collections/cached')
         .then(response => {
@@ -147,14 +147,14 @@ function pe_loadCachedStats() {
         })
         .then(data => {
             if (data.error) {
-                if (container) container.innerHTML = `<p style="text-align:center; color:#999;">${data.error}</p>`;
+                if (container) container.innerHTML = `<p style="text-align:center; color:var(--color-text-muted);">${data.error}</p>`;
                 return;
             }
             pe_handleStatsData(data);
         })
         .catch(err => {
             console.error('Fetch error:', err);
-            if (container) container.innerHTML = '<p style="text-align:center; color:#e63946;">Failed to load cached stats.</p>';
+            if (container) container.innerHTML = '<p style="text-align:center; color:var(--color-danger);">Failed to load cached stats.</p>';
         });
 }
 window.pe_loadCachedStats = pe_loadCachedStats;
@@ -283,9 +283,9 @@ function pe_drawSwarmCanvas(canvas, swarmData, selectedId) {
     if (selected) {
         ctx.beginPath();
         ctx.arc(selected.x, selected.y, 5.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#e63946';
+        ctx.fillStyle = getCSSVar('--color-danger');
         ctx.fill();
-        ctx.strokeStyle = '#fff';
+        ctx.strokeStyle = getCSSVar('--white');
         ctx.lineWidth = 1.5;
         ctx.stroke();
     }
@@ -500,7 +500,7 @@ function pe_selectDonation(donationId) {
     let matchedRow = null;
     document.querySelectorAll('.edit-activity-item').forEach(row => {
         if (row.getAttribute('data-donation-id') === donationId) {
-            row.style.background = '#1b4d4d';
+            row.style.background = getCSSVar('--table-row-selected');
             matchedRow = row;
         } else {
             row.style.background = 'transparent';
@@ -564,12 +564,12 @@ function pe_renderTags() {
         // Style based on state
         // Gray = Unselected (#444 bg, #555 border)
         // Blue/Green = Selected (#007acc bg, #009ce6 border)
-        const bg = isSelected ? '#007acc' : '#444';
-        const border = isSelected ? '1px solid #009ce6' : '1px solid #555';
+        const bg = isSelected ? getCSSVar('--chip-selected-bg') : getCSSVar('--chip-bg');
+        const border = isSelected ? `1px solid ${getCSSVar('--chip-selected-border')}` : `1px solid ${getCSSVar('--chip-border')}`;
 
         chip.style.cssText = `
             background: ${bg};
-            color: white;
+            color: ${getCSSVar('--chip-text')};
             border: ${border};
             padding: 4px 10px;
             border-radius: 12px;
@@ -689,7 +689,7 @@ function pe_saveAnnotation() {
                     btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
                     btn.classList.add('success');
                     // Assuming .success class exists or inline style
-                    btn.style.backgroundColor = '#2e7d32'; // Dark green
+                    btn.style.backgroundColor = getCSSVar('--color-success');
 
                     setTimeout(() => {
                         btn.innerHTML = originalHTML;

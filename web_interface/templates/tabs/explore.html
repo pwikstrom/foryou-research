@@ -1,18 +1,16 @@
 <div id="explore" class="tab-pane">
     <!-- Control Bar -->
-    <div class="control-bar"
-        style="display: flex; align-items: center; padding: 10px; background-color: #252526; margin-bottom: 20px; border-bottom: 1px solid #3e3e42;">
+    <div class="control-bar" style="margin-right: 20px;">
         <div class="header-with-help" style="margin-right: 20px;">
-            <h3 style="margin: 0; color: #eee; font-size: 1.1em;">Explore</h3>
+            <h3>Explore</h3>
             <button class="help-icon" onclick="showHelp('explore')">?</button>
         </div>
-        <label for="explorer-v2-study-select" style="margin-right: 10px; font-weight: bold; color: #eee;">Select
+        <label for="explorer-v2-study-select" style="margin-right: 10px;">Select
             Study:</label>
-        <select id="explorer-v2-study-select" class="dropdown" onchange="changeExplorerV2Study()"
-            style="width: 300px; padding: 5px; background: #3c3c3c; border: 1px solid #555; color: white;">
+        <select id="explorer-v2-study-select" class="dropdown" onchange="changeExplorerV2Study()">
             <option value="" disabled selected>Select a study...</option>
         </select>
-        <span id="explorer-v2-file-info" style="margin-left: 20px; color: #888; font-size: 0.9em;"></span>
+        <span id="explorer-v2-file-info" style="margin-left: 20px; color: var(--control-bar-info); font-size: 0.9em;"></span>
     </div>
 
     <!-- Main Content -->
@@ -20,49 +18,48 @@
 
         <!-- Filters Panel Slice 1 (Left) -->
         <div class="panel"
-            style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #444;">
-            <div class="header" style="flex: 0 0 auto; background: #2d2d30; padding: 10px;">
+            style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--color-border);">
+            <div class="header" style="flex: 0 0 auto; background: var(--color-bg-elevated); padding: 10px;">
                 <h3 style="margin: 0;">Filters Slice 1</h3>
                 <button class="btn-save" style="font-size: 0.8em; padding: 2px 8px; margin-top: 5px;"
                     onclick="resetFiltersV2(1)">Reset Slice 1</button>
             </div>
-            <div style="padding: 10px; border-bottom: 1px solid #3e3e42; flex: 0 0 auto;">
+            <div style="padding: 10px; border-bottom: 1px solid var(--color-border); flex: 0 0 auto;">
                 <input type="text" id="explorer-v2-search-input-1" placeholder="Search Slice 1..."
-                    style="width: 100%; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white; border-radius: 4px;">
+                    style="width: 100%; padding: 8px; border-radius: 4px;">
             </div>
             <div id="explorer-v2-filters-1" style="flex: 1; overflow-y: auto; padding: 10px;">
-                <!-- Filter widgets injected here by JS -->
-                <div style="text-align: center; margin-top: 20px; color: #777;">Loading filters...</div>
+                <div style="text-align: center; margin-top: 20px; color: var(--color-text-muted);">Loading filters...</div>
             </div>
         </div>
 
         <!-- Stats Panel (Center) -->
         <div class="panel"
-            style="flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #1e1e1e;">
+            style="flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--color-bg-primary);">
             <div class="header" style="flex: 0 0 auto; padding: 10px; text-align: center;">
                 <div style="display: flex; justify-content: center; align-items: center;">
                     <div id="explorer-v2-slice-toggle"
-                        style="display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid #555; font-size: 1.1em; cursor: pointer;">
+                        style="display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--color-border-strong); font-size: 1.1em; cursor: pointer;">
                         <div id="explorer-v2-toggle-single" onclick="setExplorerV2SliceMode(false)"
-                            style="padding: 7px 20px; background: #4CAF50; color: #fff; font-weight: bold; transition: all 0.2s;">
+                            style="padding: 7px 20px; background: var(--color-slice1); color: var(--white); font-weight: bold; transition: all 0.2s;">
                             Distribution
                         </div>
                         <div id="explorer-v2-toggle-dual" onclick="setExplorerV2SliceMode(true)"
-                            style="padding: 7px 20px; background: #3c3c3c; color: #aaa; transition: all 0.2s;"
+                            style="padding: 7px 20px; background: var(--color-bg-input); color: var(--color-text-tertiary); transition: all 0.2s;"
                             title="Compare two filtered groups side by side">
                             ⇄ Compare Slices
                         </div>
                     </div>
                 </div>
                 <div style="display: flex; justify-content: center; gap: 20px; font-size: 1.1em; margin-top: 5px;">
-                    <span id="explorer-v2-count-1" style="color: #4CAF50;">Slice 1: ...</span>
-                    <span id="explorer-v2-vs-label" style="color: #666; display: none;">vs</span>
-                    <span id="explorer-v2-count-2" style="color: #2196F3; display: none;">Slice 2: ...</span>
+                    <span id="explorer-v2-count-1" style="color: var(--color-slice1);">Slice 1: ...</span>
+                    <span id="explorer-v2-vs-label" style="color: var(--color-text-faint); display: none;">vs</span>
+                    <span id="explorer-v2-count-2" style="color: var(--color-slice2); display: none;">Slice 2: ...</span>
                 </div>
                 <div style="margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px;">
-                    <label for="explorer-v2-sort" style="color: #bbb; font-size: 0.9em;">Sort by:</label>
-                    <select id="explorer-v2-sort" onchange="changeExplorerV2Sort(this.value)"
-                        style="padding: 4px; background: #3c3c3c; border: 1px solid #555; color: white; border-radius: 4px; font-size: 0.9em;">
+                    <label for="explorer-v2-sort" style="color: var(--color-text-secondary); font-size: 0.9em; font-weight: normal;">Sort by:</label>
+                    <select id="explorer-v2-sort" class="dropdown" onchange="changeExplorerV2Sort(this.value)"
+                        style="font-size: 0.9em;">
                         <option value="total">Total Frequency</option>
                         <option value="slice1">Slice 1 Frequency</option>
                         <option id="explorer-v2-sort-slice2" value="slice2" style="display: none;">Slice 2 Frequency
@@ -72,25 +69,23 @@
                 </div>
             </div>
             <div id="explorer-v2-stats" style="flex: 1; overflow-y: auto; padding: 10px;">
-                <!-- Stats injected here by JS -->
             </div>
         </div>
 
         <!-- Filters Panel Slice 2 (Right) -->
         <div id="explorer-v2-slice2-panel" class="panel"
-            style="flex: 0 0 300px; display: none; flex-direction: column; overflow: hidden; border-left: 1px solid #444;">
-            <div class="header" style="flex: 0 0 auto; background: #2d2d30; padding: 10px;">
+            style="flex: 0 0 300px; display: none; flex-direction: column; overflow: hidden; border-left: 1px solid var(--color-border);">
+            <div class="header" style="flex: 0 0 auto; background: var(--color-bg-elevated); padding: 10px;">
                 <h3 style="margin: 0;">Filters Slice 2</h3>
                 <button class="btn-save" style="font-size: 0.8em; padding: 2px 8px; margin-top: 5px;"
                     onclick="resetFiltersV2(2)">Reset Slice 2</button>
             </div>
-            <div style="padding: 10px; border-bottom: 1px solid #3e3e42; flex: 0 0 auto;">
+            <div style="padding: 10px; border-bottom: 1px solid var(--color-border); flex: 0 0 auto;">
                 <input type="text" id="explorer-v2-search-input-2" placeholder="Search Slice 2..."
-                    style="width: 100%; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: white; border-radius: 4px;">
+                    style="width: 100%; padding: 8px; border-radius: 4px;">
             </div>
             <div id="explorer-v2-filters-2" style="flex: 1; overflow-y: auto; padding: 10px;">
-                <!-- Filter widgets injected here by JS -->
-                <div style="text-align: center; margin-top: 20px; color: #777;">Loading filters...</div>
+                <div style="text-align: center; margin-top: 20px; color: var(--color-text-muted);">Loading filters...</div>
             </div>
         </div>
 

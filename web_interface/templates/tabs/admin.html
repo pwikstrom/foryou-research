@@ -1,17 +1,17 @@
 <div id="admin" class="tab-pane">
     <div style="height: 100%; overflow-y: auto; padding: 20px;">
         <!-- General Section -->
-        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
             <div onclick="toggleSection('general-content', 'general-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
                 <span id="general-arrow"
-                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                    style="margin-right: 12px; font-size: 14px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
                 <h2 style="margin: 0;">General</h2>
             </div>
             <div id="general-content" style="padding: 0 20px 20px 20px;">
                 <div style="margin: 16px 0;">
                     <button onclick="reloadVarSchema()"
-                        style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                        style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 6px 12px; border-radius: 4px; cursor: pointer; color: var(--color-text-primary);">
                         Reload variable schema
                     </button>
                 </div>
@@ -19,84 +19,84 @@
         </div>
 
         <!-- Role Management Section -->
-        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
             <div onclick="toggleSection('role-mgmt-content', 'role-mgmt-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
                 <span id="role-mgmt-arrow"
-                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                    style="margin-right: 12px; font-size: 14px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
                 <h2 style="margin: 0;">Role Management</h2>
             </div>
             <div id="role-mgmt-content" style="padding: 0 20px 20px 20px;">
                 <div style="margin-bottom: 16px;">
                     <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
                         <input type="text" id="newRoleName" placeholder="New Role Name"
-                            style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 200px; background: #3c3c3c; color: #d4d4d4;">
+                            style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 200px; background: var(--color-bg-input); color: var(--color-text-primary);">
                         <button onclick="addRole()"
-                            style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                            style="background: var(--color-info); color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
                             Add Role
                         </button>
                     </div>
                 </div>
                 <div id="roleList" style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <!-- Populated dynamically -->
-                    <div style="color: #888; font-style: italic;">Loading roles...</div>
+                    <div style="color: var(--color-text-muted); font-style: italic;">Loading roles...</div>
                 </div>
             </div>
         </div>
 
         <!-- User Administration Section -->
-        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
             <div onclick="toggleSection('user-admin-content', 'user-admin-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
                 <span id="user-admin-arrow"
-                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                    style="margin-right: 12px; font-size: 14px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
                 <h2 style="margin: 0;">User Administration</h2>
             </div>
 
             <div id="user-admin-content" style="padding: 0 20px 20px 20px;">
                 <div style="margin: 16px 0;">
                     <button onclick="loadUsers()"
-                        style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                        style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 6px 12px; border-radius: 4px; cursor: pointer; color: var(--color-text-primary);">
                         ↻ Refresh List
                     </button>
                 </div>
 
                 <!-- Pending Approvals Section -->
                 <div style="margin-bottom: 32px;">
-                    <h3 style="color: #d97706; margin-bottom: 16px; font-size: 16px;">Pending Approvals</h3>
+                    <h3 style="color: var(--color-warning); margin-bottom: 16px; font-size: 16px;">Pending Approvals</h3>
                     <div id="pendingUserList"
-                        style="background: #2d2d30; border: 1px solid #d97706; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
-                        <p style="color: #d97706; font-style: italic;">Loading pending users...</p>
+                        style="background: var(--color-bg-elevated); border: 1px solid var(--color-warning); border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+                        <p style="color: var(--color-warning); font-style: italic;">Loading pending users...</p>
                     </div>
                 </div>
 
                 <!-- Add User Section -->
                 <div
-                    style="background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 32px; border: 1px solid #3e3e42;">
-                    <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 16px; color: #d4d4d4;">Add New User</h3>
+                    style="background: var(--color-bg-primary); padding: 20px; border-radius: 8px; margin-bottom: 32px; border: 1px solid var(--color-border);">
+                    <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 16px; color: var(--color-text-primary);">Add New User</h3>
                     <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
                         <div>
                             <label
-                                style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Username</label>
+                                style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: var(--color-text-primary);">Username</label>
                             <input type="text" id="newUsername"
-                                style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 200px; background: #3c3c3c; color: #d4d4d4;">
+                                style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 200px; background: var(--color-bg-input); color: var(--color-text-primary);">
                         </div>
                         <div>
                             <label
-                                style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Password</label>
+                                style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: var(--color-text-primary);">Password</label>
                             <input type="password" id="newPassword"
-                                style="padding: 8px; width: 200px; background: #3c3c3c; border: 1px solid #3e3e42; color: #d4d4d4; border-radius: 3px;">
+                                style="padding: 8px; width: 200px; background: var(--color-bg-input); border: 1px solid var(--color-border); color: var(--color-text-primary); border-radius: 3px;">
                         </div>
                         <div>
                             <label
-                                style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: #d4d4d4;">Role</label>
+                                style="display: block; font-size: 14px; margin-bottom: 4px; font-weight: 500; color: var(--color-text-primary);">Role</label>
                             <select id="newRole"
-                                style="padding: 8px; border: 1px solid #3e3e42; border-radius: 4px; width: 150px; background: #3c3c3c; color: #d4d4d4;">
+                                style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 150px; background: var(--color-bg-input); color: var(--color-text-primary);">
                                 <!-- Populated dynamically -->
                             </select>
                         </div>
                         <button onclick="addUser()"
-                            style="background: #4ec9b0; color: #1e1e1e; border: none; padding: 9px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                            style="background: var(--color-accent); color: var(--color-text-on-accent); border: none; padding: 9px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">
                             Add User
                         </button>
                     </div>
@@ -104,49 +104,49 @@
 
                 <!-- User List Section -->
                 <div>
-                    <h3 style="margin-bottom: 16px; font-size: 16px; color: #d4d4d4;">Active Users</h3>
+                    <h3 style="margin-bottom: 16px; font-size: 16px; color: var(--color-text-primary);">Active Users</h3>
                     <div style="overflow-x: auto;">
                         <table
-                            style="width: 100%; border-collapse: collapse; background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 8px;">
+                            style="width: 100%; border-collapse: collapse; background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 8px;">
                             <thead>
-                                <tr style="background: #2d2d30;">
+                                <tr style="background: var(--color-bg-elevated);">
                                     <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                         Username
                                     </th>
                                     <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                         Role
                                     </th>
                                     <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                         Videos
                                     </th>
                                     <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                         Notes
                                     </th>
                                     <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                         Closed
                                     </th>
                                     <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                         Open
                                     </th>
                                     <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                         Last
                                         Login</th>
                                     <th
-                                        style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                        style="text-align: right; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                         Actions
                                     </th>
                                 </tr>
                             </thead>
                             <tbody id="userTableBody">
                                 <tr>
-                                    <td colspan="8" style="padding: 16px; text-align: center; color: #888;">Loading
+                                    <td colspan="8" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Loading
                                         users...
                                     </td>
                                 </tr>
@@ -158,56 +158,56 @@
         </div>
 
         <!-- User Annotations Section -->
-        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
             <div onclick="toggleSection('annotations-content', 'annotations-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
                 <span id="annotations-arrow"
-                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                    style="margin-right: 12px; font-size: 14px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
                 <h2 style="margin: 0;">User Annotations</h2>
             </div>
 
             <div id="annotations-content" style="padding: 0 20px 20px 20px;">
                 <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
                     <button onclick="loadAnnotations()"
-                        style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                        style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 6px 12px; border-radius: 4px; cursor: pointer; color: var(--color-text-primary);">
                         ↻ Refresh Annotations
                     </button>
                 </div>
 
                 <div style="overflow-x: auto;">
                     <table
-                        style="width: 100%; border-collapse: collapse; background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 8px;">
+                        style="width: 100%; border-collapse: collapse; background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 8px;">
                         <thead>
-                            <tr style="background: #2d2d30;">
+                            <tr style="background: var(--color-bg-elevated);">
                                 <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                     Item ID
                                 </th>
                                 <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                     Unique
                                     Users</th>
                                 <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                     Total
                                     Notes</th>
                                 <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                     Total
                                     Closed</th>
                                 <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                     Total
                                     Open</th>
                                 <th
-                                    style="text-align: right; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    style="text-align: right; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                     Actions
                                 </th>
                             </tr>
                         </thead>
                         <tbody id="annotationsTableBody">
                             <tr>
-                                <td colspan="6" style="padding: 16px; text-align: center; color: #888;">Click Refresh to
+                                <td colspan="6" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Click Refresh to
                                     load annotations.</td>
                             </tr>
                         </tbody>
@@ -217,16 +217,16 @@
         </div>
 
         <!-- Inter-coder Reliability Section -->
-        <div style="background: #252526; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
             <div onclick="toggleSection('reliability-content', 'reliability-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
                 <span id="reliability-arrow"
-                    style="margin-right: 12px; font-size: 14px; color: #d4d4d4; transition: transform 0.2s;">▼</span>
+                    style="margin-right: 12px; font-size: 14px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
                 <h2 style="margin: 0;">Inter-coder Reliability</h2>
             </div>
 
             <div id="reliability-content" style="padding: 0 20px 20px 20px;">
-                <p style="color: #bbb; font-size: 13px; margin-bottom: 16px;">
+                <p style="color: var(--color-text-secondary); font-size: 13px; margin-bottom: 16px;">
                     Calculate percent agreement and Cohen's Kappa for closed tags between each user and the consensus
                     (most
                     common tag).
@@ -234,36 +234,36 @@
 
                 <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
                     <button onclick="calculateReliability()"
-                        style="background: #3e3e42; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: #d4d4d4;">
+                        style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 6px 12px; border-radius: 4px; cursor: pointer; color: var(--color-text-primary);">
                         Calculate Reliability
                     </button>
                 </div>
 
                 <div style="overflow-x: auto;">
                     <table
-                        style="width: 100%; border-collapse: collapse; background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 8px;">
+                        style="width: 100%; border-collapse: collapse; background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 8px;">
                         <thead>
-                            <tr style="background: #2d2d30;">
+                            <tr style="background: var(--color-bg-elevated);">
                                 <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
                                     Variable</th>
                                 <th title="The average percentage of items where the user's tag matched the consensus (mode)."
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4; cursor: help;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
                                     Avg Agreement %</th>
                                 <th title="The average Cohen's Kappa score across users, measuring agreement adjusted for chance."
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4; cursor: help;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
                                     Avg Kappa</th>
                                 <th title="The number of users who have contributed tags for this variable."
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4; cursor: help;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
                                     N Raters</th>
                                 <th title="The average number of videos coded by each user for this variable."
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid #3e3e42; color: #d4d4d4; cursor: help;">
+                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
                                     Avg Items</th>
                             </tr>
                         </thead>
                         <tbody id="reliabilityTableBody">
                             <tr>
-                                <td colspan="5" style="padding: 16px; text-align: center; color: #888;">Click Calculate
+                                <td colspan="5" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Click Calculate
                                     to
                                     generate stats.</td>
                             </tr>
@@ -350,18 +350,18 @@
 
         // Render Pending
         if (pending.length === 0) {
-            pendingContainer.innerHTML = '<p style="color: #059669; margin: 0;">No pending approvals.</p>';
-            pendingContainer.style.background = '#ecfdf5';
-            pendingContainer.style.borderColor = '#6ee7b7';
+            pendingContainer.innerHTML = '<p style="color: var(--color-success); margin: 0;">No pending approvals.</p>';
+            pendingContainer.style.background = 'var(--color-bg-elevated)';
+            pendingContainer.style.borderColor = 'var(--color-success)';
         } else {
-            pendingContainer.style.background = '#fffbeb';
-            pendingContainer.style.borderColor = '#fcd34d';
+            pendingContainer.style.background = 'var(--color-bg-elevated)';
+            pendingContainer.style.borderColor = 'var(--color-warning)';
             let pendingHtml = '<ul style="list-style: none; padding: 0; margin: 0;">';
             pending.forEach(u => {
                 pendingHtml += `
-             <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #fcd34d;">
+             <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--color-warning);">
                  <span><strong>${u.username}</strong> requested access as <em>${u.role}</em></span>
-                 <button onclick="approveUser('${u.username}')" style="background: #d97706; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Approve</button>
+                 <button onclick="approveUser('${u.username}')" style="background: var(--color-warning); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Approve</button>
              </li>`;
             });
             pendingHtml += '</ul>';
@@ -370,7 +370,7 @@
 
         // Render Active
         if (active.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: #6b7280;">No active users found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
             return;
         }
 
@@ -379,53 +379,53 @@
             const hasAnnotations = stats.used_tags.length > 0 || (stats.user_notes && stats.user_notes.length > 0);
 
             return `
-        <tr style="border-bottom: 1px solid #3e3e42;">
+        <tr style="border-bottom: 1px solid var(--color-border);">
             <td style="padding: 12px 16px;">
                 <div style="display:flex; flex-direction:column;">
-                    <span style="font-weight: 500; color: #d4d4d4;">${user.username}</span>
-                    ${hasAnnotations ? `<a href="#" onclick="toggleTags('${user.username}'); return false;" style="font-size: 11px; color: #3b82f6; text-decoration: none;">Show Annotations</a>` : ''}
+                    <span style="font-weight: 500; color: var(--color-text-primary);">${user.username}</span>
+                    ${hasAnnotations ? `<a href="#" onclick="toggleTags('${user.username}'); return false;" style="font-size: 11px; color: var(--color-info); text-decoration: none;">Show Annotations</a>` : ''}
                 </div>
             </td>
             <td style="padding: 12px 16px;">
                 <span style="background: ${getRoleColor(user.role)}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">${user.role}</span>
             </td>
-            <td style="padding: 12px 16px; color: #d4d4d4;">
+            <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 <strong>${stats.unique_videos}</strong>
             </td>
-            <td style="padding: 12px 16px; color: #d4d4d4;">
+            <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 ${stats.notes}
             </td>
-            <td style="padding: 12px 16px; color: #d4d4d4;">
+            <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 ${stats.closed_tags}
             </td>
-            <td style="padding: 12px 16px; color: #d4d4d4;">
+            <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 ${stats.open_tags}
             </td>
-            <td style="padding: 12px 16px; color: #d4d4d4;">
-                <span style="color: #888; font-size: 12px;">${user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</span>
+            <td style="padding: 12px 16px; color: var(--color-text-primary);">
+                <span style="color: var(--color-text-muted); font-size: 12px;">${user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</span>
             </td>
             <td style="padding: 12px 16px; text-align: right;">
-                 <button onclick="resetPassword('${user.username}')" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 12px;">Reset Pwd</button>
+                 <button onclick="resetPassword('${user.username}')" style="background: var(--color-info); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 12px;">Reset Pwd</button>
                  <select onchange="updateRole('${user.username}', this.value)" class="role-select" data-current-role="${user.role}"
-                    style="padding: 4px; border: 1px solid #555; background: #3c3c3c; color: #d4d4d4; border-radius: 4px; margin-right: 8px; font-size: 12px;">
+                    style="padding: 4px; border: 1px solid var(--color-border-strong); background: var(--color-bg-input); color: var(--color-text-primary); border-radius: 4px; margin-right: 8px; font-size: 12px;">
                     <!-- Populated dynamically -->
                 </select>
-                <button onclick="deleteUser('${user.username}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button>
+                <button onclick="deleteUser('${user.username}')" style="background: var(--color-danger); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button>
             </td>
         </tr>
-        <tr id="tags-${user.username}" style="display: none; background: #2d2d30; border-bottom: 2px solid #3e3e42;">
+        <tr id="tags-${user.username}" style="display: none; background: var(--color-bg-elevated); border-bottom: 2px solid var(--color-border);">
              <td colspan="8" style="padding: 12px 24px;">
                  <div style="display: flex; gap: 24px;">
                      <div style="flex: 1; min-width: 0;">
-                        <h4 style="margin: 0 0 8px 0; font-size: 13px; color: #d4d4d4;">Used Tags</h4>
+                        <h4 style="margin: 0 0 8px 0; font-size: 13px; color: var(--color-text-primary);">Used Tags</h4>
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                            ${stats.used_tags.length > 0 ? stats.used_tags.map(t => `<span style="background: #3e3e42; padding: 2px 8px; border-radius: 12px; color: #d4d4d4; font-size: 12px;">${t}</span>`).join('') : '<span style="color: #888; font-size: 12px;">None</span>'}
+                            ${stats.used_tags.length > 0 ? stats.used_tags.map(t => `<span style="background: var(--color-border); padding: 2px 8px; border-radius: 12px; color: var(--color-text-primary); font-size: 12px;">${t}</span>`).join('') : '<span style="color: var(--color-text-muted); font-size: 12px;">None</span>'}
                         </div>
                      </div>
                      <div style="flex: 1; min-width: 0;">
-                        <h4 style="margin: 0 0 8px 0; font-size: 13px; color: #d4d4d4;">Notes</h4>
+                        <h4 style="margin: 0 0 8px 0; font-size: 13px; color: var(--color-text-primary);">Notes</h4>
                         <div style="display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto;">
-                            ${stats.user_notes && stats.user_notes.length > 0 ? stats.user_notes.map(n => `<div style="background: #3e3e42; padding: 6px 10px; border-radius: 4px; font-size: 12px; color: #d4d4d4;"><span style="color:#888; font-family:monospace; margin-right: 6px;">${n.item}:</span>${n.text}</div>`).join('') : '<span style="color: #888; font-size: 12px;">None</span>'}
+                            ${stats.user_notes && stats.user_notes.length > 0 ? stats.user_notes.map(n => `<div style="background: var(--color-border); padding: 6px 10px; border-radius: 4px; font-size: 12px; color: var(--color-text-primary);"><span style="color:var(--color-text-muted); font-family:monospace; margin-right: 6px;">${n.item}:</span>${n.text}</div>`).join('') : '<span style="color: var(--color-text-muted); font-size: 12px;">None</span>'}
                         </div>
                      </div>
                  </div>
@@ -453,10 +453,10 @@
 
     function getRoleColor(role) {
         switch (role) {
-            case 'admin': return '#ef4444';
-            case 'researcher': return '#3b82f6';
-            case 'viewer': return '#6b7280';
-            default: return '#6b7280';
+            case 'admin': return 'var(--color-danger)';
+            case 'researcher': return 'var(--color-info)';
+            case 'viewer': return 'var(--color-text-faint)';
+            default: return 'var(--color-text-faint)';
         }
     }
 
@@ -578,7 +578,7 @@
 
     async function loadAnnotations() {
         const tableBody = document.getElementById('annotationsTableBody');
-        tableBody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: #888;">Loading annotations...</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Loading annotations...</td></tr>';
 
         try {
             const response = await fetch('/api/admin/annotations');
@@ -587,7 +587,7 @@
             renderAnnotations(data);
         } catch (error) {
             console.error('Error:', error);
-            tableBody.innerHTML = `<tr><td colspan="6" style="padding: 16px; text-align: center; color: #ef4444;">Error: ${error.message}</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--color-danger);">Error: ${error.message}</td></tr>`;
         }
     }
 
@@ -596,7 +596,7 @@
         if (!tableBody) return;
 
         if (items.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: #888;">No annotations found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--color-text-muted);">No annotations found.</td></tr>';
             return;
         }
 
@@ -606,23 +606,23 @@
             const detailsJson = JSON.stringify(item.details).replace(/"/g, '&quot;');
 
             return `
-            <tr style="border-bottom: 1px solid #3e3e42;">
-                <td style="padding: 12px 16px; font-family: monospace; font-size: 13px; color: #d4d4d4;">${item.item_id}</td>
-                <td style="padding: 12px 16px; color: #d4d4d4;"><strong>${stats.unique_users || 0}</strong></td>
-                <td style="padding: 12px 16px; color: #d4d4d4;">${stats.notes}</td>
-                <td style="padding: 12px 16px; color: #d4d4d4;">${stats.closed_tags}</td>
-                <td style="padding: 12px 16px; color: #d4d4d4;">${stats.open_tags}</td>
+            <tr style="border-bottom: 1px solid var(--color-border);">
+                <td style="padding: 12px 16px; font-family: monospace; font-size: 13px; color: var(--color-text-primary);">${item.item_id}</td>
+                <td style="padding: 12px 16px; color: var(--color-text-primary);"><strong>${stats.unique_users || 0}</strong></td>
+                <td style="padding: 12px 16px; color: var(--color-text-primary);">${stats.notes}</td>
+                <td style="padding: 12px 16px; color: var(--color-text-primary);">${stats.closed_tags}</td>
+                <td style="padding: 12px 16px; color: var(--color-text-primary);">${stats.open_tags}</td>
                 <td style="padding: 12px 16px; text-align: right;">
-                    <button onclick="toggleAnnotationDetails('${item.item_id}', this)" style="background: #3e3e42; border: 1px solid #555; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; color: #d4d4d4;">
+                    <button onclick="toggleAnnotationDetails('${item.item_id}', this)" style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--color-text-primary);">
                         Expand
                     </button>
                     <!-- Hidden data store for simpler access -->
                     <div id="data-${item.item_id}" style="display:none;">${detailsJson}</div>
                 </td>
             </tr>
-            <tr id="details-${item.item_id}" style="display: none; background: #2d2d30; border-bottom: 2px solid #3e3e42;">
+            <tr id="details-${item.item_id}" style="display: none; background: var(--color-bg-elevated); border-bottom: 2px solid var(--color-border);">
                 <td colspan="6" style="padding: 0;">
-                    <div id="content-${item.item_id}" style="padding: 16px; color: #d4d4d4;">Loading details...</div>
+                    <div id="content-${item.item_id}" style="padding: 16px; color: var(--color-text-primary);">Loading details...</div>
                 </td>
             </tr>
             `;
@@ -658,7 +658,7 @@
 
     function renderAnnotationDetails(container, details) {
         if (Object.keys(details).length === 0) {
-            container.innerHTML = '<p style="color: #888; font-style: italic;">No details available.</p>';
+            container.innerHTML = '<p style="color: var(--color-text-muted); font-style: italic;">No details available.</p>';
             return;
         }
 
@@ -666,40 +666,40 @@
 
         for (const [variable, data] of Object.entries(details)) {
             html += `
-            <div style="border: 1px solid #3e3e42; background: #1e1e1e; border-radius: 6px; padding: 12px;">
-                <h4 style="margin-top: 0; margin-bottom: 8px; font-size: 14px; color: #9cdcfe; border-bottom: 1px solid #3e3e42; padding-bottom: 6px;">${data.label || variable}</h4>
+            <div style="border: 1px solid var(--color-border); background: var(--color-bg-primary); border-radius: 6px; padding: 12px;">
+                <h4 style="margin-top: 0; margin-bottom: 8px; font-size: 14px; color: var(--blue-400); border-bottom: 1px solid var(--color-border); padding-bottom: 6px;">${data.label || variable}</h4>
                 
                 <div style="display: flex; flex-direction: column; gap: 8px;">
             `;
 
             // Open Tags
             if (Object.keys(data.open).length > 0) {
-                html += `<div><span style="font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600;">Tags:</span> <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">`;
+                html += `<div><span style="font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600;">Tags:</span> <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">`;
                 for (const [tag, users] of Object.entries(data.open)) {
                     const count = users.length;
                     // We only want to show users on hover, but maybe duplicates in list if user tagged same thing twice? 
                     // The backend logic appends username for every occurrence.
                     // But let's assume unique users for display purposes or just show raw list.
                     const userList = users.join(', ');
-                    html += `<span title="Used by: ${userList}" style="background: #264f78; color: #d4d4d4; padding: 2px 8px; border-radius: 12px; font-size: 12px; cursor: help;">${tag} <span style="opacity: 0.7; font-size: 10px;">(${count})</span></span>`;
+                    html += `<span title="Used by: ${userList}" style="background: var(--color-info); color: var(--color-text-primary); padding: 2px 8px; border-radius: 12px; font-size: 12px; cursor: help;">${tag} <span style="opacity: 0.7; font-size: 10px;">(${count})</span></span>`;
                 }
                 html += `</div></div>`;
             }
 
             // Closed Tags
             if (Object.keys(data.closed).length > 0) {
-                html += `<div><span style="font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600;">Closed Tags:</span> <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">`;
+                html += `<div><span style="font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600;">Closed Tags:</span> <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">`;
                 for (const [val, users] of Object.entries(data.closed)) {
                     const count = users.length;
                     const userList = users.join(', ');
-                    html += `<span title="Selected by: ${userList}" style="background: #3e5b3e; color: #d4d4d4; padding: 2px 8px; border-radius: 12px; font-size: 12px; cursor: help;">${val} <span style="opacity: 0.7; font-size: 10px;">(${count})</span></span>`;
+                    html += `<span title="Selected by: ${userList}" style="background: var(--color-success); color: var(--color-text-primary); padding: 2px 8px; border-radius: 12px; font-size: 12px; cursor: help;">${val} <span style="opacity: 0.7; font-size: 10px;">(${count})</span></span>`;
                 }
                 html += `</div></div>`;
             }
 
             // Notes
             if (data.notes.length > 0) {
-                html += `<div><span style="font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600;">Notes:</span> <ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 13px; color: #d4d4d4;">`;
+                html += `<div><span style="font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600;">Notes:</span> <ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 13px; color: var(--color-text-primary);">`;
                 for (const note of data.notes) {
                     html += `<li title="By: ${note.user}" style="cursor: help; margin-bottom: 4px;">${note.text}</li>`;
                 }
@@ -715,7 +715,7 @@
 
     async function calculateReliability() {
         const tableBody = document.getElementById('reliabilityTableBody');
-        tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: #888;">Calculating...</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Calculating...</td></tr>';
 
         try {
             const response = await fetch('/api/manage/inter_coder_reliability');
@@ -727,30 +727,30 @@
 
             if (data.results && data.results.length > 0) {
                 tableBody.innerHTML = data.results.map(row => `
-                    <tr style="border-bottom: 1px solid #3e3e42;">
-                        <td style="padding: 12px 16px; color: #d4d4d4; font-weight: 500;">${row.variable}</td>
-                        <td style="padding: 12px 16px; color: #d4d4d4;">${row.avg_agreement}%</td>
+                    <tr style="border-bottom: 1px solid var(--color-border);">
+                        <td style="padding: 12px 16px; color: var(--color-text-primary); font-weight: 500;">${row.variable}</td>
+                        <td style="padding: 12px 16px; color: var(--color-text-primary);">${row.avg_agreement}%</td>
                         <td style="padding: 12px 16px; color: ${getKappaColor(row.avg_kappa)}; font-weight: bold;">${row.avg_kappa}</td>
-                        <td style="padding: 12px 16px; color: #d4d4d4;">${row.n_raters}</td>
-                        <td style="padding: 12px 16px; color: #d4d4d4;">${row.avg_items}</td>
+                        <td style="padding: 12px 16px; color: var(--color-text-primary);">${row.n_raters}</td>
+                        <td style="padding: 12px 16px; color: var(--color-text-primary);">${row.avg_items}</td>
                     </tr>
                  `).join('');
             } else {
-                tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: #888;">No data found (need at least 2 common items per user).</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--color-text-muted);">No data found (need at least 2 common items per user).</td></tr>';
             }
 
         } catch (error) {
             console.error('Error:', error);
-            tableBody.innerHTML = `<tr><td colspan="5" style="padding: 16px; text-align: center; color: #ef4444;">Error: ${error.message}</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--color-danger);">Error: ${error.message}</td></tr>`;
         }
     }
 
     function getKappaColor(k) {
-        if (k >= 0.8) return '#4ec9b0'; // Excellent
-        if (k >= 0.6) return '#6ee7b7'; // Good
-        if (k >= 0.4) return '#fcd34d'; // Moderate
-        if (k >= 0.2) return '#d97706'; // Fair
-        return '#ef4444'; // Poor
+        if (k >= 0.8) return 'var(--color-accent)'; // Excellent
+        if (k >= 0.6) return 'var(--color-success-light)'; // Good
+        if (k >= 0.4) return 'var(--color-gold)'; // Moderate
+        if (k >= 0.2) return 'var(--color-warning)'; // Fair
+        return 'var(--color-danger)'; // Poor
     }
 
     // --- Role Management ---
@@ -774,10 +774,10 @@
         if (!container) return;
 
         container.innerHTML = roles.map(role => `
-            <div style="background: #3e3e42; padding: 6px 12px; border-radius: 20px; color: #d4d4d4; display: flex; align-items: center; gap: 8px; border: 1px solid #555;">
+            <div style="background: var(--color-border); padding: 6px 12px; border-radius: 20px; color: var(--color-text-primary); display: flex; align-items: center; gap: 8px; border: 1px solid var(--color-border-strong);">
                 <span>${role}</span>
                 ${role !== 'admin' ?
-                `<span onclick="deleteRole('${role}')" style="cursor: pointer; color: #ef4444; font-weight: bold; font-size: 16px; line-height: 1;">&times;</span>`
+                `<span onclick="deleteRole('${role}')" style="cursor: pointer; color: var(--color-danger); font-weight: bold; font-size: 16px; line-height: 1;">&times;</span>`
                 : ''}
             </div>
         `).join('');

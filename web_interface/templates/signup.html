@@ -3,54 +3,46 @@
 {% block content %}
 <div class="container" style="display: flex; justify-content: center; align-items: center; height: 80vh;">
     <div
-        style="background: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 400px;">
-        <h2 style="text-align: center; margin-bottom: 24px; color: #333;">Sign Up</h2>
+        style="background: var(--color-bg-surface); padding: 40px; border-radius: 8px; box-shadow: var(--shadow-md); width: 100%; max-width: 400px; border: 1px solid var(--color-border);">
+        <h2 style="text-align: center; margin-bottom: 24px;">Sign Up</h2>
 
         {% with messages = get_flashed_messages() %}
         {% if messages %}
         {% for message in messages %}
-        <div
-            style="background: #fee2e2; color: #dc2626; padding: 12px; border-radius: 4px; margin-bottom: 16px; font-size: 14px;">
+        <div class="auth-flash-error">
             {{ message }}
         </div>
         {% endfor %}
         {% endif %}
         {% endwith %}
 
-        <form method="POST" action="{{ url_for('auth_bp.signup') }}">
+        <form method="POST" action="{{ url_for('auth_bp.signup') }}" class="auth-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-            <div style="margin-bottom: 16px;">
-                <label for="username"
-                    style="display: block; margin-bottom: 8px; font-weight: 500; color: #4b5563;">Username</label>
+            <div>
+                <label for="username">Username</label>
                 <input type="text" id="username" name="username" required
-                    style="width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box;">
+                    style="width: 100%; padding: 8px 12px;">
             </div>
 
-            <div style="margin-bottom: 16px;">
-                <label for="password"
-                    style="display: block; margin-bottom: 8px; font-weight: 500; color: #4b5563;">Password</label>
+            <div>
+                <label for="password">Password</label>
                 <input type="password" id="password" name="password" required
-                    style="width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box;">
+                    style="width: 100%; padding: 8px 12px;">
             </div>
 
-            <div style="margin-bottom: 24px;">
-                <label for="confirm_password"
-                    style="display: block; margin-bottom: 8px; font-weight: 500; color: #4b5563;">Confirm
-                    Password</label>
+            <div>
+                <label for="confirm_password">Confirm Password</label>
                 <input type="password" id="confirm_password" name="confirm_password" required
-                    style="width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box;">
+                    style="width: 100%; padding: 8px 12px;">
             </div>
 
-            <button type="submit"
-                style="width: 100%; background: #2563eb; color: white; padding: 10px; border: none; border-radius: 4px; font-weight: 500; cursor: pointer; transition: background 0.2s;">
+            <button type="submit" class="auth-submit-btn" style="width: 100%;">
                 Create Account
             </button>
         </form>
 
-        <div style="text-align: center; margin-top: 16px; font-size: 14px; color: #6b7280;">
-            Already have an account? <a href="{{ url_for('auth_bp.login') }}"
-                style="color: #2563eb; text-decoration: none;">Log
-                in</a>
+        <div style="text-align: center; margin-top: 16px; font-size: 14px; color: var(--color-text-muted);">
+            Already have an account? <a href="{{ url_for('auth_bp.login') }}">Log in</a>
         </div>
     </div>
 </div>

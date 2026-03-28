@@ -1,3 +1,8 @@
+// CSS variable helper for dynamic JS styling
+function getCSSVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 // Poll intervals
 // The updateStatus interval is now handled within window.onload
 
@@ -89,7 +94,7 @@ async function loadAndRenderUserTags() {
     const container = document.getElementById('settings-tags-container');
     if (!container) return;
 
-    container.innerHTML = '<span style="color: #aaa;">Loading...</span>';
+    container.innerHTML = '<span style="color: var(--color-text-tertiary);">Loading...</span>';
 
     try {
         const res = await fetch('/api/video_analysis/tags');
@@ -111,7 +116,7 @@ async function loadAndRenderUserTags() {
         const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
 
         if (sortedTags.length === 0) {
-            container.innerHTML = '<span style="color: #666; font-style: italic;">No tags found.</span>';
+            container.innerHTML = '<span style="color: var(--color-text-faint); font-style: italic;">No tags found.</span>';
             return;
         }
 
@@ -119,20 +124,20 @@ async function loadAndRenderUserTags() {
         sortedTags.forEach(([tag, count]) => {
             const chip = document.createElement('div');
             chip.style.cssText = `
-                background: #333; 
-                color: #fff; 
-                border: 1px solid #555; 
-                padding: 4px 10px; 
-                border-radius: 12px; 
-                display: flex; 
-                gap: 8px; 
-                align-items: center; 
+                background: var(--color-border-subtle);
+                color: var(--white);
+                border: 1px solid var(--color-border-strong);
+                padding: 4px 10px;
+                border-radius: 12px;
+                display: flex;
+                gap: 8px;
+                align-items: center;
                 font-size: 0.9em;
             `;
 
             chip.innerHTML = `
-                <span>${tag} <span style="color: #888; font-size: 0.8em;">(${count})</span></span>
-                <span class="delete-tag-btn" style="cursor: pointer; color: #ff6b6b; font-weight: bold;" title="Delete Tag">×</span>
+                <span>${tag} <span style="color: var(--color-text-muted); font-size: 0.8em;">(${count})</span></span>
+                <span class="delete-tag-btn" style="cursor: pointer; color: var(--color-danger-soft); font-weight: bold;" title="Delete Tag">×</span>
             `;
 
             chip.querySelector('.delete-tag-btn').onclick = () => deleteUserTag(tag);
@@ -141,7 +146,7 @@ async function loadAndRenderUserTags() {
 
     } catch (e) {
         console.error(e);
-        container.innerHTML = '<span style="color: #ff6b6b;">Error loading tags.</span>';
+        container.innerHTML = '<span style="color: var(--color-danger-soft);">Error loading tags.</span>';
     }
 }
 
@@ -459,7 +464,7 @@ function setDiscreetStatus(name, data) {
 
     // Update Text
     if (state === 'running') {
-        text.style.color = '#aaa'; // Reset to neutral color
+        text.style.color = getCSSVar('--color-text-tertiary'); // Reset to neutral color
         if (data.last_message && data.last_message.trim() !== '') {
             let msg = data.last_message;
             if (msg.length > 80) {
@@ -501,21 +506,21 @@ function setDiscreetStatus(name, data) {
 
             // Dynamic color for text based on outcome
             if (outcome === 'Success') {
-                text.style.color = '#4cd964'; // Greenish
+                text.style.color = getCSSVar('--color-success-light');
             } else if (outcome === 'Fail') {
-                text.style.color = '#ff3b30'; // Reddish
+                text.style.color = getCSSVar('--color-danger-soft');
             } else {
-                text.style.color = '#aaa';
+                text.style.color = getCSSVar('--color-text-tertiary');
             }
 
         } else if (data.last_success) {
             // Fallback for old stats or undefined new stats
             const successTime = new Date(data.last_success);
             text.innerText = "Last success: " + successTime.toLocaleString();
-            text.style.color = '#aaa';
+            text.style.color = getCSSVar('--color-text-tertiary');
         } else {
             text.innerText = "Last success: Never"; // Or empty
-            text.style.color = '#aaa';
+            text.style.color = getCSSVar('--color-text-tertiary');
         }
     }
 }
@@ -539,7 +544,7 @@ function renderSubsetChart(data) {
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',
         legend: {
-            font: { color: '#d4d4d4' }
+            font: { color: getCSSVar('--color-text-primary') }
         }
     };
 
@@ -699,7 +704,7 @@ async function fetchStudyFiles(studyName) {
         const files = await res.json();
 
         if (files.error) {
-            container.innerHTML = `<p style="color: #ff6b6b;">Error: ${files.error}</p>`;
+            container.innerHTML = `<p style="color: var(--color-danger-soft);">Error: ${files.error}</p>`;
             return;
         }
 
@@ -723,7 +728,7 @@ async function fetchStudyFiles(studyName) {
                 const label = labelMap[category] || category;
 
                 html += `<li style="margin-bottom: 5px;">
-                   <strong style="color: #d4d4d4;">${label}:</strong> <span style="color: #aaa;">${files[category]}</span>
+                   <strong style="color: var(--color-text-primary);">${label}:</strong> <span style="color: var(--color-text-tertiary);">${files[category]}</span>
                </li>`;
             }
         });
@@ -732,7 +737,7 @@ async function fetchStudyFiles(studyName) {
 
     } catch (e) {
         console.error(e);
-        container.innerHTML = `<p style="color: #ff6b6b;">Failed to load files.</p>`;
+        container.innerHTML = `<p style="color: var(--color-danger-soft);">Failed to load files.</p>`;
     }
 }
 
@@ -752,7 +757,7 @@ async function checkDatasets() {
         const data = await res.json();
 
         if (data.error) {
-            container.innerHTML = `<p style="color: #ff6b6b;">Error: ${data.error}</p>`;
+            container.innerHTML = `<p style="color: var(--color-danger-soft);">Error: ${data.error}</p>`;
             return;
         }
 
@@ -762,7 +767,7 @@ async function checkDatasets() {
         }
 
         let html = '<table style="width: 100%; text-align: left; border-collapse: collapse; margin-top: 10px;">';
-        html += '<tr style="border-bottom: 1px solid #555;">';
+        html += '<tr style="border-bottom: 1px solid var(--color-border-strong);">';
         html += '<th style="padding: 4px 15px 4px 4px;">Filename</th>';
         html += '<th style="padding: 4px 15px 4px 4px;">Rows</th>';
         html += '<th style="padding: 4px 15px 4px 4px;">Cols</th>';
@@ -774,7 +779,7 @@ async function checkDatasets() {
         data.forEach(file => {
             // Handle errors per file
             if (file.error) {
-                html += `<tr><td>${file.filename}</td><td colspan="3" style="color: #ff6b6b;">${file.error}</td></tr>`;
+                html += `<tr><td>${file.filename}</td><td colspan="3" style="color: var(--color-danger-soft);">${file.error}</td></tr>`;
             } else {
                 html += `<tr>
                     <td style="padding: 4px 15px 4px 4px;">${file.filename}</td>
@@ -792,7 +797,7 @@ async function checkDatasets() {
 
     } catch (e) {
         console.error(e);
-        container.innerHTML = `<p style="color: #ff6b6b;">Failed to check datasets.</p>`;
+        container.innerHTML = `<p style="color: var(--color-danger-soft);">Failed to check datasets.</p>`;
     }
 }
 
@@ -806,7 +811,7 @@ async function checkVideoCounts() {
     }
 
     display.innerHTML = 'Checking...';
-    display.style.color = '#aaa';
+    display.style.color = getCSSVar('--color-text-tertiary');
 
     try {
         const res = await fetch(`/api/check_video_counts/${studyName}`);
@@ -814,7 +819,7 @@ async function checkVideoCounts() {
 
         if (data.error) {
             display.innerHTML = `Error: ${data.error}`;
-            display.style.color = '#ff6b6b';
+            display.style.color = getCSSVar('--color-danger-soft');
             return;
         }
 
@@ -825,11 +830,11 @@ async function checkVideoCounts() {
         const annotateCount = data.annotate ? data.annotate[0] : 0;
 
         display.innerHTML = `Videos to scrape: <b>${scrapeCount.toLocaleString()}</b> | Videos to annotate: <b>${annotateCount.toLocaleString()}</b>`;
-        display.style.color = '#d4d4d4';
+        display.style.color = getCSSVar('--color-text-primary');
 
     } catch (e) {
         console.error(e);
         display.innerHTML = `Failed to check counts.`;
-        display.style.color = '#ff6b6b';
+        display.style.color = getCSSVar('--color-danger-soft');
     }
 }

@@ -192,9 +192,9 @@ function renderPcaFilters(data) {
         const listDiv = document.createElement('div');
         listDiv.style.maxHeight = '150px';
         listDiv.style.overflowY = 'auto';
-        listDiv.style.border = '1px solid #444';
+        listDiv.style.border = `1px solid ${getCSSVar('--chart-grid')}`;
         listDiv.style.padding = '5px';
-        listDiv.style.background = '#252526';
+        listDiv.style.background = getCSSVar('--color-bg-surface');
 
         values.forEach(val => {
             const row = document.createElement('div');
@@ -428,8 +428,8 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
     // Axis Configuration
     const axisConfig = {
         title: { text: '' }, // We use annotations for titles instead
-        gridcolor: '#444',
-        zerolinecolor: '#888'
+        gridcolor: getCSSVar('--chart-grid'),
+        zerolinecolor: getCSSVar('--chart-zeroline')
     };
 
     if (USE_FIXED_AXIS_RANGE) {
@@ -440,9 +440,9 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
         xaxis: { ...axisConfig },
         yaxis: { ...axisConfig },
         hovermode: 'closest',
-        paper_bgcolor: '#1e1e1e',
-        plot_bgcolor: '#1e1e1e',
-        font: { color: '#ccc' },
+        paper_bgcolor: getCSSVar('--chart-bg'),
+        plot_bgcolor: getCSSVar('--chart-bg'),
+        font: { color: getCSSVar('--chart-text') },
         annotations: [
             // X-Axis Title Annotation (Anchored at data coordinate 2,0)
             {
@@ -455,7 +455,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 yanchor: 'top',
                 text: xTitle,
                 showarrow: false,
-                font: { size: 16, color: '#ccc' }
+                font: { size: 16, color: getCSSVar('--chart-text') }
             },
             // Y-Axis Title Annotation (Anchored at data coordinate 0,2)
             {
@@ -468,7 +468,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 yanchor: 'center',
                 text: yTitle,
                 showarrow: false,
-                font: { size: 16, color: '#ccc' },
+                font: { size: 16, color: getCSSVar('--chart-text') },
                 textangle: -90
             }
         ],
@@ -504,9 +504,9 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 yref: 'paper',
                 text: formatLabel(text),
                 showarrow: false,
-                font: { size: 10, color: '#aaa' },
-                bgcolor: '#252526',
-                bordercolor: '#444',
+                font: { size: 10, color: getCSSVar('--color-text-tertiary') },
+                bgcolor: getCSSVar('--color-bg-surface'),
+                bordercolor: getCSSVar('--chart-grid'),
                 borderwidth: 1,
                 opacity: 0.8
             };
@@ -570,9 +570,9 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 xanchor: 'left', yanchor: 'top',
                 text: `R² = ${reg.r2.toFixed(2)}`,
                 showarrow: false,
-                font: { size: 12, color: '#fff' },
+                font: { size: 12, color: getCSSVar('--white') },
                 bgcolor: 'rgba(0,0,0,0.7)',
-                bordercolor: '#666', borderwidth: 1,
+                bordercolor: getCSSVar('--color-text-faint'), borderwidth: 1,
                 align: 'left'
             });
         }
@@ -650,8 +650,8 @@ function renderCorrelationHeatmap(columns, matrix) {
         text: hoverText,
         hoverinfo: 'text',
         colorbar: {
-            title: { text: 'Pearson r', font: { color: '#ccc' } },
-            tickfont: { color: '#ccc' },
+            title: { text: 'Pearson r', font: { color: getCSSVar('--chart-text') } },
+            tickfont: { color: getCSSVar('--chart-text') },
             len: 0.8
         }
     };
@@ -659,20 +659,20 @@ function renderCorrelationHeatmap(columns, matrix) {
     const layout = {
         title: {
             text: 'Correlation Matrix',
-            font: { color: '#ccc' }
+            font: { color: getCSSVar('--chart-text') }
         },
-        paper_bgcolor: '#1e1e1e',
-        plot_bgcolor: '#1e1e1e',
-        font: { color: '#ccc', size: 10 },
+        paper_bgcolor: getCSSVar('--chart-bg'),
+        plot_bgcolor: getCSSVar('--chart-bg'),
+        font: { color: getCSSVar('--chart-text'), size: 10 },
         xaxis: {
             tickangle: -45,
             tickfont: { size: 9 },
-            gridcolor: '#333'
+            gridcolor: getCSSVar('--chart-grid')
         },
         yaxis: {
             autorange: 'reversed',
             tickfont: { size: 9 },
-            gridcolor: '#333'
+            gridcolor: getCSSVar('--chart-grid')
         },
         margin: { t: 50, r: 80, b: 120, l: 120 }
     };
