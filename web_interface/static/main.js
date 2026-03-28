@@ -39,6 +39,7 @@ function toggleTheme() {
     html.setAttribute('data-theme', next);
     localStorage.setItem('fyp-theme', next);
     updateThemeIcon(next);
+    window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme: next } }));
 }
 
 function updateThemeIcon(theme) {
@@ -155,7 +156,7 @@ async function loadAndRenderUserTags() {
             const chip = document.createElement('div');
             chip.style.cssText = `
                 background: var(--color-border-subtle);
-                color: var(--white);
+                color: var(--color-text-on-accent);
                 border: 1px solid var(--color-border-strong);
                 padding: 4px 10px;
                 border-radius: 12px;
@@ -494,7 +495,7 @@ function setDiscreetStatus(name, data) {
 
     // Update Text
     if (state === 'running') {
-        text.style.color = getCSSVar('--color-text-tertiary'); // Reset to neutral color
+        text.style.color = 'var(--color-text-tertiary)'; // Reset to neutral color
         if (data.last_message && data.last_message.trim() !== '') {
             let msg = data.last_message;
             if (msg.length > 80) {
@@ -536,21 +537,21 @@ function setDiscreetStatus(name, data) {
 
             // Dynamic color for text based on outcome
             if (outcome === 'Success') {
-                text.style.color = getCSSVar('--color-success-light');
+                text.style.color = 'var(--color-success-light)';
             } else if (outcome === 'Fail') {
-                text.style.color = getCSSVar('--color-danger-soft');
+                text.style.color = 'var(--color-danger-soft)';
             } else {
-                text.style.color = getCSSVar('--color-text-tertiary');
+                text.style.color = 'var(--color-text-tertiary)';
             }
 
         } else if (data.last_success) {
             // Fallback for old stats or undefined new stats
             const successTime = new Date(data.last_success);
             text.innerText = "Last success: " + successTime.toLocaleString();
-            text.style.color = getCSSVar('--color-text-tertiary');
+            text.style.color = 'var(--color-text-tertiary)';
         } else {
             text.innerText = "Last success: Never"; // Or empty
-            text.style.color = getCSSVar('--color-text-tertiary');
+            text.style.color = 'var(--color-text-tertiary)';
         }
     }
 }
@@ -558,7 +559,14 @@ function setDiscreetStatus(name, data) {
 
 
 
+let _lastSubsetData = null;
+
+window.addEventListener('theme-changed', () => {
+    if (_lastSubsetData) renderSubsetChart(_lastSubsetData);
+});
+
 function renderSubsetChart(data) {
+    _lastSubsetData = data;
     const labels = Object.keys(data);
     const values = Object.values(data);
 
@@ -841,7 +849,7 @@ async function checkVideoCounts() {
     }
 
     display.innerHTML = 'Checking...';
-    display.style.color = getCSSVar('--color-text-tertiary');
+    display.style.color = 'var(--color-text-tertiary)';
 
     try {
         const res = await fetch(`/api/check_video_counts/${studyName}`);
@@ -849,7 +857,7 @@ async function checkVideoCounts() {
 
         if (data.error) {
             display.innerHTML = `Error: ${data.error}`;
-            display.style.color = getCSSVar('--color-danger-soft');
+            display.style.color = 'var(--color-danger-soft)';
             return;
         }
 
@@ -860,11 +868,11 @@ async function checkVideoCounts() {
         const annotateCount = data.annotate ? data.annotate[0] : 0;
 
         display.innerHTML = `Videos to scrape: <b>${scrapeCount.toLocaleString()}</b> | Videos to annotate: <b>${annotateCount.toLocaleString()}</b>`;
-        display.style.color = getCSSVar('--color-text-primary');
+        display.style.color = 'var(--color-text-primary)';
 
     } catch (e) {
         console.error(e);
         display.innerHTML = `Failed to check counts.`;
-        display.style.color = getCSSVar('--color-danger-soft');
+        display.style.color = 'var(--color-danger-soft)';
     }
 }

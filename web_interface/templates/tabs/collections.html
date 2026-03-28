@@ -5,7 +5,7 @@
             <button class="help-icon" onclick="showHelp('collections')">?</button>
         </div>
         <div class="control-group" style="display: flex; align-items: center; gap: 15px;">
-            <span id="pe-stats-timestamp" class="timestamp-text" style="font-size: 0.85em; color: var(--control-bar-info);"></span>
+            <span id="pe-stats-timestamp" style="display:none;"></span>
             <span id="pe-stats-count" class="timestamp-text" style="font-size: 0.85em; color: var(--control-bar-info);"></span>
         </div>
     </div>
@@ -79,7 +79,7 @@
             </div>
 
             <div style="margin-top: 25px; text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
-                <button type="button" class="action-btn" style="background-color: var(--color-border-strong);"
+                <button type="button" class="action-btn btn-secondary" style=""
                     onclick="closeEditCollectionModal()">Cancel</button>
                 <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save
                     Annotations</button>

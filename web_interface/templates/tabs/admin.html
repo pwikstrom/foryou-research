@@ -10,8 +10,8 @@
             </div>
             <div id="general-content" style="padding: 0 20px 20px 20px;">
                 <div style="margin: 16px 0;">
-                    <button onclick="reloadVarSchema()"
-                        style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 6px 12px; border-radius: 4px; cursor: pointer; color: var(--color-text-primary);">
+                    <button onclick="reloadVarSchema()" class="btn-discreet"
+                        style="padding: 6px 12px;">
                         Reload variable schema
                     </button>
                 </div>
@@ -31,8 +31,8 @@
                     <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
                         <input type="text" id="newRoleName" placeholder="New Role Name"
                             style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 200px; background: var(--color-bg-input); color: var(--color-text-primary);">
-                        <button onclick="addRole()"
-                            style="background: var(--color-info); color: var(--white); border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                        <button onclick="addRole()" class="action-btn"
+                            style="padding: 8px 16px;">
                             Add Role
                         </button>
                     </div>
@@ -55,8 +55,8 @@
 
             <div id="user-admin-content" style="padding: 0 20px 20px 20px;">
                 <div style="margin: 16px 0;">
-                    <button onclick="loadUsers()"
-                        style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 6px 12px; border-radius: 4px; cursor: pointer; color: var(--color-text-primary);">
+                    <button onclick="loadUsers()" class="btn-discreet"
+                        style="padding: 6px 12px;">
                         ↻ Refresh List
                     </button>
                 </div>
@@ -95,8 +95,8 @@
                                 <!-- Populated dynamically -->
                             </select>
                         </div>
-                        <button onclick="addUser()"
-                            style="background: var(--color-accent); color: var(--color-text-on-accent); border: none; padding: 9px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                        <button onclick="addUser()" class="action-btn"
+                            style="padding: 9px 16px;">
                             Add User
                         </button>
                     </div>
@@ -168,8 +168,8 @@
 
             <div id="annotations-content" style="padding: 0 20px 20px 20px;">
                 <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
-                    <button onclick="loadAnnotations()"
-                        style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 6px 12px; border-radius: 4px; cursor: pointer; color: var(--color-text-primary);">
+                    <button onclick="loadAnnotations()" class="btn-discreet"
+                        style="padding: 6px 12px;">
                         ↻ Refresh Annotations
                     </button>
                 </div>
@@ -233,8 +233,8 @@
                 </p>
 
                 <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
-                    <button onclick="calculateReliability()"
-                        style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 6px 12px; border-radius: 4px; cursor: pointer; color: var(--color-text-primary);">
+                    <button onclick="calculateReliability()" class="btn-discreet"
+                        style="padding: 6px 12px;">
                         Calculate Reliability
                     </button>
                 </div>
@@ -361,7 +361,7 @@
                 pendingHtml += `
              <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--color-warning);">
                  <span><strong>${u.username}</strong> requested access as <em>${u.role}</em></span>
-                 <button onclick="approveUser('${u.username}')" style="background: var(--color-warning); color: var(--white); border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Approve</button>
+                 <button onclick="approveUser('${u.username}')" class="action-btn" style="padding: 6px 12px;">Approve</button>
              </li>`;
             });
             pendingHtml += '</ul>';
@@ -387,7 +387,7 @@
                 </div>
             </td>
             <td style="padding: 12px 16px;">
-                <span style="background: ${getRoleColor(user.role)}; color: var(--white); padding: 2px 8px; border-radius: 12px; font-size: 12px;">${user.role}</span>
+                <span style="background: ${getRoleColor(user.role)}; color: var(--color-text-on-accent); padding: 2px 8px; border-radius: 12px; font-size: 12px;">${user.role}</span>
             </td>
             <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 <strong>${stats.unique_videos}</strong>
@@ -405,12 +405,12 @@
                 <span style="color: var(--color-text-muted); font-size: 12px;">${user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</span>
             </td>
             <td style="padding: 12px 16px; text-align: right;">
-                 <button onclick="resetPassword('${user.username}')" style="background: var(--color-info); color: var(--white); border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 12px;">Reset Pwd</button>
+                 <button onclick="resetPassword('${user.username}')" class="action-btn" style="margin-right: 8px; font-size: 12px;">Reset Pwd</button>
                  <select onchange="updateRole('${user.username}', this.value)" class="role-select" data-current-role="${user.role}"
                     style="padding: 4px; border: 1px solid var(--color-border-strong); background: var(--color-bg-input); color: var(--color-text-primary); border-radius: 4px; margin-right: 8px; font-size: 12px;">
                     <!-- Populated dynamically -->
                 </select>
-                <button onclick="deleteUser('${user.username}')" style="background: var(--color-danger); color: var(--white); border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button>
+                <button onclick="deleteUser('${user.username}')" class="action-btn btn-danger" style="font-size: 12px;">Delete</button>
             </td>
         </tr>
         <tr id="tags-${user.username}" style="display: none; background: var(--color-bg-elevated); border-bottom: 2px solid var(--color-border);">
@@ -613,7 +613,7 @@
                 <td style="padding: 12px 16px; color: var(--color-text-primary);">${stats.closed_tags}</td>
                 <td style="padding: 12px 16px; color: var(--color-text-primary);">${stats.open_tags}</td>
                 <td style="padding: 12px 16px; text-align: right;">
-                    <button onclick="toggleAnnotationDetails('${item.item_id}', this)" style="background: var(--color-border); border: 1px solid var(--color-border-strong); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--color-text-primary);">
+                    <button onclick="toggleAnnotationDetails('${item.item_id}', this)" class="btn-discreet" style="padding: 4px 10px; font-size: 12px;">
                         Expand
                     </button>
                     <!-- Hidden data store for simpler access -->
@@ -667,7 +667,7 @@
         for (const [variable, data] of Object.entries(details)) {
             html += `
             <div style="border: 1px solid var(--color-border); background: var(--color-bg-primary); border-radius: 6px; padding: 12px;">
-                <h4 style="margin-top: 0; margin-bottom: 8px; font-size: 14px; color: var(--blue-400); border-bottom: 1px solid var(--color-border); padding-bottom: 6px;">${data.label || variable}</h4>
+                <h4 style="margin-top: 0; margin-bottom: 8px; font-size: 14px; color: var(--color-text-heading); border-bottom: 1px solid var(--color-border); padding-bottom: 6px;">${data.label || variable}</h4>
                 
                 <div style="display: flex; flex-direction: column; gap: 8px;">
             `;

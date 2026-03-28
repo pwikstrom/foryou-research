@@ -285,7 +285,7 @@ function pe_drawSwarmCanvas(canvas, swarmData, selectedId) {
         ctx.arc(selected.x, selected.y, 5.5, 0, Math.PI * 2);
         ctx.fillStyle = getCSSVar('--color-danger');
         ctx.fill();
-        ctx.strokeStyle = getCSSVar('--white');
+        ctx.strokeStyle = getCSSVar('--color-bg-primary');
         ctx.lineWidth = 1.5;
         ctx.stroke();
     }
@@ -483,30 +483,29 @@ function pe_updateStripSelection() {
 // function pe_onDonationSelect() { ... } // Removed
 
 
-function pe_selectDonation(donationId) {
-    if (!pe_data) return;
-
-    const donation = pe_data.find(d => d.D_donation_id === donationId);
-    if (!donation) return;
-
+function pe_selectDonation(donationId, scrollToRow = true) {
     pe_selectedId = donationId;
     window.pe_selectedId = donationId;
 
-    // Update strip selection highlighting
-    pe_updateStripSelection();
+    // Update strip selection highlighting (works even without pe_data)
+    if (pe_data && pe_data.length > 0) {
+        pe_updateStripSelection();
+    }
 
-    // Sync with edit activity table row highlighting and scroll into view
+    // Sync with edit activity table row highlighting
     const scrollContainer = document.getElementById('edit-activity-list-container');
     let matchedRow = null;
     document.querySelectorAll('.edit-activity-item').forEach(row => {
         if (row.getAttribute('data-donation-id') === donationId) {
-            row.style.background = getCSSVar('--table-row-selected');
+            row.style.background = 'var(--table-row-selected)';
             matchedRow = row;
         } else {
             row.style.background = 'transparent';
         }
     });
-    if (matchedRow && scrollContainer) {
+
+    // Only scroll when selection comes from the bee swarm, not from the table itself
+    if (scrollToRow && matchedRow && scrollContainer) {
         const containerH = scrollContainer.clientHeight;
         const rowTop = matchedRow.offsetTop - scrollContainer.offsetTop;
         const rowH = matchedRow.offsetHeight;
@@ -564,12 +563,12 @@ function pe_renderTags() {
         // Style based on state
         // Gray = Unselected (#444 bg, #555 border)
         // Blue/Green = Selected (#007acc bg, #009ce6 border)
-        const bg = isSelected ? getCSSVar('--chip-selected-bg') : getCSSVar('--chip-bg');
-        const border = isSelected ? `1px solid ${getCSSVar('--chip-selected-border')}` : `1px solid ${getCSSVar('--chip-border')}`;
+        const bg = isSelected ? 'var(--chip-selected-bg)' : 'var(--chip-bg)';
+        const border = isSelected ? '1px solid var(--chip-selected-border)' : '1px solid var(--chip-border)';
 
         chip.style.cssText = `
             background: ${bg};
-            color: ${getCSSVar('--chip-text')};
+            color: var(--chip-text);
             border: ${border};
             padding: 4px 10px;
             border-radius: 12px;
@@ -689,7 +688,7 @@ function pe_saveAnnotation() {
                     btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
                     btn.classList.add('success');
                     // Assuming .success class exists or inline style
-                    btn.style.backgroundColor = getCSSVar('--color-success');
+                    btn.style.backgroundColor = 'var(--color-success)';
 
                     setTimeout(() => {
                         btn.innerHTML = originalHTML;
@@ -711,3 +710,11 @@ function pe_saveAnnotation() {
             alert('Error saving annotations. Check console.');
         });
 }
+
+window.addEventListener('theme-changed', () => {
+    document.querySelectorAll('canvas.strip-swarm').forEach(canvas => {
+        if (canvas._swarmData) {
+            pe_drawSwarmCanvas(canvas, canvas._swarmData, pe_selectedId);
+        }
+    });
+});

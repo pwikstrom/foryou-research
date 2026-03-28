@@ -8,6 +8,9 @@ let pcaData = {
     currentView: 'scatter'      // 'scatter' or 'heatmap'
 };
 
+let _lastScatterArgs = null;
+let _lastHeatmapArgs = null;
+
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function () {
@@ -192,9 +195,9 @@ function renderPcaFilters(data) {
         const listDiv = document.createElement('div');
         listDiv.style.maxHeight = '150px';
         listDiv.style.overflowY = 'auto';
-        listDiv.style.border = `1px solid ${getCSSVar('--chart-grid')}`;
+        listDiv.style.border = '1px solid var(--chart-grid)';
         listDiv.style.padding = '5px';
-        listDiv.style.background = getCSSVar('--color-bg-surface');
+        listDiv.style.background = 'var(--color-bg-surface)';
 
         values.forEach(val => {
             const row = document.createElement('div');
@@ -263,15 +266,12 @@ function setPcaView(view) {
     const heatmapBtn = document.getElementById('pca-view-heatmap');
     const scatterControls = document.getElementById('pca-scatter-controls');
 
-    // btn-start is green (active), btn-save is brown (inactive)
+    scatterBtn.classList.toggle('active', view === 'scatter');
+    heatmapBtn.classList.toggle('active', view !== 'scatter');
     if (view === 'scatter') {
-        scatterBtn.className = 'btn-start';
-        heatmapBtn.className = 'btn-save';
         scatterControls.style.display = 'flex';
         updatePcaPlot();
     } else {
-        scatterBtn.className = 'btn-save';
-        heatmapBtn.className = 'btn-start';
         scatterControls.style.display = 'none';
         loadCorrelationHeatmap();
     }
@@ -327,6 +327,7 @@ async function updatePcaPlot() {
 
 
 function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
+    _lastScatterArgs = { dataPoints, xLabel, yLabel, colorLabel };
     const colors = [
         '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
         '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
@@ -559,7 +560,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 mode: 'lines',
                 type: 'scatter',
                 name: 'Regression',
-                line: { color: 'rgba(255, 255, 255, 0.5)', width: 2, dash: 'dash' },
+                line: { color: getCSSVar('--chart-regression-line'), width: 2, dash: 'dash' },
                 hoverinfo: 'none'
             });
 
@@ -571,7 +572,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 text: `R² = ${reg.r2.toFixed(2)}`,
                 showarrow: false,
                 font: { size: 12, color: getCSSVar('--white') },
-                bgcolor: 'rgba(0,0,0,0.7)',
+                bgcolor: getCSSVar('--chart-badge-bg'),
                 bordercolor: getCSSVar('--color-text-faint'), borderwidth: 1,
                 align: 'left'
             });
@@ -621,6 +622,7 @@ async function loadCorrelationHeatmap() {
 
 
 function renderCorrelationHeatmap(columns, matrix) {
+    _lastHeatmapArgs = { columns, matrix };
     const schemaMap = pcaData.metadata?.schema_map || {};
 
     // Map columns to display names
@@ -641,7 +643,7 @@ function renderCorrelationHeatmap(columns, matrix) {
         colorscale: [
             [0, '#2166ac'],
             [0.25, '#67a9cf'],
-            [0.5, '#1e1e1e'],
+            [0.5, getCSSVar('--chart-heatmap-mid')],
             [0.75, '#ef8a62'],
             [1, '#b2182b']
         ],
@@ -716,3 +718,13 @@ function calculateRegression(data) {
 
     return { slope, intercept, r2 };
 }
+
+window.addEventListener('theme-changed', () => {
+    // Re-render charts (Plotly needs resolved color values, not CSS var())
+    if (pcaData.currentView === 'scatter' && _lastScatterArgs) {
+        renderPlotlyChart(_lastScatterArgs.dataPoints, _lastScatterArgs.xLabel,
+                          _lastScatterArgs.yLabel, _lastScatterArgs.colorLabel);
+    } else if (pcaData.currentView === 'heatmap' && _lastHeatmapArgs) {
+        renderCorrelationHeatmap(_lastHeatmapArgs.columns, _lastHeatmapArgs.matrix);
+    }
+});

@@ -443,15 +443,15 @@
                                     style="display: flex; gap: 15px; align-items: center; border-left: 1px solid var(--color-border-strong); padding-left: 15px;">
                                     <input type="hidden" data-field="stats" value="{}">
                                     <button type="button" onclick="updateStudyEstimates(this, event)"
-                                        style="font-size: 0.8em; padding: 2px 5px; cursor: pointer; background: var(--color-border-strong); border: none; color: var(--gray-50); border-radius: 3px;"
+                                        style="font-size: 0.8em; padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
                                         {% if not current_user.is_admin() %}disabled{% endif %}>Update
                                         Estimates</button>
                                     <span>Filtered/sampled Unique vids: <strong class="stat-unique-vids"
-                                            style="color: var(--white);">-</strong></span>
+                                            style="color: var(--color-text-primary);">-</strong></span>
                                     <span>Scraped: <strong class="stat-scraped-vids"
-                                            style="color: var(--white);">-</strong></span>
+                                            style="color: var(--color-text-primary);">-</strong></span>
                                     <span>Annotated: <strong class="stat-annotated-vids"
-                                            style="color: var(--white);">-</strong></span>
+                                            style="color: var(--color-text-primary);">-</strong></span>
                                 </div>
                             </div>
                             <div style="display: flex; gap: 5px;">
@@ -538,7 +538,7 @@
                 {% endif %}
 
                 {% if current_user.is_admin() %}
-                <button type="button" class="action-btn" style="background-color: var(--color-danger);"
+                <button type="button" class="action-btn btn-danger" style=""
                     onclick="deleteStudy(this, event)">Delete
                     Study</button>
                 {% endif %}

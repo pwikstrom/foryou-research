@@ -59,21 +59,8 @@ function setExplorerV2SliceMode(isDual) {
     const singleBtn = document.getElementById('explorer-v2-toggle-single');
     const dualBtn = document.getElementById('explorer-v2-toggle-dual');
     if (singleBtn && dualBtn) {
-        if (isDual) {
-            singleBtn.style.background = getCSSVar('--color-bg-input');
-            singleBtn.style.color = getCSSVar('--color-text-tertiary');
-            singleBtn.style.fontWeight = 'normal';
-            dualBtn.style.background = getCSSVar('--color-info');
-            dualBtn.style.color = getCSSVar('--white');
-            dualBtn.style.fontWeight = 'bold';
-        } else {
-            singleBtn.style.background = getCSSVar('--color-success');
-            singleBtn.style.color = getCSSVar('--white');
-            singleBtn.style.fontWeight = 'bold';
-            dualBtn.style.background = getCSSVar('--color-bg-input');
-            dualBtn.style.color = getCSSVar('--color-text-tertiary');
-            dualBtn.style.fontWeight = 'normal';
-        }
+        singleBtn.classList.toggle('active', !isDual);
+        dualBtn.classList.toggle('active', isDual);
     }
 
     // Show/hide Slice 2 panel
@@ -273,17 +260,17 @@ function renderFiltersV2(metadata, sliceId) {
         const sectionDiv = document.createElement('div');
         sectionDiv.className = 'filter-section';
         sectionDiv.style.marginBottom = '10px';
-        sectionDiv.style.border = `1px solid ${getCSSVar('--color-border')}`;
+        sectionDiv.style.border = '1px solid var(--color-border)';
         sectionDiv.style.borderRadius = '4px';
         sectionDiv.style.overflow = 'hidden';
 
         // Header
         const header = document.createElement('div');
-        header.style.background = getCSSVar('--color-border');
+        header.style.background = 'var(--color-border)';
         header.style.padding = '8px 10px';
         header.style.cursor = 'pointer';
         header.style.fontWeight = 'bold';
-        header.style.color = getCSSVar('--gray-50');
+        header.style.color = 'var(--color-text-primary)';
         header.style.userSelect = 'none';
         header.style.display = 'flex';
         header.style.alignItems = 'center';
@@ -296,7 +283,7 @@ function renderFiltersV2(metadata, sliceId) {
         // Body (Variables)
         const body = document.createElement('div');
         body.style.padding = '10px';
-        body.style.background = getCSSVar('--color-bg-surface');
+        body.style.background = 'var(--color-bg-surface)';
         body.style.display = isCollapsed ? 'none' : 'block';
 
         // Toggle Logic
@@ -326,7 +313,7 @@ function renderFiltersV2(metadata, sliceId) {
             const wrapper = document.createElement('div');
             wrapper.className = 'filter-group';
             wrapper.style.marginBottom = '15px';
-            wrapper.style.borderBottom = `1px solid ${getCSSVar('--color-border-subtle')}`;
+            wrapper.style.borderBottom = '1px solid var(--color-border-subtle)';
             wrapper.style.paddingBottom = '10px';
 
             const label = document.createElement('label');
@@ -340,7 +327,7 @@ function renderFiltersV2(metadata, sliceId) {
             label.style.fontWeight = 'bold';
             label.style.display = 'block';
             label.style.marginBottom = '5px';
-            label.style.color = getCSSVar('--color-text-primary');
+            label.style.color = 'var(--color-text-primary)';
             wrapper.appendChild(label);
 
             if (info.type === 'number') {
@@ -355,7 +342,7 @@ function renderFiltersV2(metadata, sliceId) {
                 labelRow.style.display = 'flex';
                 labelRow.style.justifyContent = 'space-between';
                 labelRow.style.fontSize = '0.85em';
-                labelRow.style.color = getCSSVar('--color-text-muted');
+                labelRow.style.color = 'var(--color-text-muted)';
                 labelRow.style.marginTop = '-5px';
 
                 const minLabel = document.createElement('span');
@@ -425,8 +412,8 @@ function renderFiltersV2(metadata, sliceId) {
                 const listContainer = document.createElement('div');
                 listContainer.style.maxHeight = '150px';
                 listContainer.style.overflowY = 'auto';
-                listContainer.style.background = getCSSVar('--color-bg-surface');
-                listContainer.style.border = `1px solid ${getCSSVar('--color-border')}`;
+                listContainer.style.background = 'var(--color-bg-surface)';
+                listContainer.style.border = '1px solid var(--color-border)';
                 listContainer.style.padding = '5px';
 
                 info.values.forEach(val => {
@@ -597,13 +584,13 @@ async function updateExplorerV2Stats(triggerSlice = null) {
 
         // --- RENDER ---
         const isDual = explorerDataV2.dualSliceMode;
-        countEl1.innerText = isDual ? `Slice 1: ${explorerDataV2.count1} items` : `${explorerDataV2.count1} items`;
+        countEl1.innerText = `${explorerDataV2.count1} items`;
 
         if (isDual) {
             if (explorerDataV2.stats2) {
-                countEl2.innerText = `Slice 2: ${explorerDataV2.count2} items`;
+                countEl2.innerText = `${explorerDataV2.count2} items`;
             } else {
-                countEl2.innerText = `Slice 2: N/A`;
+                countEl2.innerText = `N/A`;
             }
         }
 
@@ -657,7 +644,7 @@ function renderStatsV2(stats1, stats2) {
 
         const card = document.createElement('div');
         card.className = 'stats-card';
-        card.style.background = getCSSVar('--color-bg-elevated');
+        card.style.background = 'var(--color-bg-elevated)';
         card.style.padding = '10px';
         card.style.marginBottom = '10px';
         card.style.borderRadius = '4px';
@@ -720,7 +707,7 @@ function renderStatsV2(stats1, stats2) {
         title.style.marginTop = '0';
         title.style.marginBottom = '5px';
         title.style.fontSize = '1em';
-        title.style.color = getCSSVar('--gray-50');
+        title.style.color = 'var(--color-text-primary)';
         card.appendChild(title);
 
         const plotDiv = document.createElement('div');
@@ -895,3 +882,10 @@ function renderStatsV2(stats1, stats2) {
         }
     });
 }
+
+window.addEventListener('theme-changed', () => {
+    // Re-render charts (Plotly needs resolved color values, not CSS var() references)
+    if (explorerDataV2.stats1) {
+        renderStatsV2(explorerDataV2.stats1, explorerDataV2.dualSliceMode ? explorerDataV2.stats2 : null);
+    }
+});

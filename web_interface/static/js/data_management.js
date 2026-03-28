@@ -82,7 +82,7 @@ function renderCollectionSelector(container, selectedList) {
     table.className = 'collection-table';
     table.style.width = '100%';
     table.style.borderCollapse = 'collapse';
-    table.style.color = getCSSVar('--color-text-secondary');
+    table.style.color = 'var(--color-text-secondary)';
     table.style.fontSize = '0.9em';
 
     // Create Header
@@ -112,7 +112,7 @@ function renderCollectionSelector(container, selectedList) {
         const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
 
         const tr = document.createElement('tr');
-        tr.style.borderBottom = `1px solid ${getCSSVar('--chart-grid')}`;
+        tr.style.borderBottom = '1px solid var(--chart-grid)';
         tr.className = 'donation-item'; // Keep class for CSS/JS targeting
 
         let pEmail = '', pName = '', pTiktok = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
@@ -395,8 +395,8 @@ function toggleDetail(event, index) {
     if (detailRow.style.display === 'none') {
         detailRow.style.display = 'table-row';
         icon.textContent = '▼';
-        row.style.backgroundColor = getCSSVar('--color-bg-primary');
-        row.style.borderLeft = `4px solid ${getCSSVar('--color-info')}`;
+        row.style.backgroundColor = 'var(--color-bg-primary)';
+        row.style.borderLeft = '4px solid var(--color-info)';
     } else {
         detailRow.style.display = 'none';
         icon.textContent = '▶';
@@ -710,7 +710,7 @@ function saveStudy(btn, event) {
 
                                 if (saveBtn) {
                                     saveBtn.textContent = "Saved!";
-                                    saveBtn.style.backgroundColor = getCSSVar('--color-success');
+                                    saveBtn.style.backgroundColor = 'var(--color-success)';
 
                                     setTimeout(() => {
                                         saveBtn.textContent = "Save Study Definition";
@@ -904,11 +904,11 @@ function fetchEnrichmentStats() {
             // Queues
             if (data.scrape_queue_len !== undefined) {
                 document.getElementById('enrich_scrape_targets').textContent = data.scrape_queue_len.toLocaleString();
-                document.getElementById('enrich_scrape_targets').style.color = getCSSVar('--color-success-light');
+                document.getElementById('enrich_scrape_targets').style.color = 'var(--color-success-light)';
             }
             if (data.annotate_queue_len !== undefined) {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
-                document.getElementById('enrich_annotate_targets').style.color = getCSSVar('--color-success-light');
+                document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';
             }
         })
         .catch(err => console.error("Error fetching enrichment stats:", err));
@@ -930,9 +930,9 @@ function queueVideosFromTargetStudy(btnElement) {
     btnElement.disabled = true;
 
     scrapeTargetsDisplay.textContent = "Calc...";
-    scrapeTargetsDisplay.style.color = getCSSVar('--color-text-tertiary');
+    scrapeTargetsDisplay.style.color = 'var(--color-text-tertiary)';
     annotateTargetsDisplay.textContent = "Calc...";
-    annotateTargetsDisplay.style.color = getCSSVar('--color-text-tertiary');
+    annotateTargetsDisplay.style.color = 'var(--color-text-tertiary)';
 
     const fetchScrape = fetch('/api/manage/enrichment/calculate_to_scrape', {
         method: 'POST',
@@ -955,20 +955,20 @@ function queueVideosFromTargetStudy(btnElement) {
             // Update scrape display
             if (scrapeData.status === 'success') {
                 scrapeTargetsDisplay.textContent = scrapeData.videos_to_scrape.toLocaleString();
-                scrapeTargetsDisplay.style.color = getCSSVar('--color-success-light');
+                scrapeTargetsDisplay.style.color = 'var(--color-success-light)';
             } else {
                 scrapeTargetsDisplay.textContent = "Error";
-                scrapeTargetsDisplay.style.color = getCSSVar('--color-danger');
+                scrapeTargetsDisplay.style.color = 'var(--color-danger)';
                 console.error("Scrape Error:", scrapeData.error);
             }
 
             // Update annotate display
             if (annotateData.status === 'success') {
                 annotateTargetsDisplay.textContent = annotateData.videos_to_annotate.toLocaleString();
-                annotateTargetsDisplay.style.color = getCSSVar('--color-success-light');
+                annotateTargetsDisplay.style.color = 'var(--color-success-light)';
             } else {
                 annotateTargetsDisplay.textContent = "Error";
-                annotateTargetsDisplay.style.color = getCSSVar('--color-danger');
+                annotateTargetsDisplay.style.color = 'var(--color-danger)';
                 console.error("Annotate Error:", annotateData.error);
             }
 
@@ -979,9 +979,9 @@ function queueVideosFromTargetStudy(btnElement) {
             btnElement.textContent = originalText;
             btnElement.disabled = false;
             scrapeTargetsDisplay.textContent = "Failed";
-            scrapeTargetsDisplay.style.color = getCSSVar('--color-danger');
+            scrapeTargetsDisplay.style.color = 'var(--color-danger)';
             annotateTargetsDisplay.textContent = "Failed";
-            annotateTargetsDisplay.style.color = getCSSVar('--color-danger');
+            annotateTargetsDisplay.style.color = 'var(--color-danger)';
             console.error("Error queueing from target study:", err);
             alert("Error queueing videos from target study.");
         });
@@ -1077,13 +1077,7 @@ function renderIngestionSources(sources) {
 
     sources.forEach(source => {
         const card = document.createElement('div');
-        card.style.background = getCSSVar('--color-border');
-        card.style.padding = '15px';
-        card.style.borderRadius = '4px';
-        card.style.border = `1px solid ${getCSSVar('--color-border-strong')}`;
-        card.style.flex = '1';
-        card.style.minWidth = '300px';
-        card.style.marginBottom = '10px';
+        card.className = 'ingest-card';
 
         card.innerHTML = `
             <div style="font-weight: bold; margin-bottom: 5px; font-size: 1.1em;">${source.class_name}</div>
@@ -1116,7 +1110,7 @@ window.uploadIngestionFile = function (className, rawPath) {
     formData.append('raw_path', rawPath);
 
     statusDiv.textContent = "Uploading...";
-    statusDiv.style.color = getCSSVar('--color-text-tertiary');
+    statusDiv.style.color = 'var(--color-text-tertiary)';
     statusDiv.style.display = "block";
 
     fetch('/api/manage/ingestion/upload', {
@@ -1128,17 +1122,17 @@ window.uploadIngestionFile = function (className, rawPath) {
         .then(data => {
             if (data.status === 'success') {
                 statusDiv.textContent = "Upload successful!";
-                statusDiv.style.color = getCSSVar('--color-success-light');
+                statusDiv.style.color = 'var(--color-success-light)';
                 fileInput.value = ''; // clear input
                 setTimeout(() => { statusDiv.style.display = 'none'; }, 4000);
             } else {
                 statusDiv.textContent = "Error: " + data.error;
-                statusDiv.style.color = getCSSVar('--color-danger');
+                statusDiv.style.color = 'var(--color-danger)';
             }
         })
         .catch(err => {
             statusDiv.textContent = "Upload failed.";
-            statusDiv.style.color = getCSSVar('--color-danger');
+            statusDiv.style.color = 'var(--color-danger)';
         });
 }
 
@@ -1180,12 +1174,6 @@ function renderEditActivityTable(container) {
 
     const table = document.createElement('table');
     table.className = 'collection-table';
-    table.style.minWidth = '100%';
-    table.style.width = 'max-content';
-    table.style.borderCollapse = 'collapse';
-    table.style.color = getCSSVar('--color-text-secondary');
-    table.style.fontSize = '0.9em';
-    table.style.whiteSpace = 'nowrap';
 
     const thStyle = 'padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);';
     const thead = document.createElement('thead');
@@ -1259,37 +1247,27 @@ function renderEditActivityTable(container) {
         }
 
         const tr = document.createElement('tr');
-        tr.style.borderBottom = `1px solid ${getCSSVar('--chart-grid')}`;
-        tr.style.cursor = 'pointer';
         tr.className = 'edit-activity-item';
         tr.setAttribute('data-search', searchString.toLowerCase());
         tr.setAttribute('data-donation-id', item);
 
         // Apply distinct styling to hidden collections
         if (itemInfo.hidden) {
-            tr.style.opacity = '0.5';
-            tr.style.color = getCSSVar('--color-text-muted');
+            tr.classList.add('collection-hidden');
         }
 
         tr.onmouseenter = () => {
-            if (window.pe_selectedId !== item) tr.style.background = getCSSVar('--color-bg-input');
+            if (window.pe_selectedId !== item) tr.style.background = 'var(--color-bg-input)';
         };
         tr.onmouseleave = () => {
-            tr.style.background = (window.pe_selectedId === item) ? getCSSVar('--table-row-selected') : 'transparent';
+            tr.style.background = (window.pe_selectedId === item) ? 'var(--table-row-selected)' : 'transparent';
         };
         tr.onclick = () => {
-            // Highlight the clicked row in the table
-            window.pe_selectedId = item;
-            document.querySelectorAll('.edit-activity-item').forEach(r => {
-                r.style.background = (r.getAttribute('data-donation-id') === item) ? getCSSVar('--table-row-selected') : 'transparent';
-            });
-            // Sync with bee swarm selection
+            // Sync with bee swarm selection (scrollToRow=false since the row is already visible)
             if (typeof pe_selectDonation === 'function') {
-                pe_selectDonation(item);
+                pe_selectDonation(item, false);
             }
         };
-        tr.style.cursor = 'pointer';
-
         const createCell = (text, isBold = false, tooltip = null) => {
             const td = document.createElement('td');
             td.style.padding = '5px';
@@ -1307,7 +1285,7 @@ function renderEditActivityTable(container) {
         editTd.style.textAlign = 'center';
         const editBtn = document.createElement('button');
         editBtn.innerHTML = '<i class="fas fa-pen"></i>';
-        editBtn.style.cssText = `background: ${getCSSVar('--color-accent')}; border: none; color: ${getCSSVar('--white')}; cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 0.8em;`;
+        editBtn.style.cssText = 'background: var(--btn-primary-bg); border: none; color: var(--btn-primary-text); cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 0.8em;';
         editBtn.title = 'Edit collection';
         editBtn.onclick = (e) => {
             e.stopPropagation();
@@ -1418,8 +1396,8 @@ function dm_renderTags() {
         const isSelected = currentEditCollectionTags.includes(tag);
         const chip = document.createElement('div');
 
-        const bg = isSelected ? getCSSVar('--chip-selected-bg') : getCSSVar('--chip-bg');
-        const border = isSelected ? `1px solid ${getCSSVar('--chip-selected-border')}` : `1px solid ${getCSSVar('--color-border-strong')}`;
+        const bg = isSelected ? 'var(--chip-selected-bg)' : 'var(--chip-bg)';
+        const border = isSelected ? '1px solid var(--chip-selected-border)' : '1px solid var(--color-border-strong)';
 
         chip.style.cssText = `
             background: ${bg};

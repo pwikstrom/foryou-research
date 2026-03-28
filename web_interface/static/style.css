@@ -186,11 +186,30 @@
     --chart-text: var(--color-text-primary);
     --chart-grid: var(--gray-650);
     --chart-zeroline: var(--gray-400);
+    --chart-grid-line: rgba(255, 255, 255, 0.06);
+    --chart-overlay-line: rgba(255, 255, 255, 0.12);
+    --chart-annotation-text: rgba(255, 255, 255, 0.4);
+    --chart-regression-line: rgba(255, 255, 255, 0.5);
+    --chart-heatmap-mid: var(--gray-900);
+    --chart-badge-bg: rgba(0, 0, 0, 0.7);
 
     /* Accent variants for data-specific uses */
     --color-slice1: #4CAF50;
     --color-slice2: #2196F3;
     --color-significance: var(--yellow-500);
+
+    /* Trend badge colors */
+    --trend-rising-bg: rgba(78, 201, 176, 0.15);
+    --trend-rising-border: rgba(78, 201, 176, 0.5);
+    --trend-falling-bg: rgba(244, 135, 113, 0.15);
+    --trend-falling-border: rgba(244, 135, 113, 0.5);
+    --trend-spikes-bg: rgba(206, 145, 120, 0.15);
+    --trend-spikes-border: rgba(206, 145, 120, 0.5);
+    --trend-breaks-bg: rgba(86, 156, 214, 0.15);
+    --trend-breaks-border: rgba(86, 156, 214, 0.5);
+    --trend-volatile-bg: rgba(218, 112, 214, 0.15);
+    --trend-volatile-border: rgba(218, 112, 214, 0.5);
+    --trend-stable-bg: rgba(120, 120, 120, 0.2);
 }
 
 
@@ -308,9 +327,28 @@
     --chart-text: #333333;
     --chart-grid: #e0e0e0;
     --chart-zeroline: #bbbbbb;
+    --chart-grid-line: rgba(0, 0, 0, 0.08);
+    --chart-overlay-line: rgba(0, 0, 0, 0.10);
+    --chart-annotation-text: rgba(0, 0, 0, 0.45);
+    --chart-regression-line: rgba(0, 0, 0, 0.4);
+    --chart-heatmap-mid: var(--color-bg-primary);
+    --chart-badge-bg: rgba(0, 0, 0, 0.65);
 
     --color-slice1: #2e7d32;
     --color-slice2: #1565c0;
+
+    /* Trend badge colors */
+    --trend-rising-bg: rgba(78, 201, 176, 0.2);
+    --trend-rising-border: rgba(78, 201, 176, 0.5);
+    --trend-falling-bg: rgba(244, 135, 113, 0.2);
+    --trend-falling-border: rgba(244, 135, 113, 0.5);
+    --trend-spikes-bg: rgba(206, 145, 120, 0.2);
+    --trend-spikes-border: rgba(206, 145, 120, 0.5);
+    --trend-breaks-bg: rgba(86, 156, 214, 0.2);
+    --trend-breaks-border: rgba(86, 156, 214, 0.5);
+    --trend-volatile-bg: rgba(218, 112, 214, 0.2);
+    --trend-volatile-border: rgba(218, 112, 214, 0.5);
+    --trend-stable-bg: rgba(120, 120, 120, 0.25);
 }
 
 @media (prefers-color-scheme: light) {
@@ -534,8 +572,48 @@ button {
 
 .btn-save,
 .btn-secondary {
-    background: var(--btn-save-bg);
-    color: var(--btn-save-text);
+    background: var(--btn-discreet-bg);
+    color: var(--btn-discreet-text);
+    border: 1px solid var(--btn-discreet-border);
+}
+
+.btn-danger {
+    background: var(--btn-danger-bg);
+    color: var(--btn-danger-text);
+}
+
+.collection-table {
+    min-width: 100%;
+    width: max-content;
+    border-collapse: collapse;
+    color: var(--color-text-secondary);
+    font-size: 0.9em;
+    white-space: nowrap;
+}
+
+.collection-table .edit-activity-item {
+    border-bottom: 1px solid var(--chart-grid);
+    cursor: pointer;
+}
+
+.collection-table .edit-activity-item:hover {
+    background: var(--color-bg-input);
+}
+
+.collection-table .collection-hidden {
+    opacity: 0.5;
+    color: var(--color-text-muted);
+}
+
+.ingest-card {
+    background: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+    padding: 15px;
+    border-radius: 4px;
+    border: 1px solid var(--color-border-strong);
+    flex: 1;
+    min-width: 300px;
+    margin-bottom: 10px;
 }
 
 .action-btn {
@@ -550,6 +628,35 @@ button {
 
 .action-btn:hover {
     opacity: 0.9;
+}
+
+/* Segmented toggle control (e.g. Scatter/Heatmap, Distribution/Compare) */
+.toggle-group {
+    display: inline-flex;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--color-border-strong);
+}
+
+.toggle-group .toggle-option {
+    padding: 5px 14px;
+    font-size: 0.85em;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    background: var(--color-bg-input);
+    color: var(--color-text-tertiary);
+    transition: background 0.15s, color 0.15s;
+}
+
+.toggle-group .toggle-option:not(:last-child) {
+    border-right: 1px solid var(--color-border-strong);
+}
+
+.toggle-group .toggle-option.active {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-text);
+    font-weight: 600;
 }
 
 .btn-discreet {

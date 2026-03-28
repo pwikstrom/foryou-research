@@ -10,7 +10,7 @@
         <select id="explorer-v2-study-select" class="dropdown" onchange="changeExplorerV2Study()">
             <option value="" disabled selected>Select a study...</option>
         </select>
-        <span id="explorer-v2-file-info" style="margin-left: 20px; color: var(--control-bar-info); font-size: 0.9em;"></span>
+        <span id="explorer-v2-file-info" style="display:none;"></span>
     </div>
 
     <!-- Main Content -->
@@ -19,10 +19,13 @@
         <!-- Filters Panel Slice 1 (Left) -->
         <div class="panel"
             style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--color-border);">
-            <div class="header" style="flex: 0 0 auto; background: var(--color-bg-elevated); padding: 10px;">
-                <h3 style="margin: 0;">Filters Slice 1</h3>
-                <button class="btn-save" style="font-size: 0.8em; padding: 2px 8px; margin-top: 5px;"
-                    onclick="resetFiltersV2(1)">Reset Slice 1</button>
+            <div class="header" style="flex: 0 0 auto; background: var(--color-bg-elevated); padding: 10px; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: baseline; gap: 8px;">
+                    <span style="font-size: 0.9em; font-weight: 600;">Filters Slice 1</span>
+                    <span id="explorer-v2-count-1" style="color: var(--color-slice1); font-size: 0.85em;"></span>
+                </div>
+                <button class="btn-save" style="font-size: 0.75em; padding: 2px 8px;"
+                    onclick="resetFiltersV2(1)">Reset</button>
             </div>
             <div style="padding: 10px; border-bottom: 1px solid var(--color-border); flex: 0 0 auto;">
                 <input type="text" id="explorer-v2-search-input-1" placeholder="Search Slice 1..."
@@ -38,24 +41,17 @@
             style="flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--color-bg-primary);">
             <div class="header" style="flex: 0 0 auto; padding: 10px; text-align: center;">
                 <div style="display: flex; justify-content: center; align-items: center;">
-                    <div id="explorer-v2-slice-toggle"
-                        style="display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--color-border-strong); font-size: 1.1em; cursor: pointer;">
-                        <div id="explorer-v2-toggle-single" onclick="setExplorerV2SliceMode(false)"
-                            style="padding: 7px 20px; background: var(--color-slice1); color: var(--white); font-weight: bold; transition: all 0.2s;">
+                    <div id="explorer-v2-slice-toggle" class="toggle-group">
+                        <button id="explorer-v2-toggle-single" class="toggle-option active" onclick="setExplorerV2SliceMode(false)">
                             Distribution
-                        </div>
-                        <div id="explorer-v2-toggle-dual" onclick="setExplorerV2SliceMode(true)"
-                            style="padding: 7px 20px; background: var(--color-bg-input); color: var(--color-text-tertiary); transition: all 0.2s;"
+                        </button>
+                        <button id="explorer-v2-toggle-dual" class="toggle-option" onclick="setExplorerV2SliceMode(true)"
                             title="Compare two filtered groups side by side">
                             ⇄ Compare Slices
-                        </div>
+                        </button>
                     </div>
                 </div>
-                <div style="display: flex; justify-content: center; gap: 20px; font-size: 1.1em; margin-top: 5px;">
-                    <span id="explorer-v2-count-1" style="color: var(--color-slice1);">Slice 1: ...</span>
-                    <span id="explorer-v2-vs-label" style="color: var(--color-text-faint); display: none;">vs</span>
-                    <span id="explorer-v2-count-2" style="color: var(--color-slice2); display: none;">Slice 2: ...</span>
-                </div>
+                <span id="explorer-v2-vs-label" style="display: none;"></span>
                 <div style="margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px;">
                     <label for="explorer-v2-sort" style="color: var(--color-text-secondary); font-size: 0.9em; font-weight: normal;">Sort by:</label>
                     <select id="explorer-v2-sort" class="dropdown" onchange="changeExplorerV2Sort(this.value)"
@@ -75,10 +71,13 @@
         <!-- Filters Panel Slice 2 (Right) -->
         <div id="explorer-v2-slice2-panel" class="panel"
             style="flex: 0 0 300px; display: none; flex-direction: column; overflow: hidden; border-left: 1px solid var(--color-border);">
-            <div class="header" style="flex: 0 0 auto; background: var(--color-bg-elevated); padding: 10px;">
-                <h3 style="margin: 0;">Filters Slice 2</h3>
-                <button class="btn-save" style="font-size: 0.8em; padding: 2px 8px; margin-top: 5px;"
-                    onclick="resetFiltersV2(2)">Reset Slice 2</button>
+            <div class="header" style="flex: 0 0 auto; background: var(--color-bg-elevated); padding: 10px; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: baseline; gap: 8px;">
+                    <span style="font-size: 0.9em; font-weight: 600;">Filters Slice 2</span>
+                    <span id="explorer-v2-count-2" style="color: var(--color-slice2); font-size: 0.85em;"></span>
+                </div>
+                <button class="btn-save" style="font-size: 0.75em; padding: 2px 8px;"
+                    onclick="resetFiltersV2(2)">Reset</button>
             </div>
             <div style="padding: 10px; border-bottom: 1px solid var(--color-border); flex: 0 0 auto;">
                 <input type="text" id="explorer-v2-search-input-2" placeholder="Search Slice 2..."

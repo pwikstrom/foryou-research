@@ -145,8 +145,8 @@ window.timelines = {
                     const chip = document.createElement('span');
                     chip.innerText = tag;
                     chip.style.display = 'inline-block';
-                    chip.style.background = getCSSVar('--color-info');
-                    chip.style.color = getCSSVar('--white');
+                    chip.style.background = 'var(--btn-primary-bg)';
+                    chip.style.color = 'var(--btn-primary-text)';
                     chip.style.padding = '2px 8px';
                     chip.style.borderRadius = '12px';
                     chip.style.marginRight = '5px';
@@ -255,7 +255,7 @@ window.timelines = {
             const data = await res.json();
 
             if (data.error) {
-                container.innerHTML = `<p style="color:${getCSSVar('--color-danger')};">Error: ${data.error}</p>`;
+                container.innerHTML = `<p style="color:var(--color-danger);">Error: ${data.error}</p>`;
                 return;
             }
 
@@ -266,7 +266,7 @@ window.timelines = {
 
         } catch (e) {
             console.error("Error fetching timeline data", e);
-            container.innerHTML = `<p style="color:${getCSSVar('--color-danger')};">Failed to load timeline data.</p>`;
+            container.innerHTML = `<p style="color:var(--color-danger);">Failed to load timeline data.</p>`;
         }
     },
 
@@ -346,7 +346,7 @@ window.timelines = {
             const chartWrapper = document.createElement('div');
             chartWrapper.className = 'timeline-chart-wrapper';
             chartWrapper.style.marginBottom = '30px';
-            chartWrapper.style.background = getCSSVar('--chart-bg');
+            chartWrapper.style.background = 'var(--chart-bg)';
             chartWrapper.style.padding = '10px';
             chartWrapper.style.borderRadius = '5px';
 
@@ -355,7 +355,7 @@ window.timelines = {
             titleDiv.style.display = 'flex';
             titleDiv.style.alignItems = 'center';
             titleDiv.style.gap = '10px';
-            const subtitle = varData.type !== 'categorical' ? `<span style="font-size: 0.75em; color: ${getCSSVar('--color-text-tertiary')}; font-weight: normal;"> (mean values)</span>` : '';
+            const subtitle = varData.type !== 'categorical' ? `<span style="font-size: 0.75em; color: var(--color-text-tertiary); font-weight: normal;"> (mean values)</span>` : '';
             titleDiv.innerHTML = `<h3 style="margin-top: 0; margin-bottom: 10px; font-size: 1.25em;">${displayTitle}${subtitle}</h3>`;
 
             // Findings panel is rendered below each categorical chart with a show/hide toggle button.
@@ -377,7 +377,7 @@ window.timelines = {
 
             if (varData.type === 'categorical') {
                 controlsDiv.style.paddingRight = '10px';
-                controlsDiv.style.borderRight = `1px solid ${getCSSVar('--color-border-subtle')}`;
+                controlsDiv.style.borderRight = '1px solid var(--color-border-subtle)';
             }
 
             const plotDiv = document.createElement('div');
@@ -515,16 +515,16 @@ window.timelines = {
 
                 controlsDiv.id = `controls-${plotId}`;
                 controlsDiv.innerHTML = `
-                    <div style="font-size:0.85em; margin-bottom:5px; color:${getCSSVar('--color-text-tertiary')}; display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
+                    <div style="font-size:0.85em; margin-bottom:5px; color:var(--color-text-tertiary); display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
                         <span style="margin-right:4px;">Select Categories:</span>
-                        <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(78, 201, 176, 0.15); color:${getCSSVar('--color-accent')}; border:1px solid rgba(78, 201, 176, 0.5); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
-                        <div class="filter-chip" id="chip-${plotId}-falling" onclick="window.timelines.setFilter('${varName}', 'falling')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(244, 135, 113, 0.15); color:${getCSSVar('--color-danger-soft')}; border:1px solid rgba(244, 135, 113, 0.5); opacity:${activeFilter === 'falling' ? '1.0' : '0.4'};">↓ Falling</div>
-                        <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(206, 145, 120, 0.15); color:${getCSSVar('--color-save')}; border:1px solid rgba(206, 145, 120, 0.5); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
-                        <div class="filter-chip" id="chip-${plotId}-breaks" onclick="window.timelines.setFilter('${varName}', 'breaks')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(86, 156, 214, 0.15); color:${getCSSVar('--color-info')}; border:1px solid rgba(86, 156, 214, 0.5); opacity:${activeFilter === 'breaks' ? '1.0' : '0.4'};">⋮ Breaks</div>
-                        <div class="filter-chip" id="chip-${plotId}-volatile" onclick="window.timelines.setFilter('${varName}', 'volatile')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:rgba(218, 112, 214, 0.15); color:${getCSSVar('--color-purple')}; border:1px solid rgba(218, 112, 214, 0.5); opacity:${activeFilter === 'volatile' ? '1.0' : '0.4'};">~ Volatile</div>
+                        <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-rising-bg); color:var(--color-accent); border:1px solid var(--trend-rising-border); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
+                        <div class="filter-chip" id="chip-${plotId}-falling" onclick="window.timelines.setFilter('${varName}', 'falling')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-falling-bg); color:var(--color-danger-soft); border:1px solid var(--trend-falling-border); opacity:${activeFilter === 'falling' ? '1.0' : '0.4'};">↓ Falling</div>
+                        <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-spikes-bg); color:var(--color-save); border:1px solid var(--trend-spikes-border); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
+                        <div class="filter-chip" id="chip-${plotId}-breaks" onclick="window.timelines.setFilter('${varName}', 'breaks')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-breaks-bg); color:var(--color-info); border:1px solid var(--trend-breaks-border); opacity:${activeFilter === 'breaks' ? '1.0' : '0.4'};">⋮ Breaks</div>
+                        <div class="filter-chip" id="chip-${plotId}-volatile" onclick="window.timelines.setFilter('${varName}', 'volatile')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-volatile-bg); color:var(--color-purple); border:1px solid var(--trend-volatile-border); opacity:${activeFilter === 'volatile' ? '1.0' : '0.4'};">~ Volatile</div>
                     </div>
 
-                    <div id="cat-list-${plotId}" style="flex:1; min-height:0; overflow-y:auto; border:1px solid ${getCSSVar('--chart-grid')}; padding:5px;">
+                    <div id="cat-list-${plotId}" style="flex:1; min-height:0; overflow-y:auto; border:1px solid var(--chart-grid); padding:5px;">
                         ${keptCategories.map(cat => {
                             const cd = analysisMap[cat] || {};
                             const isRising = (cd.trend && cd.trend.total_change > 4);
@@ -536,12 +536,12 @@ window.timelines = {
 
                             // Build inline badge string
                             let badges = '';
-                            if (isRising)   badges += `<span style="color:${getCSSVar('--color-accent')}; font-size:0.8em;" title="Rising">↑</span> `;
-                            if (isFalling)  badges += `<span style="color:${getCSSVar('--color-danger-soft')}; font-size:0.8em;" title="Falling">↓</span> `;
-                            if (hasSpikes)  badges += `<span style="color:${getCSSVar('--color-save')}; font-size:0.8em;" title="Spikes">◎</span> `;
-                            if (hasBreak)   badges += `<span style="color:${getCSSVar('--color-info')}; font-size:0.8em;" title="Step change">⋮</span> `;
-                            if (isVolatile) badges += `<span style="color:${getCSSVar('--color-purple')}; font-size:0.8em;" title="Volatile">~</span> `;
-                            if (isStable)   badges += `<span style="color:${getCSSVar('--color-text-tertiary')}; font-size:0.8em;" title="Stable">—</span> `;
+                            if (isRising)   badges += `<span style="color:var(--color-accent); font-size:0.8em;" title="Rising">↑</span> `;
+                            if (isFalling)  badges += `<span style="color:var(--color-danger-soft); font-size:0.8em;" title="Falling">↓</span> `;
+                            if (hasSpikes)  badges += `<span style="color:var(--color-save); font-size:0.8em;" title="Spikes">◎</span> `;
+                            if (hasBreak)   badges += `<span style="color:var(--color-info); font-size:0.8em;" title="Step change">⋮</span> `;
+                            if (isVolatile) badges += `<span style="color:var(--color-purple); font-size:0.8em;" title="Volatile">~</span> `;
+                            if (isStable)   badges += `<span style="color:var(--color-text-tertiary); font-size:0.8em;" title="Stable">—</span> `;
 
                             return `
                             <div class="category-item"
@@ -560,14 +560,14 @@ window.timelines = {
                                        style="margin-right:5px; margin-top:2px;">
                                 <span style="line-height:1.2;">
                                     ${cat}
-                                    <span style="color:${getCSSVar('--color-text-tertiary')}; font-size:0.85em; white-space:nowrap;">(${catTotals[cat].toLocaleString()})</span>
+                                    <span style="color:var(--color-text-tertiary); font-size:0.85em; white-space:nowrap;">(${catTotals[cat].toLocaleString()})</span>
                                     ${badges ? '<span style="margin-left:3px;">' + badges + '</span>' : ''}
                                 </span>
                             </div>
                             `;
                         }).join('')}
                     </div>
-                    ${omittedCount > 0 ? `<div style="font-size:0.75em; color:${getCSSVar('--color-text-muted')}; margin-top:5px; font-style:italic;">Dropped ${omittedCount} tiny cats → ${omittedPercent}% obs lost.</div>` : ''}
+                    ${omittedCount > 0 ? `<div style="font-size:0.75em; color:var(--color-text-muted); margin-top:5px; font-style:italic;">Dropped ${omittedCount} tiny cats → ${omittedPercent}% obs lost.</div>` : ''}
                 `;
 
                 // Restore scroll position
@@ -715,7 +715,7 @@ window.timelines = {
                     tickvals: tickVals,
                     ticktext: tickText,
                     tickangle: 0,
-                    gridcolor: 'rgba(255,255,255,0.06)',
+                    gridcolor: getCSSVar('--chart-grid-line'),
                     gridwidth: 1,
                     zeroline: false,
                     tickfont: { color: getCSSVar('--color-text-faint') }
@@ -723,7 +723,7 @@ window.timelines = {
                 yaxis: {
                     title: { text: yAxisTitle, font: { color: getCSSVar('--color-text-muted'), size: 11 } },
                     range: isCategorical && chartWrapper._catYRange ? chartWrapper._catYRange : undefined,
-                    gridcolor: 'rgba(255,255,255,0.06)',
+                    gridcolor: getCSSVar('--chart-grid-line'),
                     gridwidth: 1,
                     zeroline: false,
                     tickfont: { color: getCSSVar('--color-text-faint') }
@@ -830,7 +830,7 @@ window.timelines = {
                     return `<b>Distribution Evenness</b><br>` +
                            `Period: ${dateLabel}<br>` +
                            `Evenness: ${(e * 100).toFixed(1)}%<br>` +
-                           `<span style="font-size:0.85em;color:${getCSSVar('--color-text-tertiary')};">Range: ${(eMin * 100).toFixed(1)}% – ${(eMax * 100).toFixed(1)}%</span>`;
+                           `<span style="font-size:0.85em;color:var(--color-text-tertiary);">Range: ${(eMin * 100).toFixed(1)}% – ${(eMax * 100).toFixed(1)}%</span>`;
                 });
 
                 overlayTraces.push({
@@ -838,7 +838,7 @@ window.timelines = {
                     y: scaledEntropy,
                     type: 'scatter',
                     mode: 'lines',
-                    line: { width: 12, shape: 'spline', color: 'rgba(255,255,255,0.12)' },
+                    line: { width: 12, shape: 'spline', color: getCSSVar('--chart-overlay-line') },
                     name: 'Evenness',
                     showlegend: false,
                     text: entropyHoverText,
@@ -940,7 +940,7 @@ window.timelines = {
                         x: 0, y: 1.02,
                         xanchor: 'left', yanchor: 'bottom',
                         showarrow: false,
-                        font: { size: 10, color: 'rgba(255,255,255,0.4)' }
+                        font: { size: 10, color: getCSSVar('--chart-annotation-text') }
                     }];
                 }
                 if (Object.keys(relayoutUpdates).length > 0) {
@@ -961,14 +961,14 @@ window.timelines = {
                     const findingsToggleId = `findings-toggle-${varName}`;
                     const toggleBtn = document.createElement('button');
                     toggleBtn.id = findingsToggleId;
-                    toggleBtn.style.cssText = `margin-top: 10px; padding: 6px 14px; background: ${getCSSVar('--color-bg-elevated')}; color: ${getCSSVar('--chart-text')}; border: 1px solid ${getCSSVar('--chart-grid')}; border-radius: 6px; cursor: pointer; font-size: 0.85em;`;
+                    toggleBtn.style.cssText = `margin-top: 10px; padding: 6px 14px; background: var(--color-bg-elevated); color: var(--chart-text); border: 1px solid var(--chart-grid); border-radius: 6px; cursor: pointer; font-size: 0.85em;`;
                     const isOpen = this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName];
                     toggleBtn.textContent = isOpen ? 'Hide Findings' : 'Show Findings';
                     chartWrapper.appendChild(toggleBtn);
 
                     const findingsContainer = document.createElement('div');
                     findingsContainer.id = `findings-panel-${varName}`;
-                    findingsContainer.style.cssText = `margin-top: 10px; border-top: 1px solid ${getCSSVar('--color-border-subtle')}; padding-top: 15px; display: ${isOpen ? 'flex' : 'none'}; flex-direction: column; gap: 10px;`;
+                    findingsContainer.style.cssText = `margin-top: 10px; border-top: 1px solid var(--color-border-subtle); padding-top: 15px; display: ${isOpen ? 'flex' : 'none'}; flex-direction: column; gap: 10px;`;
 
                     toggleBtn.addEventListener('click', () => {
                         if (!this.timelineState.findingsPanelOpen) this.timelineState.findingsPanelOpen = {};
@@ -984,15 +984,15 @@ window.timelines = {
                         const catColor = colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
 
                         const card = document.createElement('div');
-                        card.style.cssText = `background: ${getCSSVar('--color-bg-elevated')}; padding: 15px; border-radius: 8px; border-left: 4px solid ${catColor};`;
+                        card.style.cssText = `background: var(--color-bg-elevated); padding: 15px; border-radius: 8px; border-left: 4px solid ${catColor};`;
 
                         // Card Header: Rank + Dot + Label + Badges
                         const headerRow = document.createElement('div');
                         headerRow.style.cssText = 'display: flex; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;';
 
                         const titleWrap = document.createElement('div');
-                        titleWrap.style.cssText = `font-weight: 600; font-size: 1.1em; color: ${getCSSVar('--color-text-primary')}; margin-right: 15px;`;
-                        titleWrap.innerHTML = `<span style="color:${getCSSVar('--color-text-muted')}; font-size:0.9em; margin-right:5px;">#${globalRank}</span> <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${catColor}; margin-right:6px;"></span> ${catData.label}`;
+                        titleWrap.style.cssText = `font-weight: 600; font-size: 1.1em; color: var(--color-text-primary); margin-right: 15px;`;
+                        titleWrap.innerHTML = `<span style="color:var(--color-text-muted); font-size:0.9em; margin-right:5px;">#${globalRank}</span> <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${catColor}; margin-right:6px;"></span> ${catData.label}`;
                         headerRow.appendChild(titleWrap);
 
                         const bullets = [];
@@ -1009,10 +1009,10 @@ window.timelines = {
                             isStable = false;
                             const isRising = catData.trend.total_change > 0;
                             if (isRising) {
-                                headerRow.innerHTML += makeBadge('↑ Rising', 'rgba(78, 201, 176, 0.15)', getCSSVar('--color-accent'), 'rgba(78, 201, 176, 0.5)');
+                                headerRow.innerHTML += makeBadge('↑ Rising', 'var(--trend-rising-bg)', 'var(--color-accent)', 'var(--trend-rising-border)');
                                 bullets.push(`Overall upward trend — total shift of +${catData.trend.total_change} pp over the period.`);
                             } else {
-                                headerRow.innerHTML += makeBadge('↓ Falling', 'rgba(244, 135, 113, 0.15)', getCSSVar('--color-danger-soft'), 'rgba(244, 135, 113, 0.5)');
+                                headerRow.innerHTML += makeBadge('↓ Falling', 'var(--trend-falling-bg)', 'var(--color-danger-soft)', 'var(--trend-falling-border)');
                                 bullets.push(`Overall downward trend — total shift of ${catData.trend.total_change} pp over the period.`);
                             }
                         }
@@ -1020,7 +1020,7 @@ window.timelines = {
                         // 2. Step Change
                         if (catData.break && Math.abs(catData.break.delta) > 4) {
                             isStable = false;
-                            headerRow.innerHTML += makeBadge('⋮ Step change', 'rgba(86, 156, 214, 0.15)', getCSSVar('--color-info'), 'rgba(86, 156, 214, 0.5)');
+                            headerRow.innerHTML += makeBadge('⋮ Step change', 'var(--trend-breaks-bg)', 'var(--color-info)', 'var(--trend-breaks-border)');
 
                             let bDate = "the period";
                             const bIdx = catData.break.index;
@@ -1037,7 +1037,7 @@ window.timelines = {
                         // 3. Anomalies
                         if (catData.anomalies && catData.anomalies.length > 0) {
                             isStable = false;
-                            headerRow.innerHTML += makeBadge(`◎ ${catData.anomalies.length} spike(s)`, 'rgba(206, 145, 120, 0.15)', getCSSVar('--color-save'), 'rgba(206, 145, 120, 0.5)');
+                            headerRow.innerHTML += makeBadge(`◎ ${catData.anomalies.length} spike(s)`, 'var(--trend-spikes-bg)', 'var(--color-save)', 'var(--trend-spikes-border)');
 
                             catData.anomalies.slice(0, 2).forEach(a => {
                                 let aDate = "Unknown Date";
@@ -1055,13 +1055,13 @@ window.timelines = {
                         // 4. Volatility
                         if (catData.volatility && catData.volatility.std > 2.5) {
                             isStable = false;
-                            headerRow.innerHTML += makeBadge('~ Volatile', 'rgba(218, 112, 214, 0.15)', getCSSVar('--color-purple'), 'rgba(218, 112, 214, 0.5)');
+                            headerRow.innerHTML += makeBadge('~ Volatile', 'var(--trend-volatile-bg)', 'var(--color-purple)', 'var(--trend-volatile-border)');
                             bullets.push(`High variation — standard dev ${catData.volatility.std} pp around mean of ${catData.volatility.mean}%.`);
                         }
 
                         // 5. Stable
                         if (isStable) {
-                            headerRow.innerHTML += makeBadge('— Stable', 'rgba(120, 120, 120, 0.2)', getCSSVar('--color-text-tertiary'), getCSSVar('--color-border-strong'));
+                            headerRow.innerHTML += makeBadge('— Stable', 'var(--trend-stable-bg)', 'var(--color-text-tertiary)', 'var(--color-border-strong)');
                             let m = catData.volatility ? catData.volatility.mean : "?";
                             bullets.push(`No significant dynamics detected. Steady around ${m}% with low variation.`);
                         }
@@ -1070,7 +1070,7 @@ window.timelines = {
 
                         // Render Bullets
                         const ul = document.createElement('ul');
-                        ul.style.cssText = `margin: 0; padding-left: 20px; color: ${getCSSVar('--chart-text')}; font-size: 0.9em; line-height: 1.5;`;
+                        ul.style.cssText = `margin: 0; padding-left: 20px; color: var(--chart-text); font-size: 0.9em; line-height: 1.5;`;
                         bullets.forEach(b => {
                             const li = document.createElement('li');
                             li.innerText = b;
@@ -1226,7 +1226,7 @@ window.timelines = {
             .then(data => {
                 if (data.status === 'success') {
                     btn.innerText = 'Voted \u2713'; // Unicode checkmark
-                    btn.style.backgroundColor = getCSSVar('--color-success');
+                    btn.style.backgroundColor = 'var(--color-success)';
                     // Disable button completely or leave it success state (allow re-click but backend handles dupes)
                 } else {
                     alert('Failed to vote: ' + data.error);
@@ -1268,11 +1268,11 @@ window.timelines = {
         const btn = document.getElementById('timeline-vote-btn');
         if (btn) {
             btn.innerText = 'Vote to machine annotate';
-            btn.style.backgroundColor = getCSSVar('--color-info');
+            btn.style.backgroundColor = 'var(--btn-primary-bg)';
             btn.disabled = false;
         }
 
-        let html = '<table style="width: 100%; border-collapse: collapse; margin-top: 10px; color: var(--gray-50);">';
+        let html = '<table style="width: 100%; border-collapse: collapse; margin-top: 10px; color: var(--color-text-primary);">';
         html += '<thead style="border-bottom: 2px solid var(--color-border-strong);"><tr><th style="padding: 8px; text-align: left;">Variable</th><th style="padding: 8px; text-align: left;">Value</th></tr></thead>';
         html += '<tbody>';
 
@@ -1299,7 +1299,7 @@ window.timelines = {
             const varData = this.timelineData.variables[varName];
             const displayTitle = varData.display_name || (varName === 'machine_state' ? 'Scrape/Annotation States' : varName);
 
-            html += `<tr style="border-bottom: 1px solid ${getCSSVar('--color-border-subtle')};"><td style="padding: 8px; vertical-align: top; font-weight: bold;">${displayTitle}</td>`;
+            html += `<tr style="border-bottom: 1px solid var(--color-border-subtle);"><td style="padding: 8px; vertical-align: top; font-weight: bold;">${displayTitle}</td>`;
             html += `<td style="padding: 8px; vertical-align: top;">`;
 
             if (varData.type === 'categorical' && varData.counts) {
@@ -1309,7 +1309,7 @@ window.timelines = {
                 const sortedCats = Object.keys(dayCounts).sort((a, b) => dayCounts[b] - dayCounts[a]);
 
                 if (sortedCats.length === 0) {
-                    html += `<span style="color: ${getCSSVar('--color-text-muted')};">No Data</span>`;
+                    html += `<span style="color: var(--color-text-muted);">No Data</span>`;
                 } else {
                     html += `<ul style="margin: 0; padding-left: 20px;">`;
                     sortedCats.forEach(cat => {
@@ -1320,7 +1320,7 @@ window.timelines = {
             } else if (varData.type === 'numeric' && varData.values) {
                 let val = varData.values[dateIndex];
                 if (val === null || val === undefined) {
-                    html += `<span style="color: ${getCSSVar('--color-text-muted')};">No Data</span>`;
+                    html += `<span style="color: var(--color-text-muted);">No Data</span>`;
                 } else {
                     // Format numeric
                     if (Number.isInteger(val)) {
@@ -1330,7 +1330,7 @@ window.timelines = {
                     }
                 }
             } else {
-                html += `<span style="color: ${getCSSVar('--color-text-muted')};">Unknown</span>`;
+                html += `<span style="color: var(--color-text-muted);">Unknown</span>`;
             }
 
             html += `</td></tr>`;
@@ -1347,5 +1347,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // If we are on a page with the timelines tab
     if (document.getElementById('timelines')) {
         window.timelines.init();
+    }
+});
+
+window.addEventListener('theme-changed', () => {
+    if (window.timelines && window.timelines.timelineData) {
+        window.timelines.renderTimelineCharts();
     }
 });
