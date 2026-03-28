@@ -858,7 +858,7 @@ function renderMetadata(item) {
             if (viewerData.userVotes && viewerData.userVotes.includes(itemIdStr)) {
                 voteContainer.innerHTML = '<span style="color: var(--color-text-tertiary); font-style: italic;">Voted</span>';
             } else {
-                voteContainer.innerHTML = `<button class="btn-primary" style="padding: 2px 8px; font-size: 0.85em; cursor: pointer; border: none; border-radius: 4px; background-color: var(--color-info); color: white;" onclick="submitVote('${itemIdStr}')">Vote to machine annotate</button>`;
+                voteContainer.innerHTML = `<button class="btn-primary" style="padding: 2px 8px; font-size: 0.85em; cursor: pointer; border: none; border-radius: 4px; background-color: var(--color-info); color: var(--white);" onclick="submitVote('${itemIdStr}')">Vote to machine annotate</button>`;
             }
         }
     }
