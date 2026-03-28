@@ -1070,7 +1070,7 @@ window.timelines = {
 
                         // Render Bullets
                         const ul = document.createElement('ul');
-                        ul.style.cssText = 'margin: 0; padding-left: 20px; color: ${getCSSVar('--chart-text')}; font-size: 0.9em; line-height: 1.5;';
+                        ul.style.cssText = `margin: 0; padding-left: 20px; color: ${getCSSVar('--chart-text')}; font-size: 0.9em; line-height: 1.5;`;
                         bullets.forEach(b => {
                             const li = document.createElement('li');
                             li.innerText = b;
