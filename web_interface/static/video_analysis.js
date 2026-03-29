@@ -882,18 +882,23 @@ async function loadViewerItem(index) {
         // Load Video
         const videoEl = document.getElementById('viewer-video');
         const videoUrl = `/api/video/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`;
+        const autoplay = window.userSettings && window.userSettings.video_autostart;
 
-        // Only change src if different to prevent flicker if we were just reloading meta? 
-        // No, assuming distinct items always different.
+        // When autoplay is off, only fetch metadata (shows first frame quickly).
+        // When autoplay is on, use "auto" so the browser buffers ahead for smooth playback.
+        videoEl.preload = autoplay ? "auto" : "metadata";
+
         videoEl.src = videoUrl;
-        document.getElementById('viewer-video-msg').style.display = "none";
+
+        // Hide loading message once the first frame is available
+        const msgEl = document.getElementById('viewer-video-msg');
+        videoEl.addEventListener('loadeddata', () => { msgEl.style.display = "none"; }, { once: true });
+        setTimeout(() => { msgEl.style.display = "none"; }, 5000);
 
         // Check if tab is visible before playing
         const viewerTab = document.getElementById('video_analysis');
         if (viewerTab && viewerTab.classList.contains('active')) {
-            // Check User Settings for Autostart
-            // If undefined, default to false (as requested "default unchecked")
-            if (window.userSettings && window.userSettings.video_autostart) {
+            if (autoplay) {
                 videoEl.play().catch(e => console.log("Auto-play blocked or failed:", e));
             }
         }
