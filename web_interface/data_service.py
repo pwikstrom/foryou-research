@@ -196,7 +196,7 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     if 'annotated_ok' in df.columns:
         # Map boolean to cleaner labels
         df['Machine Annotations'] = 'Not Attempted'
-        df.loc[df['annotated_ok'] == True, 'Machine Annotations'] = 'Machine Annotation Success'
+        df.loc[df['annotated_ok'] == True, 'Machine Annotations'] = 'Machine Annotated'
         df.loc[df['annotated_ok'] == False, 'Machine Annotations'] = 'Cannot Machine Annotate'
         
         col_types['Machine Annotations'] = 'category'
@@ -1003,6 +1003,12 @@ def load_schema_metadata(metadata):
                     dname = str(row['display_name'])
                     if dname and dname.lower() != 'nan' and dname.strip():
                         schema_map[var_name]['display_name'] = dname.strip()
+
+                # Add Sortable (for sort dropdown in viewer)
+                if 'sortable' in row:
+                    sval = row['sortable']
+                    if pd.notna(sval):
+                        schema_map[var_name]['sortable'] = int(sval)
 
                 # Add Display Priority (for filtering in viewer)
                 if 'web_display_prio' in row:

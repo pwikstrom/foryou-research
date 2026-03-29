@@ -1351,27 +1351,68 @@ button {
    Video Analysis Tab Styles (moved from inline)
    ============================================================ */
 
-#viewer-metadata td {
-    padding: 5px 10px;
-    border-bottom: 1px solid var(--color-border-subtle);
-    color: var(--color-text-secondary);
-    vertical-align: top;
+#viewer-metadata {
+    display: block;
 }
 
-#viewer-metadata td:first-child {
+#viewer-metadata tbody {
+    display: block;
+}
+
+#viewer-metadata tr.detail-section-header {
+    display: block;
+    cursor: pointer;
+    background: var(--color-border);
+}
+
+#viewer-metadata tr.detail-section-header td {
+    display: block;
+    padding: 8px 10px;
+    font-weight: var(--weight-bold);
+    color: var(--color-text-primary);
+    border-bottom: none;
+}
+
+#viewer-metadata tr.detail-row {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+#viewer-metadata tr.detail-row:hover {
+    background: var(--table-row-hover);
+}
+
+#viewer-metadata tr.detail-row td.detail-key {
+    flex: 0 0 100%;
+    padding: 0 0 2px 0;
     font-weight: var(--weight-bold);
     color: var(--color-text-tertiary);
-    min-width: 180px;
+    font-size: var(--text-xs);
+    border-bottom: none;
     word-break: break-word;
 }
 
-#viewer-metadata td:last-child {
-    min-width: 200px;
+#viewer-metadata tr.detail-row td.detail-val {
+    flex: 0 0 100%;
+    padding: 0;
+    color: var(--color-text-secondary);
+    border-bottom: none;
     word-break: break-word;
 }
 
-#viewer-metadata tr:hover {
-    background: var(--table-row-hover);
+#viewer-metadata tr.detail-display-id {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background: var(--color-border-subtle);
+}
+
+#viewer-metadata tr.detail-display-id td {
+    padding: 0;
+    border-bottom: none;
 }
 
 

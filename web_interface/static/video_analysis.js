@@ -13,7 +13,8 @@ let viewerData = {
     userTags: {},
     userVotes: [],
     activeModal: { item_id: null, variable: null, currentTags: [] },
-    displayIds: {} // Map of raw_id -> display_id
+    displayIds: {}, // Map of raw_id -> display_id
+    expandedDetailSections: new Set() // Track expanded sections in details panel (collapsed by default)
 };
 
 // Drill-down from Explore tab: consume pending filter state
@@ -365,37 +366,38 @@ function renderViewerFilters(metadata) {
         sectionNames.push('Annotation Status');
     }
 
-    // Populate Sort Dropdown (only once or update?)
+    // Populate Sort Dropdown — only include variables marked as sortable in var_schema
     const sortSelect = document.getElementById('viewer-sort-select');
     if (sortSelect) {
         const currentVal = sortSelect.value || viewerData.sortBy;
         sortSelect.innerHTML = '<option value="">Default (Unsorted)</option>';
-        // Flatten sortedCols for dropdown? Or just all available?
-        // Let's use the sorted section order -> sorted vars
-        let dropdownCols = [];
-        sectionNames.forEach(sec => {
-            // Sort variables within section
-            sections[sec].sort((a, b) => {
-                const idxA = priority ? priority.indexOf(a) : -1;
-                const idxB = priority ? priority.indexOf(b) : -1;
-                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-                if (idxA !== -1) return -1;
-                if (idxB !== -1) return 1;
-                return a.localeCompare(b);
-            });
-            dropdownCols.push(...sections[sec]);
-        });
 
-        dropdownCols.forEach(col => {
+        // Collect sortable columns from schema_map and order by their sortable value
+        let sortableCols = Object.keys(schemaMap)
+            .filter(col => schemaMap[col].sortable !== undefined)
+            .sort((a, b) => schemaMap[a].sortable - schemaMap[b].sortable);
+
+        // Find the default sort variable (sortable === 1)
+        const defaultSortCol = sortableCols.find(col => schemaMap[col].sortable === 1);
+
+        sortableCols.forEach(col => {
             const opt = document.createElement('option');
             opt.value = col;
-            opt.text = col;
+            opt.text = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
             if (currentVal === col) opt.selected = true;
             sortSelect.appendChild(opt);
         });
 
+        // Set default sort to the sortable=1 variable if no sort is active yet
+        if (!currentVal && defaultSortCol) {
+            sortSelect.value = defaultSortCol;
+            viewerData.sortBy = defaultSortCol;
+            viewerData.sortOrder = 'asc';
+        }
+
         sortSelect.onchange = (e) => {
             viewerData.sortBy = e.target.value;
+            applyViewerFilters();
         };
     }
     updateSortBtnUI();
@@ -735,6 +737,7 @@ async function applyViewerFilters() {
             : null;
 
         viewerData.filteredIds = data.ids;
+        viewerData.rowIdxs = data.row_idxs || [];
         viewerData.itemCount = data.count; // True total number of matching items
         viewerData.currentOffset = data.offset || 0; // The base index of the downloaded chunk
         viewerData.chunkLimit = 1000; // Expected max size of the downloaded chunk
@@ -833,6 +836,7 @@ async function loadViewerItem(index) {
             }
 
             viewerData.filteredIds = data.ids;
+            viewerData.rowIdxs = data.row_idxs || [];
             viewerData.currentOffset = newOffset;
             viewerData.displayIds = { ...viewerData.displayIds, ...(data.display_ids || {}) }; // Append new displays
 
@@ -849,17 +853,19 @@ async function loadViewerItem(index) {
     }
 
     const itemId = viewerData.filteredIds[relativeIndex];
+    const rowIdx = viewerData.rowIdxs ? viewerData.rowIdxs[relativeIndex] : undefined;
     const displayId = viewerData.displayIds[itemId] || itemId;
 
     // Update UI Loading state?
     document.getElementById('viewer-status').innerText = `Loading ${displayId}...`;
 
     try {
-        // Use POST to send context (filters) so backend picks the right row if duplicates exist
+        // Use POST to send context (row_idx + filters) so backend picks the exact row
         const res = await fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                row_idx: rowIdx,
                 filters: viewerData.filters,
                 search_query: viewerData.searchQuery
             })
@@ -928,11 +934,11 @@ function renderMetadata(item) {
         const ann_ok = item['annotated_ok'];
         const mach_ann = item['Machine Annotations'];
 
-        const isSuccess = mach_ann === 'Machine Annotation Success' || ann_ok === true || ann_ok === 'True' || ann_ok === 1;
+        const isSuccess = mach_ann === 'Machine Annotated' || ann_ok === true || ann_ok === 'True' || ann_ok === 1;
         const isFailed = mach_ann === 'Cannot Machine Annotate' || ann_ok === false || ann_ok === 'False' || ann_ok === 0;
 
         if (isSuccess) {
-            voteContainer.innerHTML = '<span style="color: var(--color-success);">Machine Annotation Success</span>';
+            voteContainer.innerHTML = '<span style="color: var(--color-success);">Machine Annotated</span>';
         } else if (isFailed) {
             voteContainer.innerHTML = '<span style="color: var(--color-danger-soft);">Cannot Machine Annotate</span>';
         } else {
@@ -947,8 +953,8 @@ function renderMetadata(item) {
     // Inject Display ID if present at top
     if (item.display_donation_id) {
         const didRow = document.createElement('tr');
-        didRow.style.background = 'var(--color-border-subtle)';
-        didRow.innerHTML = `<td class="font-bold" style="padding:5px; color:var(--color-info);">Display ID</td><td class="font-bold" style="padding:5px; color:var(--color-text-primary);">${item.display_donation_id}</td>`;
+        didRow.className = 'detail-display-id';
+        didRow.innerHTML = `<td class="font-bold" style="color:var(--color-info);">Display ID</td><td class="font-bold" style="color:var(--color-text-primary); text-align:right;">${item.display_donation_id}</td>`;
         tbody.appendChild(didRow);
     }
 
@@ -1036,15 +1042,10 @@ function renderMetadata(item) {
         if (keys.length === 0) return;
 
         const headerRow = document.createElement('tr');
-        headerRow.style.background = 'var(--color-border)';
-        headerRow.style.cursor = 'pointer';
+        headerRow.className = 'detail-section-header';
 
         const headerCell = document.createElement('td');
-        headerCell.colSpan = 2;
-        headerCell.style.padding = '8px';
-        headerCell.classList.add('font-bold');
-        headerCell.style.color = 'var(--color-text-primary)';
-        headerCell.innerHTML = `&#9662; ${sec}`; // Down arrow default
+        headerCell.innerHTML = `&#9656; ${sec}`; // Right arrow = collapsed by default
         headerRow.appendChild(headerCell);
 
         tbody.appendChild(headerRow);
@@ -1053,8 +1054,10 @@ function renderMetadata(item) {
         const rowGroups = [];
         keys.forEach(key => {
             const tr = document.createElement('tr');
+            tr.className = 'detail-row';
+            tr.style.display = 'none'; // Collapsed by default
             const tdKey = document.createElement('td');
-            // --- Tagging & Tooltip ---
+            tdKey.className = 'detail-key';
             tdKey.style.cursor = 'pointer';
             const itemIdStr = String(item['item_id']);
             const itemTags = (viewerData.userTags[itemIdStr]?.[key]) || [];
@@ -1192,6 +1195,7 @@ function renderMetadata(item) {
             // ---------------
 
             const tdVal = document.createElement('td');
+            tdVal.className = 'detail-val';
 
             let val = item[key];
             let displayVal = '';
@@ -1238,7 +1242,29 @@ function renderMetadata(item) {
                 displayVal = String(val);
             }
 
-            tdVal.innerHTML = linkify(displayVal);
+            const wordLimit = 25;
+            const words = displayVal.split(/\s+/);
+            if (words.length > wordLimit) {
+                const truncated = words.slice(0, wordLimit).join(' ');
+                const truncSpan = document.createElement('span');
+                truncSpan.innerHTML = linkify(truncated);
+                const moreBtn = document.createElement('span');
+                moreBtn.textContent = ' [...more]';
+                moreBtn.style.color = 'var(--color-info)';
+                moreBtn.style.cursor = 'pointer';
+                moreBtn.classList.add('text-xs');
+                let expanded = false;
+                moreBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    expanded = !expanded;
+                    truncSpan.innerHTML = linkify(expanded ? displayVal : truncated);
+                    moreBtn.textContent = expanded ? ' [less]' : ' [...more]';
+                };
+                tdVal.appendChild(truncSpan);
+                tdVal.appendChild(moreBtn);
+            } else {
+                tdVal.innerHTML = linkify(displayVal);
+            }
 
             tr.appendChild(tdKey);
             tr.appendChild(tdVal);
@@ -1246,11 +1272,22 @@ function renderMetadata(item) {
             rowGroups.push(tr);
         });
 
-        // Click handler for collapse
+        // Restore expanded state (sections are collapsed by default)
+        if (viewerData.expandedDetailSections.has(sec)) {
+            rowGroups.forEach(r => r.style.display = 'flex');
+            headerCell.innerHTML = `&#9662; ${sec}`;
+        }
+
+        // Click handler for toggle
         headerRow.onclick = () => {
             const isHidden = rowGroups[0].style.display === 'none';
-            rowGroups.forEach(r => r.style.display = isHidden ? '' : 'none');
-            headerCell.innerHTML = isHidden ? `&#9662; ${sec}` : `&#9656; ${sec}`; // Down vs Right arrow
+            rowGroups.forEach(r => r.style.display = isHidden ? 'flex' : 'none');
+            headerCell.innerHTML = isHidden ? `&#9662; ${sec}` : `&#9656; ${sec}`;
+            if (isHidden) {
+                viewerData.expandedDetailSections.add(sec);
+            } else {
+                viewerData.expandedDetailSections.delete(sec);
+            }
         };
     });
 }

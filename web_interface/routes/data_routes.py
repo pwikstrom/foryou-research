@@ -577,8 +577,10 @@ def api_viewer_ids():
     total_count = len(filtered_df)
     
     # Slice the series according to pagination
-    chunked_ids = filtered_df[id_col].iloc[offset : offset + limit].astype(str).tolist()
-    
+    chunk = filtered_df.iloc[offset : offset + limit]
+    chunked_ids = chunk[id_col].astype(str).tolist()
+    chunked_row_idxs = chunk.index.tolist()
+
     # Return display IDs map ONLY for the returned filtered IDs to save bandwidth
     display_map = load_display_id_map()
     relevant_display_ids = {}
@@ -587,7 +589,8 @@ def api_viewer_ids():
             relevant_display_ids[i] = display_map[i]
 
     return jsonify({
-        "ids": chunked_ids, 
+        "ids": chunked_ids,
+        "row_idxs": chunked_row_idxs,
         "count": total_count, # True total count for the frontend to compute UI bounds
         "offset": offset,
         "display_ids": relevant_display_ids,
@@ -837,6 +840,10 @@ def api_pca_metadata():
                 dname = str(row['display_name'])
                 if dname and dname.lower() != 'nan' and dname.strip():
                     entry['display_name'] = dname.strip()
+            if 'sortable' in row:
+                sval = row['sortable']
+                if pd.notna(sval):
+                    entry['sortable'] = int(sval)
             if entry:
                 schema_map[var_name] = entry
 
@@ -1454,20 +1461,28 @@ def api_viewer_item(study, item_id):
         if 'video_id' in df.columns: id_col = 'video_id'
         else: return jsonify({"error": "ID column missing"}), 500
 
-    # OPTIMIZATION: Filter down to the item FIRST before running huge global filters and tag enrichment!
-    # This turns an O(N) operation heavily bottlenecked by dataset size into an O(1) instantaneous fetch
-    df = df[df[id_col].astype(str) == str(item_id)]
-    
+    # Try to use the exact row index first (resolves duplicate item_id ambiguity)
+    row_idx = None
+    if request.method == 'POST':
+        data = request.json or {}
+        row_idx = data.get("row_idx")
+
+    if row_idx is not None and row_idx in df.index:
+        df = df.loc[[row_idx]]
+    else:
+        # Fallback: filter by item_id (may return multiple rows for duplicate events)
+        df = df[df[id_col].astype(str) == str(item_id)]
+
     if df.empty:
         return jsonify({"error": "Item not found in current context"}), 404
-    
+
     # Enrich with User Tags (now extremely fast since df is tiny)
     username = current_user.username
-    
+
     # Check for Shared Annotations
     shared_simple_map = None
     shared_detailed_map = None
-    
+
     user_settings = current_user.settings or {}
     if user_settings.get('share_annotations'):
         sharing_users = []
@@ -1475,28 +1490,22 @@ def api_viewer_item(study, item_id):
             if u_name == username: continue
             if u_obj.settings and u_obj.settings.get('share_annotations'):
                 sharing_users.append(u_name)
-        
+
         if sharing_users:
             shared_simple_map, shared_detailed_map = load_shared_tags(sharing_users)
 
     df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
 
-    # Apply Context Filters if provided (POST)
-    # We still need this in case duplicate rows exist for the same item_id, 
-    # to find the specific duplicate row that matched the global filters.
-    if request.method == 'POST':
-        data = request.json or {}
+    # Apply Context Filters as fallback disambiguation when row_idx was not available
+    if row_idx is None and request.method == 'POST':
         filters = data.get("filters", {})
         search_query = data.get("search_query")
-        
+
         if filters or search_query:
             filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
-            # If the filter dropped all duplicates, we fallback to the first unfiltered one
-            # to avoid returning a 404 when clicking next/prev immediately after a filter change.
             if not filtered_df.empty:
                  df = filtered_df
-    # Since we sliced df to the specific item at the completely top, 
-    # df now only contains exactly the matching duplicate row(s).
+
     record = df.iloc[0].replace({np.nan: None}).to_dict()
     # Inject Shared Annotations for this item
     if shared_detailed_map:
@@ -1741,9 +1750,50 @@ def api_video_stream(study, item_id):
     if not blob.exists():
          return f"Video {blob_name} not found", 404
 
+    blob.reload()
+    total_size = blob.size
+    chunk_size = 4096 * 16
+
+    range_header = request.headers.get('Range')
+
+    if range_header:
+        # Parse "bytes=start-end"
+        range_spec = range_header.replace('bytes=', '').strip()
+        parts = range_spec.split('-')
+        start = int(parts[0])
+        end = int(parts[1]) if parts[1] else min(start + chunk_size * 16 - 1, total_size - 1)
+        end = min(end, total_size - 1)
+        length = end - start + 1
+
+        def generate_range():
+            with blob.open("rb") as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    read_size = min(chunk_size, remaining)
+                    data = f.read(read_size)
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+
+        headers = {
+            'Content-Range': f'bytes {start}-{end}/{total_size}',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(length),
+            'Content-Type': 'video/mp4',
+        }
+        return Response(stream_with_context(generate_range()), status=206, headers=headers)
+
+    # No Range header — return full file
     def generate():
         with blob.open("rb") as f:
-            while chunk := f.read(4096 * 16): 
+            while chunk := f.read(chunk_size):
                 yield chunk
 
-    return Response(stream_with_context(generate()), mimetype="video/mp4")
+    headers = {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': str(total_size),
+        'Content-Type': 'video/mp4',
+    }
+    return Response(stream_with_context(generate()), headers=headers)
