@@ -342,10 +342,11 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
         // Map D_donation_id to display names for the legend
         const gName = (colorLabel === 'D_donation_id' && displayIds[rawColorVal]) ? displayIds[rawColorVal] : rawColorVal;
 
-        if (!groups[gName]) groups[gName] = { x: [], y: [], text: [], name: gName };
+        if (!groups[gName]) groups[gName] = { x: [], y: [], text: [], factors: [], name: gName };
         groups[gName].x.push(d.x);
         groups[gName].y.push(d.y);
         groups[gName].text.push(d.text);
+        groups[gName].factors.push(d.factors || {});
     });
 
     const groupsKeys = Object.keys(groups);
@@ -405,6 +406,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
             type: 'scatter',
             name: g,
             text: groups[g].text,
+            customdata: groups[g].factors,
             hoverinfo: 'text',
             marker: {
                 size: 8,
@@ -580,6 +582,45 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
     }
 
     Plotly.newPlot('pca-plot', traces, layout, { responsive: true, displayModeBar: true });
+
+    // Drill-down: click a dot to view matching videos
+    document.getElementById('pca-plot').on('plotly_click', function(eventData) {
+        const point = eventData.points[0];
+        if (!point || !point.customdata) return;
+        const factors = point.customdata;
+        if (!factors || Object.keys(factors).length === 0) return;
+        drillDownFromCorrelations(factors);
+    });
+}
+
+
+function drillDownFromCorrelations(factors) {
+    const schemaMap = pcaData.metadata?.schema_map || {};
+
+    // Build filter set from factor values
+    const filters = {};
+    Object.entries(factors).forEach(([col, val]) => {
+        filters[col] = { type: 'category', value: [val] };
+    });
+
+    // Build a readable label for the confirmation popup
+    const labels = Object.entries(factors).map(([col, val]) => {
+        const name = schemaMap[col]?.display_name || col;
+        return `${name} = "${val}"`;
+    });
+    const variableName = 'Correlations';
+    const valueLabel = labels.join(', ');
+
+    showDrillDownConfirm(variableName, valueLabel, () => {
+        window._pendingDrillDown = {
+            study: pcaData.activeStudy,
+            filters: filters,
+            searchQuery: "",
+            timestamp: Date.now()
+        };
+        const tabBtn = document.querySelector('.tab-button[onclick*="video_analysis"]');
+        if (tabBtn) tabBtn.click();
+    });
 }
 
 

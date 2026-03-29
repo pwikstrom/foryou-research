@@ -295,12 +295,12 @@ async function loadViewerMetadata() {
     }
 }
 
-// Initialize collapsed state from localStorage
-if (!viewerData.collapsedFilters) {
+// Initialize expanded state from localStorage (sections default to collapsed)
+if (!viewerData.expandedFilters) {
     try {
-        viewerData.collapsedFilters = JSON.parse(localStorage.getItem('viewer_collapsed_filters') || '[]');
+        viewerData.expandedFilters = JSON.parse(localStorage.getItem('viewer_expanded_filters') || '[]');
     } catch (e) {
-        viewerData.collapsedFilters = [];
+        viewerData.expandedFilters = [];
     }
 }
 
@@ -358,6 +358,13 @@ function renderViewerFilters(metadata) {
         return a.localeCompare(b);
     });
 
+    // Move "Annotation Status" to the end
+    const annIdx = sectionNames.indexOf('Annotation Status');
+    if (annIdx > -1) {
+        sectionNames.splice(annIdx, 1);
+        sectionNames.push('Annotation Status');
+    }
+
     // Populate Sort Dropdown (only once or update?)
     const sortSelect = document.getElementById('viewer-sort-select');
     if (sortSelect) {
@@ -393,14 +400,18 @@ function renderViewerFilters(metadata) {
     }
     updateSortBtnUI();
 
-    // Render Sections
+    // Render Sections (default collapsed, store expanded list)
     sectionNames.forEach(sec => {
         const vars = sections[sec];
         if (vars.length === 0) return;
 
+        // Check if any filter in this section is active
+        const hasActiveFilter = vars.some(col => !!viewerData.filters[col]);
+
         // Section Container
         const sectionDiv = document.createElement('div');
         sectionDiv.className = 'filter-section';
+        sectionDiv.dataset.columns = JSON.stringify(vars);
         sectionDiv.style.marginBottom = '10px';
         sectionDiv.style.border = '1px solid var(--color-border)';
         sectionDiv.style.borderRadius = '4px';
@@ -408,17 +419,16 @@ function renderViewerFilters(metadata) {
 
         // Header
         const header = document.createElement('div');
-        header.style.background = 'var(--color-border)';
+        header.className = 'filter-section-header font-bold' + (hasActiveFilter ? ' has-active-filter' : '');
         header.style.padding = '8px 10px';
         header.style.cursor = 'pointer';
-        header.classList.add('font-bold');
         header.style.color = 'var(--color-text-primary)';
         header.style.userSelect = 'none';
         header.style.display = 'flex';
         header.style.alignItems = 'center';
 
-        const isCollapsed = viewerData.collapsedFilters.includes(sec);
-        const arrow = isCollapsed ? '&#9656;' : '&#9662;'; // Right vs Down
+        const isExpanded = viewerData.expandedFilters.includes(sec);
+        const arrow = isExpanded ? '&#9662;' : '&#9656;'; // Down vs Right
 
         header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">${arrow}</span> ${sec}`;
 
@@ -426,28 +436,26 @@ function renderViewerFilters(metadata) {
         const body = document.createElement('div');
         body.style.padding = '10px';
         body.style.background = 'var(--color-bg-surface)';
-        body.style.display = isCollapsed ? 'none' : 'block';
+        body.style.display = isExpanded ? 'block' : 'none';
 
         // Toggle Logic
         header.onclick = () => {
             const currentlyHidden = body.style.display === 'none';
             if (currentlyHidden) {
-                // Show
                 body.style.display = 'block';
                 header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9662;</span> ${sec}`;
-                // Remove from collapsed list
-                viewerData.collapsedFilters = viewerData.collapsedFilters.filter(s => s !== sec);
+                // Add to expanded list
+                if (!viewerData.expandedFilters.includes(sec)) {
+                    viewerData.expandedFilters.push(sec);
+                }
             } else {
-                // Hide
                 body.style.display = 'none';
                 header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9656;</span> ${sec}`;
-                // Add to collapsed list
-                if (!viewerData.collapsedFilters.includes(sec)) {
-                    viewerData.collapsedFilters.push(sec);
-                }
+                // Remove from expanded list
+                viewerData.expandedFilters = viewerData.expandedFilters.filter(s => s !== sec);
             }
             // Persist
-            localStorage.setItem('viewer_collapsed_filters', JSON.stringify(viewerData.collapsedFilters));
+            localStorage.setItem('viewer_expanded_filters', JSON.stringify(viewerData.expandedFilters));
         };
 
         sectionDiv.appendChild(header);
@@ -542,12 +550,17 @@ function renderViewerFilters(metadata) {
                             const vMin = parseFloat(values[0]);
                             const vMax = parseFloat(values[1]);
 
-                            // Update Data
-                            if (!viewerData.filters[col]) viewerData.filters[col] = { type: 'number', value: {} };
-                            viewerData.filters[col].value.min = vMin;
-                            viewerData.filters[col].value.max = vMax;
+                            // If slider is back at full range, remove the filter
+                            if (vMin <= info.min && vMax >= info.max) {
+                                delete viewerData.filters[col];
+                            } else {
+                                if (!viewerData.filters[col]) viewerData.filters[col] = { type: 'number', value: {} };
+                                viewerData.filters[col].value.min = vMin;
+                                viewerData.filters[col].value.max = vMax;
+                            }
 
                             updateViewerStats();
+                            updateViewerFilterHighlights();
                         });
                     }
                 } else {
@@ -642,8 +655,23 @@ function setViewerFilter(col, type, subtype, value) {
         delete viewerData.filters[col];
     }
 
-    // We do NOT auto-apply filters here to avoid constant reloading of ID list. 
+    // We do NOT auto-apply filters here to avoid constant reloading of ID list.
     // User must click "Apply Filters".
+    updateViewerFilterHighlights();
+}
+
+
+function updateViewerFilterHighlights() {
+    const container = document.getElementById('viewer-filters');
+    if (!container) return;
+
+    container.querySelectorAll('.filter-section').forEach(sec => {
+        const cols = JSON.parse(sec.dataset.columns || '[]');
+        const header = sec.querySelector('.filter-section-header');
+        if (!header) return;
+        const active = cols.some(col => !!viewerData.filters[col]);
+        header.classList.toggle('has-active-filter', active);
+    });
 }
 
 function resetViewerFilters() {

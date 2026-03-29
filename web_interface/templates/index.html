@@ -17,24 +17,18 @@
 <div class="tab-nav">
     <button class="tab-button active" onclick="openTab(event, 'home')">Home</button>
 
-
-
-
-
+    <button class="tab-button" onclick="openTab(event, 'explore')">Explore</button>
+    <button class="tab-button" onclick="openTab(event, 'timelines')">Timelines</button>
+    <button class="tab-button" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
+    <button class="tab-button" onclick="openTab(event, 'correlations')">Correlations</button>
     {% if user.is_admin() %}
     <button class="tab-button" onclick="openTab(event, 'collections')">Collections</button>
     {% endif %}
-    <button class="tab-button" onclick="openTab(event, 'explore')">Explore</button>
-    <button class="tab-button" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
-    <button class="tab-button" onclick="openTab(event, 'correlations')">Correlations</button>
-    <button class="tab-button" onclick="openTab(event, 'timelines')">Timelines</button>
     <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
-
     {% if user.is_admin() %}
     <button class="tab-button"
         onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
     {% endif %}
-
     <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
 </div>
 

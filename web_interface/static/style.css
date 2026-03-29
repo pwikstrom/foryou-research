@@ -1776,6 +1776,18 @@ button {
 }
 
 
+/* ── Filter section headers ── */
+.filter-section-header {
+    background: var(--color-border);
+    transition: background 0.2s;
+}
+
+.filter-section-header.has-active-filter {
+    background: var(--color-accent);
+    color: var(--btn-primary-text) !important;
+}
+
+
 /* ── Explore chart drill-down affordance ── */
 #explorer-v2-stats .js-plotly-plot .bars .point path,
 #explorer-v2-stats .js-plotly-plot .trace.bars path {
@@ -1791,6 +1803,12 @@ button {
     opacity: 1;
 }
 
+
+/* ── Correlations scatter drill-down affordance ── */
+#pca-plot .js-plotly-plot .scatterlayer .trace .points path,
+#pca-plot .scatterlayer .trace .points path {
+    cursor: pointer !important;
+}
 
 /* ── Drill-down confirmation popup ── */
 .drilldown-overlay {

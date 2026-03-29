@@ -187,16 +187,16 @@ async function loadExplorerV2Metadata() {
     }
 }
 
-// Initialize collapsed state
-if (!explorerDataV2.collapsedFilters1) {
+// Initialize expanded state (sections default to collapsed)
+if (!explorerDataV2.expandedFilters1) {
     try {
-        explorerDataV2.collapsedFilters1 = JSON.parse(localStorage.getItem('explorer_collapsed_filters_1') || '[]');
-    } catch (e) { explorerDataV2.collapsedFilters1 = []; }
+        explorerDataV2.expandedFilters1 = JSON.parse(localStorage.getItem('explorer_expanded_filters_1') || '[]');
+    } catch (e) { explorerDataV2.expandedFilters1 = []; }
 }
-if (!explorerDataV2.collapsedFilters2) {
+if (!explorerDataV2.expandedFilters2) {
     try {
-        explorerDataV2.collapsedFilters2 = JSON.parse(localStorage.getItem('explorer_collapsed_filters_2') || '[]');
-    } catch (e) { explorerDataV2.collapsedFilters2 = []; }
+        explorerDataV2.expandedFilters2 = JSON.parse(localStorage.getItem('explorer_expanded_filters_2') || '[]');
+    } catch (e) { explorerDataV2.expandedFilters2 = []; }
 }
 
 function renderFiltersV2(metadata, sliceId) {
@@ -248,17 +248,30 @@ function renderFiltersV2(metadata, sliceId) {
         return a.localeCompare(b);
     });
 
-    // Render Sections
-    const collapsedList = sliceId === 1 ? explorerDataV2.collapsedFilters1 : explorerDataV2.collapsedFilters2;
-    const storageKey = `explorer_collapsed_filters_${sliceId}`;
+    // Move "Annotation Status" to the end
+    const annIdx = sectionNames.indexOf('Annotation Status');
+    if (annIdx > -1) {
+        sectionNames.splice(annIdx, 1);
+        sectionNames.push('Annotation Status');
+    }
+
+    // Render Sections (default collapsed, store expanded list)
+    const expandedList = sliceId === 1 ? explorerDataV2.expandedFilters1 : explorerDataV2.expandedFilters2;
+    const storageKey = `explorer_expanded_filters_${sliceId}`;
+    const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
 
     sectionNames.forEach(sec => {
         const vars = sections[sec];
         if (vars.length === 0) return;
 
+        // Check if any filter in this section is active
+        const hasActiveFilter = vars.some(col => !!filters[col]);
+
         // Section Container
         const sectionDiv = document.createElement('div');
         sectionDiv.className = 'filter-section';
+        sectionDiv.dataset.sliceId = sliceId;
+        sectionDiv.dataset.columns = JSON.stringify(vars);
         sectionDiv.style.marginBottom = '10px';
         sectionDiv.style.border = '1px solid var(--color-border)';
         sectionDiv.style.borderRadius = '4px';
@@ -266,17 +279,16 @@ function renderFiltersV2(metadata, sliceId) {
 
         // Header
         const header = document.createElement('div');
-        header.style.background = 'var(--color-border)';
+        header.className = 'filter-section-header font-bold' + (hasActiveFilter ? ' has-active-filter' : '');
         header.style.padding = '8px 10px';
         header.style.cursor = 'pointer';
-        header.classList.add('font-bold');
         header.style.color = 'var(--color-text-primary)';
         header.style.userSelect = 'none';
         header.style.display = 'flex';
         header.style.alignItems = 'center';
 
-        const isCollapsed = collapsedList.includes(sec);
-        const arrow = isCollapsed ? '&#9656;' : '&#9662;'; // Right vs Down
+        const isExpanded = expandedList.includes(sec);
+        const arrow = isExpanded ? '&#9662;' : '&#9656;'; // Down vs Right
 
         header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">${arrow}</span> ${sec}`;
 
@@ -284,7 +296,7 @@ function renderFiltersV2(metadata, sliceId) {
         const body = document.createElement('div');
         body.style.padding = '10px';
         body.style.background = 'var(--color-bg-surface)';
-        body.style.display = isCollapsed ? 'none' : 'block';
+        body.style.display = isExpanded ? 'block' : 'none';
 
         // Toggle Logic
         header.onclick = () => {
@@ -292,17 +304,17 @@ function renderFiltersV2(metadata, sliceId) {
             if (currentlyHidden) {
                 body.style.display = 'block';
                 header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9662;</span> ${sec}`;
-                // Remove from collapsed list
-                const idx = collapsedList.indexOf(sec);
-                if (idx > -1) collapsedList.splice(idx, 1);
+                // Add to expanded list
+                if (!expandedList.includes(sec)) expandedList.push(sec);
             } else {
                 body.style.display = 'none';
                 header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9656;</span> ${sec}`;
-                // Add to collapsed list
-                if (!collapsedList.includes(sec)) collapsedList.push(sec);
+                // Remove from expanded list
+                const idx = expandedList.indexOf(sec);
+                if (idx > -1) expandedList.splice(idx, 1);
             }
             // Persist
-            localStorage.setItem(storageKey, JSON.stringify(collapsedList));
+            localStorage.setItem(storageKey, JSON.stringify(expandedList));
         };
 
         sectionDiv.appendChild(header);
@@ -397,12 +409,18 @@ function renderFiltersV2(metadata, sliceId) {
                             const vMax = parseFloat(values[1]);
 
                             const f = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
-                            if (!f[col]) f[col] = { type: 'number', value: {} };
 
-                            f[col].value.min = vMin;
-                            f[col].value.max = vMax;
+                            // If slider is back at full range, remove the filter
+                            if (vMin <= info.min && vMax >= info.max) {
+                                delete f[col];
+                            } else {
+                                if (!f[col]) f[col] = { type: 'number', value: {} };
+                                f[col].value.min = vMin;
+                                f[col].value.max = vMax;
+                            }
 
                             updateExplorerV2Stats(sliceId);
+                            updateFilterSectionHighlights(sliceId);
                         });
                     }
                 } else {
@@ -502,6 +520,7 @@ function setFilterV2(sliceId, col, type, subtype, value) {
     }
 
     updateExplorerV2Stats(sliceId);
+    updateFilterSectionHighlights(sliceId);
 }
 
 function resetFiltersV2(sliceId) {
@@ -524,7 +543,24 @@ function resetFiltersV2(sliceId) {
     checkboxes.forEach(cb => cb.checked = false);
 
     updateExplorerV2Stats(sliceId);
+    updateFilterSectionHighlights(sliceId);
 }
+
+
+function updateFilterSectionHighlights(sliceId) {
+    const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
+    const container = document.getElementById(`explorer-v2-filters-${sliceId}`);
+    if (!container) return;
+
+    container.querySelectorAll('.filter-section').forEach(sec => {
+        const cols = JSON.parse(sec.dataset.columns || '[]');
+        const header = sec.querySelector('.filter-section-header');
+        if (!header) return;
+        const active = cols.some(col => !!filters[col]);
+        header.classList.toggle('has-active-filter', active);
+    });
+}
+
 
 async function updateExplorerV2Stats(triggerSlice = null) {
     if (!explorerDataV2.activeStudy) return;

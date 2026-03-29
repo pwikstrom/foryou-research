@@ -1082,11 +1082,21 @@ def api_pca_data():
                 
         txt = "<br>".join(hover_parts)
         
+        # Collect raw factor values for drill-down to Video Analysis
+        factors_dict = {}
+        if has_color:
+            factors_dict[color_col] = str(getattr(row, color_col))
+        for fc in factor_cols_in_df:
+            fv = getattr(row, fc, None)
+            if fv is not None and not pd.isna(fv):
+                factors_dict[fc] = str(fv)
+
         result_data.append({
             "x": x_val,
             "y": y_val,
-            "color_val": getattr(row, color_col) if has_color else "Default", # preserve raw for frontend mapping
-            "text": txt
+            "color_val": getattr(row, color_col) if has_color else "Default",
+            "text": txt,
+            "factors": factors_dict
         })
 
     return jsonify({"data": result_data, "total_count": total_count})
