@@ -20,6 +20,6 @@ for fn in os.listdir(package_dir):
 #from .stats import *
 #from .pca import *
 #from .organize_datasets import *
-#from .calc_donation_stats import *
+#from .calc_collection_stats import *
 
 

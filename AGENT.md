@@ -82,7 +82,7 @@ fyp_main_v02/
 │   ├── machine_annotation.py    # Gemini-based annotation
 │   ├── recode_variables.py      # Variable recoding, feature engineering
 │   ├── organize_datasets.py     # Dataset filtering & organisation
-│   ├── calc_donation_stats.py   # Donation-level statistics
+│   ├── calc_collection_stats.py   # Donation-level statistics
 │   ├── activity_analysis.py     # Activity-based analysis
 │   ├── pca.py                   # Distance metrics, PCA helpers
 │   ├── stats.py                 # ANOVA, PERMANOVA helpers

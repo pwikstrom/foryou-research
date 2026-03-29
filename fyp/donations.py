@@ -22,7 +22,7 @@ import shutil
 
 from fyp.types import convert_dtypes_to_pyarrow
 from fyp.recode_variables import *
-from fyp.calc_donation_stats import generate_personas
+from fyp.calc_collection_stats import generate_personas
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 from fyp.studies import init_study_defs

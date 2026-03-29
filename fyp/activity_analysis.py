@@ -59,7 +59,7 @@ def analyze_activity_peak(df: pd.DataFrame, period_hours: int = 1) -> dict:
         # We assume it's MultiIndex (date, hour) flattened?
         # Or if passed raw 0-23 profile?
         # The previous implementation assumed MultiIndex (date, hour).
-        # Let's support the one I wrote for `calc_donation_stats` which passes:
+        # Let's support the one I wrote for `calc_collection_stats` which passes:
         # result of `df.set_index('local_date').resample('h').size()` -> DatetimeIndex.
         # So the above block covers it.
         pass
