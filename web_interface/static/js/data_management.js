@@ -83,7 +83,7 @@ function renderCollectionSelector(container, selectedList) {
     table.style.width = '100%';
     table.style.borderCollapse = 'collapse';
     table.style.color = 'var(--color-text-secondary)';
-    table.style.fontSize = '0.9em';
+    table.classList.add('text-sm');
 
     // Create Header
     const thead = document.createElement('thead');
@@ -361,7 +361,7 @@ function renderStudiesTable() {
             <td style="text-align: right; padding: 10px;">${formatNum(stats.annotated_videos)}</td>
             <td style="text-align: right; padding: 10px;">${lastUpdated}</td>
             <td style="padding: 10px;">
-                ${savingStudies.has(study.STUDY_NAME) ? '<span style="color: var(--color-success-light); font-weight: bold; text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>' : ''}
+                ${savingStudies.has(study.STUDY_NAME) ? '<span class="font-bold" style="color: var(--color-success-light); text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>' : ''}
             </td>
         `;
 
@@ -646,7 +646,7 @@ function saveStudy(btn, event) {
         // Show Saving Indicator immediately (for instant feedback)
         const mainRow = detailRow.previousElementSibling;
         const actionCell = mainRow.cells[mainRow.cells.length - 1];
-        actionCell.innerHTML = '<span style="color: var(--color-success-light); font-weight: bold; text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>';
+        actionCell.innerHTML = '<span class="font-bold" style="color: var(--color-success-light); text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>';
 
         let isSuccess = false;
 
@@ -1080,8 +1080,8 @@ function renderIngestionSources(sources) {
         card.className = 'ingest-card';
 
         card.innerHTML = `
-            <div style="font-weight: bold; margin-bottom: 5px; font-size: 1.1em;">${source.class_name}</div>
-            <div style="font-size: 0.85em; color: var(--color-text-tertiary); margin-bottom: 15px;">
+            <div class="font-bold text-body" style="margin-bottom: 5px;">${source.class_name}</div>
+            <div class="text-sm" style="color: var(--color-text-tertiary); margin-bottom: 15px;">
                 <strong>Platform:</strong> ${source.source_platform} | <strong>Source:</strong> ${source.data_source}<br>
                 <strong>Raw Path:</strong> ${source.raw_path}
             </div>
@@ -1090,7 +1090,7 @@ function renderIngestionSources(sources) {
                 <button type="button" class="action-btn" onclick="document.getElementById('file-${source.class_name}').click()">
                     Browse and Upload File
                 </button>
-                <div id="upload-status-${source.class_name}" style="margin-top: 5px; font-size: 0.85em; font-weight: bold; display: none;"></div>
+                <div id="upload-status-${source.class_name}" class="text-sm font-bold" style="margin-top: 5px; display: none;"></div>
             </div>
         `;
 
@@ -1285,7 +1285,8 @@ function renderEditActivityTable(container) {
         editTd.style.textAlign = 'center';
         const editBtn = document.createElement('button');
         editBtn.innerHTML = '<i class="fas fa-pen"></i>';
-        editBtn.style.cssText = 'background: var(--btn-primary-bg); border: none; color: var(--btn-primary-text); cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 0.8em;';
+        editBtn.style.cssText = 'background: var(--btn-primary-bg); border: none; color: var(--btn-primary-text); cursor: pointer; padding: 3px 7px; border-radius: 3px;';
+        editBtn.classList.add('text-xs');
         editBtn.title = 'Edit collection';
         editBtn.onclick = (e) => {
             e.stopPropagation();
@@ -1405,11 +1406,11 @@ function dm_renderTags() {
             border: ${border};
             padding: 4px 10px;
             border-radius: 12px;
-            font-size: 0.85em;
             cursor: pointer;
             user-select: none;
             transition: all 0.1s;
         `;
+        chip.classList.add('text-sm');
         chip.textContent = tag;
         chip.onclick = () => dm_toggleTag(tag);
 

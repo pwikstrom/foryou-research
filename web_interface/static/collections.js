@@ -572,11 +572,11 @@ function pe_renderTags() {
             border: ${border};
             padding: 4px 10px;
             border-radius: 12px;
-            font-size: 0.85em;
             cursor: pointer;
             user-select: none;
             transition: all 0.1s;
         `;
+        chip.classList.add('text-sm');
 
         chip.textContent = tag;
 

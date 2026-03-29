@@ -269,7 +269,7 @@ function renderFiltersV2(metadata, sliceId) {
         header.style.background = 'var(--color-border)';
         header.style.padding = '8px 10px';
         header.style.cursor = 'pointer';
-        header.style.fontWeight = 'bold';
+        header.classList.add('font-bold');
         header.style.color = 'var(--color-text-primary)';
         header.style.userSelect = 'none';
         header.style.display = 'flex';
@@ -324,7 +324,7 @@ function renderFiltersV2(metadata, sliceId) {
             }
 
             label.innerText = displayName;
-            label.style.fontWeight = 'bold';
+            label.classList.add('font-bold');
             label.style.display = 'block';
             label.style.marginBottom = '5px';
             label.style.color = 'var(--color-text-primary)';
@@ -341,7 +341,7 @@ function renderFiltersV2(metadata, sliceId) {
                 const labelRow = document.createElement('div');
                 labelRow.style.display = 'flex';
                 labelRow.style.justifyContent = 'space-between';
-                labelRow.style.fontSize = '0.85em';
+                labelRow.classList.add('text-sm');
                 labelRow.style.color = 'var(--color-text-muted)';
                 labelRow.style.marginTop = '-5px';
 
@@ -451,7 +451,7 @@ function renderFiltersV2(metadata, sliceId) {
 
                     const span = document.createElement('span');
                     span.innerText = displayValue;
-                    span.style.fontSize = '0.9em';
+                    span.classList.add('text-sm');
 
                     item.appendChild(cb);
                     item.appendChild(span);
@@ -459,7 +459,7 @@ function renderFiltersV2(metadata, sliceId) {
                 });
 
                 if (info.values.length === 0) {
-                    listContainer.innerHTML = '<div style="color:var(--color-text-faint); font-size:0.8em;">No values</div>';
+                    listContainer.innerHTML = '<div class="text-xs" style="color:var(--color-text-faint);">No values</div>';
                 }
 
                 wrapper.appendChild(listContainer);
@@ -660,8 +660,8 @@ function renderStatsV2(stats1, stats2) {
         if (s1.mean !== undefined) {
             const m1 = parseFloat(s1.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
             meanHtml += isDual
-                ? `<span style="font-size:0.8em; margin-left:10px; color:var(--color-success);">S1: ${m1}</span>`
-                : `<span style="font-size:0.8em; margin-left:10px; color:var(--color-text-tertiary);">Mean: ${m1}</span>`;
+                ? `<span class="text-xs" style="margin-left:10px; color:var(--color-success);">S1: ${m1}</span>`
+                : `<span class="text-xs" style="margin-left:10px; color:var(--color-text-tertiary);">Mean: ${m1}</span>`;
         }
         if (isDual && s2 && s2.mean !== undefined) {
             const m2 = parseFloat(s2.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -694,19 +694,19 @@ function renderStatsV2(stats1, stats2) {
 
                         if (sigMarker) {
                             const pVal = tStat > 3.29 ? '< 0.001' : (tStat > 2.58 ? '< 0.01' : '< 0.05');
-                            sigMarker = `<span title="p ${pVal} (Slice 1 vs Slice 2)" style="cursor:help; margin-left:5px; font-weight:bold; color:var(--color-gold);">${sigMarker}</span>`;
+                            sigMarker = `<span class="font-bold" title="p ${pVal} (Slice 1 vs Slice 2)" style="cursor:help; margin-left:5px; color:var(--color-gold);">${sigMarker}</span>`;
                         }
                     }
                 }
             } catch (e) { console.error("Sig test error", e); }
 
-            meanHtml += `<span style="font-size:0.8em; margin-left:10px; color:var(--color-info);">S2: ${m2}${sigMarker}</span>`;
+            meanHtml += `<span class="text-xs" style="margin-left:10px; color:var(--color-info);">S2: ${m2}${sigMarker}</span>`;
         }
 
         title.innerHTML = `${titleText} ${meanHtml}`;
+        title.classList.add('text-body');
         title.style.marginTop = '0';
         title.style.marginBottom = '5px';
-        title.style.fontSize = '1em';
         title.style.color = 'var(--color-text-primary)';
         card.appendChild(title);
 
@@ -752,11 +752,11 @@ function renderStatsV2(stats1, stats2) {
                 legend: { x: 1, xanchor: 'right', y: 1 },
                 barmode: 'overlay',
                 bargap: 0,
-                font: { color: getCSSVar('--color-text-primary') },
+                font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-primary') },
                 xaxis: {
                     zeroline: false,
                     gridcolor: getCSSVar('--chart-grid'),
-                    tickfont: { color: getCSSVar('--color-text-primary') }
+                    tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-primary') }
                 },
                 yaxis: { showgrid: false, showticklabels: false }
             };
@@ -872,9 +872,9 @@ function renderStatsV2(stats1, stats2) {
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 showlegend: false,
-                font: { color: getCSSVar('--color-text-primary') },
+                font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-primary') },
                 xaxis: { range: [0, 100], showgrid: false, showticklabels: false },
-                yaxis: { showticklabels: isDual, tickfont: { color: getCSSVar('--color-text-primary') } },
+                yaxis: { showticklabels: isDual, tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-primary') } },
                 height: isDual ? undefined : 60
             };
 

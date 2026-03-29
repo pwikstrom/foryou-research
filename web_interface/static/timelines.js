@@ -138,8 +138,7 @@ window.timelines = {
             if (donation && donation.annotation_tags && Array.isArray(donation.annotation_tags) && donation.annotation_tags.length > 0) {
                 const tagsContainer = document.createElement('span');
                 tagsContainer.style.marginLeft = '15px';
-                tagsContainer.style.fontSize = '0.6em'; // Smaller relative to h2
-                tagsContainer.style.fontWeight = 'normal';
+                tagsContainer.classList.add('text-xxs', 'font-normal');
 
                 donation.annotation_tags.forEach(tag => {
                     const chip = document.createElement('span');
@@ -355,8 +354,8 @@ window.timelines = {
             titleDiv.style.display = 'flex';
             titleDiv.style.alignItems = 'center';
             titleDiv.style.gap = '10px';
-            const subtitle = varData.type !== 'categorical' ? `<span style="font-size: 0.75em; color: var(--color-text-tertiary); font-weight: normal;"> (mean values)</span>` : '';
-            titleDiv.innerHTML = `<h3 style="margin-top: 0; margin-bottom: 10px; font-size: 1.25em;">${displayTitle}${subtitle}</h3>`;
+            const subtitle = varData.type !== 'categorical' ? `<span class="text-xs font-normal" style="color: var(--color-text-tertiary);"> (mean values)</span>` : '';
+            titleDiv.innerHTML = `<h3 class="text-h3" style="margin-top: 0; margin-bottom: 10px;">${displayTitle}${subtitle}</h3>`;
 
             // Findings panel is rendered below each categorical chart with a show/hide toggle button.
             chartWrapper.appendChild(titleDiv);
@@ -515,13 +514,13 @@ window.timelines = {
 
                 controlsDiv.id = `controls-${plotId}`;
                 controlsDiv.innerHTML = `
-                    <div style="font-size:0.85em; margin-bottom:5px; color:var(--color-text-tertiary); display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
+                    <div class="text-sm" style="margin-bottom:5px; color:var(--color-text-tertiary); display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
                         <span style="margin-right:4px;">Select Categories:</span>
-                        <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-rising-bg); color:var(--color-accent); border:1px solid var(--trend-rising-border); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
-                        <div class="filter-chip" id="chip-${plotId}-falling" onclick="window.timelines.setFilter('${varName}', 'falling')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-falling-bg); color:var(--color-danger-soft); border:1px solid var(--trend-falling-border); opacity:${activeFilter === 'falling' ? '1.0' : '0.4'};">↓ Falling</div>
-                        <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-spikes-bg); color:var(--color-save); border:1px solid var(--trend-spikes-border); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
-                        <div class="filter-chip" id="chip-${plotId}-breaks" onclick="window.timelines.setFilter('${varName}', 'breaks')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-breaks-bg); color:var(--color-info); border:1px solid var(--trend-breaks-border); opacity:${activeFilter === 'breaks' ? '1.0' : '0.4'};">⋮ Breaks</div>
-                        <div class="filter-chip" id="chip-${plotId}-volatile" onclick="window.timelines.setFilter('${varName}', 'volatile')" style="font-size:0.7em; padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-volatile-bg); color:var(--color-purple); border:1px solid var(--trend-volatile-border); opacity:${activeFilter === 'volatile' ? '1.0' : '0.4'};">~ Volatile</div>
+                        <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-rising-bg); color:var(--color-accent); border:1px solid var(--trend-rising-border); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
+                        <div class="filter-chip" id="chip-${plotId}-falling" onclick="window.timelines.setFilter('${varName}', 'falling')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-falling-bg); color:var(--color-danger-soft); border:1px solid var(--trend-falling-border); opacity:${activeFilter === 'falling' ? '1.0' : '0.4'};">↓ Falling</div>
+                        <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-spikes-bg); color:var(--color-save); border:1px solid var(--trend-spikes-border); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
+                        <div class="filter-chip" id="chip-${plotId}-breaks" onclick="window.timelines.setFilter('${varName}', 'breaks')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-breaks-bg); color:var(--color-info); border:1px solid var(--trend-breaks-border); opacity:${activeFilter === 'breaks' ? '1.0' : '0.4'};">⋮ Breaks</div>
+                        <div class="filter-chip" id="chip-${plotId}-volatile" onclick="window.timelines.setFilter('${varName}', 'volatile')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-volatile-bg); color:var(--color-purple); border:1px solid var(--trend-volatile-border); opacity:${activeFilter === 'volatile' ? '1.0' : '0.4'};">~ Volatile</div>
                     </div>
 
                     <div id="cat-list-${plotId}" style="flex:1; min-height:0; overflow-y:auto; border:1px solid var(--chart-grid); padding:5px;">
@@ -536,12 +535,12 @@ window.timelines = {
 
                             // Build inline badge string
                             let badges = '';
-                            if (isRising)   badges += `<span style="color:var(--color-accent); font-size:0.8em;" title="Rising">↑</span> `;
-                            if (isFalling)  badges += `<span style="color:var(--color-danger-soft); font-size:0.8em;" title="Falling">↓</span> `;
-                            if (hasSpikes)  badges += `<span style="color:var(--color-save); font-size:0.8em;" title="Spikes">◎</span> `;
-                            if (hasBreak)   badges += `<span style="color:var(--color-info); font-size:0.8em;" title="Step change">⋮</span> `;
-                            if (isVolatile) badges += `<span style="color:var(--color-purple); font-size:0.8em;" title="Volatile">~</span> `;
-                            if (isStable)   badges += `<span style="color:var(--color-text-tertiary); font-size:0.8em;" title="Stable">—</span> `;
+                            if (isRising)   badges += `<span class="text-xs" style="color:var(--color-accent);" title="Rising">↑</span> `;
+                            if (isFalling)  badges += `<span class="text-xs" style="color:var(--color-danger-soft);" title="Falling">↓</span> `;
+                            if (hasSpikes)  badges += `<span class="text-xs" style="color:var(--color-save);" title="Spikes">◎</span> `;
+                            if (hasBreak)   badges += `<span class="text-xs" style="color:var(--color-info);" title="Step change">⋮</span> `;
+                            if (isVolatile) badges += `<span class="text-xs" style="color:var(--color-purple);" title="Volatile">~</span> `;
+                            if (isStable)   badges += `<span class="text-xs" style="color:var(--color-text-tertiary);" title="Stable">—</span> `;
 
                             return `
                             <div class="category-item"
@@ -560,14 +559,14 @@ window.timelines = {
                                        style="margin-right:5px; margin-top:2px;">
                                 <span style="line-height:1.2;">
                                     ${cat}
-                                    <span style="color:var(--color-text-tertiary); font-size:0.85em; white-space:nowrap;">(${catTotals[cat].toLocaleString()})</span>
+                                    <span class="text-sm" style="color:var(--color-text-tertiary); white-space:nowrap;">(${catTotals[cat].toLocaleString()})</span>
                                     ${badges ? '<span style="margin-left:3px;">' + badges + '</span>' : ''}
                                 </span>
                             </div>
                             `;
                         }).join('')}
                     </div>
-                    ${omittedCount > 0 ? `<div style="font-size:0.75em; color:var(--color-text-muted); margin-top:5px; font-style:italic;">Dropped ${omittedCount} tiny cats → ${omittedPercent}% obs lost.</div>` : ''}
+                    ${omittedCount > 0 ? `<div class="text-xs italic" style="color:var(--color-text-muted); margin-top:5px;">Dropped ${omittedCount} tiny cats → ${omittedPercent}% obs lost.</div>` : ''}
                 `;
 
                 // Restore scroll position
@@ -708,7 +707,7 @@ window.timelines = {
                 margin: { t: 20, r: 20, b: (isCategorical ? 60 : 40), l: 40 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
-                font: { color: getCSSVar('--color-text-muted'), size: 11 },
+                font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-muted'), size: 11 },
                 xaxis: {
                     type: excludeNoData ? 'category' : 'date',
                     tickmode: 'array',
@@ -718,15 +717,15 @@ window.timelines = {
                     gridcolor: getCSSVar('--chart-grid-line'),
                     gridwidth: 1,
                     zeroline: false,
-                    tickfont: { color: getCSSVar('--color-text-faint') }
+                    tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') }
                 },
                 yaxis: {
-                    title: { text: yAxisTitle, font: { color: getCSSVar('--color-text-muted'), size: 11 } },
+                    title: { text: yAxisTitle, font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-muted'), size: 11 } },
                     range: isCategorical && chartWrapper._catYRange ? chartWrapper._catYRange : undefined,
                     gridcolor: getCSSVar('--chart-grid-line'),
                     gridwidth: 1,
                     zeroline: false,
-                    tickfont: { color: getCSSVar('--color-text-faint') }
+                    tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') }
                 },
                 barmode: isCategorical ? undefined : 'stack',
                 showlegend: isCategorical
@@ -830,7 +829,7 @@ window.timelines = {
                     return `<b>Distribution Evenness</b><br>` +
                            `Period: ${dateLabel}<br>` +
                            `Evenness: ${(e * 100).toFixed(1)}%<br>` +
-                           `<span style="font-size:0.85em;color:var(--color-text-tertiary);">Range: ${(eMin * 100).toFixed(1)}% – ${(eMax * 100).toFixed(1)}%</span>`;
+                           `<span class="text-sm" style="color:var(--color-text-tertiary);">Range: ${(eMin * 100).toFixed(1)}% – ${(eMax * 100).toFixed(1)}%</span>`;
                 });
 
                 overlayTraces.push({
@@ -940,7 +939,7 @@ window.timelines = {
                         x: 0, y: 1.02,
                         xanchor: 'left', yanchor: 'bottom',
                         showarrow: false,
-                        font: { size: 10, color: getCSSVar('--chart-annotation-text') }
+                        font: { family: getCSSVar('--font-sans'), size: 10, color: getCSSVar('--chart-annotation-text') }
                     }];
                 }
                 if (Object.keys(relayoutUpdates).length > 0) {
@@ -961,7 +960,8 @@ window.timelines = {
                     const findingsToggleId = `findings-toggle-${varName}`;
                     const toggleBtn = document.createElement('button');
                     toggleBtn.id = findingsToggleId;
-                    toggleBtn.style.cssText = `margin-top: 10px; padding: 6px 14px; background: var(--color-bg-elevated); color: var(--chart-text); border: 1px solid var(--chart-grid); border-radius: 6px; cursor: pointer; font-size: 0.85em;`;
+                    toggleBtn.classList.add('text-sm');
+                    toggleBtn.style.cssText = `margin-top: 10px; padding: 6px 14px; background: var(--color-bg-elevated); color: var(--chart-text); border: 1px solid var(--chart-grid); border-radius: 6px; cursor: pointer;`;
                     const isOpen = this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName];
                     toggleBtn.textContent = isOpen ? 'Hide Findings' : 'Show Findings';
                     chartWrapper.appendChild(toggleBtn);
@@ -991,15 +991,16 @@ window.timelines = {
                         headerRow.style.cssText = 'display: flex; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;';
 
                         const titleWrap = document.createElement('div');
-                        titleWrap.style.cssText = `font-weight: 600; font-size: 1.1em; color: var(--color-text-primary); margin-right: 15px;`;
-                        titleWrap.innerHTML = `<span style="color:var(--color-text-muted); font-size:0.9em; margin-right:5px;">#${globalRank}</span> <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${catColor}; margin-right:6px;"></span> ${catData.label}`;
+                        titleWrap.classList.add('font-semibold', 'text-body');
+                        titleWrap.style.cssText = `color: var(--color-text-primary); margin-right: 15px;`;
+                        titleWrap.innerHTML = `<span class="text-sm" style="color:var(--color-text-muted); margin-right:5px;">#${globalRank}</span> <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${catColor}; margin-right:6px;"></span> ${catData.label}`;
                         headerRow.appendChild(titleWrap);
 
                         const bullets = [];
 
                         // Helper to make badge
                         const makeBadge = (text, bg, fg, border) => {
-                            return `<span style="background:${bg}; color:${fg}; padding:3px 8px; border-radius:12px; font-size:0.75em; border:1px solid ${border}; font-weight:500; white-space:nowrap;">${text}</span>`;
+                            return `<span class="text-xs font-medium" style="background:${bg}; color:${fg}; padding:3px 8px; border-radius:12px; border:1px solid ${border}; white-space:nowrap;">${text}</span>`;
                         };
 
                         let isStable = true;
@@ -1070,7 +1071,8 @@ window.timelines = {
 
                         // Render Bullets
                         const ul = document.createElement('ul');
-                        ul.style.cssText = `margin: 0; padding-left: 20px; color: var(--chart-text); font-size: 0.9em; line-height: 1.5;`;
+                        ul.classList.add('text-sm');
+                        ul.style.cssText = `margin: 0; padding-left: 20px; color: var(--chart-text);`;
                         bullets.forEach(b => {
                             const li = document.createElement('li');
                             li.innerText = b;
@@ -1299,7 +1301,7 @@ window.timelines = {
             const varData = this.timelineData.variables[varName];
             const displayTitle = varData.display_name || (varName === 'machine_state' ? 'Scrape/Annotation States' : varName);
 
-            html += `<tr style="border-bottom: 1px solid var(--color-border-subtle);"><td style="padding: 8px; vertical-align: top; font-weight: bold;">${displayTitle}</td>`;
+            html += `<tr style="border-bottom: 1px solid var(--color-border-subtle);"><td class="font-bold" style="padding: 8px; vertical-align: top;">${displayTitle}</td>`;
             html += `<td style="padding: 8px; vertical-align: top;">`;
 
             if (varData.type === 'categorical' && varData.counts) {

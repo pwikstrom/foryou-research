@@ -147,7 +147,7 @@ async function loadAndRenderUserTags() {
         const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
 
         if (sortedTags.length === 0) {
-            container.innerHTML = '<span style="color: var(--color-text-faint); font-style: italic;">No tags found.</span>';
+            container.innerHTML = '<span class="italic" style="color: var(--color-text-faint);">No tags found.</span>';
             return;
         }
 
@@ -163,12 +163,12 @@ async function loadAndRenderUserTags() {
                 display: flex;
                 gap: 8px;
                 align-items: center;
-                font-size: 0.9em;
             `;
+            chip.classList.add('text-sm');
 
             chip.innerHTML = `
-                <span>${tag} <span style="color: var(--color-text-muted); font-size: 0.8em;">(${count})</span></span>
-                <span class="delete-tag-btn" style="cursor: pointer; color: var(--color-danger-soft); font-weight: bold;" title="Delete Tag">×</span>
+                <span>${tag} <span class="text-xs" style="color: var(--color-text-muted);">(${count})</span></span>
+                <span class="delete-tag-btn font-bold" style="cursor: pointer; color: var(--color-danger-soft);" title="Delete Tag">×</span>
             `;
 
             chip.querySelector('.delete-tag-btn').onclick = () => deleteUserTag(tag);

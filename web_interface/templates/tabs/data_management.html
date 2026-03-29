@@ -6,8 +6,8 @@
             <div onclick="toggleSection('studies-content', 'studies-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
                 <div style="display: flex; align-items: center;">
-                    <span id="studies-arrow"
-                        style="margin-right: 12px; font-size: 14px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
+                    <span id="studies-arrow" class="text-sm"
+                        style="margin-right: 12px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
                     <h2 style="margin: 0;">Define Study Datasets</h2>
                 </div>
                 {% if current_user.is_admin() %}
@@ -45,8 +45,8 @@
             <div onclick="toggleSection('ingestion-content', 'ingestion-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
                 <div style="display: flex; align-items: center;">
-                    <span id="ingestion-arrow"
-                        style="margin-right: 12px; font-size: 14px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
+                    <span id="ingestion-arrow" class="text-sm"
+                        style="margin-right: 12px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
                     <h2 style="margin: 0;">Ingest Activity Data</h2>
                 </div>
                 <button type="button" class="action-btn"
@@ -54,7 +54,7 @@
                     style="padding: 6px 12px;">Process Local Raw Files</button>
             </div>
             <div id="ingestion-content" style="padding: 0 20px 20px 20px;">
-                <p style="color: var(--color-text-tertiary); margin-bottom: 15px; font-size: 0.9em;">Upload raw data files directly to the
+                <p class="text-sm" style="color: var(--color-text-tertiary); margin-bottom: 15px;">Upload raw data files directly to the
                     respective collection directories. They will be processed and appended into local dataset store when
                     'Process Local Raw Files' is clicked.</p>
                 <div id="ingestion-sources-container" style="display: flex; gap: 20px; flex-wrap: wrap;">
@@ -68,15 +68,15 @@
         <div style="background: var(--section-bg); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
             <div onclick="toggleSection('enrichment-content', 'enrichment-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
-                <span id="enrichment-arrow"
-                    style="margin-right: 12px; font-size: 14px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
+                <span id="enrichment-arrow" class="text-sm"
+                    style="margin-right: 12px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
                 <h2 style="margin: 0;">Scrape and Annotate</h2>
             </div>
             <div id="enrichment-content" style="padding: 0 20px 20px 20px;">
                 <!-- Enrichment Header & Study Selection -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <div style="display: flex; align-items: center; gap: 15px;">
-                        <label style="color: var(--color-text-tertiary); font-weight: bold;">Target Study:</label>
+                        <label class="font-bold" style="color: var(--color-text-tertiary);">Target Study:</label>
                         <select id="enrichment-study-select" class="control-input" style="width: 250px;"
                             onchange="fetchEnrichmentStats()">
                             <option value="">-- Select Study --</option>
@@ -101,21 +101,21 @@
                 <div
                     style="display: flex; gap: 40px; margin-bottom: 25px; padding: 15px; background: var(--color-bg-primary); border-radius: 6px; border: 1px solid var(--color-border-subtle); text-align: center; justify-content: space-around;">
                     <div>
-                        <div style="font-size: 0.85em; color: var(--color-text-tertiary); text-transform: uppercase;">Total Videos</div>
-                        <div style="font-size: 1.5em; font-weight: bold; color: var(--color-text-secondary);" id="enrich_total_videos">-</div>
+                        <div class="text-sm uppercase" style="color: var(--color-text-tertiary);">Total Videos</div>
+                        <div class="text-h2 font-bold" style="color: var(--color-text-secondary);" id="enrich_total_videos">-</div>
                     </div>
                     <div>
-                        <div style="font-size: 0.85em; color: var(--color-text-tertiary); text-transform: uppercase;">Unique Collections</div>
-                        <div style="font-size: 1.5em; font-weight: bold; color: var(--color-text-secondary);" id="enrich_unique_donations">-
+                        <div class="text-sm uppercase" style="color: var(--color-text-tertiary);">Unique Collections</div>
+                        <div class="text-h2 font-bold" style="color: var(--color-text-secondary);" id="enrich_unique_donations">-
                         </div>
                     </div>
                     <div>
-                        <div style="font-size: 0.85em; color: var(--color-text-tertiary); text-transform: uppercase;">Scraped</div>
-                        <div style="font-size: 1.5em; font-weight: bold; color: var(--color-success-light);" id="enrich_scraped">-</div>
+                        <div class="text-sm uppercase" style="color: var(--color-text-primary);">Scraped</div>
+                        <div class="text-h2 font-bold" style="color: var(--color-text-primary);" id="enrich_scraped">-</div>
                     </div>
                     <div>
-                        <div style="font-size: 0.85em; color: var(--color-text-tertiary); text-transform: uppercase;">Annotated</div>
-                        <div style="font-size: 1.5em; font-weight: bold; color: var(--color-info);" id="enrich_annotated">-</div>
+                        <div class="text-sm uppercase" style="color: var(--color-text-primary);">Annotated</div>
+                        <div class="text-h2 font-bold" style="color: var(--color-text-primary);" id="enrich_annotated">-</div>
                     </div>
                 </div>
 
@@ -127,24 +127,24 @@
                         <div
                             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                             <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="font-weight: bold; font-size: 1.1em;">Scrape Queue:</span>
+                                <span class="text-body font-bold">Scrape Queue:</span>
                                 <span id="enrich_scrape_targets"
-                                    style="color: var(--color-success-light); margin-left: 5px; font-weight: bold;">-</span><span>
+                                    class="font-bold" style="color: var(--color-success-light); margin-left: 5px;">-</span><span>
                                     pending</span>
-                                <button type="button" class="btn-stop" onclick="emptyQueue('scrape')"
-                                    style="font-size: 0.8em; padding: 4px 8px; margin-left: 10px;">Empty
+                                <button type="button" class="btn-stop text-xs" onclick="emptyQueue('scrape')"
+                                    style="padding: 4px 8px; margin-left: 10px;">Empty
                                     Queue</button>
                             </div>
                         </div>
 
                         <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
                             <div style="display: flex; flex-direction: column; gap: 2px;">
-                                <label style="color: var(--color-text-tertiary); font-size: 0.75em;">BATCH SIZE</label>
+                                <label class="text-xs" style="color: var(--color-text-tertiary);">BATCH SIZE</label>
                                 <input type="number" id="scrapes-batch-size" value="500"
                                     style="width: 70px; background: var(--color-bg-input); border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); padding: 3px;">
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 2px;">
-                                <label style="color: var(--color-text-tertiary); font-size: 0.75em;">MAX BATCHES</label>
+                                <label class="text-xs" style="color: var(--color-text-tertiary);">MAX BATCHES</label>
                                 <input type="number" id="scrapes-max-batches" placeholder="Inf"
                                     style="width: 70px; background: var(--color-bg-input); border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); padding: 3px;">
                             </div>
@@ -164,8 +164,8 @@
                             <div class="progress-bar" id="queue_scraper-bar"></div>
                             <div class="progress-text" id="queue_scraper-text">Idle</div>
                         </div>
-                        <div class="log-window" id="queue_scraper-logs"
-                            style="height: 80px; margin-top: 5px; font-size: 0.8em; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px; font-family: monospace;">
+                        <div class="log-window font-mono text-xs" id="queue_scraper-logs"
+                            style="height: 80px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
                             Logs...</div>
                     </div>
 
@@ -175,25 +175,25 @@
                         <div
                             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                             <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="font-weight: bold; font-size: 1.1em;">Annotation
+                                <span class="text-body font-bold">Annotation
                                     Queue:</span>
                                 <span id="enrich_annotate_targets"
-                                    style="color: var(--color-success-light); margin-left: 5px; font-weight: bold;">-</span><span>
+                                    class="font-bold" style="color: var(--color-success-light); margin-left: 5px;">-</span><span>
                                     pending</span>
-                                <button type="button" class="btn-stop" onclick="emptyQueue('annotate')"
-                                    style="font-size: 0.8em; padding: 4px 8px; margin-left: 10px;">Empty
+                                <button type="button" class="btn-stop text-xs" onclick="emptyQueue('annotate')"
+                                    style="padding: 4px 8px; margin-left: 10px;">Empty
                                     Queue</button>
                             </div>
                         </div>
 
                         <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
                             <div style="display: flex; flex-direction: column; gap: 2px;">
-                                <label style="color: var(--color-text-tertiary); font-size: 0.75em;">BATCH SIZE</label>
+                                <label class="text-xs" style="color: var(--color-text-tertiary);">BATCH SIZE</label>
                                 <input type="number" id="annotations-batch-size" value="500"
                                     style="width: 70px; background: var(--color-bg-input); border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); padding: 3px;">
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 2px;">
-                                <label style="color: var(--color-text-tertiary); font-size: 0.75em;">MAX BATCHES</label>
+                                <label class="text-xs" style="color: var(--color-text-tertiary);">MAX BATCHES</label>
                                 <input type="number" id="annotations-max-batches" placeholder="Inf"
                                     style="width: 70px; background: var(--color-bg-input); border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); padding: 3px;">
                             </div>
@@ -213,8 +213,8 @@
                             <div class="progress-bar" id="queue_annotator-bar"></div>
                             <div class="progress-text" id="queue_annotator-text">Idle</div>
                         </div>
-                        <div class="log-window" id="queue_annotator-logs"
-                            style="height: 80px; margin-top: 5px; font-size: 0.8em; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px; font-family: monospace;">
+                        <div class="log-window font-mono text-xs" id="queue_annotator-logs"
+                            style="height: 80px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
                             Logs...</div>
                     </div>
 
@@ -226,8 +226,8 @@
         <div style="background: var(--section-bg); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
             <div onclick="toggleSection('recalculate-content', 'recalculate-arrow')"
                 style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
-                <span id="recalculate-arrow"
-                    style="margin-right: 12px; font-size: 14px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
+                <span id="recalculate-arrow" class="text-sm"
+                    style="margin-right: 12px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
                 <h2 style="margin: 0;">Refresh UI Datasets</h2>
             </div>
             <div id="recalculate-content" style="padding: 0 20px 20px 20px;">
@@ -236,84 +236,84 @@
                     <!-- 1. Video Analysis Metadata -->
                     <div
                         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-                        <div style="margin-bottom: 10px; font-weight: bold;">Video Analysis Metadata</div>
+                        <div class="font-bold" style="margin-bottom: 10px;">Video Analysis Metadata</div>
                         <div class="controls"
                             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
                             <span id="meta_refresh_viewer-status" class="status-indicator status-stopped"></span>
-                            <button class="btn-primary" onclick="startProcess('meta_refresh_viewer')"
-                                style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Studies)</button>
-                            <button class="btn-stop" onclick="stopProcess('meta_refresh_viewer')"
-                                style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
+                            <button class="btn-primary text-sm" onclick="startProcess('meta_refresh_viewer')"
+                                style="padding: 4px 12px;">Recalculate (All Studies)</button>
+                            <button class="btn-stop text-sm" onclick="stopProcess('meta_refresh_viewer')"
+                                style="padding: 4px 12px;">Stop</button>
                         </div>
                         <div class="progress-container">
                             <div class="progress-bar" id="meta_refresh_viewer-bar"></div>
                             <div class="progress-text" id="meta_refresh_viewer-text">Idle</div>
                         </div>
-                        <div class="log-window" id="meta_refresh_viewer-logs"
-                            style="height: 60px; margin-top: 5px; font-size: 0.8em; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px; font-family: monospace;">
+                        <div class="log-window font-mono text-xs" id="meta_refresh_viewer-logs"
+                            style="height: 60px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
                             Logs...</div>
                     </div>
 
                     <!-- 2. Group Comparisons Metadata -->
                     <div
                         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-                        <div style="margin-bottom: 10px; font-weight: bold;">Group Comparisons Metadata</div>
+                        <div class="font-bold" style="margin-bottom: 10px;">Group Comparisons Metadata</div>
                         <div class="controls"
                             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
                             <span id="meta_refresh_groups-status" class="status-indicator status-stopped"></span>
-                            <button class="btn-primary" onclick="startProcess('meta_refresh_groups')"
-                                style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Studies)</button>
-                            <button class="btn-stop" onclick="stopProcess('meta_refresh_groups')"
-                                style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
+                            <button class="btn-primary text-sm" onclick="startProcess('meta_refresh_groups')"
+                                style="padding: 4px 12px;">Recalculate (All Studies)</button>
+                            <button class="btn-stop text-sm" onclick="stopProcess('meta_refresh_groups')"
+                                style="padding: 4px 12px;">Stop</button>
                         </div>
                         <div class="progress-container">
                             <div class="progress-bar" id="meta_refresh_groups-bar"></div>
                             <div class="progress-text" id="meta_refresh_groups-text">Idle</div>
                         </div>
-                        <div class="log-window" id="meta_refresh_groups-logs"
-                            style="height: 60px; margin-top: 5px; font-size: 0.8em; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px; font-family: monospace;">
+                        <div class="log-window font-mono text-xs" id="meta_refresh_groups-logs"
+                            style="height: 60px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
                             Logs...</div>
                     </div>
 
                     <!-- 3. Timelines -->
                     <div
                         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-                        <div style="margin-bottom: 10px; font-weight: bold;">Timelines</div>
+                        <div class="font-bold" style="margin-bottom: 10px;">Timelines</div>
                         <div class="controls"
                             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
                             <span id="timelines_refresh-status" class="status-indicator status-stopped"></span>
-                            <button class="btn-primary" onclick="startProcess('timelines_refresh')"
-                                style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Collections)</button>
-                            <button class="btn-stop" onclick="stopProcess('timelines_refresh')"
-                                style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
+                            <button class="btn-primary text-sm" onclick="startProcess('timelines_refresh')"
+                                style="padding: 4px 12px;">Recalculate (All Collections)</button>
+                            <button class="btn-stop text-sm" onclick="stopProcess('timelines_refresh')"
+                                style="padding: 4px 12px;">Stop</button>
                         </div>
                         <div class="progress-container">
                             <div class="progress-bar" id="timelines_refresh-bar"></div>
                             <div class="progress-text" id="timelines_refresh-text">Idle</div>
                         </div>
-                        <div class="log-window" id="timelines_refresh-logs"
-                            style="height: 60px; margin-top: 5px; font-size: 0.8em; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px; font-family: monospace;">
+                        <div class="log-window font-mono text-xs" id="timelines_refresh-logs"
+                            style="height: 60px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
                             Logs...</div>
                     </div>
 
                     <!-- 4. Study Definitions -->
                     <div
                         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-                        <div style="margin-bottom: 10px; font-weight: bold;">Study Definitions (Recoded Data)</div>
+                        <div class="font-bold" style="margin-bottom: 10px;">Study Definitions (Recoded Data)</div>
                         <div class="controls"
                             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
                             <span id="recode_refresh_studies-status" class="status-indicator status-stopped"></span>
-                            <button class="btn-primary" onclick="startProcess('recode_refresh_studies')"
-                                style="padding: 4px 12px; font-size: 0.9em;">Recalculate (All Studies)</button>
-                            <button class="btn-stop" onclick="stopProcess('recode_refresh_studies')"
-                                style="padding: 4px 12px; font-size: 0.9em;">Stop</button>
+                            <button class="btn-primary text-sm" onclick="startProcess('recode_refresh_studies')"
+                                style="padding: 4px 12px;">Recalculate (All Studies)</button>
+                            <button class="btn-stop text-sm" onclick="stopProcess('recode_refresh_studies')"
+                                style="padding: 4px 12px;">Stop</button>
                         </div>
                         <div class="progress-container">
                             <div class="progress-bar" id="recode_refresh_studies-bar"></div>
                             <div class="progress-text" id="recode_refresh_studies-text">Idle</div>
                         </div>
-                        <div class="log-window" id="recode_refresh_studies-logs"
-                            style="height: 60px; margin-top: 5px; font-size: 0.8em; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px; font-family: monospace;">
+                        <div class="log-window font-mono text-xs" id="recode_refresh_studies-logs"
+                            style="height: 60px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
                             Logs...</div>
                     </div>
 
@@ -329,8 +329,8 @@
         style="display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: var(--color-bg-overlay);">
         <div class="modal-content"
             style="width: 50%;">
-            <span class="close" onclick="closeNewStudyModal()"
-                style="color: var(--color-text-tertiary); float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            <span class="close text-h2 font-bold" onclick="closeNewStudyModal()"
+                style="color: var(--color-text-tertiary); float: right; cursor: pointer;">&times;</span>
             <h2>Define New Study</h2>
             <div class="form-group">
                 <label>Study Name (Unique):</label>
@@ -435,15 +435,15 @@
                                 class="control-input donation-search-input" style="width: 300px;"
                                 onkeyup="filterCollections(this)" {% if not current_user.is_admin() %}disabled{% endif
                                 %}>
-                            <div
-                                style="display: flex; gap: 15px; font-size: 0.9em; flex: 1; margin-left: 10px; color: var(--color-text-secondary); align-items: center; flex-wrap: wrap;">
+                            <div class="text-sm"
+                                style="display: flex; gap: 15px; flex: 1; margin-left: 10px; color: var(--color-text-secondary); align-items: center; flex-wrap: wrap;">
                                 <span>Collections: <strong class="selected-count">0</strong></span>
                                 <span>Events: <strong class="selected-events-count">0</strong></span>
                                 <div
                                     style="display: flex; gap: 15px; align-items: center; border-left: 1px solid var(--color-border-strong); padding-left: 15px;">
                                     <input type="hidden" data-field="stats" value="{}">
-                                    <button type="button" onclick="updateStudyEstimates(this, event)"
-                                        style="font-size: 0.8em; padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
+                                    <button type="button" class="text-xs" onclick="updateStudyEstimates(this, event)"
+                                        style="padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
                                         {% if not current_user.is_admin() %}disabled{% endif %}>Update
                                         Estimates</button>
                                     <span>Filtered/sampled Unique vids: <strong class="stat-unique-vids"
@@ -515,17 +515,17 @@
 
                         <div
                             style="display: flex; flex-direction: column; gap: 2px; margin-left: 10px; background: var(--color-border); padding: 5px 10px; border-radius: 4px; border: 1px solid var(--color-border-strong);">
-                            <div style="font-size: 0.9em; font-weight:bold; color: var(--color-text-secondary); margin-bottom: 3px;">Save
+                            <div class="text-sm font-bold" style="color: var(--color-text-secondary); margin-bottom: 3px;">Save
                                 settings:
                             </div>
-                            <label
-                                style="font-size: 0.85em; color: var(--color-text-secondary); display: flex; align-items: center; cursor: pointer;"
+                            <label class="text-sm"
+                                style="color: var(--color-text-secondary); display: flex; align-items: center; cursor: pointer;"
                                 title="If unchecked, old files are still deleted to prevent version mismatch.">
                                 <input type="checkbox" class="save-setting-pca" style="margin-right: 5px;"> Refresh
                                 PCA
                             </label>
-                            <label
-                                style="font-size: 0.85em; color: var(--color-text-secondary); display: flex; align-items: center; cursor: pointer;"
+                            <label class="text-sm"
+                                style="color: var(--color-text-secondary); display: flex; align-items: center; cursor: pointer;"
                                 title="If unchecked, old files are still deleted to prevent version mismatch.">
                                 <input type="checkbox" class="save-setting-meta" checked style="margin-right: 5px;">
                                 Refresh

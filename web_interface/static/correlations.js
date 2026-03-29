@@ -186,7 +186,7 @@ function renderPcaFilters(data) {
         const label = document.createElement('div');
         // Use display_name from schema_map if available
         label.innerText = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
-        label.style.fontWeight = 'bold';
+        label.classList.add('font-bold');
         label.style.marginBottom = '5px';
         wrapper.appendChild(label);
 
@@ -232,7 +232,7 @@ function renderPcaFilters(data) {
             } else {
                 span.innerText = val;
             }
-            span.style.fontSize = '0.9em';
+            span.classList.add('text-sm');
 
             row.appendChild(cb);
             row.appendChild(span);
@@ -443,7 +443,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
         hovermode: 'closest',
         paper_bgcolor: getCSSVar('--chart-bg'),
         plot_bgcolor: getCSSVar('--chart-bg'),
-        font: { color: getCSSVar('--chart-text') },
+        font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') },
         annotations: [
             // X-Axis Title Annotation (Anchored at data coordinate 2,0)
             {
@@ -456,7 +456,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 yanchor: 'top',
                 text: xTitle,
                 showarrow: false,
-                font: { size: 16, color: getCSSVar('--chart-text') }
+                font: { family: getCSSVar('--font-sans'), size: 16, color: getCSSVar('--chart-text') }
             },
             // Y-Axis Title Annotation (Anchored at data coordinate 0,2)
             {
@@ -469,7 +469,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 yanchor: 'center',
                 text: yTitle,
                 showarrow: false,
-                font: { size: 16, color: getCSSVar('--chart-text') },
+                font: { family: getCSSVar('--font-sans'), size: 16, color: getCSSVar('--chart-text') },
                 textangle: -90
             }
         ],
@@ -505,7 +505,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 yref: 'paper',
                 text: formatLabel(text),
                 showarrow: false,
-                font: { size: 10, color: getCSSVar('--color-text-tertiary') },
+                font: { family: getCSSVar('--font-sans'), size: 10, color: getCSSVar('--color-text-tertiary') },
                 bgcolor: getCSSVar('--color-bg-surface'),
                 bordercolor: getCSSVar('--chart-grid'),
                 borderwidth: 1,
@@ -571,7 +571,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 xanchor: 'left', yanchor: 'top',
                 text: `R² = ${reg.r2.toFixed(2)}`,
                 showarrow: false,
-                font: { size: 12, color: getCSSVar('--white') },
+                font: { family: getCSSVar('--font-sans'), size: 12, color: getCSSVar('--white') },
                 bgcolor: getCSSVar('--chart-badge-bg'),
                 bordercolor: getCSSVar('--color-text-faint'), borderwidth: 1,
                 align: 'left'
@@ -652,8 +652,8 @@ function renderCorrelationHeatmap(columns, matrix) {
         text: hoverText,
         hoverinfo: 'text',
         colorbar: {
-            title: { text: 'Pearson r', font: { color: getCSSVar('--chart-text') } },
-            tickfont: { color: getCSSVar('--chart-text') },
+            title: { text: 'Pearson r', font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') } },
+            tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') },
             len: 0.8
         }
     };
@@ -661,19 +661,19 @@ function renderCorrelationHeatmap(columns, matrix) {
     const layout = {
         title: {
             text: 'Correlation Matrix',
-            font: { color: getCSSVar('--chart-text') }
+            font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') }
         },
         paper_bgcolor: getCSSVar('--chart-bg'),
         plot_bgcolor: getCSSVar('--chart-bg'),
-        font: { color: getCSSVar('--chart-text'), size: 10 },
+        font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text'), size: 10 },
         xaxis: {
             tickangle: -45,
-            tickfont: { size: 9 },
+            tickfont: { family: getCSSVar('--font-sans'), size: 9 },
             gridcolor: getCSSVar('--chart-grid')
         },
         yaxis: {
             autorange: 'reversed',
-            tickfont: { size: 9 },
+            tickfont: { family: getCSSVar('--font-sans'), size: 9 },
             gridcolor: getCSSVar('--chart-grid')
         },
         margin: { t: 50, r: 80, b: 120, l: 120 }

@@ -124,7 +124,7 @@ async function submitVote(itemId) {
                 // Re-render just the button text
                 const container = document.getElementById('viewer-vote-container');
                 if (container) {
-                    container.innerHTML = '<span style="color: var(--color-text-tertiary); font-style: italic;">Voted</span>';
+                    container.innerHTML = '<span class="italic" style="color: var(--color-text-tertiary);">Voted</span>';
                 }
             }
         } else {
@@ -358,7 +358,7 @@ function renderViewerFilters(metadata) {
         header.style.background = 'var(--color-border)';
         header.style.padding = '8px 10px';
         header.style.cursor = 'pointer';
-        header.style.fontWeight = 'bold';
+        header.classList.add('font-bold');
         header.style.color = 'var(--color-text-primary)';
         header.style.userSelect = 'none';
         header.style.display = 'flex';
@@ -416,7 +416,7 @@ function renderViewerFilters(metadata) {
             }
 
             label.innerText = displayName;
-            label.style.fontWeight = 'bold';
+            label.classList.add('font-bold');
             label.style.display = 'block';
             label.style.marginBottom = '5px';
             label.style.color = 'var(--color-text-primary)';
@@ -433,7 +433,7 @@ function renderViewerFilters(metadata) {
                 const labelRow = document.createElement('div');
                 labelRow.style.display = 'flex';
                 labelRow.style.justifyContent = 'space-between';
-                labelRow.style.fontSize = '0.85em';
+                labelRow.classList.add('text-sm');
                 labelRow.style.color = 'var(--color-text-muted)';
                 labelRow.style.marginTop = '-5px'; // Tweak spacing
 
@@ -546,7 +546,7 @@ function renderViewerFilters(metadata) {
 
                     const span = document.createElement('span');
                     span.innerText = displayValue;
-                    span.style.fontSize = '0.9em';
+                    span.classList.add('text-sm');
 
                     item.appendChild(cb);
                     item.appendChild(span);
@@ -856,9 +856,9 @@ function renderMetadata(item) {
             voteContainer.innerHTML = '<span style="color: var(--color-danger-soft);">Cannot Machine Annotate</span>';
         } else {
             if (viewerData.userVotes && viewerData.userVotes.includes(itemIdStr)) {
-                voteContainer.innerHTML = '<span style="color: var(--color-text-tertiary); font-style: italic;">Voted</span>';
+                voteContainer.innerHTML = '<span class="italic" style="color: var(--color-text-tertiary);">Voted</span>';
             } else {
-                voteContainer.innerHTML = `<button class="btn-primary" style="padding: 2px 8px; font-size: 0.85em; cursor: pointer; border: none; border-radius: 4px;" onclick="submitVote('${itemIdStr}')">Vote to machine annotate</button>`;
+                voteContainer.innerHTML = `<button class="btn-primary text-sm" style="padding: 2px 8px; cursor: pointer; border: none; border-radius: 4px;" onclick="submitVote('${itemIdStr}')">Vote to machine annotate</button>`;
             }
         }
     }
@@ -867,7 +867,7 @@ function renderMetadata(item) {
     if (item.display_donation_id) {
         const didRow = document.createElement('tr');
         didRow.style.background = 'var(--color-border-subtle)';
-        didRow.innerHTML = `<td style="padding:5px; font-weight:bold; color:var(--color-info);">Display ID</td><td style="padding:5px; font-weight:bold; color:var(--color-text-primary);">${item.display_donation_id}</td>`;
+        didRow.innerHTML = `<td class="font-bold" style="padding:5px; color:var(--color-info);">Display ID</td><td class="font-bold" style="padding:5px; color:var(--color-text-primary);">${item.display_donation_id}</td>`;
         tbody.appendChild(didRow);
     }
 
@@ -961,7 +961,7 @@ function renderMetadata(item) {
         const headerCell = document.createElement('td');
         headerCell.colSpan = 2;
         headerCell.style.padding = '8px';
-        headerCell.style.fontWeight = 'bold';
+        headerCell.classList.add('font-bold');
         headerCell.style.color = 'var(--color-text-primary)';
         headerCell.innerHTML = `&#9662; ${sec}`; // Down arrow default
         headerRow.appendChild(headerCell);
@@ -996,7 +996,7 @@ function renderMetadata(item) {
 
             let displayText = displayName;
             let styleColor = '';
-            let styleWeight = '';
+            let styleWeightClass = '';
             let decoration = '';
             let suffix = '';
 
@@ -1011,7 +1011,7 @@ function renderMetadata(item) {
 
             if (hasMyAnnotation) {
                 styleColor = 'var(--color-success)';
-                styleWeight = 'bold';
+                styleWeightClass = 'font-bold';
                 if (myCount > 0) displayText += ` [${myCount}]`;
 
                 if (itemNotes || itemCC) {
@@ -1020,7 +1020,7 @@ function renderMetadata(item) {
             } else if (hasShared) {
                 // Only shared
                 styleColor = 'var(--color-info)';
-                styleWeight = 'normal'; // Or bold? Let's keep normal but colored to distinguish from mine
+                styleWeightClass = 'font-normal'; // Or bold? Let's keep normal but colored to distinguish from mine
                 // Count total other tags?
                 let otherTagCount = 0;
                 Object.values(sharedData).forEach(u => {
@@ -1032,7 +1032,7 @@ function renderMetadata(item) {
             }
 
             if (styleColor) tdKey.style.color = styleColor;
-            if (styleWeight) tdKey.style.fontWeight = styleWeight;
+            if (styleWeightClass) tdKey.classList.add(styleWeightClass);
             if (decoration) tdKey.style.textDecoration = decoration;
 
             // If BOTH, add indicator for shared
@@ -1326,11 +1326,12 @@ function renderModalChips() {
         const color = 'var(--chip-selected-text)';
         const border = isSelected ? '1px solid var(--chip-selected-border)' : '1px solid var(--chip-border)';
 
-        chip.style.cssText = `background:${bg};color:${color};border:${border};padding:4px 10px;border-radius:12px;display:flex;gap:5px;align-items:center;cursor:pointer;user-select:none;font-size:0.9em;transition:all 0.1s;`;
+        chip.style.cssText = `background:${bg};color:${color};border:${border};padding:4px 10px;border-radius:12px;display:flex;gap:5px;align-items:center;cursor:pointer;user-select:none;transition:all 0.1s;`;
+        chip.classList.add('text-sm');
 
         // Chip content
         if (isSelected) {
-            chip.innerHTML = `<span>${tag}</span><span style="font-weight:bold;margin-left:4px;">×</span>`;
+            chip.innerHTML = `<span>${tag}</span><span class="font-bold" style="margin-left:4px;">×</span>`;
             chip.onclick = () => removeTag(tag);
         } else {
             chip.innerHTML = `<span>${tag}</span>`;

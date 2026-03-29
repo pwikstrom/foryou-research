@@ -12,19 +12,19 @@
             <option value="" disabled selected>Loading collections...</option>
         </select>
 
-        <span id="timelines-collection-count" style="margin-left: 15px; color: var(--control-bar-info); font-size: 0.9em;"></span>
+        <span id="timelines-collection-count" class="text-sm" style="margin-left: 15px; color: var(--control-bar-info);"></span>
 
         <!-- Right-aligned checkboxes -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 20px;">
             <label class="switch" style="display: flex; align-items: center; cursor: pointer;">
                 <input type="checkbox" id="timelines-exclude-nodata"
                     onchange="timelines.renderTimelineCharts()" checked>
-                <span style="color: var(--control-bar-text); font-weight: bold; margin-left: 5px;">Exclude empty dates</span>
+                <span class="font-bold" style="color: var(--control-bar-text); margin-left: 5px;">Exclude empty dates</span>
             </label>
             <label class="switch" style="display: flex; align-items: center; cursor: pointer;">
                 <input type="checkbox" id="timelines-exclude-before-first-activity"
                     onchange="timelines.renderTimelineCharts()" checked>
-                <span style="color: var(--control-bar-text); font-weight: bold; margin-left: 5px;">Exclude pre-activity</span>
+                <span class="font-bold" style="color: var(--control-bar-text); margin-left: 5px;">Exclude pre-activity</span>
             </label>
         </div>
     </div>

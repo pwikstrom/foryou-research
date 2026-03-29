@@ -8,7 +8,7 @@
 
         <!-- Login Widget -->
         <div class="auth-form-container">
-            <h3 style="margin-top: 0; color: var(--color-text-primary); font-size: 1.2em; margin-bottom: 20px; text-align: center;">Login
+            <h3 class="text-h3" style="margin-top: 0; color: var(--color-text-primary); margin-bottom: 20px; text-align: center;">Login
             </h3>
 
             {% with messages = get_flashed_messages() %}
@@ -35,7 +35,7 @@
                     Sign In
                 </button>
             </form>
-            <div style="text-align: center; margin-top: 15px; font-size: 0.9em;">
+            <div class="text-sm" style="text-align: center; margin-top: 15px;">
                 <a href="/signup">Create an account</a>
             </div>
         </div>
@@ -53,7 +53,7 @@
                 </div>
                 {% endfor %}
                 {% else %}
-                <p style="color: var(--color-text-muted); font-style: italic; text-align: center; padding: 20px;">No recent updates.</p>
+                <p class="italic" style="color: var(--color-text-muted); text-align: center; padding: 20px;">No recent updates.</p>
                 {% endif %}
             </div>
         </div>
@@ -82,15 +82,15 @@
             <hr style="border: 0; border-top: 1px solid var(--color-border-subtle); margin: 30px 0;">
 
             <div class="text-block" style="margin-bottom: 40px;">
-                <h3 style="color: var(--color-text-primary); font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
+                <h3 class="text-h2 font-semibold" style="color: var(--color-text-primary); margin-bottom: 15px;">{{
                     content.intentions_title }}</h3>
-                <p style="line-height: 1.6; color: var(--color-text-secondary);">
+                <p class="prose" style="color: var(--color-text-secondary);">
                     {{ content.intentions_text }}
                 </p>
             </div>
 
             <div class="text-block" style="margin-bottom: 40px;">
-                <h3 style="color: var(--color-text-primary); font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
+                <h3 class="text-h2 font-semibold" style="color: var(--color-text-primary); margin-bottom: 15px;">{{
                     content.notes_title }}</h3>
                 <div class="note-callout">
                     <p>{{ content.note_1 }}</p>
@@ -101,14 +101,14 @@
             </div>
 
             <div class="text-block" style="margin-bottom: 60px;">
-                <h3 style="color: var(--color-text-primary); font-size: 1.5em; margin-bottom: 15px; font-weight: 600;">{{
+                <h3 class="text-h2 font-semibold" style="color: var(--color-text-primary); margin-bottom: 15px;">{{
                     content.ack_title }}</h3>
-                <p style="line-height: 1.6; color: var(--color-text-secondary);">
+                <p class="prose" style="color: var(--color-text-secondary);">
                     {{ content.ack_text }}
                 </p>
             </div>
 
-            <div style="text-align: center; color: var(--color-text-faint); font-size: 0.9em; margin-top: 50px;">
+            <div class="text-sm" style="text-align: center; color: var(--color-text-faint); margin-top: 50px;">
                 2026 Queensland University of Technology
             </div>
 

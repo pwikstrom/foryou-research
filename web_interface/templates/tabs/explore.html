@@ -21,10 +21,10 @@
             style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--color-border);">
             <div class="header" style="flex: 0 0 auto; background: var(--color-bg-elevated); padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: baseline; gap: 8px;">
-                    <span style="font-size: 0.9em; font-weight: 600;">Filters Slice 1</span>
-                    <span id="explorer-v2-count-1" style="color: var(--color-slice1); font-size: 0.85em;"></span>
+                    <span class="text-sm font-semibold">Filters Slice 1</span>
+                    <span id="explorer-v2-count-1" class="text-sm font-semibold"></span>
                 </div>
-                <button class="btn-save" style="font-size: 0.75em; padding: 2px 8px;"
+                <button class="btn-save text-xs" style="padding: 2px 8px;"
                     onclick="resetFiltersV2(1)">Reset</button>
             </div>
             <div style="padding: 10px; border-bottom: 1px solid var(--color-border); flex: 0 0 auto;">
@@ -53,9 +53,8 @@
                 </div>
                 <span id="explorer-v2-vs-label" style="display: none;"></span>
                 <div style="margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px;">
-                    <label for="explorer-v2-sort" style="color: var(--color-text-secondary); font-size: 0.9em; font-weight: normal;">Sort by:</label>
-                    <select id="explorer-v2-sort" class="dropdown" onchange="changeExplorerV2Sort(this.value)"
-                        style="font-size: 0.9em;">
+                    <label for="explorer-v2-sort" class="text-sm font-normal" style="color: var(--color-text-secondary);">Sort by:</label>
+                    <select id="explorer-v2-sort" class="dropdown text-sm" onchange="changeExplorerV2Sort(this.value)">
                         <option value="total">Total Frequency</option>
                         <option value="slice1">Slice 1 Frequency</option>
                         <option id="explorer-v2-sort-slice2" value="slice2" style="display: none;">Slice 2 Frequency
@@ -73,10 +72,10 @@
             style="flex: 0 0 300px; display: none; flex-direction: column; overflow: hidden; border-left: 1px solid var(--color-border);">
             <div class="header" style="flex: 0 0 auto; background: var(--color-bg-elevated); padding: 10px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: baseline; gap: 8px;">
-                    <span style="font-size: 0.9em; font-weight: 600;">Filters Slice 2</span>
-                    <span id="explorer-v2-count-2" style="color: var(--color-slice2); font-size: 0.85em;"></span>
+                    <span class="text-sm font-semibold">Filters Slice 2</span>
+                    <span id="explorer-v2-count-2" class="text-sm font-semibold"></span>
                 </div>
-                <button class="btn-save" style="font-size: 0.75em; padding: 2px 8px;"
+                <button class="btn-save text-xs" style="padding: 2px 8px;"
                     onclick="resetFiltersV2(2)">Reset</button>
             </div>
             <div style="padding: 10px; border-bottom: 1px solid var(--color-border); flex: 0 0 auto;">

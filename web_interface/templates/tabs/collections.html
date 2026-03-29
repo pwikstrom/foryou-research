@@ -6,7 +6,7 @@
         </div>
         <div class="control-group" style="display: flex; align-items: center; gap: 15px;">
             <span id="pe-stats-timestamp" style="display:none;"></span>
-            <span id="pe-stats-count" class="timestamp-text" style="font-size: 0.85em; color: var(--control-bar-info);"></span>
+            <span id="pe-stats-count" class="timestamp-text text-sm" style="color: var(--control-bar-info);"></span>
         </div>
     </div>
 
@@ -15,8 +15,8 @@
         <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 15px;">
             <h4 style="margin: 0;">Edit Activity Data</h4>
             <input type="text" id="edit-activity-search" placeholder="Search collections..."
-                class="control-input"
-                style="width: 250px; padding: 6px 8px; font-size: 0.85em;"
+                class="control-input text-sm"
+                style="width: 250px; padding: 6px 8px;"
                 onkeyup="filterEditActivityCollections(this)">
         </div>
         <div class="edit-activity-selector" style="border: 1px solid var(--color-border-strong); background: var(--color-border); border-radius: 4px;">
@@ -74,7 +74,7 @@
                     <input type="checkbox" id="edit-collection-hidden" style="width: auto; cursor: pointer;">
                     Hide Collection
                 </label>
-                <span style="font-size: 0.85em; color: var(--color-text-tertiary); margin-left: 25px; display: block;">Hidden collections are
+                <span class="text-sm" style="color: var(--color-text-tertiary); margin-left: 25px; display: block;">Hidden collections are
                     not shown in the primary study interface.</span>
             </div>
 
