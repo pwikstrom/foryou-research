@@ -1774,3 +1774,96 @@ button {
         transition-duration: 0.01ms !important;
     }
 }
+
+
+/* ── Explore chart drill-down affordance ── */
+#explorer-v2-stats .js-plotly-plot .bars .point path,
+#explorer-v2-stats .js-plotly-plot .trace.bars path {
+    cursor: pointer !important;
+}
+
+#explorer-v2-stats .drill-hint {
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+#explorer-v2-stats .stats-card:hover .drill-hint {
+    opacity: 1;
+}
+
+
+/* ── Drill-down confirmation popup ── */
+.drilldown-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--modal-overlay);
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.drilldown-overlay.visible {
+    opacity: 1;
+}
+
+.drilldown-card {
+    background: var(--modal-bg);
+    border: 1px solid var(--modal-border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: var(--shadow-md);
+    color: var(--modal-text);
+    transform: translateY(8px) scale(0.97);
+    transition: transform 0.2s ease;
+}
+
+.drilldown-overlay.visible .drilldown-card {
+    transform: translateY(0) scale(1);
+}
+
+.drilldown-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.drilldown-icon {
+    font-size: var(--text-h2);
+    line-height: 1;
+}
+
+.drilldown-filter-preview {
+    display: flex;
+    align-items: center;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 8px 14px;
+}
+
+.drilldown-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.drilldown-actions .btn {
+    padding: 8px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: var(--text-body);
+    font-weight: var(--weight-medium);
+    font-family: var(--font-sans);
+    border: none;
+    transition: opacity 0.15s;
+}
+
+.drilldown-actions .btn:hover {
+    opacity: 0.85;
+}

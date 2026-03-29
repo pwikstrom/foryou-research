@@ -698,6 +698,11 @@ function openTab(evt, tabName) {
     if (tabName !== 'video_analysis') {
         if (typeof pauseViewerVideo === 'function') pauseViewerVideo();
     } else {
+        // Drill-down from Explore tab: apply pending filters before anything else
+        if (typeof checkPendingDrillDown === 'function') {
+            checkPendingDrillDown();
+        }
+
         if (typeof playViewerVideo === 'function') {
             // Check User Settings for Autostart
             // If undefined, default to false (as requested "default unchecked")

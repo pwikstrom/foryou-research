@@ -16,6 +16,59 @@ let viewerData = {
     displayIds: {} // Map of raw_id -> display_id
 };
 
+// Drill-down from Explore tab: consume pending filter state
+let _drillDownInProgress = false;
+
+async function checkPendingDrillDown() {
+    if (_drillDownInProgress) return false;
+    const pending = window._pendingDrillDown;
+    if (!pending) return false;
+    if (Date.now() - pending.timestamp > 5000) {
+        window._pendingDrillDown = null;
+        return false;
+    }
+
+    window._pendingDrillDown = null;
+    _drillDownInProgress = true;
+
+    try {
+        const studyChanged = (viewerData.activeStudy !== pending.study);
+
+        // Set state
+        viewerData.activeStudy = pending.study;
+        viewerData.filters = pending.filters;
+        viewerData.searchQuery = pending.searchQuery || "";
+        viewerData.filteredIds = [];
+        viewerData.currentIndex = -1;
+
+        // Update UI elements
+        const selector = document.getElementById('viewer-study-select');
+        if (selector) selector.value = pending.study;
+        const searchInput = document.getElementById('viewer-search-input');
+        if (searchInput) searchInput.value = viewerData.searchQuery;
+
+        // Clear player
+        document.getElementById('viewer-video').src = "";
+        document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "";
+        const msgEl = document.getElementById('viewer-video-msg');
+        msgEl.innerHTML = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading video...</div></div>';
+        msgEl.style.display = "block";
+        updateNavUI();
+
+        if (studyChanged || !viewerData.metadata) {
+            await loadViewerMetadata();
+        } else {
+            renderViewerFilters(viewerData.metadata);
+        }
+
+        await applyViewerFilters();
+        return true;
+    } finally {
+        _drillDownInProgress = false;
+    }
+}
+
+
 // Initialization
 document.addEventListener('DOMContentLoaded', function () {
     // Only init if tab exists

@@ -708,6 +708,13 @@ function renderStatsV2(stats1, stats2) {
         title.style.marginTop = '0';
         title.style.marginBottom = '5px';
         title.style.color = 'var(--color-text-primary)';
+
+        const drillHint = document.createElement('span');
+        drillHint.className = 'drill-hint text-xs';
+        drillHint.style.float = 'right';
+        drillHint.textContent = 'Click to view videos';
+        title.appendChild(drillHint);
+
         card.appendChild(title);
 
         const plotDiv = document.createElement('div');
@@ -770,6 +777,22 @@ function renderStatsV2(stats1, stats2) {
             }
 
             Plotly.newPlot(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+
+            // Drill-down: click a histogram bar → open in Video Analysis
+            plotDiv.on('plotly_click', function(eventData) {
+                const point = eventData.points[0];
+                const xArr = point.data.x;
+                let clickedX = point.x;
+                let binWidth = xArr.length > 1 ? xArr[1] - xArr[0] : 1;
+                let binMin = clickedX - binWidth / 2;
+                let binMax = clickedX + binWidth / 2;
+                if (s1.transform === 'log10') {
+                    binMin = Math.pow(10, binMin);
+                    binMax = Math.pow(10, binMax);
+                }
+                const sliceId = point.curveNumber === 0 ? 1 : 2;
+                drillDownToViewer(col, { type: 'number', value: { min: binMin, max: binMax } }, sliceId);
+            });
 
         } else {
             // Stacked Bar (Horizontal) normalized to %
@@ -879,9 +902,115 @@ function renderStatsV2(stats1, stats2) {
             };
 
             Plotly.newPlot(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
+
+            // Drill-down: click a category segment → open in Video Analysis
+            plotDiv.on('plotly_click', function(eventData) {
+                const point = eventData.points[0];
+                const categoryValue = point.customdata[0];
+                const sliceId = (point.y === 'Slice 2') ? 2 : 1;
+                drillDownToViewer(col, { type: 'category', value: [categoryValue] }, sliceId);
+            });
         }
     });
 }
+
+
+// Drill-down: show confirmation then navigate to Video Analysis tab
+function drillDownToViewer(col, clickedFilter, sliceId) {
+    // Build a readable description of what was clicked
+    const schemaMap = explorerDataV2.metadata?.schema_map || {};
+    const displayName = schemaMap[col]?.display_name || col;
+
+    let valueLabel;
+    if (clickedFilter.type === 'category') {
+        valueLabel = `"${clickedFilter.value[0]}"`;
+    } else {
+        const min = Math.round(clickedFilter.value.min * 100) / 100;
+        const max = Math.round(clickedFilter.value.max * 100) / 100;
+        valueLabel = `${min} – ${max}`;
+    }
+
+    showDrillDownConfirm(displayName, valueLabel, () => {
+        const sourceFilters = (sliceId === 2)
+            ? JSON.parse(JSON.stringify(explorerDataV2.filters2))
+            : JSON.parse(JSON.stringify(explorerDataV2.filters1));
+        sourceFilters[col] = clickedFilter;
+
+        window._pendingDrillDown = {
+            study: explorerDataV2.activeStudy,
+            filters: sourceFilters,
+            searchQuery: (sliceId === 2) ? explorerDataV2.searchQuery2 : explorerDataV2.searchQuery1,
+            timestamp: Date.now()
+        };
+
+        const tabBtn = document.querySelector('.tab-button[onclick*="video_analysis"]');
+        if (tabBtn) tabBtn.click();
+    });
+}
+
+
+function showDrillDownConfirm(variableName, valueLabel, onConfirm) {
+    // Remove any existing popup
+    const existing = document.getElementById('drilldown-confirm');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'drilldown-confirm';
+    overlay.className = 'drilldown-overlay';
+
+    const card = document.createElement('div');
+    card.className = 'drilldown-card';
+
+    card.innerHTML = `
+        <div class="drilldown-header">
+            <span class="drilldown-icon">&#x1F50D;</span>
+            <span class="text-h3 font-semibold">View these videos?</span>
+        </div>
+        <p class="text-body" style="margin: 12px 0 6px; color: var(--color-text-secondary);">
+            This will open <strong>Video Analysis</strong> filtered to:
+        </p>
+        <div class="drilldown-filter-preview">
+            <span class="font-medium">${variableName}</span>
+            <span style="color: var(--color-text-muted); margin: 0 6px;">→</span>
+            <span class="font-semibold" style="color: var(--color-accent);">${valueLabel}</span>
+        </div>
+        <p class="text-sm" style="margin: 8px 0 16px; color: var(--color-text-muted);">
+            Your current Explore filters will also be carried over.
+        </p>
+        <div class="drilldown-actions">
+            <button class="btn btn-discreet drilldown-btn-cancel">Cancel</button>
+            <button class="btn btn-primary drilldown-btn-go">View Videos</button>
+        </div>
+    `;
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    // Animate in
+    requestAnimationFrame(() => overlay.classList.add('visible'));
+
+    const dismiss = () => {
+        overlay.classList.remove('visible');
+        setTimeout(() => overlay.remove(), 200);
+    };
+
+    card.querySelector('.drilldown-btn-cancel').onclick = dismiss;
+    card.querySelector('.drilldown-btn-go').onclick = () => {
+        dismiss();
+        onConfirm();
+    };
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) dismiss();
+    });
+
+    // Keyboard: Enter to confirm, Escape to cancel
+    const keyHandler = (e) => {
+        if (e.key === 'Escape') { dismiss(); document.removeEventListener('keydown', keyHandler); }
+        if (e.key === 'Enter') { dismiss(); onConfirm(); document.removeEventListener('keydown', keyHandler); }
+    };
+    document.addEventListener('keydown', keyHandler);
+}
+
 
 window.addEventListener('theme-changed', () => {
     // Re-render charts (Plotly needs resolved color values, not CSS var() references)
