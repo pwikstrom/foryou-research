@@ -603,17 +603,9 @@ function collectFormData(row) {
     return data;
 }
 
-// Helper to collect save settings (flags that aren't part of the study definition)
-// but are sent in the save payload.
+// Always refresh both PCA and metadata when saving a study definition.
 function collectSaveSettings(row) {
-    const settings = {};
-    const pcaChk = row.querySelector('.save-setting-pca');
-    const metaChk = row.querySelector('.save-setting-meta');
-
-    if (pcaChk) settings['REFRESH_PCA'] = pcaChk.checked;
-    if (metaChk) settings['REFRESH_METADATA'] = metaChk.checked;
-
-    return settings;
+    return { REFRESH_PCA: true, REFRESH_METADATA: true };
 }
 
 

@@ -18,9 +18,21 @@
 
             <div id="studies-content" style="padding: 0 20px 20px 20px;">
                 <table class="data-table" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                    <colgroup>
+                        <col style="width: 3%;">
+                        <col style="width: 15%;">
+                        <col style="width: 10%;">
+                        <col style="width: 10%;">
+                        <col style="width: 10%;">
+                        <col style="width: 11%;">
+                        <col style="width: 10%;">
+                        <col style="width: 10%;">
+                        <col style="width: 14%;">
+                        <col style="width: 7%;">
+                    </colgroup>
                     <thead>
                         <tr style="border-bottom: 2px solid var(--color-border-strong);">
-                            <th style="width: 30px; padding: 10px;"></th>
+                            <th style="padding: 10px;"></th>
                             <th style="text-align: left; padding: 10px;">Study Name</th>
                             <th style="text-align: left; padding: 10px;">Start Date</th>
                             <th style="text-align: left; padding: 10px;">End Date</th>
@@ -351,14 +363,12 @@
                     <!-- Column 1 -->
                     <div>
                         <div class="form-group-row">
-                            <label title="yyyy-mm-dd only include events after this date">START_DATE <i
-                                    class="info-icon">ℹ️</i></label>
+                            <label class="meta-tooltip" data-tooltip="yyyy-mm-dd — only include events after this date">Start Date</label>
                             <input type="text" data-field="START_DATE" class="control-input" {% if not
                                 current_user.is_admin() %}disabled{% endif %}>
                         </div>
                         <div class="form-group-row">
-                            <label title="yyyy-mm-dd only include events before this date">END_DATE <i
-                                    class="info-icon">ℹ️</i></label>
+                            <label class="meta-tooltip" data-tooltip="yyyy-mm-dd — only include events before this date">End Date</label>
                             <input type="text" data-field="END_DATE" class="control-input" {% if not
                                 current_user.is_admin() %}disabled{% endif %}>
                         </div>
@@ -366,8 +376,7 @@
                     <!-- Column 2 -->
                     <div>
                         <div class="form-group-row" style="align-items: flex-start; flex-direction: column;">
-                            <label title="User Access List" style="margin-bottom: 8px;">USER_ACCESS <i
-                                    class="info-icon">ℹ️</i></label>
+                            <label class="meta-tooltip" data-tooltip="Control which user roles can access this study" style="margin-bottom: 8px;">User Access</label>
                             <div class="checkbox-group" data-field-group="USER_ACCESS"
                                 style="text-align: left; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
                                 <div class="dynamic-roles-container">Loading roles...</div>
@@ -377,9 +386,8 @@
                     <!-- Column 3 -->
                     <div>
                         <div class="form-group-row">
-                            <label
-                                title="Control if and how collections are sampled: off, events, scraped, annotated">COLLECTION_SAMPLE_FRAME
-                                <i class="info-icon">ℹ️</i></label>
+                            <label class="meta-tooltip"
+                                data-tooltip="Control if and how collections are sampled: off, events, scraped, annotated">Collection Sample Frame</label>
                             <select data-field="DONATION_SAMPLE_FRAME" class="control-input"
                                 onchange="toggleSamplingOptions(this)" {% if not current_user.is_admin() %}disabled{%
                                 endif %}>
@@ -392,30 +400,26 @@
 
                         <div id="sampling-options-container">
                             <div class="form-group-row">
-                                <label
-                                    title="groups w less than this number of events are excluded [DEFAULT: 10]">MIN_EVENT_COUNT...
-                                    <i class="info-icon">ℹ️</i></label>
+                                <label class="meta-tooltip"
+                                    data-tooltip="Groups with fewer than this number of events are excluded (default: 10)">Min Event Count</label>
                                 <input type="number" data-field="MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP"
                                     class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                             </div>
                             <div class="form-group-row">
-                                <label
-                                    title="groups w more than this number of events are downsampled [DEFAULT: 100]">MAX_EVENT_COUNT...
-                                    <i class="info-icon">ℹ️</i></label>
+                                <label class="meta-tooltip"
+                                    data-tooltip="Groups with more than this number of events are downsampled (default: 100)">Max Event Count</label>
                                 <input type="number" data-field="MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP"
                                     class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                             </div>
                             <div class="form-group-row">
-                                <label
-                                    title="collections w less than this number of accepted groups are excluded [DEFAULT: 10]">MIN_GROUP_COUNT...
-                                    <i class="info-icon">ℹ️</i></label>
+                                <label class="meta-tooltip"
+                                    data-tooltip="Collections with fewer than this number of accepted groups are excluded (default: 10)">Min Group Count</label>
                                 <input type="number" data-field="MIN_GROUP_COUNT_REQUIRED_PER_DONATION"
                                     class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                             </div>
                             <div class="form-group-row">
-                                <label
-                                    title="collections w more than this number of accepted groups are downsampled [DEFAULT: 100]">MAX_GROUP_COUNT...
-                                    <i class="info-icon">ℹ️</i></label>
+                                <label class="meta-tooltip"
+                                    data-tooltip="Collections with more than this number of accepted groups are downsampled (default: 100)">Max Group Count</label>
                                 <input type="number" data-field="MAX_GROUP_COUNT_SELECTED_PER_DONATION"
                                     class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                             </div>
@@ -424,9 +428,8 @@
                 </div>
                 {% if current_user.is_admin() %}
                 <div class="form-group" style="margin-top: 20px;">
-                    <label title="List of specific collection IDs to include. Leave empty for all."
-                        style="display: block; margin-bottom: 8px;">SELECTED_COLLECTIONS <i
-                            class="info-icon">ℹ️</i></label>
+                    <label class="meta-tooltip" data-tooltip="List of specific collection IDs to include. Leave empty for all."
+                        style="display: block; margin-bottom: 8px;">Selected Collections</label>
 
                     <div class="donation-selector" style="border: 1px solid var(--color-border-strong); padding: 10px; background: var(--color-border);">
                         <div
@@ -505,42 +508,13 @@
                 }*/
                 </style>
 
-                <div style="margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
-                    {% if current_user.is_admin() %}
-                    <div style="display: flex; gap: 10px;">
-                        <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                            <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Study
-                                Definition</button>
-                        </div>
-
-                        <div
-                            style="display: flex; flex-direction: column; gap: 2px; margin-left: 10px; background: var(--color-border); padding: 5px 10px; border-radius: 4px; border: 1px solid var(--color-border-strong);">
-                            <div class="text-sm font-bold" style="color: var(--color-text-secondary); margin-bottom: 3px;">Save
-                                settings:
-                            </div>
-                            <label class="text-sm"
-                                style="color: var(--color-text-secondary); display: flex; align-items: center; cursor: pointer;"
-                                title="If unchecked, old files are still deleted to prevent version mismatch.">
-                                <input type="checkbox" class="save-setting-pca" style="margin-right: 5px;"> Refresh
-                                PCA
-                            </label>
-                            <label class="text-sm"
-                                style="color: var(--color-text-secondary); display: flex; align-items: center; cursor: pointer;"
-                                title="If unchecked, old files are still deleted to prevent version mismatch.">
-                                <input type="checkbox" class="save-setting-meta" checked style="margin-right: 5px;">
-                                Refresh
-                                Metadata
-                            </label>
-                        </div>
-
-                    </div>
-                </div>
-                {% endif %}
-
                 {% if current_user.is_admin() %}
-                <button type="button" class="action-btn btn-danger" style=""
-                    onclick="deleteStudy(this, event)">Delete
-                    Study</button>
+                <div style="margin-top: 30px; display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Study
+                        Definition</button>
+                    <button type="button" class="btn-danger" onclick="deleteStudy(this, event)">Delete
+                        Study</button>
+                </div>
                 {% endif %}
             </td>
         </tr>

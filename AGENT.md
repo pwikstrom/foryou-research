@@ -29,6 +29,21 @@
 - Comments should **explain the code**. Do not write your own reasoning in the code.
 - Always use **PyArrow dtypes** for DataFrames.
 
+### Frontend Styling Rules
+
+All visual styling is managed through a **CSS custom property (token) system** in `style.css`. Never hardcode colors, fonts, sizes, or weights in templates, JavaScript, or inline styles.
+
+- **Colors**: Use semantic tokens (e.g., `var(--color-text-primary)`, `var(--btn-danger-bg)`), never hex codes or `rgb()` values. The token hierarchy is: Primitives → Semantic → Component.
+- **Fonts**: The primary font is **Inter** (`var(--font-sans)`). Monospace is `var(--font-mono)`. Never set `font-family` inline or in JS.
+- **Font sizes**: Use the 7-step type scale tokens: `var(--text-hero)`, `var(--text-h2)`, `var(--text-h3)`, `var(--text-body)`, `var(--text-sm)`, `var(--text-xs)`, `var(--text-xxs)`. Or use the equivalent utility classes: `.text-hero`, `.text-h2`, `.text-h3`, `.text-body`, `.text-sm`, `.text-xs`, `.text-xxs`.
+- **Font weights**: Use tokens `var(--weight-normal)` / `var(--weight-medium)` / `var(--weight-semibold)` / `var(--weight-bold)`, or utility classes `.font-normal`, `.font-medium`, `.font-semibold`, `.font-bold`.
+- **Line height**: Use `var(--leading-tight)`, `var(--leading-normal)`, `var(--leading-relaxed)`.
+- **In templates**: Prefer utility classes (`class="text-sm font-bold"`) over inline `style=""` for font properties.
+- **In JavaScript**: Use `element.classList.add('text-sm', 'font-bold')` instead of `element.style.fontSize = '...'`. For Plotly charts, use `family: getCSSVar('--font-sans')`.
+- **Tooltips**: Use the `.meta-tooltip` class with `data-tooltip="..."` attribute, not the native `title` attribute.
+- **Buttons**: Use existing button classes (`.btn-primary`, `.btn-danger`, `.btn-save`, `.btn-stop`, `.btn-discreet`, `.action-btn`). Never set button colors inline.
+- **Dark/light themes**: Both are defined in `style.css` (`:root` for dark, `[data-theme="light"]` for light). All tokens must have values in both themes.
+
 ---
 
 ## Tech Stack

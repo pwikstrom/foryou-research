@@ -1073,7 +1073,12 @@ button {
 
 .data-table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
+}
+
+.detail-row > td {
+    overflow: hidden;
 }
 
 .data-table th {
