@@ -14,6 +14,7 @@ from ..auth import admin_required
 from .. import explorer_backend as explorer
 from fyp.recode_variables import get_factors_and_features_from_var_schema
 from fyp.studies import init_study_defs, save_study_defs
+from fyp.ingest import TikTokDDPCollection, TikTokZeeschuimerCollection
 import fyp.data_io as data_io
 import pyarrow.parquet as pq
 import ast
@@ -27,6 +28,10 @@ data_bp = Blueprint('data_bp', __name__)
 import re
 
 PCA_MIN_VARIANCE_THRESHOLD = 5.0
+
+_PLATFORM_URL_TEMPLATES: dict[str, str] = {
+    "tiktok": TikTokDDPCollection.platform_url_template,
+}
 
 def _filter_pca_components_by_variance(numeric_cols, interpretations):
     """
@@ -311,6 +316,10 @@ def api_explorer_metadata():
         metadata['filter_priority'].insert(0, 'User Tags')
     
     viz_config = get_viz_config()
+    # Inject log flag into number metadata so frontend sliders can use log scale
+    for col, cfg in viz_config.items():
+        if col in metadata and metadata[col].get('type') == 'number' and cfg.get('log'):
+            metadata[col]['log'] = True
     res = explorer.get_current_stats(df, col_types, viz_config=viz_config)
     metadata['total_stats'] = res['stats']
 
@@ -1524,8 +1533,14 @@ def api_viewer_item(study, item_id):
             record['display_donation_id'] = display_map[did_str]
     
     # Also check D_id if different?
-    # Usually D_id is same as D_donation_id or very related. 
+    # Usually D_id is same as D_donation_id or very related.
     # The map is keyed by D_donation_id typically.
+
+    # Inject Platform URL
+    src = record.get('source_platform')
+    iid = record.get('item_id')
+    if src and iid and src in _PLATFORM_URL_TEMPLATES:
+        record['platform_url'] = _PLATFORM_URL_TEMPLATES[src].format(item_id=iid)
 
     return jsonify(record)
 

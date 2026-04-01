@@ -212,6 +212,15 @@ function renderFiltersV2(metadata, sliceId) {
         availableCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
     }
 
+    // Hide categorical/list filters with 0 or 1 unique values (no filtering possible)
+    availableCols = availableCols.filter(col => {
+        const info = metadata[col];
+        if (info && (info.type === 'category' || info.type === 'list') && info.values && info.values.length <= 1) {
+            return false;
+        }
+        return true;
+    });
+
     const schemaMap = metadata.schema_map || {};
 
     // Group by Section
@@ -364,7 +373,12 @@ function renderFiltersV2(metadata, sliceId) {
                 labelRow.appendChild(maxLabel);
                 wrapper.appendChild(labelRow);
 
-                // Current Values
+                // Log scale helpers
+                const useLog = info.log === true && info.min >= 0;
+                const toLog = (v) => Math.log10(v + 1);
+                const fromLog = (v) => Math.pow(10, v) - 1;
+
+                // Current Values (linear space)
                 let currentMin = info.min;
                 let currentMax = info.max;
 
@@ -381,37 +395,47 @@ function renderFiltersV2(metadata, sliceId) {
                 minLabel.innerText = fmt(currentMin);
                 maxLabel.innerText = fmt(currentMax);
 
+                // Slider range and start values (log or linear)
+                const sliderMin = useLog ? toLog(info.min) : info.min;
+                const sliderMax = useLog ? toLog(info.max) : info.max;
+                const sliderStartMin = useLog ? toLog(currentMin) : currentMin;
+                const sliderStartMax = useLog ? toLog(currentMax) : currentMax;
+
                 // Initialize Slider
                 if (typeof noUiSlider !== 'undefined') {
                     if (info.min >= info.max) {
                         sliderDiv.style.display = 'none';
                     } else {
                         noUiSlider.create(sliderDiv, {
-                            start: [currentMin, currentMax],
+                            start: [sliderStartMin, sliderStartMax],
                             connect: true,
                             range: {
-                                'min': info.min,
-                                'max': info.max
+                                'min': sliderMin,
+                                'max': sliderMax
                             },
+                            step: useLog ? (sliderMax - sliderMin) / 200 : undefined,
                         });
 
                         sliderDiv.noUiSlider.on('update', function (values, handle) {
-                            const value = parseFloat(values[handle]);
+                            const raw = parseFloat(values[handle]);
+                            const display = useLog ? fromLog(raw) : raw;
                             if (handle === 0) {
-                                minLabel.innerText = fmt(value);
+                                minLabel.innerText = fmt(display);
                             } else {
-                                maxLabel.innerText = fmt(value);
+                                maxLabel.innerText = fmt(display);
                             }
                         });
 
                         sliderDiv.noUiSlider.on('change', function (values, handle) {
-                            const vMin = parseFloat(values[0]);
-                            const vMax = parseFloat(values[1]);
+                            const rawMin = parseFloat(values[0]);
+                            const rawMax = parseFloat(values[1]);
+                            const vMin = useLog ? fromLog(rawMin) : rawMin;
+                            const vMax = useLog ? fromLog(rawMax) : rawMax;
 
                             const f = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
 
                             // If slider is back at full range, remove the filter
-                            if (vMin <= info.min && vMax >= info.max) {
+                            if (rawMin <= sliderMin && rawMax >= sliderMax) {
                                 delete f[col];
                             } else {
                                 if (!f[col]) f[col] = { type: 'number', value: {} };
@@ -762,6 +786,10 @@ function renderStatsV2(stats1, stats2) {
         container.appendChild(card);
 
         if (s1.type === 'density') {
+            // For log-transformed variables, compute original-scale hover labels
+            const isLog = s1.transform === 'log10';
+            const toOriginal = (logVals) => logVals.map(v => Math.round(Math.pow(10, v) - 1).toLocaleString());
+
             const trace1 = {
                 x: s1.x,
                 y: s1.y,
@@ -771,7 +799,9 @@ function renderStatsV2(stats1, stats2) {
                     color: isDual ? 'rgba(76, 175, 80, 0.6)' : 'rgba(100, 180, 220, 0.7)',
                     line: { color: isDual ? 'rgba(76, 175, 80, 1.0)' : 'rgba(100, 180, 220, 1.0)', width: 1 }
                 },
-                hoverinfo: 'x+y'
+                ...(isLog
+                    ? { customdata: toOriginal(s1.x), hovertemplate: '%{customdata}<extra></extra>' }
+                    : { hoverinfo: 'x+y' })
             };
 
             const traces = [trace1];
@@ -783,7 +813,9 @@ function renderStatsV2(stats1, stats2) {
                     type: 'bar',
                     name: 'Slice 2',
                     marker: { color: 'rgba(33, 150, 243, 0.6)', line: { color: 'rgba(33, 150, 243, 1.0)', width: 1 } },
-                    hoverinfo: 'x+y'
+                    ...(isLog
+                        ? { customdata: toOriginal(s2.x), hovertemplate: '%{customdata}<extra></extra>' }
+                        : { hoverinfo: 'x+y' })
                 });
             }
 

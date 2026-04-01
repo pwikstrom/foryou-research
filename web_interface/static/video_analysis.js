@@ -121,6 +121,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             searchInput.addEventListener('input', (e) => {
                 viewerData.searchQuery = e.target.value;
+                markApplyButtonDirty(true);
             });
         }
 
@@ -278,11 +279,7 @@ async function loadViewerMetadata() {
         // Update File Info Display
         const infoSpan = document.getElementById('viewer-file-info');
         if (infoSpan) {
-            if (data.source_file && data.source_file_modified) {
-                infoSpan.innerText = `Using file: ${data.source_file} - saved ${data.source_file_modified}`;
-            } else {
-                infoSpan.innerText = "";
-            }
+            infoSpan.innerText = "";
         }
 
         viewerData.metadata = data;
@@ -319,6 +316,15 @@ function renderViewerFilters(metadata) {
     } else {
         availableCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
     }
+
+    // Hide categorical/list filters with 0 or 1 unique values (no filtering possible)
+    availableCols = availableCols.filter(col => {
+        const info = metadata[col];
+        if (info && (info.type === 'category' || info.type === 'list') && info.values && info.values.length <= 1) {
+            return false;
+        }
+        return true;
+    });
 
     const schemaMap = metadata.schema_map || {};
 
@@ -508,7 +514,12 @@ function renderViewerFilters(metadata) {
                 labelRow.appendChild(maxLabel);
                 wrapper.appendChild(labelRow);
 
-                // Current Values
+                // Log scale helpers
+                const useLog = info.log === true && info.min >= 0;
+                const toLog = (v) => Math.log10(v + 1);
+                const fromLog = (v) => Math.pow(10, v) - 1;
+
+                // Current Values (linear space)
                 let currentMin = info.min;
                 let currentMax = info.max;
 
@@ -517,11 +528,17 @@ function renderViewerFilters(metadata) {
                     if (viewerData.filters[col].value.max !== undefined) currentMax = viewerData.filters[col].value.max;
                 }
 
-                // Helper format 
+                // Helper format
                 const fmt = (n) => Math.round(n).toLocaleString();
 
                 minLabel.innerText = fmt(currentMin);
                 maxLabel.innerText = fmt(currentMax);
+
+                // Slider range and start values (log or linear)
+                const sliderMin = useLog ? toLog(info.min) : info.min;
+                const sliderMax = useLog ? toLog(info.max) : info.max;
+                const sliderStartMin = useLog ? toLog(currentMin) : currentMin;
+                const sliderStartMax = useLog ? toLog(currentMax) : currentMax;
 
                 // Initialize Slider
                 if (typeof noUiSlider !== 'undefined') {
@@ -529,32 +546,35 @@ function renderViewerFilters(metadata) {
                         sliderDiv.style.display = 'none';
                     } else {
                         noUiSlider.create(sliderDiv, {
-                            start: [currentMin, currentMax],
+                            start: [sliderStartMin, sliderStartMax],
                             connect: true,
                             range: {
-                                'min': info.min,
-                                'max': info.max
+                                'min': sliderMin,
+                                'max': sliderMax
                             },
-                            step: (info.max - info.min) > 100 ? 1 : ((info.max - info.min) / 100) // Adaptive step
+                            step: useLog ? (sliderMax - sliderMin) / 200 : ((info.max - info.min) > 100 ? 1 : ((info.max - info.min) / 100))
                         });
 
                         // Debounce slider updates
                         let debounceTimer;
                         sliderDiv.noUiSlider.on('update', function (values, handle) {
-                            const value = parseFloat(values[handle]);
+                            const raw = parseFloat(values[handle]);
+                            const display = useLog ? fromLog(raw) : raw;
                             if (handle === 0) {
-                                minLabel.innerText = fmt(value);
+                                minLabel.innerText = fmt(display);
                             } else {
-                                maxLabel.innerText = fmt(value);
+                                maxLabel.innerText = fmt(display);
                             }
                         });
 
                         sliderDiv.noUiSlider.on('change', function (values, handle) {
-                            const vMin = parseFloat(values[0]);
-                            const vMax = parseFloat(values[1]);
+                            const rawMin = parseFloat(values[0]);
+                            const rawMax = parseFloat(values[1]);
+                            const vMin = useLog ? fromLog(rawMin) : rawMin;
+                            const vMax = useLog ? fromLog(rawMax) : rawMax;
 
                             // If slider is back at full range, remove the filter
-                            if (vMin <= info.min && vMax >= info.max) {
+                            if (rawMin <= sliderMin && rawMax >= sliderMax) {
                                 delete viewerData.filters[col];
                             } else {
                                 if (!viewerData.filters[col]) viewerData.filters[col] = { type: 'number', value: {} };
@@ -675,6 +695,23 @@ function updateViewerFilterHighlights() {
         const active = cols.some(col => !!viewerData.filters[col]);
         header.classList.toggle('has-active-filter', active);
     });
+
+    markApplyButtonDirty(true);
+}
+
+
+function markApplyButtonDirty(dirty) {
+    const btn = document.getElementById('viewer-apply-filters-btn');
+    if (!btn) return;
+    if (dirty) {
+        btn.textContent = 'Apply Filters';
+        btn.classList.remove('btn-save');
+        btn.classList.add('btn-primary');
+    } else {
+        btn.textContent = 'Filters Applied';
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-save');
+    }
 }
 
 function resetViewerFilters() {
@@ -777,6 +814,8 @@ async function applyViewerFilters() {
             msgEl.innerHTML = "No videos found";
             msgEl.style.display = "block";
         }
+
+        markApplyButtonDirty(false);
 
     } catch (e) {
         console.error(e);
@@ -933,26 +972,13 @@ function renderMetadata(item) {
     const tbody = document.getElementById('viewer-metadata').querySelector('tbody');
     tbody.innerHTML = '';
 
-    // Update Vote Button Container
+    // Update Platform Link in header
     const voteContainer = document.getElementById('viewer-vote-container');
-    if (voteContainer && item.item_id) {
-        const itemIdStr = String(item.item_id);
-        const ann_ok = item['annotated_ok'];
-        const mach_ann = item['Machine Annotations'];
-
-        const isSuccess = mach_ann === 'Machine Annotated' || ann_ok === true || ann_ok === 'True' || ann_ok === 1;
-        const isFailed = mach_ann === 'Cannot Machine Annotate' || ann_ok === false || ann_ok === 'False' || ann_ok === 0;
-
-        if (isSuccess) {
-            voteContainer.innerHTML = '<span style="color: var(--color-success);">Machine Annotated</span>';
-        } else if (isFailed) {
-            voteContainer.innerHTML = '<span style="color: var(--color-danger-soft);">Cannot Machine Annotate</span>';
+    if (voteContainer) {
+        if (item.platform_url) {
+            voteContainer.innerHTML = `<a href="${item.platform_url}" target="_blank" rel="noopener noreferrer" style="color:var(--color-info); text-decoration:underline;">View on platform ↗</a>`;
         } else {
-            if (viewerData.userVotes && viewerData.userVotes.includes(itemIdStr)) {
-                voteContainer.innerHTML = '<span class="italic" style="color: var(--color-text-tertiary);">Voted</span>';
-            } else {
-                voteContainer.innerHTML = `<button class="btn-primary text-sm" style="padding: 2px 8px; cursor: pointer; border: none; border-radius: 4px;" onclick="submitVote('${itemIdStr}')">Vote to machine annotate</button>`;
-            }
+            voteContainer.innerHTML = '';
         }
     }
 
@@ -963,6 +989,7 @@ function renderMetadata(item) {
         didRow.innerHTML = `<td class="font-bold" style="color:var(--color-info);">Display ID</td><td class="font-bold" style="color:var(--color-text-primary); text-align:right;">${item.display_donation_id}</td>`;
         tbody.appendChild(didRow);
     }
+
 
 
     const priorityList = viewerData.metadata && viewerData.metadata.display_priority ? viewerData.metadata.display_priority : [];

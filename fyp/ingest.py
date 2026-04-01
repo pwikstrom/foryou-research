@@ -50,6 +50,7 @@ def _day_segment_from_hour(hour: int) -> str:
 
 class ForYouBaseCollection(ABC):
 
+    platform_url_template: str | None = None
 
     REQUIRED_COLUMNS = {
         "collection_id": "string[pyarrow]",
@@ -673,6 +674,7 @@ class ForYouCollection(ForYouBaseCollection):
 
 class TikTokDDPCollection(ForYouBaseCollection):
 
+    platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         # In addition to the required event variables, this ingester adds one extra variable:
@@ -903,6 +905,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
 class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
+    platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         # The extra_data column is used for the timezone name
