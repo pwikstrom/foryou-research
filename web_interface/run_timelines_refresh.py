@@ -39,10 +39,10 @@ if __name__ == "__main__":
         donation_first_event = {}
         
         # Load from ddp_metadata.parquet
-        if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
+        if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
             try:
                 print("Loading ddp_metadata.parquet to identify accepted donations...")
-                df = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet", verbose=False)
+                df = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)
                 
                 if df is not None and not df.empty:
                     # Filter for accepted donations

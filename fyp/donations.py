@@ -282,8 +282,8 @@ def generate_donation_metadata(
 
     old_metadata_df = pd.DataFrame()
     if load_from_disk:
-        if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
-            old_metadata_df = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet")
+        if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
+            old_metadata_df = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet")
             if verbose:
                 print(f"Loaded existing metadata from storage. Shape: {old_metadata_df.shape}")
     else:
@@ -307,7 +307,7 @@ def generate_donation_metadata(
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
             #new_metadata_df = new_metadata_df.sort_index(axis='columns').sort_values(('other','D_id')).copy()
             if save_to_disk_ok:
-                data_io.save_parquet(df=new_metadata_df, storage_location="processed_activities", filename="ddp_metadata.parquet", verbose=verbose)
+                data_io.save_parquet(df=new_metadata_df, storage_location="recoded", filename="ddp_metadata.parquet", verbose=verbose)
                 print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
             return new_metadata_df
 
@@ -398,7 +398,7 @@ def generate_donation_metadata(
     if save_to_disk_ok:
         if verbose:
             print(f"Saving updated metadata to disk. Shape: {combined_ddp_metadata.shape}")
-        data_io.save_parquet(df=combined_ddp_metadata, storage_location="processed_activities", filename="ddp_metadata.parquet", verbose=verbose)
+        data_io.save_parquet(df=combined_ddp_metadata, storage_location="recoded", filename="ddp_metadata.parquet", verbose=verbose)
 
     if verbose:
         print(f"Shape of the combined metadata DF: {combined_ddp_metadata.shape}")

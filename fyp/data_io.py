@@ -521,8 +521,8 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
                 if blob.exists():
                     with blob.open("r") as file:
                         for line in file:
-                            line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
-                            line = '{"log_script":"' + root + '",' + line[1:]
+                            #line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
+                            #line = '{"log_script":"' + root + '",' + line[1:]
                             data.append(json.loads(line))
                     return data
                 else:
@@ -533,8 +533,8 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
             # Local Primary
             with open(primary, 'r') as file:
                 for line in file:
-                    line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
-                    line = '{"log_script":"' + root + '",' + line[1:]
+                    #line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
+                    #line = '{"log_script":"' + root + '",' + line[1:]
                     data.append(json.loads(line))
             return data
                 

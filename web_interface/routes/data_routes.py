@@ -1193,8 +1193,8 @@ def api_pca_correlation_matrix():
 @login_required
 def api_persona_stats_info():
     if True:
-        if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
-            mtime = data_io.getmtime(storage_location="processed_activities", filename="ddp_metadata.parquet")
+        if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
+            mtime = data_io.getmtime(storage_location="recoded", filename="ddp_metadata.parquet")
             timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
             return jsonify({"exists": True, "timestamp": timestamp})
         return jsonify({"exists": False, "timestamp": None})
@@ -1260,7 +1260,7 @@ def api_persona_stats():
         # ----------------------
 
         filename = "ddp_metadata.parquet"
-        if not data_io.exists(storage_location="processed_activities", filename=filename):
+        if not data_io.exists(storage_location="recoded", filename=filename):
              return jsonify({"error": "Persona metadata file not found."}), 404
         
         stats_df = None
@@ -1268,13 +1268,13 @@ def api_persona_stats():
         # Load the parquet file
         try:
              stats_df = data_io.load_parquet(
-                storage_location="processed_activities",
+                storage_location="recoded",
                 filename=filename
             )
         except Exception as e:
              # Fallback: reconstruction column by column
              print(f"Error loading parquet with default settings: {e}")
-             primary, _, _, _ = data_io._resolve_paths(fyp_cf, "processed_activities", filename)
+             primary, _, _, _ = data_io._resolve_paths(fyp_cf, "recoded", filename)
              try:
                  table = pq.read_table(primary)
                  data = {}
@@ -1356,20 +1356,20 @@ def api_persona_stats():
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')
         
         # --- MERGE DONATION ANNOTATIONS ---
-        da_filename = "donation_annotations.json"
+        da_filename = "collection_annotations.json"
         try:
             # We load the annotations here
             # We must be careful about concurrency but for now basic load is fine
-            if data_io.exists(storage_location="processed_activities", filename=da_filename):
-                donation_annotations = data_io.load_json(storage_location="processed_activities", filename=da_filename) or {}
+            if data_io.exists(storage_location="recoded", filename=da_filename):
+                collection_annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
                 
                 for rec in records:
                     d_id = str(rec.get('D_donation_id', ''))
-                    if d_id and d_id in donation_annotations:
+                    if d_id and d_id in collection_annotations:
                         # Merge the annotation fields
                         # Specifically 'annotation_tags' (list) and 'display_donation_id' (str)
-                        rec['annotation_tags'] = donation_annotations[d_id].get('annotation_tags', [])
-                        rec['display_donation_id'] = donation_annotations[d_id].get('display_donation_id', "")
+                        rec['annotation_tags'] = collection_annotations[d_id].get('annotation_tags', [])
+                        rec['display_donation_id'] = collection_annotations[d_id].get('display_donation_id', "")
             else:
                  pass
         except Exception as e:
@@ -1391,7 +1391,7 @@ def api_persona_stats():
         response = jsonify(records)
         
         try:
-            mtime = data_io.getmtime(storage_location="processed_activities", filename=filename)
+            mtime = data_io.getmtime(storage_location="recoded", filename=filename)
             # Format as ISO string or similar for frontend parsing
 
             dt = datetime.fromtimestamp(mtime)
@@ -1423,12 +1423,12 @@ def api_donation_annotate():
     
     # Validation?
     
-    da_filename = "donation_annotations.json"
+    da_filename = "collection_annotations.json"
     
     # Load existing (with lock if we had one, but we rely on atomic write or loose consistency here)
     annotations = {}
-    if data_io.exists(storage_location="processed_activities", filename=da_filename):
-        annotations = data_io.load_json(storage_location="processed_activities", filename=da_filename) or {}
+    if data_io.exists(storage_location="recoded", filename=da_filename):
+        annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
         
     if donation_id not in annotations:
         annotations[donation_id] = {}
@@ -1445,7 +1445,7 @@ def api_donation_annotate():
         annotations[donation_id]['hidden'] = bool(hidden)
         
     # Save
-    data_io.save_json(data=annotations, storage_location="processed_activities", filename=da_filename)
+    data_io.save_json(data=annotations, storage_location="recoded", filename=da_filename)
     
     return jsonify({"status": "success", "donation_id": donation_id, "data": annotations[donation_id]})
 
@@ -1629,7 +1629,7 @@ def api_timeline_donations():
     # The previous logic loaded `ddp_metadata.parquet` (all donations ever).
     # We should filter THAT by allowed_donation_ids.
     
-    meta_df = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet")
+    meta_df = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet")
     
     if meta_df is None or meta_df.empty:
         return jsonify([])
@@ -1703,11 +1703,11 @@ def api_timeline_donations():
         final_valid_ids = [uid for uid in unique_ids if str(uid) in allowed_donation_ids]
         
         # Load annotations
-        da_filename = "donation_annotations.json"
+        da_filename = "collection_annotations.json"
         annotations = {}
         try:
-            if data_io.exists(storage_location="processed_activities", filename=da_filename):
-                annotations = data_io.load_json(storage_location="processed_activities", filename=da_filename) or {}
+            if data_io.exists(storage_location="recoded", filename=da_filename):
+                annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
         except:
             pass
 

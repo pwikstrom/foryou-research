@@ -16,8 +16,8 @@ from fyp.fyp_config import fyp_cf
 def init_study_defs():
     global fyp_cf
 
-    if data_io.exists(storage_location="studies", filename="studies.json"):
-        study_defs = data_io.load_json(storage_location="studies", filename="studies.json")
+    if data_io.exists(storage_location="recoded", filename="studies.json"):
+        study_defs = data_io.load_json(storage_location="recoded", filename="studies.json")
     else:
         print(f"Unable to init study defs from disk. Setting to empty dict.")
         study_defs = {}
@@ -32,7 +32,7 @@ def save_study_defs():
     if "study_defs" not in fyp_cf:
         init_study_defs()
 
-    data_io.save_json(data = fyp_cf["study_defs"], storage_location="studies", filename="studies.json")
+    data_io.save_json(data = fyp_cf["study_defs"], storage_location="recoded", filename="studies.json")
 
 
 

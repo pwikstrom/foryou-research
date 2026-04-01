@@ -710,8 +710,8 @@ def get_timeline_data(donation_id, interval='day'):
             # Try to fetch first_activity_date from ddp_metadata.parquet
             first_date = None
             try:
-                if data_io.exists(storage_location="processed_activities", filename="ddp_metadata.parquet"):
-                    ddp_meta = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet", verbose=False)
+                if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
+                    ddp_meta = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)
                     if ddp_meta is not None:
                         # Check index or column for donation_id
                         if ddp_meta.index.name == 'D_donation_id' or ddp_meta.index.name is None:
@@ -747,13 +747,13 @@ def get_timeline_data(donation_id, interval='day'):
 
 def load_display_id_map():
     """
-    Loads donation_annotations.json and returns a map of { raw_id: display_id }.
+    Loads collection_annotations.json and returns a map of { raw_id: display_id }.
     """
     mapping = {}
-    da_filename = "donation_annotations.json"
+    da_filename = "collection_annotations.json"
     try:
-        if data_io.exists(storage_location="processed_activities", filename=da_filename):
-            annotations = data_io.load_json(storage_location="processed_activities", filename=da_filename) or {}
+        if data_io.exists(storage_location="recoded", filename=da_filename):
+            annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
             for raw_id, data in annotations.items():
                 disp = data.get('display_donation_id')
                 if disp and str(disp).strip():

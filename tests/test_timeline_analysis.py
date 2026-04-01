@@ -17,7 +17,7 @@ init_study_defs()
 donation_id = "88f5fb9a-0c4c-4abc-916d-f47d990becc4"
 
 # Load first_event_ts from ddp_metadata
-df_meta = data_io.load_parquet(storage_location="processed_activities", filename="ddp_metadata.parquet", verbose=False)
+df_meta = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)
 first_event_col = ('personas', 'first_event_ts') if ('personas', 'first_event_ts') in df_meta.columns else 'first_event_ts'
 ts = df_meta.loc[donation_id, first_event_col] if donation_id in df_meta.index else None
 first_date = str(ts)[:10] if pd.notna(ts) else None

@@ -9,19 +9,16 @@ Date:
 
 
 import pandas as pd
-import json
-import os
 from collections import deque
 import numpy as np
 import datetime as _dt
 
 from fyp.recode_variables import infer_timezone_offset
-from fyp.donations import generate_donation_metadata#, add_session_info_to_ddp_log
+from fyp.donations import generate_donation_metadata
 from fyp.types import convert_dtypes_to_pyarrow 
 from fyp.utils import clean_url
 from zoneinfo import ZoneInfo
 import fyp.data_io as data_io
-#from fyp.fyp_config import fyp_cf
 
 from typing import Literal, Type
 from abc import ABC, abstractmethod
@@ -77,7 +74,7 @@ class ForYouBaseCollection(ABC):
         self.state: Literal["empty", "raw", "processed"] = "empty"
         self.additional_columns = {}
         self.raw_path = None
-        self.processed_storage_location = "processed_activities"
+        self.processed_storage_location = "recoded"
         self.min_required_rows_per_raw_file = 10
         self.discarded_raw_files = []
         self.source_platform = None
@@ -137,7 +134,7 @@ class ForYouBaseCollection(ABC):
             print(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first.")
             return
         
-        fn = f"{self.source_platform}_{self.data_source}_processed.parquet"
+        fn = f"{self.source_platform}_{self.data_source}_processed_activities.parquet"
 
         if len(self.data) > 0:
             local_time_cols = [c for c in self.data.columns if c.startswith("local_")]
@@ -147,7 +144,7 @@ class ForYouBaseCollection(ABC):
                 
             _ = data_io.save_parquet(
                 df=self.data,
-                storage_location='processed_activities',
+                storage_location="recoded",
                 filename=fn)
 
         for collection in self.collections:
@@ -177,13 +174,19 @@ class ForYouBaseCollection(ABC):
         if self.raw_path is None:
             raise ValueError("No raw path has been set for this collection.")
 
-        if os.path.isdir(self.raw_path):
-            all_the_files = [os.path.join(self.raw_path, f) for f in os.listdir(self.raw_path) if not f.startswith(".")]
-        else:
-            all_the_files = [self.raw_path]
 
 
-        all_the_files = [f for f in all_the_files if os.path.basename(f) not in skip_these_raw_files+self.discarded_raw_files]
+        all_the_files = [fn for fn in data_io.listdir(self.raw_path) if not fn.startswith(".")]
+
+        #if os.path.isdir(self.raw_path):
+        #    all_the_files = [os.path.join(self.raw_path, f) for f in os.listdir(self.raw_path) if not f.startswith(".")]
+        #else:
+        #    all_the_files = [self.raw_path]
+
+        #all_the_files = [f for f in all_the_files if os.path.basename(f) not in skip_these_raw_files+self.discarded_raw_files]
+
+        all_the_files = [fn for fn in all_the_files if fn not in skip_these_raw_files+self.discarded_raw_files]
+
 
 
 
@@ -196,10 +199,11 @@ class ForYouBaseCollection(ABC):
                 one_df = self.load_single_raw(fn)
 
                 if len(one_df) > 0:
-                    one_df["ts_added_to_dataset"] = pd.to_datetime(os.path.getmtime(fn), unit="s")
-                    one_df["raw_file"] = os.path.basename(fn)
+                    mtime = data_io.getmtime(storage_location=self.raw_path, filename = fn)
+                    one_df["ts_added_to_dataset"] = pd.to_datetime(mtime, unit="s")
+                    one_df["raw_file"] = fn
 
-                    if self.verbose: print(f"Loaded file: {os.path.basename(fn)}. Number of rows: {len(one_df):,}")
+                    if self.verbose: print(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
             if False:#except Exception as e:
                 if self.verbose: print(f"Cannot load file: {fn}")
 
@@ -207,8 +211,8 @@ class ForYouBaseCollection(ABC):
             if len(one_df) >= self.min_required_rows_per_raw_file:
                 many_dfs.append(one_df)
             else:
-                if self.verbose: print(f"Discarding file: {os.path.basename(fn)}. Too few rows: {len(one_df):,}")
-                self.discarded_raw_files.append(os.path.basename(fn))
+                if self.verbose: print(f"Discarding file: {fn}. Too few rows: {len(one_df):,}")
+                self.discarded_raw_files.append(fn)
             
 
         if len(many_dfs) > 1:
@@ -496,7 +500,7 @@ class ForYouCollection(ForYouBaseCollection):
 
     def load_processed(self):
 
-        processed_activity_files = [fn for fn in data_io.listdir(storage_location=self.processed_storage_location) if fn.endswith("_processed.parquet")]
+        processed_activity_files = [fn for fn in data_io.listdir(storage_location=self.processed_storage_location) if fn.endswith("_processed_activities.parquet")]
 
         if len(processed_activity_files) == 0:
             if self.verbose:
@@ -547,7 +551,7 @@ class ForYouCollection(ForYouBaseCollection):
         self.discarded_raw_files = list(set(self.discarded_raw_files))
 
         if len(self.data) > 0:
-            skip_these_raw_files = [os.path.basename(fn) for fn in self.data['raw_file'].unique()] + self.discarded_raw_files
+            skip_these_raw_files = self.data['raw_file'].unique().tolist() + self.discarded_raw_files
             if self.verbose:
                 print(f"Skipping {len(skip_these_raw_files):,} raw files that are already discarded or already in the collection.")
         else:
@@ -651,7 +655,7 @@ class ForYouCollection(ForYouBaseCollection):
 
         _ = data_io.save_parquet(
             df=self.stats,
-            storage_location="processed_activities",
+            storage_location="recoded",
             filename="ddp_metadata.parquet",
             asyncronous=False)
 
@@ -678,7 +682,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
         super().__init__(collection_id, verbose)
         self.source_platform = "tiktok"
         self.data_source = "ddp"
-        self.raw_path = "/Users/<user>/fyp_local/activity_data/ddp/ddp_raw"
+        self.raw_path = "ddp_raw" #"/Users/<user>/fyp_local/activity_data/ddp/ddp_raw"
         self.min_required_rows_per_raw_file = 10
 
         self.additional_columns = {
@@ -689,8 +693,11 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
 
     def load_single_raw(self, filename: str) -> pd.DataFrame:
-        with open(filename, "r") as f:
-            donation_dict = json.load(f)
+
+        donation_dict = data_io.load_json(storage_location = self.raw_path, filename = filename)
+
+        #with open(filename, "r") as f:
+        #    donation_dict = json.load(f)
 
         # find list of dicts
         donation_items = []
@@ -718,7 +725,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # watch events are referred to as 'videolist' by TikTok 
         n_watch_events = len(df[df['event_type'] == 'videolist'])
         if n_watch_events <= 10:
-            if self.verbose: print(f"Discarding {os.path.basename(filename)} as it only has {n_watch_events} watch events.")
+            if self.verbose: print(f"Discarding {filename} as it only has {n_watch_events} watch events.")
             return pd.DataFrame()
 
         return df
@@ -901,7 +908,7 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         # The extra_data column is used for the timezone name
 
         super().__init__(collection_id, verbose)
-        self.raw_path = "/Users/<user>/fyp_local/activity_data/zeeschuimer/zeeschuimer_raw"
+        self.raw_path = "zeeschuimer_raw" #"/Users/<user>/fyp_local/activity_data/zeeschuimer/zeeschuimer_raw"
         self.min_required_rows_per_raw_file = 1
         self.source_platform = "tiktok"
         self.data_source = "zeeschuimer"
@@ -916,12 +923,14 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
 
     def load_single_raw(self, filename: str) -> pd.DataFrame:
-        data = []
-        with open(filename, 'r') as file:
-            for line in file:
-                data.append(json.loads(line))
+        #data = []
+        #with open(filename, 'r') as file:
+        #    for line in file:
+        #        data.append(json.loads(line))
+            
+        data = data_io.read_ndjson_file(storage_location = self.raw_path, filename = filename)
 
-        if len(data) > 0:
+        if data is not None and len(data) > 0:
             df = pd.json_normalize(data)
 
             # Only keeping data from accepted tiktok urls

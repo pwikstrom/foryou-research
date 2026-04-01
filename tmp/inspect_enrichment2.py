@@ -21,8 +21,8 @@ try:
 
     # 2. Inspect enrichment status
     print("\n--- Enrichment Status ---")
-    if data_io.exists(storage_location="processed_activities", filename="enrichment_status.parquet"):
-        df = data_io.load_parquet(storage_location="processed_activities", filename="enrichment_status.parquet")
+    if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+        df = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
         print("Columns:", df.columns.tolist())
         if 'scrape_status' in df.columns and 'annotation_status' in df.columns:
             print("Status combinations:")
@@ -30,6 +30,6 @@ try:
         print("Sample row:")
         print(df.head(1).T)
     else:
-        print("enrichment_status.parquet not found in processed_activities.")
+        print("enrichment_status.parquet not found.")
 except Exception as e:
     print("Error:", e)

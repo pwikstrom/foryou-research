@@ -145,7 +145,7 @@ fyp_main_v02/
 
 ## Key Files
 
-- **`fyp/data_io.py`**: Always use this module for file access. Abstracts local vs. GCS storage. Use named locations (`"cache"`, `"studies"`, `"users"`) rather than raw paths.
+- **`fyp/data_io.py`**: Always use this module for file access. Abstracts local vs. GCS storage. Use named locations (`"cache"`, `"recoded"`, `"users"`) rather than raw paths.
 - **`fyp/fyp_config.py`**: Config loader. Walks up the directory tree looking for `__proj__.py` to locate the project root. Call `fyp_config.initialize()` to set up.
 - **`fyp/types.py`**: PyArrow-aware dtype conversion helpers. Use these for dtype handling.
 - **`web_interface/`**: Contains the Flask app routes and templates.
@@ -206,7 +206,7 @@ python web_interface/run_meta_refresh_viewer.py  # Viewer metadata refresh
 `__proj__.py` is an empty sentinel file. `fyp_config.py` walks up the directory tree looking for it to locate the project root — this makes imports work regardless of working directory.
 
 ### Data I/O Abstraction
-`fyp/data_io.py` abstracts local vs. GCS storage. Use named locations (`"cache"`, `"studies"`, `"users"`) rather than raw paths. Toggle `use_gcs_*` flags in config to switch backends.
+`fyp/data_io.py` abstracts local vs. GCS storage. Use named locations (`"cache"`, `"recoded"`, `"users"`) rather than raw paths. Toggle `use_gcs_*` flags in config to switch backends.
 
 ### Parquet & PyArrow
 Data is stored in Parquet. Complex types (dicts, lists) are JSON-stringified before storage. Surrogate characters are escaped. Use `fyp/types.py` helpers for dtype conversion.
