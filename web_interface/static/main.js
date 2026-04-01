@@ -24,7 +24,13 @@ function getCSSVar(name) {
                 }
             }
         }
-        return originalFetch.apply(this, arguments);
+        return originalFetch.apply(this, arguments).then(function (response) {
+            if (response.status === 401) {
+                window.location.href = '/login';
+                return Promise.reject(new Error('Session expired'));
+            }
+            return response;
+        });
     };
 })();
 

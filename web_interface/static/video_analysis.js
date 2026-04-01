@@ -227,7 +227,7 @@ async function loadViewerStudies() {
     }
 }
 
-function changeViewerStudy(val) {
+async function changeViewerStudy(val) {
     const selector = document.getElementById('viewer-study-select');
     const studyName = val || selector.value;
 
@@ -243,11 +243,7 @@ function changeViewerStudy(val) {
     const searchInput = document.getElementById('viewer-search-input');
     if (searchInput) searchInput.value = "";
 
-    // Parallel fetch: Load metadata (builds UI) AND immediately load unfiltered IDs to play first video 
-    loadViewerMetadata();
-    applyViewerFilters(); // Fetch IDs in the background immediately
-
-    // Also clear player
+    // Clear player
     document.getElementById('viewer-video').src = "";
     document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "";
 
@@ -256,6 +252,11 @@ function changeViewerStudy(val) {
     msgEl.innerHTML = funLoader;
     msgEl.style.display = "block";
     updateNavUI();
+
+    // Metadata schema must be ready before loading items, otherwise renderMetadata
+    // skips all fields (schemaMap is empty). Load metadata first, then fetch IDs.
+    await loadViewerMetadata();
+    applyViewerFilters();
 }
 
 async function loadViewerMetadata() {

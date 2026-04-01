@@ -1,3 +1,4 @@
+from flask import request, jsonify, redirect, url_for
 from flask_login import LoginManager
 from fyp.fyp_config import PROJECT_ROOT, fyp_cf
 import web_interface.auth as auth
@@ -9,6 +10,13 @@ login_manager.anonymous_user = auth.AnonymousUser
 
 # Initialize User Manager
 user_manager = auth.UserManager(storage_location="users")
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    if request.path.startswith('/api/'):
+        return jsonify({"error": "unauthorized"}), 401
+    return redirect(url_for('auth_bp.login'))
+
 
 @login_manager.user_loader
 def load_user(user_id):

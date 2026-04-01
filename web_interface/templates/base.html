@@ -19,13 +19,6 @@
 <body>
     {% block content %}{% endblock %}
 
-    <script src="{{ url_for('static', filename='main.js') }}"></script>
-
-    <script src="{{ url_for('static', filename='explore.js') }}?v=3"></script>
-    <script src="{{ url_for('static', filename='video_analysis.js') }}?v=3"></script>
-    <script src="{{ url_for('static', filename='correlations.js') }}"></script>
-    <script src="{{ url_for('static', filename='timelines.js') }}"></script>
-    <script src="{{ url_for('static', filename='collections.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 
