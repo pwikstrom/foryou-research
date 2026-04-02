@@ -8,6 +8,7 @@ Date:
 """
 
 
+import re
 import pandas as pd
 from collections import deque
 import numpy as np
@@ -57,7 +58,7 @@ class ForYouBaseCollection(ABC):
         "raw_file": "string[pyarrow]",
         "source_platform": "string[pyarrow]",
         "data_source": "string[pyarrow]",
-        "event_type": "string[pyarrow]",
+        "activity_type": "string[pyarrow]",
         "utc_timestamp": "timestamp[ns][pyarrow]",
         "tz_offset": "int64[pyarrow]",
         "item_id": "string[pyarrow]",
@@ -92,7 +93,7 @@ class ForYouBaseCollection(ABC):
     def load_processed(
         self, 
         processed_fn: str, 
-        drop_similar_event_sequences: bool = True):
+        drop_similar_activity_sequences: bool = True):
         
         if self.verbose:
             print(f"Loading processed data from {processed_fn}. Data source: {self.source_platform}_{self.data_source}")
@@ -109,22 +110,22 @@ class ForYouBaseCollection(ABC):
                     print(f"Warning: There is data in this collection but the state is '{self.state}'. Existing data must be processed. Cannot load new data.")
                 return
             if self.verbose:
-                print(f"Adding {len( new_processed_data):,} new processed events to existing {len(self.data):,} events.")
+                print(f"Adding {len( new_processed_data):,} new processed activities to existing {len(self.data):,} activities.")
             self.data = pd.concat([self.data, new_processed_data], ignore_index=True)
         else:
             if self.verbose:
-                print(f"Loading {len(new_processed_data):,} processed events.")
+                print(f"Loading {len(new_processed_data):,} processed activities.")
             self.data = new_processed_data.copy()
 
         self.state = "processed"
 
-        if drop_similar_event_sequences:
+        if drop_similar_activity_sequences:
             if self.verbose:
-                print("Dropping events from files with overlapping/similar event sequences")
+                print("Dropping activities from files with overlapping/similar activity sequences")
             self.identify_similar_file_content(drop_them=True)
 
         if self.verbose:
-            print(f"There are now {len(self.data):,} events in the collection.")
+            print(f"There are now {len(self.data):,} activities in the collection.")
 
 
 
@@ -208,7 +209,7 @@ class ForYouBaseCollection(ABC):
             if False:#except Exception as e:
                 if self.verbose: print(f"Cannot load file: {fn}")
 
-            # I will keep data from this file if there are at least 10 events. (just an arbitrary number)
+            # I will keep data from this file if there are at least 10 activities. (just an arbitrary number)
             if len(one_df) >= self.min_required_rows_per_raw_file:
                 many_dfs.append(one_df)
             else:
@@ -282,28 +283,28 @@ class ForYouBaseCollection(ABC):
         drop_them: bool = True
         ) -> dict[str, set]:
         """
-        Identify similar event collections based on timestamp overlap.
+        Identify similar activity collections based on timestamp overlap.
 
-        check for similarities in the event collections by looking for the same timestamps based on some kind of grouping variable. 
-        The assumption is that if two event collections have a lot of the same timestamps, they are likely to be duplicates
+        check for similarities in the activity collections by looking for the same timestamps based on some kind of grouping variable. 
+        The assumption is that if two activity collections have a lot of the same timestamps, they are likely to be duplicates
 
         Parameters
         ----------
         overlap_threshold : float, default 0.2
-            The threshold for timestamp overlap ratio to consider event collections as similar.
+            The threshold for timestamp overlap ratio to consider activity collections as similar.
         group_identifier : str, default "raw_file"
             The column to group the data by.
         timestamp_column : str, default "utc_timestamp"
             The column containing the timestamps.
         drop_them : bool, default False
-            Whether to drop the event collections that are similar.
+            Whether to drop the activity collections that are similar.
 
         Returns
         -------
         dict
-            A dictionary containing identifiers of event collections:
-            - "drops": identifiers of event collections to be dropped.
-            - "keepers": identifiers of event collections to keep.
+            A dictionary containing identifiers of activity collections:
+            - "drops": identifiers of activity collections to be dropped.
+            - "keepers": identifiers of activity collections to keep.
         """
 
         if self.state != "processed":
@@ -315,7 +316,7 @@ class ForYouBaseCollection(ABC):
         raw_files_1 = set(self.data["raw_file"].values)
 
         # starting off with basic deduplication.
-        self.data = self.data.drop_duplicates(subset=["item_id","utc_timestamp","event_type","tz_offset"]).copy()
+        self.data = self.data.drop_duplicates(subset=["item_id","utc_timestamp","activity_type","tz_offset"]).copy()
 
         raw_files_2 = set(self.data["raw_file"].values)
 
@@ -328,13 +329,13 @@ class ForYouBaseCollection(ABC):
 
 
         # dropping df cols and changing timestamp column to integers which makes set operations faster
-        fine_events_df = self.data[[group_identifier,timestamp_column]].copy()
-        fine_events_df[timestamp_column] = fine_events_df[timestamp_column].astype('int64') / 1e9
+        fine_activities_df = self.data[[group_identifier,timestamp_column]].copy()
+        fine_activities_df[timestamp_column] = fine_activities_df[timestamp_column].astype('int64') / 1e9
 
 
-        # the logic is based on comparing sets of timestamps, assuming that it is unlikely that two event collections have
+        # the logic is based on comparing sets of timestamps, assuming that it is unlikely that two activity collections have
         # the same set of timestamps
-        ts_sets = fine_events_df.groupby(group_identifier, observed=False)[timestamp_column].apply(set).to_dict()
+        ts_sets = fine_activities_df.groupby(group_identifier, observed=False)[timestamp_column].apply(set).to_dict()
         unique_idenfifiers = list(ts_sets.keys())
         unique_idenfifiers = sorted(unique_idenfifiers, key=lambda x: len(ts_sets[x]), reverse=False)
 
@@ -357,7 +358,7 @@ class ForYouBaseCollection(ABC):
 
         if drop_them:
             if self.verbose and len(drops) > 0:
-                print(f"Dropping {len(drops)} event collections from the dataset.")
+                print(f"Dropping {len(drops)} activity collections from the dataset.")
             self.data = self.data[self.data[group_identifier].isin(keepers)].copy()
         else:
             return {"drops": drops, "keepers": keepers}
@@ -517,7 +518,7 @@ class ForYouCollection(ForYouBaseCollection):
             ForYouBaseCollection.load_processed(
                 self, 
                 processed_fn=fn, 
-                drop_similar_event_sequences=(concatation_required and i>=len(processed_activity_files)-1) # drop similar on the last one only
+                drop_similar_activity_sequences=(concatation_required and i>=len(processed_activity_files)-1) # drop similar on the last one only
             )
 
 
@@ -594,12 +595,12 @@ class ForYouCollection(ForYouBaseCollection):
 
 
         for collection in processed_collections:
-            print(f"Migrated {len(collection.data):,} events from '{collection.source_platform}_{collection.data_source}'.")
+            print(f"Migrated {len(collection.data):,} activities from '{collection.source_platform}_{collection.data_source}'.")
             collection.data = pd.DataFrame()
             collection.state = "empty"
 
         if self.verbose:
-            print(f"Done migrating the sub collections. There are now {len(self.data):,} events in the top collection. Sub collections are empty.")
+            print(f"Done migrating the sub collections. There are now {len(self.data):,} activities in the top collection. Sub collections are empty.")
 
 
 
@@ -614,7 +615,7 @@ class ForYouCollection(ForYouBaseCollection):
         mask = (self.data.data_source=="zeeschuimer") & (self.data.collection_id.map(lambda x:x != "BASELINE_2024"))
         self.data.loc[mask,"collection_id"] = "Zee_generic"
 
-        #{u:u for u in combined_events_df.columns}
+        #{u:u for u in combined_activities_df.columns}
             
         self.data_old_format = self.data.rename(columns={
                 #'ts_added_to_dataset': 'ts_added_to_dataset',
@@ -622,7 +623,7 @@ class ForYouCollection(ForYouBaseCollection):
                 'source_platform': 'source_platform',
                 'tz_offset': 'T_tz_offset',
                 #'raw_file': 'raw_file',
-                'event_type': 'D_feature_name',
+                'activity_type': 'D_feature_name',
                 #'item_id': 'item_id',
                 'data_source': 'data_source',
                 'collection_id': 'D_donation_id',
@@ -631,7 +632,7 @@ class ForYouCollection(ForYouBaseCollection):
                 'local_week': 'T_local_week',
                 'local_day_segment': 'T_local_day_segment',
                 'local_date': 'T_local_date',
-                "watch_duration": "D_watch_duration",
+                "play_duration": "D_watch_duration",
                 "extra_data":"D_primary_value"
             }, inplace=False).copy()
         
@@ -677,8 +678,8 @@ class TikTokDDPCollection(ForYouBaseCollection):
     platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
-        # In addition to the required event variables, this ingester adds one extra variable:
-        # watch_duration [int64[pyarrow]] - the duration of the watch in seconds
+        # In addition to the required activity variables, this ingester adds one extra variable:
+        # play_duration [int64[pyarrow]] - the duration of the play in seconds
         # 
         # The extra_data column is used for the comment string, the account name that was just followed, etc...
         super().__init__(collection_id, verbose)
@@ -688,7 +689,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
         self.min_required_rows_per_raw_file = 10
 
         self.additional_columns = {
-            "watch_duration": "int64[pyarrow]"
+            "play_duration": "int64[pyarrow]"
         }
 
 
@@ -711,7 +712,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
                 for item in obj:
                     if isinstance(item, dict) and item:
                         donation_items.append({
-                            "event_type": (feature or '').lower(),
+                            "activity_type": (feature or '').lower(),
                             "variable_list": [k.lower() for k in item.keys()],
                             "value_list": list(item.values())
                         })
@@ -723,11 +724,11 @@ class TikTokDDPCollection(ForYouBaseCollection):
         if len(donation_items) > 0:
             df = pd.DataFrame.from_records(donation_items)
 
-        # a data donation package without at least a few watch events is not useful       
-        # watch events are referred to as 'videolist' by TikTok 
-        n_watch_events = len(df[df['event_type'] == 'videolist'])
-        if n_watch_events <= 10:
-            if self.verbose: print(f"Discarding {filename} as it only has {n_watch_events} watch events.")
+        # a data donation package without at least a few play activities is not useful       
+        # play activities are referred to as 'videolist' by TikTok 
+        n_play_activities = len(df[df['activity_type'] == 'videolist'])
+        if n_play_activities <= 10:
+            if self.verbose: print(f"Discarding {filename} as it only has {n_play_activities} play activities.")
             return pd.DataFrame()
 
         return df
@@ -746,13 +747,13 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # and the value (e.g. 'https://www.tiktok.com/...') at the corresponding indeces. At index 0 is always the date
         # and I'm only unpacking index 1 in addition of date even though there may be additional data in the lists.
 
-        # if 'date' is not the first element in the variable_list, something is wrong with this event
-        # so I keep events/rows that have at least two elements in the variable_list and the first element is 'date'
+        # if 'date' is not the first element in the variable_list, something is wrong with this activity
+        # so I keep activities/rows that have at least two elements in the variable_list and the first element is 'date'
         mask_date = df['variable_list'].map(lambda x: isinstance(x, list) and len(x) > 1 and x[0] == 'date')
         df = df[mask_date].copy()
 
-        mask_event_type = df['event_type'].map(lambda x:not ("chat history with" in x))
-        df = df[mask_event_type].copy()
+        mask_activity_type = df['activity_type'].map(lambda x:not ("chat history with" in x))
+        df = df[mask_activity_type].copy()
 
         # get the date from index zero (I don't need the variable name)
         df['date'] = pd.to_datetime(df['value_list'].str[0], format='%Y-%m-%d %H:%M:%S', errors='coerce')
@@ -783,8 +784,8 @@ class TikTokDDPCollection(ForYouBaseCollection):
         item_ids = item_ids_from_url.where(digits)
 
         # since items are extracted from the video url, the primary label must be 'link' and
-        # the event type must not be null (assuming it is watch, fave or something like that)
-        mask = (df["primary_label"]=="link") & (df["event_type"].notna())
+        # the activity type must not be null (assuming it is play, fave or something like that)
+        mask = (df["primary_label"]=="link") & (df["activity_type"].notna())
         df["item_id"] = item_ids.where(mask)
         
         # nullify extra_data where item_id was extracted to get rid of redundant data - I don't 
@@ -796,23 +797,24 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
 
         # -----------------------------------------------------
-        # event_type: 
+        # activity_type: 
 
-        # map event types
-        df["event_type"] = df["event_type"].map({
-            'videolist':'watch', 'commentslist':'comment', 'post':'post',
+        # map activity types
+        df["activity_type"] = df["activity_type"].map({
+            'videolist':'play', 'commentslist':'comment', 'post':'post',
             'searchlist':'search', 'fanslist':'followed_by', 'following':'following',
             'itemfavoritelist':'fave', 'favoritevideolist':'fave'
         })
+        reaction_activities = {"comment","fave","share"}
         
-        # event_type is NA for login events - this fixes that by creating a new event type
-        df.loc[df[df["primary_label"]=="ip"].index,"event_type"] = "login_event"
+        # activity_type is NA for login activities - this fixes that by creating a new activity type
+        df.loc[df[df["primary_label"]=="ip"].index,"activity_type"] = "login"
         
-        # Convert event_type to pyarrow string
-        df["event_type"] = df["event_type"].astype("string[pyarrow]")
+        # Convert activity_type to pyarrow string
+        df["activity_type"] = df["activity_type"].astype("string[pyarrow]")
 
-        # cleanup - remove watch events that don't have an item_id
-        df = df[((df["event_type"] != "watch") | (df["item_id"].notna()))].copy()
+        # cleanup - remove play activities that don't have an item_id
+        df = df[((df["activity_type"] != "play") | (df["item_id"].notna()))].copy()
         
 
         # -----------------------------------------------------
@@ -835,60 +837,122 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
 
         # -----------------------------------------------------
-        # It seems like the data donation packages keep watch logs for a certain time back
+        # It seems like the data donation packages keep play logs for a certain time back
         # in time, but they keep other engagement stats for longer. It is difficult to handle
-        # engagement stats without connection to a watch event, so I remove all events before 
-        # the first watch event. It feels a bit brutal to throw away data, but I'm not sure what else to do.
-        #if (df["event_type"] == "watch").any():
-        #    first_watch_idx = df[df["event_type"] == "watch"].index[0]
-        #    df = df.loc[first_watch_idx:].copy()
+        # engagement stats without connection to a play activity, so I remove all activities before 
+        # the first play activity. It feels a bit brutal to throw away data, but I'm not sure what else to do.
+        #if (df["activity_type"] == "play").any():
+        #    first_play_idx = df[df["activity_type"] == "play"].index[0]
+        #    df = df.loc[first_play_idx:].copy()
 
         #print(len(df))
 
 
         # ----------------------------------------------------------------------------------------------
-        # in the code block below I am associating events without items to the item_id of the previous event (if possible) 
-        # it is principally donw for comments that doesn't have an item_id in the data. So my assumption is that
-        # the comment is associated with the item_id of the previous event.
+        # Associate comments without an item_id to the item_id of the preceding activity within
+        # the same session. Only comments are backfilled — other activity types retain their
+        # original item_id (or null).
 
-        # 1. calculate time between events (in seconds)
+        # 1. calculate time between activities (in seconds)
         df['delta'] = df['utc_timestamp'] - df['utc_timestamp'].shift(1)
         df['delta'] = df['delta'].dt.total_seconds()
 
-        # 2. use the time delta to establish groups of events that are very close to each other
+        # 2. use the time delta to establish groups of activities that are very close to each other
         # and which I can assume were part of the same TikTok session. I set the limit to 180
-        # seconds - this is arbitrary, but it is a reasonable amount of max time to 
+        # seconds - this is arbitrary, but it is a reasonable amount of max time to
         # spend on a video and potentially engage with it, making a comment for instance
         df['session_break'] = (df['delta'].isna()) | (df['delta'] > 180)
         df['session_id'] = df['session_break'].astype(bool).cumsum()
 
-        # 3. I need to get rid of events at the beginning of sessions that doesn't have an item.
-        # since I am searching for the item of the preceding event. I create a binary mask
-        # indicating if a row has a valid item_id (1) or not (0)
-        has_item = df['item_id'].notna().astype(int) 
-        
-        # 4. By cumulatively adding up the 'has_item', I get a non-zero value for all events following the
-        # first event with an item in a session.
-        cumulative_items = has_item.groupby(df['session_id']).cumsum()
-        
-        # 5. As I cannot associate the events at the beginning of sessions with an item, 
-        # I might as well drop those rows.
-        #df = df[cumulative_items > 0].copy()
+        # 3. Forward-fill item_id within each session, then apply only to comment rows that
+        # are missing an item_id. All other activity types keep their original value.
+        ffilled_item_id = df.groupby('session_id')['item_id'].ffill()
+        comment_missing = (df['activity_type'] == 'comment') & df['item_id'].isna()
+        df.loc[comment_missing, 'item_id'] = ffilled_item_id[comment_missing]
 
-        # 6. Propagate the last valid item_id forward within each session to associate with subsequent events
-        df['item_id'] = df.groupby('session_id')['item_id'].ffill()
-        
-        #print(len(df))
-
+        df.drop(columns=['session_break', 'session_id'], inplace=True)
 
 
         # -----------------------------------------------------
-        # watch_duration is a crucial property of the watch event in ddps. I am using delta to get a value for watch_duration. 
-        # I assume that if delta is larger a certain value the user is no longer watching. How long? I'm guessing
-        # 10 minutes (600 seconds) even though I recognise that you can in theory remain longer on a video.
-        # But doing that doesn't feel very TikTok-like
-        df.rename(columns={"delta": "watch_duration"}, inplace=True)
-        df["watch_duration"] = df["watch_duration"].map(lambda x: x if pd.notna(x) and x <= 600 else pd.NA).astype("int64[pyarrow]")
+        # play_duration: assigned only to 'play' activities, derived from delta (time elapsed
+        # since the previous activity). Delta serves as a proxy for how long the user spent
+        # on the video before the next recorded event.
+        #
+        # When a play activity is directly preceded by other activities sharing the same
+        # item_id (e.g. a comment on the same video), those deltas represent time spent on
+        # the same item and should be attributed to the first play in the run. All other
+        # rows in such a run get play_duration = NA. Non-play activities always get NA.
+        # Durations > 600 seconds are capped to NA (10 min max assumed per video).
+
+        # 4. Precompute forward_delta once on the full dataframe: for each row, the time
+        # until the *next* event. This is the correct attribution of dwell time to an activity.
+        forward_delta = df['delta'].shift(-1)
+
+        # Default assignment: play activities get forward_delta, everything else gets NA.
+        df['play_duration'] = forward_delta.where(df['activity_type'] == 'play')
+
+        # 5. Detect consecutive same-item_id runs of length > 1. A row is a non-first member
+        # of a run when its item_id equals the previous row's item_id (and item_id is not null).
+        # Such runs are vanishingly rare (~1/10,000 activities are non-play), so we iterate.
+        is_continuation = df['item_id'].notna() & (df['item_id'] == df['item_id'].shift(1))
+
+        if is_continuation.any():
+            # Walk each continuation backward to find the full run, then aggregate.
+            continuation_idxs = df.index[is_continuation].tolist()
+            visited: set[int] = set()
+            for idx in continuation_idxs:
+                if idx in visited:
+                    continue
+                # Find the start of this run by walking back
+                run_item = df.at[idx, 'item_id']
+                run_start = idx
+                while run_start - 1 in df.index and pd.notna(df.at[run_start - 1, 'item_id']) and df.at[run_start - 1, 'item_id'] == run_item:
+                    run_start -= 1
+                # Find the end of the run by walking forward
+                run_end = idx
+                while run_end + 1 in df.index and pd.notna(df.at[run_end + 1, 'item_id']) and df.at[run_end + 1, 'item_id'] == run_item:
+                    run_end += 1
+                run_slice = list(range(run_start, run_end + 1))
+                visited.update(run_slice)
+
+                # Find the first play activity in the run
+                play_rows = [i for i in run_slice if df.at[i, 'activity_type'] is not pd.NA and df.at[i, 'activity_type'] == 'play']
+                if not play_rows:
+                    df.loc[run_slice, 'play_duration'] = pd.NA
+                    continue
+
+                # Sum forward_delta across all rows in the run using the full-df precomputed
+                # series, so the last row's contribution (gap to the row after the run) is
+                # correctly included — slicing before shifting would lose it.
+                first_play = play_rows[0]
+                total_delta = forward_delta.loc[run_slice].sum()
+                df.loc[run_slice, 'play_duration'] = pd.NA
+                df.at[first_play, 'play_duration'] = total_delta
+
+                # Record the activity types of the non-lead rows in the run on the lead play's
+                # extra_data column, as a comma-separated string (e.g. "fave" or "fave,comment").
+                other_parts = []
+                for i in run_slice:
+                    if i == first_play:
+                        continue
+                    atype = df.at[i, 'activity_type']
+                    if atype is pd.NA:
+                        continue
+                    edata = df.at[i, 'extra_data']
+                    if edata is not pd.NA:
+                        edata_clean = re.sub(r'[\s,]+', ' ', str(edata)).strip()
+                        other_parts.append(f"{atype}:{edata_clean}")
+                    else:
+                        other_parts.append(atype)
+                if other_parts:
+                    df.at[first_play, 'extra_data'] = ",".join(other_parts)
+
+        df.drop(columns=['delta'], inplace=True)
+
+        # 6. Cap play_duration at 600 seconds and cast to the project dtype.
+        df["play_duration"] = df["play_duration"].map(
+            lambda x: x if pd.notna(x) and x <= 600 else pd.NA
+        ).astype("int64[pyarrow]")
 
         return df
 
@@ -949,7 +1013,7 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
         # zeeschuimer data is really basic - well, there is a lot of useful data in the ndjson, but to generate
-        # an event collection, which is the purpose here, I am only using the item_id and the timestamp
+        # an activity collection, which is the purpose here, I am only using the item_id and the timestamp
 
         df = df.copy()
         
@@ -962,8 +1026,8 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
 
         # -----------------------------------------------------
-        # CONSIDER THIS: I call all events from zeeschuimer 'observe' to keep them separate from the 'watch' events from ddps
-        df["event_type"] = "watch"
+        # I call all activities from zeeschuimer 'observe' to distinguish it from 'play'
+        df["activity_type"] = "observe"
 
 
         # -----------------------------------------------------
