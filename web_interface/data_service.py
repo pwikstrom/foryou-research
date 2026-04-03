@@ -81,24 +81,21 @@ def get_explorer_data(study, context=None, verbose=False):
     # Apply Context Filtering on a COPY
     if raw_df is not None:
         if context == "viewer":
-            # Viewer needs Annotated OK (same as explorer — ensures video is downloaded)
-            filtered_df = raw_df[(raw_df.annotated_ok)].copy()
+            filtered_df = raw_df[
+                (raw_df.annotated_ok)
+                & (raw_df['D_feature_name'].isin(['play', 'observe']))
+                & (raw_df['item_id'].notna())
+            ].copy()
         elif context == "explorer":
-            # Explorer needs Annotated OK 
-            filtered_df = raw_df[(raw_df.annotated_ok)].copy()
+            filtered_df = raw_df[
+                (raw_df.annotated_ok)
+                & (raw_df['D_feature_name'].isin(['play', 'observe']))
+                & (raw_df['item_id'].notna())
+            ].copy()
         else:
             # return raw copy to be safe. this should never happen though...
             filtered_df = raw_df.copy()
 
-        # Filter: only include events at or after the first watch event per donation
-        if context in ("viewer", "explorer") and 'D_feature_name' in filtered_df.columns and 'T_local_timestamp' in filtered_df.columns:
-            first_watch_ts = (
-                filtered_df[filtered_df['D_feature_name'] == 'watch']
-                .groupby('D_donation_id')['T_local_timestamp']
-                .min()
-            )
-            donation_ts = filtered_df['D_donation_id'].map(first_watch_ts)
-            filtered_df = filtered_df[filtered_df['T_local_timestamp'] >= donation_ts].copy()
 
         return filtered_df, raw_col_types.copy()
 

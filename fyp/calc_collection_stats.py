@@ -95,16 +95,15 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     #df['date'] = pd.to_datetime(df['date'], utc=True)
     #df = df.sort_values('date')
 
-    # 2. Filter: Start from first 'watch' event
-    # Only events after (or including) the first watch event are considered relevant
-    watch_events = df[df['D_feature_name'] == 'watch']
-    if not watch_events.empty:
-        first_watch_ts = watch_events['T_local_timestamp'].iloc[0]
-        df = df[df['T_local_timestamp'] >= first_watch_ts]
+    # 2. Filter: Start from first 'play' event
+    # Only events after (or including) the first play event are considered relevant
+    play_events = df[df['D_feature_name'] == 'play']
+    if not play_events.empty:
+        first_play_ts = play_events['T_local_timestamp'].iloc[0]
+        df = df[df['T_local_timestamp'] >= first_play_ts]
     else:
-        # If no watch events, arguably no valid stats?
-        # User said "screws up the stats" relating to watch based anchors.
-        # Let's return empty if no watch events found, as implied by requirement.
+        # If no play events, arguably no valid stats?
+        # Let's return empty if no play events found.
         return {}
 
     if df.empty:
@@ -126,15 +125,14 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     lifespan_days = (last_date - first_date).days + 1
     events_per_day = total_events / max(1, active_days)
     
-    # 5. Video Consumption (Watch Events)
-    # Using 'watch' feature and 'secondary_value' (duration)
-    # Ensure numeric conversion
-    watch_df = df[df['D_feature_name'] == 'watch'].copy()
-    #watch_df['duration'] = pd.to_numeric(watch_df['secondary_value'], errors='coerce')
+    # 5. Video Consumption (Play Events)
+    # Using 'play' feature and 'secondary_value' (duration)
+    play_df = df[df['D_feature_name'] == 'play'].copy()
+    #play_df['duration'] = pd.to_numeric(play_df['secondary_value'], errors='coerce')
     
     # Filter insane durations (> 1 hour?) or keep all? 
     # Ideally filter outliers or very long paused videos
-    valid_watches = watch_df.dropna(subset=['D_watch_duration'])
+    valid_watches = play_df.dropna(subset=['D_watch_duration'])
     # Keeping logic from old code: duration <= 300s considered 'normal' short form watch?
     # User didn't specify, but old code did. Let's keep raw metrics then stats on filtered.
     
@@ -194,7 +192,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     # Check for valid session duration
     #total_session_minutes = session_stats['duration'].sum() / 60.0
     #if total_session_minutes > 1.0:
-    #    session_velocity_vpm = len(watch_df) / total_session_minutes
+    #    session_velocity_vpm = len(play_df) / total_session_minutes
     #else:
     #    session_velocity_vpm = 0.0 # undefined or too short
         
@@ -284,7 +282,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     
     # 10. Advanced Persona Stats (Expressiveness, etc.)
     # Videos per day (using lifespan)
-    videos_per_day = len(watch_df) / max(1, lifespan_days)
+    videos_per_day = len(play_df) / max(1, lifespan_days)
     comments_per_day = num_comments / max(1, lifespan_days)
     likes_per_day = num_likes / max(1, lifespan_days)
     
@@ -336,10 +334,10 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
         'videos_per_day': float(videos_per_day),
         'comments_per_day': float(comments_per_day),
         'likes_per_day': float(likes_per_day),
-        'likes_per_video': float(num_likes / max(1, len(watch_df))),
+        'likes_per_video': float(num_likes / max(1, len(play_df))),
         'daily_watch_time_s': float(total_watch_time / max(1, lifespan_days)),
     
-        'num_watches': len(watch_df),
+        'num_watches': len(play_df),
         'total_watch_time_s': float(total_watch_time),
         'avg_watch_time_s': float(avg_watch_time),
         'median_watch_time_s': float(median_watch_time),
