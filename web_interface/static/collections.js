@@ -424,7 +424,8 @@ function pe_createStrip(metric) {
             }
         });
         canvas.style.cursor = closest ? 'pointer' : 'default';
-        canvas.title = closest ? `${closest.collectionId}\nValue: ${pe_formatValue(closest.value)}` : '';
+        const displayName = closest ? (pe_data.find(d => d.collection_id === closest.collectionId)?.display_collection_id || closest.collectionId) : '';
+        canvas.title = closest ? `${displayName}\nValue: ${pe_formatValue(closest.value)}` : '';
     });
 
     return row;
