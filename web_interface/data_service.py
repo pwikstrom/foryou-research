@@ -83,13 +83,13 @@ def get_explorer_data(study, context=None, verbose=False):
         if context == "viewer":
             filtered_df = raw_df[
                 (raw_df.annotated_ok)
-                & (raw_df['D_feature_name'].isin(['play', 'observe']))
+                & (raw_df['activity_type'].isin(['play', 'observe']))
                 & (raw_df['item_id'].notna())
             ].copy()
         elif context == "explorer":
             filtered_df = raw_df[
                 (raw_df.annotated_ok)
-                & (raw_df['D_feature_name'].isin(['play', 'observe']))
+                & (raw_df['activity_type'].isin(['play', 'observe']))
                 & (raw_df['item_id'].notna())
             ].copy()
         else:
@@ -409,7 +409,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloa
         return False
         
     # Ensure date column
-    date_col = 'T_local_date'
+    date_col = 'local_date'
     if date_col not in df.columns:
          print(f"ERROR: {date_col} missing in unified dataset")
          return False
@@ -484,7 +484,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloa
                 # (Actually user config 'web_viz_log' helps, but relying on dtype is standard)
 
                 # DEBUG
-                # if var in ['S_desc_hashtags', 'G_symbol_and_brands', 'G_content_categories']:
+                # if var in ['desc_hashtags', 'symbol_and_brands', 'content_categories']:
                 #    print(f"DEBUG TIMELINE: Var {var} is_list={is_list} (Arrow={is_arrow_list}, PyList={is_py_list}, NpArray={is_np_array}). Sample: {first_valid} Type: {type(first_valid)}")
                 
                 # Valid Count
@@ -721,10 +721,10 @@ def get_timeline_data(donation_id, interval='day'):
                     ddp_meta = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)
                     if ddp_meta is not None:
                         # Check index or column for donation_id
-                        if ddp_meta.index.name == 'D_donation_id' or ddp_meta.index.name is None:
+                        if ddp_meta.index.name == 'collection_id' or ddp_meta.index.name is None:
                             mask = ddp_meta.index.astype(str) == str(donation_id)
-                        elif 'D_donation_id' in ddp_meta.columns:
-                            mask = ddp_meta['D_donation_id'].astype(str) == str(donation_id)
+                        elif 'collection_id' in ddp_meta.columns:
+                            mask = ddp_meta['collection_id'].astype(str) == str(donation_id)
                         else:
                             mask = ddp_meta.index.astype(str) == str(donation_id)
                             
@@ -774,7 +774,7 @@ def load_display_id_map():
 def get_study_donations(study):
     """
     Returns a list of unique donations present in the study dataset.
-    Returns: [{ 'D_donation_id': '...', 'D_id': '...' }, ...]
+    Returns: [{ 'collection_id': '...', }, ...]
     """
 
     if not "study_defs" in fyp_cf:
@@ -785,7 +785,7 @@ def get_study_donations(study):
 
     selected_donations = fyp_cf["study_defs"][study].get("SELECTED_DONATIONS", [])
 
-    selected_donations = [{"D_donation_id": str(d).strip()} for d in selected_donations]
+    selected_donations = [{"collection_id": str(d).strip()} for d in selected_donations]
 
     return selected_donations
 
@@ -809,20 +809,20 @@ def get_study_donations(study):
             #print(f"DEBUG DONATIONS: df is None for {study}")
             return []
         
-        if 'D_donation_id' not in df.columns:
-            print(f"ERROR: D_donation_id not found in df for {study}")
+        if 'collection_id' not in df.columns:
+            print(f"ERROR: collection_id not found in df for {study}")
             return []
 
         # Unique donations
-        donations = df[['D_donation_id']].drop_duplicates()
+        donations = df[['collection_id']].drop_duplicates()
         
         # Format for frontend
         result = []
         for _, row in donations.iterrows():
-            item = {'D_donation_id': row['D_donation_id']}
+            item = {'collection_id': row['collection_id']}
             result.append(item)
             
-        return sorted(result, key=lambda x: str(x.get('D_donation_id', '')))
+        return sorted(result, key=lambda x: str(x.get('collection_id', '')))
         
     except Exception as e:
         print(f"Error getting study donations: {e}")

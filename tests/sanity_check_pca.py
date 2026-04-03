@@ -64,7 +64,7 @@ def main():
         print(f"First 10 columns: {list(scores.columns)[:10]}")
         
         # 3. Check for specific expected columns
-        expected_meta = ["D_donation_id", "T_local_weekday", "T_local_date"]
+        expected_meta = ["collection_id", local_weekday", local_date"]
         missing = [c for c in expected_meta if c not in scores.columns]
         if missing:
             print(f"⚠️  Missing expected metadata columns: {missing}")

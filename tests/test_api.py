@@ -27,7 +27,7 @@ with app.app_context():
             if data and len(data) > 0:
                 print("First record keys:", list(data[0].keys())[:10])
                 # check if there are any issues with metrics
-                for k in ["D_donation_id", "total_events", "chattiness", "annotation_tags"]:
+                for k in ["collection_id", "total_events", "chattiness", "annotation_tags"]:
                     print(f"Sample {k}:", type(data[0].get(k)), data[0].get(k))
         except Exception as e:
             print("ERROR:")

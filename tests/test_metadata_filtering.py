@@ -34,33 +34,33 @@ class TestMetadataFiltering(unittest.TestCase):
         
         # Dataframe with extra IDs (donation_C should be filtered out)
         data = {
-            "D_donation_id": ["donation_A", "donation_A", "donation_B", "donation_C", "donation_C"],
+            "collection_id": ["donation_A", "donation_A", "donation_B", "donation_C", "donation_C"],
             "value": [1, 2, 3, 4, 5]
         }
         df = pd.DataFrame(data)
         # Convert to pyarrow string (as per project instructions)
-        df["D_donation_id"] = df["D_donation_id"].astype("string[pyarrow]")
+        df["collection_id"] = df["collection_id"].astype("string[pyarrow]")
         
-        print(f"Original unique IDs in DF: {df['D_donation_id'].unique().tolist()}")
+        print(f"Original unique IDs in DF: {df['collection_id'].unique().tolist()}")
         
         # 2. Simulate Metadata Generation (what explorer.get_metadata does)
         # It calculates value counts
-        vc = df["D_donation_id"].value_counts()
+        vc = df["collection_id"].value_counts()
         # Create metadata structure
         metadata = {
-            "D_donation_id": {
+            "collection_id": {
                 "type": "category",
                 "values": [{"value": str(k), "count": int(v)} for k, v in vc.items()]
             }
         }
         
         print("Generated Metadata (Pre-Filter):")
-        print([v['value'] for v in metadata["D_donation_id"]["values"]])
+        print([v['value'] for v in metadata["collection_id"]["values"]])
         
         # 3. Apply The Fix Logic (The logic I will implement in data_routes.py)
-        # Logically: Filter metadata['D_donation_id']['values'] to only include allowed_ids
+        # Logically: Filter metadata['collection_id']['values'] to only include allowed_ids
         
-        col_meta = metadata.get("D_donation_id")
+        col_meta = metadata.get("collection_id")
         if col_meta and "values" in col_meta:
             original_values = col_meta["values"]
             # Filter
@@ -72,7 +72,7 @@ class TestMetadataFiltering(unittest.TestCase):
             
         # 4. Assertions
         print("Filtered Metadata values:")
-        final_values = [v['value'] for v in metadata["D_donation_id"]["values"]]
+        final_values = [v['value'] for v in metadata["collection_id"]["values"]]
         print(final_values)
         
         self.assertIn("donation_A", final_values)

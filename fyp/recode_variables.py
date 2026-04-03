@@ -29,9 +29,9 @@ def rename_columns(some_events):
     some_eventsC = some_events.copy()
 
     fixer_upper = [
-        ("B_local_","T_local_"),
-        ("B_source_tz_name","T_tz_name"),
-        ("D_local_","T_local_"),
+        #("B_local_","local_"),
+        #("B_source_tz_name",tz_name"),
+        #("D_local_","local_"),
         (".","_"),
         ("data_",""),
         ("source_url_","source_"),
@@ -461,7 +461,7 @@ def recode_scene_sentiments(
 
 
 
-# "G_faces_age_estimate" is a bit special since Gemini generates age ranges (strings)
+# "faces_age_estimate" is a bit special since Gemini generates age ranges (strings)
 # and I want to convert these to numeric values. I first convert the list of strings (age ranges) into actual
 # list of age ranges (still strings). I then convert each age range to the mean (float) in the range. This list of floats
 # can be aggregated using the function for continuous variables "calc_centre_and_entropy()".

@@ -654,6 +654,57 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
 
 
 
+def _repair_stringified_multiindex(df: pd.DataFrame) -> pd.DataFrame:
+    """Restore tuple column names from their string representations.
+
+    When pandas metadata is lost from a parquet file (e.g. after a pyarrow
+    read/write round-trip), tuple columns like ('participants', 'email') are
+    loaded as flat strings "('participants', 'email')".  This function detects
+    that situation and parses them back to real tuples.
+
+    Uses a plain Index (not MultiIndex) so that plain string columns like
+    'collection_id' remain directly accessible via df['collection_id'].
+
+    If no columns look like stringified tuples the DataFrame is returned
+    unchanged.
+    """
+    import ast
+
+    cols = df.columns.tolist()
+
+    # Quick check: are there any string columns that look like tuples?
+    has_tuple_strings = any(
+        isinstance(c, str) and c.startswith("(") and c.endswith(")")
+        for c in cols
+    )
+    if not has_tuple_strings:
+        return df
+
+    new_cols: list = []
+    any_parsed = False
+    for c in cols:
+        if isinstance(c, str) and c.startswith("(") and c.endswith(")"):
+            try:
+                t = ast.literal_eval(c)
+                if isinstance(t, tuple):
+                    new_cols.append(t)
+                    any_parsed = True
+                    continue
+            except (ValueError, SyntaxError):
+                pass
+        # Keep plain strings as-is
+        new_cols.append(c)
+
+    if not any_parsed:
+        return df
+
+    df.columns = pd.Index(new_cols)
+    return df
+
+
+
+
+
 def load_parquet(
         storage_location: str = "cache",
         filename: str = "", # if filename == '*' -> load all parquet files in storage_location
@@ -680,8 +731,8 @@ def load_parquet(
 
     def _renamed(s):
         fixer_upper = [
-            ("B_local_","T_local_"),
-            ("D_local_","T_local_"),
+            #("B_local_","local_"),
+            #("D_local_","local_"),
             (".","_"),
             ("data_",""),
             ("source_url_","source_"),
@@ -749,6 +800,7 @@ def load_parquet(
 
         # type management to be sure
         df = convert_dtypes_to_pyarrow(df, verbose=verbose)
+        df = _repair_stringified_multiindex(df)
 
         if verbose:
             t2 = _dt.datetime.now()
@@ -802,6 +854,7 @@ def load_parquet(
 
     # type management to be sure
     df = convert_dtypes_to_pyarrow(df, verbose=verbose)
+    df = _repair_stringified_multiindex(df)
 
     if verbose:
         t2 = _dt.datetime.now()

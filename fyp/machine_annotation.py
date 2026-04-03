@@ -1028,9 +1028,9 @@ def clean_up_machine_annotations(some_events, verbose = False):
     some_cleaned_up_events = some_events.copy()
 
     # iterate over all object type columns in the events DF that starts w G_, i.e. are machine annotations
-    g_cols = [k for k in some_events.select_dtypes(exclude=["number"]).columns if k.startswith("G_")]
+    g_cols = [k for k in some_events.select_dtypes(exclude=["number"]).columns if not k in ["item_id","annotated_ok","annotated_fail"]]
     
-    exclude_set = {"DDP", "BASELINE", fyp_cf['labels']['UNABLE_TO_DETECT'], "", fyp_cf['labels']['OTHER_THINGS']}
+    exclude_set = {fyp_cf['labels']['UNABLE_TO_DETECT'], "", fyp_cf['labels']['OTHER_THINGS']}
 
     for c in g_cols:
         # Step 1: Flatten and filter efficiently
@@ -1234,7 +1234,8 @@ def refine_one_raw_annotation_batch(
     # implement the rules from the variable scheme - recoding lists, strings and other complex data
     # ---------------------------------------------------------------
     # (and a simple renaming of columns to make them easier to identify and read)
-    outputs_from_machine_df = rename_columns(outputs_from_machine_df.rename(columns={c:"G_"+c if not c=="item_id" and not c.startswith("G_") else c for c in outputs_from_machine_df.columns})).copy()
+    #outputs_from_machine_df = rename_columns(outputs_from_machine_df.rename(columns={c:"G_"+c if not c=="item_id" and not c.startswith("G_") else c for c in outputs_from_machine_df.columns})).copy()
+    outputs_from_machine_df = rename_columns(outputs_from_machine_df).copy()
     outputs_from_machine_df = recode_events_df(
             study_dataset = outputs_from_machine_df,
             drop_single_value_cols = False,
@@ -1254,9 +1255,9 @@ def refine_one_raw_annotation_batch(
     # ---------------------------------------------------------------
     # add flags for annotated ok and fail
     # ---------------------------------------------------------------
-    outputs_from_machine_df["annotated_ok"] = ~outputs_from_machine_df.G_type_of_story.isna().astype("bool[pyarrow]")
-    outputs_from_machine_df["annotated_fail"] = outputs_from_machine_df.G_type_of_story.isna().astype("bool[pyarrow]")
-    outputs_from_machine_df.loc[outputs_from_machine_df[outputs_from_machine_df.annotated_fail].index,[c for c in outputs_from_machine_df.columns if c.startswith("G_")]] = pd.NA
+    outputs_from_machine_df["annotated_ok"] = ~outputs_from_machine_df["type_of_story"].isna().astype("bool[pyarrow]")
+    outputs_from_machine_df["annotated_fail"] = outputs_from_machine_df["type_of_story"].isna().astype("bool[pyarrow]")
+    #outputs_from_machine_df.loc[outputs_from_machine_df[outputs_from_machine_df.annotated_fail].index,[c for c in outputs_from_machine_df.columns if c.startswith("G_")]] = pd.NA
 
 
     # ---------------------------------------------------------------

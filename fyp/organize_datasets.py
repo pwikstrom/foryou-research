@@ -11,7 +11,7 @@ from fyp.fyp_config import fyp_cf
 
 
 
-collection_id_column = "D_donation_id"
+collection_id_column = "collection_id"
 
 
 
@@ -273,7 +273,7 @@ def load_donation_datasets(
     # --------------------------------------------------------------------
 
     if "donations" in tutti_data and isinstance(tutti_data["donations"], pd.DataFrame):
-        tutti_data["donations"] = tutti_data["donations"][tutti_data["donations"]["D_donation_id"] == donation_id]
+        tutti_data["donations"] = tutti_data["donations"][tutti_data["donations"]["collection_id"] == donation_id]
         if len(tutti_data["donations"]) == 0:
             print(f"    [Core datasets] No donations found for donation_id '{donation_id}'")
             return None
@@ -340,13 +340,13 @@ def _build_agg_dict_to_generate_basic_video_stats(study_dataset = None):
 
     # Check that each columns exists and gradually build the aggregation based on what columns are available
     agg_defs = {
-        "nunique_donations": ("D_donation_id", "nunique"),
-        "total_observations": ("D_donation_id", "count"),
+        "nunique_donations": ("collection_id", "nunique"),
+        "total_observations": ("collection_id", "count"),
         "scraped_ok": ("scraped_ok", "first"),
         "scraped_fail": ("scraped_fail", "first"),
         "annotated_ok": ("annotated_ok", "first"),
         "annotated_fail": ("annotated_fail", "first"),
-        "video_duration": ("S_video_duration", "max"),
+        "video_duration": ("video_duration", "max"),
     }
 
     if study_dataset is None:
@@ -432,7 +432,7 @@ def update_enrichment_status(
     most_common_item_id_length = enrichment_status_df["item_id"].str.len().value_counts().index[0]
     enrichment_status_df = enrichment_status_df[enrichment_status_df["item_id"].str.len()==most_common_item_id_length].copy()
 
-    enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets['scrape_data'][['item_id','scraped_ok','S_video_downloaded']], on='item_id', how='left')
+    enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets['scrape_data'][['item_id','scraped_ok','video_downloaded']], on='item_id', how='left')
 
     enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets['annotations'][['item_id','annotated_ok','annotated_fail']], on='item_id', how='left')
 
@@ -572,8 +572,8 @@ def new_merge(
     # --------------------------------------------------------------------------------------------------
 
     # 1. days since created
-    calc_col = ["T_days_since_created"]
-    shebang[calc_col[-1]] = shebang["T_local_timestamp"] - shebang["S_createTime"]
+    calc_col = ["days_since_created"]
+    shebang[calc_col[-1]] = shebang["local_timestamp"] - shebang["createTime"]
     shebang[calc_col[-1]] = shebang[calc_col[-1]].map(lambda x: x.days if x is not pd.NA else pd.NA).astype("int64[pyarrow]")
     shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0)
 
@@ -581,7 +581,7 @@ def new_merge(
     calc_col += ["plays_per_day"]
     def _safe_vector_divide(x, y):
         return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
-    shebang[calc_col[-1]] = _safe_vector_divide(shebang['S_stats_playCount'],shebang['T_days_since_created'])
+    shebang[calc_col[-1]] = _safe_vector_divide(shebang['stats_playCount'],shebang['days_since_created'])
 
 
     # 3. scraped fail
@@ -592,7 +592,7 @@ def new_merge(
     
     # 4. completion rate
     calc_col += ["completion_rate"]
-    shebang[calc_col[-1]] = shebang["D_watch_duration"] / shebang["S_video_duration"]
+    shebang[calc_col[-1]] = shebang["play_duration"] / shebang["video_duration"]
     shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0,upper=1).astype("double[pyarrow]")
 
     if verbose:
@@ -815,7 +815,7 @@ def save_logs_as_csv(
 
         # Convert long numbers to strings for Excel
         
-        for c in ["B_data_author_id","item_id","S_music_id","S_author_id","D_ts_jiggled"]:
+        for c in ["data_author_id","item_id","music_id","author_id","ts_jiggled"]:
             if c in outdata_for_csv_export.columns:
                 # Faster: use str accessor to add quotes
                 outdata_for_csv_export[c] = "'" + outdata_for_csv_export[c].astype(str) + "'"
@@ -829,7 +829,7 @@ def save_logs_as_csv(
         outdata_for_csv_export.to_csv(join(fyp_cf['paths']['exports'],log_as_csv_filename), errors='replace')
         if verbose:
             print(f"Exported {len(outdata_for_csv_export):,} observations in {log_as_csv_filename}.")
-            print(f"The date of the observations in the log range from {outdata_filtered.T_local_timestamp.min()} -- {outdata_filtered.T_local_timestamp.max()}")
+            print(f"The date of the observations in the log range from {outdata_filtered["local_timestamp"].min()} -- {outdata_filtered["local_timestamp"].max()}")
             print(f"Now: {_dt.datetime.now()}")
 
 

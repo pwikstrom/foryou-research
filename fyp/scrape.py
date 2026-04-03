@@ -433,7 +433,7 @@ def download_video_threads(
             results.loc[results[results['video_duration']<1].index,'video_duration'] = pd.NA
 
             # rename the columns
-            results = results.rename(columns={c:"S_"+c if not c=="item_id" and not c.startswith("S_") else c for c in results.columns}).copy()
+            #results = results.rename(columns={c:"S_"+c if not c=="item_id" and not c.startswith("S_") else c for c in results.columns}).copy()
             results = rename_columns(results).copy()
 
             # only keep columns as defined by the variable schema
@@ -459,7 +459,7 @@ def download_video_threads(
 
             data_io.save_parquet(df=results, storage_location="scrape", filename=scrape_filename)
 
-            print(f"Saved {len(results):,} rows to '{scrape_filename}'. Media downloaded for {len(results[results['S_video_downloaded']]):,} of these.")
+            print(f"Saved {len(results):,} rows to '{scrape_filename}'. Media downloaded for {len(results[results['video_downloaded']]):,} of these.")
 
         except Exception as e:
             print(f"CRITICAL: Failed to save results to parquet: {e}")
@@ -762,7 +762,7 @@ def consolidate_and_save_scrape_data(
     # -------------------------------------------------
 
     # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both
-    scrape_df = scrape_df.drop_duplicates(subset=["item_id","S_video_downloaded"]).copy()
+    scrape_df = scrape_df.drop_duplicates(subset=["item_id","video_downloaded"]).copy()
     if verbose:
         print(f"    Dropping duplicates based on items and whether the video is downloaded or not: {scrape_df.shape}")
 
@@ -781,7 +781,7 @@ def consolidate_and_save_scrape_data(
 
     if len(items_w_inconsistent_video_download_status)>0:
         # for items with inconsistent video download status, only keep the ones where video_downloaded is True
-        items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status['S_video_downloaded']].copy()
+        items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status['video_downloaded']].copy()
         if verbose:
             print(f"    Fixed the inconsistencies by keeping the one of the pairs with video_download=True")
             print(f"    This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}")

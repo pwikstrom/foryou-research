@@ -617,24 +617,25 @@ class ForYouCollection(ForYouBaseCollection):
 
         #{u:u for u in combined_activities_df.columns}
             
-        self.data_old_format = self.data.rename(columns={
-                #'ts_added_to_dataset': 'ts_added_to_dataset',
-                'utc_timestamp': 'T_utc_timestamp',
-                'source_platform': 'source_platform',
-                'tz_offset': 'T_tz_offset',
-                #'raw_file': 'raw_file',
-                'activity_type': 'D_feature_name',
-                #'item_id': 'item_id',
-                'data_source': 'data_source',
-                'collection_id': 'D_donation_id',
-                'local_timestamp': 'T_local_timestamp',
-                'local_weekday': 'T_local_weekday',
-                'local_week': 'T_local_week',
-                'local_day_segment': 'T_local_day_segment',
-                'local_date': 'T_local_date',
-                "play_duration": "D_watch_duration",
-                "extra_data":"D_primary_value"
-            }, inplace=False).copy()
+        self.data_old_format = self.datacopy()
+        #rename(columns={
+        #        #'ts_added_to_dataset': 'ts_added_to_dataset',
+        #        'utc_timestamp': 'T_utc_timestamp',
+        #        'source_platform': 'source_platform',
+        #        'tz_offset': 'T_tz_offset',
+        #        #'raw_file': 'raw_file',
+        #        'activity_type': 'D_feature_name',
+        #        #'item_id': 'item_id',
+        #        'data_source': 'data_source',
+        #        'collection_id': 'collection_id',
+        #        'local_timestamp': 'T_local_timestamp',
+        #        'local_weekday': 'T_local_weekday',
+        #        'local_week': 'T_local_week',
+        #        'local_day_segment': 'T_local_day_segment',
+        #        'local_date': 'T_local_date',
+        #        "play_duration": "D_watch_duration",
+        #        "extra_data":"D_primary_value"
+        #    }, inplace=False).copy()
         
         #self.data_old_format.drop(["source_platform","raw_file","data_source"], axis=1, inplace=True)
         

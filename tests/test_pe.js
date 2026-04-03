@@ -32,7 +32,7 @@ try {
     const sample_data = [];
     for(let i=0; i<100; i++) {
         sample_data.push({
-            "D_donation_id": "test" + i,
+            "collection_id": "test" + i,
             "total_events": (Math.random() * 1000).toString(),
             "chattiness": (Math.random() * 10).toString(),
             "annotation_tags": []

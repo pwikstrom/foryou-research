@@ -65,10 +65,10 @@ if __name__ == "__main__":
                     if not found_col:
                         print("Warning: Could not find 'accepted' column. Processing ALL donations.")
                         # Fallback to all index
-                        if df.index.name == 'D_donation_id':
+                        if df.index.name == 'collection_id':
                              all_donations = set(df.index.astype(str))
-                        elif 'D_donation_id' in df.columns:
-                             all_donations = set(df['D_donation_id'].astype(str))
+                        elif 'collection_id' in df.columns:
+                             all_donations = set(df['collection_id'].astype(str))
                              
                     # Extract first_event_ts map for analysis filtering
                     first_event_col = None
@@ -111,10 +111,10 @@ if __name__ == "__main__":
                      all_datasets[k] = pd.DataFrame()
             try:
                 giant_df = new_merge(study_name=None, all_datasets=all_datasets, save_to_cache=False, verbose=False)
-                if giant_df is not None and not giant_df.empty and 'D_donation_id' in giant_df.columns:
-                    giant_df['D_donation_id'] = giant_df['D_donation_id'].astype(str)
+                if giant_df is not None and not giant_df.empty and 'collection_id' in giant_df.columns:
+                    giant_df['collection_id'] = giant_df['collection_id'].astype(str)
                 else:
-                     print("Warning: giant_df is empty or missing 'D_donation_id'.")
+                     print("Warning: giant_df is empty or missing 'collection_id'.")
             except Exception as e:
                 print(f"Error merging core datasets: {e}")
                 giant_df = None
@@ -135,8 +135,8 @@ if __name__ == "__main__":
             
             # Extract slice for this donation
             preloaded_slice = None
-            if giant_df is not None and not giant_df.empty and 'D_donation_id' in giant_df.columns:
-                preloaded_slice = giant_df[giant_df['D_donation_id'] == str(donation_id)]
+            if giant_df is not None and not giant_df.empty and 'collection_id' in giant_df.columns:
+                preloaded_slice = giant_df[giant_df['collection_id'] == str(donation_id)]
             
             # Regenerate using the data_service logic
             # This function will regenerate if missing (which we just ensured)

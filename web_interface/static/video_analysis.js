@@ -1238,7 +1238,7 @@ function renderMetadata(item) {
             } else if (Array.isArray(val)) {
                 displayVal = val.join(', ');
             } else if (typeof val === 'number') {
-                if (key === 'item_id' || key === 'video_id' || key === 'G_id') {
+                if (key === 'item_id' || key === 'video_id') {
                     displayVal = String(val);
                 } else if (key.includes('_timestamp')) {
                     // Try to parse timestamp

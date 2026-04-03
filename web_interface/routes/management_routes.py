@@ -35,7 +35,7 @@ def _calculate_stats(study_config, save_to_cache=True):
         # Logic adapted from explorer_backend.load_data
         #if data_io.exists(storage_location="cache", filename=recoded_fn):
         #     # Load only needed columns
-        #     df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)#, columns=["item_id", "D_donation_id"], verbose=True)
+        #     df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)#, columns=["item_id", "collection_id"], verbose=True)
         if True:#else:
              # Force update of the study dataset for every change of the study definition
              print(f"Creating/updating recoded dataset for '{study_name}' to calculate stats...")
@@ -43,7 +43,7 @@ def _calculate_stats(study_config, save_to_cache=True):
              df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=save_to_cache, verbose=False)
              if df_study is not None:
                  # Keep only what we need if it returned full DF
-                 df_study = df_study[["item_id", "D_donation_id"]]
+                 df_study = df_study[["item_id", "collection_id"]]
         
         if df_study is None or df_study.empty:
             print(f"No data found for study '{study_name}'. Removing all cached files for this study.")
@@ -55,7 +55,7 @@ def _calculate_stats(study_config, save_to_cache=True):
             return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_donations": 0}
 
         # 2. Count Unique Donations
-        unique_donations = df_study['D_donation_id'].nunique()
+        unique_donations = df_study['collection_id'].nunique()
         unique_videos = df_study['item_id'].nunique()
 
         # 3. Load Enrichment Status
@@ -451,8 +451,13 @@ def list_collections():
                 return val
 
             for index, row in df.iterrows():
+                # Use collection_id column if available, otherwise fall back to index
+                if 'collection_id' in df.columns:
+                    row_id = str(row['collection_id'])
+                else:
+                    row_id = str(index)
                 item = {
-                    "id": str(index),
+                    "id": row_id,
                     "participants": {},
                     "other": {},
                     "personas": {}
@@ -467,8 +472,8 @@ def list_collections():
                     elif c[0] == 'personas':
                         item['personas'][c[1]] = safe_val(row[c])
                         
-                # Attach annotations
-                ann = annotations.get(str(index), {})
+                # Attach annotations (keyed by collection ID, not row index)
+                ann = annotations.get(row_id, {})
                 item['displayId'] = ann.get('display_donation_id', None)
                 item['tags'] = ann.get('annotation_tags', [])
                 item['hidden'] = ann.get('hidden', False)
@@ -631,9 +636,9 @@ def queue_voted_videos():
                 # Need to load using standard DDP logic since timeline cache aggregates and removes item_id
                 df_donation = create_donation_unified_dataset(donation_id=coll_id, verbose=False)
                 
-                if df_donation is not None and not df_donation.empty and 'item_id' in df_donation.columns and 'T_local_date' in df_donation.columns:
+                if df_donation is not None and not df_donation.empty and 'item_id' in df_donation.columns and 'local_date' in df_donation.columns:
                     # Time periods can be 'YYYY-MM-DD' or 'YYYY-Wxx' or 'YYYY-MM'
-                    ts_series = pd.to_datetime(df_donation['T_local_date'], errors='coerce')
+                    ts_series = pd.to_datetime(df_donation['local_date'], errors='coerce')
                     
                     for p in periods:
                         # yyyy-mm-dd
@@ -863,8 +868,8 @@ def calculate_to_annotate():
                 if 'index' in df_status.columns and 'item_id' not in df_status.columns:
                     df_status = df_status.rename(columns={'index': 'item_id'})
 
-            if 'S_video_duration' in df_study.columns:
-                study_videos = df_study[['item_id', 'S_video_duration']].copy()
+            if 'video_duration' in df_study.columns:
+                study_videos = df_study[['item_id', 'video_duration']].copy()
             else:
                 study_videos = df_study[['item_id']].copy()
                 
@@ -884,9 +889,9 @@ def calculate_to_annotate():
                 
             unannotated_mask = is_scraped_ok & not_annotated_ok & not_annotated_fail
             
-            if 'S_video_duration' in study_status.columns:
+            if 'video_duration' in study_status.columns:
                 max_dur = fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600)
-                duration_ok = (study_status['S_video_duration'] < max_dur) | pd.isna(study_status['S_video_duration'])
+                duration_ok = (study_status['video_duration'] < max_dur) | pd.isna(study_status['video_duration'])
                 unannotated_mask = unannotated_mask & duration_ok
 
             unannotated_videos = study_status.loc[unannotated_mask, 'item_id'].dropna().tolist()

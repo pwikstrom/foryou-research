@@ -29,9 +29,9 @@ from fyp.studies import init_study_defs
 
 
 
-collection_id_column = "D_donation_id"
-timestamp_column = "T_local_timestamp"
-event_type_column = "D_feature_name"
+collection_id_column = "collection_id"
+timestamp_column = "local_timestamp"
+event_type_column = "activity_type"
 
 
 
@@ -305,7 +305,6 @@ def generate_donation_metadata(
                 old_metadata_df = old_metadata_df.drop(columns=[update_col.name])
 
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
-            #new_metadata_df = new_metadata_df.sort_index(axis='columns').sort_values(('other','D_id')).copy()
             if save_to_disk_ok:
                 data_io.save_parquet(df=new_metadata_df, storage_location="recoded", filename="ddp_metadata.parquet", verbose=verbose)
                 print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
@@ -360,7 +359,6 @@ def generate_donation_metadata(
 
 
     df1.sort_values(by=[("other","ts_added_to_dataset")], inplace=True)
-    #df1["other","D_id"] = list(range(len(df1)))
 
 
 

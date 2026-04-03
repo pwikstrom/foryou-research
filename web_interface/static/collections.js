@@ -192,7 +192,7 @@ function pe_handleStatsData(data) {
 
     // Select first donation
     if (data.length > 0) {
-        pe_selectDonation(data[0].D_donation_id);
+        pe_selectDonation(data[0].collection_id);
     }
 }
 
@@ -302,7 +302,7 @@ function pe_createStrip(metric) {
         const v = parseFloat(d[metric]);
         if (!isNaN(v)) {
             values.push(v);
-            donationIds.push(d.D_donation_id);
+            donationIds.push(d.collection_id);
         }
     });
 
@@ -310,7 +310,7 @@ function pe_createStrip(metric) {
     let selectedVal = null;
     let percentile = null;
     if (pe_selectedId) {
-        const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
+        const donation = pe_data.find(d => d.collection_id === pe_selectedId);
         if (donation) {
             selectedVal = parseFloat(donation[metric]);
             if (!isNaN(selectedVal)) {
@@ -447,7 +447,7 @@ window.PE_METRIC_INFO = PE_METRIC_INFO;
 function pe_updateStripSelection() {
     if (!pe_selectedId) return;
 
-    const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
+    const donation = pe_data.find(d => d.collection_id === pe_selectedId);
     if (!donation) return;
 
     PE_METRICS.forEach(metric => {
@@ -516,7 +516,7 @@ function pe_selectDonation(donationId, scrollToRow = true) {
 // Tag Management
 function pe_renderTags() {
     if (!pe_selectedId || !pe_data) return;
-    const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
+    const donation = pe_data.find(d => d.collection_id === pe_selectedId);
     if (!donation) return;
 
     // Defensive: Ensure annotation_tags is an array
@@ -590,7 +590,7 @@ function pe_renderTags() {
 
 function pe_toggleTag(tag) {
     if (!pe_selectedId || !pe_data) return;
-    const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
+    const donation = pe_data.find(d => d.collection_id === pe_selectedId);
     if (!donation) return;
 
     // Ensure array exists
@@ -620,7 +620,7 @@ function pe_addNewTag() {
 
     if (newTags.length > 0) {
         if (!pe_selectedId || !pe_data) return;
-        const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
+        const donation = pe_data.find(d => d.collection_id === pe_selectedId);
         if (!donation) return;
 
         if (!Array.isArray(donation.annotation_tags)) donation.annotation_tags = [];
@@ -643,7 +643,7 @@ function pe_saveAnnotation() {
 
     const displayIdInput = document.getElementById('pe-annot-display-id');
     // Using donation.annotation_tags which is updated in real-time by UI
-    const donation = pe_data.find(d => d.D_donation_id === pe_selectedId);
+    const donation = pe_data.find(d => d.collection_id === pe_selectedId);
     if (!donation) return;
 
     if (!displayIdInput) return;
@@ -675,7 +675,7 @@ function pe_saveAnnotation() {
 
                 // Update local state in pe_data (already updated, but good to confirm)
                 if (pe_data) {
-                    const don = pe_data.find(d => d.D_donation_id === pe_selectedId);
+                    const don = pe_data.find(d => d.collection_id === pe_selectedId);
                     if (don) {
                         don.display_donation_id = displayId;
                         don.annotation_tags = tags;

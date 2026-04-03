@@ -42,9 +42,9 @@ print(f"Start offset: {start_offset} (skipping {start_offset} periods before fir
 analysis = analyse_timeline(tdata, interval='day', first_activity_date=first_date)
 
 # Print summary for content_category
-if 'G_content_category' in analysis:
-    cats = analysis['G_content_category']['categories']
-    print(f"\nG_content_category: {len(cats)} categories, start_offset={analysis['G_content_category'].get('start_offset', 0)}")
+if 'content_category' in analysis:
+    cats = analysis['content_category']['categories']
+    print(f"\ncontent_category: {len(cats)} categories, start_offset={analysis['content_category'].get('start_offset', 0)}")
     for cat in cats[:3]:
         print(f"  {cat['label']}: score={cat['score']}, trend={cat['trend']['total_change']}pp")
         print(f"    trend intercept={cat['trend']['intercept']}, slope={cat['trend']['slope']}")

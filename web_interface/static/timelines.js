@@ -70,11 +70,11 @@ window.timelines = {
 
         this.donationList.forEach(d => {
             const opt = document.createElement('option');
-            opt.value = d.D_donation_id;
+            opt.value = d.collection_id;
             opt.textContent = d.display_donation_id && d.display_donation_id.trim() !== ''
                 ? d.display_donation_id
-                : d.D_donation_id;
-            if (d.D_donation_id === this.currentDonationId) {
+                : d.collection_id;
+            if (d.collection_id === this.currentDonationId) {
                 opt.selected = true;
             }
             select.appendChild(opt);
@@ -86,7 +86,7 @@ window.timelines = {
 
         // Auto-select first if none selected
         if (!this.currentDonationId && this.donationList.length > 0) {
-            this.selectDonation(this.donationList[0].D_donation_id);
+            this.selectDonation(this.donationList[0].collection_id);
         }
     },
 
@@ -124,7 +124,7 @@ window.timelines = {
         const header = document.getElementById('timelines-header');
         if (header) header.style.display = 'block';
 
-        const donation = this.donationList.find(d => d.D_donation_id === donationId);
+        const donation = this.donationList.find(d => d.collection_id === donationId);
         let displayTitle = donationId;
         if (donation && donation.display_donation_id) {
             displayTitle = donation.display_donation_id;
@@ -160,7 +160,7 @@ window.timelines = {
         // --- Collection Info Tooltip ---
         let pe_donation = null;
         if (window.pe_data && window.pe_data.length > 0) {
-            pe_donation = window.pe_data.find(d => d.D_donation_id === donationId);
+            pe_donation = window.pe_data.find(d => d.collection_id === donationId);
         }
 
         if (pe_donation) {

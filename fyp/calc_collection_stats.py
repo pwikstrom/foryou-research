@@ -79,7 +79,7 @@ def generate_moniker(pers: dict, time_of_day_shares: dict) -> str:
 
 
 
-def process_single_donation(df_raw: pd.DataFrame) -> dict:
+def process_single_collection(df_raw: pd.DataFrame) -> dict:
     """
     Calculates statistics for a single collection.
     """
@@ -97,10 +97,10 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
 
     # 2. Filter: Start from first 'play' event
     # Only events after (or including) the first play event are considered relevant
-    play_events = df[df['D_feature_name'] == 'play']
+    play_events = df[df['activity_type'] == 'play']
     if not play_events.empty:
-        first_play_ts = play_events['T_local_timestamp'].iloc[0]
-        df = df[df['T_local_timestamp'] >= first_play_ts]
+        first_play_ts = play_events['local_timestamp'].iloc[0]
+        df = df[df['local_timestamp'] >= first_play_ts]
     else:
         # If no play events, arguably no valid stats?
         # Let's return empty if no play events found.
@@ -119,26 +119,26 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     
     # 4. Basic Activity Stats
     total_events = len(df)
-    first_date = df['T_local_timestamp'].min()
-    last_date = df['T_local_timestamp'].max()
-    active_days = df['T_local_timestamp'].dt.date.nunique()
+    first_date = df['local_timestamp'].min()
+    last_date = df['local_timestamp'].max()
+    active_days = df['local_timestamp'].dt.date.nunique()
     lifespan_days = (last_date - first_date).days + 1
     events_per_day = total_events / max(1, active_days)
     
     # 5. Video Consumption (Play Events)
     # Using 'play' feature and 'secondary_value' (duration)
-    play_df = df[df['D_feature_name'] == 'play'].copy()
+    play_df = df[df['activity_type'] == 'play'].copy()
     #play_df['duration'] = pd.to_numeric(play_df['secondary_value'], errors='coerce')
     
     # Filter insane durations (> 1 hour?) or keep all? 
     # Ideally filter outliers or very long paused videos
-    valid_watches = play_df.dropna(subset=['D_watch_duration'])
+    valid_watches = play_df.dropna(subset=['play_duration'])
     # Keeping logic from old code: duration <= 300s considered 'normal' short form watch?
     # User didn't specify, but old code did. Let's keep raw metrics then stats on filtered.
     
-    total_watch_time = valid_watches['D_watch_duration'].sum()
-    avg_watch_time = valid_watches['D_watch_duration'].mean() if not valid_watches.empty else 0
-    median_watch_time = valid_watches['D_watch_duration'].median() if not valid_watches.empty else 0
+    total_watch_time = valid_watches['play_duration'].sum()
+    avg_watch_time = valid_watches['play_duration'].mean() if not valid_watches.empty else 0
+    median_watch_time = valid_watches['play_duration'].median() if not valid_watches.empty else 0
     
     # 6. Sessions
     # Defined by gap > 15 mins (900s)
@@ -154,7 +154,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     #num_sessions = df['session_id'].nunique()
 
     # Session Durations
-    #session_stats = df.groupby('session_id')['T_local_timestamp'].agg(start_time='min', end_time='max')
+    #session_stats = df.groupby('session_id')['local_timestamp'].agg(start_time='min', end_time='max')
     #session_stats['duration'] = (session_stats['end_time'] - session_stats['start_time']).dt.total_seconds()
     
     #if len(session_stats) == 0:
@@ -170,20 +170,20 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     
     # 7. Engagement Rates
     # Comments
-    comments_df = df[df['D_feature_name'] == 'comment']
+    comments_df = df[df['activity_type'] == 'comment']
     num_comments = len(comments_df)
 
     # Likes
     # Mapped from 'ItemFavoriteList' in donations.py -> 'fave_item'
-    likes_df = df[df['D_feature_name'].isin(['like', 'fave_item'])]
+    likes_df = df[df['activity_type'].isin(['like', 'fave_item'])]
     num_likes = len(likes_df)
     
     # Posts
-    posts_df = df[df['D_feature_name'] == 'post']
+    posts_df = df[df['activity_type'] == 'post']
     num_posts = len(posts_df)
     
     # Emojis in comments
-    comment_texts = comments_df['D_primary_value'].tolist()
+    comment_texts = comments_df['extra_data'].tolist()
     emoji_stats = analyze_emojis_list(comment_texts)
     
     # 8. Advanced Behavioural Metrics (New)
@@ -200,7 +200,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     # Ratio of avg events/day (Sat-Sun) vs (Mon-Fri)
     # 'weekday' is 0=Mon, 6=Sun. Weekend = 5,6.
     # Group by date first to count events per day
-    daily_events = df.groupby(df['T_local_timestamp'].dt.date).size()
+    daily_events = df.groupby(df['local_timestamp'].dt.date).size()
     # Map each date to weekend (True/False)
     # Use values to avoid index alignment issues (Series vs DateIndex)
     is_weekend = pd.to_datetime(daily_events.index).weekday.isin([5,6])
@@ -216,9 +216,9 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
         weekend_bias = 0.0 # No activity?
         
     # C. Comment Depth (Avg chars)
-    # Handle mixed types in primary_value
+    # Handle mixed types in extra_data
     if num_comments > 0:
-         chars = comments_df['D_primary_value'].astype(str).str.len()
+         chars = comments_df['extra_data'].astype(str).str.len()
          avg_comment_len_chars = chars.mean()
     else:
         avg_comment_len_chars = 0.0
@@ -248,14 +248,14 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
 
     # 9. Time Patterns (Local Time)
     # Weekday Shares (Monday=0 in Python)
-    #df['weekday'] = df['T_local_timestamp'].dt.weekday
-    #weekday_counts = df['T_local_weekday'].value_counts(normalize=True).reindex(range(7), fill_value=0)
+    #df['weekday'] = df['local_timestamp'].dt.weekday
+    #weekday_counts = df['local_weekday'].value_counts(normalize=True).reindex(range(7), fill_value=0)
     # Map to list [Mon, Tue, ... Sun]
     #weekday_shares = weekday_counts.sort_index().tolist()
     
     #days_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     #most_active_day_idx = weekday_counts.idxmax()
-    most_active_day = df['T_local_weekday'].value_counts().iloc[0]#days_week[most_active_day_idx]
+    most_active_day = df['local_weekday'].value_counts().iloc[0]#days_week[most_active_day_idx]
     
     # Time of Day Buckets
     # Morning (5-11), Afternoon (12-17), Evening (18-23), Owl (0-4)
@@ -266,12 +266,12 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     #    else: return 'Owl'
         
     #df['tod'] = df['local_hour'].apply(assign_tod)
-    tod_shares = df['T_local_day_segment'].value_counts(normalize=True).to_dict()
+    tod_shares = df['local_day_segment'].value_counts(normalize=True).to_dict()
     
     # Activity Peak Analysis
     # We need a DF with index=timestamp, col='event_count'
     # Resample to hourly counts for analysis
-    hourly_ts = df.set_index('T_local_timestamp').resample('h').size().to_frame(name='event_count')
+    hourly_ts = df.set_index('local_timestamp').resample('h').size().to_frame(name='event_count')
     # Convert index to DatetimeIndex if it's PyArrow-backed (to access .hour)
     hourly_ts.index = pd.DatetimeIndex(hourly_ts.index)
     # Add hour column for the function
@@ -297,7 +297,7 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
     
     # Patience: % of watches >= 30s
     if not valid_watches.empty:
-        patience = (valid_watches['D_watch_duration'] >= 30).mean()
+        patience = (valid_watches['play_duration'] >= 30).mean()
     else:
         patience = 0.0
         
@@ -324,8 +324,8 @@ def process_single_donation(df_raw: pd.DataFrame) -> dict:
 
     # Compile Result
     result = {
-        'D_donation_id': df['D_donation_id'].iloc[0],
-        'inferred_tz_offset': float(df['T_tz_offset'].iloc[0]),
+        'collection_id': df['collection_id'].iloc[0],
+        'inferred_tz_offset': float(df['tz_offset'].iloc[0]),
         'active_days': int(active_days),
         'lifespan_days': int(lifespan_days),
         'total_events': int(total_events),
@@ -403,15 +403,15 @@ def generate_personas(events_df: pd.DataFrame) -> pd.DataFrame:
     
     # Group by donation and process
     # Using groupby apply might be slow for complex logic, iterating groups is safer for debugging
-    grouped = events_df.groupby('D_donation_id')
+    grouped = events_df.groupby('collection_id')
     
-    for D_donation_id, group in grouped:
+    for collection_id, group in grouped:
         try:
-            stats = process_single_donation(group)
+            stats = process_single_collection(group)
             if stats:
                 results.append(stats)
         except Exception as e:
-            print(f"Error processing collection {D_donation_id}: {e}")
+            print(f"Error processing collection {collection_id}: {e}")
             continue
             
     return pd.DataFrame(results)

@@ -14,15 +14,15 @@ print(f"Comparing Parquet vs Metadata for {study_name}...")
 try:
     df = pd.read_parquet(parquet_file, engine='pyarrow', dtype_backend='pyarrow')
     print(f"Loaded parquet. Shape: {df.shape}")
-    if 'D_donation_id' in df.columns:
+    if 'collection_id' in df.columns:
         # Simulate get_study_donations logic EXACTLY
-        donations_df = df[['D_donation_id']].drop_duplicates()
+        donations_df = df[['collection_id']].drop_duplicates()
         valid_donation_ids = set()
         
         print(f"Iterating {len(donations_df)} rows...")
         sample_val = None
         for i, (idx, row) in enumerate(donations_df.iterrows()):
-            val = row['D_donation_id']
+            val = row['collection_id']
             if i == 0:
                 print(f"Row 0 value: {val!r}")
                 print(f"Row 0 type: {type(val)}")
@@ -37,7 +37,7 @@ try:
              print(f"Sample Valid ID in Set: {sample_val!r}")
         
     else:
-        print("D_donation_id NOT in parquet columns!")
+        print("collection_id NOT in parquet columns!")
         valid_donation_ids = set()
 
 except Exception as e:
@@ -49,8 +49,8 @@ try:
     with open(metadata_file, 'r') as f:
         meta = json.load(f)
     
-    if 'D_donation_id' in meta and 'values' in meta['D_donation_id']:
-        meta_vals = meta['D_donation_id']['values']
+    if 'collection_id' in meta and 'values' in meta['collection_id']:
+        meta_vals = meta['collection_id']['values']
         print(f"Metadata Values Count: {len(meta_vals)}")
         if meta_vals:
             print(f"Sample Metadata Value: '{meta_vals[0]['value']}' (Type: {type(meta_vals[0]['value'])})")
@@ -78,7 +78,7 @@ try:
             print("Filter seems to work locally.")
 
     else:
-        print("D_donation_id not in metadata.")
+        print("collection_id not in metadata.")
 
 except Exception as e:
     print(f"Error reading metadata: {e}")

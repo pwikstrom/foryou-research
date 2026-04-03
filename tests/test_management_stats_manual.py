@@ -22,7 +22,7 @@ class TestStudyStats(unittest.TestCase):
         # 5 items: 1, 2, 3, 4, 5
         df_study = pd.DataFrame({
             'item_id': [1, 2, 3, 4, 5],
-            'D_donation_id': ['d1', 'd1', 'd2', 'd2', 'd3']
+            'collection_id': ['d1', 'd1', 'd2', 'd2', 'd3']
         })
         mock_create_study.return_value = df_study
 

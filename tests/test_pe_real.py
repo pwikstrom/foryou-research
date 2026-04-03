@@ -29,9 +29,9 @@ try:
     df = pd.DataFrame(data)
 
     print(f"Total donations in DB: {len(df)}")
-    if 'D_donation_id' in str(df.columns):
-        print("Has D_donation_id column")
+    if 'collection_id' in str(df.columns):
+        print("Has collection_id column")
     else:
-        print("NO D_donation_id. Columns:", df.columns[:10])
+        print("NO collection_id. Columns:", df.columns[:10])
 except Exception as e:
     print("ERROR:", e)

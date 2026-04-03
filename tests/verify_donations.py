@@ -8,7 +8,7 @@ print(f"Getting donations for {study}...")
 donations = get_study_donations(study)
 print(f"Found {len(donations)} donations.")
 if donations:
-    ids = [d.get('D_donation_id') for d in donations]
+    ids = [d.get('collection_id') for d in donations]
     print(f"First 5 IDs: {ids[:5]}")
     if ids:
         print(f"Sample Type: {type(ids[0])}")

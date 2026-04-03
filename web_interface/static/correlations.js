@@ -226,8 +226,8 @@ function renderPcaFilters(data) {
             };
 
             const span = document.createElement('span');
-            // For D_donation_id, show display_donation_id if available
-            if (col === 'D_donation_id' && displayIds[val]) {
+            // For collection_id, show display_donation_id if available
+            if (col === 'collection_id' && displayIds[val]) {
                 span.innerText = displayIds[val];
             } else {
                 span.innerText = val;
@@ -339,8 +339,8 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
     const groups = {};
     dataPoints.forEach(d => {
         const rawColorVal = d.color_val || 'Undefined';
-        // Map D_donation_id to display names for the legend
-        const gName = (colorLabel === 'D_donation_id' && displayIds[rawColorVal]) ? displayIds[rawColorVal] : rawColorVal;
+        // Map collection_id to display names for the legend
+        const gName = (colorLabel === 'collection_id' && displayIds[rawColorVal]) ? displayIds[rawColorVal] : rawColorVal;
 
         if (!groups[gName]) groups[gName] = { x: [], y: [], text: [], factors: [], name: gName };
         groups[gName].x.push(d.x);

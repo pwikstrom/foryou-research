@@ -846,7 +846,7 @@ def calculate_scaled_pca_scores(
 
 
     # TODO: avoid making direct references to column names
-    #events_pca_scores_scaled["T_local_month"] = events_pca_scores_scaled["T_local_date"].map(lambda x:x.month)
+    #events_pca_scores_scaled[local_month"] = events_pca_scores_scaled[local_date"].map(lambda x:x.month)
 
     if verbose:
         print(f"    [PCA] Shape of scaled PCA scores table: {events_pca_scores_scaled.shape}")

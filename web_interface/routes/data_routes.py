@@ -97,16 +97,15 @@ def _enforce_study_donations(metadata, study, verbose=False):
             return metadata
 
         for d in donations:
-            if d.get('D_donation_id'): valid_donation_ids.add(str(d['D_donation_id']).strip())
-            #if d.get('D_id'): valid_ids.add(str(d['D_id']).strip())
+            if d.get('collection_id'): valid_donation_ids.add(str(d['collection_id']).strip())
             
         if not valid_donation_ids:
              print(f"    [DATA_ROUTES] Warning: No valid_donation_ids found for {study}. Skipping filter enforcement.")
              return metadata
 
-        # Filter D_donation_id
-        if 'D_donation_id' in metadata and 'values' in metadata['D_donation_id']:
-            original = metadata['D_donation_id']['values']
+        # Filter collection_id
+        if 'collection_id' in metadata and 'values' in metadata['collection_id']:
+            original = metadata['collection_id']['values']
             # Robust filter with strip
             filtered = [v for v in original if str(v['value']).strip() in valid_donation_ids]
             
@@ -118,9 +117,9 @@ def _enforce_study_donations(metadata, study, verbose=False):
                 return None # Signal to caller that metadata is invalid
             elif len(original) != len(filtered):
                 if verbose:
-                    print(f"    [DATA_ROUTES] Info: Filtered D_donation_id for {study}: {len(original)} -> {len(filtered)}")
+                    print(f"    [DATA_ROUTES] Info: Filtered collection_id for {study}: {len(original)} -> {len(filtered)}")
                 
-            metadata['D_donation_id']['values'] = filtered
+            metadata['collection_id']['values'] = filtered
 
 
             
@@ -279,7 +278,7 @@ def api_explorer_metadata():
             # Inject Display IDs (Cached Path)
             display_map = load_display_id_map()
             if display_map:
-                for col in ['D_donation_id']:#, 'D_id']:
+                for col in ['collection_id']:
                     if col in potential_metadata and potential_metadata[col].get('type') == 'category': 
                         if 'values' in potential_metadata[col]:
                             new_values = []
@@ -399,7 +398,7 @@ def api_explorer_metadata():
     # Inject Display IDs for ID Columns
     display_map = load_display_id_map()
     if display_map:
-        for col in ['D_donation_id']:#, 'D_id']:
+        for col in ['collection_id']:
             if col in metadata and metadata[col].get('type') == 'category': # IDs are often category/list in metadata
                 # Check values list
                 if 'values' in metadata[col]:
@@ -567,7 +566,6 @@ def api_viewer_ids():
     id_col = 'item_id'
     if id_col not in filtered_df.columns:
         if 'video_id' in filtered_df.columns: id_col = 'video_id'
-        elif 'G_id' in filtered_df.columns: id_col = 'G_id'
         else: return jsonify({"error": "No ID column found"}), 500
     
     
@@ -576,8 +574,7 @@ def api_viewer_ids():
     if data.get("hide_duplicates"):
         dedup_col = 'video_id'
         if dedup_col not in filtered_df.columns:
-            if 'G_id' in filtered_df.columns: dedup_col = 'G_id'
-            else: dedup_col = id_col
+            dedup_col = id_col
             
         filtered_df = filtered_df.drop_duplicates(subset=[dedup_col], keep='first')
 
@@ -856,7 +853,7 @@ def api_pca_metadata():
             if entry:
                 schema_map[var_name] = entry
 
-    # Map PCA components formatted names (e.g. G_tiktok_native_C13 -> TikTok Native (C13), or G_var_entropy -> G Var (entropy))
+    # Map PCA components formatted names (e.g. tiktok_native_C13 -> TikTok Native (C13), or var_entropy -> Var (entropy))
     # Check if unrecognized numeric columns begin with a known schema variable base name
     sorted_base_names = sorted(schema_map.keys(), key=len, reverse=True)
     for col in numeric_cols:
@@ -907,11 +904,11 @@ def api_pca_metadata():
                 
             factor_values[f] = sorted(formatted_vals, key=natural_sort_key)
 
-    # Load display_ids for D_donation_id values
+    # Load display_ids for collection_id values
     display_ids = {}
-    if 'D_donation_id' in factors:
+    if 'collection_id' in factors:
         display_map = load_display_id_map()
-        don_vals = factor_values.get('D_donation_id', [])
+        don_vals = factor_values.get('collection_id', [])
         for v in don_vals:
             if v in display_map:
                 display_ids[v] = display_map[v]
@@ -1006,9 +1003,9 @@ def api_pca_data():
     # Build richer hover text with grouping factors
     factor_cols_in_df = [f for f in factors if f in filtered_df.columns and f != color_col]
     
-    # Get display IDs for D_donation_id
+    # Get display IDs for collection_id
     display_map = {}
-    if 'D_donation_id' in factor_cols_in_df or color_col == 'D_donation_id':
+    if 'collection_id' in factor_cols_in_df or color_col == 'collection_id':
         display_map = load_display_id_map()
 
     # Helper function to format specific values
@@ -1028,7 +1025,7 @@ def api_pca_data():
                 if week_num.isdigit():
                     return f"{parts[0]}-{int(week_num):02d}"
         # Resolve display IDs
-        if col_name == 'D_donation_id' and str(val) in display_map:
+        if col_name == 'collection_id' and str(val) in display_map:
             return display_map[str(val)]
         # Format numeric values (comma for thousands, up to 4 precision/significant digits)
         if isinstance(val, (int, float, np.integer, np.floating)):
@@ -1259,8 +1256,8 @@ def api_persona_stats():
         for study in accessible_studies:
             study_donations = get_study_donations(study)
             for d in study_donations:
-                 if 'D_donation_id' in d:
-                     allowed_donation_ids.add(str(d['D_donation_id']))
+                 if 'collection_id' in d:
+                     allowed_donation_ids.add(str(d['collection_id']))
         
         # print(f"DEBUG PERSONA: Found {len(allowed_donation_ids)} allowed donations")
         
@@ -1295,7 +1292,7 @@ def api_persona_stats():
                  return jsonify({"error": f"Failed to load data: {str(e)} / {str(e2)}"}), 500
 
 
-        if isinstance(stats_df.index, pd.Index) and stats_df.index.name == 'D_donation_id':
+        if isinstance(stats_df.index, pd.Index) and stats_df.index.name == 'collection_id':
              stats_df.reset_index(inplace=True)
 
         # Flatten MultiIndex columns (handling both Tuples and String-Tuples)
@@ -1309,8 +1306,6 @@ def api_persona_stats():
                 group, name = col
                 if group == 'other' and name == 'accepted':
                     col_name = 'accepted'
-                #elif group == 'other' and name == 'D_id':
-                #     col_name = 'D_id'
                 else:
                     col_name = name if name else group
 
@@ -1322,16 +1317,11 @@ def api_persona_stats():
                         group, name = val
                         if group == 'other' and name == 'accepted':
                             col_name = 'accepted'
-                        #elif group == 'other' and name == 'D_id':
-                        #    col_name = 'D_id'
                         else:
                             col_name = name if name else group
                 except:
                     pass
             
-            # Renaming for consistency
-            # if col_name == 'D_donation_id':
-            #     col_name = 'donation_id'
                 
             new_columns.append(col_name)
             
@@ -1345,9 +1335,9 @@ def api_persona_stats():
         # Ensure allowed IDs are strings
         allowed_donation_ids = set(str(x) for x in allowed_donation_ids)
 
-        if 'D_donation_id' in stats_df.columns:
-            stats_df = stats_df[stats_df['D_donation_id'].astype(str).isin(allowed_donation_ids)]
-        elif stats_df.index.name == 'D_donation_id' or 'D_donation_id' not in stats_df.columns:
+        if 'collection_id' in stats_df.columns:
+            stats_df = stats_df[stats_df['collection_id'].astype(str).isin(allowed_donation_ids)]
+        elif stats_df.index.name == 'collection_id' or 'collection_id' not in stats_df.columns:
             # Try filtering on index if column missing
             stats_df = stats_df[stats_df.index.astype(str).isin(allowed_donation_ids)]
             
@@ -1373,7 +1363,7 @@ def api_persona_stats():
                 collection_annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
                 
                 for rec in records:
-                    d_id = str(rec.get('D_donation_id', ''))
+                    d_id = str(rec.get('collection_id', ''))
                     if d_id and d_id in collection_annotations:
                         # Merge the annotation fields
                         # Specifically 'annotation_tags' (list) and 'display_donation_id' (str)
@@ -1524,18 +1514,14 @@ def api_viewer_item(study, item_id):
 
     # Inject Display ID
     display_map = load_display_id_map()
-    # Check D_donation_id, D_id, or item_id itself
-    # Usually display_id is mapped from D_donation_id
-    did = record.get('D_donation_id')
+    # Check collection_id or item_id itself
+    # Usually display_id is mapped from collection_id
+    did = record.get('collection_id')
     if did:
         did_str = str(did)
         if did_str in display_map:
             record['display_donation_id'] = display_map[did_str]
     
-    # Also check D_id if different?
-    # Usually D_id is same as D_donation_id or very related.
-    # The map is keyed by D_donation_id typically.
-
     # Inject Platform URL
     src = record.get('source_platform')
     iid = record.get('item_id')
@@ -1580,7 +1566,7 @@ def api_timeline_data():
         
         # Let's just check the ids.
         for d in study_donations:
-            if str(d.get('D_donation_id')) == str(donation_id):
+            if str(d.get('collection_id')) == str(donation_id):
                 has_access = True
                 break
         if has_access:
@@ -1608,7 +1594,7 @@ def api_timeline_data():
 @login_required
 def api_timeline_donations():
     """
-    Returns list of donations ({D_donation_id, D_id, ...}) that the current user 
+    Returns list of donations ({collection_id, ...}) that the current user 
     has access to via their allowed studies.
     """
     
@@ -1630,15 +1616,15 @@ def api_timeline_donations():
         study_donations = get_study_donations(study) # returns list of dicts
         #print(f"DEBUG TIMELINE: Study {study} returned {len(study_donations)} donations")
         for d in study_donations:
-            # d is {'D_donation_id': ..., 'D_id': ...}
-            if 'D_donation_id' in d:
-                allowed_donation_ids.add(str(d['D_donation_id']))
+            # d is {'collection_id': ..., }
+            if 'collection_id' in d:
+                allowed_donation_ids.add(str(d['collection_id']))
                 
     #print(f"DEBUG TIMELINE: Total allowed donation IDs: {len(allowed_donation_ids)}")
     if not allowed_donation_ids:
         return jsonify([])
 
-    # 3. Load Metadata to get details (D_id match etc)
+    # 3. Load Metadata to get details 
     # We still load the full metadata because we need to return the same structure as before
     # matching the logic. Or we can just build it from the study info?
     # The previous logic loaded `ddp_metadata.parquet` (all donations ever).
@@ -1668,7 +1654,7 @@ def api_timeline_donations():
         except:
              pass
     
-    target_id_col = 'D_donation_id'
+    target_id_col = 'collection_id'
     if target_id_col not in filtered.columns:
         if 'index' in filtered.columns:
              target_id_col = 'index'
@@ -1730,7 +1716,7 @@ def api_timeline_donations():
         for uid in final_valid_ids:
             if pd.isna(uid): continue
             uid_str = str(uid)
-            item = {'D_donation_id': uid_str}
+            item = {'collection_id': uid_str}
             
             # Inject display ID and tags
             if uid_str in annotations:

@@ -34,7 +34,7 @@ try {
     const sample_data = [];
     for(let i=0; i<150; i++) {
         let d = {
-            "D_donation_id": "test" + i,
+            "collection_id": "test" + i,
             "annotation_tags": []
         };
         // Provide messy numeric data for all available metrics
