@@ -355,9 +355,6 @@ def transform_category_column_to_counts_df(
         # Handle case where column is empty or all null
          return pd.DataFrame(index=some_events.set_index(grouping_factors).index.unique())
 
-    #mask = (df_exploded[the_column].notna()) & \
-    #       (~df_exploded[the_column].isin(["DDP", "BASELINE"]))
-    #df_filtered = df_exploded[mask]
 
     if df_exploded.empty:
          return pd.DataFrame(index=some_events.set_index(grouping_factors).index.unique())

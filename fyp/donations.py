@@ -251,7 +251,7 @@ def _deser(value):
 
 
 def generate_collection_metadata(
-    ddp_events_df: pd.DataFrame | None = None,
+    collections_df: pd.DataFrame | None = None,
     update_col: pd.Series | None = None,
     sort_by: str | None = None, 
     verbose: bool = False,
@@ -264,7 +264,7 @@ def generate_collection_metadata(
 
     Parameters
     ----------
-    ddp_events_df : pandas.DataFrame, optional
+    collections_df : pandas.DataFrame, optional
         Events DataFrame used to calculate metadata statistics.
     update_col : pandas.Series, optional
         A Series representing a single column to update or add to existing metadata.
@@ -292,7 +292,7 @@ def generate_collection_metadata(
 
 
     # if no events df is provided, check if there is an update column
-    if ddp_events_df is None:
+    if collections_df is None:
         if isinstance(update_col, pd.Series):
             print("Updating a single column | ", end="", flush=True)
             if update_col.index.name != collection_id_column:
@@ -315,10 +315,10 @@ def generate_collection_metadata(
             return old_metadata_df
 
 
-    collection_ids_in_the_incoming_df = set(ddp_events_df[collection_id_column].unique())
+    collection_ids_in_the_incoming_df = set(collections_df[collection_id_column].unique())
 
 
-    if collection_id_column not in ddp_events_df.columns:
+    if collection_id_column not in collections_df.columns:
         print("Shape of the collection stats DF: (0,0)")
         return pd.DataFrame()
     
@@ -338,10 +338,10 @@ def generate_collection_metadata(
     if verbose:
         print(f"Calculating metadata for {len(new_collections)} new collections")
 
-    ddp_events_df_new = ddp_events_df[ddp_events_df[collection_id_column].isin(new_collections)].copy()
+    collections_df_new = collections_df[collections_df[collection_id_column].isin(new_collections)].copy()
 
 
-    df1 = ddp_events_df_new.groupby(collection_id_column)[event_type_column].value_counts().unstack().fillna(0).astype(int)
+    df1 = collections_df_new.groupby(collection_id_column)[event_type_column].value_counts().unstack().fillna(0).astype(int)
     df1['total'] = df1.sum(axis=1)
     if sort_by is None:
         df1 = df1.sort_values("total").copy()
@@ -352,7 +352,7 @@ def generate_collection_metadata(
     df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
 
 
-    a = ddp_events_df_new[[collection_id_column,"ts_added_to_dataset"]].drop_duplicates()
+    a = collections_df_new[[collection_id_column,"ts_added_to_dataset"]].drop_duplicates()
     b = a.set_index(collection_id_column, inplace=False)
     these_collection_dates = b.to_dict()["ts_added_to_dataset"]
     df1["other","ts_added_to_dataset"] = df1.index.map(lambda x: these_collection_dates[x])
@@ -362,7 +362,7 @@ def generate_collection_metadata(
 
 
 
-    collection_personas = generate_personas(ddp_events_df_new)
+    collection_personas = generate_personas(collections_df_new)
     if not collection_personas.empty and collection_id_column in collection_personas.columns:
         collection_personas.set_index(collection_id_column, inplace=True)
         collection_personas.columns = pd.MultiIndex.from_product([['personas'], collection_personas.columns])
@@ -474,8 +474,8 @@ def load_collection_data(
     else:
         if verbose:
             print(f"    [DDP] Selecting date range from cached collection data")
-        cached_ddp_events_df = all_data.copy()
-        out_df = cached_ddp_events_df[(cached_ddp_events_df[timestamp_column]>=START_DATE) & (cached_ddp_events_df[timestamp_column]<=END_DATE)].copy()
+        cached_collections_df = all_data.copy()
+        out_df = cached_collections_df[(cached_collections_df[timestamp_column]>=START_DATE) & (cached_collections_df[timestamp_column]<=END_DATE)].copy()
 
         if not collection_id_column in out_df.columns or not timestamp_column in out_df.columns or len(out_df) == 0:
             print(f"!!! [DDP] No events found in date range. Returning None.")
@@ -501,7 +501,7 @@ def load_collection_data(
 
 def simple_sample_ddp_events(
     study_name = None, 
-    all_ddp_events_df = None, 
+    all_collections_df = None, 
     verbose=False):
 
 
@@ -527,10 +527,10 @@ def simple_sample_ddp_events(
 
 
     
-    if all_ddp_events_df is None:
-        raise ValueError("[Sampling] all_ddp_events_df cannot be None")
+    if all_collections_df is None:
+        raise ValueError("[Sampling] all_collections_df cannot be None")
 
-    the_df = all_ddp_events_df.copy()
+    the_df = all_collections_df.copy()
 
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.

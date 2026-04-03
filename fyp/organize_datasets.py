@@ -131,7 +131,7 @@ def load_study_datasets(
     if sample_frame is not None:
         tutti_data["collections"] = simple_sample_ddp_events(
             study_name = study_name, 
-            all_ddp_events_df = sample_frame, 
+            all_collections_df = sample_frame, 
             verbose = verbose)
 
     if tutti_data.get("collections", pd.DataFrame()).empty:
