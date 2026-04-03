@@ -160,14 +160,14 @@ function pe_loadCachedStats() {
 window.pe_loadCachedStats = pe_loadCachedStats;
 
 function pe_handleStatsData(data) {
-    // console.log('Stats loaded:', data.length, 'donations');
+    // console.log('Stats loaded:', data.length, 'collections');
     pe_data = data;
     window.pe_data = data;  // Keep window reference in sync
 
     // Update count display
     const countEl = document.getElementById('pe-stats-count');
     if (countEl) {
-        countEl.innerText = `(${data.length} donations)`;
+        countEl.innerText = `(${data.length} collections)`;
     }
 
     // Fix potential serialization issues with annotation_tags being strings
@@ -190,7 +190,7 @@ function pe_handleStatsData(data) {
     // Render all strip plots
     pe_renderAllStrips();
 
-    // Select first donation
+    // Select first collection
     if (data.length > 0) {
         pe_selectDonation(data[0].collection_id);
     }
@@ -217,7 +217,7 @@ function pe_renderAllStrips() {
 }
 
 
-function pe_buildSwarmPoints(values, donationIds, width, height, padding) {
+function pe_buildSwarmPoints(values, collectionIds, width, height, padding) {
     const min = Math.min(...values);
     const max = Math.max(...values);
     const range = max - min;
@@ -227,10 +227,10 @@ function pe_buildSwarmPoints(values, donationIds, width, height, padding) {
     const radius = 3;
     const spacing = radius * 2 + 1;
 
-    // Map each donation to an x position based on its value
+    // Map each collection to an x position based on its value
     const points = values.map((v, i) => ({
         value: v,
-        donationId: donationIds[i],
+        collectionId: collectionIds[i],
         x: range > 0 ? padding.left + ((v - min) / range) * plotW : padding.left + plotW / 2,
         y: midY
     }));
@@ -271,7 +271,7 @@ function pe_drawSwarmCanvas(canvas, swarmData, selectedId) {
 
     // Draw non-selected dots first
     points.forEach(p => {
-        if (p.donationId === selectedId) return;
+        if (p.collectionId === selectedId) return;
         ctx.beginPath();
         ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(74, 144, 217, 0.6)';
@@ -279,7 +279,7 @@ function pe_drawSwarmCanvas(canvas, swarmData, selectedId) {
     });
 
     // Draw selected dot on top (larger, red)
-    const selected = points.find(p => p.donationId === selectedId);
+    const selected = points.find(p => p.collectionId === selectedId);
     if (selected) {
         ctx.beginPath();
         ctx.arc(selected.x, selected.y, 5.5, 0, Math.PI * 2);
@@ -295,14 +295,14 @@ function pe_drawSwarmCanvas(canvas, swarmData, selectedId) {
 function pe_createStrip(metric) {
     const info = PE_METRIC_INFO[metric] || { label: metric, tooltip: '' };
 
-    // Extract numeric values and donation IDs for this metric
+    // Extract numeric values and collection IDs for this metric
     const values = [];
-    const donationIds = [];
+    const collectionIds = [];
     pe_data.forEach(d => {
         const v = parseFloat(d[metric]);
         if (!isNaN(v)) {
             values.push(v);
-            donationIds.push(d.collection_id);
+            collectionIds.push(d.collection_id);
         }
     });
 
@@ -310,9 +310,9 @@ function pe_createStrip(metric) {
     let selectedVal = null;
     let percentile = null;
     if (pe_selectedId) {
-        const donation = pe_data.find(d => d.collection_id === pe_selectedId);
-        if (donation) {
-            selectedVal = parseFloat(donation[metric]);
+        const collection = pe_data.find(d => d.collection_id === pe_selectedId);
+        if (collection) {
+            selectedVal = parseFloat(collection[metric]);
             if (!isNaN(selectedVal)) {
                 const below = values.filter(v => v < selectedVal).length;
                 percentile = Math.round((below / values.length) * 100);
@@ -379,12 +379,12 @@ function pe_createStrip(metric) {
     // Draw after DOM insertion (requestAnimationFrame ensures canvas has layout)
     requestAnimationFrame(() => {
         const padding = { left: 6, right: 6, top: 6, bottom: 6 };
-        const swarmData = pe_buildSwarmPoints(values, donationIds, canvas.clientWidth, canvas.clientHeight, padding);
+        const swarmData = pe_buildSwarmPoints(values, collectionIds, canvas.clientWidth, canvas.clientHeight, padding);
         canvas._swarmData = swarmData;
         pe_drawSwarmCanvas(canvas, swarmData, pe_selectedId);
     });
 
-    // Click to select donation
+    // Click to select collection
     canvas.addEventListener('click', (e) => {
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -402,7 +402,7 @@ function pe_createStrip(metric) {
             }
         });
         if (closest) {
-            pe_selectDonation(closest.donationId);
+            pe_selectDonation(closest.collectionId);
         }
     });
 
@@ -424,7 +424,7 @@ function pe_createStrip(metric) {
             }
         });
         canvas.style.cursor = closest ? 'pointer' : 'default';
-        canvas.title = closest ? `${closest.donationId}\nValue: ${pe_formatValue(closest.value)}` : '';
+        canvas.title = closest ? `${closest.collectionId}\nValue: ${pe_formatValue(closest.value)}` : '';
     });
 
     return row;
@@ -447,11 +447,11 @@ window.PE_METRIC_INFO = PE_METRIC_INFO;
 function pe_updateStripSelection() {
     if (!pe_selectedId) return;
 
-    const donation = pe_data.find(d => d.collection_id === pe_selectedId);
-    if (!donation) return;
+    const collection = pe_data.find(d => d.collection_id === pe_selectedId);
+    if (!collection) return;
 
     PE_METRICS.forEach(metric => {
-        const selectedVal = parseFloat(donation[metric]);
+        const selectedVal = parseFloat(collection[metric]);
 
         // Update value display
         const valueEl = document.getElementById(`pe-strip-value-${metric}`);
@@ -483,9 +483,9 @@ function pe_updateStripSelection() {
 // function pe_onDonationSelect() { ... } // Removed
 
 
-function pe_selectDonation(donationId, scrollToRow = true) {
-    pe_selectedId = donationId;
-    window.pe_selectedId = donationId;
+function pe_selectDonation(collectionId, scrollToRow = true) {
+    pe_selectedId = collectionId;
+    window.pe_selectedId = collectionId;
 
     // Update strip selection highlighting (works even without pe_data)
     if (pe_data && pe_data.length > 0) {
@@ -496,7 +496,7 @@ function pe_selectDonation(donationId, scrollToRow = true) {
     const scrollContainer = document.getElementById('edit-activity-list-container');
     let matchedRow = null;
     document.querySelectorAll('.edit-activity-item').forEach(row => {
-        if (row.getAttribute('data-donation-id') === donationId) {
+        if (row.getAttribute('data-collection-id') === collectionId) {
             row.style.background = 'var(--table-row-selected)';
             matchedRow = row;
         } else {
@@ -516,13 +516,13 @@ function pe_selectDonation(donationId, scrollToRow = true) {
 // Tag Management
 function pe_renderTags() {
     if (!pe_selectedId || !pe_data) return;
-    const donation = pe_data.find(d => d.collection_id === pe_selectedId);
-    if (!donation) return;
+    const collection = pe_data.find(d => d.collection_id === pe_selectedId);
+    if (!collection) return;
 
     // Defensive: Ensure annotation_tags is an array
-    const currentTags = Array.isArray(donation.annotation_tags) ? donation.annotation_tags : [];
+    const currentTags = Array.isArray(collection.annotation_tags) ? collection.annotation_tags : [];
 
-    // Collect ALL tags from ALL donations
+    // Collect ALL tags from ALL collections
     const allTagsSet = new Set();
     pe_data.forEach(d => {
         if (d.annotation_tags && Array.isArray(d.annotation_tags)) {
@@ -590,21 +590,21 @@ function pe_renderTags() {
 
 function pe_toggleTag(tag) {
     if (!pe_selectedId || !pe_data) return;
-    const donation = pe_data.find(d => d.collection_id === pe_selectedId);
-    if (!donation) return;
+    const collection = pe_data.find(d => d.collection_id === pe_selectedId);
+    if (!collection) return;
 
     // Ensure array exists
-    if (!Array.isArray(donation.annotation_tags)) donation.annotation_tags = [];
+    if (!Array.isArray(collection.annotation_tags)) collection.annotation_tags = [];
 
-    const idx = donation.annotation_tags.indexOf(tag);
+    const idx = collection.annotation_tags.indexOf(tag);
     if (idx !== -1) {
         // Remove
-        donation.annotation_tags.splice(idx, 1);
+        collection.annotation_tags.splice(idx, 1);
     } else {
         // Add
-        donation.annotation_tags.push(tag);
+        collection.annotation_tags.push(tag);
     }
-    // console.log(`[PE] Toggled ${tag}. New tags:`, donation.annotation_tags);
+    // console.log(`[PE] Toggled ${tag}. New tags:`, collection.annotation_tags);
     pe_renderTags();
 }
 
@@ -620,19 +620,19 @@ function pe_addNewTag() {
 
     if (newTags.length > 0) {
         if (!pe_selectedId || !pe_data) return;
-        const donation = pe_data.find(d => d.collection_id === pe_selectedId);
-        if (!donation) return;
+        const collection = pe_data.find(d => d.collection_id === pe_selectedId);
+        if (!collection) return;
 
-        if (!Array.isArray(donation.annotation_tags)) donation.annotation_tags = [];
+        if (!Array.isArray(collection.annotation_tags)) collection.annotation_tags = [];
 
         newTags.forEach(tag => {
-            if (!donation.annotation_tags.includes(tag)) {
-                donation.annotation_tags.push(tag);
+            if (!collection.annotation_tags.includes(tag)) {
+                collection.annotation_tags.push(tag);
             }
         });
 
         input.value = '';
-        // console.log(`[PE] Added tags. New tags:`, donation.annotation_tags);
+        // console.log(`[PE] Added tags. New tags:`, collection.annotation_tags);
         pe_renderTags();
     }
 }
@@ -642,18 +642,18 @@ function pe_saveAnnotation() {
     if (!pe_selectedId) return;
 
     const displayIdInput = document.getElementById('pe-annot-display-id');
-    // Using donation.annotation_tags which is updated in real-time by UI
-    const donation = pe_data.find(d => d.collection_id === pe_selectedId);
-    if (!donation) return;
+    // Using collection.annotation_tags which is updated in real-time by UI
+    const collection = pe_data.find(d => d.collection_id === pe_selectedId);
+    if (!collection) return;
 
     if (!displayIdInput) return;
 
     const displayId = displayIdInput.value;
-    const tags = donation.annotation_tags || [];
+    const tags = collection.annotation_tags || [];
 
     const payload = {
-        donation_id: pe_selectedId,
-        display_donation_id: displayId,
+        collection_id: pe_selectedId,
+        display_collection_id: displayId,
         tags: tags
     };
 
@@ -661,7 +661,7 @@ function pe_saveAnnotation() {
     const btn = document.querySelector('button[onclick="pe_saveAnnotation()"]');
     if (btn) btn.disabled = true;
 
-    fetch('/api/donation/annotate', {
+    fetch('/api/collection/annotate', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -677,7 +677,7 @@ function pe_saveAnnotation() {
                 if (pe_data) {
                     const don = pe_data.find(d => d.collection_id === pe_selectedId);
                     if (don) {
-                        don.display_donation_id = displayId;
+                        don.display_collection_id = displayId;
                         don.annotation_tags = tags;
                     }
                 }

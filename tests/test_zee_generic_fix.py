@@ -12,11 +12,11 @@ meta = {}
 load_schema_metadata(meta)
 viz_vars = meta.get('timeline_priority', [])
 interval = "day"
-donation_id = "Zee_generic"
+collection_id = "Zee_generic"
 
 def load_interval_df(u_interval):
     import fyp.data_io as data_io
-    fname = f"timeline_{donation_id}_{u_interval}.parquet"
+    fname = f"timeline_{collection_id}_{u_interval}.parquet"
     if data_io.exists(storage_location="cache", filename=fname):
         return data_io.load_parquet(storage_location="cache", filename=fname)
     return None

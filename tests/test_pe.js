@@ -28,7 +28,7 @@ try {
                      .replace('let pe_selectedId', 'var pe_selectedId');
     eval(script);
 
-    // Create 100 fake donations
+    // Create 100 fake s
     const sample_data = [];
     for(let i=0; i<100; i++) {
         sample_data.push({

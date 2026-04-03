@@ -30,7 +30,7 @@ try {
     const content = fs.readFileSync('web_interface/static/collections.js', 'utf8');
     eval(content);
 
-    // Create 150 fake donations
+    // Create 150 fake s
     const sample_data = [];
     for(let i=0; i<150; i++) {
         let d = {

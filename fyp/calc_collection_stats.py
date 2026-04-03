@@ -174,7 +174,7 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     num_comments = len(comments_df)
 
     # Likes
-    # Mapped from 'ItemFavoriteList' in donations.py -> 'fave_item'
+    # Mapped from 'ItemFavoriteList' in s.py -> 'fave_item'
     likes_df = df[df['activity_type'].isin(['like', 'fave_item'])]
     num_likes = len(likes_df)
     
@@ -394,14 +394,14 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
 
 def generate_personas(events_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculates statistics for all donations in the input DataFrame.
+    Calculates statistics for all collections in the input DataFrame.
     """
     if events_df.empty:
         return pd.DataFrame()
         
     results = []
     
-    # Group by donation and process
+    # Group by collection and process
     # Using groupby apply might be slow for complex logic, iterating groups is safer for debugging
     grouped = events_df.groupby('collection_id')
     

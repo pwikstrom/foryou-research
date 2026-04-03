@@ -226,7 +226,7 @@ function renderPcaFilters(data) {
             };
 
             const span = document.createElement('span');
-            // For collection_id, show display_donation_id if available
+            // For collection_id, show display_collection_id if available
             if (col === 'collection_id' && displayIds[val]) {
                 span.innerText = displayIds[val];
             } else {

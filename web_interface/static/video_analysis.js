@@ -983,10 +983,10 @@ function renderMetadata(item) {
     }
 
     // Inject Display ID if present at top
-    if (item.display_donation_id) {
+    if (item.display_collection_id) {
         const didRow = document.createElement('tr');
         didRow.className = 'detail-display-id';
-        didRow.innerHTML = `<td class="font-bold" style="color:var(--color-info);">Display ID</td><td class="font-bold" style="color:var(--color-text-primary); text-align:right;">${item.display_donation_id}</td>`;
+        didRow.innerHTML = `<td class="font-bold" style="color:var(--color-info);">Display ID</td><td class="font-bold" style="color:var(--color-text-primary); text-align:right;">${item.display_collection_id}</td>`;
         tbody.appendChild(didRow);
     }
 

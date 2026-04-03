@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**FYP (For You Project)** is a TikTok research data platform for academics. It ingests TikTok data donations and baseline video captures, enriches them via web scraping and LLM annotation (Google Gemini), performs statistical analysis (PCA, ANOVA, PERMANOVA), and presents findings through an interactive Flask-based web dashboard with role-based access control.
+**FYP (For You Project)** is a TikTok research data platform for academics. It ingests TikTok data ideo captures, enriches them via web scraping and LLM annotation (Google Gemini), performs statistical analysis (PCA, ANOVA, PERMANOVA), and presents findings through an interactive Flask-based web dashboard with role-based access control.
 
 ---
 
@@ -76,7 +76,7 @@ fyp_main_v02/
 │   ├── types.py                 # PyArrow dtype helpers and conversion
 │   ├── utils.py                 # Shared utility functions
 │   ├── ingest.py                # Data ingestion pipeline
-│   ├── donations.py             # Donation-level data handling
+│   ├──  # Donation-level data handling
 │   ├── scrape.py                # Metadata enrichment & scraping
 │   ├── mypyktok.py              # Custom PykTok fork for TikTok scraping
 │   ├── machine_annotation.py    # Gemini-based annotation

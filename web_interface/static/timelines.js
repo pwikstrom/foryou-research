@@ -4,7 +4,7 @@
 window.timelines = {
     currentStudy: null,
     currentDonationId: null,
-    donationList: [],
+    collectionList: [],
     timelineData: null,
     timelineState: {
         categoricalSelections: {},
@@ -25,7 +25,7 @@ window.timelines = {
                 }
             }
         }
-        // No study selection anymore, load all valid donations directly
+        // No study selection anymore, load all valid collections directly
         this.loadDonations();
     },
 
@@ -37,7 +37,7 @@ window.timelines = {
         const select = document.getElementById('timelines-collection-select');
 
         try {
-            const res = await fetch('/api/timelines/donations', {
+            const res = await fetch('/api/timelines/collections', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({})
@@ -49,11 +49,11 @@ window.timelines = {
                 return;
             }
 
-            this.donationList = data.filter(d => !d.hidden);
+            this.collectionList = data.filter(d => !d.hidden);
             this.renderCollectionDropdown();
 
         } catch (e) {
-            console.error("Error loading donations:", e);
+            console.error("Error loading collections:", e);
             select.innerHTML = '<option value="" disabled selected>Failed to load</option>';
         }
     },
@@ -63,16 +63,16 @@ window.timelines = {
         const countSpan = document.getElementById('timelines-collection-count');
         select.innerHTML = '';
 
-        if (this.donationList.length === 0) {
+        if (this.collectionList.length === 0) {
             select.innerHTML = '<option value="" disabled selected>No collections found</option>';
             return;
         }
 
-        this.donationList.forEach(d => {
+        this.collectionList.forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.collection_id;
-            opt.textContent = d.display_donation_id && d.display_donation_id.trim() !== ''
-                ? d.display_donation_id
+            opt.textContent = d.display_collection_id && d.display_collection_id.trim() !== ''
+                ? d.display_collection_id
                 : d.collection_id;
             if (d.collection_id === this.currentDonationId) {
                 opt.selected = true;
@@ -81,12 +81,12 @@ window.timelines = {
         });
 
         if (countSpan) {
-            countSpan.textContent = `${this.donationList.length} collections`;
+            countSpan.textContent = `${this.collectionList.length} collections`;
         }
 
         // Auto-select first if none selected
-        if (!this.currentDonationId && this.donationList.length > 0) {
-            this.selectDonation(this.donationList[0].collection_id);
+        if (!this.currentDonationId && this.collectionList.length > 0) {
+            this.selectDonation(this.collectionList[0].collection_id);
         }
     },
 
@@ -119,15 +119,15 @@ window.timelines = {
         });
     },
 
-    selectDonation: async function (donationId) {
-        this.currentDonationId = donationId;
+    selectDonation: async function (collectionId) {
+        this.currentDonationId = collectionId;
         const header = document.getElementById('timelines-header');
         if (header) header.style.display = 'block';
 
-        const donation = this.donationList.find(d => d.collection_id === donationId);
-        let displayTitle = donationId;
-        if (donation && donation.display_donation_id) {
-            displayTitle = donation.display_donation_id;
+        const collection = this.collectionList.find(d => d.collection_id === collectionId);
+        let displayTitle = collectionId;
+        if (collection && collection.display_collection_id) {
+            displayTitle = collection.display_collection_id;
         }
 
         const title = document.getElementById('timelines-title');
@@ -135,12 +135,12 @@ window.timelines = {
             title.innerHTML = `Timeline: ${displayTitle}`;
 
             // Append Tags if available
-            if (donation && donation.annotation_tags && Array.isArray(donation.annotation_tags) && donation.annotation_tags.length > 0) {
+            if (collection && collection.annotation_tags && Array.isArray(collection.annotation_tags) && collection.annotation_tags.length > 0) {
                 const tagsContainer = document.createElement('span');
                 tagsContainer.style.marginLeft = '15px';
                 tagsContainer.classList.add('text-xxs', 'font-normal');
 
-                donation.annotation_tags.forEach(tag => {
+                collection.annotation_tags.forEach(tag => {
                     const chip = document.createElement('span');
                     chip.innerText = tag;
                     chip.style.display = 'inline-block';
@@ -158,12 +158,12 @@ window.timelines = {
         }
 
         // --- Collection Info Tooltip ---
-        let pe_donation = null;
+        let pe_collection = null;
         if (window.pe_data && window.pe_data.length > 0) {
-            pe_donation = window.pe_data.find(d => d.collection_id === donationId);
+            pe_collection = window.pe_data.find(d => d.collection_id === collectionId);
         }
 
-        if (pe_donation) {
+        if (pe_collection) {
 
             // Helper to dynamically hide empty items just like PE
             let visibleInfoCount = 0;
@@ -182,13 +182,13 @@ window.timelines = {
             };
 
             // Participant Info
-            updateInfoStat('timelines-stat-name', pe_donation.name);
-            updateInfoStat('timelines-stat-email', pe_donation.email);
-            updateInfoStat('timelines-stat-tiktok', pe_donation.tiktokHandle);
-            updateInfoStat('timelines-stat-age', pe_donation.age);
-            updateInfoStat('timelines-stat-country', pe_donation.country);
-            updateInfoStat('timelines-stat-postcode', pe_donation.postCode);
-            updateInfoStat('timelines-stat-display-id', pe_donation.display_donation_id);
+            updateInfoStat('timelines-stat-name', pe_collection.name);
+            updateInfoStat('timelines-stat-email', pe_collection.email);
+            updateInfoStat('timelines-stat-tiktok', pe_collection.tiktokHandle);
+            updateInfoStat('timelines-stat-age', pe_collection.age);
+            updateInfoStat('timelines-stat-country', pe_collection.country);
+            updateInfoStat('timelines-stat-postcode', pe_collection.postCode);
+            updateInfoStat('timelines-stat-display-id', pe_collection.display_collection_id);
 
             const pInfoSection = document.getElementById('timelines-participant-info-section');
             if (pInfoSection) {
@@ -200,24 +200,24 @@ window.timelines = {
                 const d = new Date(ts);
                 return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
             };
-            document.getElementById('timelines-stat-donation-date').innerText = fmtDate(pe_donation.date);
+            document.getElementById('timelines-stat-collection-date').innerText = fmtDate(pe_collection.date);
 
             // Activity Stats
-            const tz = pe_donation.inferred_tz_offset;
+            const tz = pe_collection.inferred_tz_offset;
             const tzStr = tz !== null && tz !== undefined ? `UTC${tz >= 0 ? '+' : ''}${tz}` : 'Unknown';
             document.getElementById('timelines-stat-timezone').innerText = tzStr;
-            document.getElementById('timelines-stat-active-days').innerText = pe_donation.active_days || 0;
-            document.getElementById('timelines-stat-total-events').innerText = (pe_donation.total_events || 0).toLocaleString();
-            document.getElementById('timelines-stat-peak-segment').innerText = pe_donation.peak_day_segment || 'Unknown';
+            document.getElementById('timelines-stat-active-days').innerText = pe_collection.active_days || 0;
+            document.getElementById('timelines-stat-total-events').innerText = (pe_collection.total_events || 0).toLocaleString();
+            document.getElementById('timelines-stat-peak-segment').innerText = pe_collection.peak_day_segment || 'Unknown';
 
-            document.getElementById('timelines-stat-first-event').innerText = fmtDate(pe_donation.first_event_ts);
-            document.getElementById('timelines-stat-last-event').innerText = fmtDate(pe_donation.last_event_ts);
+            document.getElementById('timelines-stat-first-event').innerText = fmtDate(pe_collection.first_event_ts);
+            document.getElementById('timelines-stat-last-event').innerText = fmtDate(pe_collection.last_event_ts);
 
             // Store first event date for the 'exclude before first activity' filter
-            this.firstActivityDate = pe_donation.first_event_ts ? pe_donation.first_event_ts.substring(0, 10) : null;
+            this.firstActivityDate = pe_collection.first_event_ts ? pe_collection.first_event_ts.substring(0, 10) : null;
 
             // Tags
-            const currentTags = Array.isArray(pe_donation.annotation_tags) ? pe_donation.annotation_tags : [];
+            const currentTags = Array.isArray(pe_collection.annotation_tags) ? pe_collection.annotation_tags : [];
             const tagsDisplay = document.getElementById('timelines-stat-tags');
             if (tagsDisplay) {
                 if (currentTags.length > 0) {
@@ -247,7 +247,7 @@ window.timelines = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     study: this.currentStudy,
-                    donation_id: donationId,
+                    collection_id: collectionId,
                     interval: 'day'
                 })
             });

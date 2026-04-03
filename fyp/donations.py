@@ -250,7 +250,7 @@ def _deser(value):
 
 
 
-def generate_donation_metadata(
+def generate_collection_metadata(
     ddp_events_df: pd.DataFrame | None = None,
     update_col: pd.Series | None = None,
     sort_by: str | None = None, 
@@ -259,7 +259,7 @@ def generate_donation_metadata(
     load_from_disk: bool = True,
     ) -> pd.DataFrame:
     """
-    Generate or update donation metadata, either by calculating statistics from events 
+    Generate or update collection metadata, either by calculating statistics from events 
     or by merging a specific column into existing metadata.
 
     Parameters
@@ -277,7 +277,7 @@ def generate_donation_metadata(
     Returns
     -------
     pandas.DataFrame
-        The resulting metadata DataFrame with donation IDs as index.
+        The resulting metadata DataFrame with collection IDs as index.
     """
 
     old_metadata_df = pd.DataFrame()
@@ -315,30 +315,30 @@ def generate_donation_metadata(
             return old_metadata_df
 
 
-    donation_ids_in_the_incoming_df = set(ddp_events_df[collection_id_column].unique())
+    collection_ids_in_the_incoming_df = set(ddp_events_df[collection_id_column].unique())
 
 
     if collection_id_column not in ddp_events_df.columns:
-        print("Shape of the donation stats DF: (0,0)")
+        print("Shape of the collection stats DF: (0,0)")
         return pd.DataFrame()
     
 
     
-    donation_ids_in_the_old_metadata_df = set(old_metadata_df.index)
-    new_donations = donation_ids_in_the_incoming_df - donation_ids_in_the_old_metadata_df
+    collection_ids_in_the_old_metadata_df = set(old_metadata_df.index)
+    new_collections = collection_ids_in_the_incoming_df - collection_ids_in_the_old_metadata_df
 
-    if len(new_donations) == 0:
+    if len(new_collections) == 0:
         if verbose:
-            print(f"No new donations found. Returning the existing metadata. Shape: {old_metadata_df.shape}")
+            print(f"No new collections found. Returning the existing metadata. Shape: {old_metadata_df.shape}")
         return old_metadata_df
 
 
 
 
     if verbose:
-        print(f"Calculating metadata for {len(new_donations)} new donations")
+        print(f"Calculating metadata for {len(new_collections)} new collections")
 
-    ddp_events_df_new = ddp_events_df[ddp_events_df[collection_id_column].isin(new_donations)].copy()
+    ddp_events_df_new = ddp_events_df[ddp_events_df[collection_id_column].isin(new_collections)].copy()
 
 
     df1 = ddp_events_df_new.groupby(collection_id_column)[event_type_column].value_counts().unstack().fillna(0).astype(int)
@@ -348,24 +348,24 @@ def generate_donation_metadata(
     else:
         df1 = df1.sort_values(sort_by).copy()
     if verbose:
-        print(f"Shape of the donation stats DF: {df1.shape}")
+        print(f"Shape of the collection stats DF: {df1.shape}")
     df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
 
 
     a = ddp_events_df_new[[collection_id_column,"ts_added_to_dataset"]].drop_duplicates()
     b = a.set_index(collection_id_column, inplace=False)
-    these_donation_dates = b.to_dict()["ts_added_to_dataset"]
-    df1["other","ts_added_to_dataset"] = df1.index.map(lambda x: these_donation_dates[x])
+    these_collection_dates = b.to_dict()["ts_added_to_dataset"]
+    df1["other","ts_added_to_dataset"] = df1.index.map(lambda x: these_collection_dates[x])
 
 
     df1.sort_values(by=[("other","ts_added_to_dataset")], inplace=True)
 
 
 
-    donation_personas = generate_personas(ddp_events_df_new)
-    if not donation_personas.empty and collection_id_column in donation_personas.columns:
-        donation_personas.set_index(collection_id_column, inplace=True)
-        donation_personas.columns = pd.MultiIndex.from_product([['personas'], donation_personas.columns])
+    collection_personas = generate_personas(ddp_events_df_new)
+    if not collection_personas.empty and collection_id_column in collection_personas.columns:
+        collection_personas.set_index(collection_id_column, inplace=True)
+        collection_personas.columns = pd.MultiIndex.from_product([['personas'], collection_personas.columns])
 
 
     if verbose:
@@ -386,8 +386,8 @@ def generate_donation_metadata(
 
     combined_ddp_metadata = pd.merge(df1, participant_metadata_df, left_index=True, right_index=True, how="left")
 
-    if not donation_personas.empty:
-        combined_ddp_metadata = pd.merge(combined_ddp_metadata, donation_personas, left_index=True, right_index=True, how="left")
+    if not collection_personas.empty:
+        combined_ddp_metadata = pd.merge(combined_ddp_metadata, collection_personas, left_index=True, right_index=True, how="left")
 
 
     if old_metadata_df is not None:
@@ -429,7 +429,7 @@ def generate_donation_metadata(
 
 
 
-def load_donation_data(
+def load_collection_data(
     study_name = None, 
     all_data = None,
     verbose=False):
@@ -461,19 +461,19 @@ def load_donation_data(
 
     sel = [(timestamp_column, ">=", START_DATE),(timestamp_column, "<=", END_DATE)]
 
-    the_selected_donations = fyp_cf["study_defs"][study_name].get("SELECTED_DONATIONS",[])
-    if len(the_selected_donations) > 0:
-        the_selected_donations = [re.search(r'\[(.*?)\]', str(x)).group(1) if re.search(r'\[(.*?)\]', str(x)) else x for x in the_selected_donations]
-        sel.append((collection_id_column, "in", the_selected_donations))
+    the_selected_collections = fyp_cf["study_defs"][study_name].get("SELECTED_DONATIONS",[])
+    if len(the_selected_collections) > 0:
+        the_selected_collections = [re.search(r'\[(.*?)\]', str(x)).group(1) if re.search(r'\[(.*?)\]', str(x)) else x for x in the_selected_collections]
+        sel.append((collection_id_column, "in", the_selected_collections))
 
     if all_data is None:
         if verbose:
-            print(f"    [DDP] Loading donation events from main storage")
-        out_df = data_io.load_parquet("recoded", "donations_recoded.parquet", filters=sel,verbose=verbose)
+            print(f"    [DDP] Loading collection events from main storage")
+        out_df = data_io.load_parquet("recoded", "collections_recoded.parquet", filters=sel,verbose=verbose)
 
     else:
         if verbose:
-            print(f"    [DDP] Selecting date range from cached donation data")
+            print(f"    [DDP] Selecting date range from cached collection data")
         cached_ddp_events_df = all_data.copy()
         out_df = cached_ddp_events_df[(cached_ddp_events_df[timestamp_column]>=START_DATE) & (cached_ddp_events_df[timestamp_column]<=END_DATE)].copy()
 
@@ -481,14 +481,14 @@ def load_donation_data(
             print(f"!!! [DDP] No events found in date range. Returning None.")
             return None
 
-        if len(the_selected_donations) > 0:
-            out_df = out_df[out_df[collection_id_column].isin(the_selected_donations)].copy()
+        if len(the_selected_collections) > 0:
+            out_df = out_df[out_df[collection_id_column].isin(the_selected_collections)].copy()
 
         if not collection_id_column in out_df.columns or not timestamp_column in out_df.columns or len(out_df) == 0:
-            print(f"!!! [DDP] The selected donations have no events in the date range. Returning None.")
+            print(f"!!! [DDP] The selected collections have no events in the date range. Returning None.")
             return None
 
-    print(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique donations: {out_df[collection_id_column].nunique()} | Date range: {out_df[timestamp_column].min():%Y-%m-%d} -- {out_df[timestamp_column].max():%Y-%m-%d}")
+    print(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique collections: {out_df[collection_id_column].nunique()} | Date range: {out_df[timestamp_column].min():%Y-%m-%d} -- {out_df[timestamp_column].max():%Y-%m-%d}")
 
 
     return out_df
@@ -585,9 +585,9 @@ def simple_sample_ddp_events(
         print(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_DONATION} aggregation groups within the limits")
         print(f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_DONATION} aggregation groups from each remaining collection. This might take a moment...")
     # select collections with a required number of groups
-    donations_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION)
+    collections_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION)
     if verbose:
-        print(f"    [Sampling] Aggregation groups remaining after sampling: {len(donations_within_group_count_limits):,}")
+        print(f"    [Sampling] Aggregation groups remaining after sampling: {len(collections_within_group_count_limits):,}")
 
 
     # ----------------------------------------------------------------------
@@ -596,7 +596,7 @@ def simple_sample_ddp_events(
     ddp_watch_events_in_candidate_groups = ddp_watch_events_within_agg_group_size_limits.set_index(grouping_factors)
 
     # 2. select the events in the groups that meet the group count requirements
-    ddp_watch_events_in_selected_groups = ddp_watch_events_in_candidate_groups.loc[donations_within_group_count_limits.set_index(grouping_factors).index]
+    ddp_watch_events_in_selected_groups = ddp_watch_events_in_candidate_groups.loc[collections_within_group_count_limits.set_index(grouping_factors).index]
     ddp_watch_events_in_selected_groups = ddp_watch_events_in_selected_groups.reset_index()
     if verbose:
         sample_size = len(ddp_watch_events_in_selected_groups)
@@ -613,7 +613,7 @@ def simple_sample_ddp_events(
     # 2. find the non-watch groups that are in the selected groups. This is necessary since there are some non-watch
     # groups that don't have any watch events, and I don't want these included in the sample
     nonwatch_groups = set(unique_group_factor_pairs_for_nonwatch_events.set_index(grouping_factors).index)
-    selected_watch_groups = set(donations_within_group_count_limits.set_index(grouping_factors).index)
+    selected_watch_groups = set(collections_within_group_count_limits.set_index(grouping_factors).index)
     selected_nonwatch_groups = list(nonwatch_groups & selected_watch_groups)
 
     selected_nonwatch_groups = pd.DataFrame(selected_nonwatch_groups, columns=grouping_factors)

@@ -2,7 +2,7 @@
 import pandas as pd
 import fyp.data_io as data_io
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
-from fyp.donations import load_donation_data, simple_sample_ddp_events
+from fyp.donations import load_collection_data, simple_sample_ddp_events
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.studies import init_study_defs, save_study_defs
 from copy import deepcopy
@@ -42,7 +42,7 @@ def load_study_datasets(
     if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         tutti_data = {}
         cached_core_datasets = {}
-        for k in ['scrape','machine_annotations','donations']:
+        for k in ['scrape','machine_annotations','collections']:
             tutti_data[k] = None
 
             # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
@@ -84,8 +84,8 @@ def load_study_datasets(
 
 
 
-    # if donation data is to be included in the analysis
-    tutti_data["donations"] = load_donation_data(study_name = study_name, all_data = tutti_data.get("donations", None), verbose=verbose)
+    # if collection data is to be included in the analysis
+    tutti_data["collections"] = load_collection_data(study_name = study_name, all_data = tutti_data.get("collections", None), verbose=verbose)
 
 
     for k in tutti_data.keys():
@@ -93,7 +93,7 @@ def load_study_datasets(
             tutti_data[k] = pd.DataFrame()
 
 
-    if tutti_data.get("donations", pd.DataFrame()).empty:
+    if tutti_data.get("collections", pd.DataFrame()).empty:
         print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
         return None
 
@@ -107,34 +107,34 @@ def load_study_datasets(
 
     # no sampling is performed if the sample frame setting is "off"
     if sample_frame_setting == "off":
-        print(f"    [DD Sampling] Sample frame setting is 'off'. Not sampling donation data.")
+        print(f"    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data.")
         sample_frame = None
     
-    # if the sample frame setting is "events", then the sample frame is the donation events, regardless if they are enriched or not
+    # if the sample frame setting is "events", then the sample frame is the collection events, regardless if they are enriched or not
     elif sample_frame_setting == "events":
-        sample_frame = tutti_data["donations"].copy()
-        print(f"    [DD Sampling] Sample frame setting is 'events'. Using all {len(sample_frame):,} donation events as sample frame.")
+        sample_frame = tutti_data["collections"].copy()
+        print(f"    [DD Sampling] Sample frame setting is 'events'. Using all {len(sample_frame):,} collection events as sample frame.")
     
-    # if the sample frame setting is "scraped", then the sample frame is the donation events that are scraped
+    # if the sample frame setting is "scraped", then the sample frame is the collection events that are scraped
     elif sample_frame_setting == "scraped":
         selected_videos = enrichment_status[enrichment_status["scraped_ok"]].index.tolist()
-        sample_frame = tutti_data["donations"][tutti_data["donations"]["item_id"].isin(selected_videos)].copy()
-        print(f"    [DD Sampling] Sample frame setting is 'scraped'. Using only {len(sample_frame):,} donation events that are scraped as sample frame.")
+        sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
+        print(f"    [DD Sampling] Sample frame setting is 'scraped'. Using only {len(sample_frame):,} collection events that are scraped as sample frame.")
     
-    # if the sample frame setting is "annotated", then the sample frame is the donation events that are annotated
+    # if the sample frame setting is "annotated", then the sample frame is the collection events that are annotated
     elif sample_frame_setting == "annotated":
         selected_videos = enrichment_status[enrichment_status["annotated_ok"]].index.tolist()
-        sample_frame = tutti_data["donations"][tutti_data["donations"]["item_id"].isin(selected_videos)].copy()
-        print(f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} donation events that are annotated as sample frame.")
+        sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
+        print(f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} collection events that are annotated as sample frame.")
 
     # perform the sampling if a sample frame was defined
     if sample_frame is not None:
-        tutti_data["donations"] = simple_sample_ddp_events(
+        tutti_data["collections"] = simple_sample_ddp_events(
             study_name = study_name, 
             all_ddp_events_df = sample_frame, 
             verbose = verbose)
 
-    if tutti_data.get("donations", pd.DataFrame()).empty:
+    if tutti_data.get("collections", pd.DataFrame()).empty:
         print(f"!!! [Core datasets] Sampling resulted in empty datasets for study definition '{study_name}'. Returning None")
         return None
 
@@ -146,7 +146,7 @@ def load_study_datasets(
 
     # I only want to download the enrichment data that are needed for this particular study. So I check which videos are in the
     # activity datasets, and use that to filter the enrichment metadata. 
-    unique_videos = set(tutti_data["donations"]["item_id"].dropna().values.tolist())
+    unique_videos = set(tutti_data["collections"]["item_id"].dropna().values.tolist())
     print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets")
 
     # If the study is the special 'everything' study then I don't need to do this.
@@ -222,20 +222,20 @@ def load_study_datasets(
 
 
 
-def load_donation_datasets(
-    donation_id = None,
+def load_collection_datasets(
+    collection_id = None,
     load_from_cache = True,
     verbose=False
     ):
 
-    print(f"Loading core datasets for donation '{donation_id}'...")
+    print(f"Loading core datasets for collection '{collection_id}'...")
 
     # load core datasets from cache. This makes sense if the storage is remote. Since a slow network connection makes loading of datasets 
     # take a long time. If this is not a problem, there is really no need to use this option.
     if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']: # there is no point of caching these files to GCS since it is already available there
         tutti_data = {}
         cached_core_datasets = {}
-        for k in ['scrape','machine_annotations','donations']:
+        for k in ['scrape','machine_annotations','collections']:
             tutti_data[k] = None
 
             # if a core dataset exists in cache - check what it is and in case it can be used for this study - load it
@@ -272,13 +272,13 @@ def load_donation_datasets(
     # load activity data
     # --------------------------------------------------------------------
 
-    if "donations" in tutti_data and isinstance(tutti_data["donations"], pd.DataFrame):
-        tutti_data["donations"] = tutti_data["donations"][tutti_data["donations"]["collection_id"] == donation_id]
-        if len(tutti_data["donations"]) == 0:
-            print(f"    [Core datasets] No donations found for donation_id '{donation_id}'")
+    if "collections" in tutti_data and isinstance(tutti_data["collections"], pd.DataFrame):
+        tutti_data["collections"] = tutti_data["collections"][tutti_data["collections"]["collection_id"] == collection_id]
+        if len(tutti_data["collections"]) == 0:
+            print(f"    [Core datasets] No collections found for collection_id '{collection_id}'")
             return None
 
-    unique_videos = set(tutti_data["donations"]["item_id"].dropna().values.tolist())
+    unique_videos = set(tutti_data["collections"]["item_id"].dropna().values.tolist())
     print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets")
 
     # If the study is the special 'everything' study then I don't need to do this.
@@ -318,7 +318,7 @@ def load_donation_datasets(
                     print(f"    [Core datasets] - '{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size(tutti_data[k]):.1f}MB)")
 
 
-    print(f"...done. Core datasets loaded for donation '{donation_id}'")
+    print(f"...done. Core datasets loaded for collection '{collection_id}'")
 
 
     return tutti_data
@@ -340,7 +340,7 @@ def _build_agg_dict_to_generate_basic_video_stats(study_dataset = None):
 
     # Check that each columns exists and gradually build the aggregation based on what columns are available
     agg_defs = {
-        "nunique_donations": ("collection_id", "nunique"),
+        "nunique_collections": ("collection_id", "nunique"),
         "total_observations": ("collection_id", "count"),
         "scraped_ok": ("scraped_ok", "first"),
         "scraped_fail": ("scraped_fail", "first"),
@@ -413,7 +413,7 @@ def update_enrichment_status(
     combined_activity_data = all_datasets["ddp_logs"][['item_id', collection_id_column]]
 
     enrichment_status_df = combined_activity_data.groupby("item_id").agg(
-            nunique_donations=pd.NamedAgg(column=collection_id_column, aggfunc="nunique"),
+            nunique_collections=pd.NamedAgg(column=collection_id_column, aggfunc="nunique"),
             total_observations=pd.NamedAgg(column=collection_id_column, aggfunc="count")
         )
 
@@ -425,7 +425,7 @@ def update_enrichment_status(
             annotation_votes = pd.DataFrame()
 
 
-    enrichment_status_df["nunique_donations"] = enrichment_status_df["nunique_donations"].astype("int64[pyarrow]")
+    enrichment_status_df["nunique_collections"] = enrichment_status_df["nunique_collections"].astype("int64[pyarrow]")
 
     enrichment_status_df.reset_index(inplace=True)
 
@@ -470,7 +470,7 @@ def update_enrichment_status(
 def consolidate_enrichment_data(force_consolidation=False, verbose=False):
 
 
-    ddp_logs = data_io.load_parquet(filename="donations_recoded.parquet", storage_location="recoded")
+    ddp_logs = data_io.load_parquet(filename="collections_recoded.parquet", storage_location="recoded")
     new_ddp_logs = False
     
     print("\n*** Annotations")
@@ -549,11 +549,11 @@ def new_merge(
     else:
         enriched_data = pd.DataFrame()        
     
-    #if all_datasets.get('donations',None) is not None and all_datasets.get('zeeschuimer',None) is not None:
-    #    activity_data = pd.concat([all_datasets['donations'], all_datasets['zeeschuimer']], ignore_index=True)
-    if all_datasets.get('donations',None) is not None:# and all_datasets.get('zeeschuimer',None) is None:
-        activity_data = all_datasets['donations']
-    #elif all_datasets.get('zeeschuimer',None) is not None and all_datasets.get('donations',None) is None:
+    #if all_datasets.get('collections',None) is not None and all_datasets.get('zeeschuimer',None) is not None:
+    #    activity_data = pd.concat([all_datasets['collections'], all_datasets['zeeschuimer']], ignore_index=True)
+    if all_datasets.get('collections',None) is not None:# and all_datasets.get('zeeschuimer',None) is None:
+        activity_data = all_datasets['collections']
+    #elif all_datasets.get('zeeschuimer',None) is not None and all_datasets.get('collections',None) is None:
     #    activity_data = all_datasets['zeeschuimer']
     else:
         activity_data = pd.DataFrame()
@@ -690,29 +690,29 @@ def create_study_recoded_dataset(
 
 
 
-def create_donation_unified_dataset(
-    donation_id = None,
+def create_collection_unified_dataset(
+    collection_id = None,
     verbose = False
     ):
 
 
-    if donation_id is None:
-        raise ValueError("donation_id must be specified")
+    if collection_id is None:
+        raise ValueError("collection_id must be specified")
 
 
-    print(f"Generating unified dataset for donation '{donation_id}'")
+    print(f"Generating unified dataset for collection '{collection_id}'")
 
-    all_datasets = load_donation_datasets(
-        donation_id = donation_id,
+    all_datasets = load_collection_datasets(
+        collection_id = collection_id,
         load_from_cache = True,
         verbose = verbose)
 
     if all_datasets == None:
-        print(f"!!! [Core datasets] No activity data matched the donation '{donation_id}'. Returning None")
+        print(f"!!! [Core datasets] No activity data matched the collection '{collection_id}'. Returning None")
         return None
 
     # with new merge, the datasets are already recoded
-    donation_dataset = new_merge(
+    collection_dataset = new_merge(
         study_name = None,
         all_datasets = all_datasets,
         save_to_cache = False,
@@ -720,13 +720,13 @@ def create_donation_unified_dataset(
     )
 
 
-    memory_per_column = donation_dataset.memory_usage(deep=True) 
+    memory_per_column = collection_dataset.memory_usage(deep=True) 
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
-    print(f"...done. Unified dataset for donation '{donation_id}' generated. Total memory used: {total_memory_mb:.2f} MB")
+    print(f"...done. Unified dataset for collection '{collection_id}' generated. Total memory used: {total_memory_mb:.2f} MB")
 
 
-    return donation_dataset
+    return collection_dataset
 
 
 

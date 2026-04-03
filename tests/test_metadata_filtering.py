@@ -21,20 +21,20 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 class TestMetadataFiltering(unittest.TestCase):
 
-    def test_donation_id_filtering(self):
+    def test__id_filtering(self):
         """
-        Simulate the scenario where the dataframe contains extra donation IDs 
+        Simulate the scenario where the dataframe contains extra  IDs 
         that are not in the allowed list for the study.
         """
         print("\nTesting validation logic...")
         
         # 1. Setup Mock Data
         # Allowed IDs for the "study"
-        allowed_ids = ["donation_A", "donation_B"]
+        allowed_ids = ["_A", "_B"]
         
-        # Dataframe with extra IDs (donation_C should be filtered out)
+        # Dataframe with extra IDs (_C should be filtered out)
         data = {
-            "collection_id": ["donation_A", "donation_A", "donation_B", "donation_C", "donation_C"],
+            "collection_id": ["_A", "_A", "_B", "_C", "_C"],
             "value": [1, 2, 3, 4, 5]
         }
         df = pd.DataFrame(data)
@@ -75,9 +75,9 @@ class TestMetadataFiltering(unittest.TestCase):
         final_values = [v['value'] for v in metadata["collection_id"]["values"]]
         print(final_values)
         
-        self.assertIn("donation_A", final_values)
-        self.assertIn("donation_B", final_values)
-        self.assertNotIn("donation_C", final_values)
+        self.assertIn("_A", final_values)
+        self.assertIn("_B", final_values)
+        self.assertNotIn("_C", final_values)
         self.assertEqual(len(final_values), 2)
         
         print("Test Passed: Extra IDs were successfully removed from metadata.")

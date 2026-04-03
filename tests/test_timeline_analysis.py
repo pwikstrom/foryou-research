@@ -14,18 +14,18 @@ import pandas as pd
 
 init_study_defs()
 
-donation_id = "88f5fb9a-0c4c-4abc-916d-f47d990becc4"
+collection_id = "88f5fb9a-0c4c-4abc-916d-f47d990becc4"
 
 # Load first_event_ts from ddp_metadata
 df_meta = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)
 first_event_col = ('personas', 'first_event_ts') if ('personas', 'first_event_ts') in df_meta.columns else 'first_event_ts'
-ts = df_meta.loc[donation_id, first_event_col] if donation_id in df_meta.index else None
+ts = df_meta.loc[collection_id, first_event_col] if collection_id in df_meta.index else None
 first_date = str(ts)[:10] if pd.notna(ts) else None
-print(f"Donation: {donation_id}")
+print(f"Donation: {collection_id}")
 print(f"First activity date: {first_date}")
 
 # Get timeline data
-tdata = get_timeline_data(donation_id, interval='day')
+tdata = get_timeline_data(collection_id, interval='day')
 dates = tdata.get("dates", [])
 print(f"Total timeline dates: {len(dates)}")
 print(f"Date range: {dates[0]} to {dates[-1]}")
@@ -54,11 +54,11 @@ if 'content_category' in analysis:
 
 # Save
 for interval in ['day', 'week', 'month']:
-    tdata_i = get_timeline_data(donation_id, interval=interval)
+    tdata_i = get_timeline_data(collection_id, interval=interval)
     if tdata_i and tdata_i.get("dates"):
         a = analyse_timeline(tdata_i, interval=interval, first_activity_date=first_date)
         if a:
-            fname = f"timeline_analysis_{donation_id}_{interval}.json"
+            fname = f"timeline_analysis_{collection_id}_{interval}.json"
             data_io.save_json(a, storage_location="cache", filename=fname)
             print(f"Saved {fname}")
 

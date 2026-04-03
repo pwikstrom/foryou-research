@@ -66,7 +66,7 @@ functions_to_check = [
     "load_zeeschuimer_data",
     "sample_ddp_events",
     "load_ddp_events",
-    "load_special_donations",
+    "load_special_s",
     "load_study_datasets",
     "identify_unique_videos",
     "calculate_all_unique_video_subsets",
@@ -79,7 +79,7 @@ functions_to_check = [
     "process_machine_annotations_for_log_export",
     "process_and_combine_logs_for_log_export",
     "merge_all_study_datasets",
-    "filter_log_against_sampled_donation_groups",
+    "filter_log_against_sampled__groups",
     "save_logs",
     "save_logs_as_csv"
 ]

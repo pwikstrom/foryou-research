@@ -16,7 +16,7 @@ for fn in os.listdir(package_dir):
 #from .scrape import *
 #from .zeeschuimer import *
 #from .recode_variables import *
-#from .donations import *
+#from .s import *
 #from .stats import *
 #from .pca import *
 #from .organize_datasets import *

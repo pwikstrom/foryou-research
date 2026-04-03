@@ -49,7 +49,7 @@ class TestStudyStats(unittest.TestCase):
         
         # 4. Assertions
         self.assertEqual(stats['unique_videos'], 5)
-        self.assertEqual(stats['unique_donations'], 3)
+        self.assertEqual(stats['unique_s'], 3)
         
         # scraped_videos: sum(scraped_ok) = 2 (items 4, 5)
         self.assertEqual(stats['scraped_videos'], 2)

@@ -34,18 +34,18 @@ if __name__ == "__main__":
         if not viz_vars:
             print("Warning: No timeline variables defined in schema (timeline_priority).")
         
-        # Identify accepted donations
-        all_donations = set()
-        donation_first_event = {}
+        # Identify accepted collections
+        all_collections = set()
+        collection_first_event = {}
         
         # Load from ddp_metadata.parquet
         if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
             try:
-                print("Loading ddp_metadata.parquet to identify accepted donations...")
+                print("Loading ddp_metadata.parquet to identify accepted collections...")
                 df = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)
                 
                 if df is not None and not df.empty:
-                    # Filter for accepted donations
+                    # Filter for accepted collections
                     # The user specified the column is ('other', 'accepted')
                     # Check if it exists as a tuple (MultiIndex) or flattened
                     
@@ -54,21 +54,21 @@ if __name__ == "__main__":
                         print("Filtering for ('other', 'accepted') == True")
                         # Ensure boolean comparison, handling potential string/other types safely
                         accepted_mask = df[('other', 'accepted')] == True
-                        all_donations = set(df[accepted_mask].index.astype(str))
+                        all_collections = set(df[accepted_mask].index.astype(str))
                         found_col = True
                     elif 'other_accepted' in df.columns: # flatten fallback
                          print("Filtering for 'other_accepted' == True")
                          accepted_mask = df['other_accepted'] == True
-                         all_donations = set(df[accepted_mask].index.astype(str))
+                         all_collections = set(df[accepted_mask].index.astype(str))
                          found_col = True
                     
                     if not found_col:
-                        print("Warning: Could not find 'accepted' column. Processing ALL donations.")
+                        print("Warning: Could not find 'accepted' column. Processing ALL collections.")
                         # Fallback to all index
                         if df.index.name == 'collection_id':
-                             all_donations = set(df.index.astype(str))
+                             all_collections = set(df.index.astype(str))
                         elif 'collection_id' in df.columns:
-                             all_donations = set(df['collection_id'].astype(str))
+                             all_collections = set(df['collection_id'].astype(str))
                              
                     # Extract first_event_ts map for analysis filtering
                     first_event_col = None
@@ -77,32 +77,32 @@ if __name__ == "__main__":
                     elif 'first_event_ts' in df.columns:
                         first_event_col = 'first_event_ts'
 
-                    donation_first_event = {}
+                    collection_first_event = {}
                     if first_event_col is not None:
-                        for did in all_donations:
+                        for did in all_collections:
                             if did in df.index:
                                 ts = df.loc[did, first_event_col]
                                 if pd.notna(ts):
-                                    donation_first_event[did] = str(ts)[:10]
-                        print(f"Loaded first_event_ts for {len(donation_first_event)} donations.")
+                                    collection_first_event[did] = str(ts)[:10]
+                        print(f"Loaded first_event_ts for {len(collection_first_event)} collections.")
 
             except Exception as e:
                 print(f"Error loading ddp_metadata: {e}")
         
         # If still empty, maybe iterate studies?
-        if not all_donations:
-            print("No donations found in ddp_metadata. Checking studies...")
+        if not all_collections:
+            print("No collections found in ddp_metadata. Checking studies...")
             # Fallback logic could go here if needed.
             
-        print(f"Found {len(all_donations)} donations to process.")
+        print(f"Found {len(all_collections)} collections to process.")
         
         # --- PRELOAD ALL DATA FOR EFFICIENCY ---
         giant_df = None
-        if all_donations:
+        if all_collections:
             print("Preloading core datasets to optimize timeline compilation...")
             from fyp.organize_datasets import new_merge
             all_datasets = {}
-            for k, f in [('donations', 'donations_recoded.parquet'), 
+            for k, f in [('collections', 'collections_recoded.parquet'), 
                          ('scrape', 'scrape_recoded.parquet'), 
                          ('machine_annotations', 'machine_annotations_recoded.parquet')]:
                  if data_io.exists(storage_location="recoded", filename=f):
@@ -121,27 +121,27 @@ if __name__ == "__main__":
         # ---------------------------------------
         
         valid_count = 0
-        total = len(all_donations)
+        total = len(all_collections)
         
-        for i, donation_id in enumerate(sorted(list(all_donations))):
-            print(f"::PROGRESS:: {{ \"percent\": {int((i/total)*100)}, \"message\": \"Processing {donation_id} ({i+1}/{total})\" }}")
-            print(f"Processing {donation_id}...")
+        for i, collection_id in enumerate(sorted(list(all_collections))):
+            print(f"::PROGRESS:: {{ \"percent\": {int((i/total)*100)}, \"message\": \"Processing {collection_id} ({i+1}/{total})\" }}")
+            print(f"Processing {collection_id}...")
             
             # Remove existing cache to force recalculation
             for interval in ['day', 'week', 'month']:
-                filename = f"timeline_{donation_id}_{interval}.parquet"
+                filename = f"timeline_{collection_id}_{interval}.parquet"
                 if data_io.exists(storage_location="cache", filename=filename):
                     data_io.remove(storage_location="cache", filename=filename)
             
-            # Extract slice for this donation
+            # Extract slice for this collection
             preloaded_slice = None
             if giant_df is not None and not giant_df.empty and 'collection_id' in giant_df.columns:
-                preloaded_slice = giant_df[giant_df['collection_id'] == str(donation_id)]
+                preloaded_slice = giant_df[giant_df['collection_id'] == str(collection_id)]
             
             # Regenerate using the data_service logic
             # This function will regenerate if missing (which we just ensured)
             try:
-                if check_and_update_timeline_cache(donation_id, viz_vars, preloaded_df=preloaded_slice):
+                if check_and_update_timeline_cache(collection_id, viz_vars, preloaded_df=preloaded_slice):
                     valid_count += 1
 
                     # Generate analysis data for each interval
@@ -149,17 +149,17 @@ if __name__ == "__main__":
                     from web_interface.data_service import get_timeline_data
                     for a_interval in ['day', 'week', 'month']:
                         try:
-                            tdata = get_timeline_data(donation_id, interval=a_interval)
+                            tdata = get_timeline_data(collection_id, interval=a_interval)
                             if tdata and tdata.get("dates"):
-                                first_date = donation_first_event.get(donation_id)
+                                first_date = collection_first_event.get(collection_id)
                                 analysis = analyse_timeline(tdata, interval=a_interval, first_activity_date=first_date)
                                 if analysis:
-                                    analysis_fname = f"timeline_analysis_{donation_id}_{a_interval}.json"
+                                    analysis_fname = f"timeline_analysis_{collection_id}_{a_interval}.json"
                                     data_io.save_json(analysis, storage_location="cache", filename=analysis_fname)
                         except Exception as ae:
-                            print(f"  Warning: Analysis failed for {donation_id}/{a_interval}: {ae}")
+                            print(f"  Warning: Analysis failed for {collection_id}/{a_interval}: {ae}")
             except Exception as e:
-                print(f"Error processing {donation_id}: {e}")
+                print(f"Error processing {collection_id}: {e}")
                 
         print(f"::PROGRESS:: {{ \"percent\": 100, \"message\": \"Completed\" }}")
         print(f"Timeline refresh completed. {valid_count}/{total} updated successfully.")

@@ -27,7 +27,7 @@ def _calculate_stats(study_config, save_to_cache=True):
     if True:#try:
         study_name = study_config.get("STUDY_NAME")
         if not study_name:
-             return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_donations": 0}
+             return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
 
         # 1. Load Study Dataset (create if missing)
         #recoded_fn = f"{study_name}_recoded.parquet"
@@ -52,10 +52,10 @@ def _calculate_stats(study_config, save_to_cache=True):
             data_io.remove(storage_location="cache", filename=f"{study_name}_viewer_metadata.json")
             data_io.remove(storage_location="cache", filename=f"{study_name}_comp_interpretations.json")
             data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
-            return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_donations": 0}
+            return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
 
         # 2. Count Unique Donations
-        unique_donations = df_study['collection_id'].nunique()
+        unique_collections = df_study['collection_id'].nunique()
         unique_videos = df_study['item_id'].nunique()
 
         # 3. Load Enrichment Status
@@ -96,12 +96,12 @@ def _calculate_stats(study_config, save_to_cache=True):
             "unique_videos": int(unique_videos),
             "scraped_videos": scraped_videos,
             "annotated_videos": annotated_videos,
-            "unique_donations": int(unique_donations)
+            "unique_collections": int(unique_collections)
         }
 
     if False:#except Exception as e:
         print(f"Error calculating stats: {e}")
-        return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_donations": 0, "error": str(e)}
+        return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0, "error": str(e)}
 
 
 
@@ -422,7 +422,7 @@ def list_collections():
                 verbose=False,
             )
             
-            # Filter for accepted donations
+            # Filter for accepted collections
             if ('other', 'accepted') in df.columns:
                 df = df[df[('other', 'accepted')]]
                 
@@ -474,7 +474,7 @@ def list_collections():
                         
                 # Attach annotations (keyed by collection ID, not row index)
                 ann = annotations.get(row_id, {})
-                item['displayId'] = ann.get('display_donation_id', None)
+                item['displayId'] = ann.get('display_collection_id', None)
                 item['tags'] = ann.get('annotation_tags', [])
                 item['hidden'] = ann.get('hidden', False)
 
@@ -499,17 +499,17 @@ def save_collection_annotation():
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
-    donation_id = data.get('donation_id')
-    if not donation_id:
-        return jsonify({"error": "Missing donation_id"}), 400
+    collection_id = data.get('collection_id')
+    if not collection_id:
+        return jsonify({"error": "Missing collection_id"}), 400
 
     try:
         annotations = {}
         if data_io.exists(storage_location="recoded", filename="collection_annotations.json"):
             annotations = data_io.load_json(storage_location="recoded", filename="collection_annotations.json")
 
-        annotations[str(donation_id)] = {
-            "display_donation_id": data.get('display_donation_id', None),
+        annotations[str(collection_id)] = {
+            "display_collection_id": data.get('display_collection_id', None),
             "annotation_tags": data.get('tags', []),
             "hidden": data.get('hidden', False)
         }
@@ -541,7 +541,7 @@ def get_enrichment_stats():
     total_videos = 0
     scraped_videos = 0
     annotated_videos = 0
-    unique_donations = 0
+    unique_collections = 0
     
     if enrichment_status is not None and not enrichment_status.empty:
         total_videos = len(enrichment_status)
@@ -552,7 +552,7 @@ def get_enrichment_stats():
     
     ddp_metadata = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet")
     if ddp_metadata is not None and not ddp_metadata.empty:
-        unique_donations = int(ddp_metadata[ddp_metadata[('other','accepted')]].index.nunique())
+        unique_collections = int(ddp_metadata[ddp_metadata[('other','accepted')]].index.nunique())
         
     
     # 2. Get Queue Lengths
@@ -574,7 +574,7 @@ def get_enrichment_stats():
         "total_videos": total_videos,
         "scraped_videos": scraped_videos,
         "annotated_videos": annotated_videos,
-        "unique_donations": unique_donations,
+        "unique_collections": unique_collections,
         "scrape_queue_len": scrape_queue_len,
         "annotate_queue_len": annotate_queue_len
     })
@@ -627,18 +627,18 @@ def queue_voted_videos():
             return jsonify({"status": "no_votes", "message": "No votes found for machine annotation."})
 
         # 2. Map periods to item_ids 
-        from fyp.organize_datasets import create_donation_unified_dataset
+        from fyp.organize_datasets import create_collection_unified_dataset
         import pandas as pd
         target_item_ids = set()
         
         for coll_id, periods in all_votes.items():
             try:
                 # Need to load using standard DDP logic since timeline cache aggregates and removes item_id
-                df_donation = create_donation_unified_dataset(donation_id=coll_id, verbose=False)
+                df_collection = create_collection_unified_dataset(collection_id=coll_id, verbose=False)
                 
-                if df_donation is not None and not df_donation.empty and 'item_id' in df_donation.columns and 'local_date' in df_donation.columns:
+                if df_collection is not None and not df_collection.empty and 'item_id' in df_collection.columns and 'local_date' in df_collection.columns:
                     # Time periods can be 'YYYY-MM-DD' or 'YYYY-Wxx' or 'YYYY-MM'
-                    ts_series = pd.to_datetime(df_donation['local_date'], errors='coerce')
+                    ts_series = pd.to_datetime(df_collection['local_date'], errors='coerce')
                     
                     for p in periods:
                         # yyyy-mm-dd
@@ -658,7 +658,7 @@ def queue_voted_videos():
                         else:
                             continue # Unknown format
                         
-                        hits = df_donation.loc[match_mask, 'item_id'].dropna().unique().tolist()
+                        hits = df_collection.loc[match_mask, 'item_id'].dropna().unique().tolist()
                         target_item_ids.update(hits)
                         
             except Exception as e:

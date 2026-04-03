@@ -8,7 +8,7 @@ import fyp.data_io as data_io
 from fyp.pca import calculate_scaled_pca_scores
 from fyp.fyp_config import fyp_cf, PROJECT_ROOT
 from . import explorer_backend as explorer
-from fyp.organize_datasets import create_donation_unified_dataset
+from fyp.organize_datasets import create_collection_unified_dataset
 from fyp.studies import init_study_defs
 
 # --- Explorer State ---
@@ -359,10 +359,10 @@ def get_viz_config():
 
 
 
-def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloaded_df=None):
+def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, preloaded_df=None):
     """
     Ensures that timeline aggregation for day exists in cache.
-    If not, calculates it from the unified donation dataset.
+    If not, calculates it from the unified collection dataset.
     """
 
     intervals = ['day']
@@ -370,7 +370,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloa
     
     # Check if files exist and have the required viz_vars
     for interval in intervals:
-        filename = f"timeline_{donation_id}_{interval}.parquet"
+        filename = f"timeline_{collection_id}_{interval}.parquet"
         if not data_io.exists(storage_location="cache", filename=filename):
             missing.append(interval)
         else:
@@ -392,20 +392,20 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloa
 
     if not missing:
         if verbose:
-            print(f"    [TIMELINE] Using cached timeline data for {donation_id}")
+            print(f"    [TIMELINE] Using cached timeline data for {collection_id}")
         return True # All good
             
     # Generate Data
     # 1. Load Unified Dataset
     if preloaded_df is not None:
         if verbose:
-            print(f"    [TIMELINE] Using locally provided dataframe for {donation_id} (shape: {preloaded_df.shape})")
+            print(f"    [TIMELINE] Using locally provided dataframe for {collection_id} (shape: {preloaded_df.shape})")
         df = preloaded_df.copy()
     else:
-        df = create_donation_unified_dataset(donation_id=donation_id, verbose=False)
+        df = create_collection_unified_dataset(collection_id=collection_id, verbose=False)
         
     if df is None or df.empty:
-        print("ERROR: Could not load unified dataset for collection", donation_id)
+        print("ERROR: Could not load unified dataset for collection", collection_id)
         return False
         
     # Ensure date column
@@ -529,7 +529,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloa
         agg_df = pd.DataFrame(agg_data)
         
         # Save
-        filename = f"timeline_{donation_id}_{interval}.parquet"
+        filename = f"timeline_{collection_id}_{interval}.parquet"
         data_io.save_parquet(df=agg_df, storage_location="cache", filename=filename)
 
     return True
@@ -537,7 +537,7 @@ def check_and_update_timeline_cache(donation_id, viz_vars, verbose=False, preloa
 
 
 
-def get_timeline_data(donation_id, interval='day'):
+def get_timeline_data(collection_id, interval='day'):
     """
     Returns timeline data for plotting.
     - Numeric: Daily Mean (Raw values, invalid/missing ignored). 
@@ -562,7 +562,7 @@ def get_timeline_data(donation_id, interval='day'):
 
     # Ensure Cache Exists
     try:
-        if not check_and_update_timeline_cache(donation_id, viz_vars):
+        if not check_and_update_timeline_cache(collection_id, viz_vars):
             print("ERROR: Failed to update timeline cache.")
             return {}
     except Exception as e:
@@ -575,7 +575,7 @@ def get_timeline_data(donation_id, interval='day'):
     
     # Helper to load specific interval
     def load_interval_df(u_interval):
-        fname = f"timeline_{donation_id}_{u_interval}.parquet"
+        fname = f"timeline_{collection_id}_{u_interval}.parquet"
         if data_io.exists(storage_location="cache", filename=fname):
             return data_io.load_parquet(storage_location="cache", filename=fname)
         return None
@@ -704,7 +704,7 @@ def get_timeline_data(donation_id, interval='day'):
     result = {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts, "variables_order": viz_vars}
 
     # Attach pre-computed analysis data if available, or generate if missing
-    analysis_fname = f"timeline_analysis_{donation_id}_{interval}.json"
+    analysis_fname = f"timeline_analysis_{collection_id}_{interval}.json"
     try:
         if data_io.exists(storage_location="cache", filename=analysis_fname):
             analysis = data_io.load_json(storage_location="cache", filename=analysis_fname)
@@ -720,13 +720,13 @@ def get_timeline_data(donation_id, interval='day'):
                 if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
                     ddp_meta = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)
                     if ddp_meta is not None:
-                        # Check index or column for donation_id
+                        # Check index or column for collection_id
                         if ddp_meta.index.name == 'collection_id' or ddp_meta.index.name is None:
-                            mask = ddp_meta.index.astype(str) == str(donation_id)
+                            mask = ddp_meta.index.astype(str) == str(collection_id)
                         elif 'collection_id' in ddp_meta.columns:
-                            mask = ddp_meta['collection_id'].astype(str) == str(donation_id)
+                            mask = ddp_meta['collection_id'].astype(str) == str(collection_id)
                         else:
-                            mask = ddp_meta.index.astype(str) == str(donation_id)
+                            mask = ddp_meta.index.astype(str) == str(collection_id)
                             
                         row = ddp_meta[mask]
                         if not row.empty:
@@ -747,7 +747,7 @@ def get_timeline_data(donation_id, interval='day'):
                 result["analysis"] = analysis
 
     except Exception as e:
-        print(f"Warning: Could not load or generate analysis for {donation_id}/{interval}: {e}")
+        print(f"Warning: Could not load or generate analysis for {collection_id}/{interval}: {e}")
 
     return result
 
@@ -762,7 +762,7 @@ def load_display_id_map():
         if data_io.exists(storage_location="recoded", filename=da_filename):
             annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
             for raw_id, data in annotations.items():
-                disp = data.get('display_donation_id')
+                disp = data.get('display_collection_id')
                 if disp and str(disp).strip():
                     mapping[str(raw_id)] = str(disp).strip()
     except Exception as e:
@@ -771,9 +771,9 @@ def load_display_id_map():
 
 
 
-def get_study_donations(study):
+def get_study_collections(study):
     """
-    Returns a list of unique donations present in the study dataset.
+    Returns a list of unique collections present in the study dataset.
     Returns: [{ 'collection_id': '...', }, ...]
     """
 
@@ -783,11 +783,11 @@ def get_study_donations(study):
     if not study in fyp_cf["study_defs"]:
         return []
 
-    selected_donations = fyp_cf["study_defs"][study].get("SELECTED_DONATIONS", [])
+    selected_collections = fyp_cf["study_defs"][study].get("SELECTED_DONATIONS", [])
 
-    selected_donations = [{"collection_id": str(d).strip()} for d in selected_donations]
+    selected_collections = [{"collection_id": str(d).strip()} for d in selected_collections]
 
-    return selected_donations
+    return selected_collections
 
 
 
@@ -813,19 +813,19 @@ def get_study_donations(study):
             print(f"ERROR: collection_id not found in df for {study}")
             return []
 
-        # Unique donations
-        donations = df[['collection_id']].drop_duplicates()
+        # Unique collections
+        collections = df[['collection_id']].drop_duplicates()
         
         # Format for frontend
         result = []
-        for _, row in donations.iterrows():
+        for _, row in collections.iterrows():
             item = {'collection_id': row['collection_id']}
             result.append(item)
             
         return sorted(result, key=lambda x: str(x.get('collection_id', '')))
         
     except Exception as e:
-        print(f"Error getting study donations: {e}")
+        print(f"Error getting study collections: {e}")
         return []"""
 
 

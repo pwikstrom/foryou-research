@@ -113,7 +113,7 @@ function renderCollectionSelector(container, selectedList) {
 
         const tr = document.createElement('tr');
         tr.style.borderBottom = '1px solid var(--chart-grid)';
-        tr.className = 'donation-item'; // Keep class for CSS/JS targeting
+        tr.className = 'collection-item'; // Keep class for CSS/JS targeting
 
         let pEmail = '', pName = '', pTiktok = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
         let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
@@ -215,7 +215,7 @@ function renderCollectionSelector(container, selectedList) {
 
 function updateCollectionSelection(selectorDiv) {
     if (!selectorDiv) return;
-    const container = selectorDiv.querySelector('.donation-checklist-container');
+    const container = selectorDiv.querySelector('.collection-checklist-container');
 
     // More robust way to find the hidden input within the same detail row instead of sibling logic
     const row = selectorDiv.closest('.detail-row') || document;
@@ -304,8 +304,8 @@ window.sortCollectionTable = function (th, forceDir = null) {
 
 function filterCollections(inputElement) {
     const searchText = inputElement.value.toLowerCase();
-    const selectorDiv = inputElement.closest('.donation-selector');
-    const items = selectorDiv.querySelectorAll('.donation-item'); // these are now table rows (tr)
+    const selectorDiv = inputElement.closest('.collection-selector');
+    const items = selectorDiv.querySelectorAll('.collection-item'); // these are now table rows (tr)
 
     items.forEach(item => {
         const text = item.getAttribute('data-search') || item.textContent.toLowerCase();
@@ -318,9 +318,9 @@ function filterCollections(inputElement) {
 }
 
 function selectAllCollections(btn, select) {
-    const selectorDiv = btn.closest('.donation-selector');
-    const container = selectorDiv.querySelector('.donation-checklist-container');
-    const items = container.querySelectorAll('.donation-item');
+    const selectorDiv = btn.closest('.collection-selector');
+    const container = selectorDiv.querySelector('.collection-checklist-container');
+    const items = container.querySelectorAll('.collection-item');
 
     items.forEach(item => {
         if (item.style.display !== 'none') {
@@ -355,7 +355,7 @@ function renderStudiesTable() {
             <td style="text-align: left; padding: 10px;"><strong>${study.STUDY_NAME}</strong></td>
             <td style="text-align: left; padding: 10px;">${study.START_DATE || '-'}</td>
             <td style="text-align: left; padding: 10px;">${study.END_DATE || '-'}</td>
-            <td style="text-align: right; padding: 10px;">${formatNum(stats.unique_donations)}</td>
+            <td style="text-align: right; padding: 10px;">${formatNum(stats.unique_collections)}</td>
             <td style="text-align: right; padding: 10px;">${formatNum(stats.unique_videos)}</td>
             <td style="text-align: right; padding: 10px;">${formatNum(stats.scraped_videos)}</td>
             <td style="text-align: right; padding: 10px;">${formatNum(stats.annotated_videos)}</td>
@@ -437,17 +437,17 @@ function populateForm(row, study) {
 
         // Handle Lists/JSON (Except USER_ACCESS which is now checkboxes)
         if (field === 'SELECTED_DONATIONS') {
-            // Find the donation selector in this row
+            // Find the collection selector in this row
             // The row input[data-field="SELECTED_DONATIONS"] is now the HIDDEN one.
             // renderCollectionSelector needs the container.
-            // Structure: input[hidden] is sibling of div.donation-selector
+            // Structure: input[hidden] is sibling of div.collection-selector
 
             // Wait, input iteration loop finds the HIDDEN input.
             // We can set its value (for reference) AND render the list.
 
-            const selectorDiv = input.parentElement.querySelector('.donation-selector');
+            const selectorDiv = input.parentElement.querySelector('.collection-selector');
             if (selectorDiv) {
-                const container = selectorDiv.querySelector('.donation-checklist-container');
+                const container = selectorDiv.querySelector('.collection-checklist-container');
                 // Value is the array
                 const selectedList = Array.isArray(value) ? value : [];
                 input.value = JSON.stringify(selectedList); // Set hidden value
@@ -891,7 +891,7 @@ function fetchEnrichmentStats() {
             document.getElementById('enrich_total_videos').textContent = (data.total_videos !== undefined) ? data.total_videos.toLocaleString() : '-';
             document.getElementById('enrich_scraped').textContent = (data.scraped_videos !== undefined) ? data.scraped_videos.toLocaleString() : '-';
             document.getElementById('enrich_annotated').textContent = (data.annotated_videos !== undefined) ? data.annotated_videos.toLocaleString() : '-';
-            document.getElementById('enrich_unique_donations').textContent = (data.unique_donations !== undefined) ? data.unique_donations.toLocaleString() : '-';
+            document.getElementById('enrich_unique_collections').textContent = (data.unique_collections !== undefined) ? data.unique_collections.toLocaleString() : '-';
 
             // Queues
             if (data.scrape_queue_len !== undefined) {
@@ -1241,7 +1241,7 @@ function renderEditActivityTable(container) {
         const tr = document.createElement('tr');
         tr.className = 'edit-activity-item';
         tr.setAttribute('data-search', searchString.toLowerCase());
-        tr.setAttribute('data-donation-id', item);
+        tr.setAttribute('data-collection-id', item);
 
         // Apply distinct styling to hidden collections
         if (itemInfo.hidden) {
@@ -1450,8 +1450,8 @@ function dm_saveAnnotation() {
     const isHidden = hiddenCheckbox ? hiddenCheckbox.checked : false;
 
     const payload = {
-        donation_id: currentEditCollectionId,
-        display_donation_id: displayId,
+        collection_id: currentEditCollectionId,
+        display_collection_id: displayId,
         tags: currentEditCollectionTags,
         hidden: isHidden
     };

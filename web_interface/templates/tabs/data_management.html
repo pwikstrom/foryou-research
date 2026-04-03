@@ -118,7 +118,7 @@
                     </div>
                     <div>
                         <div class="text-sm uppercase" style="color: var(--color-text-tertiary);">Unique Collections</div>
-                        <div class="text-h2 font-bold" style="color: var(--color-text-secondary);" id="enrich_unique_donations">-
+                        <div class="text-h2 font-bold" style="color: var(--color-text-secondary);" id="enrich_unique_collections">-
                         </div>
                     </div>
                     <div>
@@ -431,11 +431,11 @@
                     <label class="meta-tooltip" data-tooltip="List of specific collection IDs to include. Leave empty for all."
                         style="display: block; margin-bottom: 8px;">Selected Collections</label>
 
-                    <div class="donation-selector" style="border: 1px solid var(--color-border-strong); padding: 10px; background: var(--color-border);">
+                    <div class="collection-selector" style="border: 1px solid var(--color-border-strong); padding: 10px; background: var(--color-border);">
                         <div
                             style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; justify-content: space-between;">
                             <input type="text" placeholder="Search collections by ID or metadata..."
-                                class="control-input donation-search-input" style="width: 300px;"
+                                class="control-input collection-search-input" style="width: 300px;"
                                 onkeyup="filterCollections(this)" {% if not current_user.is_admin() %}disabled{% endif
                                 %}>
                             <div class="text-sm"
@@ -466,7 +466,7 @@
                                     %}>None</button>
                             </div>
                         </div>
-                        <div class="donation-checklist-container"
+                        <div class="collection-checklist-container"
                             style="max-height: 200px; overflow-y: auto; text-align: left; background: var(--color-bg-elevated); padding: 5px; border: 1px solid var(--color-border-strong);">
                             <!-- Checkboxes injected by JS -->
                             <div style="padding: 10px; color: var(--color-text-secondary);">Loading collections...</div>

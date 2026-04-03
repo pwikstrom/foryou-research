@@ -28,7 +28,7 @@ try:
         data[col_name] = table.column(i).to_pandas()
     df = pd.DataFrame(data)
 
-    print(f"Total donations in DB: {len(df)}")
+    print(f"Total s in DB: {len(df)}")
     if 'collection_id' in str(df.columns):
         print("Has collection_id column")
     else:

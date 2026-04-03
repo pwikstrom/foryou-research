@@ -15,7 +15,7 @@ import numpy as np
 import datetime as _dt
 
 from fyp.recode_variables import infer_timezone_offset
-from fyp.donations import generate_donation_metadata
+from fyp.donations import generate_collection_metadata
 from fyp.types import convert_dtypes_to_pyarrow 
 from fyp.utils import clean_url
 from zoneinfo import ZoneInfo
@@ -642,11 +642,11 @@ class ForYouCollection(ForYouBaseCollection):
         _ = data_io.save_parquet(
             df=self.data_old_format,
             storage_location="recoded",
-            filename="donations_recoded.parquet",
+            filename="collections_recoded.parquet",
             asyncronous=False)
 
 
-        self.stats = generate_donation_metadata(
+        self.stats = generate_collection_metadata(
             self.data_old_format, 
             update_col = None, 
             sort_by=None, 

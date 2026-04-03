@@ -6,7 +6,7 @@ from datetime import datetime
 from fyp.fyp_config import fyp_cf, PROJECT_ROOT
 from ..data_service import (
     get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags,
-    load_schema_metadata, get_timeline_data, get_study_donations, load_shared_tags,
+    load_schema_metadata, get_timeline_data, get_study_collections, load_shared_tags,
     load_display_id_map, get_accessible_studies
 )
 from ..security import user_manager
@@ -81,38 +81,38 @@ def _filter_pca_components_by_variance(numeric_cols, interpretations):
     return sorted(non_pca_cols + filtered_cols)
 
 
-def _enforce_study_donations(metadata, study, verbose=False):
+def _enforce_study_collections(metadata, study, verbose=False):
     """
     Ensures that the metadata only contains Donation IDs that are strictly part of the study.
-    This prevents any cached artifacts or merging errors from exposing unrelated donation IDs.
+    This prevents any cached artifacts or merging errors from exposing unrelated collection IDs.
     """
     try:
-        # Get authoritative list of donations for this study
-        donations = get_study_donations(study)
-        valid_donation_ids = set()
+        # Get authoritative list of collections for this study
+        collections = get_study_collections(study)
+        valid_collection_ids = set()
         #valid_ids = set()
         
-        if not donations:
-            print(f"    [DATA_ROUTES] Warning: get_study_donations returned empty for {study}. Skipping filter enforcement.")
+        if not collections:
+            print(f"    [DATA_ROUTES] Warning: get_study_collections returned empty for {study}. Skipping filter enforcement.")
             return metadata
 
-        for d in donations:
-            if d.get('collection_id'): valid_donation_ids.add(str(d['collection_id']).strip())
+        for d in collections:
+            if d.get('collection_id'): valid_collection_ids.add(str(d['collection_id']).strip())
             
-        if not valid_donation_ids:
-             print(f"    [DATA_ROUTES] Warning: No valid_donation_ids found for {study}. Skipping filter enforcement.")
+        if not valid_collection_ids:
+             print(f"    [DATA_ROUTES] Warning: No valid_collection_ids found for {study}. Skipping filter enforcement.")
              return metadata
 
         # Filter collection_id
         if 'collection_id' in metadata and 'values' in metadata['collection_id']:
             original = metadata['collection_id']['values']
             # Robust filter with strip
-            filtered = [v for v in original if str(v['value']).strip() in valid_donation_ids]
+            filtered = [v for v in original if str(v['value']).strip() in valid_collection_ids]
             
             # Debugging mismatch if drastic change
             if len(original) > 0 and len(filtered) == 0:
                 print(f"    [DATA_ROUTES] CRITICAL: Filter removed ALL {len(original)} IDs for {study}. Cache is likely stale.")
-                print(f"    - Sample Valid IDs: {list(valid_donation_ids)[:5]}")
+                print(f"    - Sample Valid IDs: {list(valid_collection_ids)[:5]}")
                 print(f"    - Sample Metadata IDs: {[str(v['value']).strip() for v in original[:5]]}")
                 return None # Signal to caller that metadata is invalid
             elif len(original) != len(filtered):
@@ -124,7 +124,7 @@ def _enforce_study_donations(metadata, study, verbose=False):
 
             
     except Exception as e:
-        print(f"    Error enforcing study donations: {e}")
+        print(f"    Error enforcing study collections: {e}")
         traceback.print_exc()
     
     return metadata
@@ -290,7 +290,7 @@ def api_explorer_metadata():
                             potential_metadata[col]['values'] = new_values
     
             # Enforce strict study membership for Donation IDs
-            potential_metadata = _enforce_study_donations(potential_metadata, study)
+            potential_metadata = _enforce_study_collections(potential_metadata, study)
             
             if potential_metadata:
                 #print(f"    [DATA_ROUTES] Returning cached metadata for {study}")
@@ -416,7 +416,7 @@ def api_explorer_metadata():
                     metadata[col]['values'] = new_values
 
     # Enforce strict study membership for Donation IDs (before saving to cache)
-    metadata = _enforce_study_donations(metadata, study)
+    metadata = _enforce_study_collections(metadata, study)
 
     data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=False)
 
@@ -1251,17 +1251,17 @@ def api_persona_stats():
         accessible_studies = get_accessible_studies(username, role, is_admin)
         # print(f"DEBUG PERSONA: Accessible studies for {username}: {accessible_studies}")
 
-        # Collect allowed donation IDs
-        allowed_donation_ids = set()
+        # Collect allowed collection IDs
+        allowed_collection_ids = set()
         for study in accessible_studies:
-            study_donations = get_study_donations(study)
-            for d in study_donations:
+            study_collections = get_study_collections(study)
+            for d in study_collections:
                  if 'collection_id' in d:
-                     allowed_donation_ids.add(str(d['collection_id']))
+                     allowed_collection_ids.add(str(d['collection_id']))
         
-        # print(f"DEBUG PERSONA: Found {len(allowed_donation_ids)} allowed donations")
+        # print(f"DEBUG PERSONA: Found {len(allowed_collection_ids)} allowed collections")
         
-        if not allowed_donation_ids:
+        if not allowed_collection_ids:
              return jsonify([]) # Return empty list if no access
         # ----------------------
 
@@ -1333,20 +1333,20 @@ def api_persona_stats():
         # --- ACCESS CONTROL: Filter by Allowed Donations ---
         
         # Ensure allowed IDs are strings
-        allowed_donation_ids = set(str(x) for x in allowed_donation_ids)
+        allowed_collection_ids = set(str(x) for x in allowed_collection_ids)
 
         if 'collection_id' in stats_df.columns:
-            stats_df = stats_df[stats_df['collection_id'].astype(str).isin(allowed_donation_ids)]
+            stats_df = stats_df[stats_df['collection_id'].astype(str).isin(allowed_collection_ids)]
         elif stats_df.index.name == 'collection_id' or 'collection_id' not in stats_df.columns:
             # Try filtering on index if column missing
-            stats_df = stats_df[stats_df.index.astype(str).isin(allowed_donation_ids)]
+            stats_df = stats_df[stats_df.index.astype(str).isin(allowed_collection_ids)]
             
         # ----------------------------------------------------
 
         # Filter by Accepted
         if 'accepted' in stats_df.columns:
             stats_df = stats_df[stats_df['accepted'] == True].copy()
-            # print(f"Filtered to {len(stats_df)} accepted donations")
+            # print(f"Filtered to {len(stats_df)} accepted collections")
 
         # Frontend Compatibility Aliases
         if 'consistency_top_2_hours' in stats_df.columns and 'consistency' not in stats_df.columns:
@@ -1366,9 +1366,9 @@ def api_persona_stats():
                     d_id = str(rec.get('collection_id', ''))
                     if d_id and d_id in collection_annotations:
                         # Merge the annotation fields
-                        # Specifically 'annotation_tags' (list) and 'display_donation_id' (str)
+                        # Specifically 'annotation_tags' (list) and 'display_collection_id' (str)
                         rec['annotation_tags'] = collection_annotations[d_id].get('annotation_tags', [])
-                        rec['display_donation_id'] = collection_annotations[d_id].get('display_donation_id', "")
+                        rec['display_collection_id'] = collection_annotations[d_id].get('display_collection_id', "")
             else:
                  pass
         except Exception as e:
@@ -1405,19 +1405,19 @@ def api_persona_stats():
         return jsonify({"error": str(e)}), 500
 
 
-@data_bp.route('/api/donation/annotate', methods=['POST'])
+@data_bp.route('/api/collection/annotate', methods=['POST'])
 @login_required 
 @admin_required
-def api_donation_annotate():
+def api_collection_annotate():
     data = request.json or {}
-    donation_id = data.get("donation_id")
+    collection_id = data.get("collection_id")
     
-    if not donation_id:
-        return jsonify({"error": "No donation ID provided"}), 400
+    if not collection_id:
+        return jsonify({"error": "No collection ID provided"}), 400
         
     # Fields to update
     tags = data.get("tags") # list
-    display_id = data.get("display_donation_id") # string
+    display_id = data.get("display_collection_id") # string
     hidden = data.get("hidden") # boolean
     
     # Validation?
@@ -1429,24 +1429,24 @@ def api_donation_annotate():
     if data_io.exists(storage_location="recoded", filename=da_filename):
         annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
         
-    if donation_id not in annotations:
-        annotations[donation_id] = {}
+    if collection_id not in annotations:
+        annotations[collection_id] = {}
         
     # Update fields if provided
     if tags is not None:
         if not isinstance(tags, list): return jsonify({"error": "Tags must be a list"}), 400
-        annotations[donation_id]['annotation_tags'] = tags
+        annotations[collection_id]['annotation_tags'] = tags
         
     if display_id is not None:
-        annotations[donation_id]['display_donation_id'] = str(display_id).strip()
+        annotations[collection_id]['display_collection_id'] = str(display_id).strip()
         
     if hidden is not None:
-        annotations[donation_id]['hidden'] = bool(hidden)
+        annotations[collection_id]['hidden'] = bool(hidden)
         
     # Save
     data_io.save_json(data=annotations, storage_location="recoded", filename=da_filename)
     
-    return jsonify({"status": "success", "donation_id": donation_id, "data": annotations[donation_id]})
+    return jsonify({"status": "success", "collection_id": collection_id, "data": annotations[collection_id]})
 
 
 @data_bp.route('/api/video_analysis/item/<study>/<item_id>', methods=['GET', 'POST'])
@@ -1520,7 +1520,7 @@ def api_viewer_item(study, item_id):
     if did:
         did_str = str(did)
         if did_str in display_map:
-            record['display_donation_id'] = display_map[did_str]
+            record['display_collection_id'] = display_map[did_str]
     
     # Inject Platform URL
     src = record.get('source_platform')
@@ -1536,14 +1536,14 @@ def api_viewer_item(study, item_id):
 def api_timeline_data():
     data = request.json or {}
     #study = data.get("study")
-    donation_id = data.get("donation_id")
+    collection_id = data.get("collection_id")
     interval = data.get("interval", "day")
     
-    if not donation_id:
-        return jsonify({"error": "Missing donation_id"}), 400
+    if not collection_id:
+        return jsonify({"error": "Missing collection_id"}), 400
         
     # --- ACCESS CONTROL ---
-    # Verify user has access to this donation via at least one study
+    # Verify user has access to this collection via at least one study
     studies = get_accessible_studies(
         username=current_user.username,
         role=current_user.role,
@@ -1555,29 +1555,29 @@ def api_timeline_data():
     # But for security it's needed.
     # To optimize: we can trust the frontend IF we assume obscure IDs are secret enough?
     # No, strict requirement "user should only see...". Backend must enforce.
-    # Optimization: iterate studies, check if donation is in it. Stop at first match.
+    # Optimization: iterate studies, check if collection is in it. Stop at first match.
     
     for study in studies:
-        study_donations = get_study_donations(study) 
+        study_collections = get_study_collections(study) 
         # Convert to set of strings for fast lookup
-        # (study_donations is cached if we used lru_cache, but we didn't add it yet.
+        # (study_collections is cached if we used lru_cache, but we didn't add it yet.
         # explorer_backend.get_explorer_data IS cached. 
-        # And get_study_donations uses simple load_parquet which hits disk or OS buffer.)
+        # And get_study_collections uses simple load_parquet which hits disk or OS buffer.)
         
         # Let's just check the ids.
-        for d in study_donations:
-            if str(d.get('collection_id')) == str(donation_id):
+        for d in study_collections:
+            if str(d.get('collection_id')) == str(collection_id):
                 has_access = True
                 break
         if has_access:
             break
             
     if not has_access:
-        return jsonify({"error": "Access denied to this donation"}), 403
+        return jsonify({"error": "Access denied to this collection"}), 403
     # ----------------------
 
     try:
-        result = get_timeline_data(donation_id, interval=interval)
+        result = get_timeline_data(collection_id, interval=interval)
         if result is None:
              return jsonify({"error": "No data found"}), 404
         if "error" in result:
@@ -1590,11 +1590,11 @@ def api_timeline_data():
         return jsonify({"error": str(e)}), 500
 
 
-@data_bp.route('/api/timelines/donations', methods=['POST'])
+@data_bp.route('/api/timelines/collections', methods=['POST'])
 @login_required
-def api_timeline_donations():
+def api_timeline_collections():
     """
-    Returns list of donations ({collection_id, ...}) that the current user 
+    Returns list of collections ({collection_id, ...}) that the current user 
     has access to via their allowed studies.
     """
     
@@ -1608,27 +1608,27 @@ def api_timeline_donations():
     if not studies:
         return jsonify([])
         
-    # 2. Collect allowed donation IDs from these studies
-    allowed_donation_ids = set()
+    # 2. Collect allowed collection IDs from these studies
+    allowed_collection_ids = set()
     
-    # Iterate studies and get donations (using optimized loader)
+    # Iterate studies and get collections (using optimized loader)
     for study in studies:
-        study_donations = get_study_donations(study) # returns list of dicts
-        #print(f"DEBUG TIMELINE: Study {study} returned {len(study_donations)} donations")
-        for d in study_donations:
+        study_collections = get_study_collections(study) # returns list of dicts
+        #print(f"DEBUG TIMELINE: Study {study} returned {len(study_collections)} collections")
+        for d in study_collections:
             # d is {'collection_id': ..., }
             if 'collection_id' in d:
-                allowed_donation_ids.add(str(d['collection_id']))
+                allowed_collection_ids.add(str(d['collection_id']))
                 
-    #print(f"DEBUG TIMELINE: Total allowed donation IDs: {len(allowed_donation_ids)}")
-    if not allowed_donation_ids:
+    #print(f"DEBUG TIMELINE: Total allowed collection IDs: {len(allowed_collection_ids)}")
+    if not allowed_collection_ids:
         return jsonify([])
 
     # 3. Load Metadata to get details 
     # We still load the full metadata because we need to return the same structure as before
     # matching the logic. Or we can just build it from the study info?
-    # The previous logic loaded `ddp_metadata.parquet` (all donations ever).
-    # We should filter THAT by allowed_donation_ids.
+    # The previous logic loaded `ddp_metadata.parquet` (all collections ever).
+    # We should filter THAT by allowed_collection_ids.
     
     meta_df = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet")
     
@@ -1697,11 +1697,11 @@ def api_timeline_donations():
             don_ids_series = don_ids_series.iloc[:, 0]
             
         unique_ids = don_ids_series.unique().tolist()
-        #print(f"DEBUG TIMELINE: Total unique donations in metadata: {len(unique_ids)}")
+        #print(f"DEBUG TIMELINE: Total unique collections in metadata: {len(unique_ids)}")
         
         # Filter against allowed set
-        # Only include if in allowed_donation_ids
-        final_valid_ids = [uid for uid in unique_ids if str(uid) in allowed_donation_ids]
+        # Only include if in allowed_collection_ids
+        final_valid_ids = [uid for uid in unique_ids if str(uid) in allowed_collection_ids]
         
         # Load annotations
         da_filename = "collection_annotations.json"
@@ -1721,11 +1721,11 @@ def api_timeline_donations():
             # Inject display ID and tags
             if uid_str in annotations:
                  annot_data = annotations[uid_str]
-                 disp = annot_data.get('display_donation_id')
+                 disp = annot_data.get('display_collection_id')
                  tags = annot_data.get('annotation_tags')
                  hidden = annot_data.get('hidden')
                  
-                 if disp: item['display_donation_id'] = disp
+                 if disp: item['display_collection_id'] = disp
                  if tags: item['annotation_tags'] = tags
                  if hidden is not None: item['hidden'] = bool(hidden)
             
