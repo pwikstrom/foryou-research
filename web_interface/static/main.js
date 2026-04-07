@@ -35,6 +35,8 @@ function getCSSVar(name) {
 })();
 
 let previousProcessStates = {};
+let _pendingStopProcess = null;
+let _activeLogModal = null;
 setInterval(updateLogs, 1000);
 
 // --- Theme Toggle ---
@@ -378,6 +380,42 @@ async function toggleProcess(name, label) {
 
 
 
+function showStopConfirm(name) {
+    _pendingStopProcess = name;
+    const btn = document.getElementById(`${name}-toggle`);
+    const label = btn ? btn.getAttribute('data-start-label') : name;
+    const shortName = label.replace(/^(Start |Recalculate )/, '').replace(/\(.*\)/, '').trim();
+    document.getElementById('stop-confirm-text').innerText = `Stop ${shortName}?`;
+    document.getElementById('stop-confirm-overlay').classList.add('visible');
+}
+
+function closeStopConfirm() {
+    document.getElementById('stop-confirm-overlay').classList.remove('visible');
+    _pendingStopProcess = null;
+}
+
+function confirmStop() {
+    if (_pendingStopProcess) {
+        stopProcess(_pendingStopProcess);
+    }
+    closeStopConfirm();
+}
+
+function openLogModal(name, displayLabel) {
+    _activeLogModal = name;
+    document.getElementById('log-modal-title').innerText = `${displayLabel} Log`;
+    document.getElementById('log-modal-content').textContent = '';
+    document.getElementById('log-modal-overlay').classList.add('visible');
+    fetchLogs(name);
+}
+
+function closeLogModal() {
+    _activeLogModal = null;
+    document.getElementById('log-modal-overlay').classList.remove('visible');
+}
+
+
+
 async function updateStatus() {
     try {
         const res = await fetch('/api/status');
@@ -428,6 +466,29 @@ function setStatus(name, data) {
 
     const el = document.getElementById(`${name}-status`);
     if (el) el.className = `status-indicator status-${status}`;
+
+    // Toggle button state
+    const toggleBtn = document.getElementById(`${name}-toggle`);
+    if (toggleBtn) {
+        if (status === 'running') {
+            toggleBtn.className = 'btn-stop';
+            if (toggleBtn.getAttribute('data-start-label') && toggleBtn.getAttribute('data-start-label').startsWith('Recalculate')) {
+                toggleBtn.classList.add('text-sm');
+            }
+            toggleBtn.innerText = 'Stop';
+            toggleBtn.style.padding = '4px 12px';
+            toggleBtn.onclick = function () { showStopConfirm(name); };
+        } else {
+            toggleBtn.className = 'btn-primary';
+            const startLabel = toggleBtn.getAttribute('data-start-label') || 'Start';
+            if (startLabel.startsWith('Recalculate')) {
+                toggleBtn.classList.add('text-sm');
+            }
+            toggleBtn.innerText = startLabel;
+            toggleBtn.style.padding = '4px 12px';
+            toggleBtn.onclick = function () { startProcess(name); };
+        }
+    }
 
     const bar = document.getElementById(`${name}-bar`);
     const text = document.getElementById(`${name}-text`);
@@ -481,9 +542,36 @@ function setStatus(name, data) {
         }
     }
 
-    //if (name === 'create_subsets' && data.data && Object.keys(data.data).length > 0) {
-    //    renderSubsetChart(data.data);
-    //}
+    // Last run result display
+    const lastRunEl = document.getElementById(`${name}-last-run`);
+    if (lastRunEl && data.last_run_end_time) {
+        const endDate = new Date(data.last_run_end_time);
+        const dd = String(endDate.getDate()).padStart(2, '0');
+        const mm = String(endDate.getMonth() + 1).padStart(2, '0');
+        const hh = String(endDate.getHours()).padStart(2, '0');
+        const mi = String(endDate.getMinutes()).padStart(2, '0');
+
+        let durStr = '';
+        if (data.last_run_duration != null) {
+            const s = Math.round(data.last_run_duration);
+            durStr = s >= 60 ? ` (${Math.floor(s / 60)}m ${s % 60}s)` : ` (${s}s)`;
+        }
+
+        let outcomeStr = '';
+        if (data.last_run_outcome === 'Success') {
+            outcomeStr = ' OK';
+            lastRunEl.style.color = 'var(--color-success-light)';
+        } else if (data.last_run_outcome === 'Fail') {
+            outcomeStr = ' Failed';
+            lastRunEl.style.color = 'var(--color-danger-soft)';
+        } else {
+            lastRunEl.style.color = 'var(--color-text-tertiary)';
+        }
+
+        lastRunEl.innerText = `Last: ${dd}/${mm} ${hh}:${mi}${durStr}${outcomeStr}`;
+    } else if (lastRunEl) {
+        lastRunEl.innerText = '';
+    }
 }
 
 
@@ -635,27 +723,25 @@ async function updateLogs() {
     await fetchLogs('meta_refresh_viewer');
     await fetchLogs('meta_refresh_groups');
     await fetchLogs('timelines_refresh');
-    // await fetchLogs('regenerate_datasets'); // Optional if we want logs visible somewhere
+    await fetchLogs('recode_refresh_studies');
 }
 
 
 
 async function fetchLogs(name) {
     try {
-        const el = document.getElementById(`${name}-logs`);
+        if (_activeLogModal !== name) return;
+
+        const el = document.getElementById('log-modal-content');
         if (!el) return;
 
         const res = await fetch(`/api/logs/${name}`);
         const data = await res.json();
 
-
-        // Basic check to see if we should scroll (simple autoscroll)
-        // Use a small buffer (e.g. 5px) to account for sub-pixel rendering differences
         const atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 5;
-
         el.textContent = data.logs;
 
-        if (atBottom || el.scrollTop === 0) { // Keep autoscrolling if already at bottom or just started
+        if (atBottom || el.scrollTop === 0) {
             el.scrollTop = el.scrollHeight;
         }
     } catch (e) {
