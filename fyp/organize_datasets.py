@@ -640,7 +640,7 @@ def update_enrichment_status(
     enrichment_status_df.set_index("item_id", inplace=True)
 
     if not annotation_votes.empty:
-        enrichment_status_df = pd.merge(left=enrichment_status_df, right=annotation_votes, on="item_id", how="left").copy()
+        enrichment_status_df = pd.merge(left=enrichment_status_df, right=annotation_votes, left_index=True, right_index=True, how="left").copy()
     else:
         enrichment_status_df["annotation_votes"] = pd.Series(0, index=enrichment_status_df.index, dtype="int64[pyarrow]")
 
@@ -656,9 +656,6 @@ def update_enrichment_status(
 def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool = False) -> dict:
     """Consolidate annotation and scrape data from raw sources, then rebuild enrichment status."""
 
-    ddp_logs = data_io.load_parquet(filename="collections_recoded.parquet", storage_location="recoded")
-    new_ddp_logs = False
-
     print("\n*** Annotations")
     (new_annotations, annotations) = consolidate_and_save_refined_annotations(
         force_consolidation=force_consolidation, verbose=verbose)
@@ -666,6 +663,13 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
     print("\n*** Scrape")
     (new_scrape_data, scrape_data) = consolidate_and_save_scrape_data(
         force_consolidation=force_consolidation, verbose=verbose)
+
+    if not new_annotations and not new_scrape_data and not force_consolidation:
+        print("\n*** No new data to consolidate. Skipping enrichment status update.")
+        return None
+
+    ddp_logs = data_io.load_parquet(filename="collections_recoded.parquet", storage_location="recoded")
+    new_ddp_logs = False
 
     fine_results = {
         "new_ddp_logs": new_ddp_logs,

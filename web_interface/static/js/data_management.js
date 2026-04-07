@@ -258,11 +258,16 @@ window.sortCollectionTable = function (th, forceDir = null) {
 
     headerRow.querySelectorAll('th').forEach(header => {
         header.dataset.sortDir = '';
-        header.textContent = header.textContent.replace(/ [▼▲]$/, '');
+        // Only strip sort arrows from text-only headers, skip headers with child elements (e.g. checkboxes)
+        if (header.children.length === 0) {
+            header.textContent = header.textContent.replace(/ [▼▲]$/, '');
+        }
     });
 
     th.dataset.sortDir = newDir;
-    th.textContent += newDir === 'asc' ? ' ▲' : ' ▼';
+    if (th.children.length === 0) {
+        th.textContent += newDir === 'asc' ? ' ▲' : ' ▼';
+    }
 
     const textContent = th.textContent.replace(/ [▼▲]$/, '');
 
@@ -1011,7 +1016,7 @@ function consolidateEnrichmentData(btn) {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                alert("Enrichment data consolidated successfully.");
+                alert(data.message);
                 fetchEnrichmentStats();
             } else {
                 alert("Error: " + data.error);
@@ -1391,23 +1396,22 @@ function renderEditActivityTable(container) {
     const thead = document.createElement('thead');
     thead.innerHTML = `
         <tr style="text-align: left;">
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong); width: 40px;"></th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong); width: 40px; text-align: center;">
+                <input type="checkbox" id="select-all-collections" onchange="toggleAllCollectionCheckboxes(this)" style="cursor: pointer;">
+            </th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Collection / Display ID</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Tags</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Name</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Email</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">TikTok</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Age</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Country</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">PostCode</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Timezone</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Active Days</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Total Events</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Peak Segment</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Watch Time</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">First Event</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Last Event</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Added</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Total Events</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Active Days</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Timezone</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Age</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Country</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">PostCode</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Name</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Email</th>
         </tr>
     `;
     table.appendChild(thead);
@@ -1416,9 +1420,9 @@ function renderEditActivityTable(container) {
 
     availableCollections.forEach(itemInfo => {
         const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
-        let pEmail = '', pName = '', pTiktok = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
+        let pEmail = '', pName = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
         let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
-        let pTimezone = '', pPeakSegment = '', pWatchTime = '', pFirstEvent = '';
+        let pTimezone = '', pFirstEvent = '';
         let searchString = item;
 
         if (typeof itemInfo === 'object') {
@@ -1428,7 +1432,6 @@ function renderEditActivityTable(container) {
             if (itemInfo.participants) {
                 pEmail = itemInfo.participants.email || '';
                 pName = itemInfo.participants.name || '';
-                pTiktok = itemInfo.participants.tiktokHandle || '';
                 pAge = itemInfo.participants.age || '';
                 pCountry = itemInfo.participants.country || '';
                 pPostCode = itemInfo.participants.postCode || '';
@@ -1446,16 +1449,11 @@ function renderEditActivityTable(container) {
                 if (tz !== null && tz !== undefined) {
                     pTimezone = `UTC${tz >= 0 ? '+' : ''}${tz}`;
                 }
-                pPeakSegment = itemInfo.personas.peak_day_segment || '';
-                const watchSec = itemInfo.personas.total_watch_time_s;
-                if (watchSec !== null && watchSec !== undefined) {
-                    pWatchTime = `${(watchSec / 3600).toFixed(1)} hrs`;
-                }
             }
             if (itemInfo.other && itemInfo.other.ts_added_to_dataset) {
                 pAdded = String(itemInfo.other.ts_added_to_dataset).split('T')[0];
             }
-            searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pTiktok} ${pAge} ${pCountry} ${pPostCode} ${pTimezone} ${pActiveDays} ${pTotalEvents} ${pPeakSegment} ${pWatchTime} ${pFirstEvent} ${pLastEvent} ${pAdded}`;
+            searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pAge} ${pCountry} ${pPostCode} ${pTimezone} ${pActiveDays} ${pTotalEvents} ${pFirstEvent} ${pLastEvent} ${pAdded}`;
         }
 
         const tr = document.createElement('tr');
@@ -1491,39 +1489,37 @@ function renderEditActivityTable(container) {
             return td;
         }
 
-        // Edit button (first column)
-        const editTd = document.createElement('td');
-        editTd.style.padding = '5px';
-        editTd.style.textAlign = 'center';
-        const editBtn = document.createElement('button');
-        editBtn.innerHTML = '<i class="fas fa-pen"></i>';
-        editBtn.style.cssText = 'background: var(--btn-primary-bg); border: none; color: var(--btn-primary-text); cursor: pointer; padding: 3px 7px; border-radius: 3px;';
-        editBtn.classList.add('text-xs');
-        editBtn.title = 'Edit collection';
-        editBtn.onclick = (e) => {
-            e.stopPropagation();
-            openEditCollectionModal(itemInfo);
+        // Select checkbox (first column)
+        const checkTd = document.createElement('td');
+        checkTd.style.padding = '5px';
+        checkTd.style.textAlign = 'center';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'collection-row-checkbox';
+        checkbox.dataset.collectionId = item;
+        checkbox.checked = selectedCollectionIds.has(item);
+        checkbox.style.cursor = 'pointer';
+        checkbox.onclick = (e) => e.stopPropagation();
+        checkbox.onchange = () => {
+            toggleCollectionSelection(item, checkbox.checked);
         };
-        editTd.appendChild(editBtn);
-        tr.appendChild(editTd);
+        checkTd.appendChild(checkbox);
+        tr.appendChild(checkTd);
 
         const primaryId = pDisplayId ? pDisplayId : item;
         tr.appendChild(createCell(primaryId, true, item));
         tr.appendChild(createCell(pTags));
-        tr.appendChild(createCell(pName));
-        tr.appendChild(createCell(pEmail));
-        tr.appendChild(createCell(pTiktok));
-        tr.appendChild(createCell(pAge));
-        tr.appendChild(createCell(pCountry));
-        tr.appendChild(createCell(pPostCode));
-        tr.appendChild(createCell(pTimezone));
-        tr.appendChild(createCell(pActiveDays));
-        tr.appendChild(createCell(pTotalEvents));
-        tr.appendChild(createCell(pPeakSegment));
-        tr.appendChild(createCell(pWatchTime));
         tr.appendChild(createCell(pFirstEvent));
         tr.appendChild(createCell(pLastEvent));
         tr.appendChild(createCell(pAdded));
+        tr.appendChild(createCell(pTotalEvents));
+        tr.appendChild(createCell(pActiveDays));
+        tr.appendChild(createCell(pTimezone));
+        tr.appendChild(createCell(pAge));
+        tr.appendChild(createCell(pCountry));
+        tr.appendChild(createCell(pPostCode));
+        tr.appendChild(createCell(pName));
+        tr.appendChild(createCell(pEmail));
 
         tbody.appendChild(tr);
     });
@@ -1559,6 +1555,11 @@ function filterEditActivityCollections(inputElement) {
 
 let currentEditCollectionId = null;
 let currentEditCollectionTags = [];
+let selectedCollectionIds = new Set();
+let bulkEditMode = false;
+let bulkOriginalTagsMap = {};  // collectionId -> original tags array
+let bulkPartialTags = new Set(); // tags present on some but not all selected collections
+let hiddenUserTouched = false; // track if user explicitly changed hidden checkbox
 
 function openEditCollectionModal(collectionObj) {
     if (typeof collectionObj === 'string') {
@@ -1567,16 +1568,25 @@ function openEditCollectionModal(collectionObj) {
         else collectionObj = { id: collectionObj };
     }
 
+    bulkEditMode = false;
+    bulkPartialTags = new Set();
+    hiddenUserTouched = false;
     currentEditCollectionId = collectionObj.id;
     currentEditCollectionTags = Array.isArray(collectionObj.tags) ? [...collectionObj.tags] : [];
 
     document.getElementById('edit-collection-id-display').innerText = currentEditCollectionId;
     document.getElementById('edit-collection-id').value = currentEditCollectionId;
-    document.getElementById('edit-collection-display-id').value = collectionObj.displayId || currentEditCollectionId;
+
+    const displayIdInput = document.getElementById('edit-collection-display-id');
+    displayIdInput.value = collectionObj.displayId || currentEditCollectionId;
+    displayIdInput.disabled = false;
+    displayIdInput.placeholder = '';
 
     const hiddenCheckbox = document.getElementById('edit-collection-hidden');
     if (hiddenCheckbox) {
         hiddenCheckbox.checked = !!collectionObj.hidden;
+        hiddenCheckbox.indeterminate = false;
+        hiddenCheckbox.onchange = null;
     }
 
     dm_renderTags();
@@ -1586,6 +1596,14 @@ function openEditCollectionModal(collectionObj) {
 function closeEditCollectionModal() {
     document.getElementById('editCollectionModal').style.display = 'none';
     currentEditCollectionId = null;
+    bulkEditMode = false;
+    hiddenUserTouched = false;
+    const displayIdInput = document.getElementById('edit-collection-display-id');
+    if (displayIdInput) {
+        displayIdInput.disabled = false;
+        displayIdInput.placeholder = '';
+    }
+    updateEditSelectedButton();
 }
 
 function dm_renderTags() {
@@ -1607,31 +1625,56 @@ function dm_renderTags() {
 
     allTags.forEach(tag => {
         const isSelected = currentEditCollectionTags.includes(tag);
-        const chip = document.createElement('div');
-
-        const bg = isSelected ? 'var(--chip-selected-bg)' : 'var(--chip-bg)';
-        const border = isSelected ? '1px solid var(--chip-selected-border)' : '1px solid var(--color-border-strong)';
+        const isPartial = bulkEditMode && !isSelected && bulkPartialTags.has(tag);
+        const chip = document.createElement('label');
 
         chip.style.cssText = `
-            background: ${bg};
+            background: var(--chip-bg);
             color: white;
-            border: ${border};
-            padding: 4px 10px;
-            border-radius: 12px;
+            border: 1px solid var(--color-border-strong);
+            padding: 2px 7px;
+            border-radius: 10px;
             cursor: pointer;
             user-select: none;
             transition: all 0.1s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
         `;
-        chip.classList.add('text-sm');
-        chip.textContent = tag;
-        chip.onclick = () => dm_toggleTag(tag);
+        chip.classList.add('text-xs');
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = isSelected;
+        cb.indeterminate = isPartial;
+        cb.style.cssText = 'margin: 0; cursor: pointer; width: auto;';
+        cb.onchange = () => {
+            if (bulkEditMode && bulkPartialTags.has(tag)) {
+                bulkPartialTags.delete(tag);
+            }
+            dm_toggleTag(tag);
+        };
+        chip.appendChild(cb);
+
+        const span = document.createElement('span');
+        span.textContent = tag;
+        chip.appendChild(span);
+
+        chip.onclick = (e) => {
+            if (e.target === cb) return;
+            e.preventDefault();
+            if (bulkEditMode && bulkPartialTags.has(tag)) {
+                bulkPartialTags.delete(tag);
+            }
+            dm_toggleTag(tag);
+        };
 
         container.appendChild(chip);
     });
 }
 
 function dm_toggleTag(tag) {
-    if (!currentEditCollectionId) return;
+    if (!currentEditCollectionId && !bulkEditMode) return;
     const idx = currentEditCollectionTags.indexOf(tag);
     if (idx !== -1) {
         currentEditCollectionTags.splice(idx, 1);
@@ -1661,44 +1704,230 @@ function dm_addNewTag() {
 }
 
 function dm_saveAnnotation() {
-    if (!currentEditCollectionId) return;
+    if (!currentEditCollectionId && !bulkEditMode) return;
 
-    const displayIdInput = document.getElementById('edit-collection-display-id');
-    const displayId = displayIdInput.value;
+    const saveBtn = document.getElementById('save-collection-btn');
+    if (saveBtn) saveBtn.disabled = true;
 
-    const hiddenCheckbox = document.getElementById('edit-collection-hidden');
-    const isHidden = hiddenCheckbox ? hiddenCheckbox.checked : false;
+    if (!bulkEditMode) {
+        // Single collection save
+        const displayIdInput = document.getElementById('edit-collection-display-id');
+        const displayId = displayIdInput.value;
+        const hiddenCheckbox = document.getElementById('edit-collection-hidden');
+        const isHidden = hiddenCheckbox ? hiddenCheckbox.checked : false;
 
-    const payload = {
-        collection_id: currentEditCollectionId,
-        display_collection_id: displayId,
-        tags: currentEditCollectionTags,
-        hidden: isHidden
-    };
+        const payload = {
+            collection_id: currentEditCollectionId,
+            display_collection_id: displayId,
+            tags: currentEditCollectionTags,
+            hidden: isHidden
+        };
 
-    fetch('/api/manage/collection/save_annotation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify(payload)
-    })
-        .then(r => r.json())
-        .then(data => {
-            if (data.status === 'success') {
-                closeEditCollectionModal();
-                loadAvailableCollections();
-            } else {
-                alert('Failed to save: ' + (data.error || 'Unknown error'));
-            }
+        fetch('/api/manage/collection/save_annotation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify(payload)
         })
-        .catch(err => {
-            console.error("Error saving annotation:", err);
-            alert("Error saving annotation.");
+            .then(r => r.json())
+            .then(data => {
+                if (saveBtn) saveBtn.disabled = false;
+                if (data.status === 'success') {
+                    closeEditCollectionModal();
+                    loadAvailableCollections();
+                } else {
+                    alert('Failed to save: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                if (saveBtn) saveBtn.disabled = false;
+                console.error("Error saving annotation:", err);
+                alert("Error saving annotation.");
+            });
+    } else {
+        // Bulk save: compute per-collection tag diffs
+        const hiddenCheckbox = document.getElementById('edit-collection-hidden');
+        const selectedIds = [...selectedCollectionIds];
+
+        // Compute tags added/removed relative to the original intersection
+        const originalIntersection = new Set();
+        const tagSets = selectedIds.map(id => new Set(bulkOriginalTagsMap[id] || []));
+        if (tagSets.length > 0) {
+            tagSets[0].forEach(tag => {
+                if (tagSets.every(s => s.has(tag))) originalIntersection.add(tag);
+            });
+        }
+        const currentTagSet = new Set(currentEditCollectionTags);
+        const tagsToAdd = [...currentTagSet].filter(t => !originalIntersection.has(t));
+        const tagsToRemove = [...originalIntersection].filter(t => !currentTagSet.has(t));
+
+        // Build per-collection payloads and save sequentially to avoid file race conditions
+        const payloads = selectedIds.map(id => {
+            const obj = availableCollections.find(c => (typeof c === 'object' ? c.id : c) === id);
+            const origTags = bulkOriginalTagsMap[id] || [];
+            const finalTags = [...new Set([
+                ...origTags.filter(t => !tagsToRemove.includes(t)),
+                ...tagsToAdd
+            ])];
+
+            const payload = {
+                collection_id: id,
+                display_collection_id: obj ? (obj.displayId || id) : id,
+                tags: finalTags
+            };
+
+            if (hiddenUserTouched && hiddenCheckbox) {
+                payload.hidden = hiddenCheckbox.checked;
+            } else if (obj) {
+                payload.hidden = !!obj.hidden;
+            }
+
+            return payload;
         });
+
+        (async () => {
+            let failed = 0;
+            for (const payload of payloads) {
+                try {
+                    const r = await fetch('/api/manage/collection/save_annotation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await r.json();
+                    if (data.status !== 'success') failed++;
+                } catch (e) {
+                    console.error('Error saving:', payload.collection_id, e);
+                    failed++;
+                }
+            }
+            if (saveBtn) saveBtn.disabled = false;
+            if (failed > 0) {
+                alert(`Saved ${payloads.length - failed} of ${payloads.length} collections. ${failed} failed.`);
+            }
+            closeEditCollectionModal();
+            loadAvailableCollections();
+        })();
+    }
 }
 
 function dm_closeEditModal() {
     document.getElementById('edit-collection-modal').style.display = 'none';
 }
+
+
+function toggleAllCollectionCheckboxes(masterCheckbox) {
+    const checked = masterCheckbox.checked;
+    document.querySelectorAll('#edit-activity-list-container .collection-row-checkbox').forEach(cb => {
+        const row = cb.closest('.edit-activity-item');
+        if (row && row.style.display !== 'none') {
+            cb.checked = checked;
+            const id = cb.dataset.collectionId;
+            if (checked) selectedCollectionIds.add(id);
+            else selectedCollectionIds.delete(id);
+        }
+    });
+    updateEditSelectedButton();
+}
+window.toggleAllCollectionCheckboxes = toggleAllCollectionCheckboxes;
+
+
+function toggleCollectionSelection(collectionId, isChecked) {
+    if (isChecked) selectedCollectionIds.add(collectionId);
+    else selectedCollectionIds.delete(collectionId);
+    updateSelectAllCheckbox();
+    updateEditSelectedButton();
+}
+
+
+function updateSelectAllCheckbox() {
+    const master = document.getElementById('select-all-collections');
+    if (!master) return;
+    const visible = document.querySelectorAll('#edit-activity-list-container .collection-row-checkbox');
+    const visibleArr = Array.from(visible).filter(cb => {
+        const row = cb.closest('.edit-activity-item');
+        return row && row.style.display !== 'none';
+    });
+    const checkedCount = visibleArr.filter(cb => cb.checked).length;
+    master.checked = visibleArr.length > 0 && checkedCount === visibleArr.length;
+    master.indeterminate = checkedCount > 0 && checkedCount < visibleArr.length;
+}
+
+
+function updateEditSelectedButton() {
+    const btn = document.getElementById('edit-selected-collections-btn');
+    if (!btn) return;
+    const count = selectedCollectionIds.size;
+    btn.disabled = count === 0;
+    btn.textContent = count > 0 ? `Edit (${count})` : 'Edit';
+}
+
+
+function openEditSelectedCollections() {
+    if (selectedCollectionIds.size === 0) return;
+
+    const selectedIds = [...selectedCollectionIds];
+
+    if (selectedIds.length === 1) {
+        const found = availableCollections.find(c => (typeof c === 'object' ? c.id : c) === selectedIds[0]);
+        if (found) openEditCollectionModal(found);
+        return;
+    }
+
+    // Multi-select mode
+    bulkEditMode = true;
+    currentEditCollectionId = null;
+    hiddenUserTouched = false;
+
+    // Collect objects for selected collections
+    const selectedObjs = selectedIds.map(id =>
+        availableCollections.find(c => (typeof c === 'object' ? c.id : c) === id)
+    ).filter(Boolean);
+
+    // Store original tags per collection for diff-based save
+    bulkOriginalTagsMap = {};
+    selectedObjs.forEach(obj => {
+        bulkOriginalTagsMap[obj.id] = Array.isArray(obj.tags) ? [...obj.tags] : [];
+    });
+
+    // Compute tag intersection (shared by all) and partial tags (shared by some)
+    const tagSets = selectedObjs.map(obj => new Set(Array.isArray(obj.tags) ? obj.tags : []));
+    const allUnion = new Set();
+    tagSets.forEach(s => s.forEach(t => allUnion.add(t)));
+    const intersection = [...tagSets[0]].filter(tag => tagSets.every(s => s.has(tag)));
+    currentEditCollectionTags = [...intersection];
+    bulkPartialTags = new Set([...allUnion].filter(tag => !intersection.includes(tag) && tagSets.some(s => s.has(tag))));
+
+    // Modal header
+    document.getElementById('edit-collection-id-display').innerText = `${selectedIds.length} collections`;
+    document.getElementById('edit-collection-id').value = '';
+
+    // Disable display ID
+    const displayIdInput = document.getElementById('edit-collection-display-id');
+    displayIdInput.value = '';
+    displayIdInput.disabled = true;
+    displayIdInput.placeholder = 'Multiple collections selected';
+
+    // Hidden checkbox: check if all, none, or mixed
+    const hiddenCheckbox = document.getElementById('edit-collection-hidden');
+    if (hiddenCheckbox) {
+        const hiddenCount = selectedObjs.filter(o => o.hidden).length;
+        if (hiddenCount === selectedObjs.length) {
+            hiddenCheckbox.checked = true;
+            hiddenCheckbox.indeterminate = false;
+        } else if (hiddenCount === 0) {
+            hiddenCheckbox.checked = false;
+            hiddenCheckbox.indeterminate = false;
+        } else {
+            hiddenCheckbox.checked = false;
+            hiddenCheckbox.indeterminate = true;
+        }
+        hiddenCheckbox.onchange = () => { hiddenUserTouched = true; };
+    }
+
+    dm_renderTags();
+    document.getElementById('editCollectionModal').style.display = 'block';
+}
+window.openEditSelectedCollections = openEditSelectedCollections;
 
 function queueVotedVideos(btnElement) {
     if (!confirm("Are you sure you want to add all machine-voted videos to the scrape and annotation queues?")) {

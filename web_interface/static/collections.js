@@ -507,10 +507,10 @@ function pe_selectDonation(collectionId, scrollToRow = true) {
 
     // Only scroll when selection comes from the bee swarm, not from the table itself
     if (scrollToRow && matchedRow && scrollContainer) {
-        const containerH = scrollContainer.clientHeight;
-        const rowTop = matchedRow.offsetTop - scrollContainer.offsetTop;
-        const rowH = matchedRow.offsetHeight;
-        scrollContainer.scrollTop = rowTop - (containerH / 2) + (rowH / 2);
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const rowRect = matchedRow.getBoundingClientRect();
+        const offset = rowRect.top - containerRect.top + scrollContainer.scrollTop;
+        scrollContainer.scrollTop = offset - (containerRect.height / 2) + (rowRect.height / 2);
     }
 }
 

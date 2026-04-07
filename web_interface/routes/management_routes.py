@@ -943,7 +943,9 @@ def api_consolidate_enrichment():
 
     try:
         from fyp.organize_datasets import consolidate_enrichment_data
-        consolidate_enrichment_data(force_consolidation=False, verbose=False)
+        result = consolidate_enrichment_data(force_consolidation=False, verbose=False)
+        if result is None:
+            return jsonify({"status": "success", "message": "No new data to consolidate."})
         return jsonify({"status": "success", "message": "Enrichment data consolidated."})
     except Exception as e:
         print(f"Error consolidating enrichment data: {e}")

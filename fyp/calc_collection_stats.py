@@ -7,10 +7,10 @@ from fyp.activity_analysis import analyze_activity_peak
 
 
 
-def analyze_emojis_list(comments: list) -> dict:
-    """
+"""def analyze_emojis_list(comments: list) -> dict:
+    "-""
     Extracts and analyzes emojis from a list of comment strings.
-    """
+    "-""
     if not comments:
         return {"top_emoji": None, "emoji_rate": 0.0}
         
@@ -35,9 +35,9 @@ def analyze_emojis_list(comments: list) -> dict:
 
 
 def generate_moniker(pers: dict, time_of_day_shares: dict) -> str:
-    """
+    "-""
     Generates a descriptive moniker based on persona statistics.
-    """
+    ""-"
     if not time_of_day_shares:
         return "Unknown Persona"
         
@@ -76,7 +76,7 @@ def generate_moniker(pers: dict, time_of_day_shares: dict) -> str:
     idx_watch = get_index(composite_watching, adjectives_for_watching)
 
     return f"{adjectives_for_expressiveness[idx_expr]}, {adjectives_for_enthusiasm[idx_enth]}, {adjectives_for_watching[idx_watch]} {day_person_label}"
-
+"""
 
 
 def process_single_collection(df_raw: pd.DataFrame) -> dict:
@@ -170,21 +170,21 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     
     # 7. Engagement Rates
     # Comments
-    comments_df = df[df['activity_type'] == 'comment']
-    num_comments = len(comments_df)
+    #comments_df = df[df['activity_type'] == 'comment']
+    #num_comments = len(comments_df)
 
     # Likes
     # Mapped from 'ItemFavoriteList' in s.py -> 'fave_item'
-    likes_df = df[df['activity_type'].isin(['like', 'fave_item'])]
-    num_likes = len(likes_df)
+    #likes_df = df[df['activity_type'].isin(['like', 'fave_item'])]
+    #num_likes = len(likes_df)
     
     # Posts
-    posts_df = df[df['activity_type'] == 'post']
-    num_posts = len(posts_df)
+    #posts_df = df[df['activity_type'] == 'post']
+    #num_posts = len(posts_df)
     
     # Emojis in comments
-    comment_texts = comments_df['extra_data'].tolist()
-    emoji_stats = analyze_emojis_list(comment_texts)
+    #comment_texts = comments_df['extra_data'].tolist()
+    #emoji_stats = analyze_emojis_list(comment_texts)
     
     # 8. Advanced Behavioural Metrics (New)
     # A. Session Velocity (Doomscroll Index)
@@ -203,25 +203,25 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     daily_events = df.groupby(df['local_timestamp'].dt.date).size()
     # Map each date to weekend (True/False)
     # Use values to avoid index alignment issues (Series vs DateIndex)
-    is_weekend = pd.to_datetime(daily_events.index).weekday.isin([5,6])
+    #is_weekend = pd.to_datetime(daily_events.index).weekday.isin([5,6])
     
-    avg_weekend = daily_events[is_weekend].mean() if is_weekend.any() else 0
-    avg_weekday = daily_events[~is_weekend].mean() if (~is_weekend).any() else 0
+    #avg_weekend = daily_events[is_weekend].mean() if is_weekend.any() else 0
+    #avg_weekday = daily_events[~is_weekend].mean() if (~is_weekend).any() else 0
     
-    if avg_weekday > 0:
-        weekend_bias = avg_weekend / avg_weekday
-    elif avg_weekend > 0:
-        weekend_bias = 10.0 # Extreme bias
-    else:
-        weekend_bias = 0.0 # No activity?
+    #if avg_weekday > 0:
+    #    weekend_bias = avg_weekend / avg_weekday
+    #elif avg_weekend > 0:
+    #    weekend_bias = 10.0 # Extreme bias
+    #else:
+    #    weekend_bias = 0.0 # No activity?
         
     # C. Comment Depth (Avg chars)
     # Handle mixed types in extra_data
-    if num_comments > 0:
-         chars = comments_df['extra_data'].astype(str).str.len()
-         avg_comment_len_chars = chars.mean()
-    else:
-        avg_comment_len_chars = 0.0
+    #if num_comments > 0:
+    #     chars = comments_df['extra_data'].astype(str).str.len()
+    #     avg_comment_len_chars = chars.mean()
+    #else:
+    #    avg_comment_len_chars = 0.0
         
     # D. Activity Trend (Slope)
     # Events per day index (0..n)
@@ -236,15 +236,15 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
         
     # E. Return Probability
     # Prob of being active on D+1 given active on D
-    active_dates_sorted = sorted(daily_events.index)
-    if len(active_dates_sorted) > 1:
-        consecutive_count = 0
-        for i in range(len(active_dates_sorted) - 1):
-             if (active_dates_sorted[i+1] - active_dates_sorted[i]).days == 1:
-                 consecutive_count += 1
-        day_to_day_return_prob = consecutive_count / (len(active_dates_sorted) - 1)
-    else:
-        day_to_day_return_prob = 0.0
+    #active_dates_sorted = sorted(daily_events.index)
+    #if len(active_dates_sorted) > 1:
+    #    consecutive_count = 0
+    #    for i in range(len(active_dates_sorted) - 1):
+    #         if (active_dates_sorted[i+1] - active_dates_sorted[i]).days == 1:
+    #             consecutive_count += 1
+    #    day_to_day_return_prob = consecutive_count / (len(active_dates_sorted) - 1)
+    #else:
+    #    day_to_day_return_prob = 0.0
 
     # 9. Time Patterns (Local Time)
     # Weekday Shares (Monday=0 in Python)
@@ -282,44 +282,44 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     
     # 10. Advanced Persona Stats (Expressiveness, etc.)
     # Videos per day (using lifespan)
-    videos_per_day = len(play_df) / max(1, lifespan_days)
-    comments_per_day = num_comments / max(1, lifespan_days)
-    likes_per_day = num_likes / max(1, lifespan_days)
+    videos_per_day = len(play_df) / max(1, active_days)
+    #comments_per_day = num_comments / max(1, active_days)
+    #likes_per_day = num_likes / max(1, active_days)
     
     # Chattiness (Expressiveness)
     # Capped at 1.0
-    chattiness = comments_per_day / videos_per_day if videos_per_day > 0 else 0
-    chattiness = min(1.0, chattiness)
+    #chattiness = comments_per_day / videos_per_day if videos_per_day > 0 else 0
+    #chattiness = min(1.0, chattiness)
     
     # Enthusiasm
-    enthusiasm = likes_per_day / videos_per_day if videos_per_day > 0 else 0
-    enthusiasm = min(1.0, enthusiasm)
+    #enthusiasm = likes_per_day / videos_per_day if videos_per_day > 0 else 0
+    #enthusiasm = min(1.0, enthusiasm)
     
     # Patience: % of watches >= 30s
-    if not valid_watches.empty:
-        patience = (valid_watches['play_duration'] >= 30).mean()
-    else:
-        patience = 0.0
+    #if not valid_watches.empty:
+    #    patience = (valid_watches['play_duration'] >= 30).mean()
+    #else:
+    #    patience = 0.0
         
     # Generate Moniker
-    pers_input = {
-        "chattiness": chattiness,
-        "patience": patience,
-        #"binge_level": binge_level,
-        "enthusiasm": enthusiasm
-    }
-    moniker = generate_moniker(pers_input, tod_shares)
+    #pers_input = {
+    #    "chattiness": chattiness,
+    #    "patience": patience,
+    #    #"binge_level": binge_level,
+    #    "enthusiasm": enthusiasm
+    #}
+    #moniker = generate_moniker(pers_input, tod_shares)
 
     # Consistency (Legacy: Share of top 2 hours)
-    if not hourly_ts.empty:
-        hourly_profile_shares = hourly_ts.groupby('hour')['event_count'].mean() 
-        hourly_profile_shares = hourly_profile_shares / hourly_profile_shares.sum() if hourly_profile_shares.sum() > 0 else hourly_profile_shares
-        consistency_top_2 = hourly_profile_shares.nlargest(2).sum()
-    else:
-        consistency_top_2 = 0.0
+    #if not hourly_ts.empty:
+    #    hourly_profile_shares = hourly_ts.groupby('hour')['event_count'].mean() 
+    #    hourly_profile_shares = hourly_profile_shares / hourly_profile_shares.sum() if hourly_profile_shares.sum() > 0 else hourly_profile_shares
+    #    consistency_top_2 = hourly_profile_shares.nlargest(2).sum()
+    #else:
+    #    consistency_top_2 = 0.0
         
     # Emoji Level (Log)
-    emoji_level = math.log(1 + emoji_stats['emoji_rate'])
+    #emoji_level = math.log(1 + emoji_stats['emoji_rate'])
 
 
     # Compile Result
@@ -335,11 +335,11 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
         'comments_per_day': float(comments_per_day),
         'likes_per_day': float(likes_per_day),
         'likes_per_video': float(num_likes / max(1, len(play_df))),
-        'daily_watch_time_s': float(total_watch_time / max(1, lifespan_days)),
+        'daily_watch_time_s': float(total_watch_time / max(1, active_days)),
     
         'num_watches': len(play_df),
         'total_watch_time_s': float(total_watch_time),
-        'avg_watch_time_s': float(avg_watch_time),
+        #'avg_watch_time_s': float(avg_watch_time),
         'median_watch_time_s': float(median_watch_time),
             
         #'num_sessions': int(num_sessions),
@@ -350,33 +350,33 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
         'num_comments': int(num_comments),
         'num_likes': int(num_likes),
         'num_posts': int(num_posts),
-        'top_emoji': emoji_stats['top_emoji'],
-        'emoji_rate': float(emoji_stats['emoji_rate']),
-        'emoji_level_log': float(emoji_level),
+        #'top_emoji': emoji_stats['top_emoji'],
+        #'emoji_rate': float(emoji_stats['emoji_rate']),
+        #'emoji_level_log': float(emoji_level),
         
         'peak_activity_hour_local': peak_stats['peak_starting_hour'],
-        'activity_consistency_cv': peak_stats['consistency_cv'],
-        'consistency_top_2_hours': float(consistency_top_2),
+        #'activity_consistency_cv': peak_stats['consistency_cv'],
+        #'consistency_top_2_hours': float(consistency_top_2),
         
         # New Detailed Metrics
         #'session_velocity_vpm': float(session_velocity_vpm),
-        'weekend_bias': float(weekend_bias),
-        'avg_comment_len_chars': float(avg_comment_len_chars),
+        #'weekend_bias': float(weekend_bias),
+        #'avg_comment_len_chars': float(avg_comment_len_chars),
         #'activity_trend_slope': float(activity_trend_slope),
-        'day_to_day_return_prob': float(day_to_day_return_prob),
+        #'day_to_day_return_prob': float(day_to_day_return_prob),
         
-        'share_morning': tod_shares.get('Morning', 0.0),
-        'share_afternoon': tod_shares.get('Afternoon', 0.0),
-        'share_evening': tod_shares.get('Evening', 0.0),
-        'share_owl': tod_shares.get('Owl', 0.0),
-        'peak_day_segment': max(tod_shares, key=tod_shares.get) if tod_shares else 'Unknown',
+        #'share_morning': tod_shares.get('Morning', 0.0),
+        #'share_afternoon': tod_shares.get('Afternoon', 0.0),
+        #'share_evening': tod_shares.get('Evening', 0.0),
+        #'share_owl': tod_shares.get('Owl', 0.0),
+        #'peak_day_segment': max(tod_shares, key=tod_shares.get) if tod_shares else 'Unknown',
         
         # Advanced Persona
-        'expressiveness': float(chattiness), # Requested alias for chattiness
-        'chattiness': float(chattiness),
-        'enthusiasm': float(enthusiasm),
-        'patience': float(patience),
-        'moniker': moniker,
+        #'expressiveness': float(chattiness), # Requested alias for chattiness
+        #'chattiness': float(chattiness),
+        #'enthusiasm': float(enthusiasm),
+        #'patience': float(patience),
+        #'moniker': moniker,
         'most_active_weekday': most_active_day,
         
         # Timestamps for first/last event

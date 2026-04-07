@@ -1262,21 +1262,19 @@ def api_persona_stats():
              role = 'viewer'
              is_admin = False
 
-        accessible_studies = get_accessible_studies(username, role, is_admin)
-        # print(f"DEBUG PERSONA: Accessible studies for {username}: {accessible_studies}")
+        # Admins see all accepted collections; non-admins are filtered by study access
+        allowed_collection_ids = None  # None means no filtering for admins
+        if not is_admin:
+            accessible_studies = get_accessible_studies(username, role, is_admin)
+            allowed_collection_ids = set()
+            for study in accessible_studies:
+                study_collections = get_study_collections(study)
+                for d in study_collections:
+                     if 'collection_id' in d:
+                         allowed_collection_ids.add(str(d['collection_id']))
 
-        # Collect allowed collection IDs
-        allowed_collection_ids = set()
-        for study in accessible_studies:
-            study_collections = get_study_collections(study)
-            for d in study_collections:
-                 if 'collection_id' in d:
-                     allowed_collection_ids.add(str(d['collection_id']))
-        
-        # print(f"DEBUG PERSONA: Found {len(allowed_collection_ids)} allowed collections")
-        
-        if not allowed_collection_ids:
-             return jsonify([]) # Return empty list if no access
+            if not allowed_collection_ids:
+                 return jsonify([]) # Return empty list if no access
         # ----------------------
 
         filename = "ddp_metadata.parquet"
@@ -1345,16 +1343,17 @@ def api_persona_stats():
         stats_df = stats_df.loc[:, ~stats_df.columns.duplicated()]
 
         # --- ACCESS CONTROL: Filter by Allowed Donations ---
-        
-        # Ensure allowed IDs are strings
-        allowed_collection_ids = set(str(x) for x in allowed_collection_ids)
 
-        if 'collection_id' in stats_df.columns:
-            stats_df = stats_df[stats_df['collection_id'].astype(str).isin(allowed_collection_ids)]
-        elif stats_df.index.name == 'collection_id' or 'collection_id' not in stats_df.columns:
-            # Try filtering on index if column missing
-            stats_df = stats_df[stats_df.index.astype(str).isin(allowed_collection_ids)]
-            
+        if allowed_collection_ids is not None:
+            # Ensure allowed IDs are strings
+            allowed_collection_ids = set(str(x) for x in allowed_collection_ids)
+
+            if 'collection_id' in stats_df.columns:
+                stats_df = stats_df[stats_df['collection_id'].astype(str).isin(allowed_collection_ids)]
+            elif stats_df.index.name == 'collection_id' or 'collection_id' not in stats_df.columns:
+                # Try filtering on index if column missing
+                stats_df = stats_df[stats_df.index.astype(str).isin(allowed_collection_ids)]
+
         # ----------------------------------------------------
 
         # Filter by Accepted

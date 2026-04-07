@@ -182,9 +182,6 @@ window.timelines = {
             };
 
             // Participant Info
-            updateInfoStat('timelines-stat-name', pe_collection.name);
-            updateInfoStat('timelines-stat-email', pe_collection.email);
-            updateInfoStat('timelines-stat-tiktok', pe_collection.tiktokHandle);
             updateInfoStat('timelines-stat-age', pe_collection.age);
             updateInfoStat('timelines-stat-country', pe_collection.country);
             updateInfoStat('timelines-stat-postcode', pe_collection.postCode);

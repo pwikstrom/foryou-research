@@ -735,9 +735,9 @@ def consolidate_and_save_scrape_data(
     if not force_consolidation and set(files_to_concatenate) <= set(latest_filename_list):
         if top_verbose:
             print("No new scrape files found. No need to consolidate.")
-            if return_saved_data:
-                if verbose: print("Returning existing file.")
-                return False, data_io.load_parquet(storage_location="recoded", filename="scrape_recoded.parquet")
+        if return_saved_data:
+            if verbose: print("Returning existing file.")
+            return False, data_io.load_parquet(storage_location="recoded", filename="scrape_recoded.parquet")
         return False, None
 
     
