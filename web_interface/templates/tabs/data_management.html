@@ -222,10 +222,8 @@
 
                             <div class="controls" style="display: flex; gap: 5px; align-items: center;">
                                 <span id="queue_scraper-status" class="status-indicator status-stopped"></span>
-                                <button class="btn-primary" onclick="startProcess('queue_scraper')"
-                                    style="padding: 4px 12px;">Start Scraper</button>
-                                <button class="btn-stop" onclick="stopProcess('queue_scraper')"
-                                    style="padding: 4px 12px;">Stop</button>
+                                <button id="queue_scraper-toggle" class="btn-primary" data-start-label="Start Scraper"
+                                    onclick="startProcess('queue_scraper')" style="padding: 4px 12px;">Start Scraper</button>
                             </div>
                         </div>
 
@@ -233,9 +231,10 @@
                             <div class="progress-bar" id="queue_scraper-bar"></div>
                             <div class="progress-text" id="queue_scraper-text">Idle</div>
                         </div>
-                        <div class="log-window font-mono text-xs" id="queue_scraper-logs"
-                            style="height: 80px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
-                            Logs...</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                            <span id="queue_scraper-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                            <a class="text-xs view-log-link" onclick="openLogModal('queue_scraper', 'Scraper')">View Log</a>
+                        </div>
                     </div>
 
                     <!-- Annotator Block -->
@@ -271,10 +270,8 @@
 
                             <div class="controls" style="display: flex; gap: 5px; align-items: center;">
                                 <span id="queue_annotator-status" class="status-indicator status-stopped"></span>
-                                <button class="btn-primary" onclick="startProcess('queue_annotator')"
-                                    style="padding: 4px 12px;">Start Annotator</button>
-                                <button class="btn-stop" onclick="stopProcess('queue_annotator')"
-                                    style="padding: 4px 12px;">Stop</button>
+                                <button id="queue_annotator-toggle" class="btn-primary" data-start-label="Start Annotator"
+                                    onclick="startProcess('queue_annotator')" style="padding: 4px 12px;">Start Annotator</button>
                             </div>
                         </div>
 
@@ -282,9 +279,10 @@
                             <div class="progress-bar" id="queue_annotator-bar"></div>
                             <div class="progress-text" id="queue_annotator-text">Idle</div>
                         </div>
-                        <div class="log-window font-mono text-xs" id="queue_annotator-logs"
-                            style="height: 80px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
-                            Logs...</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                            <span id="queue_annotator-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                            <a class="text-xs view-log-link" onclick="openLogModal('queue_annotator', 'Annotator')">View Log</a>
+                        </div>
                     </div>
 
                 </div>
@@ -309,18 +307,17 @@
                         <div class="controls"
                             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
                             <span id="meta_refresh_viewer-status" class="status-indicator status-stopped"></span>
-                            <button class="btn-primary text-sm" onclick="startProcess('meta_refresh_viewer')"
-                                style="padding: 4px 12px;">Recalculate (All Studies)</button>
-                            <button class="btn-stop text-sm" onclick="stopProcess('meta_refresh_viewer')"
-                                style="padding: 4px 12px;">Stop</button>
+                            <button id="meta_refresh_viewer-toggle" class="btn-primary text-sm" data-start-label="Recalculate (All Studies)"
+                                onclick="startProcess('meta_refresh_viewer')" style="padding: 4px 12px;">Recalculate (All Studies)</button>
                         </div>
                         <div class="progress-container">
                             <div class="progress-bar" id="meta_refresh_viewer-bar"></div>
                             <div class="progress-text" id="meta_refresh_viewer-text">Idle</div>
                         </div>
-                        <div class="log-window font-mono text-xs" id="meta_refresh_viewer-logs"
-                            style="height: 60px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
-                            Logs...</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                            <span id="meta_refresh_viewer-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                            <a class="text-xs view-log-link" onclick="openLogModal('meta_refresh_viewer', 'Video Analysis Metadata')">View Log</a>
+                        </div>
                     </div>
 
                     <!-- 2. Group Comparisons Metadata -->
@@ -330,18 +327,17 @@
                         <div class="controls"
                             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
                             <span id="meta_refresh_groups-status" class="status-indicator status-stopped"></span>
-                            <button class="btn-primary text-sm" onclick="startProcess('meta_refresh_groups')"
-                                style="padding: 4px 12px;">Recalculate (All Studies)</button>
-                            <button class="btn-stop text-sm" onclick="stopProcess('meta_refresh_groups')"
-                                style="padding: 4px 12px;">Stop</button>
+                            <button id="meta_refresh_groups-toggle" class="btn-primary text-sm" data-start-label="Recalculate (All Studies)"
+                                onclick="startProcess('meta_refresh_groups')" style="padding: 4px 12px;">Recalculate (All Studies)</button>
                         </div>
                         <div class="progress-container">
                             <div class="progress-bar" id="meta_refresh_groups-bar"></div>
                             <div class="progress-text" id="meta_refresh_groups-text">Idle</div>
                         </div>
-                        <div class="log-window font-mono text-xs" id="meta_refresh_groups-logs"
-                            style="height: 60px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
-                            Logs...</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                            <span id="meta_refresh_groups-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                            <a class="text-xs view-log-link" onclick="openLogModal('meta_refresh_groups', 'Explore Metadata')">View Log</a>
+                        </div>
                     </div>
 
                     <!-- 3. Timelines -->
@@ -351,18 +347,17 @@
                         <div class="controls"
                             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
                             <span id="timelines_refresh-status" class="status-indicator status-stopped"></span>
-                            <button class="btn-primary text-sm" onclick="startProcess('timelines_refresh')"
-                                style="padding: 4px 12px;">Recalculate (All Collections)</button>
-                            <button class="btn-stop text-sm" onclick="stopProcess('timelines_refresh')"
-                                style="padding: 4px 12px;">Stop</button>
+                            <button id="timelines_refresh-toggle" class="btn-primary text-sm" data-start-label="Recalculate (All Collections)"
+                                onclick="startProcess('timelines_refresh')" style="padding: 4px 12px;">Recalculate (All Collections)</button>
                         </div>
                         <div class="progress-container">
                             <div class="progress-bar" id="timelines_refresh-bar"></div>
                             <div class="progress-text" id="timelines_refresh-text">Idle</div>
                         </div>
-                        <div class="log-window font-mono text-xs" id="timelines_refresh-logs"
-                            style="height: 60px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
-                            Logs...</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                            <span id="timelines_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                            <a class="text-xs view-log-link" onclick="openLogModal('timelines_refresh', 'Timelines')">View Log</a>
+                        </div>
                     </div>
 
                     <!-- 4. Study Definitions -->
@@ -372,18 +367,17 @@
                         <div class="controls"
                             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
                             <span id="recode_refresh_studies-status" class="status-indicator status-stopped"></span>
-                            <button class="btn-primary text-sm" onclick="startProcess('recode_refresh_studies')"
-                                style="padding: 4px 12px;">Recalculate (All Studies)</button>
-                            <button class="btn-stop text-sm" onclick="stopProcess('recode_refresh_studies')"
-                                style="padding: 4px 12px;">Stop</button>
+                            <button id="recode_refresh_studies-toggle" class="btn-primary text-sm" data-start-label="Recalculate (All Studies)"
+                                onclick="startProcess('recode_refresh_studies')" style="padding: 4px 12px;">Recalculate (All Studies)</button>
                         </div>
                         <div class="progress-container">
                             <div class="progress-bar" id="recode_refresh_studies-bar"></div>
                             <div class="progress-text" id="recode_refresh_studies-text">Idle</div>
                         </div>
-                        <div class="log-window font-mono text-xs" id="recode_refresh_studies-logs"
-                            style="height: 60px; margin-top: 5px; background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 5px;">
-                            Logs...</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                            <span id="recode_refresh_studies-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                            <a class="text-xs view-log-link" onclick="openLogModal('recode_refresh_studies', 'Study Definitions')">View Log</a>
+                        </div>
                     </div>
 
                 </div>
@@ -392,6 +386,28 @@
         {% endif %}
 
     </div> <!-- End height 100% overflow -->
+
+    <!-- Stop Confirmation Dialog -->
+    <div id="stop-confirm-overlay" class="stop-confirm-overlay">
+        <div class="stop-confirm-card">
+            <p id="stop-confirm-text" class="text-sm" style="margin: 0 0 16px 0;">Stop this process?</p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button class="btn-discreet" onclick="closeStopConfirm()">Cancel</button>
+                <button class="btn-stop" id="stop-confirm-btn" onclick="confirmStop()">Stop</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Modal -->
+    <div id="log-modal-overlay" class="stop-confirm-overlay" style="align-items: flex-start; padding-top: 8vh;">
+        <div class="log-modal-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span id="log-modal-title" class="font-bold text-sm">Process Log</span>
+                <button class="btn-discreet text-xs" onclick="closeLogModal()">&times;</button>
+            </div>
+            <div id="log-modal-content" class="log-modal-body font-mono text-xs"></div>
+        </div>
+    </div>
 
     <!-- New Study Modal -->
     <div id="newStudyModal" class="modal"
