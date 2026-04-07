@@ -34,11 +34,13 @@ if __name__ == "__main__":
                     print(f"Skipping {study_name}: No data found.")
                     continue
                 
-                # Context = Explorer (Annotated OK)
+                # Context = Explorer (Annotated OK + Activity Filter)
                 if 'annotated_ok' in df.columns:
                     df_explorer = df[df.annotated_ok].copy()
                 else:
                     df_explorer = df.copy()
+                df_explorer = df_explorer[df_explorer['activity_type'].isin(['play', 'observe'])]
+                df_explorer = df_explorer[df_explorer['item_id'].notna()]
                     
                 print(f"  Generating metadata for {len(df_explorer)} items...")
                 meta = get_metadata(df_explorer, col_types)

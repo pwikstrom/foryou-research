@@ -14,7 +14,8 @@ let viewerData = {
     userVotes: [],
     activeModal: { item_id: null, variable: null, currentTags: [] },
     displayIds: {}, // Map of raw_id -> display_id
-    expandedDetailSections: new Set() // Track expanded sections in details panel (collapsed by default)
+    expandedDetailSections: new Set(), // Track expanded sections in details panel (collapsed by default)
+    extraDataIndices: new Set() // Global 0-based indices of items with extra_data (engagement activity)
 };
 
 // Drill-down from Explore tab: consume pending filter state
@@ -725,20 +726,17 @@ function resetViewerFilters() {
 }
 
 function toggleViewerSort() {
-    viewerData.sortOrder = viewerData.sortOrder === 'asc' ? 'desc' : 'asc';
-    updateSortBtnUI();
-    // Only apply if we have a sort key selected? 
-    // Or just apply anyway (backend handles it)
+    const cb = document.getElementById('viewer-sort-checkbox');
+    viewerData.sortOrder = cb && cb.checked ? 'desc' : 'asc';
     if (viewerData.sortBy) {
         applyViewerFilters();
     }
 }
 
 function updateSortBtnUI() {
-    const btn = document.getElementById('viewer-sort-btn');
-    if (btn) {
-        btn.innerText = viewerData.sortOrder === 'asc' ? 'ASC' : 'DESC';
-        // Optional: change color or icon
+    const cb = document.getElementById('viewer-sort-checkbox');
+    if (cb) {
+        cb.checked = viewerData.sortOrder === 'desc';
     }
 }
 
@@ -780,6 +778,13 @@ async function applyViewerFilters() {
         viewerData.currentOffset = data.offset || 0; // The base index of the downloaded chunk
         viewerData.chunkLimit = 1000; // Expected max size of the downloaded chunk
         viewerData.displayIds = data.display_ids || {};
+
+        // Store extra_data indices (returned on first chunk only)
+        if (data.extra_data_indices) {
+            viewerData.extraDataIndices = new Set(data.extra_data_indices);
+        }
+        renderSliderMarkers();
+        updateSkipButtons();
 
         // Let the user know if we capped the slider out at 10k
         const isTruncated = data.truncated;
@@ -1349,6 +1354,8 @@ function updateNavUI() {
 
     document.getElementById('viewer-status').innerText = "Ready";
 
+    updateSkipButtons();
+
     // Update Slider
     const slider = document.getElementById('viewer-slider');
     if (slider) {
@@ -1576,5 +1583,112 @@ async function saveTaggingModal() {
         }
     } catch (e) { console.error(e); alert("Error saving tags"); }
 }
+
+// ── Extra-data slider markers & skip navigation ──
+
+function renderSliderMarkers() {
+    const container = document.getElementById('viewer-slider-markers');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const count = viewerData.itemCount;
+    const indices = viewerData.extraDataIndices;
+    if (!count || !indices || indices.size === 0) return;
+
+    // Binned histogram: divide the index range into fixed bins and render
+    // a bar per bin whose height and opacity reflect the extra_data density.
+    const numBins = Math.min(80, count);
+    const binSize = count / numBins;
+    const padPx = 8; // approximate range-thumb half-width
+    const binWidth = (100 / numBins);
+
+    // Count extra_data items per bin
+    const bins = new Array(numBins).fill(0);
+    indices.forEach(idx => {
+        const bin = Math.min(Math.floor(idx / binSize), numBins - 1);
+        bins[bin]++;
+    });
+
+    const maxCount = Math.max(...bins);
+    if (maxCount === 0) return;
+
+    bins.forEach((cnt, i) => {
+        if (cnt === 0) return;
+        const ratio = cnt / maxCount; // 0..1 normalised density
+        const bar = document.createElement('div');
+        bar.className = 'slider-extra-bin';
+        // Position: proportional left within the padded track area
+        bar.style.left = `calc(${padPx}px + (100% - ${2 * padPx}px) * ${i / numBins})`;
+        bar.style.width = `calc((100% - ${2 * padPx}px) * ${1 / numBins})`;
+        // Height and opacity scale with density
+        const minH = 4;
+        const maxH = 16;
+        bar.style.height = `${minH + (maxH - minH) * ratio}px`;
+        bar.style.opacity = 0.3 + 0.7 * ratio;
+        bar.title = `${cnt} engagement activit${cnt === 1 ? 'y' : 'ies'}`;
+        container.appendChild(bar);
+    });
+}
+
+
+function updateSkipButtons() {
+    const idx = viewerData.currentIndex;
+    const indices = viewerData.extraDataIndices;
+    const prevBtn = document.getElementById('viewer-skip-prev');
+    const nextBtn = document.getElementById('viewer-skip-next');
+    if (!prevBtn || !nextBtn) return;
+
+    if (!indices || indices.size === 0) {
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        prevBtn.title = "No engagement activities in current results";
+        nextBtn.title = "No engagement activities in current results";
+        return;
+    }
+
+    // Check if there's a previous/next extra_data item from current position
+    let hasPrev = false;
+    for (let i = idx - 1; i >= 0; i--) {
+        if (indices.has(i)) { hasPrev = true; break; }
+    }
+    let hasNext = false;
+    for (let i = idx + 1; i < viewerData.itemCount; i++) {
+        if (indices.has(i)) { hasNext = true; break; }
+    }
+
+    prevBtn.disabled = !hasPrev;
+    nextBtn.disabled = !hasNext;
+    prevBtn.title = hasPrev ? "Previous activity with engagement data" : "No earlier engagement activities";
+    nextBtn.title = hasNext ? "Next activity with engagement data" : "No later engagement activities";
+}
+
+
+function nextExtraData() {
+    const indices = viewerData.extraDataIndices;
+    if (!indices || indices.size === 0) return;
+
+    for (let i = viewerData.currentIndex + 1; i < viewerData.itemCount; i++) {
+        if (indices.has(i)) {
+            viewerData.currentIndex = i;
+            loadViewerItem(i);
+            return;
+        }
+    }
+}
+
+
+function prevExtraData() {
+    const indices = viewerData.extraDataIndices;
+    if (!indices || indices.size === 0) return;
+
+    for (let i = viewerData.currentIndex - 1; i >= 0; i--) {
+        if (indices.has(i)) {
+            viewerData.currentIndex = i;
+            loadViewerItem(i);
+            return;
+        }
+    }
+}
+
 
 // Theme changes are handled automatically via var() CSS references

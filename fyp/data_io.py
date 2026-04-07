@@ -15,6 +15,7 @@ import json
 import os
 import pandas as pd
 import pyarrow.parquet as pq
+import numpy as np
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from fyp.fyp_config import fyp_cf
@@ -963,3 +964,86 @@ def save_parquet(
 
 
 
+
+
+
+
+
+
+
+# ============================================================================
+# CSV export
+# ============================================================================
+
+
+def save_logs_as_csv(
+    study_name: str = None,
+    outdata_filtered: pd.DataFrame = None,
+    file_label: str = "",
+    verbose: bool = False
+    ) -> None:
+    """Export a study dataset to CSV with Excel-safe formatting."""
+
+    if study_name is None:
+        raise ValueError("study_name must be specified")
+    if outdata_filtered is None:
+        raise ValueError("outdata_filtered must be specified")
+
+    def _clean_surrogates(text):
+        """Remove surrogate characters that can't be encoded in UTF-8."""
+        if not isinstance(text, str):
+            return text
+        try:
+            return text.encode('utf-8', 'ignore').decode('utf-8')
+        except:
+            return ''.join(char for char in text if ord(char) < 0xD800 or ord(char) > 0xDFFF)
+
+
+    if len(outdata_filtered) == 0:
+        if verbose:
+            print("A log file has not been generated so a CSV cannot be saved")
+    else:
+        log_as_csv_filename = study_name + "_" + "_LOG.csv"
+        outdata_for_csv_export = outdata_filtered.copy()
+
+        if verbose:
+            print("Cleaning string data...")
+        string_cols = outdata_for_csv_export.select_dtypes(exclude=['number']).columns
+        for col in string_cols:
+            outdata_for_csv_export[col] = (
+                outdata_for_csv_export[col]
+                .astype(str)
+                .str.replace("\n", " ", regex=False)
+                .str.replace(";", " ", regex=False)
+                .str.replace(", ", " ", regex=False)
+                .str.replace(" ,", " ", regex=False)
+                .str.replace("\t", " ", regex=False)
+                .str.replace("|  ", " ", regex=False)
+                .str.replace("،", " ", regex=False)  # arabic comma
+            )
+
+        # Clean surrogate characters from all string columns to prevent Unicode encoding errors
+        if verbose:
+            print("Cleaning surrogate characters from string data...")
+        string_cols = outdata_for_csv_export.select_dtypes(exclude=['number']).columns
+        for col in string_cols:
+            outdata_for_csv_export[col] = outdata_for_csv_export[col].apply(_clean_surrogates)
+
+        # all numbers except for those related to session stats can be integers, so let's retype those
+        some_float_cols = [c for c in outdata_for_csv_export.select_dtypes(include=[float, np.float64]).columns if "session" not in c]
+        outdata_for_csv_export[some_float_cols] = outdata_for_csv_export[some_float_cols].fillna(value=-1).astype(int)
+
+        # Convert long numbers to strings for Excel
+        for c in ["data_author_id","item_id","music_id","author_id","ts_jiggled"]:
+            if c in outdata_for_csv_export.columns:
+                outdata_for_csv_export[c] = "'" + outdata_for_csv_export[c].astype(str) + "'"
+
+        # Build TikTok URLs
+        outdata_for_csv_export["tiktok_url"] = "https://www.tiktok.com/@/video/" + outdata_for_csv_export["item_id"] + "/"
+
+        # Export with error handling for any remaining encoding issues
+        outdata_for_csv_export.to_csv(os.path.join(fyp_cf['paths']['exports'],log_as_csv_filename), errors='replace')
+        if verbose:
+            print(f"Exported {len(outdata_for_csv_export):,} observations in {log_as_csv_filename}.")
+            print(f"The date of the observations in the log range from {outdata_filtered['local_timestamp'].min()} -- {outdata_filtered['local_timestamp'].max()}")
+            print(f"Now: {_dt.datetime.now()}")

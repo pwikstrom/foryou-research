@@ -450,8 +450,19 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         # Pre-calculate video counts per period
         video_counts = temp_df[group_col].value_counts().to_dict()
         
+        # Pre-calculate extra_data counts per period (engagement activity like comment, fave, share)
+        has_extra_data_col = 'extra_data' in temp_df.columns
+        extra_data_counts: dict[str, int] = {}
+        if has_extra_data_col:
+            ed_mask = temp_df['extra_data'].notna()
+            if 'play_duration' in temp_df.columns:
+                ed_mask = ed_mask & temp_df['play_duration'].notna() & (temp_df['play_duration'] != 0)
+            extra_data_counts = temp_df[ed_mask].groupby(group_col).size().to_dict()
+
         for p in periods:
             row = {'period': p, 'video_count': video_counts.get(p, 0)}
+            if has_extra_data_col:
+                row['extra_data_count'] = extra_data_counts.get(p, 0)
             period_subset = temp_df[temp_df[group_col] == p]
             
             for var in viz_vars:
@@ -701,7 +712,13 @@ def get_timeline_data(collection_id, interval='day'):
                 "display_name": display_name
             }
 
+    # Extra-data (engagement activity) counts per period
+    extra_data_counts = df['extra_data_count'].tolist() if 'extra_data_count' in df.columns else None
+
     result = {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts, "variables_order": viz_vars}
+
+    if extra_data_counts is not None:
+        result["extra_data_counts"] = extra_data_counts
 
     # Attach pre-computed analysis data if available, or generate if missing
     analysis_fname = f"timeline_analysis_{collection_id}_{interval}.json"

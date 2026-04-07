@@ -284,6 +284,10 @@ def generate_collection_metadata(
     if load_from_disk:
         if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
             old_metadata_df = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet")
+            if collection_id_column in old_metadata_df.columns:
+                old_metadata_df.set_index(collection_id_column, inplace=True)
+            if old_metadata_df.index.name != collection_id_column:
+                old_metadata_df.index.name = collection_id_column
             if verbose:
                 print(f"Loaded existing metadata from storage. Shape: {old_metadata_df.shape}")
     else:
@@ -315,24 +319,19 @@ def generate_collection_metadata(
             return old_metadata_df
 
 
-    collection_ids_in_the_incoming_df = set(collections_df[collection_id_column].unique())
-
-
     if collection_id_column not in collections_df.columns:
         print("Shape of the collection stats DF: (0,0)")
         return pd.DataFrame()
     
-
-    
+    collection_ids_in_the_incoming_df = set(collections_df[collection_id_column].unique())
     collection_ids_in_the_old_metadata_df = set(old_metadata_df.index)
+
     new_collections = collection_ids_in_the_incoming_df - collection_ids_in_the_old_metadata_df
 
     if len(new_collections) == 0:
         if verbose:
-            print(f"No new collections found. Returning the existing metadata. Shape: {old_metadata_df.shape}")
+            print(f"No new collections to add to metadata. Returning the existing metadata. Shape: {old_metadata_df.shape}")
         return old_metadata_df
-
-
 
 
     if verbose:
@@ -369,7 +368,7 @@ def generate_collection_metadata(
 
 
     if verbose:
-        print("Checking participant metadata files...")
+        print("Checking DDP participant metadata files...")
     participant_metadata = {}
     for participant_data_file in data_io.listdir(storage_location="ddp_participants"):
         if participant_data_file.endswith(".json"):
@@ -422,261 +421,5 @@ def generate_collection_metadata(
 # -----------------------------------------------------------------------------------------
 # -----------------------------------------------------------------------------------------
 
-
-
-
-
-
-
-
-def load_collection_data(
-    study_name = None, 
-    all_data = None,
-    verbose=False):
-
-
-
-    if study_name is None:
-        raise ValueError("!!! [DDP] study_name must be specified")
-
- 
-    print(f"    [DDP] Loading data for study...")
-    
-    if not "study_defs" in fyp_cf:
-        init_study_defs()
-
-    START_DATE = fyp_cf["study_defs"][study_name].get("START_DATE","1970-01-01")
-    if isinstance(START_DATE, str):
-        try:
-            START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
-        except ValueError:
-            START_DATE = _dt.datetime(1970,1,1).date()
-    
-    END_DATE = fyp_cf["study_defs"][study_name].get("END_DATE","2099-12-31")
-    if isinstance(END_DATE, str):
-        try:
-            END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
-        except ValueError:
-            END_DATE = _dt.datetime(2099,12,31).date()
-
-    sel = [(timestamp_column, ">=", START_DATE),(timestamp_column, "<=", END_DATE)]
-
-    the_selected_collections = fyp_cf["study_defs"][study_name].get("SELECTED_DONATIONS",[])
-    if len(the_selected_collections) > 0:
-        the_selected_collections = [re.search(r'\[(.*?)\]', str(x)).group(1) if re.search(r'\[(.*?)\]', str(x)) else x for x in the_selected_collections]
-        sel.append((collection_id_column, "in", the_selected_collections))
-
-    if all_data is None:
-        if verbose:
-            print(f"    [DDP] Loading collection events from main storage")
-        out_df = data_io.load_parquet("recoded", "collections_recoded.parquet", filters=sel,verbose=verbose)
-
-    else:
-        if verbose:
-            print(f"    [DDP] Selecting date range from cached collection data")
-        cached_collections_df = all_data.copy()
-        out_df = cached_collections_df[(cached_collections_df[timestamp_column]>=START_DATE) & (cached_collections_df[timestamp_column]<=END_DATE)].copy()
-
-        if not collection_id_column in out_df.columns or not timestamp_column in out_df.columns or len(out_df) == 0:
-            print(f"!!! [DDP] No events found in date range. Returning None.")
-            return None
-
-        if len(the_selected_collections) > 0:
-            out_df = out_df[out_df[collection_id_column].isin(the_selected_collections)].copy()
-
-        if not collection_id_column in out_df.columns or not timestamp_column in out_df.columns or len(out_df) == 0:
-            print(f"!!! [DDP] The selected collections have no events in the date range. Returning None.")
-            return None
-
-    print(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique collections: {out_df[collection_id_column].nunique()} | Date range: {out_df[timestamp_column].min():%Y-%m-%d} -- {out_df[timestamp_column].max():%Y-%m-%d}")
-
-
-    return out_df
-
-
-
-
-
-
-
-def simple_sample_ddp_events(
-    study_name = None, 
-    all_collections_df = None, 
-    verbose=False):
-
-
-
-
-    def _filter_and_sample(df, group_cols, x_threshold, y_samples):
-        """
-        Filters aggregation groups by size and samples rows.
-        """
-        # 1. Filter groups 
-        group_sizes = df.groupby(group_cols)[group_cols[0]].transform('size')
-        df_filtered = df[group_sizes >= x_threshold]
-        
-        # 2. Sampling
-        sampled_indices = df_filtered.groupby(group_cols, group_keys=False).apply(
-            lambda g: g.sample(n=min(len(g), y_samples), random_state=42),
-            include_groups=False
-        )
-
-        result = df_filtered.loc[sampled_indices.index]
-
-        return result
-
-
-    
-    if all_collections_df is None:
-        raise ValueError("[Sampling] all_collections_df cannot be None")
-
-    the_df = all_collections_df.copy()
-
-    # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
-    # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
-
-    grouping_factors = get_grouping_factors_from_var_schema(some_events_df = the_df, verbose=False)
-
-    if len(grouping_factors) != 2:
-        raise ValueError("!!! [Sampling] Group factors must be exactly 2")
-
-    if not collection_id_column in grouping_factors:
-        raise ValueError(f"!!! [Sampling] Group factors must include '{collection_id_column}'")
-
-    # make sure collection_id_column is the first element 
-    grouping_factors.remove(collection_id_column)
-    grouping_factors = [collection_id_column] + grouping_factors
-
-    if verbose:
-        print(f"    [Sampling] Grouping factors: {grouping_factors}")
-
-    if not "study_defs" in fyp_cf:
-        init_study_defs()
-
-    MIN_EVENTS_REQUIRED = fyp_cf["study_defs"][study_name].get("MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP",10)
-    MAX_EVENTS_SELECTED = fyp_cf["study_defs"][study_name].get("MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP",100)
-    MIN_GROUP_COUNT_REQUIRED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MIN_GROUP_COUNT_REQUIRED_PER_DONATION",10)
-    MAX_GROUP_COUNT_SELECTED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_SELECTED_PER_DONATION",100)
-
-
-    # Separate watch and non-watch events 
-    all_watch_events_df = the_df[the_df[event_type_column]=="watch"].copy()
-    all_nonwatch_events_df = the_df[the_df[event_type_column]!="watch"].copy()
-    sample_frame_size = len(all_watch_events_df)
-
-    if verbose:
-        print(f"    [Sampling] Watch events: {len(all_watch_events_df):,}  |  Non-watch events: {len(all_nonwatch_events_df):,}")
-
-
-    if verbose:
-        print(f"    [Sampling] Dropping aggregation groups with less than {MIN_EVENTS_REQUIRED} events")
-        print(f"    [Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment...")
-    # select agg groups with the required number of events
-    ddp_watch_events_within_agg_group_size_limits = _filter_and_sample(all_watch_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED)
-    if verbose:
-        sample_size = len(ddp_watch_events_within_agg_group_size_limits)
-        if sample_frame_size > 0:
-            print(f"    [Sampling] Watch events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
-
-    # build a df with unique pairs of the two group factors
-    unique_group_factor_pairs = ddp_watch_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
-
-    if verbose:
-        print(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_DONATION} aggregation groups within the limits")
-        print(f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_DONATION} aggregation groups from each remaining collection. This might take a moment...")
-    # select collections with a required number of groups
-    collections_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION)
-    if verbose:
-        print(f"    [Sampling] Aggregation groups remaining after sampling: {len(collections_within_group_count_limits):,}")
-
-
-    # ----------------------------------------------------------------------
-    # find the watch events in the selected groups
-    # 1. start with the events in the agg groups that meet the group size requirements and set the index to the group factors
-    ddp_watch_events_in_candidate_groups = ddp_watch_events_within_agg_group_size_limits.set_index(grouping_factors)
-
-    # 2. select the events in the groups that meet the group count requirements
-    ddp_watch_events_in_selected_groups = ddp_watch_events_in_candidate_groups.loc[collections_within_group_count_limits.set_index(grouping_factors).index]
-    ddp_watch_events_in_selected_groups = ddp_watch_events_in_selected_groups.reset_index()
-    if verbose:
-        sample_size = len(ddp_watch_events_in_selected_groups)
-        if sample_frame_size > 0:
-            print(f"    [Sampling] Watch events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
-
-    # ----------------------------------------------------------------------
-    # find the non-watch events in the selected groups - note that since the non-watch events are not
-    # sampled, there is a disproportional number of non-watch events in the sampled dataset compared 
-    # to the number of watch events
-    # 1. find all unique group factor pairs for the non-watch events
-    unique_group_factor_pairs_for_nonwatch_events = all_nonwatch_events_df[grouping_factors].drop_duplicates()
-
-    # 2. find the non-watch groups that are in the selected groups. This is necessary since there are some non-watch
-    # groups that don't have any watch events, and I don't want these included in the sample
-    nonwatch_groups = set(unique_group_factor_pairs_for_nonwatch_events.set_index(grouping_factors).index)
-    selected_watch_groups = set(collections_within_group_count_limits.set_index(grouping_factors).index)
-    selected_nonwatch_groups = list(nonwatch_groups & selected_watch_groups)
-
-    selected_nonwatch_groups = pd.DataFrame(selected_nonwatch_groups, columns=grouping_factors)
-    selected_nonwatch_groups = selected_nonwatch_groups.convert_dtypes(dtype_backend="pyarrow").set_index(grouping_factors).index
-
-    mask = all_nonwatch_events_df.set_index(grouping_factors).index.isin(selected_nonwatch_groups)
-    ddp_nonwatch_events_in_selected_groups = all_nonwatch_events_df[mask]
-    if verbose:
-        print(f"    [Sampling] Non-Watch events remaining in the selected aggregation groups: {len(ddp_nonwatch_events_in_selected_groups):,} (100% of original)")
-    #print(ddp_nonwatch_events_in_selected_groups[:5])
-    #ddp_nonwatch_events_in_selected_groups.reset_index(inplace=True)
-
-    combined = pd.concat([ddp_watch_events_in_selected_groups, ddp_nonwatch_events_in_selected_groups])
-    if verbose:
-        print(f"    [Sampling] Combining the (not sampled) non-watch events with the sampled watch events with : {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
-    combined.drop("D_id", axis=1, inplace=True, errors='ignore')
-
-
-    enrichment_status_df = data_io.load_parquet(
-        storage_location="recoded",
-        filename="enrichment_status.parquet")
-    
-
-    combined_deduped = combined.drop_duplicates(subset="item_id", keep="first")[["item_id"]]
-
-    combined_deduped_enrichment_status = pd.merge(left=combined_deduped, right=enrichment_status_df, left_on='item_id', right_index=True, how='left')
-
-    enrichment_summary = combined_deduped_enrichment_status.select_dtypes(include=["bool"]).fillna(False).sum().to_dict()
-
-    mapper = fyp_cf['var_schema'][['variable_name','display_name']].dropna().set_index('variable_name').to_dict()['display_name']
-
-    print(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
-    print(f"    [Sampling] - Unique items: {len(combined_deduped_enrichment_status):,}")
-    for k in enrichment_summary:
-        if len(combined_deduped_enrichment_status) > 0:
-            print(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k]/len(combined_deduped_enrichment_status):.0%})")
-        else:
-            print(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} (N/A)")
-
-    return combined
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-################################################################################
-################################################################################
-################################################################################
-################################################################################
-################################################################################
 
 

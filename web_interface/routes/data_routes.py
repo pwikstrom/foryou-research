@@ -581,7 +581,16 @@ def api_viewer_ids():
     
     # Calculate true total count before slicing
     total_count = len(filtered_df)
-    
+
+    # Build global list of indices (0-based) where extra_data is present.
+    # Only computed on the first chunk request (offset 0) to avoid repeat work.
+    extra_data_indices = None
+    if offset == 0 and 'extra_data' in filtered_df.columns:
+        mask = filtered_df['extra_data'].notna()
+        if 'play_duration' in filtered_df.columns:
+            mask = mask & filtered_df['play_duration'].notna() & (filtered_df['play_duration'] != 0)
+        extra_data_indices = [int(i) for i in range(total_count) if mask.iloc[i]]
+
     # Slice the series according to pagination
     chunk = filtered_df.iloc[offset : offset + limit]
     chunked_ids = chunk[id_col].astype(str).tolist()
@@ -594,14 +603,19 @@ def api_viewer_ids():
         if i in display_map:
             relevant_display_ids[i] = display_map[i]
 
-    return jsonify({
+    result = {
         "ids": chunked_ids,
         "row_idxs": chunked_row_idxs,
-        "count": total_count, # True total count for the frontend to compute UI bounds
+        "count": total_count,
         "offset": offset,
         "display_ids": relevant_display_ids,
-        "truncated": False # Deprecated flag, kept for backward compat while frontend transitions
-    })
+        "truncated": False
+    }
+
+    if extra_data_indices is not None:
+        result["extra_data_indices"] = extra_data_indices
+
+    return jsonify(result)
 
 
 @data_bp.route('/api/video_analysis/tags', methods=['GET'])

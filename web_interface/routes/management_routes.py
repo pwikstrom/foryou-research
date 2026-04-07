@@ -1,4 +1,5 @@
 import os
+import json
 from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 from flask_login import login_required, current_user
@@ -27,6 +28,11 @@ def _calculate_stats(study_config, save_to_cache=True):
     if True:#try:
         study_name = study_config.get("STUDY_NAME")
         if not study_name:
+             return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
+
+        # If no collections are selected, the study is empty — skip expensive computation
+        selected = study_config.get("SELECTED_DONATIONS", [])
+        if not selected:
              return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
 
         # 1. Load Study Dataset (create if missing)
@@ -272,9 +278,11 @@ def save_study():
         df, col_types = explorer.load_data(study_name, verbose=False)
 
         if df is not None:
-            # 1. Viewer Metadata (Scraped OK)
+            # 1. Viewer Metadata (Annotated OK + Activity Filter)
             print(f"Generating viewer metadata for {study_name}...")
-            df_viewer = df[df.scraped_ok].copy()
+            df_viewer = df[df.annotated_ok].copy()
+            df_viewer = df_viewer[df_viewer['activity_type'].isin(['play', 'observe'])]
+            df_viewer = df_viewer[df_viewer['item_id'].notna()]
             viewer_meta = explorer.get_metadata(df_viewer, col_types)
             
             # Add filtering/display priorities
@@ -283,9 +291,11 @@ def save_study():
             data_io.save_json(data=make_serializable(viewer_meta), storage_location="cache", filename=f"{study_name}_viewer_metadata.json", verbose=False)
 
 
-            # 2. Explorer Metadata (Annotated OK)
+            # 2. Explorer Metadata (Annotated OK + Activity Filter)
             print(f"Generating explorer metadata for {study_name}...")
             df_explorer = df[df.annotated_ok].copy()
+            df_explorer = df_explorer[df_explorer['activity_type'].isin(['play', 'observe'])]
+            df_explorer = df_explorer[df_explorer['item_id'].notna()]
             explorer_meta = explorer.get_metadata(df_explorer, col_types)
             
             # Calculate Total Stats for Explorer
@@ -978,14 +988,24 @@ def get_ingestion_sources():
     try:
         main_collection = get_main_collection(verbose=False)
         sources = []
+        total_pending = 0
         for col in main_collection.collections:
+            pending = 0
+            manifest_fn = "ingestion_manifest.json"
+            if col.raw_path and data_io.exists(storage_location=col.raw_path, filename=manifest_fn):
+                manifest = data_io.load_json(
+                    storage_location=col.raw_path, filename=manifest_fn, verbose=False
+                ) or {}
+                pending = len(manifest)
+            total_pending += pending
             sources.append({
                 "source_platform": col.source_platform,
                 "data_source": col.data_source,
                 "raw_path": col.raw_path,
-                "class_name": col.__class__.__name__
+                "class_name": col.__class__.__name__,
+                "pending_files": pending,
             })
-        return jsonify({"status": "success", "sources": sources})
+        return jsonify({"status": "success", "sources": sources, "total_pending": total_pending})
     except Exception as e:
         print(f"Error getting ingestion sources: {e}")
         return jsonify({"error": str(e)}), 500
@@ -993,29 +1013,90 @@ def get_ingestion_sources():
 @management_bp.route('/api/manage/ingestion/upload', methods=['POST'])
 @login_required
 def upload_ingestion_file():
+    """Upload one or more raw files with optional collection_id and tags metadata.
+
+    Accepts form fields:
+        files: one or more files (also accepts legacy single 'file' key)
+        raw_path: storage location key (e.g. 'ddp_raw')
+        collection_id: explicit collection ID (used when collection_id_mode is 'single')
+        collection_id_mode: 'single' | 'per_file' (default 'per_file')
+        tags: JSON-encoded list of tag strings
+    """
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
 
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
-        
-    file = request.files['file']
-    raw_path = request.form.get('raw_path')
-    
-    if file.filename == '' or not raw_path:
-        return jsonify({"error": "No selected file or raw_path missing"}), 400
-        
-    if not os.path.exists(raw_path):
+    # Accept both multi-file ('files') and legacy single-file ('file') keys
+    files = request.files.getlist('files')
+    if not files or all(f.filename == '' for f in files):
+        files = request.files.getlist('file')
+    if not files or all(f.filename == '' for f in files):
+        return jsonify({"error": "No files selected"}), 400
+
+    raw_path_key = request.form.get('raw_path')
+    if not raw_path_key:
+        return jsonify({"error": "raw_path missing"}), 400
+
+    # Resolve storage location key to absolute path
+    resolved_path = fyp_cf['paths'].get(raw_path_key, raw_path_key)
+    if not os.path.exists(resolved_path):
         try:
-            os.makedirs(raw_path, exist_ok=True)
+            os.makedirs(resolved_path, exist_ok=True)
         except Exception as e:
-            return jsonify({"error": f"Failed to create directory {raw_path}: {str(e)}"}), 500
-            
+            return jsonify({"error": f"Failed to create directory: {e}"}), 500
+
+    collection_id = request.form.get('collection_id', '').strip()
+    collection_id_mode = request.form.get('collection_id_mode', 'per_file')
+    tags_json = request.form.get('tags', '[]')
     try:
-        filename = secure_filename(file.filename)
-        save_path = os.path.join(raw_path, filename)
-        file.save(save_path)
-        return jsonify({"status": "success", "message": f"File {filename} uploaded successfully."})
+        tags = json.loads(tags_json) if tags_json else []
+    except json.JSONDecodeError:
+        tags = []
+
+    # Load or create the ingestion manifest for this raw_path
+    manifest_fn = "ingestion_manifest.json"
+    manifest: dict = {}
+    if data_io.exists(storage_location=raw_path_key, filename=manifest_fn):
+        manifest = data_io.load_json(
+            storage_location=raw_path_key, filename=manifest_fn, verbose=False
+        ) or {}
+
+    try:
+        uploaded = []
+        for file in files:
+            if file.filename == '':
+                continue
+            filename = secure_filename(file.filename)
+            save_path = os.path.join(resolved_path, filename)
+            file.save(save_path)
+
+            if collection_id_mode == "single" and collection_id:
+                file_collection_id = collection_id
+            else:
+                file_collection_id = os.path.splitext(filename)[0]
+
+            manifest[filename] = {
+                "collection_id": file_collection_id,
+                "tags": tags,
+            }
+            uploaded.append(filename)
+
+        # Save updated manifest
+        data_io.save_json(
+            data=manifest,
+            storage_location=raw_path_key,
+            filename=manifest_fn,
+            verbose=False
+        )
+
+        # Pre-populate collection_annotations.json with tags for each unique collection_id
+        if tags:
+            _prepopulate_annotations(manifest, tags)
+
+        return jsonify({
+            "status": "success",
+            "message": f"{len(uploaded)} file(s) uploaded.",
+            "files": uploaded,
+        })
     except Exception as e:
         print(f"Error uploading file: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1034,3 +1115,78 @@ def refresh_ingestion_collection():
         print(f"Error refreshing collection: {e}")
         return jsonify({"error": str(e)}), 500
 
+
+
+
+
+def _prepopulate_annotations(manifest: dict, tags: list[str]) -> None:
+    """Merge tags into collection_annotations.json for each unique collection_id in the manifest."""
+    annotations: dict = {}
+    if data_io.exists(storage_location="recoded", filename="collection_annotations.json"):
+        annotations = data_io.load_json(
+            storage_location="recoded",
+            filename="collection_annotations.json",
+            verbose=False
+        ) or {}
+
+    seen_ids: set = set()
+    for _filename, meta in manifest.items():
+        cid = meta.get("collection_id")
+        if cid and cid not in seen_ids:
+            seen_ids.add(cid)
+            existing = annotations.get(cid, {})
+            existing_tags = existing.get("annotation_tags", [])
+            merged_tags = sorted(set(existing_tags + tags))
+            annotations[cid] = {
+                "display_collection_id": existing.get("display_collection_id"),
+                "annotation_tags": merged_tags,
+                "hidden": existing.get("hidden", False),
+            }
+
+    data_io.save_json(
+        data=annotations,
+        storage_location="recoded",
+        filename="collection_annotations.json",
+        verbose=False
+    )
+
+
+
+
+
+@management_bp.route('/api/manage/ingestion/metadata', methods=['GET'])
+@login_required
+def get_ingestion_metadata():
+    """Return existing collection IDs and all unique tags for the upload modal."""
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    collection_ids: list[str] = []
+    all_tags: set[str] = set()
+
+    # Get collection IDs from processed activity data
+    if data_io.exists(storage_location="recoded", filename="collections_recoded.parquet"):
+        df = data_io.load_parquet(
+            storage_location="recoded",
+            filename="collections_recoded.parquet",
+            verbose=False,
+        )
+        if df is not None and "collection_id" in df.columns:
+            collection_ids = sorted(df["collection_id"].dropna().unique().tolist())
+
+    # Get tags from annotations
+    if data_io.exists(storage_location="recoded", filename="collection_annotations.json"):
+        annotations = data_io.load_json(
+            storage_location="recoded",
+            filename="collection_annotations.json",
+            verbose=False,
+        ) or {}
+        for ann in annotations.values():
+            for tag in ann.get("annotation_tags", []):
+                all_tags.add(tag)
+
+    return jsonify({
+        "status": "success",
+        "collection_ids": collection_ids,
+        "tags": sorted(list(all_tags)),
+    })

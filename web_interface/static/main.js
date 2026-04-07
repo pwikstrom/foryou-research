@@ -49,10 +49,13 @@ function toggleTheme() {
 }
 
 function updateThemeIcon(theme) {
-    const icon = document.getElementById('theme-toggle');
+    const icon = document.getElementById('theme-toggle-icon');
     if (icon) {
         icon.innerHTML = theme === 'dark' ? '&#127769;' : '&#9728;&#65039;';
-        icon.title = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    }
+    const cb = document.getElementById('theme-toggle-checkbox');
+    if (cb) {
+        cb.checked = theme === 'light';
     }
 }
 
@@ -389,6 +392,7 @@ async function updateStatus() {
         setStatus('meta_refresh_viewer', data.meta_refresh_viewer);
         setStatus('meta_refresh_groups', data.meta_refresh_groups);
         setStatus('timelines_refresh', data.timelines_refresh);
+        setStatus('recode_refresh_studies', data.recode_refresh_studies);
 
         // Discreet processes
         const discreetProcesses = ['create_event_log', 'recode_event_log', 'calculate_pca'];

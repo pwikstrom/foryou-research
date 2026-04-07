@@ -52,6 +52,12 @@ def _day_segment_from_hour(hour: int) -> str:
 class ForYouBaseCollection(ABC):
 
     platform_url_template: str | None = None
+    _registry: list[type] = []
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if cls.__name__ != "ForYouCollection":
+            ForYouBaseCollection._registry.append(cls)
 
     REQUIRED_COLUMNS = {
         "collection_id": "string[pyarrow]",
@@ -79,6 +85,7 @@ class ForYouBaseCollection(ABC):
         self.processed_storage_location = "recoded"
         self.min_required_rows_per_raw_file = 10
         self.discarded_raw_files = []
+        self.discarded_collections_filename = "discarded_collection_files.json"
         self.source_platform = None
         self.data_source = None
         self.collections = []
@@ -146,7 +153,7 @@ class ForYouBaseCollection(ABC):
                 
             _ = data_io.save_parquet(
                 df=self.data,
-                storage_location="recoded",
+                storage_location=self.processed_storage_location,
                 filename=fn)
 
         for collection in self.collections:
@@ -157,9 +164,13 @@ class ForYouBaseCollection(ABC):
         data_io.save_json(
             data=self.discarded_raw_files,
             storage_location=self.processed_storage_location,
-            filename=f"discarded_raw_files.json",
+            filename=self.discarded_collections_filename,
             verbose=False#self.verbose
         )
+
+
+
+
 
 
 
@@ -178,16 +189,21 @@ class ForYouBaseCollection(ABC):
 
 
 
-        all_the_files = [fn for fn in data_io.listdir(self.raw_path) if not fn.startswith(".")]
+        MANIFEST_FILENAME = "ingestion_manifest.json"
 
-        #if os.path.isdir(self.raw_path):
-        #    all_the_files = [os.path.join(self.raw_path, f) for f in os.listdir(self.raw_path) if not f.startswith(".")]
-        #else:
-        #    all_the_files = [self.raw_path]
-
-        #all_the_files = [f for f in all_the_files if os.path.basename(f) not in skip_these_raw_files+self.discarded_raw_files]
+        all_the_files = [fn for fn in data_io.listdir(self.raw_path)
+                         if not fn.startswith(".") and fn != MANIFEST_FILENAME]
 
         all_the_files = [fn for fn in all_the_files if fn not in skip_these_raw_files+self.discarded_raw_files]
+
+        # Load ingestion manifest (written at upload time with collection_id / tags per file)
+        manifest: dict = {}
+        if data_io.exists(storage_location=self.raw_path, filename=MANIFEST_FILENAME):
+            manifest = data_io.load_json(
+                storage_location=self.raw_path,
+                filename=MANIFEST_FILENAME,
+                verbose=False
+            ) or {}
 
 
 
@@ -204,6 +220,11 @@ class ForYouBaseCollection(ABC):
                     mtime = data_io.getmtime(storage_location=self.raw_path, filename = fn)
                     one_df["ts_added_to_dataset"] = pd.to_datetime(mtime, unit="s")
                     one_df["raw_file"] = fn
+
+                    # Apply manifest-based collection_id if available
+                    file_meta = manifest.get(fn, {})
+                    if file_meta.get("collection_id"):
+                        one_df["__manifest_collection_id"] = file_meta["collection_id"]
 
                     if self.verbose: print(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
             if False:#except Exception as e:
@@ -407,12 +428,20 @@ class ForYouBaseCollection(ABC):
         df['data_source'] = self.data_source
 
         if "collection_id" not in df.columns:
-            if self.collection_id is not None:
+            if "__manifest_collection_id" in df.columns:
+                df["collection_id"] = df["__manifest_collection_id"]
+            elif self.collection_id is not None:
                 df['collection_id'] = self.collection_id
             elif "raw_file" in df.columns:
                 df["collection_id"] = df["raw_file"]
             else:
                 df["collection_id"] = pd.NA
+
+        # For rows that have a manifest override, apply it even if collection_id already existed
+        if "__manifest_collection_id" in df.columns:
+            mask = df["__manifest_collection_id"].notna()
+            df.loc[mask, "collection_id"] = df.loc[mask, "__manifest_collection_id"]
+            df.drop(columns=["__manifest_collection_id"], inplace=True)
 
 
         # 1. Ensure all required columns exist
@@ -468,11 +497,11 @@ class ForYouCollection(ForYouBaseCollection):
         self.source_platform = "all"
         self.data_source = "foryou"
         self.collections = []
-        if data_io.exists(storage_location=self.processed_storage_location, filename="discarded_raw_files.json"):
+        if data_io.exists(storage_location=self.processed_storage_location, filename=self.discarded_collections_filename):
             self.discarded_raw_files = data_io.load_json(
                 storage_location=self.processed_storage_location,
-                filename=f"discarded_raw_files.json",
-                verbose=False#self.verbose
+                filename=self.discarded_collections_filename,
+                verbose=False
             )
         else:
             self.discarded_raw_files = []
@@ -502,24 +531,29 @@ class ForYouCollection(ForYouBaseCollection):
 
     def load_processed(self):
 
-        processed_activity_files = [fn for fn in data_io.listdir(storage_location=self.processed_storage_location) if fn.endswith("_processed_activities.parquet")]
-
-        if len(processed_activity_files) == 0:
+        fn = "collections_recoded.parquet"
+        if not data_io.exists(storage_location=self.processed_storage_location, filename=fn):
             if self.verbose:
-                print("No processed activity files found.")
+                print("No processed collection file found.")
             return
 
-        concatation_required = len(processed_activity_files)>1 or len(self.data)>0
+        self.data = data_io.load_parquet(
+            storage_location=self.processed_storage_location,
+            filename=fn,
+            verbose=False
+        )
 
-        for i,fn in enumerate(processed_activity_files):
-            if len(processed_activity_files)>1:
-                if self.verbose:
-                    print(i, end=": ")
-            ForYouBaseCollection.load_processed(
-                self, 
-                processed_fn=fn, 
-                drop_similar_activity_sequences=(concatation_required and i>=len(processed_activity_files)-1) # drop similar on the last one only
-            )
+        stale_cols = [c for c in self.data.columns if c.startswith("__")]
+        if stale_cols:
+            self.data.drop(columns=stale_cols, inplace=True)
+
+        if len(self.data) > 0:
+            self.state = "processed"
+            if self.verbose:
+                print(f"Loaded {len(self.data):,} processed activities from {fn}.")
+        else:
+            if self.verbose:
+                print("Processed collection file was empty.")
 
 
 
@@ -606,61 +640,76 @@ class ForYouCollection(ForYouBaseCollection):
 
 
 
-    def convert_to_old_format(self):
 
-        mask = (self.data.data_source=="zeeschuimer") & (self.data.collection_id.map(lambda x:x.startswith("SYD_")))
-        self.data.loc[mask,"collection_id"] = "BASELINE_2024"
-        mask = (self.data.data_source=="zeeschuimer") & (self.data.collection_id.map(lambda x:x.startswith("BNE_")))
-        self.data.loc[mask,"collection_id"] = "BASELINE_2024"
-        mask = (self.data.data_source=="zeeschuimer") & (self.data.collection_id.map(lambda x:x != "BASELINE_2024"))
-        self.data.loc[mask,"collection_id"] = "Zee_generic"
 
-        #{u:u for u in combined_activities_df.columns}
-            
-        self.data_old_format = self.datacopy()
-        #rename(columns={
-        #        #'ts_added_to_dataset': 'ts_added_to_dataset',
-        #        'utc_timestamp': 'T_utc_timestamp',
-        #        'source_platform': 'source_platform',
-        #        'tz_offset': 'T_tz_offset',
-        #        #'raw_file': 'raw_file',
-        #        'activity_type': 'D_feature_name',
-        #        #'item_id': 'item_id',
-        #        'data_source': 'data_source',
-        #        'collection_id': 'collection_id',
-        #        'local_timestamp': 'T_local_timestamp',
-        #        'local_weekday': 'T_local_weekday',
-        #        'local_week': 'T_local_week',
-        #        'local_day_segment': 'T_local_day_segment',
-        #        'local_date': 'T_local_date',
-        #        "play_duration": "D_watch_duration",
-        #        "extra_data":"D_primary_value"
-        #    }, inplace=False).copy()
-        
-        #self.data_old_format.drop(["source_platform","raw_file","data_source"], axis=1, inplace=True)
-        
-        _ = data_io.save_parquet(
-            df=self.data_old_format,
-            storage_location="recoded",
+    def save_processed(self):
+
+        if self.state != "processed":
+            print(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first.")
+            return
+
+
+        # metadata (needs local_* columns present in self.data)
+        self.stats = generate_collection_metadata(
+            self.data,
+            update_col=None,
+            sort_by=None,
+            verbose=True,
+            save_to_disk_ok=False,
+            load_from_disk=True)
+        self.stats[('other','accepted')] = True
+        self.stats[('participants', 'date')] = self.stats[('other', 'ts_added_to_dataset')]
+
+        data_io.save_parquet(
+            df=self.stats,
+            storage_location=self.processed_storage_location,
+            filename="ddp_metadata.parquet",
+            asyncronous=False)
+
+
+        # activity data
+        data_io.save_parquet(
+            df=self.data,
+            storage_location=self.processed_storage_location,
             filename="collections_recoded.parquet",
             asyncronous=False)
 
 
-        self.stats = generate_collection_metadata(
-            self.data_old_format, 
-            update_col = None, 
-            sort_by=None, 
-            verbose=True, 
-            save_to_disk_ok=True,
-            load_from_disk=False)
-        self.stats[('other','accepted')] = True
-        self.stats[('participants', 'date')] = self.stats[('other', 'ts_added_to_dataset')]
+        # discarded raw files
+        for collection in self.collections:
+            self.discarded_raw_files.extend(collection.discarded_raw_files)
+        self.discarded_raw_files = list(set(self.discarded_raw_files))
 
-        _ = data_io.save_parquet(
-            df=self.stats,
-            storage_location="recoded",
-            filename="ddp_metadata.parquet",
-            asyncronous=False)
+        data_io.save_json(
+            data=self.discarded_raw_files,
+            storage_location=self.processed_storage_location,
+            filename=self.discarded_collections_filename,
+            verbose=False)
+
+        # Clean up ingestion manifests: remove entries for files now in the dataset
+        processed_files = set(self.data['raw_file'].unique().tolist()) | set(self.discarded_raw_files)
+        MANIFEST_FILENAME = "ingestion_manifest.json"
+        for collection in self.collections:
+            if collection.raw_path is None:
+                continue
+            if not data_io.exists(storage_location=collection.raw_path, filename=MANIFEST_FILENAME):
+                continue
+            manifest = data_io.load_json(
+                storage_location=collection.raw_path,
+                filename=MANIFEST_FILENAME,
+                verbose=False
+            ) or {}
+            trimmed = {fn: meta for fn, meta in manifest.items() if fn not in processed_files}
+            if len(trimmed) < len(manifest):
+                data_io.save_json(
+                    data=trimmed,
+                    storage_location=collection.raw_path,
+                    filename=MANIFEST_FILENAME,
+                    verbose=False
+                )
+                if self.verbose:
+                    print(f"Cleaned {len(manifest) - len(trimmed)} processed entries from {collection.raw_path}/{MANIFEST_FILENAME}")
+
 
 
 
@@ -669,7 +718,12 @@ class ForYouCollection(ForYouBaseCollection):
         self.load_raw()
         self.process()
         self.migrate_sub_collections()
+        self.add_local_time_features()
         self.save_processed()
+
+
+
+
 
 
 
@@ -1092,9 +1146,13 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
 
 def get_main_collection(verbose: bool = False) -> ForYouCollection:
-    """Factory function to initialize and configure the main collection."""
+    """Factory function to initialize and configure the main collection.
+
+    Collection classes are auto-registered via __init_subclass__ on
+    ForYouBaseCollection. Adding a new subclass is sufficient to include
+    it in the ingestion pipeline — no changes here are needed.
+    """
     main_collection = ForYouCollection(verbose=verbose)
-    main_collection.register_collection_class(TikTokDDPCollection)
-    main_collection.register_collection_class(TikTokZeeschuimerCollection)
-    
+    for cls in ForYouBaseCollection._registry:
+        main_collection.register_collection_class(cls)
     return main_collection

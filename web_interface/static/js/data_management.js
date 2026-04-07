@@ -1043,17 +1043,45 @@ function toggleSection(contentId, arrowId) {
 
 // --- Data Ingestion Logic ---
 
+let ingestionMetadata = { collection_ids: [], tags: [] };
+let uploadSelectedTags = [];
+let uploadPendingFiles = null;
+
+function loadIngestionMetadata() {
+    return fetch('/api/manage/ingestion/metadata')
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                ingestionMetadata = data;
+            }
+        })
+        .catch(err => console.error("Error loading ingestion metadata:", err));
+}
+
 function loadIngestionSources() {
     fetch('/api/manage/ingestion/sources')
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
                 renderIngestionSources(data.sources);
+                updateProcessButton(data.total_pending || 0);
             } else {
                 console.error("Failed to load ingestion sources:", data.error);
             }
         })
         .catch(err => console.error("Error loading ingestion sources:", err));
+}
+
+function updateProcessButton(totalPending) {
+    const btn = document.getElementById('processRawFilesBtn');
+    if (!btn) return;
+    if (totalPending > 0) {
+        btn.textContent = `Process Local Raw Files (${totalPending} pending)`;
+        btn.classList.add('btn-has-pending');
+    } else {
+        btn.textContent = 'Process Local Raw Files';
+        btn.classList.remove('btn-has-pending');
+    }
 }
 
 function renderIngestionSources(sources) {
@@ -1071,18 +1099,23 @@ function renderIngestionSources(sources) {
         const card = document.createElement('div');
         card.className = 'ingest-card';
 
+        const pendingBadge = source.pending_files > 0
+            ? `<span class="text-xs font-bold" style="color: var(--color-warning); margin-left: 8px;">${source.pending_files} pending</span>`
+            : '';
+
         card.innerHTML = `
-            <div class="font-bold text-body" style="margin-bottom: 5px;">${source.class_name}</div>
+            <div class="font-bold text-body" style="margin-bottom: 5px;">${source.class_name}${pendingBadge}</div>
             <div class="text-sm" style="color: var(--color-text-tertiary); margin-bottom: 15px;">
                 <strong>Platform:</strong> ${source.source_platform} | <strong>Source:</strong> ${source.data_source}<br>
                 <strong>Raw Path:</strong> ${source.raw_path}
             </div>
-            <div style="margin-top: 10px;">
-                <input type="file" id="file-${source.class_name}" style="display: none;" onchange="uploadIngestionFile('${source.class_name}', '${source.raw_path}')">
-                <button type="button" class="action-btn" onclick="document.getElementById('file-${source.class_name}').click()">
-                    Browse and Upload File
+            <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="action-btn" onclick="openUploadModal('${source.class_name}', '${source.raw_path}', 'files')">
+                    Upload Files
                 </button>
-                <div id="upload-status-${source.class_name}" class="text-sm font-bold" style="margin-top: 5px; display: none;"></div>
+                <button type="button" class="action-btn" onclick="openUploadModal('${source.class_name}', '${source.raw_path}', 'folder')">
+                    Upload Folder
+                </button>
             </div>
         `;
 
@@ -1090,20 +1123,203 @@ function renderIngestionSources(sources) {
     });
 }
 
-window.uploadIngestionFile = function (className, rawPath) {
-    const fileInput = document.getElementById(`file-${className}`);
-    const statusDiv = document.getElementById(`upload-status-${className}`);
 
-    if (!fileInput.files || fileInput.files.length === 0) return;
+// --- Upload Modal ---
 
-    const file = fileInput.files[0];
+function openUploadModal(className, rawPath, mode) {
+    // Reset state
+    uploadSelectedTags = [];
+    uploadPendingFiles = null;
+    document.getElementById('uploadFilesList').textContent = 'No files selected.';
+    document.getElementById('uploadSelectedTags').innerHTML = '';
+    document.getElementById('uploadTagInput').value = '';
+    document.getElementById('uploadTagSuggestions').style.display = 'none';
+    document.getElementById('uploadRawPath').value = rawPath;
+    document.getElementById('uploadClassName').value = className;
+    document.getElementById('uploadStatus').style.display = 'none';
+    document.getElementById('uploadSubmitBtn').disabled = false;
+    document.getElementById('uploadNewCollectionId').value = '';
+    document.getElementById('uploadNewCollectionId').style.display = 'none';
+    document.getElementById('uploadExistingCollectionId').style.display = 'none';
+    document.getElementById('uploadModalTitle').textContent = `Upload to ${className}`;
+
+    // Reset radio to default
+    document.querySelector('input[name="collectionIdMode"][value="per_file"]').checked = true;
+
+    // Fetch metadata then open file picker
+    loadIngestionMetadata().then(() => {
+        // Populate existing collection IDs dropdown
+        const sel = document.getElementById('uploadExistingCollectionId');
+        sel.innerHTML = '';
+        ingestionMetadata.collection_ids.forEach(id => {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = id;
+            sel.appendChild(opt);
+        });
+
+        // Show modal
+        document.getElementById('uploadModal').style.display = 'flex';
+
+        // Create a temporary file input and trigger it
+        const existingInput = document.getElementById('uploadTempFileInput');
+        if (existingInput) existingInput.remove();
+
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.id = 'uploadTempFileInput';
+        input.style.display = 'none';
+
+        if (mode === 'folder') {
+            input.setAttribute('webkitdirectory', '');
+        }
+        input.setAttribute('multiple', '');
+
+        input.addEventListener('change', () => {
+            handleFilesSelected(input.files);
+        });
+
+        document.body.appendChild(input);
+        input.click();
+    });
+}
+
+function handleFilesSelected(files) {
+    if (!files || files.length === 0) return;
+    uploadPendingFiles = files;
+    const listDiv = document.getElementById('uploadFilesList');
+    if (files.length <= 10) {
+        listDiv.innerHTML = Array.from(files).map(f =>
+            `<div class="text-xs" style="padding: 2px 0;">${f.name}</div>`
+        ).join('');
+    } else {
+        listDiv.innerHTML = `<div class="text-sm">${files.length} files selected</div>` +
+            Array.from(files).slice(0, 5).map(f =>
+                `<div class="text-xs" style="padding: 2px 0; color: var(--color-text-tertiary);">${f.name}</div>`
+            ).join('') +
+            `<div class="text-xs" style="color: var(--color-text-tertiary);">... and ${files.length - 5} more</div>`;
+    }
+}
+
+function closeUploadModal() {
+    document.getElementById('uploadModal').style.display = 'none';
+    uploadPendingFiles = null;
+    uploadSelectedTags = [];
+    const tempInput = document.getElementById('uploadTempFileInput');
+    if (tempInput) tempInput.remove();
+}
+
+
+// --- Collection ID radio toggle ---
+
+document.addEventListener('change', function (e) {
+    if (e.target.name !== 'collectionIdMode') return;
+    const val = e.target.value;
+    document.getElementById('uploadExistingCollectionId').style.display = val === 'existing' ? 'block' : 'none';
+    document.getElementById('uploadNewCollectionId').style.display = val === 'new' ? 'block' : 'none';
+});
+
+
+// --- Tag Management ---
+
+document.addEventListener('input', function (e) {
+    if (e.target.id !== 'uploadTagInput') return;
+    const query = e.target.value.trim().toLowerCase();
+    const sugDiv = document.getElementById('uploadTagSuggestions');
+    if (!query) {
+        sugDiv.style.display = 'none';
+        return;
+    }
+    const matches = ingestionMetadata.tags.filter(t =>
+        t.toLowerCase().includes(query) && !uploadSelectedTags.includes(t)
+    );
+    if (matches.length === 0) {
+        sugDiv.style.display = 'none';
+        return;
+    }
+    sugDiv.innerHTML = matches.slice(0, 8).map(t =>
+        `<div class="tag-suggestion-item" onclick="addUploadTag('${t.replace(/'/g, "\\'")}')">${t}</div>`
+    ).join('');
+    sugDiv.style.display = 'block';
+});
+
+document.addEventListener('keydown', function (e) {
+    if (e.target.id !== 'uploadTagInput') return;
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const val = e.target.value.trim();
+        if (val) addUploadTag(val);
+    }
+});
+
+window.addUploadTag = function (tag) {
+    tag = tag.trim();
+    if (!tag || uploadSelectedTags.includes(tag)) return;
+    uploadSelectedTags.push(tag);
+    renderUploadTags();
+    document.getElementById('uploadTagInput').value = '';
+    document.getElementById('uploadTagSuggestions').style.display = 'none';
+};
+
+window.removeUploadTag = function (tag) {
+    uploadSelectedTags = uploadSelectedTags.filter(t => t !== tag);
+    renderUploadTags();
+};
+
+function renderUploadTags() {
+    const container = document.getElementById('uploadSelectedTags');
+    container.innerHTML = uploadSelectedTags.map(t =>
+        `<span class="tag-chip">${t} <span class="remove-tag" onclick="removeUploadTag('${t.replace(/'/g, "\\'")}')">&times;</span></span>`
+    ).join('');
+}
+
+
+// --- Submit Upload ---
+
+function submitUpload() {
+    if (!uploadPendingFiles || uploadPendingFiles.length === 0) {
+        alert('Please select files first.');
+        return;
+    }
+
+    const rawPath = document.getElementById('uploadRawPath').value;
+    const modeRadio = document.querySelector('input[name="collectionIdMode"]:checked');
+    const mode = modeRadio ? modeRadio.value : 'per_file';
+
+    let collectionId = '';
+    let collectionIdMode = 'per_file';
+
+    if (mode === 'existing') {
+        collectionId = document.getElementById('uploadExistingCollectionId').value;
+        collectionIdMode = 'single';
+        if (!collectionId) {
+            alert('Please select an existing collection.');
+            return;
+        }
+    } else if (mode === 'new') {
+        collectionId = document.getElementById('uploadNewCollectionId').value.trim();
+        collectionIdMode = 'single';
+        if (!collectionId) {
+            alert('Please enter a collection ID.');
+            return;
+        }
+    }
+
     const formData = new FormData();
-    formData.append('file', file);
+    for (const file of uploadPendingFiles) {
+        formData.append('files', file);
+    }
     formData.append('raw_path', rawPath);
+    formData.append('collection_id', collectionId);
+    formData.append('collection_id_mode', collectionIdMode);
+    formData.append('tags', JSON.stringify(uploadSelectedTags));
 
-    statusDiv.textContent = "Uploading...";
+    const statusDiv = document.getElementById('uploadStatus');
+    const submitBtn = document.getElementById('uploadSubmitBtn');
+    submitBtn.disabled = true;
+    statusDiv.textContent = 'Uploading...';
     statusDiv.style.color = 'var(--color-text-tertiary)';
-    statusDiv.style.display = "block";
+    statusDiv.style.display = 'block';
 
     fetch('/api/manage/ingestion/upload', {
         method: 'POST',
@@ -1113,20 +1329,23 @@ window.uploadIngestionFile = function (className, rawPath) {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                statusDiv.textContent = "Upload successful!";
+                statusDiv.textContent = data.message;
                 statusDiv.style.color = 'var(--color-success-light)';
-                fileInput.value = ''; // clear input
-                setTimeout(() => { statusDiv.style.display = 'none'; }, 4000);
+                loadIngestionSources();
+                setTimeout(() => closeUploadModal(), 1500);
             } else {
-                statusDiv.textContent = "Error: " + data.error;
+                statusDiv.textContent = 'Error: ' + data.error;
                 statusDiv.style.color = 'var(--color-danger)';
+                submitBtn.disabled = false;
             }
         })
         .catch(err => {
-            statusDiv.textContent = "Upload failed.";
+            statusDiv.textContent = 'Upload failed.';
             statusDiv.style.color = 'var(--color-danger)';
+            submitBtn.disabled = false;
         });
 }
+
 
 window.refreshIngestionCollection = function (btn) {
     const originalText = btn.textContent;
@@ -1142,6 +1361,7 @@ window.refreshIngestionCollection = function (btn) {
             if (data.status === 'success') {
                 alert("Collection successfully refreshed and processed.");
                 loadAvailableCollections();
+                loadIngestionSources();
             } else {
                 alert("Error: " + data.error);
             }

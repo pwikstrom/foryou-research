@@ -35,11 +35,13 @@ if __name__ == "__main__":
                     print(f"Skipping {study_name}: No data found.")
                     continue
                 
-                # Context = Viewer (Scraped OK)
-                if 'scraped_ok' in df.columns:
-                    df_viewer = df[df.scraped_ok].copy()
+                # Context = Viewer (Annotated OK + Activity Filter)
+                if 'annotated_ok' in df.columns:
+                    df_viewer = df[df.annotated_ok].copy()
                 else:
                     df_viewer = df.copy() # Fallback
+                df_viewer = df_viewer[df_viewer['activity_type'].isin(['play', 'observe'])]
+                df_viewer = df_viewer[df_viewer['item_id'].notna()]
                 
                 print(f"  Generating metadata for {len(df_viewer)} items...")
                 meta = get_metadata(df_viewer, col_types)

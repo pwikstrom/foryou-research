@@ -746,6 +746,34 @@ window.timelines = {
                 layout.yaxis.type = 'log';
             }
 
+            // Extra-data engagement markers (small diamonds along the bottom of the chart)
+            if (data.extra_data_counts) {
+                const edXVals = [];
+                const edTexts = [];
+                const slicedEdCounts = startIdx > 0 ? data.extra_data_counts.slice(startIdx) : data.extra_data_counts;
+                slicedEdCounts.forEach((cnt, i) => {
+                    if (cnt > 0) {
+                        edXVals.push(xVals[i]);
+                        edTexts.push(`${cnt} engagement activit${cnt === 1 ? 'y' : 'ies'}`);
+                    }
+                });
+                if (edXVals.length > 0) {
+                    traces.push({
+                        x: edXVals,
+                        y: edXVals.map(() => 0),
+                        type: 'scatter',
+                        mode: 'markers',
+                        marker: { symbol: 'diamond', size: 7, color: getCSSVar('--color-warning'), opacity: 0.8 },
+                        name: 'Engagement',
+                        text: edTexts,
+                        hoverinfo: 'text',
+                        hovertemplate: '%{text}<extra></extra>',
+                        showlegend: false,
+                        yaxis: 'y'
+                    });
+                }
+            }
+
             Plotly.newPlot(plotId, traces, layout, {
                 displayModeBar: true,
                 responsive: true,

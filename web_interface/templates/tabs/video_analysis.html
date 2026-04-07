@@ -19,11 +19,14 @@
                 style="width: 200px;">
                 <option value="" selected>Default (Unsorted)</option>
             </select>
-            <button id="viewer-sort-btn" class="btn-discreet" onclick="toggleViewerSort()"
-                style="margin-left: 5px;"
-                title="Toggle Sort Order">
-                ASC
-            </button>
+            <label class="sort-toggle" style="margin-left: 8px;" title="Toggle sort order">
+                <input type="checkbox" id="viewer-sort-checkbox" onchange="toggleViewerSort()">
+                <span class="sort-toggle-track">
+                    <span class="sort-toggle-label sort-toggle-asc">&#x2191;</span>
+                    <span class="sort-toggle-label sort-toggle-desc">&#x2193;</span>
+                    <span class="sort-toggle-thumb"></span>
+                </span>
+            </label>
         </div>
 
         <span id="viewer-file-info" class="text-sm" style="margin-left: 20px; color: var(--control-bar-info);"></span>
@@ -112,16 +115,25 @@
 
                 <!-- Slider Area -->
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 0 20px;">
-                    <input type="range" id="viewer-slider" min="1" max="1" value="1" disabled
-                        style="width: 100%; cursor: pointer;">
+                    <div id="viewer-slider-wrap" style="position: relative; width: 100%;">
+                        <div id="viewer-slider-markers" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 1;"></div>
+                        <input type="range" id="viewer-slider" min="1" max="1" value="1" disabled
+                            style="width: 100%; cursor: pointer; position: relative; z-index: 2;">
+                    </div>
                 </div>
 
                 <div class="nav-controls" style="flex: 0 0 auto; display: flex; gap: 10px; align-items: center;">
-                    <button class="btn-secondary" onclick="prevVideo()">&lt; Prev</button>
+                    <button class="btn-discreet" onclick="prevExtraData()" id="viewer-skip-prev" disabled
+                        title="Previous activity with engagement data">&lt;&lt;</button>
+                    <button class="btn-secondary" onclick="prevVideo()"
+                        title="Previous activity">&lt;</button>
                     <span id="viewer-index"
                         class="font-mono text-body" style="padding: 0 10px; min-width: 80px; text-align: center;">0
                         / 0</span>
-                    <button class="btn-secondary" onclick="nextVideo()">Next &gt;</button>
+                    <button class="btn-secondary" onclick="nextVideo()"
+                        title="Next activity">&gt;</button>
+                    <button class="btn-discreet" onclick="nextExtraData()" id="viewer-skip-next" disabled
+                        title="Next activity with engagement data">&gt;&gt;</button>
                 </div>
             </div>
 
