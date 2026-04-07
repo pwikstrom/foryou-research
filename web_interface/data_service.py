@@ -433,112 +433,111 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
     # But loading unified is expensive, so efficiently do all 3 if we loaded it.
     
     for interval in intervals:
-        
+
         # Grouping
         temp_df = df.copy()
         temp_df['period'] = temp_df[date_col].dt.date.astype(str)
-             
+
         group_col = 'period'
-        periods = sorted(temp_df[group_col].unique())
-        
-        # Build Result DataFrame
-        # We need a row per period.
-        # Columns: period, count (videos), valid_count_{var}, {var}_val (numeric), {var}_counts (json)
-        
-        agg_data = [] # List of dicts
-        
-        # Pre-calculate video counts per period
-        video_counts = temp_df[group_col].value_counts().to_dict()
-        
-        # Pre-calculate extra_data counts per period (engagement activity like comment, fave, share)
+
+        # --- Classify variables once upfront ---
+        numeric_vars: list[str] = []
+        list_vars: list[str] = []
+        categorical_vars: list[str] = []
+
+        def _safe_to_list(x):
+            if isinstance(x, np.ndarray):
+                return x.tolist()
+            if isinstance(x, list):
+                return x
+            return x
+
+        for var in viz_vars:
+            if var not in temp_df.columns:
+                continue
+
+            col = temp_df[var]
+            dt = col.dtype
+            is_arrow_list = isinstance(dt, pd.ArrowDtype) and 'list' in str(dt)
+
+            first_valid = None
+            non_null = col.dropna()
+            if not non_null.empty:
+                first_valid = non_null.iloc[0]
+
+            is_py_list = isinstance(first_valid, list)
+            is_np_array = isinstance(first_valid, np.ndarray)
+            is_list = is_arrow_list or is_py_list or is_np_array
+            is_numeric = pd.api.types.is_numeric_dtype(dt) and not is_list
+
+            if is_numeric:
+                numeric_vars.append(var)
+            elif is_list:
+                # Pre-convert numpy arrays to lists once for the whole column
+                temp_df[var] = col.apply(_safe_to_list)
+                list_vars.append(var)
+            else:
+                categorical_vars.append(var)
+
+        # --- Video counts per period (vectorized) ---
+        agg_df = temp_df.groupby(group_col).size().reset_index(name='video_count')
+
+        # --- Extra data counts per period ---
         has_extra_data_col = 'extra_data' in temp_df.columns
-        extra_data_counts: dict[str, int] = {}
         if has_extra_data_col:
             ed_mask = temp_df['extra_data'].notna()
             if 'play_duration' in temp_df.columns:
                 ed_mask = ed_mask & temp_df['play_duration'].notna() & (temp_df['play_duration'] != 0)
-            extra_data_counts = temp_df[ed_mask].groupby(group_col).size().to_dict()
+            ed_counts = temp_df[ed_mask].groupby(group_col).size().reset_index(name='extra_data_count')
+            agg_df = agg_df.merge(ed_counts, on=group_col, how='left')
+            agg_df['extra_data_count'] = agg_df['extra_data_count'].fillna(0).astype(int)
 
-        for p in periods:
-            row = {'period': p, 'video_count': video_counts.get(p, 0)}
-            if has_extra_data_col:
-                row['extra_data_count'] = extra_data_counts.get(p, 0)
-            period_subset = temp_df[temp_df[group_col] == p]
-            
-            for var in viz_vars:
-                if var not in period_subset.columns:
-                    continue
-                
-                # Check type in this subset? or globally? 
-                # Better globally or inferred.
-                # Logic:
-                s_subset = period_subset[var]
-                
-                # Check for list
-                # Robust Arrow check
-                dt = s_subset.dtype
-                is_arrow_list = isinstance(dt, pd.ArrowDtype) and 'list' in str(dt)
-                
-                first_valid = s_subset.dropna().iloc[0] if not s_subset.dropna().empty else None
-                is_py_list = isinstance(first_valid, list)
-                is_np_array = isinstance(first_valid, np.ndarray)
-                
-                is_list = is_arrow_list or is_py_list or is_np_array
-                
-                # Ensure it's not numeric if we think it's a list (unless it's a list of numbers, which we treat as categorical/list anyway for now)
-                # But is_numeric check below relies on dtype.
-                # If object dtype containing lists, is_numeric_dtype represents 'object' -> False. Correct.
-                
-                is_numeric = pd.api.types.is_numeric_dtype(s_subset.dtype) and not is_list
-                
-                # Verify numeric isn't just low cardinality numbers masquerading 
-                # (Actually user config 'web_viz_log' helps, but relying on dtype is standard)
+        # --- Numeric variables: vectorized groupby mean + count ---
+        if numeric_vars:
+            means = temp_df.groupby(group_col)[numeric_vars].mean()
+            means.columns = [f"{v}_val" for v in numeric_vars]
+            counts = temp_df.groupby(group_col)[numeric_vars].count()
+            counts.columns = [f"{v}_valid" for v in numeric_vars]
+            agg_df = agg_df.merge(means, on=group_col, how='left')
+            agg_df = agg_df.merge(counts, on=group_col, how='left')
 
-                # DEBUG
-                # if var in ['desc_hashtags', 'symbol_and_brands', 'content_categories']:
-                #    print(f"DEBUG TIMELINE: Var {var} is_list={is_list} (Arrow={is_arrow_list}, PyList={is_py_list}, NpArray={is_np_array}). Sample: {first_valid} Type: {type(first_valid)}")
-                
-                # Valid Count
-                if is_list:
-                    # Safely handle potential numpy arrays
-                    # Convert to list to ensure explode works cleanly
-                    def safe_to_list(x):
-                        if isinstance(x, np.ndarray):
-                            return x.tolist()
-                        if isinstance(x, list):
-                            return x
-                        return x # pass through for None/NaN fallback
-                        
-                    # Apply conversion
-                    s_subset = s_subset.apply(safe_to_list)
+        # --- Categorical (non-list) variables: groupby + value_counts ---
+        for var in categorical_vars:
+            # Valid count per period
+            valid_counts = temp_df.groupby(group_col)[var].count().rename(f"{var}_valid")
+            agg_df = agg_df.merge(valid_counts, on=group_col, how='left')
 
-                    valid_files = s_subset[s_subset.apply(lambda x: isinstance(x, list) and len(x) > 0)]
-                    valid_c = len(valid_files)
-                else:
-                    valid_files = None
-                    valid_c = s_subset.count() # non-NA
-                
-                row[f"{var}_valid"] = valid_c
-                
-                if is_numeric:
-                    # Mean
-                    row[f"{var}_val"] = s_subset.mean()
-                else:
-                    # Counts
-                    if is_list:
-                         # Explode
-                         exploded = s_subset.explode()
-                         cnts = exploded.value_counts().to_dict()
-                    else:
-                         cnts = s_subset.value_counts().to_dict()
-                    
-                    # Store as JSON string
-                    row[f"{var}_counts"] = json.dumps(cnts)
-            
-            agg_data.append(row)
-            
-        agg_df = pd.DataFrame(agg_data)
-        
+            # Category counts per period as JSON strings
+            vc = temp_df.groupby(group_col)[var].value_counts()
+            unstacked = vc.unstack(fill_value=0)
+            json_series = unstacked.apply(
+                lambda row: json.dumps({k: int(v) for k, v in row.items() if v > 0}), axis=1
+            ).rename(f"{var}_counts")
+            agg_df = agg_df.merge(json_series, on=group_col, how='left')
+
+        # --- List variables: explode once, then groupby + value_counts ---
+        for var in list_vars:
+            # Valid count: rows with non-empty lists
+            is_valid_list = temp_df[var].apply(lambda x: isinstance(x, list) and len(x) > 0)
+            valid_counts = temp_df.assign(_is_valid=is_valid_list).groupby(group_col)['_is_valid'].sum().astype(int).rename(f"{var}_valid")
+            agg_df = agg_df.merge(valid_counts, on=group_col, how='left')
+
+            # Explode and count
+            exploded = temp_df[[group_col, var]].explode(var)
+            exploded = exploded[exploded[var].notna()]
+            vc = exploded.groupby(group_col)[var].value_counts()
+            if not vc.empty:
+                unstacked = vc.unstack(fill_value=0)
+                json_series = unstacked.apply(
+                    lambda row: json.dumps({k: int(v) for k, v in row.items() if v > 0}), axis=1
+                ).rename(f"{var}_counts")
+                agg_df = agg_df.merge(json_series, on=group_col, how='left')
+            else:
+                agg_df[f"{var}_counts"] = '{}'
+
+        # Sort by period
+        agg_df = agg_df.sort_values(group_col).reset_index(drop=True)
+
         # Save
         filename = f"timeline_{collection_id}_{interval}.parquet"
         data_io.save_parquet(df=agg_df, storage_location="cache", filename=filename)
@@ -548,12 +547,18 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
 
 
 
-def get_timeline_data(collection_id, interval='day'):
+def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = False):
     """
     Returns timeline data for plotting.
-    - Numeric: Daily Mean (Raw values, invalid/missing ignored). 
+    - Numeric: Daily Mean (Raw values, invalid/missing ignored).
       Includes metadata if log scale is requested.
     - Categorical: Daily Counts per category + Daily Total Count (for % calc).
+
+    Args:
+        collection_id: The collection to load timeline data for.
+        interval: Aggregation interval ('day', 'week', 'month').
+        skip_cache_check: If True, skip the cache existence check. Use when
+            the caller has already ensured the cache is fresh (e.g. batch refresh).
     """
 
     if 'var_schema' not in fyp_cf:
@@ -561,7 +566,7 @@ def get_timeline_data(collection_id, interval='day'):
         return {}
 
     schema = fyp_cf.get('var_schema', {})
-    
+
     # Load Schema Metadata
     meta = {}
     load_schema_metadata(meta)
@@ -571,14 +576,15 @@ def get_timeline_data(collection_id, interval='day'):
     if 'machine_state' not in viz_vars:
         viz_vars = ['machine_state'] + viz_vars
 
-    # Ensure Cache Exists
-    try:
-        if not check_and_update_timeline_cache(collection_id, viz_vars):
-            print("ERROR: Failed to update timeline cache.")
+    # Ensure Cache Exists (skip during batch refresh to avoid redundant I/O)
+    if not skip_cache_check:
+        try:
+            if not check_and_update_timeline_cache(collection_id, viz_vars):
+                print("ERROR: Failed to update timeline cache.")
+                return {}
+        except Exception as e:
+            print(f"ERROR: Failed to update timeline cache: {e}")
             return {}
-    except Exception as e:
-        print(f"ERROR: Failed to update timeline cache: {e}")
-        return {}
         
     # Get Counts Metadata (Load all 3 aggs to get lengths)
 

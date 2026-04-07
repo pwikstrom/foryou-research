@@ -1,5 +1,6 @@
 
 import numpy as np
+import pandas as pd
 import json
 from typing import Any
 
@@ -81,11 +82,16 @@ def compute_break(vals: list[float]) -> dict[str, Any]:
             "mean_after": round(float(np.mean(vals)), 1) if vals else 0.0,
         }
 
+    arr = np.asarray(vals)
+    cumsum = np.cumsum(arr)
+    total_sum = cumsum[-1]
+
     for i in range(4, n - 4):
-        m1 = float(np.mean(vals[:i]))
-        m2 = float(np.mean(vals[i:]))
-        if abs(m2 - m1) > abs(best_delta):
-            best_delta = m2 - m1
+        m1 = cumsum[i - 1] / i
+        m2 = (total_sum - cumsum[i - 1]) / (n - i)
+        delta = m2 - m1
+        if abs(delta) > abs(best_delta):
+            best_delta = delta
             best_i = i
 
     return {
@@ -199,14 +205,9 @@ def compute_interestingness(metrics: dict) -> float:
 
 def moving_average(vals: list[float], window: int = 7) -> list[float]:
     """Compute a centred moving average matching the frontend."""
-    half = window // 2
-    smoothed = []
-    for i in range(len(vals)):
-        start = max(0, i - half)
-        end = min(len(vals), i + half + 1)
-        slice_vals = vals[start:end]
-        smoothed.append(round(sum(slice_vals) / len(slice_vals), 2))
-    return smoothed
+    s = pd.Series(vals)
+    smoothed = s.rolling(window, center=True, min_periods=1).mean()
+    return [round(v, 2) for v in smoothed.tolist()]
 
 
 def analyse_timeline(timeline_data: dict, interval: str = "day",
@@ -266,37 +267,41 @@ def analyse_timeline(timeline_data: dict, interval: str = "day",
         if len(sliced_counts) < 4:
             continue
 
-        # Collect all category names across sliced time periods
-        all_cats = set()
+        # Parse all JSON strings once upfront to avoid re-parsing per category
+        parsed_counts: list[dict] = []
         for day_counts in sliced_counts:
             if isinstance(day_counts, str):
                 try:
-                    day_counts = json.loads(day_counts)
+                    parsed_counts.append(json.loads(day_counts))
                 except Exception:
-                    continue
-            all_cats.update(day_counts.keys())
+                    parsed_counts.append({})
+            elif isinstance(day_counts, dict):
+                parsed_counts.append(day_counts)
+            else:
+                parsed_counts.append({})
 
-        # Compute share % time series for each category (using sliced data only)
+        # Collect all category names from pre-parsed data
+        all_cats: set[str] = set()
+        for dc in parsed_counts:
+            all_cats.update(dc.keys())
+
+        # Pre-compute denominator array once (shared across all categories)
+        n_periods = len(parsed_counts)
+        denominators = []
+        for i in range(n_periods):
+            total = 1
+            if sliced_valid and i < len(sliced_valid):
+                total = sliced_valid[i] if sliced_valid[i] and sliced_valid[i] > 0 else 1
+            elif sliced_video and i < len(sliced_video):
+                total = sliced_video[i] if sliced_video[i] and sliced_video[i] > 0 else 1
+            denominators.append(total)
+
+        # Compute share % time series for each category (using pre-parsed data)
         category_results = []
 
         for cat in all_cats:
-            vals = []
-            for i, day_counts in enumerate(sliced_counts):
-                if isinstance(day_counts, str):
-                    try:
-                        day_counts = json.loads(day_counts)
-                    except Exception:
-                        day_counts = {}
-
-                count = day_counts.get(cat, 0)
-                total = 1
-                if sliced_valid and i < len(sliced_valid):
-                    total = sliced_valid[i] if sliced_valid[i] and sliced_valid[i] > 0 else 1
-                elif sliced_video and i < len(sliced_video):
-                    total = sliced_video[i] if sliced_video[i] and sliced_video[i] > 0 else 1
-
-                share = (count / total) * 100
-                vals.append(share)
+            vals = [(parsed_counts[i].get(cat, 0) / denominators[i]) * 100
+                    for i in range(n_periods)]
 
             # Smooth the values before analysis using a 7-day trailing average to match UI
             vals = moving_average(vals, window=7)
@@ -330,11 +335,8 @@ def analyse_timeline(timeline_data: dict, interval: str = "day",
             # So for full index 0: y = intercept - slope * start_offset
             trend["intercept"] = round(trend["intercept"] - trend["slope"] * start_offset, 2)
 
-            # Count total occurrences (sliced only) for context
-            total_count = sum(
-                (json.loads(dc) if isinstance(dc, str) else dc).get(cat, 0)
-                for dc in sliced_counts
-            )
+            # Count total occurrences from pre-parsed data
+            total_count = sum(dc.get(cat, 0) for dc in parsed_counts)
 
             category_results.append({
                 "id": cat,
