@@ -162,6 +162,9 @@ def start_monitor(
     label="monitor",
     bar_width=30,
     result_checker: Optional[Callable] = None,
+    batch_label: Optional[str] = None,
+    cumulative_done: int = 0,
+    cumulative_total: int = 0,
 ):
     """
     Monitor progress of concurrent futures with a live progress bar.
@@ -251,11 +254,13 @@ def start_monitor(
             # single-line update (web interface vs terminal)
             if "WEB_INTERFACE" in os.environ:
                  progress_data = {
-                     "done": done,
-                     "total": total,
+                     "done": cumulative_done + done if cumulative_total > 0 else done,
+                     "total": cumulative_total if cumulative_total > 0 else total,
                      "rate": throughput,
                      "eta": eta if eta is not None else 0
                  }
+                 if batch_label:
+                     progress_data["batch"] = batch_label
                  print(f"::PROGRESS::{json.dumps(progress_data)}", flush=True)
             else:
                  sys.stdout.write("\r" + line)

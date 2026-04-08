@@ -31,8 +31,13 @@ import sys
 import shutil
 import json
 import textwrap
+from pathlib import Path
 
 
+def _check_graceful_stop(process_name: str) -> bool:
+    """Check if a graceful stop has been requested via sentinel file."""
+    sentinel = Path(fyp_cf['paths']['project_root']) / "tmp" / "graceful_stop" / f"{process_name}.stop"
+    return sentinel.exists()
 
 
 
@@ -336,7 +341,10 @@ def download_video_threads(
     interesting_videos:list[str] = None,
     max_workers:int = 4,
     verbose:bool = False,
-    dry_run:bool = False):
+    dry_run:bool = False,
+    batch_label: str | None = None,
+    cumulative_done: int = 0,
+    cumulative_total: int = 0):
     
 
 
@@ -377,7 +385,10 @@ def download_video_threads(
 
         monitor_thread = start_monitor(
             futures, submit_times, interval=5, label="dl", bar_width=32,
-            result_checker=lambda f: isinstance(f.result()[1], pd.DataFrame)
+            result_checker=lambda f: isinstance(f.result()[1], pd.DataFrame),
+            batch_label=batch_label,
+            cumulative_done=cumulative_done,
+            cumulative_total=cumulative_total
         )
 
 
@@ -513,30 +524,47 @@ def scraper_loop_from_list(
 
     print(f"  Starting loop... There are {len(video_list):,} videos to process in {batch_target:,} batches")
 
+    total_items = len(video_list)
+    cumulative_done = 0
     good_scrapes = []
     failed_scrapes = []
 
     for batch in chunk_list(video_list, batch_size):
-        
-        print(f"  Batch {batch_number} of {max_batches:,}")
+
+        batch_label = f"{batch_number}/{batch_target}"
+        print(f"  Batch {batch_label}")
 
         results_from_scraper = download_video_threads(
-            interesting_videos = batch, 
-            max_workers=4, 
+            interesting_videos = batch,
+            max_workers=4,
             verbose = verbose,
-            dry_run = dry_run)
-        
+            dry_run = dry_run,
+            batch_label=batch_label,
+            cumulative_done=cumulative_done,
+            cumulative_total=total_items)
+
         if not results_from_scraper.empty and "item_id" in results_from_scraper.columns:
             good_scrapes += results_from_scraper["item_id"].to_list()
-        
+
         failed_scrapes += [v for v in batch if v not in good_scrapes]
         with open(os.path.join(fyp_cf['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
             json.dump(failed_scrapes, f)
         with open(os.path.join(fyp_cf['paths']['temp'], "temp_good_scrapes.json"), "w") as f:
             json.dump(good_scrapes, f)
 
+        cumulative_done += len(batch)
+
+        # Emit queue update after each batch (for web UI)
+        if "WEB_INTERFACE" in os.environ:
+            remaining = total_items - cumulative_done
+            print(f"::DATA::{{\"scrape_queue_len\": {max(0, remaining)}}}", flush=True)
 
         if max_batches is not None and batch_number >= max_batches:
+            break
+
+        # Check for graceful stop request
+        if _check_graceful_stop("queue_scraper"):
+            print("  Graceful stop requested. Finishing after this batch.")
             break
 
         batch_number += 1

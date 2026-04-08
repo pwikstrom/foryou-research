@@ -25,6 +25,9 @@ function loadAvailableCollections() {
         .then(data => {
             availableCollections = data;
 
+            const ucEl = document.getElementById('ingest-unique-collections-count');
+            if (ucEl) ucEl.textContent = availableCollections.length.toLocaleString();
+
             loadStudies();
 
             const editContainer = document.getElementById('edit-activity-list-container');
@@ -896,7 +899,6 @@ function fetchEnrichmentStats() {
             document.getElementById('enrich_total_videos').textContent = (data.total_videos !== undefined) ? data.total_videos.toLocaleString() : '-';
             document.getElementById('enrich_scraped').textContent = (data.scraped_videos !== undefined) ? data.scraped_videos.toLocaleString() : '-';
             document.getElementById('enrich_annotated').textContent = (data.annotated_videos !== undefined) ? data.annotated_videos.toLocaleString() : '-';
-            document.getElementById('enrich_unique_collections').textContent = (data.unique_collections !== undefined) ? data.unique_collections.toLocaleString() : '-';
 
             // Queues
             if (data.scrape_queue_len !== undefined) {
@@ -906,6 +908,12 @@ function fetchEnrichmentStats() {
             if (data.annotate_queue_len !== undefined) {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
                 document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';
+            }
+
+            // Consolidate button state
+            const consolidateBtn = document.getElementById('btn-consolidate');
+            if (consolidateBtn) {
+                consolidateBtn.disabled = !data.has_unconsolidated;
             }
         })
         .catch(err => console.error("Error fetching enrichment stats:", err));
@@ -1003,11 +1011,11 @@ function emptyQueue(queueType) {
 }
 
 function consolidateEnrichmentData(btn) {
-    if (!confirm("Are you sure you want to consolidate enrichment data? This may take a moment.")) return;
-
     const originalText = btn.textContent;
+    const originalClass = btn.className;
     btn.textContent = "Consolidating...";
     btn.disabled = true;
+    btn.className = 'btn-running';
 
     fetch('/api/manage/enrichment/consolidate', {
         method: 'POST',
@@ -1016,14 +1024,14 @@ function consolidateEnrichmentData(btn) {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                alert(data.message);
                 fetchEnrichmentStats();
             } else {
-                alert("Error: " + data.error);
+                console.error("Consolidation error:", data.error);
             }
         })
-        .catch(err => alert("Failed to consolidate: " + err))
+        .catch(err => console.error("Failed to consolidate:", err))
         .finally(() => {
+            btn.className = originalClass;
             btn.textContent = originalText;
             btn.disabled = false;
         });
@@ -1081,11 +1089,13 @@ function updateProcessButton(totalPending) {
     const btn = document.getElementById('processRawFilesBtn');
     if (!btn) return;
     if (totalPending > 0) {
-        btn.textContent = `Process Local Raw Files (${totalPending} pending)`;
+        btn.textContent = `Process New Collections (${totalPending} pending)`;
         btn.classList.add('btn-has-pending');
+        btn.disabled = false;
     } else {
-        btn.textContent = 'Process Local Raw Files';
+        btn.textContent = 'Process New Collections';
         btn.classList.remove('btn-has-pending');
+        btn.disabled = true;
     }
 }
 
@@ -1111,15 +1121,14 @@ function renderIngestionSources(sources) {
         card.innerHTML = `
             <div class="font-bold text-body" style="margin-bottom: 5px;">${source.class_name}${pendingBadge}</div>
             <div class="text-sm" style="color: var(--color-text-tertiary); margin-bottom: 15px;">
-                <strong>Platform:</strong> ${source.source_platform} | <strong>Source:</strong> ${source.data_source}<br>
-                <strong>Raw Path:</strong> ${source.raw_path}
+                <strong>Platform:</strong> ${source.source_platform} | <strong>Source:</strong> ${source.data_source}
             </div>
             <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
                 <button type="button" class="action-btn" onclick="openUploadModal('${source.class_name}', '${source.raw_path}', 'files')">
-                    Upload Files
+                    Add Files
                 </button>
                 <button type="button" class="action-btn" onclick="openUploadModal('${source.class_name}', '${source.raw_path}', 'folder')">
-                    Upload Folder
+                    Add Folder
                 </button>
             </div>
         `;
@@ -1131,11 +1140,15 @@ function renderIngestionSources(sources) {
 
 // --- Upload Modal ---
 
+let _uploadMode = 'files';
+
 function openUploadModal(className, rawPath, mode) {
     // Reset state
     uploadSelectedTags = [];
     uploadPendingFiles = null;
-    document.getElementById('uploadFilesList').textContent = 'No files selected.';
+    _uploadMode = mode;
+    const listDiv = document.getElementById('uploadFilesList');
+    listDiv.innerHTML = `<div style="text-align: center; padding: 16px; color: var(--color-text-tertiary); cursor: pointer;">Click here to select ${mode === 'folder' ? 'a folder' : 'files'}</div>`;
     document.getElementById('uploadSelectedTags').innerHTML = '';
     document.getElementById('uploadTagInput').value = '';
     document.getElementById('uploadTagSuggestions').style.display = 'none';
@@ -1146,12 +1159,12 @@ function openUploadModal(className, rawPath, mode) {
     document.getElementById('uploadNewCollectionId').value = '';
     document.getElementById('uploadNewCollectionId').style.display = 'none';
     document.getElementById('uploadExistingCollectionId').style.display = 'none';
-    document.getElementById('uploadModalTitle').textContent = `Upload to ${className}`;
+    document.getElementById('uploadModalTitle').textContent = `Add to ${className}`;
 
     // Reset radio to default
     document.querySelector('input[name="collectionIdMode"][value="per_file"]').checked = true;
 
-    // Fetch metadata then open file picker
+    // Fetch metadata then show modal
     loadIngestionMetadata().then(() => {
         // Populate existing collection IDs dropdown
         const sel = document.getElementById('uploadExistingCollectionId');
@@ -1165,45 +1178,49 @@ function openUploadModal(className, rawPath, mode) {
 
         // Show modal
         document.getElementById('uploadModal').style.display = 'flex';
-
-        // Create a temporary file input and trigger it
-        const existingInput = document.getElementById('uploadTempFileInput');
-        if (existingInput) existingInput.remove();
-
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.id = 'uploadTempFileInput';
-        input.style.display = 'none';
-
-        if (mode === 'folder') {
-            input.setAttribute('webkitdirectory', '');
-        }
-        input.setAttribute('multiple', '');
-
-        input.addEventListener('change', () => {
-            handleFilesSelected(input.files);
-        });
-
-        document.body.appendChild(input);
-        input.click();
     });
+}
+
+function triggerFilePicker() {
+    const existingInput = document.getElementById('uploadTempFileInput');
+    if (existingInput) existingInput.remove();
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'uploadTempFileInput';
+    input.style.display = 'none';
+
+    if (_uploadMode === 'folder') {
+        input.setAttribute('webkitdirectory', '');
+    }
+    input.setAttribute('multiple', '');
+
+    input.addEventListener('change', () => {
+        handleFilesSelected(input.files);
+    });
+
+    document.body.appendChild(input);
+    input.click();
 }
 
 function handleFilesSelected(files) {
     if (!files || files.length === 0) return;
     uploadPendingFiles = files;
     const listDiv = document.getElementById('uploadFilesList');
+    let filesHtml = '';
     if (files.length <= 10) {
-        listDiv.innerHTML = Array.from(files).map(f =>
+        filesHtml = Array.from(files).map(f =>
             `<div class="text-xs" style="padding: 2px 0;">${f.name}</div>`
         ).join('');
     } else {
-        listDiv.innerHTML = `<div class="text-sm">${files.length} files selected</div>` +
+        filesHtml = `<div class="text-sm">${files.length} files selected</div>` +
             Array.from(files).slice(0, 5).map(f =>
                 `<div class="text-xs" style="padding: 2px 0; color: var(--color-text-tertiary);">${f.name}</div>`
             ).join('') +
             `<div class="text-xs" style="color: var(--color-text-tertiary);">... and ${files.length - 5} more</div>`;
     }
+    listDiv.innerHTML = filesHtml +
+        `<div class="text-xs" style="margin-top: 6px; color: var(--color-accent); cursor: pointer;" onclick="triggerFilePicker()">Change selection...</div>`;
 }
 
 function closeUploadModal() {
@@ -1354,8 +1371,10 @@ function submitUpload() {
 
 window.refreshIngestionCollection = function (btn) {
     const originalText = btn.textContent;
-    btn.textContent = "Refreshing Collection...";
+    const originalClass = btn.className;
+    btn.textContent = "Processing...";
     btn.disabled = true;
+    btn.className = 'btn-running';
 
     fetch('/api/manage/ingestion/refresh', {
         method: 'POST',
@@ -1364,15 +1383,15 @@ window.refreshIngestionCollection = function (btn) {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                alert("Collection successfully refreshed and processed.");
                 loadAvailableCollections();
                 loadIngestionSources();
             } else {
-                alert("Error: " + data.error);
+                console.error("Ingestion refresh error:", data.error);
             }
         })
-        .catch(err => alert("Error triggering refresh: " + err))
+        .catch(err => console.error("Error triggering refresh:", err))
         .finally(() => {
+            btn.className = originalClass;
             btn.textContent = originalText;
             btn.disabled = false;
         });

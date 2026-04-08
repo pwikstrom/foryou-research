@@ -34,8 +34,13 @@ import fyp.utils as fyp_utils
 from fyp.utils import start_monitor
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+from pathlib import Path
 
 
+def _check_graceful_stop(process_name: str) -> bool:
+    """Check if a graceful stop has been requested via sentinel file."""
+    sentinel = Path(fyp_cf['paths']['project_root']) / "tmp" / "graceful_stop" / f"{process_name}.stop"
+    return sentinel.exists()
 
 
 REQUIRED_KEYS = [
@@ -253,7 +258,10 @@ def call_machine_threads(
         max_workers=50,
         verbose=False,
         notebook_mode = False,
-        dry_run = False):
+        dry_run = False,
+        batch_label: str | None = None,
+        cumulative_done: int = 0,
+        cumulative_total: int = 0):
 
     if notebook_mode:
         verbose = True
@@ -296,7 +304,12 @@ def call_machine_threads(
             futures.append(fut)
             submit_times[fut] = time.time()
 
-        monitor_thread = start_monitor(futures, submit_times, interval=5, label="machine", bar_width=32)
+        monitor_thread = start_monitor(
+            futures, submit_times, interval=5, label="machine", bar_width=32,
+            batch_label=batch_label,
+            cumulative_done=cumulative_done,
+            cumulative_total=cumulative_total
+        )
 
 
         for fut in as_completed(futures):
@@ -1434,7 +1447,10 @@ def annotate_from_video_id_list(
     refine_after_annotation = True,
     verbose = False,
     notebook_mode = False,
-    dry_run = False):
+    dry_run = False,
+    batch_label: str | None = None,
+    cumulative_done: int = 0,
+    cumulative_total: int = 0):
 
     if notebook_mode:
         verbose = True
@@ -1460,9 +1476,12 @@ def annotate_from_video_id_list(
         raw_outputs_from_machine, raw_json_fn = call_machine_threads(
                 interesting_videos = fine_list,
                 max_workers=max_workers,
-                verbose = verbose, 
+                verbose = verbose,
                 notebook_mode = notebook_mode,
-                dry_run = dry_run
+                dry_run = dry_run,
+                batch_label=batch_label,
+                cumulative_done=cumulative_done,
+                cumulative_total=cumulative_total
             )
 
         print("...video annotation completed.")
@@ -1557,22 +1576,40 @@ def annotate_videos_loop_from_list(
     print(f"    Now: {_dt.datetime.now()}")
 
     batch_number = 1
+    total_items = len(video_list)
+    cumulative_done = 0
 
     batch_target = min(max_batches, len(video_list) // batch_size + 1)
 
-    print(f"  Starting loop... There are {len(video_list):,} videos to process in {batch_target:,} batches")
+    print(f"  Starting loop... There are {total_items:,} videos to process in {batch_target:,} batches")
 
     for batch in fyp_utils.chunk_list(video_list, batch_size):
 
-        print(f"  Batch {batch_number} of {max_batches:,}")
+        batch_label = f"{batch_number}/{batch_target}"
+        print(f"  Batch {batch_label}")
 
         _ = annotate_from_video_id_list(
             fine_list = batch,
             verbose = verbose,
-            dry_run = dry_run
+            dry_run = dry_run,
+            batch_label=batch_label,
+            cumulative_done=cumulative_done,
+            cumulative_total=total_items
         )
 
+        cumulative_done += len(batch)
+
+        # Emit queue update after each batch (for web UI)
+        if "WEB_INTERFACE" in os.environ:
+            remaining = total_items - cumulative_done
+            print(f"::DATA::{{\"annotate_queue_len\": {max(0, remaining)}}}", flush=True)
+
         if max_batches is not None and batch_number >= max_batches:
+            break
+
+        # Check for graceful stop request
+        if _check_graceful_stop("queue_annotator"):
+            print("  Graceful stop requested. Finishing after this batch.")
             break
 
         batch_number += 1

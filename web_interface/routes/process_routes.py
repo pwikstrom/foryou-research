@@ -6,7 +6,7 @@ from fyp.fyp_config import (
     META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT, RECODE_REFRESH_STUDIES_SCRIPT
 )
 from ..process_manager import (
-    processes, process_stats, start_process, stop_process
+    processes, process_stats, start_process, stop_process, graceful_stop_process
 )
 
 process_bp = Blueprint('process_bp', __name__)
@@ -54,6 +54,16 @@ def api_stop(name):
         return jsonify({"error": "Unknown process"}), 400
     
     success, msg = stop_process(name)
+    return jsonify({"status": "success" if success else "error", "message": msg})
+
+
+@process_bp.route('/api/stop_graceful/<name>', methods=['POST'])
+@auth.admin_required
+def api_stop_graceful(name):
+    if name not in processes:
+        return jsonify({"error": "Unknown process"}), 400
+
+    success, msg = graceful_stop_process(name)
     return jsonify({"status": "success" if success else "error", "message": msg})
 
 

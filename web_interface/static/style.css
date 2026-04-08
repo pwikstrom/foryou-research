@@ -630,6 +630,23 @@ button {
     color: var(--btn-danger-text);
 }
 
+.btn-running {
+    background: var(--color-warning);
+    color: var(--color-bg-primary);
+    border: none;
+    border-radius: 6px;
+    cursor: default;
+    pointer-events: none;
+    padding: 6px 12px;
+    font-weight: var(--weight-semibold);
+    animation: btn-running-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes btn-running-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
 .btn-save,
 .btn-secondary {
     background: var(--btn-discreet-bg);
@@ -768,6 +785,12 @@ button {
 
 .action-btn:hover {
     opacity: 0.9;
+}
+
+.action-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+    pointer-events: none;
 }
 
 /* Segmented toggle control (e.g. Scatter/Heatmap, Distribution/Compare) */
@@ -939,6 +962,12 @@ button {
 
 .status-stopped {
     background: var(--status-stopped);
+}
+
+.status-stopping {
+    background: var(--color-warning);
+    box-shadow: 0 0 5px var(--color-warning);
+    animation: btn-running-pulse 1.5s ease-in-out infinite;
 }
 
 .status-dot {

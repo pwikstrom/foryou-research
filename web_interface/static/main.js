@@ -346,7 +346,7 @@ async function stopProcess(name) {
         const res = await fetch(`/api/stop/${name}`, { method: 'POST' });
         const data = await res.json();
         if (data.status !== 'success') {
-            alert("Error: " + data.message);
+            console.error("Stop process error:", data.message);
         }
         updateStatus();
     } catch (e) {
@@ -397,6 +397,26 @@ function closeStopConfirm() {
 function confirmStop() {
     if (_pendingStopProcess) {
         stopProcess(_pendingStopProcess);
+    }
+    closeStopConfirm();
+}
+
+async function gracefulStopProcess(name) {
+    try {
+        const res = await fetch(`/api/stop_graceful/${name}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.status !== 'success') {
+            console.error("Graceful stop error:", data.message);
+        }
+        updateStatus();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function confirmStopGraceful() {
+    if (_pendingStopProcess) {
+        gracefulStopProcess(_pendingStopProcess);
     }
     closeStopConfirm();
 }
@@ -472,18 +492,17 @@ function setStatus(name, data) {
     if (toggleBtn) {
         if (status === 'running') {
             toggleBtn.className = 'btn-stop';
-            if (toggleBtn.getAttribute('data-start-label') && toggleBtn.getAttribute('data-start-label').startsWith('Recalculate')) {
-                toggleBtn.classList.add('text-sm');
-            }
             toggleBtn.innerText = 'Stop';
             toggleBtn.style.padding = '4px 12px';
             toggleBtn.onclick = function () { showStopConfirm(name); };
+        } else if (status === 'stopping') {
+            toggleBtn.className = 'btn-running';
+            toggleBtn.innerText = 'Stopping...';
+            toggleBtn.style.padding = '4px 12px';
+            toggleBtn.onclick = null;
         } else {
             toggleBtn.className = 'btn-primary';
             const startLabel = toggleBtn.getAttribute('data-start-label') || 'Start';
-            if (startLabel.startsWith('Recalculate')) {
-                toggleBtn.classList.add('text-sm');
-            }
             toggleBtn.innerText = startLabel;
             toggleBtn.style.padding = '4px 12px';
             toggleBtn.onclick = function () { startProcess(name); };
@@ -498,6 +517,9 @@ function setStatus(name, data) {
             let etaStr = "--";
             let rateStr = "";
             let countsStr = "";
+
+            let batchStr = "";
+            if (info.batch) batchStr = `Batch ${info.batch} — `;
 
             if (info.percent !== undefined) {
                 pct = parseFloat(info.percent);
@@ -521,9 +543,9 @@ function setStatus(name, data) {
             }
 
             if (info.percent !== undefined) {
-                text.innerText = `${countsStr} (${pct.toFixed(0)}%)${durationStr}`;
+                text.innerText = `${batchStr}${countsStr} (${pct.toFixed(0)}%)${durationStr}`;
             } else {
-                text.innerText = `${countsStr} (${pct.toFixed(1)}%)${rateStr} - ETA ${etaStr}${durationStr}`;
+                text.innerText = `${batchStr}${countsStr} (${pct.toFixed(1)}%)${rateStr} - ETA ${etaStr}${durationStr}`;
             }
 
         } else {
@@ -571,6 +593,17 @@ function setStatus(name, data) {
         lastRunEl.innerText = `Last: ${dd}/${mm} ${hh}:${mi}${durStr}${outcomeStr}`;
     } else if (lastRunEl) {
         lastRunEl.innerText = '';
+    }
+
+    // Update queue displays from ::DATA:: output
+    const procData = data.data || {};
+    if (name === 'queue_scraper' && procData.scrape_queue_len !== undefined) {
+        const el = document.getElementById('enrich_scrape_targets');
+        if (el) el.textContent = procData.scrape_queue_len.toLocaleString();
+    }
+    if (name === 'queue_annotator' && procData.annotate_queue_len !== undefined) {
+        const el = document.getElementById('enrich_annotate_targets');
+        if (el) el.textContent = procData.annotate_queue_len.toLocaleString();
     }
 }
 

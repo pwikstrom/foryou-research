@@ -2,9 +2,13 @@ import subprocess
 import threading
 import json
 import os
+from pathlib import Path
 from datetime import datetime
 from collections import deque
 from fyp.fyp_config import PROCESS_STATS_FILE, PROJECT_ROOT, PYTHON_EXEC
+
+
+GRACEFUL_STOP_DIR = PROJECT_ROOT / "tmp" / "graceful_stop"
 
 
 # --- Global State ---
@@ -28,12 +32,14 @@ def load_process_stats():
     if PROCESS_STATS_FILE.exists():
         try:
             with open(PROCESS_STATS_FILE, 'r') as f:
-                process_stats = json.load(f)
+                loaded = json.load(f)
+            process_stats.clear()
+            process_stats.update(loaded)
         except Exception as e:
             print(f"Failed to load process stats: {e}")
-            process_stats = {}
+            process_stats.clear()
     else:
-        process_stats = {}
+        process_stats.clear()
 
 
 
@@ -100,6 +106,7 @@ def monitor_process_completion(name, proc):
     save_process_stats()
     
     # Update global state to stopped
+    _clear_graceful_stop(name)
     processes[name]["status"] = "stopped"
     processes[name]["proc"] = None
     processes[name]["start_time"] = None
@@ -156,5 +163,37 @@ def stop_process(name):
         processes[name]["proc"] = None
         processes[name]["status"] = "stopped"
         processes[name]["start_time"] = None
+        _clear_graceful_stop(name)
+        return True, "Stopped"
+    # Process handle already cleared (e.g. by monitor thread) — clean up state
+    if processes[name]["status"] in ("running", "stopping"):
+        processes[name]["status"] = "stopped"
+        processes[name]["start_time"] = None
+        _clear_graceful_stop(name)
         return True, "Stopped"
     return False, "Not running"
+
+
+def graceful_stop_process(name: str) -> tuple[bool, str]:
+    """Signal a process to stop after finishing its current batch."""
+    proc = processes[name]["proc"]
+    if proc and proc.poll() is None:
+        GRACEFUL_STOP_DIR.mkdir(parents=True, exist_ok=True)
+        sentinel = GRACEFUL_STOP_DIR / f"{name}.stop"
+        sentinel.touch()
+        processes[name]["status"] = "stopping"
+        return True, "Graceful stop requested"
+    return False, "Not running"
+
+
+def _clear_graceful_stop(name: str) -> None:
+    """Remove the graceful stop sentinel file for a process."""
+    sentinel = GRACEFUL_STOP_DIR / f"{name}.stop"
+    if sentinel.exists():
+        sentinel.unlink(missing_ok=True)
+
+
+def check_graceful_stop(name: str) -> bool:
+    """Check if a graceful stop has been requested for a process. Called by worker scripts."""
+    sentinel = GRACEFUL_STOP_DIR / f"{name}.stop"
+    return sentinel.exists()

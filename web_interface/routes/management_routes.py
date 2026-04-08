@@ -580,13 +580,35 @@ def get_enrichment_stats():
         q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
         if isinstance(q, list): annotate_queue_len = len(q)
         
+    # 3. Check for unconsolidated data
+    has_unconsolidated = False
+    try:
+        dataset_meta = {}
+        if data_io.exists(storage_location="recoded", filename="dataset_meta.json"):
+            dataset_meta = data_io.load_json(storage_location="recoded", filename="dataset_meta.json")
+
+        known_scrape_files = set(dataset_meta.get("scrape", {}).get("filenames", []))
+        current_scrape_files = {fn for fn in data_io.listdir(storage_location="scrape")
+                                if fn.startswith("scrape_") and fn.endswith(".parquet")}
+        if not current_scrape_files <= known_scrape_files:
+            has_unconsolidated = True
+
+        known_annotation_files = set(dataset_meta.get("machine_annotations", {}).get("filenames", []))
+        current_annotation_files = {fn for fn in data_io.listdir(storage_location="machine_annotations_refined")
+                                    if fn.startswith("machine_annotations_") and fn.endswith(".parquet")}
+        if not current_annotation_files <= known_annotation_files:
+            has_unconsolidated = True
+    except Exception:
+        pass
+
     return jsonify({
         "total_videos": total_videos,
         "scraped_videos": scraped_videos,
         "annotated_videos": annotated_videos,
         "unique_collections": unique_collections,
         "scrape_queue_len": scrape_queue_len,
-        "annotate_queue_len": annotate_queue_len
+        "annotate_queue_len": annotate_queue_len,
+        "has_unconsolidated": has_unconsolidated
     })
 
 
