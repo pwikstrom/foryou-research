@@ -1,6 +1,26 @@
 <div id="settings" class="tab-pane">
     <div style="background: var(--color-bg-surface); padding: 20px; border-radius: 8px;">
-        <h2>User Settings</h2>
+        <h2>Settings</h2>
+
+        <p style="margin-bottom: 20px; color: var(--color-text-secondary);">
+            Logged in as: <strong style="color: var(--color-text-primary);">{{ user.username }}</strong> ({{ user.role }})
+            &nbsp;&middot;&nbsp;
+            <a href="/logout">Logout</a>
+        </p>
+
+        <div class="setting-group" style="margin-bottom: 20px;">
+            <h3>Appearance</h3>
+            <div style="margin-top: 10px;">
+                <label style="display: flex; align-items: center; cursor: pointer; color: var(--color-text-primary);">
+                    <input type="checkbox" id="setting-theme-toggle" style="margin-right: 10px;"
+                        onchange="toggleTheme()">
+                    Dark theme
+                </label>
+                <p class="text-sm" style="margin-left: 23px; color: var(--color-text-muted); margin-top: 5px;">
+                    When unchecked, the interface uses a light theme.
+                </p>
+            </div>
+        </div>
 
         <div class="setting-group" style="margin-bottom: 20px;">
             <h3>Video Player</h3>
@@ -66,16 +86,14 @@
                 shareAnnotations.checked = (window.userSettings && window.userSettings.share_annotations !== undefined) ? window.userSettings.share_annotations : true;
             }
         }
+
+        // Sync theme checkbox with current theme
+        const themeToggle = document.getElementById('setting-theme-toggle');
+        if (themeToggle) {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            themeToggle.checked = currentTheme === 'dark';
+        }
     }
-
-    // Inject hook to call render when tab opens (if not already handled by loadUserSettings recursion)
-    // Main.js openTab logic doesn't explicitly call renderSettingsUI, but we can add it there or here.
-    // simpler: rely on user clicking tab.
-
-    // Actually, openTab in main.js handles tab switching. 
-    // We can add a listener or hack it:
-    const originalOpenTabSettings = window.openTab;
-    // But modifying main.js is cleaner.
 
     function saveSettingsTab() {
         const autostart = document.getElementById('setting-video-autostart').checked;

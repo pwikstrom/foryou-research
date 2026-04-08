@@ -51,13 +51,10 @@ function toggleTheme() {
 }
 
 function updateThemeIcon(theme) {
-    const icon = document.getElementById('theme-toggle-icon');
-    if (icon) {
-        icon.innerHTML = theme === 'dark' ? '&#127769;' : '&#9728;&#65039;';
-    }
-    const cb = document.getElementById('theme-toggle-checkbox');
-    if (cb) {
-        cb.checked = theme === 'light';
+    // Sync settings tab checkbox
+    const settingsToggle = document.getElementById('setting-theme-toggle');
+    if (settingsToggle) {
+        settingsToggle.checked = theme === 'dark';
     }
 }
 
