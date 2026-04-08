@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run queue scraper")
     parser.add_argument("--batch-size", type=int, default=5, help="Batch size")
-    parser.add_argument("--max-batches", type=int, default=1, help="Max batches")
+    parser.add_argument("--max-batches", type=int, default=None, help="Max batches (default: unlimited)")
     
     args = parser.parse_args()
 
