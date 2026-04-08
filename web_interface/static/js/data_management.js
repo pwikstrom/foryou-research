@@ -92,7 +92,7 @@ function renderCollectionSelector(container, selectedList) {
     const thead = document.createElement('thead');
     thead.innerHTML = `
         <tr style="text-align: left;">
-            <th style="padding: 8px 5px; width: 30px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong);"></th>
+            <th style="padding: 8px 5px; width: 30px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong);"><input type="checkbox" class="select-all-collections" title="Select / deselect all" style="cursor: pointer;"></th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Collection / Display ID</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Tags</th>
             <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Email</th>
@@ -199,6 +199,21 @@ function renderCollectionSelector(container, selectedList) {
     table.appendChild(tbody);
     container.appendChild(table);
 
+    // Wire up select-all checkbox in header
+    const selectAllCb = thead.querySelector('.select-all-collections');
+    if (selectAllCb) {
+        selectAllCb.onchange = function () {
+            const selectorDiv = container.parentElement;
+            const items = container.querySelectorAll('.collection-item');
+            items.forEach(item => {
+                if (item.style.display !== 'none') {
+                    item.querySelector('input[type="checkbox"]').checked = selectAllCb.checked;
+                }
+            });
+            updateCollectionSelection(selectorDiv);
+        };
+    }
+
     // Initial count update
     updateCollectionSelection(container.parentElement);
 
@@ -224,8 +239,9 @@ function updateCollectionSelection(selectorDiv) {
     const row = selectorDiv.closest('.detail-row') || document;
     const hiddenInput = row.querySelector('input[data-field="SELECTED_DONATIONS"]');
 
-    const countSpan = selectorDiv.querySelector('.selected-count');
-    const eventsSpan = selectorDiv.querySelector('.selected-events-count');
+    const formGroup = selectorDiv.closest('.form-group') || selectorDiv;
+    const countSpan = formGroup.querySelector('.selected-count');
+    const eventsSpan = formGroup.querySelector('.selected-events-count');
 
     const checked = container.querySelectorAll('input[type="checkbox"]:checked');
     const values = Array.from(checked).map(c => c.value);
@@ -244,6 +260,15 @@ function updateCollectionSelection(selectorDiv) {
 
     if (hiddenInput && hiddenInput.dataset.field === 'SELECTED_DONATIONS') {
         hiddenInput.value = JSON.stringify(values);
+    }
+
+    // Sync select-all checkbox state
+    const selectAllCb = container.querySelector('.select-all-collections');
+    if (selectAllCb) {
+        const visibleItems = container.querySelectorAll('.collection-item:not([style*="display: none"])');
+        const visibleChecked = Array.from(visibleItems).filter(item => item.querySelector('input[type="checkbox"]').checked);
+        selectAllCb.checked = visibleItems.length > 0 && visibleChecked.length === visibleItems.length;
+        selectAllCb.indeterminate = visibleChecked.length > 0 && visibleChecked.length < visibleItems.length;
     }
 }
 
@@ -485,9 +510,37 @@ function populateForm(row, study) {
             }
         }
         else {
-            input.value = value !== undefined ? value : '';
+            const samplingDefaults = {
+                'MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP': 10,
+                'MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP': 100,
+                'MIN_GROUP_COUNT_REQUIRED_PER_DONATION': 10,
+                'MAX_GROUP_COUNT_SELECTED_PER_DONATION': 100
+            };
+            if (value !== undefined && value !== null && value !== '') {
+                input.value = value;
+            } else {
+                input.value = samplingDefaults[field] ?? '';
+            }
         }
     });
+
+    // Auto-expand the Advanced sampling section if any value differs from defaults
+    const advancedDefaults = {
+        'MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP': 10,
+        'MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP': 100,
+        'MIN_GROUP_COUNT_REQUIRED_PER_DONATION': 10,
+        'MAX_GROUP_COUNT_SELECTED_PER_DONATION': 100
+    };
+    const hasCustomSampling = Object.entries(advancedDefaults).some(([key, def]) => {
+        const val = study[key];
+        return val !== undefined && val !== null && val !== '' && Number(val) !== def;
+    });
+    const advancedToggle = row.querySelector('.sampling-advanced-toggle');
+    const advancedBody = row.querySelector('.sampling-advanced-body');
+    if (hasCustomSampling && advancedToggle && advancedBody) {
+        advancedBody.style.display = 'block';
+        advancedToggle.textContent = '▼ Advanced';
+    }
 
     // 2. Checkbox Groups (USER_ACCESS)
     const groups = row.querySelectorAll('[data-field-group]');
@@ -505,20 +558,22 @@ function populateForm(row, study) {
             const rolesToRender = systemRoles.length > 0 ? systemRoles : ['admin', 'researcher', 'viewer'];
 
             rolesToRender.forEach(role => {
-                const label = document.createElement('label');
-                label.style.display = 'block';
-                label.style.marginBottom = '5px';
+                const item = document.createElement('div');
+                item.style.display = 'flex';
+                item.style.alignItems = 'center';
+                item.style.padding = '1px 0';
 
                 const cb = document.createElement('input');
                 cb.type = 'checkbox';
                 cb.value = role;
+                cb.style.marginRight = '5px';
 
                 // Admin logic
                 if (role === 'admin') {
                     cb.checked = true;
                     cb.disabled = true;
-                    label.style.opacity = '0.6';
-                    label.title = "Admin access is mandatory";
+                    item.style.opacity = '0.6';
+                    item.title = "Admin access is mandatory";
                 } else {
                     if (currentList.includes('all')) {
                         cb.checked = true;
@@ -527,9 +582,13 @@ function populateForm(row, study) {
                     }
                 }
 
-                label.appendChild(cb);
-                label.appendChild(document.createTextNode(" " + role.charAt(0).toUpperCase() + role.slice(1)));
-                container.appendChild(label);
+                const span = document.createElement('span');
+                span.classList.add('text-sm');
+                span.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+
+                item.appendChild(cb);
+                item.appendChild(span);
+                container.appendChild(item);
             });
         }
     });
@@ -757,7 +816,7 @@ window.updateStudyEstimates = function (btn, event) {
                     const stats = data.stats;
 
                     // Update specific elements in THIS row (not re-rendering whole table)
-                    const container = btn.parentElement;
+                    const container = btn.closest('.form-group') || btn.closest('.detail-row');
                     const uniqueVids = container.querySelector('.stat-unique-vids');
                     const scrapedVids = container.querySelector('.stat-scraped-vids');
                     const annotatedVids = container.querySelector('.stat-annotated-vids');
@@ -1578,6 +1637,39 @@ function renderEditActivityTable(container) {
         }
     }
 }
+
+window.refreshCollectionMetadata = function (btn) {
+    const origText = btn.textContent;
+    btn.textContent = 'Refreshing...';
+    btn.disabled = true;
+
+    fetch('/api/manage/refresh-collection-metadata', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken }
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                btn.textContent = 'Done!';
+                setTimeout(() => {
+                    btn.textContent = origText;
+                    btn.disabled = false;
+                }, 2000);
+                // Reload collections list to reflect updated metadata
+                loadAvailableCollections();
+            } else {
+                alert('Error: ' + (data.error || 'Unknown error'));
+                btn.textContent = origText;
+                btn.disabled = false;
+            }
+        })
+        .catch(err => {
+            alert('Request failed: ' + err);
+            btn.textContent = origText;
+            btn.disabled = false;
+        });
+}
+
 
 function filterEditActivityCollections(inputElement) {
     const searchText = inputElement.value.toLowerCase();

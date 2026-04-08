@@ -562,7 +562,10 @@ def get_enrichment_stats():
     
     ddp_metadata = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet")
     if ddp_metadata is not None and not ddp_metadata.empty:
-        unique_collections = int(ddp_metadata[ddp_metadata[('other','accepted')]].index.nunique())
+        if ('other', 'accepted') in ddp_metadata.columns:
+            unique_collections = int(ddp_metadata[ddp_metadata[('other','accepted')]].index.nunique())
+        else:
+            unique_collections = int(ddp_metadata.index.nunique())
         
     
     # 2. Get Queue Lengths
@@ -1124,6 +1127,59 @@ def upload_ingestion_file():
     except Exception as e:
         print(f"Error uploading file: {e}")
         return jsonify({"error": str(e)}), 500
+
+@management_bp.route('/api/manage/refresh-collection-metadata', methods=['POST'])
+@login_required
+def refresh_collection_metadata():
+    """Regenerate ddp_metadata.parquet from scratch using all events."""
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    try:
+        from fyp.donations import generate_collection_metadata
+
+        # Preserve columns that are set outside generate_collection_metadata
+        # (e.g. ('other','accepted') is set during ingestion, not during metadata generation)
+        old_metadata = None
+        if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
+            old_metadata = data_io.load_parquet(
+                storage_location="recoded",
+                filename="ddp_metadata.parquet",
+                verbose=False)
+
+        events_df = data_io.load_parquet(
+            storage_location="recoded",
+            filename="collections_recoded.parquet",
+            verbose=False)
+        if events_df is None or events_df.empty:
+            return jsonify({"error": "No events data found"}), 404
+
+        result = generate_collection_metadata(
+            collections_df=events_df,
+            load_from_disk=False,
+            verbose=True)
+
+        # Restore preserved columns from old metadata
+        if old_metadata is not None and not old_metadata.empty:
+            preserved_cols = [c for c in old_metadata.columns if c not in result.columns]
+            if preserved_cols:
+                result = pd.merge(result, old_metadata[preserved_cols],
+                                  left_index=True, right_index=True, how='left')
+                # Save the merged result
+                data_io.save_parquet(df=result, storage_location="recoded",
+                                    filename="ddp_metadata.parquet", verbose=True)
+
+        return jsonify({
+            "status": "success",
+            "message": f"Metadata regenerated for {len(result)} collections."
+        })
+    except Exception as e:
+        print(f"Error refreshing collection metadata: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 
 @management_bp.route('/api/manage/ingestion/refresh', methods=['POST'])
 @login_required

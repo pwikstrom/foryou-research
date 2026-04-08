@@ -95,15 +95,14 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     #df['date'] = pd.to_datetime(df['date'], utc=True)
     #df = df.sort_values('date')
 
-    # 2. Filter: Start from first 'play' event
-    # Only events after (or including) the first play event are considered relevant
-    play_events = df[df['activity_type'] == 'play']
-    if not play_events.empty:
-        first_play_ts = play_events['local_timestamp'].iloc[0]
-        df = df[df['local_timestamp'] >= first_play_ts]
+    # 2. Filter: Start from first 'play' or 'observe' event (whichever is earliest)
+    # Only events after (or including) that first event are considered relevant
+    viewing_events = df[df['activity_type'].isin(['play', 'observe'])]
+    if not viewing_events.empty:
+        first_viewing_ts = viewing_events['local_timestamp'].min()
+        df = df[df['local_timestamp'] >= first_viewing_ts]
     else:
-        # If no play events, arguably no valid stats?
-        # Let's return empty if no play events found.
+        # No play or observe events — no valid stats
         return {}
 
     if df.empty:
@@ -112,22 +111,22 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
 
     # 3. Infer Timezone
     #tz_offset = infer_timezone_offset(df['date'])
-    
+
     # Create Local Time column
     #df['local_date'] = df['date'] + pd.Timedelta(hours=tz_offset)
     #df['local_hour'] = df['local_date'].dt.hour
-    
-    # 4. Basic Activity Stats
-    total_events = len(df)
+
+    # 4. Basic Activity Stats — count only play and observe events
+    total_events = len(df[df['activity_type'].isin(['play', 'observe'])])
     first_date = df['local_timestamp'].min()
     last_date = df['local_timestamp'].max()
     active_days = df['local_timestamp'].dt.date.nunique()
     lifespan_days = (last_date - first_date).days + 1
     events_per_day = total_events / max(1, active_days)
     
-    # 5. Video Consumption (Play Events)
-    # Using 'play' feature and 'secondary_value' (duration)
-    play_df = df[df['activity_type'] == 'play'].copy()
+    # 5. Video Consumption (Play + Observe Events)
+    # 'observe' activities are treated as equivalent to 'play' for stats purposes
+    play_df = df[df['activity_type'].isin(['play', 'observe'])].copy()
     #play_df['duration'] = pd.to_numeric(play_df['secondary_value'], errors='coerce')
     
     # Filter insane durations (> 1 hour?) or keep all? 
@@ -170,17 +169,17 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     
     # 7. Engagement Rates
     # Comments
-    #comments_df = df[df['activity_type'] == 'comment']
-    #num_comments = len(comments_df)
+    comments_df = df[df['activity_type'] == 'comment']
+    num_comments = len(comments_df)
 
     # Likes
     # Mapped from 'ItemFavoriteList' in s.py -> 'fave_item'
-    #likes_df = df[df['activity_type'].isin(['like', 'fave_item'])]
-    #num_likes = len(likes_df)
-    
+    likes_df = df[df['activity_type'].isin(['like', 'fave_item', 'fave'])]
+    num_likes = len(likes_df)
+
     # Posts
-    #posts_df = df[df['activity_type'] == 'post']
-    #num_posts = len(posts_df)
+    posts_df = df[df['activity_type'] == 'post']
+    num_posts = len(posts_df)
     
     # Emojis in comments
     #comment_texts = comments_df['extra_data'].tolist()
@@ -283,8 +282,8 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     # 10. Advanced Persona Stats (Expressiveness, etc.)
     # Videos per day (using lifespan)
     videos_per_day = len(play_df) / max(1, active_days)
-    #comments_per_day = num_comments / max(1, active_days)
-    #likes_per_day = num_likes / max(1, active_days)
+    comments_per_day = num_comments / max(1, active_days)
+    likes_per_day = num_likes / max(1, active_days)
     
     # Chattiness (Expressiveness)
     # Capped at 1.0

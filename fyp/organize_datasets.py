@@ -1,5 +1,6 @@
 
 import re
+import numpy as np
 import pandas as pd
 import datetime as _dt
 from copy import deepcopy
@@ -206,24 +207,26 @@ def load_collection_data(
 # ============================================================================
 
 
-def simple_sample_ddp_events(
+def simple_sample_collection_events(
     study_name: str = None,
     all_collections_df: pd.DataFrame = None,
     verbose: bool = False
     ) -> pd.DataFrame:
     """Sample activity events using study-defined grouping factors and thresholds.
 
-    Separates watch/non-watch events, applies group-size and group-count filters with
+    Separates play/non-play events, applies group-size and group-count filters with
     sampling, then recombines.
     """
 
-    def _filter_and_sample(df, group_cols, x_threshold, y_samples):
+    def _filter_and_sample(df: pd.DataFrame, group_cols: list[str],
+                           x_threshold: int, y_samples: int,
+                           rng: np.random.RandomState) -> pd.DataFrame:
         """Filters aggregation groups by size and samples rows."""
         group_sizes = df.groupby(group_cols)[group_cols[0]].transform('size')
         df_filtered = df[group_sizes >= x_threshold]
 
         sampled_indices = df_filtered.groupby(group_cols, group_keys=False).apply(
-            lambda g: g.sample(n=min(len(g), y_samples), random_state=42),
+            lambda g: g.sample(n=min(len(g), y_samples), random_state=rng),
             include_groups=False
         )
         result = df_filtered.loc[sampled_indices.index]
@@ -233,6 +236,7 @@ def simple_sample_ddp_events(
     if all_collections_df is None:
         raise ValueError("[Sampling] all_collections_df cannot be None")
 
+    rng = np.random.RandomState(42)
     the_df = all_collections_df.copy()
 
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
@@ -262,74 +266,67 @@ def simple_sample_ddp_events(
     MAX_GROUP_COUNT_SELECTED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_SELECTED_PER_DONATION",100)
 
 
-    # Separate watch and non-watch events
-    all_watch_events_df = the_df[the_df[event_type_column]=="watch"].copy()
-    all_nonwatch_events_df = the_df[the_df[event_type_column]!="watch"].copy()
-    sample_frame_size = len(all_watch_events_df)
+    # Separate play and non-play events
+    all_play_events_df = the_df[the_df[event_type_column]=="play"].copy()
+    all_nonplay_events_df = the_df[the_df[event_type_column]!="play"].copy()
+    sample_frame_size = len(all_play_events_df)
 
     if verbose:
-        print(f"    [Sampling] Watch events: {len(all_watch_events_df):,}  |  Non-watch events: {len(all_nonwatch_events_df):,}")
+        print(f"    [Sampling] Play events: {len(all_play_events_df):,}  |  Non-play events: {len(all_nonplay_events_df):,}")
 
 
     if verbose:
         print(f"    [Sampling] Dropping aggregation groups with less than {MIN_EVENTS_REQUIRED} events")
         print(f"    [Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment...")
     # select agg groups with the required number of events
-    ddp_watch_events_within_agg_group_size_limits = _filter_and_sample(all_watch_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED)
+    play_events_within_agg_group_size_limits = _filter_and_sample(all_play_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED, rng)
     if verbose:
-        sample_size = len(ddp_watch_events_within_agg_group_size_limits)
+        sample_size = len(play_events_within_agg_group_size_limits)
         if sample_frame_size > 0:
-            print(f"    [Sampling] Watch events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            print(f"    [Sampling] Play events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     # build a df with unique pairs of the two group factors
-    unique_group_factor_pairs = ddp_watch_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
+    unique_group_factor_pairs = play_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
 
     if verbose:
         print(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_DONATION} aggregation groups within the limits")
         print(f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_DONATION} aggregation groups from each remaining collection. This might take a moment...")
     # select collections with a required number of groups
-    collections_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION)
+    collections_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION, rng)
     if verbose:
         print(f"    [Sampling] Aggregation groups remaining after sampling: {len(collections_within_group_count_limits):,}")
 
+    selected_pairs_index = collections_within_group_count_limits.set_index(grouping_factors).index
 
     # ----------------------------------------------------------------------
-    # find the watch events in the selected groups
-    # 1. start with the events in the agg groups that meet the group size requirements and set the index to the group factors
-    ddp_watch_events_in_candidate_groups = ddp_watch_events_within_agg_group_size_limits.set_index(grouping_factors)
+    # find the play events in the selected groups
+    play_events_in_candidate_groups = play_events_within_agg_group_size_limits.set_index(grouping_factors)
 
-    # 2. select the events in the groups that meet the group count requirements
-    ddp_watch_events_in_selected_groups = ddp_watch_events_in_candidate_groups.loc[collections_within_group_count_limits.set_index(grouping_factors).index]
-    ddp_watch_events_in_selected_groups = ddp_watch_events_in_selected_groups.reset_index()
+    # use isin() boolean mask instead of .loc[MultiIndex] to avoid potential reindexing
+    play_events_in_selected_groups = play_events_in_candidate_groups[
+        play_events_in_candidate_groups.index.isin(selected_pairs_index)
+    ].reset_index()
     if verbose:
-        sample_size = len(ddp_watch_events_in_selected_groups)
+        sample_size = len(play_events_in_selected_groups)
         if sample_frame_size > 0:
-            print(f"    [Sampling] Watch events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            print(f"    [Sampling] Play events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     # ----------------------------------------------------------------------
-    # find the non-watch events in the selected groups - note that since the non-watch events are not
-    # sampled, there is a disproportional number of non-watch events in the sampled dataset compared
-    # to the number of watch events
-    # 1. find all unique group factor pairs for the non-watch events
-    unique_group_factor_pairs_for_nonwatch_events = all_nonwatch_events_df[grouping_factors].drop_duplicates()
-
-    # 2. find the non-watch groups that are in the selected groups. This is necessary since there are some non-watch
-    # groups that don't have any watch events, and I don't want these included in the sample
-    nonwatch_groups = set(unique_group_factor_pairs_for_nonwatch_events.set_index(grouping_factors).index)
-    selected_watch_groups = set(collections_within_group_count_limits.set_index(grouping_factors).index)
-    selected_nonwatch_groups = list(nonwatch_groups & selected_watch_groups)
-
-    selected_nonwatch_groups = pd.DataFrame(selected_nonwatch_groups, columns=grouping_factors)
-    selected_nonwatch_groups = selected_nonwatch_groups.convert_dtypes(dtype_backend="pyarrow").set_index(grouping_factors).index
-
-    mask = all_nonwatch_events_df.set_index(grouping_factors).index.isin(selected_nonwatch_groups)
-    ddp_nonwatch_events_in_selected_groups = all_nonwatch_events_df[mask]
+    # find the non-play events in the selected groups - note that since the non-play events are not
+    # sampled, there is a disproportional number of non-play events in the sampled dataset compared
+    # to the number of play events.
+    # only include non-play events from groups that also have play events in the sample
+    nonplay_mask = all_nonplay_events_df.set_index(grouping_factors).index.isin(selected_pairs_index)
+    nonplay_events_in_selected_groups = all_nonplay_events_df[nonplay_mask]
     if verbose:
-        print(f"    [Sampling] Non-Watch events remaining in the selected aggregation groups: {len(ddp_nonwatch_events_in_selected_groups):,} (100% of original)")
+        nonplay_total = len(all_nonplay_events_df)
+        nonplay_selected = len(nonplay_events_in_selected_groups)
+        pct = f"{nonplay_selected/nonplay_total:.0%}" if nonplay_total > 0 else "N/A"
+        print(f"    [Sampling] Non-play events remaining in the selected aggregation groups: {nonplay_selected:,} ({pct} of original)")
 
-    combined = pd.concat([ddp_watch_events_in_selected_groups, ddp_nonwatch_events_in_selected_groups])
+    combined = pd.concat([play_events_in_selected_groups, nonplay_events_in_selected_groups])
     if verbose:
-        print(f"    [Sampling] Combining the (not sampled) non-watch events with the sampled watch events with : {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+        print(f"    [Sampling] Combining the (not sampled) non-play events with the sampled play events: {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     combined.drop("D_id", axis=1, inplace=True, errors='ignore')
 
 
@@ -451,7 +448,7 @@ def load_study_datasets(
         print(f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} collection events that are annotated as sample frame.")
 
     if sample_frame is not None:
-        tutti_data["collections"] = simple_sample_ddp_events(
+        tutti_data["collections"] = simple_sample_collection_events(
             study_name=study_name, all_collections_df=sample_frame, verbose=verbose)
 
     if tutti_data.get("collections", pd.DataFrame()).empty:

@@ -174,7 +174,7 @@
                         <div class="form-group-row" style="align-items: flex-start; flex-direction: column;">
                             <label class="meta-tooltip" data-tooltip="Control which user roles can access this study" style="margin-bottom: 8px;">User Access</label>
                             <div class="checkbox-group" data-field-group="USER_ACCESS"
-                                style="text-align: left; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
+                                style="text-align: left; max-height: 150px; overflow-y: auto; background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 8px; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
                                 <div class="dynamic-roles-container">Loading roles...</div>
                             </div>
                         </div>
@@ -195,72 +195,67 @@
                         </div>
 
                         <div id="sampling-options-container">
-                            <div class="form-group-row">
-                                <label class="meta-tooltip"
-                                    data-tooltip="Groups with fewer than this number of events are excluded (default: 10)">Min Event Count</label>
-                                <input type="number" data-field="MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP"
-                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                            </div>
-                            <div class="form-group-row">
-                                <label class="meta-tooltip"
-                                    data-tooltip="Groups with more than this number of events are downsampled (default: 100)">Max Event Count</label>
-                                <input type="number" data-field="MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP"
-                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                            </div>
-                            <div class="form-group-row">
-                                <label class="meta-tooltip"
-                                    data-tooltip="Collections with fewer than this number of accepted groups are excluded (default: 10)">Min Group Count</label>
-                                <input type="number" data-field="MIN_GROUP_COUNT_REQUIRED_PER_DONATION"
-                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                            </div>
-                            <div class="form-group-row">
-                                <label class="meta-tooltip"
-                                    data-tooltip="Collections with more than this number of accepted groups are downsampled (default: 100)">Max Group Count</label>
-                                <input type="number" data-field="MAX_GROUP_COUNT_SELECTED_PER_DONATION"
-                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                            <a href="#" class="sampling-advanced-toggle text-xs" style="color: var(--color-text-secondary); text-decoration: none;"
+                                onclick="event.preventDefault(); const body = this.nextElementSibling; const open = body.style.display !== 'none'; body.style.display = open ? 'none' : 'block'; this.textContent = open ? '▶ Advanced' : '▼ Advanced';">▶ Advanced</a>
+                            <div class="sampling-advanced-body" style="display: none;">
+                                <div class="form-group-row">
+                                    <label class="meta-tooltip"
+                                        data-tooltip="Groups with fewer than this number of events are excluded (default: 10)">Min Event Count</label>
+                                    <input type="number" data-field="MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP"
+                                        class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                                </div>
+                                <div class="form-group-row">
+                                    <label class="meta-tooltip"
+                                        data-tooltip="Groups with more than this number of events are downsampled (default: 100)">Max Event Count</label>
+                                    <input type="number" data-field="MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP"
+                                        class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                                </div>
+                                <div class="form-group-row">
+                                    <label class="meta-tooltip"
+                                        data-tooltip="Collections with fewer than this number of accepted groups are excluded (default: 10)">Min Group Count</label>
+                                    <input type="number" data-field="MIN_GROUP_COUNT_REQUIRED_PER_DONATION"
+                                        class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                                </div>
+                                <div class="form-group-row">
+                                    <label class="meta-tooltip"
+                                        data-tooltip="Collections with more than this number of accepted groups are downsampled (default: 100)">Max Group Count</label>
+                                    <input type="number" data-field="MAX_GROUP_COUNT_SELECTED_PER_DONATION"
+                                        class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
                 {% if current_user.is_admin() %}
                 <div class="form-group" style="margin-top: 20px;">
-                    <label class="meta-tooltip" data-tooltip="List of specific collection IDs to include. Leave empty for all."
-                        style="display: block; margin-bottom: 8px;">Selected Collections</label>
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap;">
+                        <label class="meta-tooltip" data-tooltip="List of specific collection IDs to include. Leave empty for all."
+                            style="margin: 0;">Selected Collections</label>
+                        <div class="text-sm"
+                            style="display: flex; gap: 12px; color: var(--color-text-secondary); align-items: center; flex-wrap: wrap;">
+                            <span>Collections: <strong class="selected-count">0</strong></span>
+                            <span>Events: <strong class="selected-events-count">0</strong></span>
+                            <input type="hidden" data-field="stats" value="{}">
+                            <span>Unique vids: <strong class="stat-unique-vids"
+                                    style="color: var(--color-text-primary);">-</strong></span>
+                            <span>Scraped: <strong class="stat-scraped-vids"
+                                    style="color: var(--color-text-primary);">-</strong></span>
+                            <span>Annotated: <strong class="stat-annotated-vids"
+                                    style="color: var(--color-text-primary);">-</strong></span>
+                        </div>
+                        <div style="margin-left: auto;">
+                            <button type="button" class="text-xs" onclick="updateStudyEstimates(this, event)"
+                                style="padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
+                                {% if not current_user.is_admin() %}disabled{% endif %}>Update Estimates</button>
+                        </div>
+                    </div>
 
                     <div class="collection-selector" style="border: 1px solid var(--color-border-strong); padding: 10px; background: var(--color-border);">
-                        <div
-                            style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; justify-content: space-between;">
+                        <div style="margin-bottom: 10px;">
                             <input type="text" placeholder="Search collections by ID or metadata..."
                                 class="control-input collection-search-input" style="width: 300px;"
                                 onkeyup="filterCollections(this)" {% if not current_user.is_admin() %}disabled{% endif
                                 %}>
-                            <div class="text-sm"
-                                style="display: flex; gap: 15px; flex: 1; margin-left: 10px; color: var(--color-text-secondary); align-items: center; flex-wrap: wrap;">
-                                <span>Collections: <strong class="selected-count">0</strong></span>
-                                <span>Events: <strong class="selected-events-count">0</strong></span>
-                                <div
-                                    style="display: flex; gap: 15px; align-items: center; border-left: 1px solid var(--color-border-strong); padding-left: 15px;">
-                                    <input type="hidden" data-field="stats" value="{}">
-                                    <button type="button" class="text-xs" onclick="updateStudyEstimates(this, event)"
-                                        style="padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
-                                        {% if not current_user.is_admin() %}disabled{% endif %}>Update
-                                        Estimates</button>
-                                    <span>Filtered/sampled Unique vids: <strong class="stat-unique-vids"
-                                            style="color: var(--color-text-primary);">-</strong></span>
-                                    <span>Scraped: <strong class="stat-scraped-vids"
-                                            style="color: var(--color-text-primary);">-</strong></span>
-                                    <span>Annotated: <strong class="stat-annotated-vids"
-                                            style="color: var(--color-text-primary);">-</strong></span>
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: 5px;">
-                                <button type="button" onclick="selectAllCollections(this, true)"
-                                    style="padding: 5px 10px;" {% if not current_user.is_admin() %}disabled{% endif
-                                    %}>All</button>
-                                <button type="button" onclick="selectAllCollections(this, false)"
-                                    style="padding: 5px 10px;" {% if not current_user.is_admin() %}disabled{% endif
-                                    %}>None</button>
-                            </div>
                         </div>
                         <div class="collection-checklist-container"
                             style="max-height: 200px; overflow-y: auto; text-align: left; background: var(--color-bg-elevated); padding: 5px; border: 1px solid var(--color-border-strong);">
