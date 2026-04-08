@@ -10,15 +10,12 @@
             <div style="background: var(--color-bg-inset); padding: 15px; border-radius: 6px; border: 1px solid var(--color-border);">
                 <p style="margin: 0 0 10px 0;"><strong>Username:</strong> {{ user.username }}</p>
                 <p style="margin: 0 0 10px 0;"><strong>Role:</strong> {{ user.role }}</p>
-                {% if user.is_admin() %}
-                <span class="badge text-xs"
-                    style="background: var(--color-purple); color: var(--color-text-on-accent); padding: 2px 6px; border-radius: 4px;">Admin
-                    Access</span>
-                {% endif %}
+                <a href="/logout" class="text-sm">Logout</a>
             </div>
         </div>
 
-        <!-- Slack Widget -->
+        <!-- Slack Widget (only shown when Slack integration is configured) -->
+        {% if slack_configured %}
         <div class="widget-box" style="flex: 1;">
             <h3>Latest Updates</h3>
             <div class="slack-updates">
@@ -35,6 +32,7 @@
                 {% endif %}
             </div>
         </div>
+        {% endif %}
     </div>
 
     <!-- RIGHT PANEL: Content (Scrollable) -->

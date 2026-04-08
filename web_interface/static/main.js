@@ -164,7 +164,7 @@ async function loadAndRenderUserTags() {
             const chip = document.createElement('div');
             chip.style.cssText = `
                 background: var(--color-border-subtle);
-                color: var(--color-text-on-accent);
+                color: var(--color-text-primary);
                 border: 1px solid var(--color-border-strong);
                 padding: 4px 10px;
                 border-radius: 12px;

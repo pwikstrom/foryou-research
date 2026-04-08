@@ -3,15 +3,13 @@
 {% block content %}
 <!-- Auth Header -->
 <div class="auth-header">
-    <div>
+    <a onclick="openTab(event, 'home')" style="cursor: pointer; text-decoration: none; color: inherit;">
         <strong>For You Data Hub</strong>
-    </div>
+    </a>
 </div>
 
 <!-- Tab Navigation -->
 <div class="tab-nav">
-    <button class="tab-button active" onclick="openTab(event, 'home')">Home</button>
-
     <button class="tab-button" onclick="openTab(event, 'explore')">Explore</button>
     <button class="tab-button" onclick="openTab(event, 'timelines')">Timelines</button>
     <button class="tab-button" onclick="openTab(event, 'video_analysis')">Video Analysis</button>

@@ -81,8 +81,9 @@ app.register_blueprint(management_bp)
 @app.route('/')
 @login_required
 def index():
-    slack_messages = get_recent_messages()
-    return render_template('index.html', user=current_user, slack_messages=slack_messages, content=HOME_CONTENT)
+    slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
+    slack_messages = get_recent_messages() if slack_configured else []
+    return render_template('index.html', user=current_user, slack_messages=slack_messages, slack_configured=slack_configured, content=HOME_CONTENT)
 
 
 if __name__ == '__main__':
