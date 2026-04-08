@@ -1,0 +1,86 @@
+<!-- Refresh Caches sub-page -->
+<h2 style="margin: 0 0 16px 0;">Refresh Cached Data</h2>
+
+<div style="display: flex; gap: 20px; flex-wrap: wrap;">
+
+    <!-- 1. Video Analysis Metadata -->
+    <div
+        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
+        <div class="font-bold" style="margin-bottom: 10px;">Video Analysis Metadata</div>
+        <div class="controls"
+            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <span id="meta_refresh_viewer-status" class="status-indicator status-stopped"></span>
+            <button id="meta_refresh_viewer-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('meta_refresh_viewer')" style="padding: 4px 12px;">Refresh</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="meta_refresh_viewer-bar"></div>
+            <div class="progress-text" id="meta_refresh_viewer-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="meta_refresh_viewer-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <a class="text-xs view-log-link" onclick="openLogModal('meta_refresh_viewer', 'Video Analysis Metadata')">View Log</a>
+        </div>
+    </div>
+
+    <!-- 2. Group Comparisons Metadata -->
+    <div
+        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
+        <div class="font-bold" style="margin-bottom: 10px;">'Explore' Metadata</div>
+        <div class="controls"
+            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <span id="meta_refresh_groups-status" class="status-indicator status-stopped"></span>
+            <button id="meta_refresh_groups-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('meta_refresh_groups')" style="padding: 4px 12px;">Refresh</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="meta_refresh_groups-bar"></div>
+            <div class="progress-text" id="meta_refresh_groups-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="meta_refresh_groups-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <a class="text-xs view-log-link" onclick="openLogModal('meta_refresh_groups', 'Explore Metadata')">View Log</a>
+        </div>
+    </div>
+
+    <!-- 3. Timelines -->
+    <div
+        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
+        <div class="font-bold" style="margin-bottom: 10px;">Timelines</div>
+        <div class="controls"
+            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <span id="timelines_refresh-status" class="status-indicator status-stopped"></span>
+            <button id="timelines_refresh-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('timelines_refresh')" style="padding: 4px 12px;">Refresh</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="timelines_refresh-bar"></div>
+            <div class="progress-text" id="timelines_refresh-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="timelines_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <a class="text-xs view-log-link" onclick="openLogModal('timelines_refresh', 'Timelines')">View Log</a>
+        </div>
+    </div>
+
+    <!-- 4. Study Definitions -->
+    <div
+        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
+        <div class="font-bold" style="margin-bottom: 10px;">Study Definitions</div>
+        <div class="controls"
+            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <span id="recode_refresh_studies-status" class="status-indicator status-stopped"></span>
+            <button id="recode_refresh_studies-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('recode_refresh_studies')" style="padding: 4px 12px;">Refresh</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="recode_refresh_studies-bar"></div>
+            <div class="progress-text" id="recode_refresh_studies-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="recode_refresh_studies-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <a class="text-xs view-log-link" onclick="openLogModal('recode_refresh_studies', 'Study Definitions')">View Log</a>
+        </div>
+    </div>
+
+</div>

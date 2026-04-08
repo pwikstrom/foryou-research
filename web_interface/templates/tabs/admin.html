@@ -1,294 +1,76 @@
 <div id="admin" class="tab-pane">
-    <div style="height: 100%; overflow-y: auto; padding: 20px;">
-        <!-- General Section -->
-        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
-            <div onclick="toggleSection('general-content', 'general-arrow')"
-                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
-                <span id="general-arrow" class="text-sm"
-                    style="margin-right: 12px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
-                <h2 style="margin: 0;">General</h2>
-            </div>
-            <div id="general-content" style="padding: 0 20px 20px 20px;">
-                <div style="margin: 16px 0;">
-                    <button onclick="reloadVarSchema()" class="btn-discreet"
-                        style="padding: 6px 12px;">
-                        Reload variable schema
-                    </button>
-                </div>
-            </div>
+
+    <!-- Sidebar Navigation -->
+    <nav class="dm-sidebar">
+        <div class="dm-sidebar-item active" onclick="openAdminPage('admin-page-users', this)">
+            Users
+        </div>
+        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-roles', this)">
+            Roles
+        </div>
+        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-annotations', this)">
+            User Annotations
+        </div>
+        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-reliability', this)">
+            Inter-coder Reliability
+        </div>
+        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-general', this)">
+            General
+        </div>
+    </nav>
+
+    <!-- Content Area -->
+    <div class="dm-content">
+
+        <!-- Users (default) -->
+        <div id="admin-page-users" class="dm-page active">
+            {% include 'tabs/admin/users.html' %}
         </div>
 
-        <!-- Role Management Section -->
-        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
-            <div onclick="toggleSection('role-mgmt-content', 'role-mgmt-arrow')"
-                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
-                <span id="role-mgmt-arrow" class="text-sm"
-                    style="margin-right: 12px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
-                <h2 style="margin: 0;">Role Management</h2>
-            </div>
-            <div id="role-mgmt-content" style="padding: 0 20px 20px 20px;">
-                <div style="margin-bottom: 16px;">
-                    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
-                        <input type="text" id="newRoleName" placeholder="New Role Name"
-                            style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 200px; background: var(--color-bg-input); color: var(--color-text-primary);">
-                        <button onclick="addRole()" class="action-btn"
-                            style="padding: 8px 16px;">
-                            Add Role
-                        </button>
-                    </div>
-                </div>
-                <div id="roleList" style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <!-- Populated dynamically -->
-                    <div class="italic" style="color: var(--color-text-muted);">Loading roles...</div>
-                </div>
-            </div>
+        <!-- Roles -->
+        <div id="admin-page-roles" class="dm-page">
+            {% include 'tabs/admin/roles.html' %}
         </div>
 
-        <!-- User Administration Section -->
-        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
-            <div onclick="toggleSection('user-admin-content', 'user-admin-arrow')"
-                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
-                <span id="user-admin-arrow" class="text-sm"
-                    style="margin-right: 12px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
-                <h2 style="margin: 0;">User Administration</h2>
-            </div>
-
-            <div id="user-admin-content" style="padding: 0 20px 20px 20px;">
-                <div style="margin: 16px 0;">
-                    <button onclick="loadUsers()" class="btn-discreet"
-                        style="padding: 6px 12px;">
-                        ↻ Refresh List
-                    </button>
-                </div>
-
-                <!-- Pending Approvals Section -->
-                <div style="margin-bottom: 32px;">
-                    <h3 class="text-body" style="color: var(--color-warning); margin-bottom: 16px;">Pending Approvals</h3>
-                    <div id="pendingUserList"
-                        style="background: var(--color-bg-elevated); border: 1px solid var(--color-warning); border-radius: 6px; padding: 16px; margin-bottom: 16px;">
-                        <p class="italic" style="color: var(--color-warning);">Loading pending users...</p>
-                    </div>
-                </div>
-
-                <!-- Add User Section -->
-                <div
-                    style="background: var(--color-bg-primary); padding: 20px; border-radius: 8px; margin-bottom: 32px; border: 1px solid var(--color-border);">
-                    <h3 class="text-body" style="margin-top: 0; margin-bottom: 16px; color: var(--color-text-primary);">Add New User</h3>
-                    <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
-                        <div>
-                            <label class="text-sm font-medium"
-                                style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Username</label>
-                            <input type="text" id="newUsername"
-                                style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 200px; background: var(--color-bg-input); color: var(--color-text-primary);">
-                        </div>
-                        <div>
-                            <label class="text-sm font-medium"
-                                style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Password</label>
-                            <input type="password" id="newPassword"
-                                style="padding: 8px; width: 200px; background: var(--color-bg-input); border: 1px solid var(--color-border); color: var(--color-text-primary); border-radius: 3px;">
-                        </div>
-                        <div>
-                            <label class="text-sm font-medium"
-                                style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Role</label>
-                            <select id="newRole"
-                                style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 150px; background: var(--color-bg-input); color: var(--color-text-primary);">
-                                <!-- Populated dynamically -->
-                            </select>
-                        </div>
-                        <button onclick="addUser()" class="action-btn"
-                            style="padding: 9px 16px;">
-                            Add User
-                        </button>
-                    </div>
-                </div>
-
-                <!-- User List Section -->
-                <div>
-                    <h3 class="text-body" style="margin-bottom: 16px; color: var(--color-text-primary);">Active Users</h3>
-                    <div style="overflow-x: auto;">
-                        <table
-                            style="width: 100%; border-collapse: collapse; background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 8px;">
-                            <thead>
-                                <tr style="background: var(--color-bg-elevated);">
-                                    <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                        Username
-                                    </th>
-                                    <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                        Role
-                                    </th>
-                                    <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                        Videos
-                                    </th>
-                                    <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                        Notes
-                                    </th>
-                                    <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                        Closed
-                                    </th>
-                                    <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                        Open
-                                    </th>
-                                    <th
-                                        style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                        Last
-                                        Login</th>
-                                    <th
-                                        style="text-align: right; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                        Actions
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody id="userTableBody">
-                                <tr>
-                                    <td colspan="8" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Loading
-                                        users...
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+        <!-- User Annotations -->
+        <div id="admin-page-annotations" class="dm-page">
+            {% include 'tabs/admin/annotations.html' %}
         </div>
 
-        <!-- User Annotations Section -->
-        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
-            <div onclick="toggleSection('annotations-content', 'annotations-arrow')"
-                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
-                <span id="annotations-arrow" class="text-sm"
-                    style="margin-right: 12px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
-                <h2 style="margin: 0;">User Annotations</h2>
-            </div>
-
-            <div id="annotations-content" style="padding: 0 20px 20px 20px;">
-                <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
-                    <button onclick="loadAnnotations()" class="btn-discreet"
-                        style="padding: 6px 12px;">
-                        ↻ Refresh Annotations
-                    </button>
-                </div>
-
-                <div style="overflow-x: auto;">
-                    <table
-                        style="width: 100%; border-collapse: collapse; background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 8px;">
-                        <thead>
-                            <tr style="background: var(--color-bg-elevated);">
-                                <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                    Item ID
-                                </th>
-                                <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                    Unique
-                                    Users</th>
-                                <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                    Total
-                                    Notes</th>
-                                <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                    Total
-                                    Closed</th>
-                                <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                    Total
-                                    Open</th>
-                                <th
-                                    style="text-align: right; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                    Actions
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody id="annotationsTableBody">
-                            <tr>
-                                <td colspan="6" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Click Refresh to
-                                    load annotations.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+        <!-- Inter-coder Reliability -->
+        <div id="admin-page-reliability" class="dm-page">
+            {% include 'tabs/admin/reliability.html' %}
         </div>
 
-        <!-- Inter-coder Reliability Section -->
-        <div style="background: var(--color-bg-surface); border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
-            <div onclick="toggleSection('reliability-content', 'reliability-arrow')"
-                style="padding: 20px; cursor: pointer; display: flex; align-items: center; user-select: none;">
-                <span id="reliability-arrow" class="text-sm"
-                    style="margin-right: 12px; color: var(--color-text-primary); transition: transform 0.2s;">▼</span>
-                <h2 style="margin: 0;">Inter-coder Reliability</h2>
-            </div>
-
-            <div id="reliability-content" style="padding: 0 20px 20px 20px;">
-                <p class="text-xs" style="color: var(--color-text-secondary); margin-bottom: 16px;">
-                    Calculate percent agreement and Cohen's Kappa for closed tags between each user and the consensus
-                    (most
-                    common tag).
-                </p>
-
-                <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 16px;">
-                    <button onclick="calculateReliability()" class="btn-discreet"
-                        style="padding: 6px 12px;">
-                        Calculate Reliability
-                    </button>
-                </div>
-
-                <div style="overflow-x: auto;">
-                    <table
-                        style="width: 100%; border-collapse: collapse; background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 8px;">
-                        <thead>
-                            <tr style="background: var(--color-bg-elevated);">
-                                <th
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
-                                    Variable</th>
-                                <th title="The average percentage of items where the user's tag matched the consensus (mode)."
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
-                                    Avg Agreement %</th>
-                                <th title="The average Cohen's Kappa score across users, measuring agreement adjusted for chance."
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
-                                    Avg Kappa</th>
-                                <th title="The number of users who have contributed tags for this variable."
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
-                                    N Raters</th>
-                                <th title="The average number of videos coded by each user for this variable."
-                                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
-                                    Avg Items</th>
-                            </tr>
-                        </thead>
-                        <tbody id="reliabilityTableBody">
-                            <tr>
-                                <td colspan="5" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Click Calculate
-                                    to
-                                    generate stats.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+        <!-- General -->
+        <div id="admin-page-general" class="dm-page">
+            {% include 'tabs/admin/general.html' %}
         </div>
+
     </div>
 </div>
 
 <script>
-    function toggleSection(contentId, arrowId) {
-        const content = document.getElementById(contentId);
-        const arrow = document.getElementById(arrowId);
-        if (!content || !arrow) return;
+    function openAdminPage(pageId, clickedItem) {
+        // Hide all pages
+        document.querySelectorAll('#admin .dm-page').forEach(page => {
+            page.classList.remove('active');
+        });
 
-        if (content.style.display === 'none') {
-            content.style.display = 'block';
-            arrow.innerHTML = '▼'; // Down arrow
-            arrow.style.transform = 'rotate(0deg)';
-        } else {
-            content.style.display = 'none';
-            arrow.innerHTML = '▶'; // Right arrow
-            arrow.style.transform = 'rotate(0deg)'; // Optional: could just swap char
+        // Deactivate all sidebar items
+        document.querySelectorAll('#admin .dm-sidebar-item').forEach(item => {
+            item.classList.remove('active');
+        });
+
+        // Show selected page
+        const page = document.getElementById(pageId);
+        if (page) {
+            page.classList.add('active');
+        }
+
+        // Activate clicked sidebar item
+        if (clickedItem) {
+            clickedItem.classList.add('active');
         }
     }
 
@@ -461,8 +243,6 @@
     }
 
     async function approveUser(username) {
-        // if (!confirm(`Approve user ${username}?`)) return;
-
         try {
             const response = await fetch('/api/admin/users', {
                 method: 'PUT',
@@ -668,7 +448,7 @@
             html += `
             <div style="border: 1px solid var(--color-border); background: var(--color-bg-primary); border-radius: 6px; padding: 12px;">
                 <h4 class="text-sm" style="margin-top: 0; margin-bottom: 8px; color: var(--color-text-heading); border-bottom: 1px solid var(--color-border); padding-bottom: 6px;">${data.label || variable}</h4>
-                
+
                 <div style="display: flex; flex-direction: column; gap: 8px;">
             `;
 
@@ -677,9 +457,6 @@
                 html += `<div><span class="text-xxs uppercase font-semibold" style="color: var(--color-text-muted);">Tags:</span> <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">`;
                 for (const [tag, users] of Object.entries(data.open)) {
                     const count = users.length;
-                    // We only want to show users on hover, but maybe duplicates in list if user tagged same thing twice? 
-                    // The backend logic appends username for every occurrence.
-                    // But let's assume unique users for display purposes or just show raw list.
                     const userList = users.join(', ');
                     html += `<span title="Used by: ${userList}" class="text-xs" style="background: var(--color-info); color: var(--color-text-primary); padding: 2px 8px; border-radius: 12px; cursor: help;">${tag} <span style="opacity: 0.7; font-size: 10px;">(${count})</span></span>`;
                 }

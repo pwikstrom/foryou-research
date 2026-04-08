@@ -10,25 +10,6 @@
         </div>
     </div>
 
-    <!-- Edit Activity Data Table -->
-    <div class="pe-edit-activity-section">
-        <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 15px;">
-            <h4 style="margin: 0;">Edit Activity Data</h4>
-            <input type="text" id="edit-activity-search" placeholder="Search collections..."
-                class="control-input text-sm"
-                style="width: 250px; padding: 6px 8px;"
-                onkeyup="filterEditActivityCollections(this)">
-            <button type="button" class="action-btn text-sm" id="edit-selected-collections-btn"
-                onclick="openEditSelectedCollections()" disabled>Edit</button>
-        </div>
-        <div class="edit-activity-selector" style="border: 1px solid var(--color-border-strong); background: var(--color-border); border-radius: 4px;">
-            <div id="edit-activity-list-container" class="edit-activity-checklist-container"
-                style="max-height: 250px; overflow-y: auto; overflow-x: auto; text-align: left; background: var(--color-bg-elevated); padding: 0;">
-                <div style="padding: 10px; color: var(--color-text-secondary);">Loading collections...</div>
-            </div>
-        </div>
-    </div>
-
     <div class="pe-container">
         <!-- Main Panel: Metric Strip Plots (full width) -->
         <div class="pe-main">
@@ -37,54 +18,6 @@
                 <p class="helper-text">Each dot represents a collection. Click any dot to select it. The selected collection is highlighted in red.</p>
                 <div id="pe-strips-container" class="strips-container">
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Edit Collection Modal -->
-    <div id="editCollectionModal" class="modal"
-        style="display:none;">
-        <div class="modal-content"
-            style="width: 50%;">
-            <span class="close" onclick="closeEditCollectionModal()">&times;</span>
-            <h2 style="margin-top: 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
-
-            <input type="hidden" id="edit-collection-id" value="">
-
-            <div class="form-group" style="margin-bottom: 20px;">
-                <label style="display: block; margin-bottom: 5px;">Display ID:</label>
-                <input type="text" id="edit-collection-display-id" class="control-input"
-                    style="width: 100%; padding: 8px;">
-            </div>
-
-            <div class="form-group">
-                <label style="display: block; margin-bottom: 5px;">Tags:</label>
-                <div id="edit-collection-tags-container"
-                    style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;">
-                </div>
-                <div style="display: flex; gap: 5px;">
-                    <input type="text" id="edit-collection-new-tag" class="control-input"
-                        style="flex: 1; padding: 8px;"
-                        placeholder="Add new tag..."
-                        onkeydown="if(event.key === 'Enter') { dm_addNewTag(); event.preventDefault(); }">
-                    <button type="button" class="action-btn" onclick="dm_addNewTag()" style="padding: 8px 15px;">Add Tag</button>
-                </div>
-            </div>
-
-            <div class="form-group" style="margin-top: 20px;">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                    <input type="checkbox" id="edit-collection-hidden" style="width: auto; cursor: pointer;">
-                    Hide Collection
-                </label>
-                <span class="text-sm" style="color: var(--color-text-tertiary); margin-left: 25px; display: block;">Hidden collections are
-                    not shown in the primary study interface.</span>
-            </div>
-
-            <div style="margin-top: 25px; text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
-                <button type="button" class="action-btn btn-secondary" style=""
-                    onclick="closeEditCollectionModal()">Cancel</button>
-                <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save
-                    Annotations</button>
             </div>
         </div>
     </div>

@@ -1,0 +1,17 @@
+<!-- Role Management sub-page -->
+<h2 style="margin: 0 0 16px 0;">Role Management</h2>
+
+<div style="margin-bottom: 16px;">
+    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+        <input type="text" id="newRoleName" placeholder="New Role Name"
+            style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 200px; background: var(--color-bg-input); color: var(--color-text-primary);">
+        <button onclick="addRole()" class="action-btn"
+            style="padding: 8px 16px;">
+            Add Role
+        </button>
+    </div>
+</div>
+<div id="roleList" style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <!-- Populated dynamically -->
+    <div class="italic" style="color: var(--color-text-muted);">Loading roles...</div>
+</div>

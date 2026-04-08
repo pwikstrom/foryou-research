@@ -1040,17 +1040,36 @@ function consolidateEnrichmentData(btn) {
 // Call on load
 fetchEnrichmentStats();
 
-function toggleSection(contentId, arrowId) {
-    const content = document.getElementById(contentId);
-    const arrow = document.getElementById(arrowId);
-    if (!content || !arrow) return;
+function openDataManagementPage(pageId, clickedItem) {
+    // Hide all pages
+    document.querySelectorAll('#data_management .dm-page').forEach(page => {
+        page.classList.remove('active');
+    });
 
-    if (content.style.display === 'none') {
-        content.style.display = 'block';
-        arrow.innerHTML = '▼'; // Down arrow
-    } else {
-        content.style.display = 'none';
-        arrow.innerHTML = '▶'; // Right arrow
+    // Deactivate all sidebar items
+    document.querySelectorAll('#data_management .dm-sidebar-item').forEach(item => {
+        item.classList.remove('active');
+    });
+
+    // Show selected page
+    const page = document.getElementById(pageId);
+    if (page) {
+        page.classList.add('active');
+    }
+
+    // Activate clicked sidebar item
+    if (clickedItem) {
+        clickedItem.classList.add('active');
+    }
+
+    // Lazy-load edit activity table on first visit
+    if (pageId === 'dm-page-edit-activity') {
+        const editContainer = document.getElementById('edit-activity-list-container');
+        if (editContainer && editContainer.querySelectorAll('.edit-activity-item').length === 0) {
+            if (typeof renderEditActivityTable === 'function') {
+                renderEditActivityTable(editContainer);
+            }
+        }
     }
 }
 
@@ -1492,10 +1511,13 @@ function renderEditActivityTable(container) {
             tr.style.background = (window.pe_selectedId === item) ? 'var(--table-row-selected)' : 'transparent';
         };
         tr.onclick = () => {
-            // Sync with bee swarm selection (scrollToRow=false since the row is already visible)
-            if (typeof pe_selectDonation === 'function') {
-                pe_selectDonation(item, false);
-            }
+            // Clear previous row highlight
+            document.querySelectorAll('.edit-activity-item').forEach(row => {
+                row.style.background = 'transparent';
+            });
+            // Highlight this row
+            tr.style.background = 'var(--table-row-selected)';
+            window.pe_selectedId = item;
         };
         const createCell = (text, isBold = false, tooltip = null) => {
             const td = document.createElement('td');

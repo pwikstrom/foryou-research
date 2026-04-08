@@ -91,14 +91,6 @@ function pe_onShow() {
     if (container && container.querySelectorAll('.strip-row').length === 0) {
         pe_renderAllStrips();
     }
-
-    // Ensure edit activity table is populated
-    const editContainer = document.getElementById('edit-activity-list-container');
-    if (editContainer && editContainer.querySelectorAll('.edit-activity-item').length === 0) {
-        if (typeof renderEditActivityTable === 'function') {
-            renderEditActivityTable(editContainer);
-        }
-    }
 }
 // Expose pe_onShow
 window.pe_onShow = pe_onShow;
@@ -484,33 +476,13 @@ function pe_updateStripSelection() {
 // function pe_onDonationSelect() { ... } // Removed
 
 
-function pe_selectDonation(collectionId, scrollToRow = true) {
+function pe_selectDonation(collectionId) {
     pe_selectedId = collectionId;
     window.pe_selectedId = collectionId;
 
     // Update strip selection highlighting (works even without pe_data)
     if (pe_data && pe_data.length > 0) {
         pe_updateStripSelection();
-    }
-
-    // Sync with edit activity table row highlighting
-    const scrollContainer = document.getElementById('edit-activity-list-container');
-    let matchedRow = null;
-    document.querySelectorAll('.edit-activity-item').forEach(row => {
-        if (row.getAttribute('data-collection-id') === collectionId) {
-            row.style.background = 'var(--table-row-selected)';
-            matchedRow = row;
-        } else {
-            row.style.background = 'transparent';
-        }
-    });
-
-    // Only scroll when selection comes from the bee swarm, not from the table itself
-    if (scrollToRow && matchedRow && scrollContainer) {
-        const containerRect = scrollContainer.getBoundingClientRect();
-        const rowRect = matchedRow.getBoundingClientRect();
-        const offset = rowRect.top - containerRect.top + scrollContainer.scrollTop;
-        scrollContainer.scrollTop = offset - (containerRect.height / 2) + (rowRect.height / 2);
     }
 }
 

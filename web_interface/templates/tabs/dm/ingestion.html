@@ -1,0 +1,14 @@
+<!-- Ingest Collections sub-page -->
+<h2 class="meta-tooltip" data-tooltip="Upload raw collection files or folders, assign collection IDs and tags, then click 'Process New Collections' to parse and merge them into the dataset." style="margin: 0 0 16px 0;">
+    Ingest New Collections
+    <span class="text-sm" style="color: var(--color-text-tertiary); font-weight: var(--weight-normal); margin-left: 16px;">Unique collections: <span id="ingest-unique-collections-count">-</span></span>
+</h2>
+
+<div id="ingestion-sources-container" style="display: flex; gap: 20px; flex-wrap: wrap;">
+    <div style="color: var(--color-text-secondary);">Loading registered subclasses...</div>
+</div>
+<div style="margin-top: 16px;">
+    <button type="button" class="action-btn" id="processRawFilesBtn"
+        onclick="refreshIngestionCollection(this)"
+        style="padding: 6px 12px;" disabled>Process New Collections</button>
+</div>

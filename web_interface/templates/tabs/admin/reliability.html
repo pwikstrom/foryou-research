@@ -1,0 +1,44 @@
+<!-- Inter-coder Reliability sub-page -->
+<h2 style="margin: 0 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
+    Inter-coder Reliability
+    <button onclick="calculateReliability()" class="btn-discreet"
+        style="padding: 6px 12px;">
+        Calculate Reliability
+    </button>
+</h2>
+
+<p class="text-xs" style="color: var(--color-text-secondary); margin-bottom: 16px;">
+    Calculate percent agreement and Cohen's Kappa for closed tags between each user and the consensus
+    (most common tag).
+</p>
+
+<div style="overflow-x: auto;">
+    <table
+        style="width: 100%; border-collapse: collapse; background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 8px;">
+        <thead>
+            <tr style="background: var(--color-bg-elevated);">
+                <th
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
+                    Variable</th>
+                <th title="The average percentage of items where the user's tag matched the consensus (mode)."
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
+                    Avg Agreement %</th>
+                <th title="The average Cohen's Kappa score across users, measuring agreement adjusted for chance."
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
+                    Avg Kappa</th>
+                <th title="The number of users who have contributed tags for this variable."
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
+                    N Raters</th>
+                <th title="The average number of videos coded by each user for this variable."
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary); cursor: help;">
+                    Avg Items</th>
+            </tr>
+        </thead>
+        <tbody id="reliabilityTableBody">
+            <tr>
+                <td colspan="5" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Click Calculate
+                    to generate stats.</td>
+            </tr>
+        </tbody>
+    </table>
+</div>

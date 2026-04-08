@@ -1,0 +1,39 @@
+<!-- Study Datasets sub-page -->
+<h2 style="margin: 0 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
+    Define Study Datasets
+    {% if current_user.is_admin() %}
+    <button type="button" class="action-btn" onclick="openNewStudyModal(); event.stopPropagation();">Define new study</button>
+    {% endif %}
+</h2>
+
+<table class="data-table" style="width: 100%; border-collapse: collapse;">
+    <colgroup>
+        <col style="width: 3%;">
+        <col style="width: 15%;">
+        <col style="width: 10%;">
+        <col style="width: 10%;">
+        <col style="width: 10%;">
+        <col style="width: 11%;">
+        <col style="width: 10%;">
+        <col style="width: 10%;">
+        <col style="width: 14%;">
+        <col style="width: 7%;">
+    </colgroup>
+    <thead>
+        <tr style="border-bottom: 2px solid var(--color-border-strong);">
+            <th style="padding: 10px;"></th>
+            <th style="text-align: left; padding: 10px;">Study Name</th>
+            <th style="text-align: left; padding: 10px;">Start Date</th>
+            <th style="text-align: left; padding: 10px;">End Date</th>
+            <th style="text-align: right; padding: 10px;">Unique Collections</th>
+            <th style="text-align: right; padding: 10px;">Unique Videos</th>
+            <th style="text-align: right; padding: 10px;">Scraped</th>
+            <th style="text-align: right; padding: 10px;">Annotated</th>
+            <th style="text-align: right; padding: 10px;">Last Updated</th>
+            <th style="padding: 10px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody id="studies_table_body">
+        <!-- Rows injected by JS -->
+    </tbody>
+</table>
