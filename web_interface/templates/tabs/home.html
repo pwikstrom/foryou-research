@@ -43,7 +43,7 @@
             <!-- Centered Hero Image -->
             <div style="text-align: center; margin-bottom: 30px;">
                 <img src="{{ url_for('static', filename='home_banner.png') }}" alt="For You Data Hub Banner"
-                    style="max-width: 500px; height: auto; border-radius: 10px; box-shadow: var(--shadow-lg);">
+                    style="max-width: 500px; height: auto;">
             </div>
 
             <h1 class="hero-title">
@@ -56,32 +56,24 @@
 
             <hr style="border: 0; border-top: 1px solid var(--color-border-subtle); margin: 30px 0;">
 
-            <div class="text-block" style="margin-bottom: 40px;">
-                <h3 class="text-h2 font-semibold" style="color: var(--color-text-primary); margin-bottom: 15px;">{{
-                    content.intentions_title }}</h3>
-                <p class="prose" style="color: var(--color-text-secondary);">
-                    {{ content.intentions_text }}
-                </p>
-            </div>
-
-            <div class="text-block" style="margin-bottom: 40px;">
-                <h3 class="text-h2 font-semibold" style="color: var(--color-text-primary); margin-bottom: 15px;">{{
-                    content.notes_title }}</h3>
+            {% for section in content.sections %}
+            <div class="text-block" style="margin-bottom: {% if loop.last %}60{% else %}40{% endif %}px;">
+                <h3 class="text-h2 font-semibold" style="color: var(--color-text-primary); margin-bottom: 15px;">
+                    {{ section.title }}
+                </h3>
+                {% for para in section.paragraphs %}
+                {% if para is mapping and para.style == 'callout' %}
                 <div class="note-callout">
-                    <p>{{ content.note_1 }}</p>
+                    <p>{{ para.text }}</p>
                 </div>
-                <div class="note-callout">
-                    <p>{{ content.note_2 }}</p>
-                </div>
+                {% elif para is mapping %}
+                <p class="prose" style="color: var(--color-text-secondary);">{{ para.text }}</p>
+                {% else %}
+                <p class="prose" style="color: var(--color-text-secondary);">{{ para }}</p>
+                {% endif %}
+                {% endfor %}
             </div>
-
-            <div class="text-block" style="margin-bottom: 60px;">
-                <h3 class="text-h2 font-semibold" style="color: var(--color-text-primary); margin-bottom: 15px;">{{
-                    content.ack_title }}</h3>
-                <p class="prose" style="color: var(--color-text-secondary);">
-                    {{ content.ack_text }}
-                </p>
-            </div>
+            {% endfor %}
 
             <div class="text-sm" style="text-align: center; color: var(--color-text-faint); margin-top: 50px;">
                 2026 Queensland University of Technology

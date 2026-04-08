@@ -462,7 +462,7 @@ a:hover {
     display: flex;
     flex: 0 0 auto;
     background: var(--color-bg-surface);
-    margin-bottom: 20px;
+    margin-bottom: 0;
     border-bottom: 1px solid var(--color-border);
 }
 
@@ -1891,16 +1891,24 @@ button {
 
 .auth-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 10px 20px;
-    background: var(--color-bg-surface);
-    border-bottom: 1px solid var(--color-border);
+    padding: 18px 24px;
+    background: var(--color-bg-primary);
 }
 
-.auth-header a {
-    color: var(--color-danger);
+.app-brand {
+    font-family: 'DM Sans', var(--font-sans);
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--color-text-primary);
     text-decoration: none;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.app-brand:hover {
+    opacity: 0.8;
 }
 
 /* Theme toggle switch */

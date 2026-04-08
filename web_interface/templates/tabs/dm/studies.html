@@ -1,6 +1,6 @@
 <!-- Study Datasets sub-page -->
 <h2 style="margin: 0 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
-    Define Study Datasets
+    {% if current_user.is_admin() %}Define Study Datasets{% else %}My Studies{% endif %}
     {% if current_user.is_admin() %}
     <button type="button" class="action-btn" onclick="openNewStudyModal(); event.stopPropagation();">Define new study</button>
     {% endif %}

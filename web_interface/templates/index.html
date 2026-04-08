@@ -1,11 +1,9 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<!-- Auth Header -->
+<!-- App Header -->
 <div class="auth-header">
-    <a onclick="openTab(event, 'home')" style="cursor: pointer; text-decoration: none; color: inherit;">
-        <strong>For You Data Hub</strong>
-    </a>
+    <a class="app-brand" onclick="openTab(event, 'home')">The For You Data Hub</a>
 </div>
 
 <!-- Tab Navigation -->
@@ -15,9 +13,10 @@
     <button class="tab-button" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
     <button class="tab-button" onclick="openTab(event, 'correlations')">Correlations</button>
     {% if user.is_admin() %}
-    <button class="tab-button" onclick="openTab(event, 'collections')">Collections</button>
-    {% endif %}
     <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
+    {% else %}
+    <button class="tab-button" onclick="openTab(event, 'my_studies')">My Studies</button>
+    {% endif %}
     {% if user.is_admin() %}
     <button class="tab-button"
         onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
@@ -28,14 +27,15 @@
 <div class="tab-content">
     {% include 'tabs/home.html' %}
 
-    {% if user.is_admin() %}
-    {% include 'tabs/collections.html' %}
-    {% endif %}
     {% include 'tabs/explore.html' %}
     {% include 'tabs/video_analysis.html' %}
     {% include 'tabs/correlations.html' %}
     {% include 'tabs/timelines.html' %}
+    {% if user.is_admin() %}
     {% include 'tabs/data_management.html' %}
+    {% else %}
+    {% include 'tabs/my_studies.html' %}
+    {% endif %}
     {% include 'tabs/settings.html' %}
 
     {% if user.is_admin() %}

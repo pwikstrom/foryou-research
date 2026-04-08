@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from datetime import datetime
@@ -46,8 +47,9 @@ def login():
             auth.verify_password(dummy_hash, "dummy_password")
             flash('Invalid username or password')
     
-    slack_messages = get_recent_messages()
-    return render_template('login.html', slack_messages=slack_messages, content=HOME_CONTENT)
+    slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
+    slack_messages = get_recent_messages() if slack_configured else []
+    return render_template('login.html', slack_messages=slack_messages, slack_configured=slack_configured, content=HOME_CONTENT)
 
 @auth_bp.route('/signup', methods=['GET', 'POST'])
 def signup():
