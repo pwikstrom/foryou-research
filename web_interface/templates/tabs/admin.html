@@ -2,8 +2,11 @@
 
     <!-- Sidebar Navigation -->
     <nav class="dm-sidebar">
-        <div class="dm-sidebar-item active" onclick="openAdminPage('admin-page-users', this)">
-            Users
+        <div class="dm-sidebar-item active" onclick="openAdminPage('admin-page-new-users', this)">
+            New Users
+        </div>
+        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-active-users', this)">
+            Active Users
         </div>
         <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-roles', this)">
             Roles
@@ -22,9 +25,14 @@
     <!-- Content Area -->
     <div class="dm-content">
 
-        <!-- Users (default) -->
-        <div id="admin-page-users" class="dm-page active">
-            {% include 'tabs/admin/users.html' %}
+        <!-- New Users (default) -->
+        <div id="admin-page-new-users" class="dm-page active">
+            {% include 'tabs/admin/new_users.html' %}
+        </div>
+
+        <!-- Active Users -->
+        <div id="admin-page-active-users" class="dm-page">
+            {% include 'tabs/admin/active_users.html' %}
         </div>
 
         <!-- Roles -->

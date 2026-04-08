@@ -1,0 +1,57 @@
+<!-- Active Users sub-page -->
+<h2 style="margin: 0 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
+    Active Users
+    <button onclick="loadUsers()" class="btn-discreet"
+        style="padding: 6px 12px;">
+        ↻ Refresh List
+    </button>
+</h2>
+
+<div style="overflow-x: auto;">
+    <table
+        style="width: 100%; border-collapse: collapse; background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 8px;">
+        <thead>
+            <tr style="background: var(--color-bg-elevated);">
+                <th
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
+                    Username
+                </th>
+                <th
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
+                    Role
+                </th>
+                <th
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
+                    Videos
+                </th>
+                <th
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
+                    Notes
+                </th>
+                <th
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
+                    Closed
+                </th>
+                <th
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
+                    Open
+                </th>
+                <th
+                    style="text-align: left; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
+                    Last
+                    Login</th>
+                <th
+                    style="text-align: right; padding: 12px 16px; border-bottom: 2px solid var(--color-border); color: var(--color-text-primary);">
+                    Actions
+                </th>
+            </tr>
+        </thead>
+        <tbody id="userTableBody">
+            <tr>
+                <td colspan="8" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Loading
+                    users...
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>

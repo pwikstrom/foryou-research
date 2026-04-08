@@ -1,0 +1,43 @@
+<!-- New Users sub-page -->
+<h2 style="margin: 0 0 16px 0;">New Users</h2>
+
+<!-- Pending Approvals Section -->
+<div style="margin-bottom: 32px;">
+    <h3 class="text-body" style="color: var(--color-warning); margin-bottom: 16px;">Pending Approvals</h3>
+    <div id="pendingUserList"
+        style="background: var(--color-bg-elevated); border: 1px solid var(--color-warning); border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+        <p class="italic" style="color: var(--color-warning);">Loading pending users...</p>
+    </div>
+</div>
+
+<!-- Add User Section -->
+<div
+    style="background: var(--color-bg-primary); padding: 20px; border-radius: 8px; border: 1px solid var(--color-border);">
+    <h3 class="text-body" style="margin-top: 0; margin-bottom: 16px; color: var(--color-text-primary);">Add New User</h3>
+    <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+        <div>
+            <label class="text-sm font-medium"
+                style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Username</label>
+            <input type="text" id="newUsername"
+                style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 200px; background: var(--color-bg-input); color: var(--color-text-primary);">
+        </div>
+        <div>
+            <label class="text-sm font-medium"
+                style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Password</label>
+            <input type="password" id="newPassword"
+                style="padding: 8px; width: 200px; background: var(--color-bg-input); border: 1px solid var(--color-border); color: var(--color-text-primary); border-radius: 3px;">
+        </div>
+        <div>
+            <label class="text-sm font-medium"
+                style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Role</label>
+            <select id="newRole"
+                style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 150px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                <!-- Populated dynamically -->
+            </select>
+        </div>
+        <button onclick="addUser()" class="action-btn"
+            style="padding: 9px 16px;">
+            Add User
+        </button>
+    </div>
+</div>
