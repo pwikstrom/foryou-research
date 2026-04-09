@@ -13,7 +13,27 @@ let explorerDataV2 = {
     stats2: null,
     count2: 0,
     sortMode: 'total',
-    dualSliceMode: false
+    dualSliceMode: false,
+    filterPanelsVisible: true
+};
+
+
+window.exploreToggleSidebar = function () {
+    explorerDataV2.filterPanelsVisible = !explorerDataV2.filterPanelsVisible;
+    const visible = explorerDataV2.filterPanelsVisible;
+
+    // Toggle Slice 1 panel
+    const slice1 = document.getElementById('explorer-v2-slice1-panel');
+    if (slice1) slice1.style.display = visible ? 'flex' : 'none';
+
+    // Toggle Slice 2 panel (only if dual mode is active)
+    if (explorerDataV2.dualSliceMode) {
+        const slice2 = document.getElementById('explorer-v2-slice2-panel');
+        if (slice2) slice2.style.display = visible ? 'flex' : 'none';
+    }
+
+    // Trigger Plotly resize so charts fill the new width
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
 };
 
 // Initialization
@@ -63,9 +83,9 @@ function setExplorerV2SliceMode(isDual) {
         dualBtn.classList.toggle('active', isDual);
     }
 
-    // Show/hide Slice 2 panel
+    // Show/hide Slice 2 panel (respecting filter panel visibility)
     const slice2Panel = document.getElementById('explorer-v2-slice2-panel');
-    if (slice2Panel) slice2Panel.style.display = isDual ? 'flex' : 'none';
+    if (slice2Panel) slice2Panel.style.display = (isDual && explorerDataV2.filterPanelsVisible) ? 'flex' : 'none';
 
     // Show/hide 'vs' label and Slice 2 count
     const vsLabel = document.getElementById('explorer-v2-vs-label');
@@ -502,6 +522,14 @@ function renderFiltersV2(metadata, sliceId) {
 
                 if (info.values.length === 0) {
                     listContainer.innerHTML = '<div class="text-xs" style="color:var(--color-text-faint);">No values</div>';
+                }
+
+                if (info.total_unique && info.total_unique > info.values.length) {
+                    const notice = document.createElement('div');
+                    notice.classList.add('text-xs');
+                    notice.style.cssText = 'color: var(--color-text-faint); padding: 6px 4px 2px; font-style: italic;';
+                    notice.textContent = `Showing top ${info.values.length} of ${info.total_unique.toLocaleString()} categories`;
+                    listContainer.appendChild(notice);
                 }
 
                 wrapper.appendChild(listContainer);

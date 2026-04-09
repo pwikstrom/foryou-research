@@ -62,25 +62,25 @@ def get_metadata(df, column_types, verbose=False):
             })
             metadata[col] = base_meta
         elif dtype == "category":
-            # Strict limit for UI filters
-            # Only send top 50 most frequent values for filtering to save DOM
+            # Limit for UI filters — show top 200 most frequent values
             is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
             col_data = df[col]
             if is_dt or "date" in col.lower():
                 col_data = df[col].astype(str).str[:10]
-            
-            vc = col_data.value_counts().head(50)
-            
-            # Sort alphabetically for consistency
-            #top_50_keys = sorted(vc.index.tolist(), key=lambda x: str(x))
+
+            vc_full = col_data.value_counts()
+            total_unique = len(vc_full)
+            vc = vc_full.head(200)
+
             # Sort by frequency (default from value_counts)
-            top_50_keys = vc.index.tolist()
-            
-            unique_vals = [{"value": str(x), "count": int(vc[x])} for x in top_50_keys]
-            
+            top_keys = vc.index.tolist()
+
+            unique_vals = [{"value": str(x), "count": int(vc[x])} for x in top_keys]
+
             base_meta.update({
                 "type": "category",
-                "values": unique_vals
+                "values": unique_vals,
+                "total_unique": total_unique
             })
             metadata[col] = base_meta
 
@@ -95,19 +95,18 @@ def get_metadata(df, column_types, verbose=False):
                         all_items.extend(list(set(str(x) for x in row)))
                     except:
                         pass
-            
-            # Use Counter to find top 50 tags
+
+            # Use Counter to find top 200 tags
             c = Counter(all_items)
-            top_50 = c.most_common(50)
-            
-            # Sort alphabetically
-            #top_50.sort(key=lambda x: str(x[0]))
-            
-            items_list = [{"value": str(k), "count": v} for k, v in top_50]
+            total_unique = len(c)
+            top_items = c.most_common(200)
+
+            items_list = [{"value": str(k), "count": v} for k, v in top_items]
 
             base_meta.update({
                 "type": "list",
-                "values": items_list
+                "values": items_list,
+                "total_unique": total_unique
             })
             metadata[col] = base_meta
         
@@ -128,6 +127,23 @@ def filter_dataframe(df, column_types, filters, search_query=None):
     filtered_df = df.copy()
 
     for col, criteria in filters.items():
+        # Handle virtual Collection Tags filter
+        if col == 'Collection Tags':
+            val = criteria.get("value")
+            if isinstance(val, (list, np.ndarray)) and len(val) > 0 and 'collection_id' in filtered_df.columns:
+                try:
+                    annotations = data_io.load_json(storage_location="recoded", filename="collection_annotations.json") or {}
+                except Exception:
+                    annotations = {}
+                selected_tags = set(str(v) for v in val)
+                matching_cids = set()
+                for cid, anno in annotations.items():
+                    anno_tags = set(str(t).strip() for t in anno.get('annotation_tags', []))
+                    if anno_tags & selected_tags:
+                        matching_cids.add(str(cid))
+                filtered_df = filtered_df[filtered_df['collection_id'].astype(str).isin(matching_cids)]
+            continue
+
         if col not in df.columns:
             continue
         

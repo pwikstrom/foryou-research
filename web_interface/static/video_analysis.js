@@ -15,7 +15,23 @@ let viewerData = {
     activeModal: { item_id: null, variable: null, currentTags: [] },
     displayIds: {}, // Map of raw_id -> display_id
     expandedDetailSections: new Set(), // Track expanded sections in details panel (collapsed by default)
-    extraDataIndices: new Set() // Global 0-based indices of items with extra_data (engagement activity)
+    extraDataIndices: new Set(), // Global 0-based indices of items with extra_data (engagement activity)
+    leftPanelVisible: true,
+    rightPanelVisible: true
+};
+
+
+window.vaToggleLeft = function () {
+    viewerData.leftPanelVisible = !viewerData.leftPanelVisible;
+    const panel = document.getElementById('va-left-panel');
+    if (panel) panel.style.display = viewerData.leftPanelVisible ? 'flex' : 'none';
+};
+
+
+window.vaToggleRight = function () {
+    viewerData.rightPanelVisible = !viewerData.rightPanelVisible;
+    const panel = document.getElementById('viewer-details-panel');
+    if (panel) panel.style.display = viewerData.rightPanelVisible ? '' : 'none';
 };
 
 // Drill-down from Explore tab: consume pending filter state
@@ -642,6 +658,15 @@ function renderViewerFilters(metadata) {
                     item.appendChild(span);
                     listContainer.appendChild(item);
                 });
+
+                if (info.total_unique && info.total_unique > info.values.length) {
+                    const notice = document.createElement('div');
+                    notice.classList.add('text-xs');
+                    notice.style.cssText = 'color: var(--color-text-faint); padding: 6px 4px 2px; font-style: italic;';
+                    notice.textContent = `Showing top ${info.values.length} of ${info.total_unique.toLocaleString()} categories`;
+                    listContainer.appendChild(notice);
+                }
+
                 wrapper.appendChild(listContainer);
             }
             body.appendChild(wrapper);

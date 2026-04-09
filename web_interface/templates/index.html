@@ -4,6 +4,11 @@
 <!-- App Header -->
 <div class="auth-header">
     <a class="app-brand" onclick="openTab(event, 'home')">The For You Data Hub</a>
+    <span class="auth-header-user text-sm">
+        {{ user.username }} ({{ user.role }})
+        &middot;
+        <a href="/logout">Logout</a>
+    </span>
 </div>
 
 <!-- Tab Navigation -->

@@ -1,12 +1,6 @@
-<div id="settings" class="tab-pane">
+<div id="settings" class="tab-pane" style="overflow-y: auto;">
     <div style="background: var(--color-bg-surface); padding: 20px; border-radius: 8px;">
         <h2>Settings</h2>
-
-        <p style="margin-bottom: 20px; color: var(--color-text-secondary);">
-            Logged in as: <strong style="color: var(--color-text-primary);">{{ user.username }}</strong> ({{ user.role }})
-            &nbsp;&middot;&nbsp;
-            <a href="/logout">Logout</a>
-        </p>
 
         <div class="setting-group" style="margin-bottom: 20px;">
             <h3>Appearance</h3>
@@ -63,6 +57,17 @@
                 <span class="italic" style="color: var(--color-text-faint);">Loading tags...</span>
             </div>
         </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 30px 0;">
+
+        <h2>System Information</h2>
+
+        <div class="setting-group" style="margin-bottom: 20px;">
+            <div id="system-info-container"
+                style="background: var(--color-bg-inset); padding: 15px; border-radius: 6px; border: 1px solid var(--color-border);">
+                <span class="italic text-sm" style="color: var(--color-text-faint);">Loading system info...</span>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -93,6 +98,38 @@
             const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
             themeToggle.checked = currentTheme === 'dark';
         }
+
+        loadSystemInfo();
+    }
+
+    function loadSystemInfo() {
+        fetch('/api/system-info')
+            .then(r => r.json())
+            .then(info => {
+                const rows = [
+                    ['Environment', info.environment],
+                    info.revision ? ['Revision', info.revision] : null,
+                    ['OS', info.os],
+                    ['Architecture', info.architecture],
+                    ['Python', info.python_version],
+                    ['CPUs', info.cpu_count],
+                    ['RAM', `${info.ram_total_gb} GB (${info.ram_used_pct}% used)`],
+                    ['Disk', `${info.disk_total_gb} GB total, ${info.disk_free_gb} GB free`],
+                ].filter(Boolean);
+
+                const html = rows.map(([label, value]) =>
+                    `<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--color-border);">
+                        <span class="text-sm font-medium" style="color: var(--color-text-secondary);">${label}</span>
+                        <span class="text-sm" style="color: var(--color-text-primary);">${value}</span>
+                    </div>`
+                ).join('');
+
+                document.getElementById('system-info-container').innerHTML = html;
+            })
+            .catch(() => {
+                document.getElementById('system-info-container').innerHTML =
+                    '<span class="text-sm" style="color: var(--color-text-muted);">Unable to load system info.</span>';
+            });
     }
 
     function saveSettingsTab() {

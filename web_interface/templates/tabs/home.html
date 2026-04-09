@@ -1,44 +1,7 @@
 <div id="home" class="tab-pane active"
-    style="flex-direction: row; height: calc(100vh - 100px); overflow: hidden;">
+    style="height: calc(100vh - 100px); overflow-y: auto;">
 
-    <!-- LEFT PANEL: Widgets (Fixed Width) -->
-    <div class="home-sidebar">
-
-        <!-- User Info Widget -->
-        <div class="widget-box">
-            <h3>User Info</h3>
-            <div style="background: var(--color-bg-inset); padding: 15px; border-radius: 6px; border: 1px solid var(--color-border);">
-                <p style="margin: 0 0 10px 0;"><strong>Username:</strong> {{ user.username }}</p>
-                <p style="margin: 0 0 10px 0;"><strong>Role:</strong> {{ user.role }}</p>
-                <a href="/logout" class="text-sm">Logout</a>
-            </div>
-        </div>
-
-        <!-- Slack Widget (only shown when Slack integration is configured) -->
-        {% if slack_configured %}
-        <div class="widget-box" style="flex: 1;">
-            <h3>Latest Updates</h3>
-            <div class="slack-updates">
-                {% if slack_messages %}
-                {% for msg in slack_messages %}
-                <div class="slack-message">
-                    <strong>{{ msg.user }}:</strong>
-                    <span>{{ msg.text }}</span>
-                    <div class="timestamp">{{ msg.ts }}</div>
-                </div>
-                {% endfor %}
-                {% else %}
-                <p class="italic" style="color: var(--color-text-muted); text-align: center; padding: 20px;">No recent updates.</p>
-                {% endif %}
-            </div>
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- RIGHT PANEL: Content (Scrollable) -->
-    <div class="content-section auth-content">
-
-        <div style="max-width: 800px; margin: 0 auto;">
+    <div style="max-width: 800px; margin: 0 auto; padding: 30px 24px;">
 
             <!-- Centered Hero Image -->
             <div style="text-align: center; margin-bottom: 30px;">
@@ -79,7 +42,6 @@
                 2026 Queensland University of Technology
             </div>
 
-        </div>
     </div>
 
 </div>

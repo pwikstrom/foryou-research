@@ -1577,23 +1577,22 @@ button {
     color: var(--color-text-secondary);
 }
 
-.timelines-title-wrapper {
+.timelines-info-icon-wrapper {
     position: relative;
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
 }
 
-.timelines-title-wrapper h2 {
-    cursor: default;
-    border-bottom: 1px dashed var(--color-text-faint);
-    display: inline-block;
-    padding-bottom: 2px;
+.timelines-info-icon-wrapper:hover svg {
+    stroke: var(--color-text-primary);
 }
 
 .timelines-info-tooltip {
     display: none;
     position: absolute;
     top: 100%;
-    left: 0;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 100;
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-border-strong);
@@ -1605,14 +1604,63 @@ button {
     margin-top: 6px;
 }
 
-.timelines-title-wrapper:hover .timelines-info-tooltip {
+.timelines-info-icon-wrapper:hover .timelines-info-tooltip {
     display: block;
+}
+
+/* Timelines — hover effects for interactive elements */
+.filter-chip {
+    transition: opacity 0.15s, transform 0.15s;
+}
+
+.filter-chip:hover {
+    opacity: 1 !important;
+    transform: scale(1.08);
+}
+
+#timelines-sidebar-toggle,
+#explore-sidebar-toggle,
+#correlations-sidebar-toggle,
+#va-left-toggle,
+#va-right-toggle {
+    transition: background 0.15s;
+    border-radius: 4px;
+}
+
+#timelines-sidebar-toggle:hover,
+#explore-sidebar-toggle:hover,
+#correlations-sidebar-toggle:hover,
+#va-left-toggle:hover,
+#va-right-toggle:hover {
+    background: var(--color-bg-elevated) !important;
+}
+
+#timelines-sidebar-toggle:hover svg,
+#explore-sidebar-toggle:hover svg,
+#correlations-sidebar-toggle:hover svg,
+#va-left-toggle:hover svg,
+#va-right-toggle:hover svg {
+    stroke: var(--color-text-primary);
+}
+
+#timelines-charts-container button[id^="findings-toggle-"] {
+    transition: background 0.15s, border-color 0.15s;
+}
+
+#timelines-charts-container button[id^="findings-toggle-"]:hover {
+    background: var(--color-bg-hover) !important;
+    border-color: var(--color-text-tertiary) !important;
 }
 
 
 /* ============================================================
    Video Analysis Tab Styles (moved from inline)
    ============================================================ */
+
+/* When nav-controls wraps to its own row, expand to full width so buttons centre */
+#video_analysis .nav-controls {
+    flex-grow: 1;
+}
 
 #viewer-metadata {
     display: block;
@@ -1894,6 +1942,11 @@ button {
     align-items: center;
     padding: 18px 24px;
     background: var(--color-bg-primary);
+}
+
+.auth-header-user {
+    margin-left: auto;
+    color: var(--color-text-secondary);
 }
 
 .app-brand {

@@ -1,3 +1,4 @@
+import os
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 from flask_login import login_required, current_user
 import pandas as pd
@@ -146,6 +147,60 @@ def api_get_study_defs():
 
 
 
+def _inject_collection_tags(metadata: dict, collection_ids: list[str]) -> dict:
+    """Inject a virtual 'Collection Tags' filter derived from collection_annotations.json."""
+    try:
+        annotations = data_io.load_json(storage_location="recoded", filename="collection_annotations.json") or {}
+    except Exception:
+        return metadata
+
+    # Build tag → set of collection_ids mapping, restricted to IDs in this study
+    study_ids = set(str(cid) for cid in collection_ids)
+    tag_counter: dict[str, int] = {}
+    for cid, anno in annotations.items():
+        if str(cid) not in study_ids:
+            continue
+        for tag in anno.get('annotation_tags', []):
+            tag = str(tag).strip()
+            if tag:
+                tag_counter[tag] = tag_counter.get(tag, 0) + 1
+
+    if not tag_counter:
+        return metadata
+
+    # Sort by frequency descending
+    sorted_tags = sorted(tag_counter.items(), key=lambda x: -x[1])
+    values_list = [{"value": tag, "count": count} for tag, count in sorted_tags[:200]]
+    total_unique = len(tag_counter)
+
+    metadata['Collection Tags'] = {
+        "type": "list",
+        "values": values_list,
+        "total_unique": total_unique,
+        "null_count": 0,
+    }
+
+    # Schema info — same section as collection_id
+    if 'schema_map' not in metadata:
+        metadata['schema_map'] = {}
+    metadata['schema_map']['Collection Tags'] = {
+        "section": "Activity details",
+        "display_name": "Collection Tags",
+        "description": "Filter by tags assigned to collections."
+    }
+
+    # Position right after collection_id in filter_priority
+    if 'filter_priority' not in metadata:
+        metadata['filter_priority'] = []
+    fp = metadata['filter_priority']
+    if 'Collection Tags' in fp:
+        fp.remove('Collection Tags')
+    cid_idx = fp.index('collection_id') + 1 if 'collection_id' in fp else len(fp)
+    fp.insert(cid_idx, 'Collection Tags')
+
+    return metadata
+
+
 @data_bp.route('/api/explore/metadata', methods=['GET'])
 @login_required
 def api_explorer_metadata():
@@ -291,7 +346,11 @@ def api_explorer_metadata():
     
             # Enforce strict study membership for Donation IDs
             potential_metadata = _enforce_study_collections(potential_metadata, study)
-            
+
+            # Inject Collection Tags filter
+            if 'collection_id' in df.columns:
+                potential_metadata = _inject_collection_tags(potential_metadata, df['collection_id'].dropna().unique().tolist())
+
             if potential_metadata:
                 #print(f"    [DATA_ROUTES] Returning cached metadata for {study}")
                 return jsonify(make_serializable(potential_metadata))
@@ -417,6 +476,10 @@ def api_explorer_metadata():
 
     # Enforce strict study membership for Donation IDs (before saving to cache)
     metadata = _enforce_study_collections(metadata, study)
+
+    # Inject Collection Tags filter
+    if 'collection_id' in df.columns:
+        metadata = _inject_collection_tags(metadata, df['collection_id'].dropna().unique().tolist())
 
     data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=False)
 
@@ -1811,3 +1874,50 @@ def api_video_stream(study, item_id):
         'Content-Type': 'video/mp4',
     }
     return Response(stream_with_context(generate()), headers=headers)
+
+
+
+
+@data_bp.route('/api/system-info')
+@login_required
+def system_info():
+    """Return basic system information for the Information panel."""
+    import platform
+    import shutil
+    import psutil
+
+    mem = psutil.virtual_memory()
+
+    # Disk: use shutil.disk_usage which reports the full filesystem correctly
+    # On macOS with APFS, psutil.disk_usage('/') only sees the volume, not the container
+    disk = shutil.disk_usage('/')
+    disk_total_gb = round(disk.total / (1024 ** 3), 1)
+    disk_used_gb = round(disk.used / (1024 ** 3), 1)
+    disk_free_gb = round(disk.free / (1024 ** 3), 1)
+
+    # Detect Google Cloud Run via its injected environment variables
+    k_service = os.environ.get('K_SERVICE')
+    is_cloud_run = k_service is not None
+
+    if is_cloud_run:
+        environment = f"Google Cloud Run ({k_service})"
+        revision = os.environ.get('K_REVISION', 'unknown')
+    else:
+        environment = "Local"
+        revision = None
+
+    info = {
+        'os': f"{platform.system()} {platform.release()}",
+        'architecture': platform.machine(),
+        'python_version': platform.python_version(),
+        'cpu_count': os.cpu_count(),
+        'ram_total_gb': round(mem.total / (1024 ** 3), 1),
+        'ram_used_pct': mem.percent,
+        'disk_total_gb': disk_total_gb,
+        'disk_used_gb': disk_used_gb,
+        'disk_free_gb': disk_free_gb,
+        'environment': environment,
+        'revision': revision,
+    }
+
+    return jsonify(info)
