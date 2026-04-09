@@ -1859,6 +1859,7 @@ def api_video_stream(study, item_id):
             'Accept-Ranges': 'bytes',
             'Content-Length': str(length),
             'Content-Type': 'video/mp4',
+            'Cache-Control': 'private, max-age=3600',
         }
         return Response(stream_with_context(generate_range()), status=206, headers=headers)
 
@@ -1872,6 +1873,7 @@ def api_video_stream(study, item_id):
         'Accept-Ranges': 'bytes',
         'Content-Length': str(total_size),
         'Content-Type': 'video/mp4',
+        'Cache-Control': 'private, max-age=3600',
     }
     return Response(stream_with_context(generate()), headers=headers)
 

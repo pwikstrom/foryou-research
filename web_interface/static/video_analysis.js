@@ -17,7 +17,12 @@ let viewerData = {
     expandedDetailSections: new Set(), // Track expanded sections in details panel (collapsed by default)
     extraDataIndices: new Set(), // Global 0-based indices of items with extra_data (engagement activity)
     leftPanelVisible: true,
-    rightPanelVisible: true
+    rightPanelVisible: true,
+    // Prefetch / caching infrastructure
+    _metadataCache: new Map(),       // itemId -> {data, timestamp}
+    _metadataCacheMax: 50,           // LRU eviction threshold
+    _prefetchAbort: null,            // AbortController for in-flight prefetch
+    _preloadedVideoIndex: null       // Index whose video is preloaded in the hidden element
 };
 
 
@@ -58,6 +63,7 @@ async function checkPendingDrillDown() {
         viewerData.searchQuery = pending.searchQuery || "";
         viewerData.filteredIds = [];
         viewerData.currentIndex = -1;
+        clearMetadataCache();
 
         // Update UI elements
         const selector = document.getElementById('viewer-study-select');
@@ -256,6 +262,7 @@ async function changeViewerStudy(val) {
     viewerData.filteredIds = [];
     viewerData.currentIndex = -1;
     viewerData.searchQuery = "";
+    clearMetadataCache();
 
     // Reset Search UI
     const searchInput = document.getElementById('viewer-search-input');
@@ -800,6 +807,7 @@ async function applyViewerFilters() {
         viewerData.filteredIds = data.ids;
         viewerData.rowIdxs = data.row_idxs || [];
         viewerData.itemCount = data.count; // True total number of matching items
+        clearMetadataCache();
         viewerData.currentOffset = data.offset || 0; // The base index of the downloaded chunk
         viewerData.chunkLimit = 1000; // Expected max size of the downloaded chunk
         viewerData.displayIds = data.display_ids || {};
@@ -852,6 +860,88 @@ async function applyViewerFilters() {
         alert("Failed to filter items");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Metadata cache helpers (LRU, max 50 entries)
+// ---------------------------------------------------------------------------
+
+function cacheMetadata(itemId, data) {
+    const cache = viewerData._metadataCache;
+    cache.delete(itemId); // refresh position
+    cache.set(itemId, { data, ts: Date.now() });
+    if (cache.size > viewerData._metadataCacheMax) {
+        cache.delete(cache.keys().next().value); // evict oldest
+    }
+}
+
+function getCachedMetadata(itemId) {
+    const entry = viewerData._metadataCache.get(itemId);
+    if (!entry) return null;
+    // Expire after 5 minutes
+    if (Date.now() - entry.ts > 300_000) {
+        viewerData._metadataCache.delete(itemId);
+        return null;
+    }
+    // Refresh LRU position
+    viewerData._metadataCache.delete(itemId);
+    viewerData._metadataCache.set(itemId, entry);
+    return entry.data;
+}
+
+function clearMetadataCache() {
+    viewerData._metadataCache.clear();
+    viewerData._preloadedVideoIndex = null;
+    const preloadEl = document.getElementById('viewer-video-preload');
+    if (preloadEl) preloadEl.removeAttribute('src');
+}
+
+
+// ---------------------------------------------------------------------------
+// Prefetch next item metadata + preload its video
+// ---------------------------------------------------------------------------
+
+function prefetchNext() {
+    const nextIndex = viewerData.currentIndex + 1;
+    if (nextIndex >= viewerData.itemCount) return;
+
+    const relIdx = nextIndex - (viewerData.currentOffset || 0);
+    const loadedCount = viewerData.filteredIds ? viewerData.filteredIds.length : 0;
+    if (relIdx < 0 || relIdx >= loadedCount) return; // outside current chunk
+
+    const nextItemId = viewerData.filteredIds[relIdx];
+    const nextRowIdx = viewerData.rowIdxs ? viewerData.rowIdxs[relIdx] : undefined;
+
+    // Cancel any in-flight prefetch
+    if (viewerData._prefetchAbort) viewerData._prefetchAbort.abort();
+    viewerData._prefetchAbort = new AbortController();
+
+    // Prefetch metadata (if not already cached)
+    if (!getCachedMetadata(nextItemId)) {
+        fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${nextItemId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                row_idx: nextRowIdx,
+                filters: viewerData.filters,
+                search_query: viewerData.searchQuery
+            }),
+            signal: viewerData._prefetchAbort.signal
+        })
+            .then(r => r.json())
+            .then(data => { if (!data.error) cacheMetadata(nextItemId, data); })
+            .catch(() => {}); // silently ignore aborts / errors
+    }
+
+    // Preload next video in hidden element
+    const preloadEl = document.getElementById('viewer-video-preload');
+    if (preloadEl && viewerData._preloadedVideoIndex !== nextIndex) {
+        const autoplay = window.userSettings && window.userSettings.video_autostart;
+        preloadEl.preload = autoplay ? "auto" : "metadata";
+        preloadEl.src = `/api/video/${encodeURIComponent(viewerData.activeStudy)}/${nextItemId}`;
+        viewerData._preloadedVideoIndex = nextIndex;
+    }
+}
+
 
 async function loadViewerItem(index) {
     console.log(`[Viewer] loadViewerItem requested index: ${index} (Type: ${typeof index})`);
@@ -926,39 +1016,52 @@ async function loadViewerItem(index) {
     const rowIdx = viewerData.rowIdxs ? viewerData.rowIdxs[relativeIndex] : undefined;
     const displayId = viewerData.displayIds[itemId] || itemId;
 
-    // Update UI Loading state?
+    // Cancel any in-flight prefetch so it doesn't race with the real load
+    if (viewerData._prefetchAbort) viewerData._prefetchAbort.abort();
+
     document.getElementById('viewer-status').innerText = `Loading ${displayId}...`;
 
     try {
-        // Use POST to send context (row_idx + filters) so backend picks the exact row
-        const res = await fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                row_idx: rowIdx,
-                filters: viewerData.filters,
-                search_query: viewerData.searchQuery
-            })
-        });
-        const item = await res.json();
+        // Check metadata cache first, otherwise fetch
+        let item = getCachedMetadata(itemId);
+        if (!item) {
+            const res = await fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    row_idx: rowIdx,
+                    filters: viewerData.filters,
+                    search_query: viewerData.searchQuery
+                })
+            });
+            item = await res.json();
+        }
 
         if (item.error) {
             document.getElementById('viewer-status').innerText = "Error loading item";
             return;
         }
 
+        // Cache this item's metadata for back-navigation
+        cacheMetadata(itemId, item);
         renderMetadata(item);
 
-        // Load Video
+        // Load Video — swap in the preloaded element if it matches this index
         const videoEl = document.getElementById('viewer-video');
+        const preloadEl = document.getElementById('viewer-video-preload');
         const videoUrl = `/api/video/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`;
         const autoplay = window.userSettings && window.userSettings.video_autostart;
 
-        // When autoplay is off, only fetch metadata (shows first frame quickly).
-        // When autoplay is on, use "auto" so the browser buffers ahead for smooth playback.
-        videoEl.preload = autoplay ? "auto" : "metadata";
-
-        videoEl.src = videoUrl;
+        if (preloadEl && viewerData._preloadedVideoIndex === index && preloadEl.src) {
+            // The hidden element already has this video buffered — swap src
+            videoEl.preload = autoplay ? "auto" : "metadata";
+            videoEl.src = preloadEl.src;
+            preloadEl.removeAttribute('src');
+            viewerData._preloadedVideoIndex = null;
+        } else {
+            videoEl.preload = autoplay ? "auto" : "metadata";
+            videoEl.src = videoUrl;
+        }
 
         // Hide loading message once the first frame is available
         const msgEl = document.getElementById('viewer-video-msg');
@@ -974,6 +1077,9 @@ async function loadViewerItem(index) {
         }
 
         updateNavUI();
+
+        // Kick off prefetch of the next item in the background
+        prefetchNext();
 
     } catch (e) {
         console.error(e);
