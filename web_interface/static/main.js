@@ -117,14 +117,12 @@ async function saveUserSettings(newSettings) {
         });
         const data = await res.json();
         if (data.status === 'success') {
-            window.userSettings = { ...window.userSettings, ...newSettings }; // Update local state
-            alert("Settings saved.");
+            window.userSettings = { ...window.userSettings, ...newSettings };
         } else {
-            alert("Error saving settings: " + data.error);
+            console.error("Error saving settings:", data.error);
         }
     } catch (e) {
         console.error("Failed to save settings", e);
-        alert("Error saving settings");
     }
 }
 
