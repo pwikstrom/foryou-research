@@ -16,6 +16,7 @@ import datetime as _dt
 
 from fyp.recode_variables import infer_timezone_offset
 from fyp.donations import generate_collection_metadata
+from fyp.organize_datasets import SCRAPES_LABEL, COLLECTIONS_LABEL, MACHINE_ANNOTATIONS_LABEL
 from fyp.types import convert_dtypes_to_pyarrow 
 from fyp.utils import clean_url
 from zoneinfo import ZoneInfo
@@ -531,7 +532,7 @@ class ForYouCollection(ForYouBaseCollection):
 
     def load_processed(self):
 
-        fn = "collections_recoded.parquet"
+        fn = f"{COLLECTIONS_LABEL}_recoded.parquet"
         if not data_io.exists(storage_location=self.processed_storage_location, filename=fn):
             if self.verbose:
                 print("No processed collection file found.")
@@ -663,7 +664,7 @@ class ForYouCollection(ForYouBaseCollection):
         data_io.save_parquet(
             df=self.stats,
             storage_location=self.processed_storage_location,
-            filename="ddp_metadata.parquet",
+            filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
             asyncronous=False)
 
 
@@ -671,7 +672,7 @@ class ForYouCollection(ForYouBaseCollection):
         data_io.save_parquet(
             df=self.data,
             storage_location=self.processed_storage_location,
-            filename="collections_recoded.parquet",
+            filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
             asyncronous=False)
 
 

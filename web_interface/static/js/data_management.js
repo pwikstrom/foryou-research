@@ -1096,6 +1096,37 @@ function consolidateEnrichmentData(btn) {
         });
 }
 
+function rebuildEnrichmentStatus(btn) {
+    const originalText = btn.textContent;
+    const originalClass = btn.className;
+    btn.textContent = "Rebuilding...";
+    btn.disabled = true;
+    btn.className = 'btn-running';
+
+    fetch('/api/manage/enrichment/rebuild_status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert(data.message);
+                fetchEnrichmentStats();
+            } else {
+                alert("Error: " + (data.error || "Unknown error"));
+            }
+        })
+        .catch(err => {
+            console.error("Failed to rebuild enrichment status:", err);
+            alert("Failed to rebuild enrichment status.");
+        })
+        .finally(() => {
+            btn.className = originalClass;
+            btn.textContent = originalText;
+            btn.disabled = false;
+        });
+}
+
 // Call on load
 fetchEnrichmentStats();
 

@@ -23,6 +23,7 @@ import shutil
 from fyp.types import convert_dtypes_to_pyarrow
 from fyp.recode_variables import *
 from fyp.calc_collection_stats import generate_personas
+from fyp.organize_datasets import COLLECTIONS_LABEL
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 from fyp.studies import init_study_defs
@@ -282,8 +283,8 @@ def generate_collection_metadata(
 
     old_metadata_df = pd.DataFrame()
     if load_from_disk:
-        if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
-            old_metadata_df = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet")
+        if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
+            old_metadata_df = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet")
             if collection_id_column in old_metadata_df.columns:
                 old_metadata_df.set_index(collection_id_column, inplace=True)
             if old_metadata_df.index.name != collection_id_column:
@@ -310,7 +311,7 @@ def generate_collection_metadata(
 
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
             if save_to_disk_ok:
-                data_io.save_parquet(df=new_metadata_df, storage_location="recoded", filename="ddp_metadata.parquet", verbose=verbose)
+                data_io.save_parquet(df=new_metadata_df, storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=verbose)
                 print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
             return new_metadata_df
 
@@ -395,7 +396,7 @@ def generate_collection_metadata(
     if save_to_disk_ok:
         if verbose:
             print(f"Saving updated metadata to disk. Shape: {combined_ddp_metadata.shape}")
-        data_io.save_parquet(df=combined_ddp_metadata, storage_location="recoded", filename="ddp_metadata.parquet", verbose=verbose)
+        data_io.save_parquet(df=combined_ddp_metadata, storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=verbose)
 
     if verbose:
         print(f"Shape of the combined metadata DF: {combined_ddp_metadata.shape}")

@@ -7,7 +7,7 @@ from collections import Counter
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
-from fyp.organize_datasets import create_study_recoded_dataset
+from fyp.organize_datasets import create_study_recoded_dataset, COLLECTIONS_LABEL
 
 
 
@@ -132,7 +132,7 @@ def filter_dataframe(df, column_types, filters, search_query=None):
             val = criteria.get("value")
             if isinstance(val, (list, np.ndarray)) and len(val) > 0 and 'collection_id' in filtered_df.columns:
                 try:
-                    annotations = data_io.load_json(storage_location="recoded", filename="collection_annotations.json") or {}
+                    annotations = data_io.load_json(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json") or {}
                 except Exception:
                     annotations = {}
                 selected_tags = set(str(v) for v in val)

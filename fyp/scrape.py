@@ -34,6 +34,14 @@ import textwrap
 from pathlib import Path
 
 
+
+SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
+FAILED_SCRAPES_LABEL = fyp_cf["labels"]["FAILED_SCRAPES_LABEL"]
+
+
+
+
+
 def _check_graceful_stop(process_name: str) -> bool:
     """Check if a graceful stop has been requested via sentinel file."""
     sentinel = Path(fyp_cf['paths']['project_root']) / "tmp" / "graceful_stop" / f"{process_name}.stop"
@@ -415,7 +423,7 @@ def rescue_tiktok_meta_threads(
     
     if not dry_run and len(results)>0:
         
-        scrape_filename = f"scrape_{fine_ts}.parquet"
+        scrape_filename = f"{SCRAPES_LABEL}_{fine_ts}.parquet"
 
         # saving the results to local temp just in case everything goes to pieces
         results.to_parquet(os.path.join(fyp_cf['paths']['temp'], "recovered_"+scrape_filename))
@@ -488,7 +496,7 @@ def rescue_tiktok_meta_threads(
 
 
     if not dry_run and len(failed_items)>0:
-        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"scrape_failed_items_{fine_ts}.json", verbose=verbose)
+        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
         print(f"Saved {len(failed_items)} failed items")
 
     return results
@@ -577,7 +585,7 @@ def download_video_threads(
     
     if not dry_run and len(results)>0:
         
-        scrape_filename = f"scrape_{fine_ts}.parquet"
+        scrape_filename = f"{SCRAPES_LABEL}_{fine_ts}.parquet"
 
         # saving the results to local temp just in case everything goes to pieces
         results.to_parquet(os.path.join(fyp_cf['paths']['temp'], "recovered_"+scrape_filename))
@@ -645,7 +653,7 @@ def download_video_threads(
 
 
     if not dry_run and len(failed_items)>0:
-        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"scrape_failed_items_{fine_ts}.json", verbose=verbose)
+        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
         print(f"Saved {len(failed_items)} failed items")
 
     return results
@@ -908,16 +916,16 @@ def consolidate_and_save_scrape_data(
         print("Checking for new scrape files for consolidation...")
 
     # check if there are any changes in the relevant folder compared to last time this process was run.    
-    if data_io.exists(storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
-        dataset_meta = data_io.load_json(storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
+    if data_io.exists(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose):
+        dataset_meta = data_io.load_json(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose)
         if verbose:
             print("Dataset meta loaded")
     else:
-        dataset_meta = {"scrape": {"filenames": []}}
+        dataset_meta = {SCRAPES_LABEL: {"filenames": []}}
 
     files_to_concatenate = []
     for fn in data_io.listdir(storage_location="scrape"):
-        if fn.startswith("scrape_") and fn.endswith(".parquet"):
+        if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet"):
             files_to_concatenate.append(fn)
 
     latest_filename_list = dataset_meta.get("scrape", {}).get("filenames", [])
@@ -926,7 +934,7 @@ def consolidate_and_save_scrape_data(
             print("No new scrape files found. No need to consolidate.")
         if return_saved_data:
             if verbose: print("Returning existing file.")
-            return False, data_io.load_parquet(storage_location="recoded", filename="scrape_recoded.parquet")
+            return False, data_io.load_parquet(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet")
         return False, None
 
     
@@ -988,14 +996,14 @@ def consolidate_and_save_scrape_data(
 
     if top_verbose:
         print("Saving consolidated scrape data...")
-    _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename="scrape_recoded.parquet")
+    _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet")
 
 
     # update the dataset meta file
-    if not "scrape" in dataset_meta:
-        dataset_meta["scrape"] = {}
-    dataset_meta["scrape"]["filenames"] = files_to_concatenate
-    _ = data_io.save_json(data=dataset_meta, storage_location="recoded", filename="dataset_meta.json")
+    if not SCRAPES_LABEL in dataset_meta:
+        dataset_meta[SCRAPES_LABEL] = {}
+    dataset_meta[SCRAPED_LABEL]["filenames"] = files_to_concatenate
+    _ = data_io.save_json(data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
 
     if top_verbose:
         print("...done")
@@ -1022,12 +1030,10 @@ def load_failed_scrapes(
     if verbose:
         print("Loading failed scrapes...")
 
-    failed_scrape_fn_core = "scrape_failed_items"
-
-    failed_scrape_files = [gg for gg in data_io.listdir(storage_location="scrape", verbose=verbose) if gg.startswith(failed_scrape_fn_core)]
+    failed_scrapes_files = [gg for gg in data_io.listdir(storage_location="scrape", verbose=verbose) if gg.startswith(FAILED_SCRAPES_LABEL)]
 
     failed_scrapes = []
-    for fn in failed_scrape_files:
+    for fn in failed_scrapes_files:
         if super_verbose:
             print(fn)
         some_dict = data_io.load_json(storage_location="scrape", filename=fn, verbose=verbose)
@@ -1036,15 +1042,15 @@ def load_failed_scrapes(
 
     failed_scrapes = list(set(map(lambda one_item_id:str(one_item_id), failed_scrapes)))
 
-    if len(failed_scrape_files) > 1:
+    if len(failed_scrapes_files) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
-            print(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {failed_scrape_fn_core}_{fine_ts}.json.")
+            print(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {FAILED_SCRAPES_LABEL}_{fine_ts}.json.")
 
-        result = data_io.save_json(data=failed_scrapes, storage_location="scrape", filename=f"{failed_scrape_fn_core}_{fine_ts}.json", verbose=verbose)
+        result = data_io.save_json(data=failed_scrapes, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
 
         if result == 0:
-            for fn in failed_scrape_files:
+            for fn in failed_scrapes_files:
                 data_io.move(src_storage_location="scrape", dst_storage_location="archive", filename=fn, verbose=verbose)
                 if verbose:
                     print(f"Moved {fn} to archive")

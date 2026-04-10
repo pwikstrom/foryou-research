@@ -18,6 +18,9 @@ collection_id_column = "collection_id"
 timestamp_column = "local_timestamp"
 event_type_column = "activity_type"
 
+SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
+MACHINE_ANNOTATIONS_LABEL = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
+COLLECTIONS_LABEL = fyp_cf["labels"]["COLLECTIONS_LABEL"]
 
 
 
@@ -29,7 +32,6 @@ def _df_size_mb(df: pd.DataFrame) -> float:
 
 
 
-
 def _load_cached_core_datasets(verbose: bool = False) -> dict:
     """Load core datasets (scrape, annotations, collections) from cache or main storage.
 
@@ -37,11 +39,11 @@ def _load_cached_core_datasets(verbose: bool = False) -> dict:
     loads from GCS and saves a local cache copy for future use.
 
     Returns:
-        Dict with keys 'scrape', 'machine_annotations', 'collections' (values may be None).
+        Dict with keys SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL COLLECTIONS_LABEL from the config (values may be None).
     """
     tutti_data: dict = {}
 
-    for k in ['scrape', 'machine_annotations', 'collections']:
+    for k in [SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL]:
         tutti_data[k] = None
 
         # try loading from local cache
@@ -87,28 +89,28 @@ def _filter_enrichment_data(
     sel = None if study_name == 'everything' else [("item_id", "in", list(unique_videos))]
 
     # scrape data
-    if tutti_data.get("scrape") is None or tutti_data["scrape"].empty:
+    if tutti_data.get(SCRAPES_LABEL) is None or tutti_data[SCRAPES_LABEL].empty:
         print("    [Scrape] Loading scraped data from main storage...", end="", flush=True)
         if verbose: print()
-        tutti_data["scrape"] = data_io.load_parquet(
-            storage_location="recoded", filename="scrape_recoded.parquet", filters=sel, verbose=verbose)
+        tutti_data[SCRAPES_LABEL] = data_io.load_parquet(
+            storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
         if not verbose: print(" ...done")
     else:
-        print(f"    [Scrape] There are {len(tutti_data['scrape']):,} scraped data items in the cache", end="", flush=True)
-        tutti_data["scrape"] = tutti_data["scrape"][tutti_data["scrape"]["item_id"].isin(unique_videos)].copy()
-        print(f" and {len(tutti_data['scrape']):,} of those overlap with the activity datasets.")
+        print(f"    [Scrape] There are {len(tutti_data[SCRAPES_LABEL]):,} scraped data items in the cache", end="", flush=True)
+        tutti_data[SCRAPES_LABEL] = tutti_data[SCRAPES_LABEL][tutti_data[SCRAPES_LABEL]["item_id"].isin(unique_videos)].copy()
+        print(f" and {len(tutti_data[SCRAPES_LABEL]):,} of those overlap with the activity datasets.")
 
     # machine annotations
-    if tutti_data.get("machine_annotations") is None or tutti_data["machine_annotations"].empty:
+    if tutti_data.get(MACHINE_ANNOTATIONS_LABEL) is None or tutti_data[MACHINE_ANNOTATIONS_LABEL].empty:
         print("    [Machine annotations] Loading machine annotations from main storage...", end="", flush=True)
         if verbose: print()
-        tutti_data["machine_annotations"] = data_io.load_parquet(
-            storage_location="recoded", filename="machine_annotations_recoded.parquet", filters=sel, verbose=verbose)
+        tutti_data[MACHINE_ANNOTATIONS_LABEL] = data_io.load_parquet(
+            storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
         if not verbose: print(" ...done")
     else:
-        print(f"    [Machine annotations] There are {len(tutti_data['machine_annotations']):,} annotations in the cache", end="", flush=True)
-        tutti_data["machine_annotations"] = tutti_data["machine_annotations"][tutti_data["machine_annotations"]["item_id"].isin(unique_videos)].copy()
-        print(f" and {len(tutti_data['machine_annotations']):,} of those overlap with the activity datasets.")
+        print(f"    [Machine annotations] There are {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} annotations in the cache", end="", flush=True)
+        tutti_data[MACHINE_ANNOTATIONS_LABEL] = tutti_data[MACHINE_ANNOTATIONS_LABEL][tutti_data[MACHINE_ANNOTATIONS_LABEL]["item_id"].isin(unique_videos)].copy()
+        print(f" and {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} of those overlap with the activity datasets.")
 
 
 
@@ -176,7 +178,7 @@ def load_collection_data(
     if all_data is None:
         if verbose:
             print(f"    [DDP] Loading collection events from main storage")
-        out_df = data_io.load_parquet("recoded", "collections_recoded.parquet", filters=sel, verbose=verbose)
+        out_df = data_io.load_parquet("recoded", f"{COLLECTIONS_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
 
     else:
         if verbose:
@@ -388,7 +390,7 @@ def load_study_datasets(
         tutti_data = _load_cached_core_datasets(verbose=verbose)
 
         # check if a study-specific cache exists (not just 'everything')
-        for k in ['scrape', 'machine_annotations', 'collections']:
+        for k in [SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL]:
             if data_io.exists(storage_location="cache", filename=f"core_{k}.parquet"):
                 parquet_study_name = data_io.find_key_value_in_pq_metadata(
                     storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
@@ -495,21 +497,21 @@ def load_collection_datasets(
         tutti_data = {}
         if verbose:
             print(f"    [Core datasets] Loading core datasets from main storage.")
-        for k in ['scrape', 'machine_annotations', 'collections']:
+        for k in [SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL]:
             tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
 
 
     # --------------------------------------------------------------------
     # filter activity data to the requested collection
     # --------------------------------------------------------------------
-    if "collections" in tutti_data and isinstance(tutti_data["collections"], pd.DataFrame):
-        tutti_data["collections"] = tutti_data["collections"][tutti_data["collections"]["collection_id"] == collection_id]
-        if len(tutti_data["collections"]) == 0:
-            print(f"    [Core datasets] No collections found for collection_id '{collection_id}'")
+    if COLLECTIONS_LABEL in tutti_data and isinstance(tutti_data[COLLECTIONS_LABEL], pd.DataFrame):
+        tutti_data[COLLECTIONS_LABEL] = tutti_data[COLLECTIONS_LABEL][tutti_data[COLLECTIONS_LABEL]["collection_id"] == collection_id]
+        if len(tutti_data[COLLECTIONS_LABEL]) == 0:
+            print(f"    [Core datasets] No collections found for id '{collection_id}'")
             return None
 
-    unique_videos = set(tutti_data["collections"]["item_id"].dropna().values.tolist())
-    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets")
+    unique_videos = set(tutti_data[COLLECTIONS_LABEL]["item_id"].dropna().values.tolist())
+    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos")
 
 
     # --------------------------------------------------------------------
@@ -601,9 +603,9 @@ def update_enrichment_status(
     save_to_disk: bool = True,
     verbose: bool = False
     ) -> pd.DataFrame:
-    """Rebuild enrichment_status.parquet from activity, scrape, and annotation data."""
+    """Rebuild enrichment_status.parquet from collections, scrapes, and annotations."""
 
-    combined_activity_data = all_datasets["ddp_logs"][['item_id', collection_id_column]]
+    combined_activity_data = all_datasets[COLLECTIONS_LABEL][['item_id', collection_id_column]]
 
     enrichment_status_df = combined_activity_data.groupby("item_id").agg(
             nunique_collections=pd.NamedAgg(column=collection_id_column, aggfunc="nunique"),
@@ -623,9 +625,9 @@ def update_enrichment_status(
     most_common_item_id_length = enrichment_status_df["item_id"].str.len().value_counts().index[0]
     enrichment_status_df = enrichment_status_df[enrichment_status_df["item_id"].str.len()==most_common_item_id_length].copy()
 
-    enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets['scrape_data'][['item_id','scraped_ok','video_downloaded']], on='item_id', how='left')
+    enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets[SCRAPES_LABEL][['item_id','scraped_ok','video_downloaded']], on='item_id', how='left')
 
-    enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets['annotations'][['item_id','annotated_ok','annotated_fail']], on='item_id', how='left')
+    enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets[MACHINE_ANNOTATIONS_LABEL][['item_id','annotated_ok','annotated_fail']], on='item_id', how='left')
 
     failed_scrapes = load_failed_scrapes()
     failed_scrapes = pd.DataFrame(failed_scrapes, columns=["item_id"])
@@ -665,16 +667,12 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
         print("\n*** No new data to consolidate. Skipping enrichment status update.")
         return None
 
-    ddp_logs = data_io.load_parquet(filename="collections_recoded.parquet", storage_location="recoded")
-    new_ddp_logs = False
+    collections = data_io.load_parquet(filename=f"{COLLECTIONS_LABEL}_recoded.parquet", storage_location="recoded")
 
     fine_results = {
-        "new_ddp_logs": new_ddp_logs,
-        "ddp_logs": ddp_logs,
-        "new_annotations": new_annotations,
-        "annotations": annotations,
-        "new_scrape_data": new_scrape_data,
-        "scrape_data": scrape_data
+        COLLECTIONS_LABEL: collections,
+        MACHINE_ANNOTATIONS_LABEL: annotations,
+        SCRAPES_LABEL: scrape_data
         }
 
     print("\n*** Updating (and saving) data enrichment status...")
@@ -719,17 +717,17 @@ def new_merge(
 
 
     # merge scrape + annotations into enrichment data
-    if all_datasets.get('scrape') is not None and all_datasets.get('machine_annotations') is not None:
-        enriched_data = pd.merge(left=all_datasets['scrape'], right=all_datasets['machine_annotations'], on='item_id', how='left')
-    elif all_datasets.get('scrape') is not None:
-        enriched_data = all_datasets['scrape']
-    elif all_datasets.get('machine_annotations') is not None:
-        enriched_data = all_datasets['machine_annotations']
+    if all_datasets.get(SCRAPES_LABEL) is not None and all_datasets.get(MACHINE_ANNOTATIONS_LABEL) is not None:
+        enriched_data = pd.merge(left=all_datasets[SCRAPES_LABEL], right=all_datasets[MACHINE_ANNOTATIONS_LABEL], on='item_id', how='left')
+    elif all_datasets.get(SCRAPES_LABEL) is not None:
+        enriched_data = all_datasets[SCRAPES_LABEL]
+    elif all_datasets.get(MACHINE_ANNOTATIONS_LABEL) is not None:
+        enriched_data = all_datasets[MACHINE_ANNOTATIONS_LABEL]
     else:
         enriched_data = pd.DataFrame()
 
-    if all_datasets.get('collections') is not None:
-        activity_data = all_datasets['collections']
+    if all_datasets.get(COLLECTIONS_LABEL) is not None:
+        activity_data = all_datasets[COLLECTIONS_LABEL]
     else:
         activity_data = pd.DataFrame()
 

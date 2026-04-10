@@ -123,8 +123,11 @@
     </div>
 
 </div>
-<div style="margin-top: 16px;">
+<div style="margin-top: 16px; display: flex; gap: 12px; align-items: center;">
     <button type="button" class="action-btn" id="btn-consolidate"
         onclick="consolidateEnrichmentData(this)"
         style="padding: 6px 12px;" disabled>Consolidate New Scrapes &amp; Annotations</button>
+    <button type="button" class="action-btn" id="btn-rebuild-enrichment"
+        onclick="rebuildEnrichmentStatus(this)"
+        style="padding: 6px 12px;">Rebuild Enrichment Status</button>
 </div>

@@ -7,7 +7,7 @@ from datetime import datetime
 from fyp.fyp_config import fyp_cf, load_var_schema
 from fyp.ingest import get_main_collection
 import fyp.data_io as data_io
-from fyp.organize_datasets import create_study_recoded_dataset
+from fyp.organize_datasets import create_study_recoded_dataset, SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL
 from fyp.pca import calculate_scaled_pca_scores
 from fyp.studies import init_study_defs, save_study_defs
 from .. import explorer_backend as explorer
@@ -15,6 +15,8 @@ import pandas as pd
 from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable, calculate_inter_coder_reliability
 
 management_bp = Blueprint('management_bp', __name__)
+
+
 
 
 
@@ -425,10 +427,10 @@ def list_collections():
 
     if True:#try:
         # Load ddp_metadata from storage
-        if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
+        if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
             df = data_io.load_parquet(
                 storage_location="recoded", 
-                filename="ddp_metadata.parquet", 
+                filename=f"{COLLECTIONS_LABEL}_metadata.parquet", 
                 verbose=False,
             )
             
@@ -438,8 +440,8 @@ def list_collections():
                 
             # Load annotations
             annotations = {}
-            if data_io.exists(storage_location="recoded", filename="collection_annotations.json"):
-                annotations = data_io.load_json(storage_location="recoded", filename="collection_annotations.json")
+            if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
+                annotations = data_io.load_json(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json")
                 
             # Construct structured dictionaries
             collections = []
@@ -492,7 +494,7 @@ def list_collections():
 
             return jsonify(collections)
         else:
-            print("ddp_metadata.parquet not found")
+            print(f"{COLLECTIONS_LABEL}_metadata.parquet not found")
             return jsonify([])
             
     if False:#except Exception as e:
@@ -515,8 +517,8 @@ def save_collection_annotation():
 
     try:
         annotations = {}
-        if data_io.exists(storage_location="recoded", filename="collection_annotations.json"):
-            annotations = data_io.load_json(storage_location="recoded", filename="collection_annotations.json")
+        if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
+            annotations = data_io.load_json(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json")
 
         annotations[str(collection_id)] = {
             "display_collection_id": data.get('display_collection_id', None),
@@ -527,7 +529,7 @@ def save_collection_annotation():
         data_io.save_json(
             data=annotations,
             storage_location="recoded",
-            filename="collection_annotations.json",
+            filename=f"{COLLECTIONS_LABEL}_tags.json",
             verbose=False
         )
 
@@ -560,7 +562,7 @@ def get_enrichment_stats():
         if 'annotated_ok' in enrichment_status.columns:
             annotated_videos = int(enrichment_status['annotated_ok'].sum())
     
-    ddp_metadata = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet")
+    ddp_metadata = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet")
     if ddp_metadata is not None and not ddp_metadata.empty:
         if ('other', 'accepted') in ddp_metadata.columns:
             unique_collections = int(ddp_metadata[ddp_metadata[('other','accepted')]].index.nunique())
@@ -587,18 +589,18 @@ def get_enrichment_stats():
     has_unconsolidated = False
     try:
         dataset_meta = {}
-        if data_io.exists(storage_location="recoded", filename="dataset_meta.json"):
-            dataset_meta = data_io.load_json(storage_location="recoded", filename="dataset_meta.json")
+        if data_io.exists(storage_location="recoded", filename="consolidated_enrichment_files.json"):
+            dataset_meta = data_io.load_json(storage_location="recoded", filename="consolidated_enrichment_files.json")
 
-        known_scrape_files = set(dataset_meta.get("scrape", {}).get("filenames", []))
+        known_scrape_files = set(dataset_meta.get(SCRAPES_LABEL, {}).get("filenames", []))
         current_scrape_files = {fn for fn in data_io.listdir(storage_location="scrape")
-                                if fn.startswith("scrape_") and fn.endswith(".parquet")}
+                                if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet")}
         if not current_scrape_files <= known_scrape_files:
             has_unconsolidated = True
 
-        known_annotation_files = set(dataset_meta.get("machine_annotations", {}).get("filenames", []))
+        known_annotation_files = set(dataset_meta.get(MACHINE_ANNOTATIONS_LABEL, {}).get("filenames", []))
         current_annotation_files = {fn for fn in data_io.listdir(storage_location="machine_annotations_refined")
-                                    if fn.startswith("machine_annotations_") and fn.endswith(".parquet")}
+                                    if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet")}
         if not current_annotation_files <= known_annotation_files:
             has_unconsolidated = True
     except Exception:
@@ -976,6 +978,49 @@ def api_consolidate_enrichment():
         print(f"Error consolidating enrichment data: {e}")
         return jsonify({"error": str(e)}), 500
 
+@management_bp.route('/api/manage/enrichment/rebuild_status', methods=['POST'])
+@login_required
+def api_rebuild_enrichment_status():
+    """Rebuild enrichment_status.parquet from current activity, scrape, and annotation data."""
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    try:
+        from fyp.organize_datasets import (
+            update_enrichment_status, COLLECTIONS_LABEL, SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL
+        )
+
+        collections = data_io.load_parquet(
+            filename=f"{COLLECTIONS_LABEL}_recoded.parquet", storage_location="recoded")
+        scrape_data = data_io.load_parquet(
+            filename=f"{SCRAPES_LABEL}_recoded.parquet", storage_location="recoded")
+        annotations = data_io.load_parquet(
+            filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", storage_location="recoded")
+
+        if collections is None or collections.empty:
+            return jsonify({"error": "No collections data ({COLLECTIONS_LABEL}_recoded.parquet) found."}), 400
+
+        if scrape_data is None:
+            scrape_data = pd.DataFrame(columns=["item_id", "scraped_ok", "video_downloaded"])
+        if annotations is None:
+            annotations = pd.DataFrame(columns=["item_id", "annotated_ok", "annotated_fail"])
+
+        all_datasets = {
+            COLLECTIONS_LABEL: collections,
+            SCRAPES_LABEL: scrape_data,
+            MACHINE_ANNOTATIONS_LABEL: annotations,
+        }
+
+        df = update_enrichment_status(all_datasets=all_datasets, save_to_disk=True, verbose=False)
+        return jsonify({
+            "status": "success",
+            "message": f"Enrichment status rebuilt. {len(df):,} videos indexed."
+        })
+    except Exception as e:
+        print(f"Error rebuilding enrichment status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @management_bp.route('/api/manage/schema/reload', methods=['POST'])
 @login_required
 def reload_schema():
@@ -1131,25 +1176,26 @@ def upload_ingestion_file():
 @management_bp.route('/api/manage/refresh-collection-metadata', methods=['POST'])
 @login_required
 def refresh_collection_metadata():
-    """Regenerate ddp_metadata.parquet from scratch using all events."""
+    """Regenerate _metadata.parquet from scratch using all events."""
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
 
     try:
         from fyp.donations import generate_collection_metadata
+        from fyp.organize_datasets import COLLECTIONS_LABEL
 
         # Preserve columns that are set outside generate_collection_metadata
         # (e.g. ('other','accepted') is set during ingestion, not during metadata generation)
         old_metadata = None
-        if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
+        if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
             old_metadata = data_io.load_parquet(
                 storage_location="recoded",
-                filename="ddp_metadata.parquet",
+                filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
                 verbose=False)
 
         events_df = data_io.load_parquet(
             storage_location="recoded",
-            filename="collections_recoded.parquet",
+            filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
             verbose=False)
         if events_df is None or events_df.empty:
             return jsonify({"error": "No events data found"}), 404
@@ -1167,7 +1213,7 @@ def refresh_collection_metadata():
                                   left_index=True, right_index=True, how='left')
                 # Save the merged result
                 data_io.save_parquet(df=result, storage_location="recoded",
-                                    filename="ddp_metadata.parquet", verbose=True)
+                                    filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=True)
 
         return jsonify({
             "status": "success",
@@ -1202,10 +1248,10 @@ def refresh_ingestion_collection():
 def _prepopulate_annotations(manifest: dict, tags: list[str]) -> None:
     """Merge tags into collection_annotations.json for each unique collection_id in the manifest."""
     annotations: dict = {}
-    if data_io.exists(storage_location="recoded", filename="collection_annotations.json"):
+    if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
         annotations = data_io.load_json(
             storage_location="recoded",
-            filename="collection_annotations.json",
+            filename=f"{COLLECTIONS_LABEL}_tags.json",
             verbose=False
         ) or {}
 
@@ -1226,7 +1272,7 @@ def _prepopulate_annotations(manifest: dict, tags: list[str]) -> None:
     data_io.save_json(
         data=annotations,
         storage_location="recoded",
-        filename="collection_annotations.json",
+        filename=f"{COLLECTIONS_LABEL}_tags.json",
         verbose=False
     )
 
@@ -1238,6 +1284,9 @@ def _prepopulate_annotations(manifest: dict, tags: list[str]) -> None:
 @login_required
 def get_ingestion_metadata():
     """Return existing collection IDs and all unique tags for the upload modal."""
+
+    from fyp.organize_datasets import COLLECTIONS_LABEL
+
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
 
@@ -1245,20 +1294,20 @@ def get_ingestion_metadata():
     all_tags: set[str] = set()
 
     # Get collection IDs from processed activity data
-    if data_io.exists(storage_location="recoded", filename="collections_recoded.parquet"):
+    if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
         df = data_io.load_parquet(
             storage_location="recoded",
-            filename="collections_recoded.parquet",
+            filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
             verbose=False,
         )
         if df is not None and "collection_id" in df.columns:
             collection_ids = sorted(df["collection_id"].dropna().unique().tolist())
 
     # Get tags from annotations
-    if data_io.exists(storage_location="recoded", filename="collection_annotations.json"):
+    if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
         annotations = data_io.load_json(
             storage_location="recoded",
-            filename="collection_annotations.json",
+            filename=f"{COLLECTIONS_LABEL}_tags.json",
             verbose=False,
         ) or {}
         for ann in annotations.values():

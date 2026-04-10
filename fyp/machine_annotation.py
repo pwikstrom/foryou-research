@@ -43,11 +43,8 @@ def _check_graceful_stop(process_name: str) -> bool:
     return sentinel.exists()
 
 
-REQUIRED_KEYS = [
-    "transcript", "objects", "content_category", "symbols_and_brands",
-    "text_overlays", "scenes"]
-
-
+REQUIRED_KEYS = fyp_cf["labels"]["REQUIRED_KEYS"]
+MACHINE_ANNOTATIONS_LABEL = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
 
 
 
@@ -327,7 +324,7 @@ def call_machine_threads(
 
         fine_ts = "".join([k for k in str(_dt.datetime.now()) if k in "0123456789"])
 
-        filename = f"machine_annotations_{fine_ts}.json"
+        filename = f"{MACHINE_ANNOTATIONS_LABEL}_{fine_ts}.json"
 
         data_io.save_json(data=results_by_index, storage_location="machine_annotations_raw", filename=filename, verbose=verbose)
         if verbose:
@@ -1304,10 +1301,10 @@ def refine_and_save_all_raw_annotation_files(verbose = False, notebook_mode = Fa
 
     result = {}
     
-    raw_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_raw") if fn.startswith("machine_annotations") and fn.endswith(".json")]
+    raw_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_raw") if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".json")]
     result["raw_files"] = len(raw_annotation_files)
 
-    refined_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_refined") if fn.startswith("machine_annotations") and fn.endswith(".parquet")]
+    refined_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_refined") if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet")]
     result["refined_files_before"] = len(refined_annotation_files)
 
     raw_files_up_for_refinement = [g for g in raw_annotation_files if not g.replace(".json",".parquet") in refined_annotation_files]
@@ -1366,8 +1363,8 @@ def consolidate_and_save_refined_annotations(
 
     # ---------------------------------------------------------------
     # check if there are any changes in the relevant folder compared to last time this process was run.    
-    if data_io.exists(storage_location="recoded",filename="dataset_meta.json",verbose=verbose):
-        dataset_meta = data_io.load_json(storage_location="recoded",filename="dataset_meta.json",verbose=verbose)
+    if data_io.exists(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose):
+        dataset_meta = data_io.load_json(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose)
         if verbose:
             print("Dataset meta loaded")
     else:
@@ -1375,7 +1372,7 @@ def consolidate_and_save_refined_annotations(
 
     files_to_concatenate = []
     for fn in data_io.listdir(storage_location="machine_annotations_refined"):
-        if fn.startswith("machine_annotations_") and fn.endswith(".parquet"):
+        if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet"):
             files_to_concatenate.append(fn)
 
     latest_filename_list = dataset_meta.get("machine_annotations", {}).get("filenames", [])
@@ -1386,7 +1383,7 @@ def consolidate_and_save_refined_annotations(
             print("No new refined machine annotations files found. No need to consolidate.")
         if return_saved_data:
             if verbose: print("Returning existing file.")
-            return False, data_io.load_parquet(storage_location="recoded", filename="machine_annotations_recoded.parquet")
+            return False, data_io.load_parquet(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet")
         return False, None
     
  
@@ -1423,7 +1420,7 @@ def consolidate_and_save_refined_annotations(
         print("Saving consolidated annotations...")
     data_io.save_parquet(
         df=consolidated_annotations, 
-        storage_location="recoded", filename="machine_annotations_recoded.parquet", verbose=verbose)   
+        storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", verbose=verbose)   
     if top_verbose:
         print("...done")
 
@@ -1432,7 +1429,7 @@ def consolidate_and_save_refined_annotations(
     if not "machine_annotations" in dataset_meta:
         dataset_meta["machine_annotations"] = {}
     dataset_meta["machine_annotations"]["filenames"] = files_to_concatenate
-    _ = data_io.save_json(data = dataset_meta, storage_location="recoded", filename="dataset_meta.json")
+    _ = data_io.save_json(data = dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
 
     return True, consolidated_annotations
 

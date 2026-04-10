@@ -8,7 +8,7 @@ import fyp.data_io as data_io
 from fyp.pca import calculate_scaled_pca_scores
 from fyp.fyp_config import fyp_cf, PROJECT_ROOT
 from . import explorer_backend as explorer
-from fyp.organize_datasets import create_collection_unified_dataset
+from fyp.organize_datasets import create_collection_unified_dataset, COLLECTIONS_LABEL
 from fyp.studies import init_study_defs
 
 # --- Explorer State ---
@@ -737,11 +737,11 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
             # Analysis is missing, generate it on the fly
             from fyp.timeline_analysis import analyse_timeline
             
-            # Try to fetch first_activity_date from ddp_metadata.parquet
+            # Try to fetch first_activity_date from {COLLECTIONS_LABEL}_metadata.parquet
             first_date = None
             try:
-                if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
-                    ddp_meta = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)
+                if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
+                    ddp_meta = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=False)
                     if ddp_meta is not None:
                         # Check index or column for collection_id
                         if ddp_meta.index.name == 'collection_id' or ddp_meta.index.name is None:
@@ -780,7 +780,7 @@ def load_display_id_map():
     Loads collection_annotations.json and returns a map of { raw_id: display_id }.
     """
     mapping = {}
-    da_filename = "collection_annotations.json"
+    da_filename = f"{COLLECTIONS_LABEL}_tags.json"
     try:
         if data_io.exists(storage_location="recoded", filename=da_filename):
             annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}

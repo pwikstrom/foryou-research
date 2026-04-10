@@ -14,6 +14,7 @@ from ..security import user_manager
 from ..auth import admin_required
 from .. import explorer_backend as explorer
 from fyp.recode_variables import get_factors_and_features_from_var_schema
+from fyp.organize_datasets import COLLECTIONS_LABEL
 from fyp.studies import init_study_defs, save_study_defs
 from fyp.ingest import TikTokDDPCollection, TikTokZeeschuimerCollection
 import fyp.data_io as data_io
@@ -150,7 +151,7 @@ def api_get_study_defs():
 def _inject_collection_tags(metadata: dict, collection_ids: list[str]) -> dict:
     """Inject a virtual 'Collection Tags' filter derived from collection_annotations.json."""
     try:
-        annotations = data_io.load_json(storage_location="recoded", filename="collection_annotations.json") or {}
+        annotations = data_io.load_json(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json") or {}
     except Exception:
         return metadata
 
@@ -1276,8 +1277,8 @@ def api_pca_correlation_matrix():
 @login_required
 def api_persona_stats_info():
     if True:
-        if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
-            mtime = data_io.getmtime(storage_location="recoded", filename="ddp_metadata.parquet")
+        if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
+            mtime = data_io.getmtime(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet")
             timestamp = datetime.fromtimestamp(mtime).strftime('%d %b %Y %H:%M')
             return jsonify({"exists": True, "timestamp": timestamp})
         return jsonify({"exists": False, "timestamp": None})
@@ -1340,7 +1341,7 @@ def api_persona_stats():
                  return jsonify([]) # Return empty list if no access
         # ----------------------
 
-        filename = "ddp_metadata.parquet"
+        filename = f"{COLLECTIONS_LABEL}_metadata.parquet"
         if not data_io.exists(storage_location="recoded", filename=filename):
              return jsonify({"error": "Persona metadata file not found."}), 404
         
@@ -1431,7 +1432,7 @@ def api_persona_stats():
         records = stats_df.replace({np.nan: None}).to_dict(orient='records')
         
         # --- MERGE DONATION ANNOTATIONS ---
-        da_filename = "collection_annotations.json"
+        da_filename = f"{COLLECTIONS_LABEL}_tags.json"
         try:
             # We load the annotations here
             # We must be careful about concurrency but for now basic load is fine
@@ -1498,7 +1499,7 @@ def api_collection_annotate():
     
     # Validation?
     
-    da_filename = "collection_annotations.json"
+    da_filename = f"{COLLECTIONS_LABEL}_tags.json"
     
     # Load existing (with lock if we had one, but we rely on atomic write or loose consistency here)
     annotations = {}
@@ -1701,12 +1702,8 @@ def api_timeline_collections():
         return jsonify([])
 
     # 3. Load Metadata to get details 
-    # We still load the full metadata because we need to return the same structure as before
-    # matching the logic. Or we can just build it from the study info?
-    # The previous logic loaded `ddp_metadata.parquet` (all collections ever).
-    # We should filter THAT by allowed_collection_ids.
     
-    meta_df = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet")
+    meta_df = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet")
     
     if meta_df is None or meta_df.empty:
         return jsonify([])
@@ -1780,7 +1777,7 @@ def api_timeline_collections():
         final_valid_ids = [uid for uid in unique_ids if str(uid) in allowed_collection_ids]
         
         # Load annotations
-        da_filename = "collection_annotations.json"
+        da_filename = f"{COLLECTIONS_LABEL}_tags.json"
         annotations = {}
         try:
             if data_io.exists(storage_location="recoded", filename=da_filename):

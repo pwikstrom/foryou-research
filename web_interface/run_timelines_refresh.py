@@ -11,6 +11,9 @@ project_root = current_dir.parent
 sys.path.append(str(project_root))
 
 
+
+
+
 def _init_worker() -> None:
     """Initialise fyp_config and study definitions in a worker process."""
     from fyp.studies import init_study_defs
@@ -43,7 +46,7 @@ def process_one_collection(
         init_study_defs()
 
     # Remove existing cache to force recalculation
-    for interval in ['day', 'week', 'month']:
+    for interval in ['day']:#, 'week', 'month']:
         filename = f"timeline_{collection_id}_{interval}.parquet"
         if data_io.exists(storage_location="cache", filename=filename):
             data_io.remove(storage_location="cache", filename=filename)
@@ -53,7 +56,7 @@ def process_one_collection(
         return False
 
     # Analyse for each interval
-    for a_interval in ['day', 'week', 'month']:
+    for a_interval in ['day']:#, 'week', 'month']:
         try:
             tdata = get_timeline_data(collection_id, interval=a_interval, skip_cache_check=True)
             if tdata and tdata.get("dates"):
@@ -72,6 +75,7 @@ if __name__ == "__main__":
         from fyp.fyp_config import fyp_cf
         from web_interface.data_service import check_and_update_timeline_cache, load_schema_metadata
         from fyp.studies import init_study_defs
+        from fyp.organize_datasets import COLLECTIONS_LABEL, SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL
         import fyp.data_io as data_io
         import argparse
 
@@ -95,11 +99,11 @@ if __name__ == "__main__":
         all_collections = set()
         collection_first_event = {}
 
-        # Load from ddp_metadata.parquet
-        if data_io.exists(storage_location="recoded", filename="ddp_metadata.parquet"):
+        # Load from {COLLECTIONS_LABEL}_metadata.parquet
+        if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
             try:
-                print("Loading ddp_metadata.parquet to identify accepted collections...")
-                df = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)
+                print(f"Loading {COLLECTIONS_LABEL}_metadata.parquet to identify accepted collections...")
+                df = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=False)
 
                 if df is not None and not df.empty:
                     # Filter for accepted collections
@@ -159,9 +163,9 @@ if __name__ == "__main__":
             print("Preloading core datasets to optimize timeline compilation...")
             from fyp.organize_datasets import new_merge
             all_datasets = {}
-            for k, f in [('collections', 'collections_recoded.parquet'),
-                         ('scrape', 'scrape_recoded.parquet'),
-                         ('machine_annotations', 'machine_annotations_recoded.parquet')]:
+            for k, f in [(COLLECTIONS_LABEL, f"{COLLECTIONS_LABEL}_recoded.parquet"),
+                         (SCRAPES_LABEL, "{SCRAPES_LABEL}_recoded.parquet"),
+                         (MACHINE_ANNOTATIONS_LABEL, f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet")]:
                  if data_io.exists(storage_location="recoded", filename=f):
                      all_datasets[k] = data_io.load_parquet(storage_location="recoded", filename=f, verbose=False)
                  else:
