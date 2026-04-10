@@ -17,6 +17,7 @@ IRRELEVANT_WORDS = fyp_cf["labels"]["IRRELEVANT_WORDS"]
 NOT_CODED =  fyp_cf["labels"]["NOT_CODED"]
 UNABLE_TO_DETECT = fyp_cf["labels"]["UNABLE_TO_DETECT"]
 OTHER_THINGS = fyp_cf["labels"]["OTHER_THINGS"]
+SPLITTER = fyp_cf["labels"]["SPLITTER"]
 
 
 
@@ -177,14 +178,6 @@ def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False)
 
 
 
-
-
-def _try_eval(s):
-
-    try:
-        return eval(s)
-    except:
-        return s
 
 
 
@@ -590,13 +583,13 @@ def recode_main_activity(
         # Then apply *ing filter.
         
         # Step 1: get lists
-        if 'splitter' in recoding_policy and not pd.isna(recoding_policy['splitter']):
-            splitter = recoding_policy['splitter']
-            # split
-            # clean chars?
-            # This is complex to fully vectorize without regex.
-            # let's assume simple split for now or use the helper with apply if simpler.
-            pass
+        #if 'splitter' in recoding_policy and not pd.isna(recoding_policy['splitter']):
+        #    splitter = recoding_policy['splitter']
+        #    # split
+        #    # clean chars?
+        #    # This is complex to fully vectorize without regex.
+        #    # let's assume simple split for now or use the helper with apply if simpler.
+        #    pass
         
         # Optimized Apply Approach
         # recode_stringified_list is complex.
@@ -698,7 +691,7 @@ def recode_stringified_list(
         # This function is the heavy lifter for parsing stringified lists.
         # Vectorizing:
         # If straightforward split:
-        splitter = recoding_policy.get("splitter", pd.NA)
+        #splitter = recoding_policy.get("splitter", pd.NA)
         mapper = recoding_policy.get("mapper", {})
         ignore_strings = recoding_policy.get("ignore_strings", [])
         
@@ -712,19 +705,16 @@ def recode_stringified_list(
             # The original code has `mini_mapper`.
             
             out = []
-            if not pd.isna(splitter):
-                parts = s_val.lower().split(splitter)
-                for an_element in parts:
-                    if len(an_element) > 0:
-                        cleaned = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
-                        # removal of chars
-                        # strict char filter
-                        # ".,:;!)(*/&|^%$#@<>?'`’1234567890"
-                        # This loop is heavy.
-                        # return cleaned part
-                        out.append(cleaned) 
-            else:
-                 pass # implicit single?
+            parts = s_val.lower().split(SPLITTER)
+            for an_element in parts:
+                if len(an_element) > 0:
+                    cleaned = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
+                    # removal of chars
+                    # strict char filter
+                    # ".,:;!)(*/&|^%$#@<>?'`’1234567890"
+                    # This loop is heavy.
+                    # return cleaned part
+                    out.append(cleaned) 
             
             if not out: return [UNABLE_TO_DETECT]
             return out
@@ -746,7 +736,7 @@ def recode_stringified_list(
          return a_string_representing_a_list.apply(lambda x: recode_stringified_list(x, recoding_policy))
 
     ignore_strings = recoding_policy.get("ignore_strings", [])
-    splitter = recoding_policy.get("splitter", None)
+    #splitter = recoding_policy.get("splitter", None)
     mapper = recoding_policy.get("mapper", {})
     
     mini_mapper = {1: "yes", 0: "no", True: "yes", False: "no"}
@@ -764,15 +754,12 @@ def recode_stringified_list(
     else:
         a_string_representing_a_list = mini_mapper.get(a_string_representing_a_list,a_string_representing_a_list)
 
-        if not pd.isna(splitter):
-            for an_element in str(a_string_representing_a_list).lower().split(splitter):
-                if len(an_element)>0:
-                    an_element = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
-                    clean_word = "".join([j for j in an_element.lower() if not j in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
-                    if (len(clean_word)>1 and not clean_word in ignore_strings)  or _is_emoji(clean_word):
-                        list_of_the_words += [mapper.get(clean_word,clean_word)]
-        else:
-            pass
+        for an_element in str(a_string_representing_a_list).lower().split(SPLITTER):
+            if len(an_element)>0:
+                an_element = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
+                clean_word = "".join([j for j in an_element.lower() if not j in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
+                if (len(clean_word)>1 and not clean_word in ignore_strings)  or _is_emoji(clean_word):
+                    list_of_the_words += [mapper.get(clean_word,clean_word)]
         
     if len(list_of_the_words) == 0:
         list_of_the_words += [no_data_fallback]
@@ -785,10 +772,6 @@ def recode_stringified_list(
 def implement_missing_data_policy(x, missing_data_policy, the_median=0):
     
     if isinstance(x, pd.Series):
-        # Vectorized implementation
-        # Vectorized implementation
-        # Replace apply(_is_missing) with vectorized mask
-        
         # 1. Check direct scalar matches and NaNs
         # Note: x == NOT_CODED works for scalars. 
         # If x has mixed types (lists), equality comparison might be tricky but usually handles it (False for list!=scalar).
@@ -903,6 +886,8 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
 
 
 
+
+
 def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 
 
@@ -980,6 +965,7 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
 def recode_events_df(
     study_dataset: pd.DataFrame = None,
     drop_single_value_cols: bool = True,
+    ensure_pyarrow_compliance: bool = True,
     verbose: bool = False
     ):
 
@@ -991,6 +977,13 @@ def recode_events_df(
         except TypeError:
             return s.astype(str).nunique()
 
+
+    def _try_eval(s):
+
+        try:
+            return eval(s)
+        except:
+            return s
 
 
     print(f"Recoding variables, implementing missing data policy and a whole range of other things...")
@@ -1064,7 +1057,10 @@ def recode_events_df(
             if this_var_schema.get("role", "undefined") != "skip":
 
                 # ------------------------------------------------------
-                # 1.
+                # 1.'raw' means that the variable is going to be transformed into a set of new variables
+                # and if there is a variable in the schema with the same name as this variable but with the
+                # extension "_raw" it means that I want to keep the original variable (it is copied here).
+                # If such a variable name isn't in the schema, then the original variable will be dropped.   
                 # ------------------------------------------------------
                 if this_var_schema.get("scale", "undefined") == "raw" and c+"_raw" in var_schema.index:
                     if verbose:
@@ -1113,7 +1109,7 @@ def recode_events_df(
 
                 cool_events[c] = implement_missing_data_policy(
                     cool_events[c],
-                    this_var_schema.get("missing_data_policy","No policy"),
+                    "drop",#this_var_schema.get("missing_data_policy","No policy"),
                     a_fine_median)
                 
                 
@@ -1212,7 +1208,8 @@ def recode_events_df(
                 print(f"{preamble}Not found in the variable scheme, skipping")
             cool_events = cool_events.drop(columns=[c]).copy()
 
-    cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
+    if ensure_pyarrow_compliance:
+        cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
     
     print(f"...done recoding variables at {datetime.now()}")

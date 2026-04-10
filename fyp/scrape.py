@@ -197,6 +197,7 @@ def make_slideshow(
 def download_single_video(
     video_id: str = None, 
     verbose: bool = True,
+    save_video = True,
     dry_run: bool = False,
     ):
 
@@ -225,7 +226,7 @@ def download_single_video(
     # try to scrape metadata and download video
     scrape_metadata = pyk.save_tiktok(
         tiktok_url,
-        save_video=True,
+        save_video=save_video,
         max_duration_to_save = fyp_cf['misc']['max_duration_for_download'],
         browser_name='chrome',
         save_path=gcs_media_prefix,
@@ -331,6 +332,166 @@ def download_single_video(
 
 
 
+
+
+
+def rescue_tiktok_meta_threads(
+    interesting_videos:list[str] = None,
+    max_workers:int = 4,
+    verbose:bool = False,
+    dry_run:bool = False,
+    batch_label: str | None = None,
+    cumulative_done: int = 0,
+    cumulative_total: int = 0):
+    
+
+
+    if dry_run:
+        print("********* This is a dry run. It's all fake. No data io action at all. *********")
+    else:
+        if interesting_videos is None:
+            raise ValueError("No interesting videos specified")
+
+        if len(interesting_videos) == 0:
+            return pd.DataFrame()
+
+    results_by_index = {}
+
+    def worker(idx_video):
+        idx, video = idx_video
+        return idx, download_single_video(
+            video_id = video, 
+            verbose=verbose,
+            save_video=False,
+            dry_run=dry_run)
+
+
+    if verbose:
+        print(f"dry_run: {dry_run}")
+        print(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
+
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+
+
+        futures = []
+        submit_times = {}
+        for iv in enumerate(interesting_videos):
+            fut = ex.submit(worker, iv)
+            futures.append(fut)
+            submit_times[fut] = time.time()
+
+
+        monitor_thread = start_monitor(
+            futures, submit_times, interval=5, label="dl", bar_width=32,
+            result_checker=lambda f: isinstance(f.result()[1], pd.DataFrame),
+            batch_label=batch_label,
+            cumulative_done=cumulative_done,
+            cumulative_total=cumulative_total
+        )
+
+
+        for fut in as_completed(futures):
+            idx, res = fut.result()
+            results_by_index[idx] = res
+        
+        monitor_thread.join()
+
+    results = []
+    failed_items = []
+    for idx in range(len(interesting_videos)):
+        if idx in results_by_index.keys() and type(results_by_index[idx])==pd.DataFrame and results_by_index[idx].shape[1]>10: # download good
+            results += [results_by_index[idx]]
+        else:
+            failed_items += [results_by_index[idx]]
+
+    if len(results)==0:
+        print("The scrape procedure did not generate any useful results")
+        return pd.DataFrame()
+
+    results = pd.concat(results)
+
+    fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+    
+    if not dry_run and len(results)>0:
+        
+        scrape_filename = f"scrape_{fine_ts}.parquet"
+
+        # saving the results to local temp just in case everything goes to pieces
+        results.to_parquet(os.path.join(fyp_cf['paths']['temp'], "recovered_"+scrape_filename))
+    
+
+
+
+
+
+        # -----------------------------------------------
+        # recode the results before saving
+        # -----------------------------------------------
+
+        try:
+            # fix up the image_list and video_durations of slide shows
+
+            # first, set item_id as index - to allow for easy access
+            results.set_index('item_id', inplace=True)
+            results['image_list'] = results['image_list'].map(lambda x:len(x.split("|")) if not pd.isna(x) and x!="" and isinstance(x,str) else 0).astype("int64[pyarrow]")
+            # for items with more than zero images in the image_list, set video_duration based on number of images * 2 seconds - just a hunch...
+            results.loc[results[results['image_list']>0].index,'video_duration'] = results.loc[results[results['image_list']>0].index,'image_list'] * 2
+            # move the item_id back from the index to a column - this also resets the index to a nice range, which is what I want
+            results.reset_index(inplace=True)
+
+            # drop do_not_modify column if it exists - it should not exist in 2026+ versions of the code
+            results.drop(["do_not_modify"], axis=1, errors='ignore', inplace=True)
+
+            # video duration is never zero - set zero durations to pd.NA
+            results.loc[results[results['video_duration']<1].index,'video_duration'] = pd.NA
+
+            # rename the columns
+            #results = results.rename(columns={c:"S_"+c if not c=="item_id" and not c.startswith("S_") else c for c in results.columns}).copy()
+            results = rename_columns(results).copy()
+
+            # only keep columns as defined by the variable schema
+            dropped_vars_str = textwrap.wrap(", ".join(list(set(results.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
+            relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in results.columns]
+            results = results[relevant_cols].copy()
+
+            if verbose and dropped_vars_str:
+                joined_vars = '\n'.join(dropped_vars_str)
+                print(f"Dropped these columns, which are not in the variable schema:\n{joined_vars}\nCurrent shape: {results.shape}")
+    
+
+            # recode the data
+            results = recode_events_df(
+                study_dataset = results,
+                drop_single_value_cols=False,
+                verbose = verbose
+                )
+
+            # add scraped_ok column that is True for all rows - necessary for later merging with other datasets
+            results["scraped_ok"] = pd.Series(True, index=results.index, dtype="bool[pyarrow]")
+
+
+            data_io.save_parquet(df=results, storage_location="scrape", filename=scrape_filename)
+
+            print(f"Saved {len(results):,} rows to '{scrape_filename}'. Media downloaded for {len(results[results['video_downloaded']]):,} of these.")
+
+        except Exception as e:
+            print(f"CRITICAL: Failed to save results to parquet: {e}")
+            print("Recovering the un-processed results from temp")
+            data_io.move(
+                src_storage_location="temp",
+                dst_storage_location="scrape",
+                filename="recovered_"+scrape_filename,
+                verbose=verbose
+                )
+
+
+
+    if not dry_run and len(failed_items)>0:
+        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"scrape_failed_items_{fine_ts}.json", verbose=verbose)
+        print(f"Saved {len(failed_items)} failed items")
+
+    return results
 
 
 

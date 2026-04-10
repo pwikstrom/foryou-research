@@ -10,6 +10,15 @@ let pcaData = {
 
 let _lastScatterArgs = null;
 let _lastHeatmapArgs = null;
+let _correlationsFilterVisible = true;
+
+
+window.correlationsToggleSidebar = function () {
+    _correlationsFilterVisible = !_correlationsFilterVisible;
+    const panel = document.getElementById('correlations-filter-panel');
+    if (panel) panel.style.display = _correlationsFilterVisible ? 'flex' : 'none';
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+};
 
 
 // Initialize

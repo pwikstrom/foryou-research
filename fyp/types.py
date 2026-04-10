@@ -21,6 +21,97 @@ def fix_complex_types(some_iterable, verbose=False):
     if verbose:
         print("    [PYARROW dtypes - complex] Starting special treatment of complex types...")
         print("    [PYARROW dtypes - complex] Input iterable length:", some_iterable.shape[0])
+
+    some_iterable[some_iterable.isna()] = pd.NA
+
+    def _get_type_counts(series):
+        return series.dropna().map(type).value_counts()
+
+    def _display_types(type_counts):
+        return " | ".join(f"{t.__name__.upper()}: {c}" for t, c in type_counts.items())
+
+    type_counts = _get_type_counts(some_iterable)
+
+    if verbose:
+        print("    [PYARROW dtypes - complex] Type counts:", _display_types(type_counts))
+
+    # Convert dicts to JSON strings
+    if dict in type_counts.index:
+        mask = some_iterable.dropna().map(lambda x: isinstance(x, dict))
+        some_iterable.loc[mask[mask].index] = some_iterable.loc[mask[mask].index].map(json_dumps)
+
+        type_counts = _get_type_counts(some_iterable)
+
+        if verbose:
+            print("    [PYARROW dtypes - complex] Dicts converted to json strings")
+            print("    [PYARROW dtypes - complex] Type counts after dict conversion:", _display_types(type_counts))
+
+    # Validate and normalise list elements
+    if list in type_counts.index:
+        row_types = some_iterable.dropna().map(type)
+        list_indeces = row_types[row_types == list].index
+        element_types = list({type(j) for i in list_indeces for j in some_iterable.at[i]})
+
+        if verbose:
+            print("    [PYARROW dtypes - complex] Element types in lists:", " | ".join(str(t) for t in element_types))
+
+        if len(element_types) > 1:
+            raise ValueError("Lists in the iterable contains elements of different types")
+
+        if len(element_types) == 1 and element_types[0] in (list, dict):
+            if verbose:
+                print(f"    [PYARROW dtypes - complex] Lists in the iterable contains elements of type {element_types[0]} - converting to json strings")
+            for i in list_indeces:
+                some_iterable.at[i] = [json.dumps(j) for j in some_iterable.at[i]]
+
+    # Single type — done
+    if len(type_counts) == 1:
+        if verbose:
+            print("    [PYARROW dtypes - complex] All rows in the iterable is of the same type")
+        return some_iterable
+
+    # Mixed types with lists — coerce scalars into single-element lists
+    if list in type_counts.index:
+        row_types = some_iterable.dropna().map(type)
+        nonlist_indeces = row_types[row_types != list].index
+        target_type = element_types[0]
+
+        try:
+            some_iterable.loc[nonlist_indeces] = some_iterable.loc[nonlist_indeces].map(lambda x: [target_type(x)])
+        except Exception:
+            if verbose:
+                print(f"    [PYARROW dtypes - complex] Failed to convert non-list elements to lists and type {target_type}. Trying one row at a time")
+            for i in nonlist_indeces:
+                try:
+                    some_iterable.at[i] = [target_type(some_iterable.at[i])]
+                except Exception:
+                    if verbose:
+                        print(f"    [PYARROW dtypes - complex] Failed to convert row {i} to list and type {target_type}. Setting to pd.NA")
+                    some_iterable.at[i] = pd.NA
+
+        if verbose:
+            print("    [PYARROW dtypes - complex] Non-list elements converted to lists")
+
+        return some_iterable
+
+    # Mixed types with strings — coerce everything to pyarrow string
+    if str in type_counts.index:
+        if verbose:
+            print("    [PYARROW dtypes - complex] Multiple types, one is 'str' - converting all to pyarrow strings")
+        some_iterable = some_iterable.astype('string[pyarrow]')
+
+    return some_iterable
+
+
+
+def fix_complex_types_old(some_iterable, verbose=False):
+
+    if not len(some_iterable.shape) == 1:
+        raise ValueError("Input must be a 1D iterable")
+
+    if verbose:
+        print("    [PYARROW dtypes - complex] Starting special treatment of complex types...")
+        print("    [PYARROW dtypes - complex] Input iterable length:", some_iterable.shape[0])
     
     # replace nans with pd.NA
     some_iterable[some_iterable.isna()] = pd.NA

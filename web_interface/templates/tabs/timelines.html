@@ -2,17 +2,49 @@
 
     <!-- Control Bar -->
     <div class="control-bar">
-        <div class="header-with-help" style="margin-right: 20px;">
-            <h3>Timelines</h3>
-            <button class="help-icon" onclick="showHelp('timelines')">?</button>
-        </div>
-
+        <button id="timelines-sidebar-toggle" onclick="window.timelines.toggleSidebar()" title="Toggle sidebar"
+            style="background:none; border:none; cursor:pointer; padding:4px; margin-right:10px; display:flex; align-items:center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--control-bar-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+        </button>
         <label for="timelines-collection-select" style="margin-right: 10px;">Collection:</label>
-        <select id="timelines-collection-select" class="dropdown" onchange="timelines.onCollectionChange()">
+        <select id="timelines-collection-select" class="dropdown" style="max-width: 180px;" onchange="timelines.onCollectionChange()">
             <option value="" disabled selected>Loading collections...</option>
         </select>
 
-        <span id="timelines-collection-count" class="text-sm" style="margin-left: 15px; color: var(--control-bar-info);"></span>
+        <!-- Tag chips next to dropdown -->
+        <span id="timelines-tag-chips" class="text-xxs" style="margin-left: 10px; display: flex; align-items: center; gap: 5px;"></span>
+
+        <!-- Info icon with hover tooltip -->
+        <div id="timelines-header" class="timelines-info-icon-wrapper" style="display: none; position: relative; margin-left: 6px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="cursor: pointer; vertical-align: middle;">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            <div id="timelines-info-tooltip" class="timelines-info-tooltip">
+                <div id="timelines-participant-info-section" class="stats-section" style="margin-top: 0;">
+                    <ul class="stats-list">
+                        <li><span class="stat-label">Age:</span> <span id="timelines-stat-age"></span></li>
+                        <li><span class="stat-label">Country:</span> <span id="timelines-stat-country"></span></li>
+                        <li><span class="stat-label">Post Code:</span> <span id="timelines-stat-postcode"></span></li>
+                        <li><span class="stat-label">Date Added:</span> <span id="timelines-stat-collection-date"></span></li>
+                        <li><span class="stat-label">Display ID:</span> <span id="timelines-stat-display-id"></span></li>
+                        <li><span class="stat-label">TZ (inferred):</span> <span id="timelines-stat-timezone"></span></li>
+                        <li><span class="stat-label">Active Days:</span> <span id="timelines-stat-active-days"></span></li>
+                        <li><span class="stat-label">Total Activities:</span> <span id="timelines-stat-total-events"></span></li>
+                        <li><span class="stat-label">Peak Day Segment:</span> <span id="timelines-stat-peak-segment"></span></li>
+                        <li><span class="stat-label">First main activity:</span> <span id="timelines-stat-first-event"></span></li>
+                        <li><span class="stat-label">Last activity:</span> <span id="timelines-stat-last-event"></span></li>
+                        <li><span class="stat-label">Tags:</span> <span id="timelines-stat-tags"></span></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <span id="timelines-collection-count" class="text-sm" style="display: none;"></span>
 
         <!-- Right-aligned checkboxes -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 20px;">
@@ -26,34 +58,12 @@
                     onchange="timelines.renderTimelineCharts()" checked>
                 <span class="font-bold" style="color: var(--control-bar-text); margin-left: 5px;">Exclude pre-activity</span>
             </label>
+            <button class="help-icon" onclick="showHelp('timelines')">?</button>
         </div>
     </div>
 
     <!-- Main Content (full width, no sidebar) -->
     <div class="timelines-main" style="padding: 0 20px; overflow-y: auto; height: calc(100vh - 160px);">
-        <div id="timelines-header" style="margin-bottom: 20px; display: none;">
-            <div class="timelines-title-wrapper">
-                <h2 id="timelines-title">Collection Timeline</h2>
-                <div id="timelines-info-tooltip" class="timelines-info-tooltip">
-                    <div id="timelines-participant-info-section" class="stats-section" style="margin-top: 0;">
-                        <ul class="stats-list">
-                            <li><span class="stat-label">Age:</span> <span id="timelines-stat-age"></span></li>
-                            <li><span class="stat-label">Country:</span> <span id="timelines-stat-country"></span></li>
-                            <li><span class="stat-label">Post Code:</span> <span id="timelines-stat-postcode"></span></li>
-                            <li><span class="stat-label">Date Added:</span> <span id="timelines-stat-collection-date"></span></li>
-                            <li><span class="stat-label">Display ID:</span> <span id="timelines-stat-display-id"></span></li>
-                            <li><span class="stat-label">TZ (inferred):</span> <span id="timelines-stat-timezone"></span></li>
-                            <li><span class="stat-label">Active Days:</span> <span id="timelines-stat-active-days"></span></li>
-                            <li><span class="stat-label">Total Activities:</span> <span id="timelines-stat-total-events"></span></li>
-                            <li><span class="stat-label">Peak Day Segment:</span> <span id="timelines-stat-peak-segment"></span></li>
-                            <li><span class="stat-label">First main activity:</span> <span id="timelines-stat-first-event"></span></li>
-                            <li><span class="stat-label">Last activity:</span> <span id="timelines-stat-last-event"></span></li>
-                            <li><span class="stat-label">Tags:</span> <span id="timelines-stat-tags"></span></li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
 
         <div id="timelines-charts-container">
             <p class="text-muted" style="margin-top: 50px; text-align: center;">Select a collection to view

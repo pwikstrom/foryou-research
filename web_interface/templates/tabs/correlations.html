@@ -1,21 +1,27 @@
 <div id="correlations" class="tab-pane">
     <div class="control-bar">
-        <div class="header-with-help" style="margin-right: 20px;">
-            <h3>Correlations</h3>
-            <button class="help-icon" onclick="showHelp('correlations')">?</button>
-        </div>
+        <button id="correlations-sidebar-toggle" onclick="window.correlationsToggleSidebar()" title="Toggle filters panel"
+            style="background:none; border:none; cursor:pointer; padding:4px; margin-right:10px; display:flex; align-items:center; transition: background 0.15s; border-radius: 4px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--control-bar-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+        </button>
         <label for="pca-study-select" style="margin-right: 10px;">Select Study:</label>
-        <select id="pca-study-select" class="dropdown" onchange="changePcaStudy()">
+        <select id="pca-study-select" class="dropdown" style="max-width: 200px;" onchange="changePcaStudy()">
             <option value="" disabled selected>Select a study...</option>
         </select>
         <span id="pca-status" style="margin-left: 20px; color: var(--control-bar-info);"></span>
+        <div style="margin-left: auto;">
+            <button class="help-icon" onclick="showHelp('correlations')">?</button>
+        </div>
     </div>
 
     <!-- Main Content -->
     <div style="display: flex; height: calc(100vh - 180px); gap: 20px;">
 
         <!-- Filter Panel -->
-        <div class="panel" style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden;">
+        <div id="correlations-filter-panel" class="panel" style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden;">
             <div class="header">
                 <h2>Filters</h2>
                 <button class="btn-save" onclick="resetPcaFilters()">Reset</button>

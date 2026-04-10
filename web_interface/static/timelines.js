@@ -6,6 +6,7 @@ window.timelines = {
     currentDonationId: null,
     collectionList: [],
     timelineData: null,
+    sidebarVisible: true,
     timelineState: {
         categoricalSelections: {},
         analysisToggles: {},
@@ -93,8 +94,22 @@ window.timelines = {
     onCollectionChange: function () {
         const select = document.getElementById('timelines-collection-select');
         if (select && select.value) {
+            this.timelineState.categoricalSelections = {};
+            this.timelineState.analysisToggles = {};
+            this.timelineState.activeFilters = {};
             this.selectDonation(select.value);
         }
+    },
+
+    toggleSidebar: function () {
+        this.sidebarVisible = !this.sidebarVisible;
+        document.querySelectorAll('#timelines-charts-container .timeline-controls-div').forEach(el => {
+            el.style.display = this.sidebarVisible ? 'flex' : 'none';
+        });
+        // Trigger Plotly resize so charts fill the space
+        document.querySelectorAll('#timelines-charts-container [id^="timeline-plot-"]').forEach(el => {
+            Plotly.Plots.resize(el);
+        });
     },
 
     onSmoothingChange: function (value) {
@@ -122,24 +137,15 @@ window.timelines = {
     selectDonation: async function (collectionId) {
         this.currentDonationId = collectionId;
         const header = document.getElementById('timelines-header');
-        if (header) header.style.display = 'block';
+        if (header) header.style.display = '';
 
         const collection = this.collectionList.find(d => d.collection_id === collectionId);
-        let displayTitle = collectionId;
-        if (collection && collection.display_collection_id) {
-            displayTitle = collection.display_collection_id;
-        }
 
-        const title = document.getElementById('timelines-title');
-        if (title) {
-            title.innerHTML = `Timeline: ${displayTitle}`;
-
-            // Append Tags if available
+        // Render tag chips next to the dropdown
+        const tagChipsContainer = document.getElementById('timelines-tag-chips');
+        if (tagChipsContainer) {
+            tagChipsContainer.innerHTML = '';
             if (collection && collection.annotation_tags && Array.isArray(collection.annotation_tags) && collection.annotation_tags.length > 0) {
-                const tagsContainer = document.createElement('span');
-                tagsContainer.style.marginLeft = '15px';
-                tagsContainer.classList.add('text-xxs', 'font-normal');
-
                 collection.annotation_tags.forEach(tag => {
                     const chip = document.createElement('span');
                     chip.innerText = tag;
@@ -148,12 +154,9 @@ window.timelines = {
                     chip.style.color = 'var(--btn-primary-text)';
                     chip.style.padding = '2px 8px';
                     chip.style.borderRadius = '12px';
-                    chip.style.marginRight = '5px';
                     chip.style.verticalAlign = 'middle';
-                    tagsContainer.appendChild(chip);
+                    tagChipsContainer.appendChild(chip);
                 });
-
-                title.appendChild(tagsContainer);
             }
         }
 
@@ -341,53 +344,59 @@ window.timelines = {
 
             const chartWrapper = document.createElement('div');
             chartWrapper.className = 'timeline-chart-wrapper';
-            chartWrapper.style.marginBottom = '30px';
+            chartWrapper.style.marginBottom = '35px';
+            chartWrapper.style.paddingBottom = '15px';
+            chartWrapper.style.borderBottom = '1px solid var(--color-border-subtle)';
             chartWrapper.style.background = 'var(--chart-bg)';
             chartWrapper.style.padding = '10px';
             chartWrapper.style.borderRadius = '5px';
 
-            // Title Above Plot
+            // Title Above Plot — row 1: variable name, row 2: "Select top..." + filter chips
             const titleDiv = document.createElement('div');
-            titleDiv.style.display = 'flex';
-            titleDiv.style.alignItems = 'center';
-            titleDiv.style.gap = '10px';
+            titleDiv.id = `title-${varName.replace(/\\s+/g, '_')}`;
+            titleDiv.style.cssText = 'display:flex; flex-direction:column; align-items:center; gap:2px;';
             const subtitle = varData.type !== 'categorical' ? `<span class="text-xs font-normal" style="color: var(--color-text-tertiary);"> (mean values)</span>` : '';
-            titleDiv.innerHTML = `<h3 class="text-h3" style="margin-top: 0; margin-bottom: 10px;">${displayTitle}${subtitle}</h3>`;
+            titleDiv.innerHTML = `<h3 class="text-h3" style="margin-top: 0; margin-bottom: 0;">${displayTitle}${subtitle}</h3>`;
 
-            // Findings panel is rendered below each categorical chart with a show/hide toggle button.
-            chartWrapper.appendChild(titleDiv);
-
-            // Container for Controls and Plot — height matches the plot (400px)
-            const innerFlexDiv = document.createElement('div');
-            innerFlexDiv.style.display = 'flex';
-            innerFlexDiv.style.flexDirection = 'row';
-            innerFlexDiv.style.height = '400px';
+            // Layout: controlsDiv (left sidebar) | rightCol (title + chips + plot + findings)
+            const outerFlexDiv = document.createElement('div');
+            outerFlexDiv.style.display = 'flex';
+            outerFlexDiv.style.flexDirection = 'row';
 
             // Left Menu for Categorical (or placeholder for alignment)
             const controlsDiv = document.createElement('div');
+            controlsDiv.className = 'timeline-controls-div';
             controlsDiv.style.width = '300px';
             controlsDiv.style.flexShrink = '0';
-            controlsDiv.style.display = 'flex';
+            controlsDiv.style.display = this.sidebarVisible ? 'flex' : 'none';
             controlsDiv.style.flexDirection = 'column';
             controlsDiv.style.overflow = 'hidden';
+            controlsDiv.style.height = '400px';
 
             if (varData.type === 'categorical') {
                 controlsDiv.style.paddingRight = '10px';
                 controlsDiv.style.borderRight = '1px solid var(--color-border-subtle)';
             }
 
+            // Right column: title/chips above plot, findings below
+            const rightCol = document.createElement('div');
+            rightCol.style.cssText = 'flex:1; min-width:0; display:flex; flex-direction:column;';
+
+            rightCol.appendChild(titleDiv);
+
             const plotDiv = document.createElement('div');
-            plotDiv.style.flex = 1;
-            plotDiv.style.minWidth = '0'; // Critical for flex child resizing
-            plotDiv.style.height = '400px'; // fixed height for plot to prevent resizing issues
+            plotDiv.style.width = '100%';
+            plotDiv.style.height = '400px';
 
             // Unique ID
             const plotId = `timeline-plot-${varName.replace(/\\s+/g, '_')}`;
             plotDiv.id = plotId;
 
-            innerFlexDiv.appendChild(controlsDiv);
-            innerFlexDiv.appendChild(plotDiv);
-            chartWrapper.appendChild(innerFlexDiv);
+            rightCol.appendChild(plotDiv);
+
+            outerFlexDiv.appendChild(controlsDiv);
+            outerFlexDiv.appendChild(rightCol);
+            chartWrapper.appendChild(outerFlexDiv);
             container.appendChild(chartWrapper);
 
             const traces = [];
@@ -509,17 +518,22 @@ window.timelines = {
                 const omittedPercent = grandTotal > 0 ? ((omittedObservations / grandTotal) * 100).toFixed(1) : 0;
                 const activeFilter = this.timelineState.activeFilters[varName] || 'all';
 
+                // Inject "Select top..." + filter chips as a second row under the title
+                const chipRow = document.createElement('div');
+                chipRow.className = 'text-sm';
+                chipRow.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:8px;';
+                chipRow.innerHTML = `
+                    <span style="color:var(--color-text-tertiary); white-space:nowrap;">Select top...</span>
+                    <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-rising-bg); color:var(--color-accent); border:1px solid var(--trend-rising-border); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
+                    <div class="filter-chip" id="chip-${plotId}-falling" onclick="window.timelines.setFilter('${varName}', 'falling')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-falling-bg); color:var(--color-danger-soft); border:1px solid var(--trend-falling-border); opacity:${activeFilter === 'falling' ? '1.0' : '0.4'};">↓ Falling</div>
+                    <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-spikes-bg); color:var(--color-save); border:1px solid var(--trend-spikes-border); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
+                    <div class="filter-chip" id="chip-${plotId}-breaks" onclick="window.timelines.setFilter('${varName}', 'breaks')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-breaks-bg); color:var(--color-info); border:1px solid var(--trend-breaks-border); opacity:${activeFilter === 'breaks' ? '1.0' : '0.4'};">⋮ Breaks</div>
+                    <div class="filter-chip" id="chip-${plotId}-volatile" onclick="window.timelines.setFilter('${varName}', 'volatile')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-volatile-bg); color:var(--color-purple); border:1px solid var(--trend-volatile-border); opacity:${activeFilter === 'volatile' ? '1.0' : '0.4'};">~ Volatile</div>
+                `;
+                titleDiv.appendChild(chipRow);
+
                 controlsDiv.id = `controls-${plotId}`;
                 controlsDiv.innerHTML = `
-                    <div class="text-sm" style="margin-bottom:5px; color:var(--color-text-tertiary); display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
-                        <span style="margin-right:4px;">Select Categories:</span>
-                        <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-rising-bg); color:var(--color-accent); border:1px solid var(--trend-rising-border); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
-                        <div class="filter-chip" id="chip-${plotId}-falling" onclick="window.timelines.setFilter('${varName}', 'falling')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-falling-bg); color:var(--color-danger-soft); border:1px solid var(--trend-falling-border); opacity:${activeFilter === 'falling' ? '1.0' : '0.4'};">↓ Falling</div>
-                        <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-spikes-bg); color:var(--color-save); border:1px solid var(--trend-spikes-border); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
-                        <div class="filter-chip" id="chip-${plotId}-breaks" onclick="window.timelines.setFilter('${varName}', 'breaks')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-breaks-bg); color:var(--color-info); border:1px solid var(--trend-breaks-border); opacity:${activeFilter === 'breaks' ? '1.0' : '0.4'};">⋮ Breaks</div>
-                        <div class="filter-chip" id="chip-${plotId}-volatile" onclick="window.timelines.setFilter('${varName}', 'volatile')" class="text-xxs" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-volatile-bg); color:var(--color-purple); border:1px solid var(--trend-volatile-border); opacity:${activeFilter === 'volatile' ? '1.0' : '0.4'};">~ Volatile</div>
-                    </div>
-
                     <div id="cat-list-${plotId}" style="flex:1; min-height:0; overflow-y:auto; border:1px solid var(--chart-grid); padding:5px;">
                         ${keptCategories.map(cat => {
                             const cd = analysisMap[cat] || {};
@@ -701,7 +715,7 @@ window.timelines = {
             const isCategorical = (varData.type === 'categorical');
 
             const layout = {
-                margin: { t: 20, r: 20, b: (isCategorical ? 60 : 40), l: 40 },
+                margin: { t: 20, r: 20, b: (isCategorical ? 45 : 30), l: 40 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-muted'), size: 11 },
@@ -731,7 +745,7 @@ window.timelines = {
             if (varData.type === 'categorical') {
                 layout.legend = {
                     orientation: 'h',
-                    y: -0.2, // Move legend below the plot
+                    y: -0.08,
                     x: 0.5,
                     xanchor: 'center',
                     yanchor: 'top'
@@ -989,7 +1003,12 @@ window.timelines = {
                     toggleBtn.style.cssText = `margin-top: 10px; padding: 6px 14px; background: var(--color-bg-elevated); color: var(--chart-text); border: 1px solid var(--chart-grid); border-radius: 6px; cursor: pointer;`;
                     const isOpen = this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName];
                     toggleBtn.textContent = isOpen ? 'Hide Findings' : 'Show Findings';
-                    chartWrapper.appendChild(toggleBtn);
+
+                    // Centre the button below the chart in the right column
+                    const btnWrapper = document.createElement('div');
+                    btnWrapper.style.cssText = 'display:flex; justify-content:center; margin-top:4px;';
+                    btnWrapper.appendChild(toggleBtn);
+                    rightCol.appendChild(btnWrapper);
 
                     const findingsContainer = document.createElement('div');
                     findingsContainer.id = `findings-panel-${varName}`;
