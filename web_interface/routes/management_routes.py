@@ -11,6 +11,7 @@ from fyp.organize_datasets import create_study_recoded_dataset, SCRAPES_LABEL, M
 from fyp.pca import calculate_scaled_pca_scores
 from fyp.studies import init_study_defs, save_study_defs
 from .. import explorer_backend as explorer
+from ..process_manager import process_stats, save_process_stats
 import pandas as pd
 from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable, calculate_inter_coder_reliability
 
@@ -585,27 +586,6 @@ def get_enrichment_stats():
         q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
         if isinstance(q, list): annotate_queue_len = len(q)
         
-    # 3. Check for unconsolidated data
-    has_unconsolidated = False
-    try:
-        dataset_meta = {}
-        if data_io.exists(storage_location="recoded", filename="consolidated_enrichment_files.json"):
-            dataset_meta = data_io.load_json(storage_location="recoded", filename="consolidated_enrichment_files.json")
-
-        known_scrape_files = set(dataset_meta.get(SCRAPES_LABEL, {}).get("filenames", []))
-        current_scrape_files = {fn for fn in data_io.listdir(storage_location="scrape")
-                                if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet")}
-        if not current_scrape_files <= known_scrape_files:
-            has_unconsolidated = True
-
-        known_annotation_files = set(dataset_meta.get(MACHINE_ANNOTATIONS_LABEL, {}).get("filenames", []))
-        current_annotation_files = {fn for fn in data_io.listdir(storage_location="machine_annotations_refined")
-                                    if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet")}
-        if not current_annotation_files <= known_annotation_files:
-            has_unconsolidated = True
-    except Exception:
-        pass
-
     return jsonify({
         "total_videos": total_videos,
         "scraped_videos": scraped_videos,
@@ -613,7 +593,9 @@ def get_enrichment_stats():
         "unique_collections": unique_collections,
         "scrape_queue_len": scrape_queue_len,
         "annotate_queue_len": annotate_queue_len,
-        "has_unconsolidated": has_unconsolidated
+        "consolidate_stats": process_stats.get("consolidate_enrichment"),
+        "scraper_last_success": process_stats.get("queue_scraper", {}).get("last_success"),
+        "annotator_last_success": process_stats.get("queue_annotator", {}).get("last_success"),
     })
 
 
@@ -969,56 +951,114 @@ def api_consolidate_enrichment():
         return jsonify({"error": "Unauthorized"}), 403
 
     try:
+        # Snapshot known files before consolidation to count new ones
+        known_scrape = set()
+        known_annotation = set()
+        if data_io.exists(storage_location="recoded", filename="consolidated_enrichment_files.json"):
+            meta_before = data_io.load_json(storage_location="recoded", filename="consolidated_enrichment_files.json")
+            known_scrape = set(meta_before.get(SCRAPES_LABEL, {}).get("filenames", []))
+            known_annotation = set(meta_before.get(MACHINE_ANNOTATIONS_LABEL, {}).get("filenames", []))
+
+        current_scrape = {fn for fn in data_io.listdir(storage_location="scrape")
+                          if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet")}
+        current_annotation = {fn for fn in data_io.listdir(storage_location="machine_annotations_refined")
+                              if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet")}
+
+        new_scrape_count = len(current_scrape - known_scrape)
+        new_annotation_count = len(current_annotation - known_annotation)
+
         from fyp.organize_datasets import consolidate_enrichment_data
         result = consolidate_enrichment_data(force_consolidation=False, verbose=False)
-        if result is None:
-            return jsonify({"status": "success", "message": "No new data to consolidate."})
-        return jsonify({"status": "success", "message": "Enrichment data consolidated."})
+        had_new_data = result.get("had_new_data", False) if result else False
+
+        impact = result.get("impact") if result else None
+
+        now_iso = datetime.now().isoformat()
+        stats_entry = process_stats.get("consolidate_enrichment", {})
+        if had_new_data:
+            stats_entry["last_consolidation"] = now_iso
+            stats_entry["new_scrape_files"] = new_scrape_count
+            stats_entry["new_annotation_files"] = new_annotation_count
+        if impact:
+            stats_entry["consolidation_impact"] = impact
+        stats_entry["last_status_refresh"] = now_iso
+        process_stats["consolidate_enrichment"] = stats_entry
+        save_process_stats()
+
+        return jsonify({
+            "status": "success",
+            "had_new_data": had_new_data,
+            "new_scrape_files": new_scrape_count,
+            "new_annotation_files": new_annotation_count,
+            "consolidate_stats": stats_entry,
+            "impact": impact
+        })
     except Exception as e:
         print(f"Error consolidating enrichment data: {e}")
         return jsonify({"error": str(e)}), 500
 
-@management_bp.route('/api/manage/enrichment/rebuild_status', methods=['POST'])
+
+
+@management_bp.route('/api/manage/refresh/staleness', methods=['GET'])
 @login_required
-def api_rebuild_enrichment_status():
-    """Rebuild enrichment_status.parquet from current activity, scrape, and annotation data."""
+def api_refresh_staleness():
+    """Check which downstream processes are stale relative to the last consolidation impact."""
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
 
-    try:
-        from fyp.organize_datasets import (
-            update_enrichment_status, COLLECTIONS_LABEL, SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL
-        )
+    consolidate_entry = process_stats.get("consolidate_enrichment", {})
+    impact = consolidate_entry.get("consolidation_impact")
 
-        collections = data_io.load_parquet(
-            filename=f"{COLLECTIONS_LABEL}_recoded.parquet", storage_location="recoded")
-        scrape_data = data_io.load_parquet(
-            filename=f"{SCRAPES_LABEL}_recoded.parquet", storage_location="recoded")
-        annotations = data_io.load_parquet(
-            filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", storage_location="recoded")
+    if not impact or not impact.get("timestamp"):
+        return jsonify({"has_impact": False})
 
-        if collections is None or collections.empty:
-            return jsonify({"error": "No collections data ({COLLECTIONS_LABEL}_recoded.parquet) found."}), 400
+    impact_ts = impact["timestamp"]
+    affected_studies = impact.get("affected_study_names", [])
+    affected_collections = impact.get("affected_collection_ids", [])
 
-        if scrape_data is None:
-            scrape_data = pd.DataFrame(columns=["item_id", "scraped_ok", "video_downloaded"])
-        if annotations is None:
-            annotations = pd.DataFrame(columns=["item_id", "annotated_ok", "annotated_fail"])
+    downstream = {
+        "recode_refresh_studies": {
+            "label": "Study Definitions",
+            "affected": affected_studies,
+        },
+        "meta_refresh_viewer": {
+            "label": "Video Analysis Metadata",
+            "affected": affected_studies,
+        },
+        "meta_refresh_groups": {
+            "label": "Explore Metadata",
+            "affected": affected_studies,
+        },
+        "timelines_refresh": {
+            "label": "Timelines",
+            "affected": affected_collections,
+        },
+        "pca_refresh": {
+            "label": "Correlations",
+            "affected": affected_studies,
+        },
+    }
 
-        all_datasets = {
-            COLLECTIONS_LABEL: collections,
-            SCRAPES_LABEL: scrape_data,
-            MACHINE_ANNOTATIONS_LABEL: annotations,
+    result = {}
+    all_fresh = True
+    for proc_name, info in downstream.items():
+        last_success = process_stats.get(proc_name, {}).get("last_success")
+        stale = not last_success or last_success < impact_ts
+        result[proc_name] = {
+            "stale": stale,
+            "label": info["label"],
+            "affected": info["affected"],
         }
+        if stale:
+            all_fresh = False
 
-        df = update_enrichment_status(all_datasets=all_datasets, save_to_disk=True, verbose=False)
-        return jsonify({
-            "status": "success",
-            "message": f"Enrichment status rebuilt. {len(df):,} videos indexed."
-        })
-    except Exception as e:
-        print(f"Error rebuilding enrichment status: {e}")
-        return jsonify({"error": str(e)}), 500
+    # If all downstream processes are fresh, clear the impact
+    if all_fresh:
+        consolidate_entry.pop("consolidation_impact", None)
+        process_stats["consolidate_enrichment"] = consolidate_entry
+        save_process_stats()
+
+    return jsonify({"has_impact": not all_fresh, "impact": impact, "processes": result})
 
 
 @management_bp.route('/api/manage/schema/reload', methods=['POST'])

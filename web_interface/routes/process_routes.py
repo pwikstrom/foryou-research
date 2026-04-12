@@ -2,8 +2,9 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required
 import web_interface.auth as auth
 from fyp.fyp_config import (
-    QUEUE_SCRAPER_SCRIPT, QUEUE_ANNOTATOR_SCRIPT, META_REFRESH_VIEWER_SCRIPT, 
-    META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT, RECODE_REFRESH_STUDIES_SCRIPT
+    QUEUE_SCRAPER_SCRIPT, QUEUE_ANNOTATOR_SCRIPT, META_REFRESH_VIEWER_SCRIPT,
+    META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT, RECODE_REFRESH_STUDIES_SCRIPT,
+    PCA_REFRESH_SCRIPT
 )
 from ..process_manager import (
     processes, process_stats, start_process, stop_process, graceful_stop_process
@@ -29,6 +30,11 @@ def api_start(name):
         if data.get("max_batches") and str(data["max_batches"]).strip():
              args.extend(["--max-batches", str(data["max_batches"])])
 
+    if name == "timelines_refresh" and data.get("collections"):
+        args.extend(["--collections", str(data["collections"])])
+    if name in ["recode_refresh_studies", "pca_refresh"] and data.get("studies"):
+        args.extend(["--studies", str(data["studies"])])
+
     study_name = data.get("study_name") 
 
     script_map = {
@@ -37,7 +43,8 @@ def api_start(name):
         "meta_refresh_viewer": META_REFRESH_VIEWER_SCRIPT,
         "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
         "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
-        "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT
+        "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,
+        "pca_refresh": PCA_REFRESH_SCRIPT
     }
     
     success, msg = start_process(name, script_map[name], args, study_name=study_name)

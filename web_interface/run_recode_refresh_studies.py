@@ -9,16 +9,30 @@ sys.path.append(str(project_root))
 
 if __name__ == "__main__":
     try:
+        import argparse
         from fyp.fyp_config import fyp_cf
         from fyp.studies import init_study_defs, save_study_defs
         from fyp.organize_datasets import create_study_recoded_dataset
         import fyp.data_io as data_io
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--studies', type=str, default=None,
+                            help='Comma-separated study names to refresh (default: all)')
+        # Accept positional study_name for backwards compatibility with existing start_process calls
+        parser.add_argument('study_name', nargs='?', default=None)
+        args = parser.parse_args()
 
         print("Starting Study Definitions (Recoded Data) Refresh...")
 
         # Init studies
         init_study_defs()
         studies = fyp_cf.get('study_defs', {})
+
+        # Filter to targeted studies if specified
+        if args.studies:
+            target_names = [s.strip() for s in args.studies.split(',')]
+            studies = {k: v for k, v in studies.items() if k in target_names}
+            print(f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}")
 
         total = len(studies)
         if total == 0:
@@ -31,7 +45,7 @@ if __name__ == "__main__":
                 df_status = df_status.reset_index()
 
         for i, (study_name, config) in enumerate(studies.items()):
-            print(f"::PROGRESS:: {{ \"percent\": {int((i/total)*100)}, \"message\": \"Processing {study_name}\" }}")
+            print(f"::PROGRESS:: {{ \"percent\": {int((i/total)*100)}, \"message\": \"Study {i+1}/{total}\" }}")
             print(f"Processing study: {study_name}")
 
             try:

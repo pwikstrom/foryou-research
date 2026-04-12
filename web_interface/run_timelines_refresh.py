@@ -79,6 +79,11 @@ if __name__ == "__main__":
         import fyp.data_io as data_io
         import argparse
 
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--collections', type=str, default=None,
+                            help='Comma-separated collection_ids to refresh (default: all)')
+        args = parser.parse_args()
+
         print("Starting Timeline Refresh Process...")
 
         # Init configuration
@@ -98,6 +103,12 @@ if __name__ == "__main__":
         # Identify accepted collections
         all_collections = set()
         collection_first_event = {}
+
+        # If targeted collections specified, use those directly
+        targeted_collections = None
+        if args.collections:
+            targeted_collections = {s.strip() for s in args.collections.split(',') if s.strip()}
+            print(f"Targeted refresh for {len(targeted_collections)} collection(s).")
 
         # Load from {COLLECTIONS_LABEL}_metadata.parquet
         if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
@@ -155,6 +166,10 @@ if __name__ == "__main__":
             print("No collections found in ddp_metadata. Checking studies...")
             # Fallback logic could go here if needed.
 
+        # Filter to targeted collections if specified
+        if targeted_collections:
+            all_collections = all_collections & targeted_collections if all_collections else targeted_collections
+
         print(f"Found {len(all_collections)} collections to process.")
 
         # --- PRELOAD ALL DATA FOR EFFICIENCY ---
@@ -202,7 +217,7 @@ if __name__ == "__main__":
             # Sequential fallback for single collection or single CPU
             valid_count = 0
             for i, cid in enumerate(sorted_collections):
-                print(f"::PROGRESS:: {{ \"percent\": {int((i/total)*100)}, \"message\": \"Processing {cid} ({i+1}/{total})\" }}")
+                print(f"::PROGRESS:: {{ \"percent\": {int((i/total)*100)}, \"message\": \"Collection {i+1}/{total}\" }}")
                 try:
                     if process_one_collection(cid, collection_slices[cid], viz_vars, collection_first_event.get(cid)):
                         valid_count += 1
@@ -228,7 +243,7 @@ if __name__ == "__main__":
                 for future in as_completed(futures):
                     cid = futures[future]
                     completed += 1
-                    print(f"::PROGRESS:: {{ \"percent\": {int((completed/total)*100)}, \"message\": \"Completed {cid} ({completed}/{total})\" }}")
+                    print(f"::PROGRESS:: {{ \"percent\": {int((completed/total)*100)}, \"message\": \"Collection {completed}/{total}\" }}")
                     try:
                         if future.result():
                             valid_count += 1

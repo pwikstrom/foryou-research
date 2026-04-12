@@ -446,6 +446,47 @@ async function updateStatus() {
         setStatus('meta_refresh_groups', data.meta_refresh_groups);
         setStatus('timelines_refresh', data.timelines_refresh);
         setStatus('recode_refresh_studies', data.recode_refresh_studies);
+        setStatus('pca_refresh', data.pca_refresh);
+
+        // Detect scraper/annotator completion → refresh enrichment stats for consolidation warning
+        ['queue_scraper', 'queue_annotator'].forEach(name => {
+            const pData = data[name];
+            if (pData && previousProcessStates[name] === 'running' && pData.state !== 'running') {
+                if (typeof fetchEnrichmentStats === 'function') {
+                    fetchEnrichmentStats();
+                }
+            }
+            if (pData) previousProcessStates[name] = pData.state;
+        });
+
+        // Detect downstream process completion → refresh staleness indicators + cascade logic
+        ['recode_refresh_studies', 'meta_refresh_viewer', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].forEach(name => {
+            const pData = data[name];
+            if (pData && previousProcessStates[name] === 'running' && pData.state !== 'running') {
+                if (typeof fetchStalenessStatus === 'function') {
+                    fetchStalenessStatus();
+                }
+
+                // Cascade refresh: chain meta refreshes after study refresh completes
+                if (typeof _cascadeRefresh !== 'undefined' && _cascadeRefresh) {
+                    if (name === 'recode_refresh_studies' && typeof onCascadeStudiesComplete === 'function') {
+                        onCascadeStudiesComplete();
+                    }
+                    // Check if all cascade processes have finished
+                    const allDone = ['recode_refresh_studies', 'meta_refresh_viewer', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].every(p => {
+                        const pd = data[p];
+                        return !pd || pd.state !== 'running';
+                    });
+                    if (allDone && _cascadeRefresh.phase === 'waiting_for_meta' && typeof onCascadeRefreshComplete === 'function') {
+                        // Ensure meta processes were actually started before declaring complete
+                        if (_cascadeRefresh.startedMetaViewer || _cascadeRefresh.startedMetaGroups || _cascadeRefresh.startedPca) {
+                            onCascadeRefreshComplete();
+                        }
+                    }
+                }
+            }
+            if (pData) previousProcessStates[name] = pData.state;
+        });
 
         // Discreet processes
         const discreetProcesses = ['create_event_log', 'recode_event_log', 'calculate_pca'];
@@ -508,86 +549,82 @@ function setStatus(name, data) {
     const text = document.getElementById(`${name}-text`);
     if (bar && text) {
         if (Object.keys(info).length > 0 && (info.total > 0 || info.percent !== undefined)) {
-            let pct = 0;
-            let etaStr = "--";
-            let rateStr = "";
-            let countsStr = "";
-
-            let batchStr = "";
-            if (info.batch) batchStr = `Batch ${info.batch} — `;
+            let barPct = 0;
+            let etaStr = "";
 
             if (info.percent !== undefined) {
-                pct = parseFloat(info.percent);
-                countsStr = info.message || "";
+                barPct = parseFloat(info.percent);
+                text.innerText = `${info.message || ""} (${barPct.toFixed(0)}%)`;
             } else {
-                pct = (info.done / info.total) * 100;
-                countsStr = `${info.done.toLocaleString()} / ${info.total.toLocaleString()}`;
-                if (info.rate) rateStr = ` - ${info.rate.toFixed(2)}/s`;
-                if (info.eta) etaStr = formatETA(info.eta);
+                // Progress bar shows current batch progress
+                if (info.batch_total > 0) {
+                    barPct = (info.batch_done / info.batch_total) * 100;
+                } else {
+                    barPct = (info.done / info.total) * 100;
+                }
+
+                let batchStr = info.batch ? `Batch ${info.batch}` : "";
+                let itemsStr = `${info.done.toLocaleString()}/${info.total.toLocaleString()}`;
+                if (info.eta !== undefined && info.eta > 0) {
+                    etaStr = " ETA " + formatETA(info.eta);
+                }
+
+                text.innerText = batchStr
+                    ? `${batchStr} (${itemsStr})${etaStr}`
+                    : `${itemsStr}${etaStr}`;
             }
 
-            bar.style.width = `${pct}%`;
-
-            // Calculate duration
-            let durationStr = "";
-            if (data.start_time) {
-                const start = new Date(data.start_time);
-                const now = new Date();
-                const diff = (now - start) / 1000; // seconds
-                durationStr = " - Time: " + formatETA(diff);
-            }
-
-            if (info.percent !== undefined) {
-                text.innerText = `${batchStr}${countsStr} (${pct.toFixed(0)}%)${durationStr}`;
-            } else {
-                text.innerText = `${batchStr}${countsStr} (${pct.toFixed(1)}%)${rateStr} - ETA ${etaStr}${durationStr}`;
-            }
+            bar.style.width = `${barPct}%`;
 
         } else {
-            if (status === 'stopped') {
-                // bar.style.width = '0%';
-                // text.innerText = 'Idle';
-            } else {
-                // keep last state or show init?
+            if (status !== 'stopped') {
                 if (bar.style.width === '0%' || bar.style.width === '') {
                     text.innerText = 'Initializing...';
                 }
-            }
-            if (status === 'stopped') {
+            } else {
                 text.innerText = 'Idle';
             }
         }
     }
 
-    // Last run result display
+    // Last run / current run display
     const lastRunEl = document.getElementById(`${name}-last-run`);
-    if (lastRunEl && data.last_run_end_time) {
-        const endDate = new Date(data.last_run_end_time);
-        const dd = String(endDate.getDate()).padStart(2, '0');
-        const mm = String(endDate.getMonth() + 1).padStart(2, '0');
-        const hh = String(endDate.getHours()).padStart(2, '0');
-        const mi = String(endDate.getMinutes()).padStart(2, '0');
-
-        let durStr = '';
-        if (data.last_run_duration != null) {
-            const s = Math.round(data.last_run_duration);
-            durStr = s >= 60 ? ` (${Math.floor(s / 60)}m ${s % 60}s)` : ` (${s}s)`;
-        }
-
-        let outcomeStr = '';
-        if (data.last_run_outcome === 'Success') {
-            outcomeStr = ' OK';
+    if (lastRunEl) {
+        if (status === 'running' && data.start_time) {
+            const startDate = new Date(data.start_time);
+            const hh = String(startDate.getHours()).padStart(2, '0');
+            const mi = String(startDate.getMinutes()).padStart(2, '0');
+            const ss = String(startDate.getSeconds()).padStart(2, '0');
+            lastRunEl.innerText = `This run started: ${hh}:${mi}:${ss}`;
             lastRunEl.style.color = 'var(--color-success-light)';
-        } else if (data.last_run_outcome === 'Fail') {
-            outcomeStr = ' Failed';
-            lastRunEl.style.color = 'var(--color-danger-soft)';
-        } else {
-            lastRunEl.style.color = 'var(--color-text-tertiary)';
-        }
+        } else if (data.last_run_end_time) {
+            const endDate = new Date(data.last_run_end_time);
+            const dd = String(endDate.getDate()).padStart(2, '0');
+            const mm = String(endDate.getMonth() + 1).padStart(2, '0');
+            const hh = String(endDate.getHours()).padStart(2, '0');
+            const mi = String(endDate.getMinutes()).padStart(2, '0');
 
-        lastRunEl.innerText = `Last: ${dd}/${mm} ${hh}:${mi}${durStr}${outcomeStr}`;
-    } else if (lastRunEl) {
-        lastRunEl.innerText = '';
+            let durStr = '';
+            if (data.last_run_duration != null) {
+                const s = Math.round(data.last_run_duration);
+                durStr = s >= 60 ? ` (${Math.floor(s / 60)}m ${s % 60}s)` : ` (${s}s)`;
+            }
+
+            let outcomeStr = '';
+            if (data.last_run_outcome === 'Success') {
+                outcomeStr = ' OK';
+                lastRunEl.style.color = 'var(--color-success-light)';
+            } else if (data.last_run_outcome === 'Fail') {
+                outcomeStr = ' Failed';
+                lastRunEl.style.color = 'var(--color-danger-soft)';
+            } else {
+                lastRunEl.style.color = 'var(--color-text-tertiary)';
+            }
+
+            lastRunEl.innerText = `Last: ${dd}/${mm} ${hh}:${mi}${durStr}${outcomeStr}`;
+        } else {
+            lastRunEl.innerText = '';
+        }
     }
 
     // Update queue displays from ::DATA:: output
@@ -720,23 +757,17 @@ function renderSubsetChart(data) {
 function formatETA(seconds) {
     if (seconds === undefined || seconds === null) return "--";
     let val = parseFloat(seconds);
-    if (isNaN(val)) return seconds;
+    if (isNaN(val)) return "--";
 
-    // Use absolute value just in case, though ETA shouldn't be negative
     val = Math.abs(val);
 
+    if (val < 60) return "<1m";
+
     let h = Math.floor(val / 3600);
-    let rem = val % 3600;
-    let m = Math.floor(rem / 60);
-    let s = Math.floor(rem % 60);
+    let m = Math.floor((val % 3600) / 60);
 
-    let str = "";
-    if (h > 0) str += h + "h";
-    if (m > 0) str += m + "m";
-    if (s > 0) str += s + "s";
-
-    if (str === "") return "0s";
-    return str;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
 }
 
 

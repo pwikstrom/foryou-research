@@ -693,7 +693,7 @@ def scraper_loop_from_list(
 
     print(f"  Starting loop... There are {len(video_list):,} videos to process in {batch_target:,} batches")
 
-    total_items = len(video_list)
+    total_items = min(len(video_list), batch_target * batch_size)
     cumulative_done = 0
     good_scrapes = []
     failed_scrapes = []
@@ -725,8 +725,8 @@ def scraper_loop_from_list(
 
         # Emit queue update after each batch (for web UI)
         if "WEB_INTERFACE" in os.environ:
-            remaining = total_items - cumulative_done
-            print(f"::DATA::{{\"scrape_queue_len\": {max(0, remaining)}}}", flush=True)
+            queue_remaining = len(video_list) - cumulative_done
+            print(f"::DATA::{{\"scrape_queue_len\": {max(0, queue_remaining)}}}", flush=True)
 
         if max_batches is not None and batch_number >= max_batches:
             break
@@ -928,14 +928,14 @@ def consolidate_and_save_scrape_data(
         if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet"):
             files_to_concatenate.append(fn)
 
-    latest_filename_list = dataset_meta.get("scrape", {}).get("filenames", [])
+    latest_filename_list = dataset_meta.get(SCRAPES_LABEL, {}).get("filenames", [])
     if not force_consolidation and set(files_to_concatenate) <= set(latest_filename_list):
         if top_verbose:
             print("No new scrape files found. No need to consolidate.")
         if return_saved_data:
             if verbose: print("Returning existing file.")
-            return False, data_io.load_parquet(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet")
-        return False, None
+            return False, data_io.load_parquet(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"), set()
+        return False, None, set()
 
     
     # ---------------------------------------------------------------
@@ -994,23 +994,36 @@ def consolidate_and_save_scrape_data(
         print(f"Shape: {scrape_df.shape} | Memory usage: {total_memory_mb:.2f} MB")
 
 
+    # Compute new item_ids by comparing against existing consolidated data
+    new_item_ids: set[str] = set()
+    existing_recoded_fn = f"{SCRAPES_LABEL}_recoded.parquet"
+    if data_io.exists(storage_location="recoded", filename=existing_recoded_fn):
+        existing_df = data_io.load_parquet(storage_location="recoded", filename=existing_recoded_fn)
+        existing_ids = set(existing_df["item_id"]) if existing_df is not None else set()
+        new_item_ids = set(scrape_df["item_id"]) - existing_ids
+    else:
+        new_item_ids = set(scrape_df["item_id"])
+
+    if top_verbose and new_item_ids:
+        print(f"Found {len(new_item_ids):,} newly scraped item_ids.")
+
     if top_verbose:
         print("Saving consolidated scrape data...")
-    _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet")
+    _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename=existing_recoded_fn)
 
 
     # update the dataset meta file
     if not SCRAPES_LABEL in dataset_meta:
         dataset_meta[SCRAPES_LABEL] = {}
-    dataset_meta[SCRAPED_LABEL]["filenames"] = files_to_concatenate
+    dataset_meta[SCRAPES_LABEL]["filenames"] = files_to_concatenate
     _ = data_io.save_json(data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
 
     if top_verbose:
         print("...done")
-    
-    
 
-    return True, scrape_df
+
+
+    return True, scrape_df, new_item_ids
 
 
 

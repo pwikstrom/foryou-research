@@ -950,6 +950,254 @@ loadIngestionSources();
 
 // --- Enrichment Stats & Logic ---
 
+function formatShortDate(isoStr) {
+    const d = new Date(isoStr);
+    const day = String(d.getDate()).padStart(2, '0');
+    const mon = d.toLocaleString('en-US', { month: 'short' });
+    const hrs = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${day} ${mon} ${hrs}:${min}`;
+}
+
+function renderConsolidateStatus(stats) {
+    const statusEl = document.getElementById('consolidate-status');
+    if (!statusEl || !stats) return;
+    const lines = [];
+    if (stats.last_consolidation) {
+        const dt = formatShortDate(stats.last_consolidation);
+        lines.push(`Last consolidation ${dt}: ${stats.new_scrape_files ?? 0} new scrape file(s) and ${stats.new_annotation_files ?? 0} new annotation file(s).`);
+    }
+    if (stats.last_status_refresh) {
+        const dt = formatShortDate(stats.last_status_refresh);
+        lines.push(`Last enrichment status refresh: ${dt}`);
+    }
+    if (lines.length) {
+        statusEl.innerHTML = lines.join('<br>');
+        statusEl.style.color = 'var(--color-success-light)';
+    }
+}
+
+function checkConsolidationNeeded(data) {
+    const warningEl = document.getElementById('consolidate-warning');
+    if (!warningEl) return;
+
+    const lastConsolidation = data.consolidate_stats?.last_consolidation;
+    const scraperSuccess = data.scraper_last_success;
+    const annotatorSuccess = data.annotator_last_success;
+
+    if (!lastConsolidation) {
+        // Never consolidated — warn if any process has run
+        if (scraperSuccess || annotatorSuccess) {
+            warningEl.textContent = 'New enrichment data has not been consolidated yet. Click "Consolidate & Refresh" to update.';
+            warningEl.style.display = '';
+        }
+        return;
+    }
+
+    const consolTs = new Date(lastConsolidation).getTime();
+    const scraperNewer = scraperSuccess && new Date(scraperSuccess).getTime() > consolTs;
+    const annotatorNewer = annotatorSuccess && new Date(annotatorSuccess).getTime() > consolTs;
+
+    if (scraperNewer || annotatorNewer) {
+        const parts = [];
+        if (scraperNewer) parts.push('scraper');
+        if (annotatorNewer) parts.push('annotator');
+        warningEl.textContent = `The ${parts.join(' and ')} completed after the last consolidation. Click "Consolidate & Refresh" to incorporate new data.`;
+        warningEl.style.display = '';
+    } else {
+        warningEl.style.display = 'none';
+    }
+}
+
+// --- Cascade Refresh State ---
+// Tracks the active cascade refresh so that:
+//   1. main.js can chain meta refreshes after study refresh completes
+//   2. Refresh Caches page buttons are disabled while a cascade is running
+let _cascadeRefresh = null;
+
+function renderConsolidationImpact(impact) {
+    const panel = document.getElementById('consolidate-impact');
+    const details = document.getElementById('impact-details');
+    const actions = document.getElementById('impact-actions');
+    if (!panel || !details || !actions) return;
+
+    if (!impact || !impact.changed_item_count) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    const parts = [];
+    if (impact.new_scrape_item_count) parts.push(`${impact.new_scrape_item_count.toLocaleString()} newly scraped`);
+    if (impact.new_annotation_item_count) parts.push(`${impact.new_annotation_item_count.toLocaleString()} newly annotated`);
+    const itemSummary = parts.length ? parts.join(', ') : `${impact.changed_item_count.toLocaleString()} changed`;
+
+    const collCount = impact.affected_collection_ids ? impact.affected_collection_ids.length : 0;
+    const studyNames = impact.affected_study_names || [];
+
+    let html = `${itemSummary} item(s) across <strong>${collCount}</strong> collection(s)`;
+    if (studyNames.length) {
+        html += ` in <strong>${studyNames.length}</strong> study/studies: ${studyNames.join(', ')}`;
+    }
+    details.innerHTML = html;
+
+    // Single cascade button
+    actions.innerHTML = '';
+    const btn = document.createElement('button');
+    btn.className = 'action-btn text-xs';
+    btn.id = 'btn-cascade-refresh';
+    btn.style.padding = '4px 8px';
+    btn.textContent = 'Refresh All Affected';
+    btn.onclick = () => startCascadeRefresh(impact, btn);
+    // Disable if cascade is already running
+    if (_cascadeRefresh) {
+        btn.disabled = true;
+        btn.textContent = _cascadeRefresh.statusText || 'Refreshing...';
+        btn.className = 'btn-running text-xs';
+    }
+    actions.appendChild(btn);
+
+    panel.style.display = '';
+}
+
+function startCascadeRefresh(impact, btn) {
+    const studyNames = impact.affected_study_names || [];
+    const collectionIds = impact.affected_collection_ids || [];
+
+    // Set up cascade state
+    _cascadeRefresh = {
+        studyNames,
+        collectionIds,
+        phase: 'starting',
+        statusText: 'Starting...',
+        startedStudies: false,
+        startedTimelines: false,
+        startedMetaViewer: false,
+        startedMetaGroups: false,
+        startedPca: false,
+    };
+
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    btn.className = 'btn-running text-xs';
+    updateCascadeRefreshPageLock(true);
+
+    // Phase 1: Start study refresh + timelines concurrently
+    const promises = [];
+
+    if (studyNames.length) {
+        promises.push(
+            startTargetedRefresh('recode_refresh_studies', { studies: studyNames.join(',') })
+                .then(() => { _cascadeRefresh.startedStudies = true; })
+        );
+    }
+    if (collectionIds.length) {
+        promises.push(
+            startTargetedRefresh('timelines_refresh', { collections: collectionIds.join(',') })
+                .then(() => { _cascadeRefresh.startedTimelines = true; })
+        );
+    }
+
+    Promise.allSettled(promises).then(() => {
+        _cascadeRefresh.phase = 'waiting_for_studies';
+        _cascadeRefresh.statusText = 'Refreshing studies & timelines...';
+        updateCascadeButton();
+
+        // If no studies to refresh, skip straight to meta refresh
+        if (!studyNames.length || !_cascadeRefresh.startedStudies) {
+            _cascadeRefresh.phase = 'waiting_for_meta';
+            startMetaRefreshes();
+        }
+        // Otherwise, main.js updateStatus() detects recode_refresh_studies completion
+        // and calls onCascadeStudiesComplete()
+    });
+}
+
+function onCascadeStudiesComplete() {
+    if (!_cascadeRefresh || _cascadeRefresh.phase !== 'waiting_for_studies') return;
+    _cascadeRefresh.phase = 'waiting_for_meta';
+    _cascadeRefresh.statusText = 'Refreshing metadata...';
+    updateCascadeButton();
+    startMetaRefreshes();
+}
+
+function startMetaRefreshes() {
+    const studyFilter = _cascadeRefresh.studyNames.length
+        ? { studies: _cascadeRefresh.studyNames.join(',') } : {};
+    const promises = [];
+    promises.push(
+        startTargetedRefresh('meta_refresh_viewer', {})
+            .then(() => { _cascadeRefresh.startedMetaViewer = true; })
+    );
+    promises.push(
+        startTargetedRefresh('meta_refresh_groups', {})
+            .then(() => { _cascadeRefresh.startedMetaGroups = true; })
+    );
+    promises.push(
+        startTargetedRefresh('pca_refresh', studyFilter)
+            .then(() => { _cascadeRefresh.startedPca = true; })
+    );
+    Promise.allSettled(promises).then(() => {
+        // Now waiting for meta + PCA processes to finish — detected by main.js
+    });
+}
+
+function onCascadeRefreshComplete() {
+    // Called when all cascade processes have finished
+    _cascadeRefresh = null;
+    updateCascadeButton();
+    updateCascadeRefreshPageLock(false);
+    fetchEnrichmentStats(); // Re-fetch to update impact panel (should hide it)
+    if (typeof fetchStalenessStatus === 'function') fetchStalenessStatus();
+}
+
+function updateCascadeButton() {
+    const btn = document.getElementById('btn-cascade-refresh');
+    if (!btn) return;
+    if (_cascadeRefresh) {
+        btn.disabled = true;
+        btn.textContent = _cascadeRefresh.statusText || 'Refreshing...';
+        btn.className = 'btn-running text-xs';
+    } else {
+        btn.disabled = false;
+        btn.textContent = 'Refresh All Affected';
+        btn.className = 'action-btn text-xs';
+    }
+}
+
+function updateCascadeRefreshPageLock(locked) {
+    // Disable/enable the toggle buttons on the Refresh Caches page
+    const processNames = ['recode_refresh_studies', 'meta_refresh_viewer', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'];
+    processNames.forEach(name => {
+        const toggleBtn = document.getElementById(`${name}-toggle`);
+        if (toggleBtn) {
+            toggleBtn.disabled = locked;
+            if (locked) {
+                toggleBtn.title = 'Cascade refresh in progress';
+            } else {
+                toggleBtn.title = '';
+            }
+        }
+    });
+}
+
+function startTargetedRefresh(processName, params) {
+    return fetch(`/api/start/${processName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(params)
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                console.error(`Failed to start ${processName}: ${data.message}`);
+            }
+            return data;
+        })
+        .catch(err => {
+            console.error(`Failed to start ${processName}:`, err);
+        });
+}
+
 function fetchEnrichmentStats() {
     fetch('/api/manage/enrichment/stats')
         .then(res => res.json())
@@ -969,11 +1217,14 @@ function fetchEnrichmentStats() {
                 document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';
             }
 
-            // Consolidate button state
-            const consolidateBtn = document.getElementById('btn-consolidate');
-            if (consolidateBtn) {
-                consolidateBtn.disabled = !data.has_unconsolidated;
+            // Consolidation status from process_stats
+            if (data.consolidate_stats) {
+                renderConsolidateStatus(data.consolidate_stats);
+                renderConsolidationImpact(data.consolidate_stats.consolidation_impact);
             }
+
+            // Check if consolidation is needed
+            checkConsolidationNeeded(data);
         })
         .catch(err => console.error("Error fetching enrichment stats:", err));
 }
@@ -1075,6 +1326,7 @@ function consolidateEnrichmentData(btn) {
     btn.textContent = "Consolidating...";
     btn.disabled = true;
     btn.className = 'btn-running';
+    const statusEl = document.getElementById('consolidate-status');
 
     fetch('/api/manage/enrichment/consolidate', {
         method: 'POST',
@@ -1083,12 +1335,19 @@ function consolidateEnrichmentData(btn) {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
+                renderConsolidateStatus(data.consolidate_stats);
+                renderConsolidationImpact(data.impact);
                 fetchEnrichmentStats();
             } else {
-                console.error("Consolidation error:", data.error);
+                statusEl.textContent = "Error: " + (data.error || "Unknown error");
+                statusEl.style.color = 'var(--color-danger)';
             }
         })
-        .catch(err => console.error("Failed to consolidate:", err))
+        .catch(err => {
+            console.error("Failed to consolidate:", err);
+            statusEl.textContent = "Failed to consolidate. See console for details.";
+            statusEl.style.color = 'var(--color-danger)';
+        })
         .finally(() => {
             btn.className = originalClass;
             btn.textContent = originalText;
@@ -1096,35 +1355,32 @@ function consolidateEnrichmentData(btn) {
         });
 }
 
-function rebuildEnrichmentStatus(btn) {
-    const originalText = btn.textContent;
-    const originalClass = btn.className;
-    btn.textContent = "Rebuilding...";
-    btn.disabled = true;
-    btn.className = 'btn-running';
-
-    fetch('/api/manage/enrichment/rebuild_status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
-    })
+function fetchStalenessStatus() {
+    fetch('/api/manage/refresh/staleness')
         .then(res => res.json())
         .then(data => {
-            if (data.status === 'success') {
-                alert(data.message);
-                fetchEnrichmentStats();
-            } else {
-                alert("Error: " + (data.error || "Unknown error"));
+            if (!data.has_impact) {
+                ['recode_refresh_studies', 'meta_refresh_viewer', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].forEach(name => {
+                    const el = document.getElementById(`${name}-stale`);
+                    if (el) el.style.display = 'none';
+                });
+                return;
+            }
+            const procs = data.processes || {};
+            for (const [name, info] of Object.entries(procs)) {
+                const el = document.getElementById(`${name}-stale`);
+                if (!el) continue;
+                if (info.stale) {
+                    const count = info.affected ? info.affected.length : 0;
+                    const unit = name === 'timelines_refresh' ? 'collection(s)' : 'study/studies';
+                    el.textContent = `(${count} ${unit} need refresh)`;
+                    el.style.display = '';
+                } else {
+                    el.style.display = 'none';
+                }
             }
         })
-        .catch(err => {
-            console.error("Failed to rebuild enrichment status:", err);
-            alert("Failed to rebuild enrichment status.");
-        })
-        .finally(() => {
-            btn.className = originalClass;
-            btn.textContent = originalText;
-            btn.disabled = false;
-        });
+        .catch(err => console.error("Error fetching staleness:", err));
 }
 
 // Call on load
@@ -1150,6 +1406,14 @@ function openDataManagementPage(pageId, clickedItem) {
     // Activate clicked sidebar item
     if (clickedItem) {
         clickedItem.classList.add('active');
+    }
+
+    // Fetch staleness status when entering the refresh page + apply cascade lock
+    if (pageId === 'dm-page-refresh') {
+        fetchStalenessStatus();
+        if (_cascadeRefresh) {
+            updateCascadeRefreshPageLock(true);
+        }
     }
 
     // Lazy-load edit activity table on first visit

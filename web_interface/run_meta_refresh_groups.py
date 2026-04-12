@@ -23,7 +23,7 @@ if __name__ == "__main__":
         
         total = len(studies)
         for i, (study_name, config) in enumerate(studies.items()):
-            print(f"::PROGRESS:: {{ \"percent\": {int((i/total)*100)}, \"message\": \"Processing {study_name}\" }}")
+            print(f"::PROGRESS:: {{ \"percent\": {int((i/total)*100)}, \"message\": \"Study {i+1}/{total}\" }}")
             print(f"Processing study: {study_name}")
             
             try:

@@ -1383,8 +1383,8 @@ def consolidate_and_save_refined_annotations(
             print("No new refined machine annotations files found. No need to consolidate.")
         if return_saved_data:
             if verbose: print("Returning existing file.")
-            return False, data_io.load_parquet(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet")
-        return False, None
+            return False, data_io.load_parquet(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"), set()
+        return False, None, set()
     
  
     # ---------------------------------------------------------------
@@ -1415,12 +1415,26 @@ def consolidate_and_save_refined_annotations(
         print(f"Shape: {consolidated_annotations.shape} | Memory usage: {total_memory_mb:.2f} MB")
 
     # ---------------------------------------------------------------
+    # Compute new item_ids by comparing against existing consolidated data
+    new_item_ids: set[str] = set()
+    existing_recoded_fn = f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"
+    if data_io.exists(storage_location="recoded", filename=existing_recoded_fn):
+        existing_df = data_io.load_parquet(storage_location="recoded", filename=existing_recoded_fn)
+        existing_ids = set(existing_df["item_id"]) if existing_df is not None else set()
+        new_item_ids = set(consolidated_annotations["item_id"]) - existing_ids
+    else:
+        new_item_ids = set(consolidated_annotations["item_id"])
+
+    if top_verbose and new_item_ids:
+        print(f"Found {len(new_item_ids):,} newly annotated item_ids.")
+
+    # ---------------------------------------------------------------
     # save the consolidated annotations
     if top_verbose:
         print("Saving consolidated annotations...")
     data_io.save_parquet(
-        df=consolidated_annotations, 
-        storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", verbose=verbose)   
+        df=consolidated_annotations,
+        storage_location="recoded", filename=existing_recoded_fn, verbose=verbose)
     if top_verbose:
         print("...done")
 
@@ -1431,7 +1445,7 @@ def consolidate_and_save_refined_annotations(
     dataset_meta["machine_annotations"]["filenames"] = files_to_concatenate
     _ = data_io.save_json(data = dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
 
-    return True, consolidated_annotations
+    return True, consolidated_annotations, new_item_ids
 
 
 
@@ -1573,10 +1587,10 @@ def annotate_videos_loop_from_list(
     print(f"    Now: {_dt.datetime.now()}")
 
     batch_number = 1
-    total_items = len(video_list)
     cumulative_done = 0
 
     batch_target = min(max_batches, len(video_list) // batch_size + 1)
+    total_items = min(len(video_list), batch_target * batch_size)
 
     print(f"  Starting loop... There are {total_items:,} videos to process in {batch_target:,} batches")
 
@@ -1598,8 +1612,8 @@ def annotate_videos_loop_from_list(
 
         # Emit queue update after each batch (for web UI)
         if "WEB_INTERFACE" in os.environ:
-            remaining = total_items - cumulative_done
-            print(f"::DATA::{{\"annotate_queue_len\": {max(0, remaining)}}}", flush=True)
+            queue_remaining = len(video_list) - cumulative_done
+            print(f"::DATA::{{\"annotate_queue_len\": {max(0, queue_remaining)}}}", flush=True)
 
         if max_batches is not None and batch_number >= max_batches:
             break

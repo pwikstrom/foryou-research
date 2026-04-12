@@ -6,7 +6,9 @@
     <!-- 1. Video Analysis Metadata -->
     <div
         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">Video Analysis Metadata</div>
+        <div class="font-bold" style="margin-bottom: 10px;">Video Analysis Metadata
+            <span id="meta_refresh_viewer-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </div>
         <div class="controls"
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
             <span id="meta_refresh_viewer-status" class="status-indicator status-stopped"></span>
@@ -26,7 +28,9 @@
     <!-- 2. Group Comparisons Metadata -->
     <div
         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">'Explore' Metadata</div>
+        <div class="font-bold" style="margin-bottom: 10px;">'Explore' Metadata
+            <span id="meta_refresh_groups-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </div>
         <div class="controls"
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
             <span id="meta_refresh_groups-status" class="status-indicator status-stopped"></span>
@@ -46,7 +50,9 @@
     <!-- 3. Timelines -->
     <div
         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">Timelines</div>
+        <div class="font-bold" style="margin-bottom: 10px;">Timelines
+            <span id="timelines_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </div>
         <div class="controls"
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
             <span id="timelines_refresh-status" class="status-indicator status-stopped"></span>
@@ -63,10 +69,34 @@
         </div>
     </div>
 
-    <!-- 4. Study Definitions -->
+    <!-- 4. Correlations (PCA) -->
     <div
         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">Study Definitions</div>
+        <div class="font-bold" style="margin-bottom: 10px;">Correlations
+            <span id="pca_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </div>
+        <div class="controls"
+            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <span id="pca_refresh-status" class="status-indicator status-stopped"></span>
+            <button id="pca_refresh-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('pca_refresh')" style="padding: 4px 12px;">Refresh</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="pca_refresh-bar"></div>
+            <div class="progress-text" id="pca_refresh-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="pca_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <a class="text-xs view-log-link" onclick="openLogModal('pca_refresh', 'Correlations')">View Log</a>
+        </div>
+    </div>
+
+    <!-- 5. Study Definitions -->
+    <div
+        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
+        <div class="font-bold" style="margin-bottom: 10px;">Study Definitions
+            <span id="recode_refresh_studies-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </div>
         <div class="controls"
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
             <span id="recode_refresh_studies-status" class="status-indicator status-stopped"></span>

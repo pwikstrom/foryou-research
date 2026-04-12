@@ -656,16 +656,14 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
     """Consolidate annotation and scrape data from raw sources, then rebuild enrichment status."""
 
     print("\n*** Annotations")
-    (new_annotations, annotations) = consolidate_and_save_refined_annotations(
+    (new_annotations, annotations, new_annotation_ids) = consolidate_and_save_refined_annotations(
         force_consolidation=force_consolidation, verbose=verbose)
 
     print("\n*** Scrape")
-    (new_scrape_data, scrape_data) = consolidate_and_save_scrape_data(
+    (new_scrape_data, scrape_data, new_scrape_ids) = consolidate_and_save_scrape_data(
         force_consolidation=force_consolidation, verbose=verbose)
 
-    if not new_annotations and not new_scrape_data and not force_consolidation:
-        print("\n*** No new data to consolidate. Skipping enrichment status update.")
-        return None
+    had_new_data = new_annotations or new_scrape_data
 
     collections = data_io.load_parquet(filename=f"{COLLECTIONS_LABEL}_recoded.parquet", storage_location="recoded")
 
@@ -679,6 +677,48 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
     update_enrichment_status(all_datasets=fine_results, verbose=verbose)
     print("...done.")
 
+    fine_results["had_new_data"] = had_new_data
+
+    # Compute consolidation impact: which collections and studies are affected by new data
+    changed_item_ids = new_scrape_ids | new_annotation_ids
+    impact = None
+
+    if changed_item_ids and collections is not None and not collections.empty:
+        print(f"\n*** Computing consolidation impact for {len(changed_item_ids):,} changed items...")
+
+        affected_collection_ids = set(
+            collections.loc[
+                collections["item_id"].isin(changed_item_ids),
+                collection_id_column
+            ].unique()
+        )
+
+        if "study_defs" not in fyp_cf:
+            init_study_defs()
+        affected_studies = []
+        for sname, sdef in fyp_cf.get("study_defs", {}).items():
+            selected = sdef.get("SELECTED_DONATIONS", [])
+            if not selected:
+                affected_studies.append(sname)
+            else:
+                cleaned = [
+                    re.search(r'\[(.*?)\]', str(s)).group(1) if re.search(r'\[(.*?)\]', str(s)) else str(s)
+                    for s in selected
+                ]
+                if affected_collection_ids & set(cleaned):
+                    affected_studies.append(sname)
+
+        impact = {
+            "changed_item_count": len(changed_item_ids),
+            "new_scrape_item_count": len(new_scrape_ids),
+            "new_annotation_item_count": len(new_annotation_ids),
+            "affected_collection_ids": sorted(affected_collection_ids),
+            "affected_study_names": sorted(affected_studies),
+            "timestamp": _dt.datetime.now().isoformat(),
+        }
+        print(f"    {len(affected_collection_ids)} collection(s) and {len(affected_studies)} study/studies affected.")
+
+    fine_results["impact"] = impact
     return fine_results
 
 

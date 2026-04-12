@@ -253,11 +253,18 @@ def start_monitor(
 
             # single-line update (web interface vs terminal)
             if "WEB_INTERFACE" in os.environ:
+                 overall_done = cumulative_done + done if cumulative_total > 0 else done
+                 overall_total = cumulative_total if cumulative_total > 0 else total
+                 overall_remaining = overall_total - overall_done
+                 overall_eta = (overall_remaining / throughput) if throughput > 0 else 0
+
                  progress_data = {
-                     "done": cumulative_done + done if cumulative_total > 0 else done,
-                     "total": cumulative_total if cumulative_total > 0 else total,
+                     "done": overall_done,
+                     "total": overall_total,
+                     "batch_done": done,
+                     "batch_total": total,
                      "rate": throughput,
-                     "eta": eta if eta is not None else 0
+                     "eta": overall_eta
                  }
                  if batch_label:
                      progress_data["batch"] = batch_label
