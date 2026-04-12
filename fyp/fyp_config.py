@@ -1,5 +1,7 @@
 import sys
 import os
+import shutil
+import tempfile
 import pandas as pd
 from pathlib import Path
 from google.api_core.exceptions import Forbidden as google_Forbidden
@@ -10,10 +12,14 @@ import toml
 
 
 # look for the folder that contains the __proj__.py file, which is the root folder for the project structure
-here = os.getcwd().split("/")
-while not os.path.exists(os.path.join("/".join(here),"__proj__.py")):
-    here.pop()
-abs_project_root_path = os.path.join("/".join(here))
+_cwd = Path(os.getcwd())
+_candidates = [_cwd] + list(_cwd.parents)
+for _p in _candidates:
+    if (_p / "__proj__.py").exists():
+        abs_project_root_path = str(_p)
+        break
+else:
+    raise FileNotFoundError("Could not find __proj__.py in any parent directory")
 sys.path.append(abs_project_root_path)
 
 
@@ -52,12 +58,14 @@ def initialize(
     if abs_project_root_path is None:
 
         # I put an empty __proj__.py file in the root folder of the project structure
-        here = os.getcwd().split("/")
-        while not os.path.exists(os.path.join("/".join(here),"__proj__.py")):
-            here.pop()
-
-        # this is the root folder for the project structure
-        abs_project_root_path = os.path.join("/".join(here))
+        cwd = Path(os.getcwd())
+        candidates = [cwd] + list(cwd.parents)
+        for p in candidates:
+            if (p / "__proj__.py").exists():
+                abs_project_root_path = str(p)
+                break
+        else:
+            raise FileNotFoundError("Could not find __proj__.py in any parent directory")
         if verbose:
             print("Project root:",abs_project_root_path)
 
@@ -89,6 +97,8 @@ def initialize(
     # initialize paths
     # ------------------------------------------------------------------
     # Resolve relative paths against the project root for consistent file access.
+    # I'm creating the paths as if they are local - if everything is GCS, these will just be
+    # used as a template for the gcs paths 
     cf["paths"]["local_data"] = os.path.abspath(os.path.join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
 
 
@@ -117,12 +127,11 @@ def initialize(
 
     # other paths
     cf["paths"]["recoded"] = os.path.join(cf["paths"]["local_data"], "recoded")
-    #cf["paths"]["prompts"] = os.path.join(cf["paths"]["local_data"], "prompts")
     cf["paths"]["archive"] = os.path.join(cf["paths"]["local_data"], "archive")
     cf["paths"]["users"] = os.path.join(cf["paths"]["local_data"], "users") 
     cf["paths"]["cache"] = os.path.join(cf["paths"]["local_data"], "cache") 
     
-    cf["paths"]["temp"] = "/tmp/fyp/"
+    cf["paths"]["temp"] = os.path.join(tempfile.gettempdir(), "fyp", "")
     os.makedirs(cf["paths"]["temp"], exist_ok=True)
     
 
@@ -276,11 +285,37 @@ def load_var_schema(cf, verbose=False):
             print(f"Loading variable schema from local disk", end="", flush=True)
         var_schema_path = os.path.join(cf['paths']['local_data'], "var_schema.csv")
     try:
-        cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+        cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow", encoding="utf-8")
         if verbose:
             print(f" - OK. Shape: {cf['var_schema'].shape}")
     except Exception as e:
-        print(f"\nCRITICAL ERROR: Failed to load variable schema: {e}")
+        # var_schema not found — try to bootstrap from template
+        template_path = os.path.join(cf["paths"]["project_root"], "config", "var_schema_template.csv")
+        if os.path.exists(template_path):
+            print(f"\nVariable schema not found at '{var_schema_path}'. Bootstrapping from template.")
+            template_df = pd.read_csv(template_path, dtype_backend="pyarrow", encoding="utf-8")
+            if cf['data_io']['use_gcs_for_data']:
+                # Upload template to GCS
+                bucket = cf['data_io'].get('bucket')
+                if bucket:
+                    blob = bucket.blob(f"{cf['data_io'].get('gcs_data_prefix', 'data')}/var_schema.csv")
+                    blob.upload_from_filename(template_path)
+                    print(f"Uploaded var_schema template to GCS.")
+            else:
+                # Copy template to local data directory
+                os.makedirs(os.path.dirname(var_schema_path), exist_ok=True)
+                shutil.copy2(template_path, var_schema_path)
+                print(f"Copied var_schema template to '{var_schema_path}'.")
+            cf["var_schema"] = template_df
+        else:
+            print(f"\nCRITICAL: No var_schema.csv and no template found at '{template_path}'.")
+            cf["var_schema"] = pd.DataFrame(columns=[
+                "source", "section", "variable_name", "display_name", "role", "scale",
+                "mapper", "ignore_strings", "unable_to_detect_policy", "recode_func",
+                "sortable", "searchable", "web_filter_prio", "web_timeline_prio",
+                "web_viz_prio", "web_viz_log", "web_viz_bins", "web_display_prio",
+                "description", "accepted_labels"
+            ])
     return cf
 
 

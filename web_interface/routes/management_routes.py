@@ -69,11 +69,13 @@ def _calculate_stats(study_config, save_to_cache=True):
         unique_videos = df_study['item_id'].nunique()
 
         # 3. Load Enrichment Status
-        df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
-        
+        df_status = None
+        if data_io.exists(storage_location="recoded", filename='enrichment_status.parquet'):
+            df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
+
         scraped_videos = 0
         annotated_videos = 0
-        
+
         if df_status is not None and not df_status.empty:
             
             # Filter status df to only include items in the study
@@ -560,22 +562,25 @@ def get_enrichment_stats():
          return jsonify({"error": "Unauthorized"}), 403
 
     # 1. Load Enrichment Status
-    enrichment_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
-
+    enrichment_status = None
+    if data_io.exists(storage_location="recoded", filename='enrichment_status.parquet'):
+        enrichment_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
 
     total_videos = 0
     scraped_videos = 0
     annotated_videos = 0
     unique_collections = 0
-    
+
     if enrichment_status is not None and not enrichment_status.empty:
         total_videos = len(enrichment_status)
         if 'scraped_ok' in enrichment_status.columns:
             scraped_videos = int(enrichment_status['scraped_ok'].sum())
         if 'annotated_ok' in enrichment_status.columns:
             annotated_videos = int(enrichment_status['annotated_ok'].sum())
-    
-    ddp_metadata = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet")
+
+    ddp_metadata = None
+    if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
+        ddp_metadata = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet")
     if ddp_metadata is not None and not ddp_metadata.empty:
         if ('other', 'accepted') in ddp_metadata.columns:
             unique_collections = int(ddp_metadata[ddp_metadata[('other','accepted')]].index.nunique())
@@ -804,7 +809,9 @@ def calculate_to_scrape():
             return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
 
         # Load global enrichment status
-        df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+        df_status = None
+        if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+            df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
 
         unscraped_videos = []
         if df_status is not None and not df_status.empty:
@@ -890,7 +897,9 @@ def calculate_to_annotate():
             return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
 
         # Load global enrichment status
-        df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+        df_status = None
+        if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+            df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
 
         unannotated_videos = []
         if df_status is not None and not df_status.empty:

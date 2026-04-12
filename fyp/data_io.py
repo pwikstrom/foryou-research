@@ -392,6 +392,10 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
 
         #if verbose: print(f"    [DATA_IO] Listing files in local storage: {local_dir}")
 
+        if not os.path.isdir(local_dir):
+            os.makedirs(local_dir, exist_ok=True)
+            return []
+
         files = os.listdir(local_dir)
 
         if return_absolute_path:
@@ -532,7 +536,7 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
                  if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
             # Local Primary
-            with open(primary, 'r') as file:
+            with open(primary, 'r', encoding='utf-8') as file:
                 for line in file:
                     #line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
                     #line = '{"log_script":"' + root + '",' + line[1:]
@@ -594,7 +598,7 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
                  if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
             # Local from local
-            with open(primary, 'r') as file:
+            with open(primary, 'r', encoding='utf-8') as file:
                 return json.load(file)
                 
     except Exception as e:
@@ -644,9 +648,10 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
              raise ValueError("GCS bucket not initialized")
     else:
         # Local
-        with open(primary, 'w') as file:
+        os.makedirs(os.path.dirname(primary), exist_ok=True)
+        with open(primary, 'w', encoding='utf-8') as file:
             json.dump(data, file)
-    
+
     return 0
             
 
@@ -946,6 +951,7 @@ def save_parquet(
                 if verbose:
                     print(f"    [DATA_IO ASYNC] Finished save to {path}. (unlocked)")
 
+        os.makedirs(os.path.dirname(primary), exist_ok=True)
         if asyncronous:
             executor = ThreadPoolExecutor(max_workers=2)
 
@@ -955,6 +961,7 @@ def save_parquet(
             safe_save(this_df.copy(), primary)
 
     else:
+        os.makedirs(os.path.dirname(primary), exist_ok=True)
         this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=my_compression_level)
     
     
@@ -1042,7 +1049,7 @@ def save_logs_as_csv(
         outdata_for_csv_export["tiktok_url"] = "https://www.tiktok.com/@/video/" + outdata_for_csv_export["item_id"] + "/"
 
         # Export with error handling for any remaining encoding issues
-        outdata_for_csv_export.to_csv(os.path.join(fyp_cf['paths']['exports'],log_as_csv_filename), errors='replace')
+        outdata_for_csv_export.to_csv(os.path.join(fyp_cf['paths']['exports'],log_as_csv_filename), encoding='utf-8-sig', errors='replace')
         if verbose:
             print(f"Exported {len(outdata_for_csv_export):,} observations in {log_as_csv_filename}.")
             print(f"The date of the observations in the log range from {outdata_filtered['local_timestamp'].min()} -- {outdata_filtered['local_timestamp'].max()}")

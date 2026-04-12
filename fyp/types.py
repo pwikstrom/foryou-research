@@ -38,7 +38,7 @@ def fix_complex_types(some_iterable, verbose=False):
     # Convert dicts to JSON strings
     if dict in type_counts.index:
         mask = some_iterable.dropna().map(lambda x: isinstance(x, dict))
-        some_iterable.loc[mask[mask].index] = some_iterable.loc[mask[mask].index].map(json_dumps)
+        some_iterable.loc[mask[mask].index] = some_iterable.loc[mask[mask].index].map(json.dumps)
 
         type_counts = _get_type_counts(some_iterable)
 
@@ -128,7 +128,7 @@ def fix_complex_types_old(some_iterable, verbose=False):
     # check if there are dicts in the iterable - if yes, convert them to json strings
     if "<class 'dict'>" in type_counts.index:
         dict_indeces = row_types[row_types == "<class 'dict'>"].index
-        some_iterable.loc[dict_indeces] = some_iterable.loc[dict_indeces].map(lambda x: json_dumps(x))
+        some_iterable.loc[dict_indeces] = some_iterable.loc[dict_indeces].map(lambda x: json.dumps(x))
 
         if verbose:
             print("    [PYARROW dtypes - complex] Dicts converted to json strings")

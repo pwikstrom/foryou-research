@@ -4,7 +4,7 @@ aiohttp==3.13.3
 aiosignal==1.4.0
 annotated-types==0.7.0
 anyio==4.12.1
-appnope==0.1.4
+appnope==0.1.4; sys_platform == 'darwin'
 argon2-cffi==25.1.0
 argon2-cffi-bindings==25.1.0
 array-api-compat==1.13.0

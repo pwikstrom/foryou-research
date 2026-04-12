@@ -142,9 +142,12 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
 
 
 def get_factors_and_features_from_var_schema(some_events_df = None, verbose = False):
-    
+
+    if "var_schema" not in fyp_cf or fyp_cf["var_schema"].empty:
+        return [], []
+
     var_schema = fyp_cf["var_schema"]
-    
+
     the_factors = sorted(list(set(var_schema[var_schema["role"].isin(['factor','group_factor'])].variable_name)))
     the_features = sorted(list(set(var_schema[var_schema["role"]=='feature'].variable_name)))
     if some_events_df is not None:
@@ -161,9 +164,12 @@ def get_factors_and_features_from_var_schema(some_events_df = None, verbose = Fa
 
 
 def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False):
-    
+
+    if "var_schema" not in fyp_cf or fyp_cf["var_schema"].empty:
+        return []
+
     var_schema = fyp_cf["var_schema"]
-    
+
     the_grouping_factors = sorted(list(set(var_schema[var_schema["role"]=='group_factor'].variable_name)))
     if some_events_df is not None:
         the_grouping_factors = [c for c in the_grouping_factors if c in some_events_df.columns]

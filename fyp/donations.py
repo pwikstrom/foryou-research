@@ -77,11 +77,12 @@ def get_donation_metadata_from_aio_aws(
         "--max-items 100000 "
         "--output json"
     )
-    full_cmd = f"{scan_cmd} > {shlex.quote(str(temp_file))}"
+    scan_args = shlex.split(scan_cmd)
 
-    # Run it
+    # Run it — write stdout directly to the temp file instead of using shell redirection
     try:
-        subprocess.run(full_cmd, shell=True, check=True)
+        with open(temp_file, 'w', encoding='utf-8') as outf:
+            subprocess.run(scan_args, check=True, stdout=outf)
     except subprocess.CalledProcessError as e:
         print(f"Error downloading participant metadata running AWS CLI command: {e}")
         return None
@@ -155,37 +156,34 @@ def get_recent_data_donations_from_aio_aws(
     dest.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # 3) Build the shell command (quote everything that may contain spaces)
+    # 3) Run DynamoDB scan to get donation IDs
     # ------------------------------------------------------------------
-    scan_cmd = (
-        "aws dynamodb scan "
-        f"--table-name {shlex.quote(table_name)} "
-        "--filter-expression "
-        "\"consentProvided = :consent and #d >= :shareDate\" "
-        "--expression-attribute-names "
-        "'{\"#d\": \"date\"}' "
-        "--expression-attribute-values "
-        #f"'{{\":campaignName\": {{\"S\": \"{campaign_name}\"}}, "
-        f"'{{\":consent\": {{\"BOOL\": true}}, "
-        f"\":shareDate\": {{\"S\": \"{share_date}\"}}}}' "
+    scan_args = [
+        "aws", "dynamodb", "scan",
+        "--table-name", table_name,
+        "--filter-expression", "consentProvided = :consent and #d >= :shareDate",
+        "--expression-attribute-names", '{"#d": "date"}',
+        "--expression-attribute-values",
+        json.dumps({
+            ":consent": {"BOOL": True},
+            ":shareDate": {"S": share_date},
+        }),
+        "--query", "Items[*].id.S",
+    ]
 
-        "--query 'Items[*].id.S'"
-    )
-
-
-    # We pipe the result through jq and xargs, then copy each object
-    
-    full_cmd = (
-        f"{scan_cmd} | jq -r '.[]' "
-        "| xargs -I {} "
-        f"aws s3 cp \"s3://{bucket}/donation/{{}}\" {shlex.quote(str(dest))}"
-    )
-    
-    # ------------------------------------------------------------------
-    # 4) Run the download to temp
-    # ------------------------------------------------------------------
     print(f"Downloading recent donations to temporary storage: {dest}")
-    subprocess.run(full_cmd, shell=True, check=True)
+    scan_result = subprocess.run(scan_args, check=True, capture_output=True, text=True)
+    donation_ids = json.loads(scan_result.stdout)
+
+    # ------------------------------------------------------------------
+    # 4) Download each donation file from S3
+    # ------------------------------------------------------------------
+    for donation_id in donation_ids:
+        s3_uri = f"s3://{bucket}/donation/{donation_id}"
+        subprocess.run(
+            ["aws", "s3", "cp", s3_uri, str(dest) + os.sep],
+            check=True,
+        )
 
     # ------------------------------------------------------------------
     # 5) Move/Upload files to ddp_raw storage
@@ -197,7 +195,7 @@ def get_recent_data_donations_from_aio_aws(
     for filename in downloaded_files:
         val_path = dest / filename
         # Read the content
-        with open(val_path, 'r') as f:
+        with open(val_path, 'r', encoding='utf-8') as f:
             try:
                 # Assuming they are JSONs as per previous scripts?
                 # ingest script treats them as JSONs

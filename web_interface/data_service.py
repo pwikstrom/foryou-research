@@ -310,8 +310,8 @@ def get_viz_config():
     config = {}
     try:
         #var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
-        if True:#var_schema_path.exists():
-            df = fyp_cf["var_schema"].copy() #pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+        if "var_schema" in fyp_cf and not fyp_cf["var_schema"].empty:
+            df = fyp_cf["var_schema"].copy()
             
             # Check if columns exist
             has_log = 'web_viz_log' in df.columns
@@ -975,8 +975,8 @@ def load_schema_metadata(metadata):
     """Helper to load and inject schema metadata (priorities, descriptions, accepted_labels) from CSV."""
     try:
         #var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
-        if True: #var_schema_path.exists():
-            schema_df = fyp_cf["var_schema"].copy() #= pd.read_csv(var_schema_path, dtype_backend="pyarrow")
+        if "var_schema" in fyp_cf and not fyp_cf["var_schema"].empty:
+            schema_df = fyp_cf["var_schema"].copy()
             
             schema_df['web_display_prio'] = pd.to_numeric(schema_df['web_display_prio'], errors='coerce')
             display_df = schema_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')

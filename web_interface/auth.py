@@ -166,7 +166,7 @@ class UserManager:
         # Create default admin if empty
         if not self.users:
             logger.info("No users found. Creating default admin.")
-            self.add_user("info@foryouresearch.net", "kelvingrove", ROLE_ADMIN, approved=True)
+            self.add_user("admin@admin.net", "admin", ROLE_ADMIN, approved=True)
     
     def migrate_legacy_data(self):
         """Migrates legacy users.json and _tags.json to individual {username}.json files."""
