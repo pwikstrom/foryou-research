@@ -34,7 +34,7 @@ def _calculate_stats(study_config, save_to_cache=True):
              return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
 
         # If no collections are selected, the study is empty — skip expensive computation
-        selected = study_config.get("SELECTED_DONATIONS", [])
+        selected = study_config.get("SELECTED_COLLECTIONS", [])
         if not selected:
              return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
 
@@ -61,9 +61,10 @@ def _calculate_stats(study_config, save_to_cache=True):
             data_io.remove(storage_location="cache", filename=f"{study_name}_viewer_metadata.json")
             data_io.remove(storage_location="cache", filename=f"{study_name}_comp_interpretations.json")
             data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
-            return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
+            return {"total_activities": 0, "unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
 
         # 2. Count Unique Donations
+        total_activities = len(df_study)
         unique_collections = df_study['collection_id'].nunique()
         unique_videos = df_study['item_id'].nunique()
 
@@ -102,6 +103,7 @@ def _calculate_stats(study_config, save_to_cache=True):
                 annotated_videos = int(matched_status['annotated_ok'].fillna(False).sum())
         
         return {
+            "total_activities": int(total_activities),
             "unique_videos": int(unique_videos),
             "scraped_videos": scraped_videos,
             "annotated_videos": annotated_videos,
@@ -411,6 +413,16 @@ def delete_study():
     if study_name in fyp_cf['study_defs']:
         del fyp_cf['study_defs'][study_name]
         save_study_defs()
+
+        for cached_file in [
+            f"{study_name}_recoded.parquet",
+            f"{study_name}_explorer_metadata.json",
+            f"{study_name}_viewer_metadata.json",
+            f"{study_name}_comp_interpretations.json",
+            f"{study_name}_PCA.parquet",
+        ]:
+            data_io.remove(storage_location="cache", filename=cached_file)
+
         return jsonify({"status": "success", "message": f"Deleted {study_name}"})
     else:
         return jsonify({"error": "Study not found"}), 404
@@ -1116,10 +1128,37 @@ def get_ingestion_sources():
                 "raw_path": col.raw_path,
                 "class_name": col.__class__.__name__,
                 "pending_files": pending,
+                "ingestion_mode": getattr(col, "ingestion_mode", "upload"),
             })
         return jsonify({"status": "success", "sources": sources, "total_pending": total_pending})
     except Exception as e:
         print(f"Error getting ingestion sources: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@management_bp.route('/api/manage/ingestion/fetch_aio', methods=['POST'])
+@login_required
+def fetch_aio_data():
+    """Trigger download of recent AIO donations and metadata from AWS."""
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+    try:
+        from fyp.donations import (
+            get_recent_data_donations_from_aio_aws,
+            get_donation_metadata_from_aio_aws,
+        )
+        hours_back = 24
+        if request.is_json and request.json:
+            hours_back = request.json.get('hours_back', 24)
+
+        get_recent_data_donations_from_aio_aws(
+            hours_back=hours_back,
+            storage_location="aio_raw",
+        )
+        get_donation_metadata_from_aio_aws(verbose=True)
+
+        return jsonify({"status": "success", "message": f"Fetched AIO donations from last {hours_back} hours."})
+    except Exception as e:
+        print(f"Error fetching AIO data: {e}")
         return jsonify({"error": str(e)}), 500
 
 @management_bp.route('/api/manage/ingestion/upload', methods=['POST'])

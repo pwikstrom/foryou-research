@@ -169,7 +169,7 @@ def load_collection_data(
 
     sel = [(timestamp_column, ">=", START_DATE),(timestamp_column, "<=", END_DATE)]
 
-    the_selected_collections = fyp_cf["study_defs"][study_name].get("SELECTED_DONATIONS",[])
+    the_selected_collections = fyp_cf["study_defs"][study_name].get("SELECTED_COLLECTIONS",[])
     if len(the_selected_collections) > 0:
         the_selected_collections = [str(x) for x in the_selected_collections]
         the_selected_collections = [re.search(r'\[(.*?)\]', s).group(1) if re.search(r'\[(.*?)\]', s) else s for s in the_selected_collections]
@@ -262,10 +262,10 @@ def simple_sample_collection_events(
     if "study_defs" not in fyp_cf:
         init_study_defs()
 
-    MIN_EVENTS_REQUIRED = fyp_cf["study_defs"][study_name].get("MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP",10)
-    MAX_EVENTS_SELECTED = fyp_cf["study_defs"][study_name].get("MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP",100)
-    MIN_GROUP_COUNT_REQUIRED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MIN_GROUP_COUNT_REQUIRED_PER_DONATION",10)
-    MAX_GROUP_COUNT_SELECTED_PER_DONATION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_SELECTED_PER_DONATION",100)
+    MIN_EVENTS_REQUIRED = fyp_cf["study_defs"][study_name].get("MIN_ACTIVITY_COUNT_PER_GROUP",10)
+    MAX_EVENTS_SELECTED = fyp_cf["study_defs"][study_name].get("MAX_ACTIVITY_COUNT_PER_GROUP",100)
+    MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION = fyp_cf["study_defs"][study_name].get("MIN_GROUP_COUNT_PER_COLLECTION",10)
+    MAX_GROUP_COUNT_SELECTED_PER_COLLECTION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_PER_COLLECTION",100)
 
 
     # Separate play and non-play events
@@ -291,10 +291,10 @@ def simple_sample_collection_events(
     unique_group_factor_pairs = play_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
 
     if verbose:
-        print(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_DONATION} aggregation groups within the limits")
-        print(f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_DONATION} aggregation groups from each remaining collection. This might take a moment...")
+        print(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION} aggregation groups within the limits")
+        print(f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_COLLECTION} aggregation groups from each remaining collection. This might take a moment...")
     # select collections with a required number of groups
-    collections_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_DONATION, MAX_GROUP_COUNT_SELECTED_PER_DONATION, rng)
+    collections_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION, MAX_GROUP_COUNT_SELECTED_PER_COLLECTION, rng)
     if verbose:
         print(f"    [Sampling] Aggregation groups remaining after sampling: {len(collections_within_group_count_limits):,}")
 
@@ -429,7 +429,7 @@ def load_study_datasets(
     # --------------------------------------------------------------------
     enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
 
-    sample_frame_setting = fyp_cf["study_defs"][study_name].get("DONATION_SAMPLE_FRAME", "off")
+    sample_frame_setting = fyp_cf["study_defs"][study_name].get("SAMPLE_FRAME", "off")
 
     if sample_frame_setting == "off":
         print(f"    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data.")
@@ -697,7 +697,7 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
             init_study_defs()
         affected_studies = []
         for sname, sdef in fyp_cf.get("study_defs", {}).items():
-            selected = sdef.get("SELECTED_DONATIONS", [])
+            selected = sdef.get("SELECTED_COLLECTIONS", [])
             if not selected:
                 affected_studies.append(sname)
             else:

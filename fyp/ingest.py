@@ -53,6 +53,7 @@ def _day_segment_from_hour(hour: int) -> str:
 class ForYouBaseCollection(ABC):
 
     platform_url_template: str | None = None
+    ingestion_mode: str = "upload"
     _registry: list[type] = []
 
     def __init_subclass__(cls, **kwargs):
@@ -1018,6 +1019,52 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
 
 
+
+
+
+
+
+class TikTokAIOCollection(TikTokDDPCollection):
+    """TikTok DDP data fetched from AIO AWS infrastructure (S3/DynamoDB).
+
+    Uses the same DDP JSON format as TikTokDDPCollection but loads data
+    from the Australian Internet Observatory's AWS S3 bucket instead of
+    user-uploaded files. Also fetches participant metadata from DynamoDB.
+    """
+
+    ingestion_mode = "fetch"
+
+    def __init__(self, collection_id: str = None, verbose: bool = False):
+        super().__init__(collection_id, verbose)
+        self.data_source = "aio"
+        self.raw_path = "aio_raw"
+
+
+    def load_raw(self, skip_these_raw_files: list[str] = []):
+        """Fetch recent donations and participant metadata from AWS, then load files."""
+        from fyp.donations import (
+            get_recent_data_donations_from_aio_aws,
+            get_donation_metadata_from_aio_aws,
+        )
+        if self.verbose:
+            print("Fetching recent AIO donations from AWS...")
+        try:
+            get_recent_data_donations_from_aio_aws(
+                storage_location=self.raw_path
+            )
+        except Exception as e:
+            if self.verbose:
+                print(f"AWS data fetch failed: {e}. Processing existing local files.")
+
+        if self.verbose:
+            print("Fetching AIO participant metadata from DynamoDB...")
+        try:
+            get_donation_metadata_from_aio_aws(verbose=self.verbose)
+        except Exception as e:
+            if self.verbose:
+                print(f"AWS metadata fetch failed: {e}.")
+
+        super().load_raw(skip_these_raw_files=skip_these_raw_files)
 
 
 

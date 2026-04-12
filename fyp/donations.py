@@ -43,7 +43,7 @@ event_type_column = "activity_type"
 
 
 def get_donation_metadata_from_aio_aws(
-                        storage_location: str = "ddp_participants",
+                        storage_location: str = "aio_participants",
                         table_name: str = (
                             "data-donation-stack-"
                             "donationtablesmetadatatable1526CA1C-J3HP8RPY7RRW"
@@ -103,6 +103,7 @@ def get_donation_metadata_from_aio_aws(
 
 def get_recent_data_donations_from_aio_aws(
                     hours_back: int = 24,
+                    storage_location: str = "aio_raw",
                     table_name: str = (
                         "data-donation-stack-"
                         "donationtablesmetadatatable1526CA1C-J3HP8RPY7RRW"
@@ -116,7 +117,7 @@ def get_recent_data_donations_from_aio_aws(
     """
     Scan the Donations metadata table for items whose *date* ("shareDate")
     is within the last ``hours_back`` hours and download the associated files
-    to the project's 'ddp_raw' storage location (local or GCS depending on config).
+    to the given storage location (local or GCS depending on config).
 
     Parameters
     ----------
@@ -190,7 +191,7 @@ def get_recent_data_donations_from_aio_aws(
     # 5) Move/Upload files to ddp_raw storage
     # ------------------------------------------------------------------
     downloaded_files = os.listdir(dest)
-    print(f"Moving {len(downloaded_files)} files to ddp_raw storage...")
+    print(f"Moving {len(downloaded_files)} files to {storage_location} storage...")
     
     count = 0
     for filename in downloaded_files:
@@ -203,7 +204,7 @@ def get_recent_data_donations_from_aio_aws(
                 data = json.load(f)
                 
                 # Use data_io to save (handles GCS upload + Local secondary)
-                data_io.save_json(data, "ddp_raw", filename)
+                data_io.save_json(data, storage_location, filename)
                 count += 1
             except Exception as e:
                 print(f"Failed to process/upload {filename}: {e}")
@@ -371,9 +372,9 @@ def generate_collection_metadata(
     if verbose:
         print("Checking DDP participant metadata files...")
     participant_metadata = {}
-    for participant_data_file in data_io.listdir(storage_location="ddp_participants"):
+    for participant_data_file in data_io.listdir(storage_location="aio_participants"):
         if participant_data_file.endswith(".json"):
-            participant_metadata_raw = data_io.load_json(storage_location="ddp_participants", filename=participant_data_file)
+            participant_metadata_raw = data_io.load_json(storage_location="aio_participants", filename=participant_data_file)
             if verbose:
                 print(f"    Found {len(participant_metadata_raw['Items']):,} items in the file {participant_data_file}")
             for item in participant_metadata_raw.get("Items", []):

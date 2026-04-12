@@ -132,175 +132,165 @@
         </div>
     </div>
 
-    <!-- New Study Modal -->
-    <div id="newStudyModal" class="modal"
-        style="display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: var(--color-bg-overlay);">
-        <div class="modal-content"
-            style="width: 50%;">
-            <span class="close text-h2 font-bold" onclick="closeNewStudyModal()"
-                style="color: var(--color-text-tertiary); float: right; cursor: pointer;">&times;</span>
-            <h2>Define New Study</h2>
-            <div class="form-group">
-                <label>Study Name (Unique):</label>
-                <input type="text" id="new_study_name" class="control-input" style="width: 100%;">
+    <!-- Edit Study Modal -->
+    <div id="editStudyModal" class="stop-confirm-overlay" style="align-items: flex-start; padding-top: 5vh;">
+        <div class="modal-content" style="margin: 0; width: 70%; max-width: 1000px; max-height: 85vh; overflow-y: auto; font-size: var(--text-sm);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <div style="display: flex; align-items: baseline; gap: 12px;">
+                    <h2 id="editStudyModalTitle" style="margin: 0;">Edit Study</h2>
+                    <span id="editStudyModalLastUpdated" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                </div>
+                <button class="btn-discreet text-h2 font-bold" onclick="closeStudyModal()">&times;</button>
             </div>
-            <div style="margin-top: 20px; text-align: right;">
-                <button type="button" class="action-btn" onclick="createStudy(event)">Create</button>
+            <div id="editStudyModalBody">
+                <!-- Populated by JS from template -->
             </div>
         </div>
     </div>
 
-
-    <!-- Template for Row Details (Hidden) -->
+    <!-- Template for Study Edit Form (cloned into modal) -->
     <template id="study_detail_template">
-        <tr class="detail-row" style="background-color: var(--color-bg-elevated); display: none;">
-            <td colspan="10" style="padding: 30px;">
-                <div class="study-form" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px;">
-                    <!-- Column 1 -->
-                    <div>
-                        <div class="form-group-row">
-                            <label class="meta-tooltip" data-tooltip="yyyy-mm-dd — only include events after this date">Start Date</label>
-                            <input type="text" data-field="START_DATE" class="control-input" {% if not
-                                current_user.is_admin() %}disabled{% endif %}>
-                        </div>
-                        <div class="form-group-row">
-                            <label class="meta-tooltip" data-tooltip="yyyy-mm-dd — only include events before this date">End Date</label>
-                            <input type="text" data-field="END_DATE" class="control-input" {% if not
-                                current_user.is_admin() %}disabled{% endif %}>
+        <div class="study-edit-form" data-study-name="">
+            <div class="study-form" style="display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 30px;">
+                <!-- Column 1 -->
+                <div>
+                    <div class="form-group-row">
+                        <label class="meta-tooltip" data-tooltip="yyyy-mm-dd — only include events after this date">Start Date</label>
+                        <input type="text" data-field="START_DATE" class="control-input" {% if not
+                            current_user.is_admin() %}disabled{% endif %}>
+                    </div>
+                    <div class="form-group-row">
+                        <label class="meta-tooltip" data-tooltip="yyyy-mm-dd — only include events before this date">End Date</label>
+                        <input type="text" data-field="END_DATE" class="control-input" {% if not
+                            current_user.is_admin() %}disabled{% endif %}>
+                    </div>
+                </div>
+                <!-- Column 2 -->
+                <div>
+                    <div class="form-group-row" style="align-items: flex-start;">
+                        <label class="meta-tooltip" data-tooltip="Control which user roles can access this study" style="margin-top: 4px;">Access</label>
+                        <div class="checkbox-group" data-field-group="USER_ACCESS"
+                            style="text-align: left; max-height: 85px; overflow-y: auto; background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 8px; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
+                            <div class="dynamic-roles-container">Loading roles...</div>
                         </div>
                     </div>
-                    <!-- Column 2 -->
-                    <div>
-                        <div class="form-group-row" style="align-items: flex-start; flex-direction: column;">
-                            <label class="meta-tooltip" data-tooltip="Control which user roles can access this study" style="margin-bottom: 8px;">User Access</label>
-                            <div class="checkbox-group" data-field-group="USER_ACCESS"
-                                style="text-align: left; max-height: 150px; overflow-y: auto; background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 8px; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
-                                <div class="dynamic-roles-container">Loading roles...</div>
+                </div>
+                <!-- Column 3 -->
+                <div>
+                    <div class="form-group-row">
+                        <label class="meta-tooltip"
+                            data-tooltip="Control if and how collections are sampled: off, activities, scraped, annotated">Sample</label>
+                        <select data-field="SAMPLE_FRAME" class="control-input"
+                            onchange="toggleSamplingOptions(this)" {% if not current_user.is_admin() %}disabled{%
+                            endif %}>
+                            <option value="off">off</option>
+                            <option value="events">activities</option>
+                            <option value="scraped">scraped</option>
+                            <option value="annotated">annotated</option>
+                        </select>
+                    </div>
+
+                    <div id="sampling-options-container">
+                        <a href="#" class="sampling-advanced-toggle text-xs" style="color: var(--color-text-secondary); text-decoration: none;"
+                            onclick="event.preventDefault(); const body = this.nextElementSibling; const open = body.style.display !== 'none'; body.style.display = open ? 'none' : 'block'; this.textContent = open ? '▶ Advanced' : '▼ Advanced';">▶ Advanced</a>
+                        <div class="sampling-advanced-body" style="display: none;">
+                            <div class="form-group-row">
+                                <label class="meta-tooltip"
+                                    data-tooltip="Groups with fewer than this number of activities are excluded (default: 10)">Min Activity Count</label>
+                                <input type="number" data-field="MIN_ACTIVITY_COUNT_PER_GROUP"
+                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                            </div>
+                            <div class="form-group-row">
+                                <label class="meta-tooltip"
+                                    data-tooltip="Groups with more than this number of activities are downsampled (default: 100)">Max Activity Count</label>
+                                <input type="number" data-field="MAX_ACTIVITY_COUNT_PER_GROUP"
+                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                            </div>
+                            <div class="form-group-row">
+                                <label class="meta-tooltip"
+                                    data-tooltip="Collections with fewer than this number of accepted groups are excluded (default: 10)">Min Group Count</label>
+                                <input type="number" data-field="MIN_GROUP_COUNT_PER_COLLECTION"
+                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
+                            </div>
+                            <div class="form-group-row">
+                                <label class="meta-tooltip"
+                                    data-tooltip="Collections with more than this number of accepted groups are downsampled (default: 100)">Max Group Count</label>
+                                <input type="number" data-field="MAX_GROUP_COUNT_PER_COLLECTION"
+                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                             </div>
                         </div>
                     </div>
-                    <!-- Column 3 -->
-                    <div>
-                        <div class="form-group-row">
-                            <label class="meta-tooltip"
-                                data-tooltip="Control if and how collections are sampled: off, events, scraped, annotated">Collection Sample Frame</label>
-                            <select data-field="DONATION_SAMPLE_FRAME" class="control-input"
-                                onchange="toggleSamplingOptions(this)" {% if not current_user.is_admin() %}disabled{%
-                                endif %}>
-                                <option value="off">off</option>
-                                <option value="events">events</option>
-                                <option value="scraped">scraped</option>
-                                <option value="annotated">annotated</option>
-                            </select>
-                        </div>
+                </div>
+            </div>
+            {% if current_user.is_admin() %}
+            <div class="text-xs" style="margin-top: 16px; display: flex; gap: 12px; color: var(--color-text-secondary); align-items: center; flex-wrap: wrap;">
+                <span>Collections: <strong class="selected-count">0</strong></span>
+                <span>Activities: <strong class="selected-events-count">0</strong></span>
+                <input type="hidden" data-field="stats" value="{}">
+                <span>Items: <strong class="stat-unique-vids"
+                        style="color: var(--color-text-primary);">-</strong></span>
+                <span>Scraped: <strong class="stat-scraped-vids"
+                        style="color: var(--color-text-primary);">-</strong></span>
+                <span>Annotated: <strong class="stat-annotated-vids"
+                        style="color: var(--color-text-primary);">-</strong></span>
+            </div>
+            <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
+                <button type="button" class="action-btn text-xs" onclick="saveStudy(this, event)"
+                    style="padding: 2px 8px;">Save/Refresh Study</button>
+                <button type="button" class="text-xs" onclick="updateStudyEstimates(this, event)"
+                    style="padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
+                    {% if not current_user.is_admin() %}disabled{% endif %}>Update data counts</button>
+                <div style="flex: 1;"></div>
+                <button type="button" class="btn-danger text-xs" onclick="deleteStudy(this, event)"
+                    style="padding: 2px 8px;">Delete Study</button>
+            </div>
 
-                        <div id="sampling-options-container">
-                            <a href="#" class="sampling-advanced-toggle text-xs" style="color: var(--color-text-secondary); text-decoration: none;"
-                                onclick="event.preventDefault(); const body = this.nextElementSibling; const open = body.style.display !== 'none'; body.style.display = open ? 'none' : 'block'; this.textContent = open ? '▶ Advanced' : '▼ Advanced';">▶ Advanced</a>
-                            <div class="sampling-advanced-body" style="display: none;">
-                                <div class="form-group-row">
-                                    <label class="meta-tooltip"
-                                        data-tooltip="Groups with fewer than this number of events are excluded (default: 10)">Min Event Count</label>
-                                    <input type="number" data-field="MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP"
-                                        class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                                </div>
-                                <div class="form-group-row">
-                                    <label class="meta-tooltip"
-                                        data-tooltip="Groups with more than this number of events are downsampled (default: 100)">Max Event Count</label>
-                                    <input type="number" data-field="MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP"
-                                        class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                                </div>
-                                <div class="form-group-row">
-                                    <label class="meta-tooltip"
-                                        data-tooltip="Collections with fewer than this number of accepted groups are excluded (default: 10)">Min Group Count</label>
-                                    <input type="number" data-field="MIN_GROUP_COUNT_REQUIRED_PER_DONATION"
-                                        class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                                </div>
-                                <div class="form-group-row">
-                                    <label class="meta-tooltip"
-                                        data-tooltip="Collections with more than this number of accepted groups are downsampled (default: 100)">Max Group Count</label>
-                                    <input type="number" data-field="MAX_GROUP_COUNT_SELECTED_PER_DONATION"
-                                        class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                                </div>
-                            </div>
-                        </div>
+            <div class="form-group" style="margin-top: 8px;">
+                <div class="collection-selector" style="border: 1px solid var(--color-border-strong); padding: 4px; background: var(--color-border);">
+                    <div style="margin-bottom: 4px; padding: 0 4px;">
+                        <input type="text" placeholder="Search collections by ID or metadata..."
+                            class="control-input collection-search-input" style="width: 300px;"
+                            onkeyup="filterCollections(this)" {% if not current_user.is_admin() %}disabled{% endif
+                            %}>
+                    </div>
+                    <div class="collection-checklist-container"
+                        style="max-height: 200px; overflow-y: auto; text-align: left; background: var(--color-bg-elevated); padding: 4px; border: 1px solid var(--color-border-strong);">
+                        <!-- Checkboxes injected by JS -->
+                        <div style="padding: 10px; color: var(--color-text-secondary);">Loading collections...</div>
                     </div>
                 </div>
-                {% if current_user.is_admin() %}
-                <div class="form-group" style="margin-top: 20px;">
-                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap;">
-                        <label class="meta-tooltip" data-tooltip="List of specific collection IDs to include. Leave empty for all."
-                            style="margin: 0;">Selected Collections</label>
-                        <div class="text-sm"
-                            style="display: flex; gap: 12px; color: var(--color-text-secondary); align-items: center; flex-wrap: wrap;">
-                            <span>Collections: <strong class="selected-count">0</strong></span>
-                            <span>Events: <strong class="selected-events-count">0</strong></span>
-                            <input type="hidden" data-field="stats" value="{}">
-                            <span>Unique vids: <strong class="stat-unique-vids"
-                                    style="color: var(--color-text-primary);">-</strong></span>
-                            <span>Scraped: <strong class="stat-scraped-vids"
-                                    style="color: var(--color-text-primary);">-</strong></span>
-                            <span>Annotated: <strong class="stat-annotated-vids"
-                                    style="color: var(--color-text-primary);">-</strong></span>
-                        </div>
-                        <div style="margin-left: auto;">
-                            <button type="button" class="text-xs" onclick="updateStudyEstimates(this, event)"
-                                style="padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
-                                {% if not current_user.is_admin() %}disabled{% endif %}>Update Estimates</button>
-                        </div>
-                    </div>
+            </div>
+            <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
+            <input type="hidden" data-field="SELECTED_COLLECTIONS" value="[]">
+            {% endif %}
 
-                    <div class="collection-selector" style="border: 1px solid var(--color-border-strong); padding: 10px; background: var(--color-border);">
-                        <div style="margin-bottom: 10px;">
-                            <input type="text" placeholder="Search collections by ID or metadata..."
-                                class="control-input collection-search-input" style="width: 300px;"
-                                onkeyup="filterCollections(this)" {% if not current_user.is_admin() %}disabled{% endif
-                                %}>
-                        </div>
-                        <div class="collection-checklist-container"
-                            style="max-height: 200px; overflow-y: auto; text-align: left; background: var(--color-bg-elevated); padding: 5px; border: 1px solid var(--color-border-strong);">
-                            <!-- Checkboxes injected by JS -->
-                            <div style="padding: 10px; color: var(--color-text-secondary);">Loading collections...</div>
-                        </div>
-                    </div>
-                </div>
-                <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
-                <input type="hidden" data-field="SELECTED_DONATIONS" value="[]">
-                {% endif %}
+            <style>
+                /* Scoped styles for this template's use */
+                .form-group-row {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 20px;
+                }
 
-                <style>
-                    /* Scoped styles for this template's use */
-                    .form-group-row {
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: center;
-                        margin-bottom: 20px;
-                    }
+                .form-group-row label {
+                    flex: 1;
+                    text-align: left;
+                    margin-right: 8px;
+                    color: var(--color-text-secondary);
+                }
 
-                    .form-group-row label {
-                        flex: 1;
-                        text-align: left;
-                        margin-right: 15px;
-                        color: var(--color-text-secondary);
-                    }
+                .form-group-row .control-input {
+                    flex: 0 0 auto;
+                    width: 100px;
+                    text-align: right;
+                }
 
-                    .form-group-row .control-input {
-                        flex: 1;
-                        max-width: 50%;
-                        text-align: right;
-                    }
-                </style>
-
-                {% if current_user.is_admin() %}
-                <div style="margin-top: 30px; display: flex; justify-content: space-between; align-items: center;">
-                    <button type="button" class="action-btn" onclick="saveStudy(this, event)">Save Study
-                        Definition</button>
-                    <button type="button" class="btn-danger" onclick="deleteStudy(this, event)">Delete
-                        Study</button>
-                </div>
-                {% endif %}
-            </td>
-        </tr>
+                .sampling-advanced-body .form-group-row .control-input {
+                    width: 70px;
+                }
+            </style>
+        </div>
     </template>
 </div>
 

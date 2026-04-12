@@ -2,38 +2,25 @@
 <h2 style="margin: 0 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
     {% if current_user.is_admin() %}Define Study Datasets{% else %}My Studies{% endif %}
     {% if current_user.is_admin() %}
-    <button type="button" class="action-btn" onclick="openNewStudyModal(); event.stopPropagation();">Define new study</button>
+    <button type="button" class="action-btn" onclick="createNewStudy(); event.stopPropagation();">Define new study</button>
     {% endif %}
 </h2>
 
-<table class="data-table" style="width: 100%; border-collapse: collapse;">
-    <colgroup>
-        <col style="width: 3%;">
-        <col style="width: 15%;">
-        <col style="width: 10%;">
-        <col style="width: 10%;">
-        <col style="width: 10%;">
-        <col style="width: 11%;">
-        <col style="width: 10%;">
-        <col style="width: 10%;">
-        <col style="width: 14%;">
-        <col style="width: 7%;">
-    </colgroup>
+<div style="overflow-x: auto;">
+<table class="collection-table" style="font-variant-numeric: tabular-nums;">
     <thead>
-        <tr style="border-bottom: 2px solid var(--color-border-strong);">
-            <th style="padding: 10px;"></th>
-            <th style="text-align: left; padding: 10px;">Study Name</th>
-            <th style="text-align: left; padding: 10px;">Start Date</th>
-            <th style="text-align: left; padding: 10px;">End Date</th>
-            <th style="text-align: right; padding: 10px;">Unique Collections</th>
-            <th style="text-align: right; padding: 10px;">Unique Videos</th>
-            <th style="text-align: right; padding: 10px;">Scraped</th>
-            <th style="text-align: right; padding: 10px;">Annotated</th>
-            <th style="text-align: right; padding: 10px;">Last Updated</th>
-            <th style="padding: 10px;">Actions</th>
+        <tr style="text-align: left;">
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong);">Study Name</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong);">Start Date</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong);">End Date</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong); text-align: right;">Collections</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong); text-align: right;">Videos</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong); text-align: right;">Scraped</th>
+            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong); text-align: right;">Annotated</th>
         </tr>
     </thead>
     <tbody id="studies_table_body">
         <!-- Rows injected by JS -->
     </tbody>
 </table>
+</div>

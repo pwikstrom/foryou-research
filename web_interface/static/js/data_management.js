@@ -57,11 +57,12 @@ function loadAvailableCollections() {
 // Global cache for roles
 let systemRoles = [];
 
-function loadSystemRoles() {
+function loadSystemRoles(callback) {
     fetch('/api/admin/roles')
         .then(res => res.json())
         .then(data => {
             systemRoles = data;
+            if (callback) callback();
         })
         .catch(err => console.error("Error loading roles:", err));
 }
@@ -83,28 +84,21 @@ function renderCollectionSelector(container, selectedList) {
 
     const table = document.createElement('table');
     table.className = 'collection-table';
-    table.style.width = '100%';
-    table.style.borderCollapse = 'collapse';
-    table.style.color = 'var(--color-text-secondary)';
+    table.style.cssText = 'width: 100% !important; max-width: 100%; border-collapse: collapse; color: var(--color-text-secondary);';
     table.classList.add('text-sm');
 
-    // Create Header
+    // Create Header (column order matches Edit Collections table)
     const thead = document.createElement('thead');
+    const sThStyle = 'padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);';
     thead.innerHTML = `
         <tr style="text-align: left;">
             <th style="padding: 8px 5px; width: 30px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong);"><input type="checkbox" class="select-all-collections" title="Select / deselect all" style="cursor: pointer;"></th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Collection / Display ID</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Tags</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Email</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Name</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">TikTok</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Age</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Country</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">PostCode</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Active Days</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Total Events</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Last Event</th>
-            <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);" onclick="sortCollectionTable(this)">Added</th>
+            <th style="${sThStyle} max-width: 160px;" onclick="sortCollectionTable(this)">Collection</th>
+            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Tags</th>
+            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Last Event</th>
+            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Added</th>
+            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Activities</th>
+            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Active Days</th>
         </tr>
     `;
     table.appendChild(thead);
@@ -180,18 +174,16 @@ function renderCollectionSelector(container, selectedList) {
 
         tr.appendChild(tdCheck);
         const primaryId = pDisplayId ? pDisplayId : item;
-        tr.appendChild(createCell(primaryId, true, item));
+        const idCell = createCell(primaryId, true, item);
+        idCell.style.maxWidth = '160px';
+        idCell.style.overflow = 'hidden';
+        idCell.style.textOverflow = 'ellipsis';
+        tr.appendChild(idCell);
         tr.appendChild(createCell(pTags));
-        tr.appendChild(createCell(pEmail));
-        tr.appendChild(createCell(pName));
-        tr.appendChild(createCell(pTiktok));
-        tr.appendChild(createCell(pAge));
-        tr.appendChild(createCell(pCountry));
-        tr.appendChild(createCell(pPostCode));
-        tr.appendChild(createCell(pActiveDays));
-        tr.appendChild(createCell(pTotalEvents));
         tr.appendChild(createCell(pLastEvent));
         tr.appendChild(createCell(pAdded));
+        tr.appendChild(createCell(pTotalEvents));
+        tr.appendChild(createCell(pActiveDays));
 
         tbody.appendChild(tr);
     });
@@ -218,7 +210,7 @@ function renderCollectionSelector(container, selectedList) {
     updateCollectionSelection(container.parentElement);
 
     // Apply saved sort state
-    const studyRow = container.closest('.detail-row');
+    const studyRow = container.closest('.study-edit-form');
     if (studyRow && studyRow.dataset.studyName) {
         const savedState = tableSortStates.get(`study-${studyRow.dataset.studyName}`);
         if (savedState) {
@@ -231,34 +223,42 @@ function renderCollectionSelector(container, selectedList) {
     }
 }
 
+function _syncUpdateCountsBtn(formContainer) {
+    const btn = formContainer.querySelector('[onclick*="updateStudyEstimates"]');
+    if (!btn) return;
+    const eventsSpan = formContainer.querySelector('.selected-events-count');
+    const needsUpdate = eventsSpan && eventsSpan.textContent.trim() === '-';
+    btn.style.opacity = needsUpdate ? '1' : '0.4';
+    btn.style.pointerEvents = needsUpdate ? '' : 'none';
+}
+
 function updateCollectionSelection(selectorDiv) {
     if (!selectorDiv) return;
     const container = selectorDiv.querySelector('.collection-checklist-container');
 
     // More robust way to find the hidden input within the same detail row instead of sibling logic
-    const row = selectorDiv.closest('.detail-row') || document;
-    const hiddenInput = row.querySelector('input[data-field="SELECTED_DONATIONS"]');
+    const row = selectorDiv.closest('.study-edit-form') || document;
+    const hiddenInput = row.querySelector('input[data-field="SELECTED_COLLECTIONS"]');
 
-    const formGroup = selectorDiv.closest('.form-group') || selectorDiv;
-    const countSpan = formGroup.querySelector('.selected-count');
-    const eventsSpan = formGroup.querySelector('.selected-events-count');
+    const formContainer = selectorDiv.closest('.study-edit-form') || selectorDiv.closest('.form-group') || selectorDiv;
+    const countSpan = formContainer.querySelector('.selected-count');
+    const eventsSpan = formContainer.querySelector('.selected-events-count');
 
     const checked = container.querySelectorAll('input[type="checkbox"]:checked');
     const values = Array.from(checked).map(c => c.value);
 
-    let totalEvents = 0;
-    const valueSet = new Set(values);
-    availableCollections.forEach(c => {
-        const id = typeof c === 'string' ? c : c.id;
-        if (valueSet.has(id) && typeof c === 'object' && c.personas && c.personas.total_events) {
-            totalEvents += (Number(c.personas.total_events) || 0);
-        }
-    });
-
     if (countSpan) countSpan.textContent = values.length;
-    if (eventsSpan) eventsSpan.textContent = totalEvents.toLocaleString();
+    // Reset server-computed stats to indicate they need recalculating
+    if (eventsSpan) eventsSpan.textContent = '-';
+    const uniqueVids = formContainer.querySelector('.stat-unique-vids');
+    const scrapedVids = formContainer.querySelector('.stat-scraped-vids');
+    const annotatedVids = formContainer.querySelector('.stat-annotated-vids');
+    if (uniqueVids) uniqueVids.textContent = '-';
+    if (scrapedVids) scrapedVids.textContent = '-';
+    if (annotatedVids) annotatedVids.textContent = '-';
+    _syncUpdateCountsBtn(formContainer);
 
-    if (hiddenInput && hiddenInput.dataset.field === 'SELECTED_DONATIONS') {
+    if (hiddenInput && hiddenInput.dataset.field === 'SELECTED_COLLECTIONS') {
         hiddenInput.value = JSON.stringify(values);
     }
 
@@ -305,14 +305,14 @@ window.sortCollectionTable = function (th, forceDir = null) {
         if (editContainer) {
             tableSortStates.set('edit-activity', { dir: newDir, text: textContent });
         } else {
-            const studyRow = th.closest('.detail-row');
+            const studyRow = th.closest('.study-edit-form');
             if (studyRow && studyRow.dataset.studyName) {
                 tableSortStates.set(`study-${studyRow.dataset.studyName}`, { dir: newDir, text: textContent });
             }
         }
     }
 
-    const isNumeric = ['Age', 'Active Days', 'Total Events', 'Watch Time'].includes(textContent);
+    const isNumeric = ['Age', 'Active Days', 'Activities', 'Watch Time'].includes(textContent);
 
     rows.sort((a, b) => {
         let cellA = a.children[columnIndex].textContent.trim();
@@ -371,71 +371,86 @@ function renderStudiesTable() {
     tbody.innerHTML = '';
 
     allStudies.forEach((study, index) => {
-        // Main Row
         const tr = document.createElement('tr');
         tr.className = 'study-row';
         tr.style.cursor = 'pointer';
-        tr.onclick = (e) => toggleDetail(e, index);
+        tr.style.borderBottom = '1px solid var(--chart-grid)';
+        tr.onclick = () => openStudyModal(index);
 
         const stats = study.stats || {};
-        const lastUpdated = study.last_updated ? new Date(study.last_updated).toLocaleString() : '-';
-
-        // Format numbers with commas
         const formatNum = (num) => num !== undefined ? num.toLocaleString() : '-';
 
+        const savingIndicator = savingStudies.has(study.STUDY_NAME)
+            ? ' <span class="font-bold" style="color: var(--color-success-light); text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>'
+            : '';
+
         tr.innerHTML = `
-            <td style="padding: 10px;"><span class="expand-icon">▶</span></td>
-            <td style="text-align: left; padding: 10px;"><strong>${study.STUDY_NAME}</strong></td>
-            <td style="text-align: left; padding: 10px;">${study.START_DATE || '-'}</td>
-            <td style="text-align: left; padding: 10px;">${study.END_DATE || '-'}</td>
-            <td style="text-align: right; padding: 10px;">${formatNum(stats.unique_collections)}</td>
-            <td style="text-align: right; padding: 10px;">${formatNum(stats.unique_videos)}</td>
-            <td style="text-align: right; padding: 10px;">${formatNum(stats.scraped_videos)}</td>
-            <td style="text-align: right; padding: 10px;">${formatNum(stats.annotated_videos)}</td>
-            <td style="text-align: right; padding: 10px;">${lastUpdated}</td>
-            <td style="padding: 10px;">
-                ${savingStudies.has(study.STUDY_NAME) ? '<span class="font-bold" style="color: var(--color-success-light); text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>' : ''}
-            </td>
+            <td style="padding: 5px;"><strong>${study.STUDY_NAME}</strong>${savingIndicator}</td>
+            <td style="padding: 5px;">${study.START_DATE || '-'}</td>
+            <td style="padding: 5px;">${study.END_DATE || '-'}</td>
+            <td style="text-align: right; padding: 5px;">${formatNum(stats.unique_collections)}</td>
+            <td style="text-align: right; padding: 5px;">${formatNum(stats.unique_videos)}</td>
+            <td style="text-align: right; padding: 5px;">${formatNum(stats.scraped_videos)}</td>
+            <td style="text-align: right; padding: 5px;">${formatNum(stats.annotated_videos)}</td>
         `;
 
         tbody.appendChild(tr);
-
-        // Detail Row (from template)
-        const template = document.getElementById('study_detail_template');
-        const detailRow = template.content.cloneNode(true).querySelector('tr');
-        detailRow.id = `detail-${index}`;
-        detailRow.dataset.studyName = study.STUDY_NAME; // Store ID
-
-        // Populate inputs
-        populateForm(detailRow, study);
-
-        tbody.appendChild(detailRow);
     });
 }
 
-function toggleDetail(event, index) {
-    // Prevent toggling when clicking inside inputs/buttons in the detail row itself (though click is on main row)
-    // Actually the click is on the main row.
+function openStudyModal(index) {
+    const study = allStudies[index];
+    if (!study) return;
 
-    // Find sibling detail row
-    const tbody = document.getElementById('studies_table_body');
-    // The structure is flat: tr, tr-detail, tr, tr-detail...
-    // simpler:
-    const detailRow = document.getElementById(`detail-${index}`);
-    const row = detailRow.previousElementSibling;
-    const icon = row.querySelector('.expand-icon');
+    // Refresh roles before populating to pick up any newly defined roles
+    loadSystemRoles(() => _showStudyModal(study));
+}
 
-    if (detailRow.style.display === 'none') {
-        detailRow.style.display = 'table-row';
-        icon.textContent = '▼';
-        row.style.backgroundColor = 'var(--color-bg-primary)';
-        row.style.borderLeft = '4px solid var(--color-info)';
+function _showStudyModal(study, isNew = false) {
+    const modal = document.getElementById('editStudyModal');
+    const title = document.getElementById('editStudyModalTitle');
+    const body = document.getElementById('editStudyModalBody');
+
+    body.innerHTML = '';
+
+    if (isNew) {
+        title.textContent = 'New Study';
+        // Add name input row before the form
+        const nameRow = document.createElement('div');
+        nameRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 16px;';
+        nameRow.innerHTML = '<label class="font-semibold" style="white-space: nowrap;">Study Name:</label>' +
+            '<input type="text" id="newStudyNameInput" class="control-input" placeholder="Enter a unique name..." style="flex: 1;">';
+        body.appendChild(nameRow);
     } else {
-        detailRow.style.display = 'none';
-        icon.textContent = '▶';
-        row.style.backgroundColor = '';
-        row.style.borderLeft = '';
+        title.textContent = study.STUDY_NAME;
     }
+
+    const template = document.getElementById('study_detail_template');
+    const formClone = template.content.cloneNode(true).querySelector('.study-edit-form');
+    formClone.dataset.studyName = study.STUDY_NAME;
+    if (isNew) formClone.dataset.isNew = 'true';
+
+    // Set last updated text in modal header
+    const lastUpdatedEl = document.getElementById('editStudyModalLastUpdated');
+    if (lastUpdatedEl) {
+        lastUpdatedEl.textContent = study.last_updated
+            ? 'Last updated: ' + new Date(study.last_updated).toLocaleString()
+            : '';
+    }
+
+    populateForm(formClone, study);
+    body.appendChild(formClone);
+
+    modal.classList.add('visible');
+
+    if (isNew) {
+        document.getElementById('newStudyNameInput')?.focus();
+    }
+}
+
+function closeStudyModal() {
+    const modal = document.getElementById('editStudyModal');
+    modal.classList.remove('visible');
 }
 
 // Global function for conditional visibility
@@ -447,7 +462,7 @@ window.toggleSamplingOptions = function (selectElement) {
     // col 2 > div#sampling-options-container
 
     // safe way: find closest column (div) then find the container
-    const columnDiv = selectElement.closest('.study-form > div');
+    const columnDiv = selectElement.closest('.study-form > div') || selectElement.closest('.study-edit-form');
     if (!columnDiv) return;
 
     const container = columnDiv.querySelector('#sampling-options-container');
@@ -469,9 +484,9 @@ function populateForm(row, study) {
         let value = study[field];
 
         // Handle Lists/JSON (Except USER_ACCESS which is now checkboxes)
-        if (field === 'SELECTED_DONATIONS') {
+        if (field === 'SELECTED_COLLECTIONS') {
             // Find the collection selector in this row
-            // The row input[data-field="SELECTED_DONATIONS"] is now the HIDDEN one.
+            // The row input[data-field="SELECTED_COLLECTIONS"] is now the HIDDEN one.
             // renderCollectionSelector needs the container.
             // Structure: input[hidden] is sibling of div.collection-selector
 
@@ -498,7 +513,7 @@ function populateForm(row, study) {
         }
         // Handle Booleans (Selects)
         else if (input.tagName === 'SELECT') {
-            if (field === 'DONATION_SAMPLE_FRAME') {
+            if (field === 'SAMPLE_FRAME') {
                 input.value = value || "off";
                 // Trigger visibility update
                 toggleSamplingOptions(input);
@@ -511,10 +526,10 @@ function populateForm(row, study) {
         }
         else {
             const samplingDefaults = {
-                'MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP': 10,
-                'MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP': 100,
-                'MIN_GROUP_COUNT_REQUIRED_PER_DONATION': 10,
-                'MAX_GROUP_COUNT_SELECTED_PER_DONATION': 100
+                'MIN_ACTIVITY_COUNT_PER_GROUP': 10,
+                'MAX_ACTIVITY_COUNT_PER_GROUP': 100,
+                'MIN_GROUP_COUNT_PER_COLLECTION': 10,
+                'MAX_GROUP_COUNT_PER_COLLECTION': 100
             };
             if (value !== undefined && value !== null && value !== '') {
                 input.value = value;
@@ -526,10 +541,10 @@ function populateForm(row, study) {
 
     // Auto-expand the Advanced sampling section if any value differs from defaults
     const advancedDefaults = {
-        'MIN_EVENT_COUNT_REQUIRED_PER_AGG_GROUP': 10,
-        'MAX_EVENT_COUNT_SELECTED_PER_AGG_GROUP': 100,
-        'MIN_GROUP_COUNT_REQUIRED_PER_DONATION': 10,
-        'MAX_GROUP_COUNT_SELECTED_PER_DONATION': 100
+        'MIN_ACTIVITY_COUNT_PER_GROUP': 10,
+        'MAX_ACTIVITY_COUNT_PER_GROUP': 100,
+        'MIN_GROUP_COUNT_PER_COLLECTION': 10,
+        'MAX_GROUP_COUNT_PER_COLLECTION': 100
     };
     const hasCustomSampling = Object.entries(advancedDefaults).some(([key, def]) => {
         const val = study[key];
@@ -568,12 +583,10 @@ function populateForm(row, study) {
                 cb.value = role;
                 cb.style.marginRight = '5px';
 
-                // Admin logic
+                // Admin is always included — hide from UI
                 if (role === 'admin') {
                     cb.checked = true;
-                    cb.disabled = true;
-                    item.style.opacity = '0.6';
-                    item.title = "Admin access is mandatory";
+                    item.style.display = 'none';
                 } else {
                     if (currentList.includes('all')) {
                         cb.checked = true;
@@ -605,7 +618,33 @@ function populateForm(row, study) {
         if (uniqueVids) uniqueVids.textContent = stats.unique_videos !== undefined ? stats.unique_videos.toLocaleString() : '-';
         if (scrapedVids) scrapedVids.textContent = stats.scraped_videos !== undefined ? stats.scraped_videos.toLocaleString() : '-';
         if (annotatedVids) annotatedVids.textContent = stats.annotated_videos !== undefined ? stats.annotated_videos.toLocaleString() : '-';
+
+        // Also set the activities count from stored stats
+        const eventsSpan = row.querySelector('.selected-events-count');
+        if (eventsSpan) eventsSpan.textContent = stats.total_activities !== undefined ? stats.total_activities.toLocaleString() : '-';
     }
+
+    _syncUpdateCountsBtn(row);
+
+    // Invalidate stats when date/sample settings change
+    const _resetStats = () => {
+        const ev = row.querySelector('.selected-events-count');
+        const uv = row.querySelector('.stat-unique-vids');
+        const sv = row.querySelector('.stat-scraped-vids');
+        const av = row.querySelector('.stat-annotated-vids');
+        if (ev) ev.textContent = '-';
+        if (uv) uv.textContent = '-';
+        if (sv) sv.textContent = '-';
+        if (av) av.textContent = '-';
+        _syncUpdateCountsBtn(row);
+    };
+    const fieldsToWatch = ['START_DATE', 'END_DATE', 'SAMPLE_FRAME',
+        'MIN_ACTIVITY_COUNT_PER_GROUP', 'MAX_ACTIVITY_COUNT_PER_GROUP',
+        'MIN_GROUP_COUNT_PER_COLLECTION', 'MAX_GROUP_COUNT_PER_COLLECTION'];
+    fieldsToWatch.forEach(field => {
+        const el = row.querySelector(`[data-field="${field}"]`);
+        if (el) el.addEventListener('input', _resetStats);
+    });
 }
 
 
@@ -619,7 +658,7 @@ function collectFormData(row) {
         let value = input.value;
 
         // Parse Types
-        if (field === 'SELECTED_DONATIONS') {
+        if (field === 'SELECTED_COLLECTIONS') {
             try {
                 // For the new UI, the input.value is already a clean JSON string set by updateCollectionSelection.
                 // But let's be robust.
@@ -676,36 +715,98 @@ function collectSaveSettings(row) {
 }
 
 
+function _showSaveStatusMsg(btn, msg) {
+    // Show a temporary message to the right of the Check enrichment status button
+    const row = btn.closest('div');
+    let span = row.querySelector('.save-status-msg');
+    if (!span) {
+        span = document.createElement('span');
+        span.className = 'save-status-msg text-xs';
+        span.style.cssText = 'color: var(--color-text-tertiary); margin-left: 4px;';
+        // Insert after the Check enrichment status button
+        const checkBtn = row.querySelector('[onclick*="updateStudyEstimates"]');
+        if (checkBtn) checkBtn.insertAdjacentElement('afterend', span);
+        else row.appendChild(span);
+    }
+    span.textContent = msg;
+    setTimeout(() => { span.textContent = ''; }, 4000);
+}
+
+function _validateStudyForm(formData, btn) {
+    // Date format check
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (formData.START_DATE && !dateRegex.test(formData.START_DATE)) {
+        _showSaveStatusMsg(btn, 'Start date must be yyyy-mm-dd');
+        return false;
+    }
+    if (formData.END_DATE && !dateRegex.test(formData.END_DATE)) {
+        _showSaveStatusMsg(btn, 'End date must be yyyy-mm-dd');
+        return false;
+    }
+    if (formData.START_DATE && formData.END_DATE && formData.START_DATE > formData.END_DATE) {
+        _showSaveStatusMsg(btn, 'Start date must be before end date');
+        return false;
+    }
+    // Sampling limits sanity
+    const minAct = formData.MIN_ACTIVITY_COUNT_PER_GROUP;
+    const maxAct = formData.MAX_ACTIVITY_COUNT_PER_GROUP;
+    if (minAct !== undefined && maxAct !== undefined && maxAct > 0 && minAct > maxAct) {
+        _showSaveStatusMsg(btn, 'Min activity count cannot exceed max');
+        return false;
+    }
+    const minGrp = formData.MIN_GROUP_COUNT_PER_COLLECTION;
+    const maxGrp = formData.MAX_GROUP_COUNT_PER_COLLECTION;
+    if (minGrp !== undefined && maxGrp !== undefined && maxGrp > 0 && minGrp > maxGrp) {
+        _showSaveStatusMsg(btn, 'Min group count cannot exceed max');
+        return false;
+    }
+    // Collections
+    if (!formData.SELECTED_COLLECTIONS || formData.SELECTED_COLLECTIONS.length === 0) {
+        _showSaveStatusMsg(btn, 'Select at least one collection');
+        return false;
+    }
+    return true;
+}
+
 function saveStudy(btn, event) {
     if (event) event.preventDefault();
-    const detailRow = btn.closest('tr');
-    const studyName = detailRow.dataset.studyName;
+    const formContainer = btn.closest('.study-edit-form');
+    const isNew = formContainer.dataset.isNew === 'true';
 
-    try {
-        const formData = collectFormData(detailRow);
-
-        if (formData.SELECTED_DONATIONS && formData.SELECTED_DONATIONS.length === 0) {
-            alert("Please select at least one collection to save the study definition.");
+    let studyName = formContainer.dataset.studyName;
+    if (isNew) {
+        const nameInput = document.getElementById('newStudyNameInput');
+        const name = nameInput ? nameInput.value.trim() : '';
+        if (!name) {
+            _showSaveStatusMsg(btn, 'Enter a study name');
+            nameInput?.focus();
             return;
         }
+        if (allStudies.find(s => s.STUDY_NAME === name)) {
+            _showSaveStatusMsg(btn, 'Study name already exists');
+            nameInput?.focus();
+            return;
+        }
+        studyName = name;
+        formContainer.dataset.studyName = name;
+    }
 
-        const saveSettings = collectSaveSettings(detailRow);
+    try {
+        const formData = collectFormData(formContainer);
+        if (!_validateStudyForm(formData, btn)) return;
 
-        // Merge settings into formData (backend will strip them)
+        const saveSettings = collectSaveSettings(formContainer);
         Object.assign(formData, saveSettings);
-
         formData.STUDY_NAME = studyName;
-        //console.log("Saving study definition:", formData);
 
-        // Mark as saving
         savingStudies.add(studyName);
         btn.textContent = "Saving...";
         btn.disabled = true;
+        btn.style.color = 'var(--color-warning)';
+        btn.style.animation = 'btn-running-pulse 1.5s ease-in-out infinite';
 
-        // Show Saving Indicator immediately (for instant feedback)
-        const mainRow = detailRow.previousElementSibling;
-        const actionCell = mainRow.cells[mainRow.cells.length - 1];
-        actionCell.innerHTML = '<span class="font-bold" style="color: var(--color-success-light); text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>';
+        // Update table row indicator
+        renderStudiesTable();
 
         let isSuccess = false;
 
@@ -718,13 +819,19 @@ function saveStudy(btn, event) {
             .then(data => {
                 if (data.status === 'success') {
                     isSuccess = true;
-                    // Update local model
                     const index = allStudies.findIndex(s => s.STUDY_NAME === studyName);
                     if (index !== -1) {
                         allStudies[index] = data.study;
+                    } else {
+                        allStudies.push(data.study);
+                    }
+                    if (isNew) {
+                        formContainer.dataset.isNew = '';
+                        const title = document.getElementById('editStudyModalTitle');
+                        if (title) title.textContent = studyName;
                     }
                 } else if (data.status === 'no_change') {
-                    alert(data.message);
+                    _showSaveStatusMsg(btn, 'No changes to save');
                 } else {
                     alert("Error saving: " + data.error);
                 }
@@ -734,58 +841,30 @@ function saveStudy(btn, event) {
                 alert("Save failed.");
             })
             .finally(() => {
-                // Done saving
                 savingStudies.delete(studyName);
-
-                // 1. Capture State BEFORE re-render
-                // We need to find the specific study again in case index shifted
-                const index = allStudies.findIndex(s => s.STUDY_NAME === studyName);
-                let wasOpen = false;
-                if (index !== -1) {
-                    const currentDetailRow = document.getElementById(`detail-${index}`);
-                    wasOpen = currentDetailRow && currentDetailRow.style.display !== 'none';
-                }
-
-                // 2. Re-render table (Updates "Last Updated" and clears "Saving..." indicator for THIS study)
                 renderStudiesTable();
 
-                // 3. Restore State & Show Feedback
-                if (index !== -1) {
-                    setTimeout(() => {
-                        const newDetail = document.getElementById(`detail-${index}`);
-
-                        // Restore Open State (if it was open OR we want it open? User said "stay collapsed if collapsed")
-                        // Logic: IF wasOpen, re-open. ELSE stay closed.
-                        if (wasOpen) {
-                            toggleDetail(null, index);
-
-                            // 4. Feedback (Green "Saved!" button) only if SUCCESS and was OPEN
-                            if (isSuccess) {
-                                const buttons = newDetail.querySelectorAll('button');
-                                let saveBtn = null;
-                                buttons.forEach(b => {
-                                    if (b.textContent.includes('Save')) saveBtn = b;
-                                });
-
-                                if (saveBtn) {
-                                    saveBtn.textContent = "Saved!";
-                                    saveBtn.style.backgroundColor = 'var(--color-success)';
-
-                                    setTimeout(() => {
-                                        saveBtn.textContent = "Save Study Definition";
-                                        saveBtn.style.backgroundColor = "";
-                                    }, 2000);
-                                }
-                            }
-                        }
-                    }, 50);
-                }
-
-                // Reset button state? The button in the DOM was destroyed if re-rendered.
-                // If the row was collapsed, the button is gone/hidden. 
-                // We re-enable the *detached* button just in case, but it doesn't matter.
-                btn.textContent = "Save Study Definition";
                 btn.disabled = false;
+                btn.style.animation = '';
+                btn.style.color = '';
+                if (isSuccess) {
+                    btn.textContent = "Saved!";
+                    btn.style.backgroundColor = 'var(--color-success)';
+
+                    // Update last updated in modal header
+                    const lastUpdatedEl = document.getElementById('editStudyModalLastUpdated');
+                    const study = allStudies.find(s => s.STUDY_NAME === studyName);
+                    if (lastUpdatedEl && study && study.last_updated) {
+                        lastUpdatedEl.textContent = 'Last updated: ' + new Date(study.last_updated).toLocaleString();
+                    }
+
+                    setTimeout(() => {
+                        btn.textContent = "Save/Refresh Study";
+                        btn.style.backgroundColor = "";
+                    }, 2000);
+                } else {
+                    btn.textContent = "Save/Refresh Study";
+                }
             });
 
     } catch (e) {
@@ -795,11 +874,16 @@ function saveStudy(btn, event) {
 
 window.updateStudyEstimates = function (btn, event) {
     if (event) event.preventDefault();
-    const detailRow = btn.closest('tr');
-    const studyName = detailRow.dataset.studyName;
+    const formContainer = btn.closest('.study-edit-form');
+    const studyName = formContainer.dataset.studyName;
+
+    if (!studyName || formContainer.dataset.isNew === 'true') {
+        _showSaveStatusMsg(btn, 'Save the study first');
+        return;
+    }
 
     try {
-        const formData = collectFormData(detailRow);
+        const formData = collectFormData(formContainer);
         formData.STUDY_NAME = studyName;
 
         btn.textContent = "Updating...";
@@ -815,15 +899,16 @@ window.updateStudyEstimates = function (btn, event) {
                 if (data.status === 'success') {
                     const stats = data.stats;
 
-                    // Update specific elements in THIS row (not re-rendering whole table)
-                    const container = btn.closest('.form-group') || btn.closest('.detail-row');
-                    const uniqueVids = container.querySelector('.stat-unique-vids');
-                    const scrapedVids = container.querySelector('.stat-scraped-vids');
-                    const annotatedVids = container.querySelector('.stat-annotated-vids');
+                    const eventsSpan = formContainer.querySelector('.selected-events-count');
+                    const uniqueVids = formContainer.querySelector('.stat-unique-vids');
+                    const scrapedVids = formContainer.querySelector('.stat-scraped-vids');
+                    const annotatedVids = formContainer.querySelector('.stat-annotated-vids');
 
+                    if (eventsSpan) eventsSpan.textContent = stats.total_activities !== undefined ? stats.total_activities.toLocaleString() : '0';
                     if (uniqueVids) uniqueVids.textContent = stats.unique_videos !== undefined ? stats.unique_videos.toLocaleString() : '0';
                     if (scrapedVids) scrapedVids.textContent = stats.scraped_videos !== undefined ? stats.scraped_videos.toLocaleString() : '0';
                     if (annotatedVids) annotatedVids.textContent = stats.annotated_videos !== undefined ? stats.annotated_videos.toLocaleString() : '0';
+                    _syncUpdateCountsBtn(formContainer);
 
                 } else {
                     alert("Error updating estimates: " + data.error);
@@ -834,13 +919,13 @@ window.updateStudyEstimates = function (btn, event) {
                 alert("Update failed.");
             })
             .finally(() => {
-                btn.textContent = "Update Estimates";
+                btn.textContent = "Update data counts";
                 btn.disabled = false;
             });
 
     } catch (e) {
         console.error("Failed to collect data for estimate update", e);
-        btn.textContent = "Update Estimates";
+        btn.textContent = "Update data counts";
         btn.disabled = false;
     }
 }
@@ -848,8 +933,13 @@ window.updateStudyEstimates = function (btn, event) {
 
 function deleteStudy(btn, event) {
     if (event) event.preventDefault();
-    const detailRow = btn.closest('tr');
-    const studyName = detailRow.dataset.studyName;
+    const formContainer = btn.closest('.study-edit-form');
+    const studyName = formContainer.dataset.studyName;
+
+    if (!studyName || formContainer.dataset.isNew === 'true') {
+        closeStudyModal();
+        return;
+    }
 
     if (!confirm(`Are you sure you want to delete study '${studyName}'? This cannot be undone.`)) return;
 
@@ -861,6 +951,7 @@ function deleteStudy(btn, event) {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
+                closeStudyModal();
                 alert("Study deleted.");
                 loadStudies();
             } else {
@@ -887,57 +978,18 @@ function populateEnrichmentStudySelect(studies) {
 
 // --- Modal ---
 
-function openNewStudyModal() {
-    document.getElementById('newStudyModal').style.display = 'block';
-    document.getElementById('new_study_name').value = '';
-}
-
-function closeNewStudyModal() {
-    document.getElementById('newStudyModal').style.display = 'none';
-}
-
-function createStudy(event) {
-    if (event) event.preventDefault();
-    const name = document.getElementById('new_study_name').value.trim();
-    if (!name) {
-        alert("Please enter a name");
-        return;
-    }
-
-    // Check overlapping
-    if (allStudies.find(s => s.STUDY_NAME === name)) {
-        alert("Study name already exists!");
-        return;
-    }
-
-    // Default Template
+function createNewStudy() {
     const newStudy = {
-        STUDY_NAME: name,
+        STUDY_NAME: '',
         START_DATE: "2024-05-18",
         END_DATE: "2024-05-25",
-        INCLUDE_ZEESCHUIMER_DATA: false,
-        INCLUDE_DONATION_DATA: true,
-        USER_ACCESS: ["all"],
-        DONATION_SAMPLE_FRAME: "off",
-        SELECTED_DONATIONS: []
+        USER_ACCESS: [],
+        SAMPLE_FRAME: "off",
+        SELECTED_COLLECTIONS: []
     };
 
-    // Use Save Endpoint to create
-    fetch('/api/manage/studies/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify(newStudy)
-    })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                closeNewStudyModal();
-                loadStudies();
-                alert("Study created.");
-            } else {
-                alert("Error: " + data.error);
-            }
-        });
+    // Open the edit modal with a name input — user will save when ready
+    loadSystemRoles(() => _showStudyModal(newStudy, true));
 }
 
 // Init
@@ -1491,22 +1543,71 @@ function renderIngestionSources(sources) {
             ? `<span class="text-xs font-bold" style="color: var(--color-warning); margin-left: 8px;">${source.pending_files} pending</span>`
             : '';
 
-        card.innerHTML = `
-            <div class="font-bold text-body" style="margin-bottom: 5px;">${source.class_name}${pendingBadge}</div>
-            <div class="text-sm" style="color: var(--color-text-tertiary); margin-bottom: 15px;">
-                <strong>Platform:</strong> ${source.source_platform} | <strong>Source:</strong> ${source.data_source}
-            </div>
-            <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+        let buttonsHtml;
+        if (source.ingestion_mode === 'fetch') {
+            buttonsHtml = `
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label class="text-sm" style="white-space: nowrap;">Days back:</label>
+                    <input type="number" class="aio-days-back text-sm" value="1" min="1" max="365"
+                        style="width: 60px; padding: 4px 8px; background: var(--color-bg-input); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 4px;">
+                    <button type="button" class="action-btn" onclick="fetchAIOData(this)">
+                        Fetch from AWS
+                    </button>
+                </div>
+            `;
+        } else {
+            buttonsHtml = `
                 <button type="button" class="action-btn" onclick="openUploadModal('${source.class_name}', '${source.raw_path}', 'files')">
                     Add Files
                 </button>
                 <button type="button" class="action-btn" onclick="openUploadModal('${source.class_name}', '${source.raw_path}', 'folder')">
                     Add Folder
                 </button>
+            `;
+        }
+
+        card.innerHTML = `
+            <div class="font-bold text-body" style="margin-bottom: 5px;">${source.class_name}${pendingBadge}</div>
+            <div class="text-sm" style="color: var(--color-text-tertiary); margin-bottom: 15px;">
+                <strong>Platform:</strong> ${source.source_platform} | <strong>Source:</strong> ${source.data_source}
+            </div>
+            <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+                ${buttonsHtml}
             </div>
         `;
 
         container.appendChild(card);
+    });
+}
+
+
+function fetchAIOData(btn) {
+    const card = btn.closest('.ingest-card');
+    const daysInput = card.querySelector('.aio-days-back');
+    const daysBack = Math.max(1, parseInt(daysInput.value, 10) || 1);
+    const hoursBack = daysBack * 24;
+
+    const originalText = btn.textContent;
+    btn.textContent = 'Fetching...';
+    btn.disabled = true;
+
+    fetch('/api/manage/ingestion/fetch_aio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ hours_back: hoursBack })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            loadIngestionSources();
+        } else {
+            console.error('AIO fetch error:', data.error);
+        }
+    })
+    .catch(err => console.error('Error fetching AIO data:', err))
+    .finally(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
     });
 }
 
@@ -1791,12 +1892,12 @@ function renderEditActivityTable(container) {
             <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong); width: 40px; text-align: center;">
                 <input type="checkbox" id="select-all-collections" onchange="toggleAllCollectionCheckboxes(this)" style="cursor: pointer;">
             </th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Collection / Display ID</th>
+            <th style="${thStyle} max-width: 160px;" onclick="sortCollectionTable(this)">Collection / Display ID</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Tags</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">First Event</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Last Event</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Added</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Total Events</th>
+            <th style="${thStyle}" onclick="sortCollectionTable(this)">Activities</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Active Days</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Timezone</th>
             <th style="${thStyle}" onclick="sortCollectionTable(this)">Age</th>
@@ -1902,7 +2003,11 @@ function renderEditActivityTable(container) {
         tr.appendChild(checkTd);
 
         const primaryId = pDisplayId ? pDisplayId : item;
-        tr.appendChild(createCell(primaryId, true, item));
+        const idCell = createCell(primaryId, true, item);
+        idCell.style.maxWidth = '160px';
+        idCell.style.overflow = 'hidden';
+        idCell.style.textOverflow = 'ellipsis';
+        tr.appendChild(idCell);
         tr.appendChild(createCell(pTags));
         tr.appendChild(createCell(pFirstEvent));
         tr.appendChild(createCell(pLastEvent));
@@ -1922,14 +2027,14 @@ function renderEditActivityTable(container) {
     table.appendChild(tbody);
     container.appendChild(table);
 
-    // Apply saved sort state
+    // Apply saved sort state, or default to Added descending
     const savedState = tableSortStates.get('edit-activity');
-    if (savedState) {
-        const headers = Array.from(thead.querySelectorAll('th'));
-        const targetHeader = headers.find(h => h.textContent.trim() === savedState.text);
-        if (targetHeader) {
-            window.sortCollectionTable(targetHeader, savedState.dir);
-        }
+    const sortText = savedState ? savedState.text : 'Added';
+    const sortDir = savedState ? savedState.dir : 'desc';
+    const headers = Array.from(thead.querySelectorAll('th'));
+    const targetHeader = headers.find(h => h.textContent.trim() === sortText);
+    if (targetHeader) {
+        window.sortCollectionTable(targetHeader, sortDir);
     }
 }
 
@@ -2058,7 +2163,7 @@ function dm_renderTags() {
 
         chip.style.cssText = `
             background: var(--chip-bg);
-            color: white;
+            color: var(--chip-text);
             border: 1px solid var(--color-border-strong);
             padding: 2px 7px;
             border-radius: 10px;

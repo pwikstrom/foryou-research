@@ -9,32 +9,24 @@
 </h2>
 
 <!-- Enrichment Header & Study Selection -->
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-    <div style="display: flex; align-items: center; gap: 15px;">
-        <label class="font-bold" style="color: var(--color-text-tertiary);">Target Study:</label>
-        <select id="enrichment-study-select" class="control-input" style="width: 250px;"
-            onchange="fetchEnrichmentStats()">
-            <option value="">-- Select Study --</option>
-            <!-- Populated by JS -->
-        </select>
-        <button type="button" class="action-btn" id="btn-queue-study"
-            onclick="queueVideosFromTargetStudy(this)"
-            style="margin-left: 10px;">Queue videos from target study</button>
-    </div>
-
-    <div style="display: flex; gap: 10px;">
-        <button type="button" id="btn-queue-voted" class="action-btn"
-            onclick="queueVotedVideos(this)">Queue User Voted Videos</button>
-    </div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 20px;">
+    <label class="font-bold" style="color: var(--color-text-tertiary);">Target Study:</label>
+    <select id="enrichment-study-select" class="control-input" style="width: 250px;"
+        onchange="fetchEnrichmentStats()">
+        <option value="">-- Select Study --</option>
+        <!-- Populated by JS -->
+    </select>
+    <button type="button" class="action-btn" id="btn-queue-study"
+        onclick="queueVideosFromTargetStudy(this)">Queue videos from target study</button>
+    <button type="button" id="btn-queue-voted" class="action-btn"
+        onclick="queueVotedVideos(this)">Queue User Voted Videos</button>
 </div>
 
-<div style="display: flex; gap: 20px; flex-wrap: wrap;">
+<div style="display: flex; flex-direction: column; gap: 20px;">
 
     <!-- Scraper Block -->
-    <div
-        style="flex: 1; min-width: 400px; background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border);">
-        <div
-            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+    <div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <span class="text-body font-bold">Scrape Queue:</span>
                 <span id="enrich_scrape_targets"
@@ -45,7 +37,7 @@
                 style="padding: 4px 8px;">Empty Queue</button>
         </div>
 
-        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
+        <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; flex-direction: column; gap: 2px;">
                 <label class="text-xs" style="color: var(--color-text-tertiary);">BATCH SIZE</label>
                 <input type="number" id="scrapes-batch-size" value="500"
@@ -77,10 +69,8 @@
     </div>
 
     <!-- Annotator Block -->
-    <div
-        style="flex: 1; min-width: 400px; background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border);">
-        <div
-            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+    <div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <span class="text-body font-bold">Annotation Queue:</span>
                 <span id="enrich_annotate_targets"
@@ -91,7 +81,7 @@
                 style="padding: 4px 8px;">Empty Queue</button>
         </div>
 
-        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px;">
+        <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; flex-direction: column; gap: 2px;">
                 <label class="text-xs" style="color: var(--color-text-tertiary);">BATCH SIZE</label>
                 <input type="number" id="annotations-batch-size" value="500"

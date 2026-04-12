@@ -101,7 +101,11 @@ def initialize(
     # paths to ddp data
     cf["paths"]["ddp"] = os.path.join(cf["paths"]["activity_data"], "ddp")
     cf["paths"]["ddp_raw"] = os.path.join(cf["paths"]["ddp"], "ddp_raw")
-    cf["paths"]["ddp_participants"] = os.path.join(cf["paths"]["ddp"], "ddp_participants")
+
+    # paths to aio data (from Australian Internet Observatory AWS)
+    cf["paths"]["aio"] = os.path.join(cf["paths"]["activity_data"], "aio")
+    cf["paths"]["aio_raw"] = os.path.join(cf["paths"]["aio"], "aio_raw")
+    cf["paths"]["aio_participants"] = os.path.join(cf["paths"]["aio"], "aio_participants")
 
     # paths to scrape data
     cf["paths"]["scrape"] = os.path.join(cf["paths"]["local_data"], "scrape")

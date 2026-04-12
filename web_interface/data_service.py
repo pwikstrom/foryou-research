@@ -806,7 +806,7 @@ def get_study_collections(study):
     if not study in fyp_cf["study_defs"]:
         return []
 
-    selected_collections = fyp_cf["study_defs"][study].get("SELECTED_DONATIONS", [])
+    selected_collections = fyp_cf["study_defs"][study].get("SELECTED_COLLECTIONS", [])
 
     selected_collections = [{"collection_id": str(d).strip()} for d in selected_collections]
 
