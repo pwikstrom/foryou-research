@@ -388,7 +388,9 @@ function renderStudiesTable() {
             <td style="padding: 5px;"><strong>${study.STUDY_NAME}</strong>${savingIndicator}</td>
             <td style="padding: 5px;">${study.START_DATE || '-'}</td>
             <td style="padding: 5px;">${study.END_DATE || '-'}</td>
+            <td style="padding: 5px;">${study.SAMPLE_FRAME || '-'}</td>
             <td style="text-align: right; padding: 5px;">${formatNum(stats.unique_collections)}</td>
+            <td style="text-align: right; padding: 5px;">${formatNum(stats.total_activities)}</td>
             <td style="text-align: right; padding: 5px;">${formatNum(stats.unique_videos)}</td>
             <td style="text-align: right; padding: 5px;">${formatNum(stats.scraped_videos)}</td>
             <td style="text-align: right; padding: 5px;">${formatNum(stats.annotated_videos)}</td>
