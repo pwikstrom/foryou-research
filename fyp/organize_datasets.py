@@ -93,7 +93,7 @@ def _filter_enrichment_data(
         print("    [Scrape] Loading scraped data from main storage...", end="", flush=True)
         if verbose: print()
         tutti_data[SCRAPES_LABEL] = data_io.load_parquet(
-            storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
+            storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
         if not verbose: print(" ...done")
     else:
         print(f"    [Scrape] There are {len(tutti_data[SCRAPES_LABEL]):,} scraped data items in the cache", end="", flush=True)
