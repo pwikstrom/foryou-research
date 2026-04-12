@@ -8,7 +8,7 @@ from fyp.fyp_config import fyp_cf, PROJECT_ROOT
 from ..data_service import (
     get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags,
     load_schema_metadata, get_timeline_data, get_study_collections, load_shared_tags,
-    load_display_id_map, get_accessible_studies
+    load_display_id_map, get_accessible_studies, get_collection_tags, invalidate_collection_tags_cache
 )
 from ..security import user_manager
 from ..auth import admin_required
@@ -151,7 +151,7 @@ def api_get_study_defs():
 def _inject_collection_tags(metadata: dict, collection_ids: list[str]) -> dict:
     """Inject a virtual 'Collection Tags' filter derived from collection_annotations.json."""
     try:
-        annotations = data_io.load_json(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json") or {}
+        annotations = get_collection_tags()
     except Exception:
         return metadata
 
@@ -1522,7 +1522,8 @@ def api_collection_annotate():
         
     # Save
     data_io.save_json(data=annotations, storage_location="recoded", filename=da_filename)
-    
+    invalidate_collection_tags_cache()
+
     return jsonify({"status": "success", "collection_id": collection_id, "data": annotations[collection_id]})
 
 

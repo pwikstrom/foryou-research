@@ -12,6 +12,7 @@ from fyp.pca import calculate_scaled_pca_scores
 from fyp.studies import init_study_defs, save_study_defs
 from .. import explorer_backend as explorer
 from ..process_manager import process_stats, save_process_stats
+from ..data_service import invalidate_collection_tags_cache
 import pandas as pd
 from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable, calculate_inter_coder_reliability
 
@@ -547,6 +548,7 @@ def save_collection_annotation():
             filename=f"{COLLECTIONS_LABEL}_tags.json",
             verbose=False
         )
+        invalidate_collection_tags_cache()
 
         return jsonify({"status": "success"})
     except Exception as e:
@@ -1363,6 +1365,7 @@ def _prepopulate_annotations(manifest: dict, tags: list[str]) -> None:
         filename=f"{COLLECTIONS_LABEL}_tags.json",
         verbose=False
     )
+    invalidate_collection_tags_cache()
 
 
 

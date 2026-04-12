@@ -1,4 +1,5 @@
 import threading
+import time
 import pandas as pd
 import json
 import numpy as np
@@ -775,19 +776,56 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
     return result
 
 
-def load_display_id_map():
+# --- Collection Tags Cache ---
+# RAM cache for collections_tags.json to avoid repeated GCS round-trips.
+# Explicit invalidation handles same-instance writes; TTL handles
+# cross-instance staleness on Cloud Run (multiple container instances).
+
+_collection_tags_cache: dict | None = None
+_collection_tags_cache_time: float = 0.0
+_COLLECTION_TAGS_TTL: float = 300.0  # 5 minutes
+
+
+def get_collection_tags(force_reload: bool = False) -> dict:
+    """Return parsed collections_tags.json, cached in RAM with TTL.
+
+    On first call (or after TTL / invalidation) loads from storage.
+    Subsequent calls within the TTL window return the cached dict.
     """
-    Loads collection_annotations.json and returns a map of { raw_id: display_id }.
-    """
+    global _collection_tags_cache, _collection_tags_cache_time
+    now = time.monotonic()
+    if _collection_tags_cache is None or force_reload or (now - _collection_tags_cache_time > _COLLECTION_TAGS_TTL):
+        fn = f"{COLLECTIONS_LABEL}_tags.json"
+        if data_io.exists(storage_location="recoded", filename=fn):
+            _collection_tags_cache = data_io.load_json(storage_location="recoded", filename=fn) or {}
+        else:
+            _collection_tags_cache = {}
+        _collection_tags_cache_time = now
+    return _collection_tags_cache
+
+
+
+
+
+def invalidate_collection_tags_cache() -> None:
+    """Reset the RAM cache so the next get_collection_tags() call reloads from storage."""
+    global _collection_tags_cache, _collection_tags_cache_time
+    _collection_tags_cache = None
+    _collection_tags_cache_time = 0.0
+
+
+
+
+
+def load_display_id_map() -> dict[str, str]:
+    """Return a map of { raw_collection_id: display_id } from the cached collection tags."""
     mapping = {}
-    da_filename = f"{COLLECTIONS_LABEL}_tags.json"
     try:
-        if data_io.exists(storage_location="recoded", filename=da_filename):
-            annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
-            for raw_id, data in annotations.items():
-                disp = data.get('display_collection_id')
-                if disp and str(disp).strip():
-                    mapping[str(raw_id)] = str(disp).strip()
+        annotations = get_collection_tags()
+        for raw_id, tag_data in annotations.items():
+            disp = tag_data.get('display_collection_id')
+            if disp and str(disp).strip():
+                mapping[str(raw_id)] = str(disp).strip()
     except Exception as e:
         print(f"Error loading display id map: {e}")
     return mapping

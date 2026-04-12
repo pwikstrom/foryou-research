@@ -132,7 +132,9 @@ def filter_dataframe(df, column_types, filters, search_query=None):
             val = criteria.get("value")
             if isinstance(val, (list, np.ndarray)) and len(val) > 0 and 'collection_id' in filtered_df.columns:
                 try:
-                    annotations = data_io.load_json(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json") or {}
+                    # Lazy import to avoid circular dependency with data_service
+                    from .data_service import get_collection_tags
+                    annotations = get_collection_tags()
                 except Exception:
                     annotations = {}
                 selected_tags = set(str(v) for v in val)
