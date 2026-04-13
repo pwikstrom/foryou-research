@@ -56,7 +56,7 @@ def run_anova(
     lots_of_anova_tables = []
 
     # TODO: make this dynamic. There is a risk with startswith 'G_'
-    raise "Hey Patrik, you need to fix the reference to 'G_' in this code - otherwise it won't work"
+    raise RuntimeError("Hey Patrik, you need to fix the reference to 'G_' in this code - otherwise it won't work")
     component_cols = [col for col in events_pca_scores_scaled.columns if False and col.startswith("G_")]
 
 

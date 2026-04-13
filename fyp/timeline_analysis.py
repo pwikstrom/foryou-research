@@ -1,4 +1,6 @@
 
+import math
+
 import numpy as np
 import pandas as pd
 import json
@@ -132,8 +134,6 @@ def compute_volatility(vals: list[float]) -> dict[str, float]:
 
 
 
-
-import math
 
 def compute_interestingness(metrics: dict) -> float:
     """Compute a composite interestingness score from per-category metrics.

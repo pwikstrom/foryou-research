@@ -819,7 +819,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
         df = df[df['date'].notna()].copy()
 
         if self.verbose:
-            print(f"   [{df["raw_file"].iloc[0]}] Keeping {len(df):,} rows w OK timestamp.")
+            print(f"   [{df['raw_file'].iloc[0]}] Keeping {len(df):,} rows w OK timestamp.")
 
 
         # get the variable name and the associated value from index 1 and assign them to primary_label and extra_data

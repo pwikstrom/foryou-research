@@ -8,6 +8,7 @@ Author: Patrik
 
 
 import datetime as _dt
+from datetime import datetime, timedelta
 from fyp.types import convert_dtypes_to_pyarrow
 import shutil
 import gcsfs

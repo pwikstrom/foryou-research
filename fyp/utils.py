@@ -139,7 +139,7 @@ def clean_url(the_url: str) -> dict:
         v = u.split("=")
         v[1] = unquote(v[1]).replace(",","|")
         try:
-            v1 = int(v1)
+            v[1] = int(v[1])
         except:
             pass
         outout.update({"source_url."+v[0]:v[1]})

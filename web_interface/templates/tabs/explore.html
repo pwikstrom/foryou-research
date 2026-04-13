@@ -1,7 +1,7 @@
 <div id="explore" class="tab-pane">
     <!-- Control Bar -->
     <div class="control-bar" style="margin-right: 20px;">
-        <button id="explore-sidebar-toggle" onclick="window.exploreToggleSidebar()" title="Toggle filters panel"
+        <button id="explore-sidebar-toggle" onclick="window.exploreToggleSidebar()" class="meta-tooltip" data-tooltip="Toggle filters panel"
             style="background:none; border:none; cursor:pointer; padding:4px; margin-right:10px; display:flex; align-items:center; transition: background 0.15s; border-radius: 4px;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--control-bar-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -52,8 +52,8 @@
                         <button id="explorer-v2-toggle-single" class="toggle-option active" onclick="setExplorerV2SliceMode(false)">
                             One
                         </button>
-                        <button id="explorer-v2-toggle-dual" class="toggle-option" onclick="setExplorerV2SliceMode(true)"
-                            title="Compare two filtered groups side by side">
+                        <button id="explorer-v2-toggle-dual" class="toggle-option meta-tooltip" onclick="setExplorerV2SliceMode(true)"
+                            data-tooltip="Compare two filtered groups side by side">
                             Two
                         </button>
                     </div>

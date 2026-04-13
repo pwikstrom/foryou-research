@@ -653,7 +653,6 @@ function renderViewerFilters(metadata) {
 
                     cb.onchange = () => {
                         const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
-                        console.log(`Viewer filtering ${col} with:`, checked);
                         setViewerFilter(col, info.type, 'list', checked);
                     };
 
@@ -944,9 +943,6 @@ function prefetchNext() {
 
 
 async function loadViewerItem(index) {
-    console.log(`[Viewer] loadViewerItem requested index: ${index} (Type: ${typeof index})`);
-    console.log(`[Viewer] Current State - itemCount: ${viewerData.itemCount}, currentOffset: ${viewerData.currentOffset}, chunkLimit: ${viewerData.chunkLimit}`);
-
     // Ensure index is an integer, sometimes it comes in as a string from slider
     index = parseInt(index);
 
@@ -960,17 +956,12 @@ async function loadViewerItem(index) {
     const loadedCount = viewerData.filteredIds ? viewerData.filteredIds.length : 0;
     const inRange = relativeIndex >= 0 && relativeIndex < loadedCount;
 
-    console.log(`[Viewer] relativeIndex: ${relativeIndex}, loadedCount: ${loadedCount}, inRange: ${inRange}`);
-
     if (!inRange) {
-        console.log(`[Viewer] Index ${index} is outside current cache. Triggering fetch.`);
         document.getElementById('viewer-status').innerText = `Fetching next chunk...`;
 
         // Calculate the base offset for the chunk containing this index
         const newOffset = Math.floor(index / (viewerData.chunkLimit || 1000)) * (viewerData.chunkLimit || 1000);
         const hideDuplicates = document.getElementById('viewer-hide-duplicates')?.checked || false;
-
-        console.log(`[Viewer] Fetching from /api/video_analysis/ids with offset: ${newOffset}, limit: ${viewerData.chunkLimit || 1000}`);
 
         try {
             const res = await fetch('/api/video_analysis/ids', {
@@ -988,8 +979,6 @@ async function loadViewerItem(index) {
                 })
             });
             const data = await res.json();
-            console.log(`[Viewer] Fetch returned ${data.ids ? data.ids.length : 0} items. Error: ${data.error}`);
-
             if (data.error) {
                 alert(data.error);
                 return;
@@ -1001,7 +990,6 @@ async function loadViewerItem(index) {
             viewerData.displayIds = { ...viewerData.displayIds, ...(data.display_ids || {}) }; // Append new displays
 
             // Re-call loadViewerItem now that the data is loaded
-            console.log(`[Viewer] Re-calling loadViewerItem(${index}) after fetch.`);
             await loadViewerItem(index);
             return;
 
@@ -1670,8 +1658,6 @@ async function saveTaggingModal() {
     }
 
     const { item_id, variable, currentTags } = viewerData.activeModal;
-    // console.log("Saving tags:", { study: viewerData.activeStudy, item_id, variable, tags: currentTags });
-
     if (!item_id) return; // Study not strictly required for key, but good to have active
 
     try {

@@ -27,7 +27,6 @@ import os
 import numpy as np
 import pandas as pd
 import threading
-import time
 import sys
 import shutil
 import json

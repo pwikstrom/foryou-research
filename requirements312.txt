@@ -166,6 +166,8 @@ rsa==4.9
 schedule==1.2.2
 scikit-learn==1.8.0
 scipy==1.16.3
+statsmodels==0.14.6
+patsy==1.0.2
 seaborn==0.13.2
 Send2Trash==1.8.3
 setuptools==73.0.0

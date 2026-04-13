@@ -1,82 +1,10 @@
 import pandas as pd
 import numpy as np
 import math
-import emoji
-from collections import Counter
 from fyp.activity_analysis import analyze_activity_peak
 
 
 
-"""def analyze_emojis_list(comments: list) -> dict:
-    "-""
-    Extracts and analyzes emojis from a list of comment strings.
-    "-""
-    if not comments:
-        return {"top_emoji": None, "emoji_rate": 0.0}
-        
-    all_text = "".join([str(c) for c in comments if pd.notna(c)])
-    emoji_list = emoji.emoji_list(all_text)
-    
-    if not emoji_list:
-        return {"top_emoji": None, "emoji_rate": 0.0}
-        
-    # Count emojis
-    emojis_found = [e['emoji'] for e in emoji_list]
-    counts = Counter(emojis_found)
-    
-    top_emoji, count = counts.most_common(1)[0]
-    
-    # Rate: Emojis per character of text? Or just total count? 
-    # Old logic: emoji_count / total_char_count.
-    total_len = len(all_text)
-    rate = count / total_len if total_len > 0 else 0
-    
-    return {"top_emoji": top_emoji, "emoji_rate": rate}
-
-
-def generate_moniker(pers: dict, time_of_day_shares: dict) -> str:
-    "-""
-    Generates a descriptive moniker based on persona statistics.
-    ""-"
-    if not time_of_day_shares:
-        return "Unknown Persona"
-        
-    # Composite scores
-    composite_expressiveness = pers.get("chattiness", 0)
-    composite_watching = pers.get("patience", 0)
-
-    adjectives_for_expressiveness = [
-        "Quiet", "Reserved", "Mellow", "Chatty", "Talkative", "Expressive", "Vocal", "Outgoing"
-    ]
-    adjectives_for_enthusiasm = [
-        "Cool", "Steady", "Curious", "Cheerful", "Energetic", "Exited", "Spirited", "Ecstatic"
-    ]
-    adjectives_for_watching = [
-        "Nibbling", "Sampling", "Dabbling", "Exploring", "Appreciating", "Enthusiastic", "Savouring", "Connoisseuring"
-    ]
-
-    # Determine dominant time of day
-    day_person_key = max(time_of_day_shares, key=time_of_day_shares.get)
-    
-    label_map = {
-        'Morning': 'Early Riser',
-        'Afternoon': 'Afternoon',
-        'Evening': 'Evening',
-        'Owl': 'Night Owl'
-    }
-    day_person_label = label_map.get(day_person_key, "Person")
-
-    # Map scores to indices
-    def get_index(score, array):
-        idx = int(math.floor(score * len(array)))
-        return min(idx, len(array) - 1)
-
-    idx_expr = get_index(composite_expressiveness, adjectives_for_expressiveness)
-    idx_enth = get_index(pers.get("enthusiasm", 0), adjectives_for_enthusiasm)
-    idx_watch = get_index(composite_watching, adjectives_for_watching)
-
-    return f"{adjectives_for_expressiveness[idx_expr]}, {adjectives_for_enthusiasm[idx_enth]}, {adjectives_for_watching[idx_watch]} {day_person_label}"
-"""
 
 
 def process_single_collection(df_raw: pd.DataFrame) -> dict:

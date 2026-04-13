@@ -224,9 +224,7 @@ def load_shared_tags(allowed_usernames):
     
     if not allowed_usernames:
         return simple_map, detailed_map
-        
-    #print(f"DEBUG: load_shared_tags called for: {allowed_usernames}")
-        
+
     for user in allowed_usernames:
         try:
             filename = f"{user}.json"
@@ -242,16 +240,12 @@ def load_shared_tags(allowed_usernames):
                      user_blob = data_io.load_json(storage_location="users", filename=filename_lower)
             
             if not user_blob:
-                #print(f"DEBUG: No user file for {user}")
                 continue
                 
             user_data = user_blob.get('annotations', {})
             
-            if not user_data: 
-                #print(f"DEBUG: Empty tag data for {user}")
+            if not user_data:
                 continue
-            
-            #print(f"DEBUG: Loaded {len(user_data)} items for {user}")
             
             for item_id, item_vars in user_data.items():
                 str_id = str(item_id)
@@ -860,14 +854,12 @@ def get_study_collections(study):
                  storage_location="cache", 
                  filename=recoded_file, 
              )
-             #print(f"DEBUG DONATIONS: Loaded fast columns for {study}: shape={df.shape}")
         else:
              # Fallback to full load if cache missing (triggering creation)
              df, _ = get_explorer_data(study, context="explorer")
              
              
         if df is None:
-            #print(f"DEBUG DONATIONS: df is None for {study}")
             return []
         
         if 'collection_id' not in df.columns:
@@ -957,7 +949,6 @@ def get_accessible_studies(username, role, is_admin):
     if not 'study_defs' in fyp_cf:
         init_study_defs()
 
-    #print(f"DEBUG ACCESS: Checking access for user={username}, role={role}, admin={is_admin}")
     accessible_studies = []
     
     if 'study_defs' in fyp_cf:
@@ -996,14 +987,11 @@ def get_accessible_studies(username, role, is_admin):
                     continue
                 
                 stats = study_config.get('stats', {})
-                #print("DEBUG: stats = ", stats)
-                #print("DEBUG: unique_videos = ", stats.get('unique_videos', 0))
                 if stats.get('unique_videos', 0) <= 0:
                     continue
 
                 accessible_studies.append(study_name)
     
-    #print(f"DEBUG ACCESS: Accessible studies found: {accessible_studies}")
     return sorted(accessible_studies)
 
 
