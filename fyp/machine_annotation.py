@@ -258,7 +258,8 @@ def call_machine_threads(
         dry_run = False,
         batch_label: str | None = None,
         cumulative_done: int = 0,
-        cumulative_total: int = 0):
+        cumulative_total: int = 0,
+        reporter=None):
 
     if notebook_mode:
         verbose = True
@@ -305,7 +306,8 @@ def call_machine_threads(
             futures, submit_times, interval=5, label="machine", bar_width=32,
             batch_label=batch_label,
             cumulative_done=cumulative_done,
-            cumulative_total=cumulative_total
+            cumulative_total=cumulative_total,
+            reporter=reporter,
         )
 
 
@@ -1047,8 +1049,13 @@ def clean_up_machine_annotations(some_events, verbose = False):
         series = some_events[c]
         
         # explode lists to rows
-        exploded = series.explode().dropna()
-        
+        try:
+            exploded = series.explode().dropna()
+        except ValueError:
+            # PyArrow-backed columns with all-empty lists can cause a length
+            # mismatch in pandas explode(); safe to skip.
+            continue
+
         if exploded.empty:
             continue
 
@@ -1415,18 +1422,23 @@ def consolidate_and_save_refined_annotations(
         print(f"Shape: {consolidated_annotations.shape} | Memory usage: {total_memory_mb:.2f} MB")
 
     # ---------------------------------------------------------------
-    # Compute new item_ids by comparing against existing consolidated data
-    new_item_ids: set[str] = set()
+    # Compute changed item_ids: IDs from newly added files that were not in the
+    # previous consolidation file list (even re-annotations count as changes).
+    # When force_consolidation is True, treat ALL items as changed.
     existing_recoded_fn = f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"
-    if data_io.exists(storage_location="recoded", filename=existing_recoded_fn):
-        existing_df = data_io.load_parquet(storage_location="recoded", filename=existing_recoded_fn)
-        existing_ids = set(existing_df["item_id"]) if existing_df is not None else set()
-        new_item_ids = set(consolidated_annotations["item_id"]) - existing_ids
-    else:
+    new_item_ids: set[str] = set()
+    if force_consolidation:
         new_item_ids = set(consolidated_annotations["item_id"])
-
-    if top_verbose and new_item_ids:
-        print(f"Found {len(new_item_ids):,} newly annotated item_ids.")
+        if top_verbose:
+            print(f"Force consolidation: all {len(new_item_ids):,} item_ids treated as changed.")
+    else:
+        new_files = set(files_to_concatenate) - set(latest_filename_list)
+        if new_files:
+            for fn, df in zip(files_to_concatenate, refined_annotation_dfs):
+                if fn in new_files:
+                    new_item_ids.update(df["item_id"].tolist())
+        if top_verbose and new_item_ids:
+            print(f"Found {len(new_item_ids):,} changed/newly annotated item_ids from {len(new_files)} new file(s).")
 
     # ---------------------------------------------------------------
     # save the consolidated annotations
@@ -1461,7 +1473,8 @@ def annotate_from_video_id_list(
     dry_run = False,
     batch_label: str | None = None,
     cumulative_done: int = 0,
-    cumulative_total: int = 0):
+    cumulative_total: int = 0,
+    reporter=None):
 
     if notebook_mode:
         verbose = True
@@ -1492,7 +1505,8 @@ def annotate_from_video_id_list(
                 dry_run = dry_run,
                 batch_label=batch_label,
                 cumulative_done=cumulative_done,
-                cumulative_total=cumulative_total
+                cumulative_total=cumulative_total,
+                reporter=reporter,
             )
 
         print("...video annotation completed.")
@@ -1529,7 +1543,9 @@ def queue_annotation_loop(
     batch_size = 500,
     max_batches = None,
     verbose = False,
-    dry_run = False
+    dry_run = False,
+    reporter=None,
+    cancellation_check=None,
 ):
 
     import fyp.data_io as data_io
@@ -1552,7 +1568,9 @@ def queue_annotation_loop(
         batch_size = batch_size,
         max_batches = max_batches,
         verbose = verbose,
-        dry_run = dry_run
+        dry_run = dry_run,
+        reporter = reporter,
+        cancellation_check = cancellation_check,
     )
 
 
@@ -1568,7 +1586,9 @@ def annotate_videos_loop_from_list(
     batch_size = 500,
     max_batches = None,
     verbose = False,
-    dry_run = False
+    dry_run = False,
+    reporter=None,
+    cancellation_check=None,
     ):
 
 
@@ -1605,21 +1625,28 @@ def annotate_videos_loop_from_list(
             dry_run = dry_run,
             batch_label=batch_label,
             cumulative_done=cumulative_done,
-            cumulative_total=total_items
+            cumulative_total=total_items,
+            reporter=reporter,
         )
 
         cumulative_done += len(batch)
 
-        # Emit queue update after each batch (for web UI)
-        if "WEB_INTERFACE" in os.environ:
-            queue_remaining = len(video_list) - cumulative_done
+        # Emit queue update after each batch
+        queue_remaining = len(video_list) - cumulative_done
+        if reporter is not None:
+            reporter.emit_data({"annotate_queue_len": max(0, queue_remaining)})
+        elif "WEB_INTERFACE" in os.environ:
             print(f"::DATA::{{\"annotate_queue_len\": {max(0, queue_remaining)}}}", flush=True)
 
         if max_batches is not None and batch_number >= max_batches:
             break
 
         # Check for graceful stop request
-        if _check_graceful_stop("queue_annotator"):
+        if cancellation_check is not None:
+            if cancellation_check():
+                print("  Cancellation requested. Finishing after this batch.")
+                break
+        elif _check_graceful_stop("queue_annotator"):
             print("  Graceful stop requested. Finishing after this batch.")
             break
 

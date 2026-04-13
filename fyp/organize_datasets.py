@@ -714,7 +714,7 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
             "new_annotation_item_count": len(new_annotation_ids),
             "affected_collection_ids": sorted(affected_collection_ids),
             "affected_study_names": sorted(affected_studies),
-            "timestamp": _dt.datetime.now().isoformat(),
+            "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         }
         print(f"    {len(affected_collection_ids)} collection(s) and {len(affected_studies)} study/studies affected.")
 

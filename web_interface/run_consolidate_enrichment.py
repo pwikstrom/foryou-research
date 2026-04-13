@@ -1,0 +1,84 @@
+import sys
+import json
+from pathlib import Path
+from datetime import datetime, timezone
+
+# Add project root to sys.path
+current_dir = Path(__file__).resolve().parent
+project_root = current_dir.parent
+sys.path.append(str(project_root))
+
+from web_interface.task_status import TaskStatusReporter
+
+
+def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
+    """Consolidate enrichment data (scrapes + machine annotations)."""
+    import fyp.data_io as data_io
+    from fyp.organize_datasets import (
+        consolidate_enrichment_data, SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL
+    )
+
+    # Stage 1: Count new files before consolidation
+    reporter.update_progress(0, "Counting new files...")
+
+    known_scrape: set[str] = set()
+    known_annotation: set[str] = set()
+    if data_io.exists(storage_location="recoded", filename="consolidated_enrichment_files.json"):
+        meta_before = data_io.load_json(
+            storage_location="recoded", filename="consolidated_enrichment_files.json"
+        )
+        known_scrape = set(meta_before.get(SCRAPES_LABEL, {}).get("filenames", []))
+        known_annotation = set(
+            meta_before.get(MACHINE_ANNOTATIONS_LABEL, {}).get("filenames", [])
+        )
+
+    current_scrape = {
+        fn for fn in data_io.listdir(storage_location="scrape")
+        if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet")
+    }
+    current_annotation = {
+        fn for fn in data_io.listdir(storage_location="machine_annotations_refined")
+        if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet")
+    }
+
+    new_scrape_count = len(current_scrape - known_scrape)
+    new_annotation_count = len(current_annotation - known_annotation)
+
+    # Stage 2: Run consolidation
+    reporter.update_progress(10, "Consolidating annotations...")
+
+    force = bool(task_args.get("force_consolidation")) if task_args else False
+    result = consolidate_enrichment_data(force_consolidation=force, verbose=False)
+    had_new_data = result.get("had_new_data", False) if result else False
+    impact = result.get("impact") if result else None
+
+    # Stage 3: Emit results
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    data_payload: dict = {
+        "had_new_data": had_new_data,
+        "new_scrape_files": new_scrape_count,
+        "new_annotation_files": new_annotation_count,
+        "last_status_refresh": now_iso,
+    }
+    if had_new_data:
+        data_payload["last_consolidation"] = now_iso
+    if impact:
+        data_payload["consolidation_impact"] = impact
+
+    reporter.emit_data(data_payload)
+    reporter.log("Consolidation finished.")
+
+
+
+
+if __name__ == "__main__":
+    from web_interface.task_status import LocalStatusReporter
+
+    reporter = LocalStatusReporter("consolidate_enrichment")
+    try:
+        run_consolidate_enrichment(reporter=reporter)
+        reporter.complete()
+    except Exception as e:
+        reporter.fail(str(e))
+        sys.exit(1)

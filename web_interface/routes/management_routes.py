@@ -3,7 +3,7 @@ import json
 from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 from flask_login import login_required, current_user
-from datetime import datetime
+from datetime import datetime, timezone
 from fyp.fyp_config import fyp_cf, load_var_schema
 from fyp.ingest import get_main_collection
 import fyp.data_io as data_io
@@ -11,7 +11,8 @@ from fyp.organize_datasets import create_study_recoded_dataset, SCRAPES_LABEL, M
 from fyp.pca import calculate_scaled_pca_scores
 from fyp.studies import init_study_defs, save_study_defs
 from .. import explorer_backend as explorer
-from ..process_manager import process_stats, save_process_stats
+from ..process_manager import processes, process_stats, load_process_stats, save_process_stats, start_process, CLOUD_TASK_ELIGIBLE
+from ..task_status import is_cloud_run
 from ..data_service import invalidate_collection_tags_cache
 import pandas as pd
 from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable, calculate_inter_coder_reliability
@@ -126,10 +127,9 @@ def _calculate_stats(study_config, save_to_cache=True):
 @management_bp.route('/api/manage/studies', methods=['GET'])
 @login_required
 def list_studies():
-    # Reload to be safe
-    if not 'study_defs' in fyp_cf:
-        init_study_defs()
-    
+    # Always reload from disk/GCS to pick up changes made by the task-runner service
+    init_study_defs()
+
     studies = fyp_cf['study_defs']
 
     # Convert to list with name included
@@ -214,7 +214,17 @@ def save_study():
     if study_name not in studies:
         studies[study_name] = {}
 
+    # Preserve existing stats and last_updated — form data doesn't include these
+    # and the Cloud Task will recalculate them asynchronously.
+    existing_stats = studies[study_name].get('stats')
+    existing_last_updated = studies[study_name].get('last_updated')
+
     studies[study_name].update(data)
+
+    if existing_stats and 'stats' not in data:
+        studies[study_name]['stats'] = existing_stats
+    if existing_last_updated and 'last_updated' not in data:
+        studies[study_name]['last_updated'] = existing_last_updated
     
     # Extract ephemeral flags (don't save to disk)
     refresh_pca_flag = data.pop('REFRESH_PCA', True)
@@ -225,115 +235,53 @@ def save_study():
     studies[study_name].pop('REFRESH_PCA', None)
     studies[study_name].pop('REFRESH_METADATA', None)
 
-    # Update in-memory config before calculating stats
-    fyp_cf['study_defs'] = studies
-    
-    # Calculate Stats
-    print(f"Calculating stats for {study_name}...")
-    stats = _calculate_stats(studies[study_name], save_to_cache=True)
-    studies[study_name]['stats'] = stats
-    studies[study_name]['last_updated'] = datetime.now().isoformat()
-    
-    
-    # Update in-memory config again (optional but good for consistency)
+    # Update timestamp and save definition to disk
+    studies[study_name]['last_updated'] = datetime.now(timezone.utc).isoformat()
     fyp_cf['study_defs'] = studies
     save_study_defs()
 
+    # --- Dispatch heavy refresh work ---
+    task_args = {
+        "study_name": study_name,
+        "refresh_pca": refresh_pca_flag,
+        "refresh_metadata": refresh_meta_flag,
+    }
 
+    if is_cloud_run():
+        # On Cloud Run: dispatch as a Cloud Task and return immediately
+        success, msg = start_process("study_refresh", None, task_args=task_args)
+        if success:
+            return jsonify({
+                "status": "success",
+                "study": studies[study_name],
+                "refresh_status": "dispatched",
+                "message": "Study saved. Stats, PCA, and metadata refresh running in background.",
+            })
+        else:
+            return jsonify({
+                "status": "success",
+                "study": studies[study_name],
+                "refresh_status": "dispatch_failed",
+                "message": f"Study saved, but background refresh failed to start: {msg}",
+            })
+    else:
+        # Local dev: run synchronously as before
+        from web_interface.run_study_refresh import run_study_refresh
+        from web_interface.task_status import LocalStatusReporter
 
-    refresh_pca = refresh_pca_flag
-    # ----------------------------------------------------------------------
-    # As the study dataset is updated, we may want to recalculate PCA
-    # ----------------------------------------------------------------------
+        reporter = LocalStatusReporter("study_refresh")
+        try:
+            run_study_refresh(reporter=reporter, task_args=task_args)
+            reporter.complete()
+        except Exception as e:
+            print(f"Study refresh failed: {e}")
+            reporter.fail(str(e))
 
-    # regardless, I need to delete the existing PCA file, otherwise there will be a version mismatch
-    # between the study data and the PCA 
-    if data_io.exists(storage_location="cache", filename=f"{study_name}_PCA.parquet"):
-        data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
+        # Reload study defs to get updated stats
+        init_study_defs()
+        studies = fyp_cf['study_defs']
 
-    if refresh_pca and stats['annotated_videos'] > 0:
-        calculate_scaled_pca_scores(study_name=study_name, load_from_cache=True, save_to_cache=True)
-
-
-    refresh_explorer_metadata = refresh_meta_flag
-    # ----------------------------------------------------------------------
-    # --- Refresh Metadata (Viewer & Explorer) ---
-    # ----------------------------------------------------------------------
-
-    # regardless, I need to invalidate the cache and delete the existing metadata file,
-    # otherwise there will be a version mismatch between the study data and the metadata 
-    if data_io.exists(storage_location="cache", filename=f"{study_name}_viewer_metadata.json"):
-        data_io.remove(storage_location="cache", filename=f"{study_name}_viewer_metadata.json")
-    if data_io.exists(storage_location="cache", filename=f"{study_name}_explorer_metadata.json"):
-        data_io.remove(storage_location="cache", filename=f"{study_name}_explorer_metadata.json")
-
-    # --- Invalidate RAM Cache ---
-    with study_cache.lock:
-        if study_name in study_cache.cache:
-            # We cannot easily delete from LRUCache by key if it doesn't expose del, but popping with default works
-            # cachetools LRUCache supports __delitem__
-            try:
-                del study_cache.cache[study_name]
-                print(f"Invalidated RAM cache for {study_name}")
-            except KeyError:
-                pass
-
-    if refresh_explorer_metadata and stats['unique_videos'] > 0:
-
-        # --- Refresh Metadata (Viewer & Explorer) ---
-        print(f"Loading fresh data for {study_name} to generate metadata...")
-        # This reads the parquet file we just ensured allows existing (or recoded)
-        df, col_types = explorer.load_data(study_name, verbose=False)
-
-        if df is not None:
-            # 1. Viewer Metadata (Annotated OK + Activity Filter)
-            print(f"Generating viewer metadata for {study_name}...")
-            df_viewer = df[df.annotated_ok].copy()
-            df_viewer = df_viewer[df_viewer['activity_type'].isin(['play', 'observe'])]
-            df_viewer = df_viewer[df_viewer['item_id'].notna()]
-            viewer_meta = explorer.get_metadata(df_viewer, col_types)
-            
-            # Add filtering/display priorities
-            viewer_meta = load_schema_metadata(viewer_meta)
-            
-            data_io.save_json(data=make_serializable(viewer_meta), storage_location="cache", filename=f"{study_name}_viewer_metadata.json", verbose=False)
-
-
-            # 2. Explorer Metadata (Annotated OK + Activity Filter)
-            print(f"Generating explorer metadata for {study_name}...")
-            df_explorer = df[df.annotated_ok].copy()
-            df_explorer = df_explorer[df_explorer['activity_type'].isin(['play', 'observe'])]
-            df_explorer = df_explorer[df_explorer['item_id'].notna()]
-            explorer_meta = explorer.get_metadata(df_explorer, col_types)
-            
-            # Calculate Total Stats for Explorer
-            # We need the viz config for binning/logging rules
-            viz_config = get_viz_config()
-            stats_res = explorer.get_current_stats(df_explorer, col_types, viz_config=viz_config)
-            explorer_meta['total_stats'] = stats_res['stats']
-            
-            # Inject Source File Info
-            try:
-                the_recoded_file = f"{study_name}_recoded.parquet"
-                if data_io.exists(storage_location="cache", filename=the_recoded_file):
-                    explorer_meta['source_file'] = the_recoded_file
-                    mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file))
-                    explorer_meta['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
-                else:
-                    explorer_meta['source_file'] = "Unknown"
-                    explorer_meta['source_file_modified'] = ""
-            except Exception as e:
-                explorer_meta['source_file'] = "Error"
-                explorer_meta['source_file_modified'] = ""
-
-            # Add filtering/display priorities
-            explorer_meta = load_schema_metadata(explorer_meta)
-            
-            data_io.save_json(data = make_serializable(explorer_meta), storage_location="cache", filename=f"{study_name}_explorer_metadata.json", verbose=False)
-
-
-
-    return jsonify({"status": "success", "study": studies[study_name]})
+        return jsonify({"status": "success", "study": studies.get(study_name, {})})
 
 
 
@@ -563,6 +511,9 @@ def get_enrichment_stats():
     if not current_user.is_admin():
          return jsonify({"error": "Unauthorized"}), 403
 
+    # Reload process_stats from GCS so we pick up task-runner writes
+    load_process_stats()
+
     # 1. Load Enrichment Status
     enrichment_status = None
     if data_io.exists(storage_location="recoded", filename='enrichment_status.parquet'):
@@ -612,7 +563,10 @@ def get_enrichment_stats():
         "unique_collections": unique_collections,
         "scrape_queue_len": scrape_queue_len,
         "annotate_queue_len": annotate_queue_len,
-        "consolidate_stats": process_stats.get("consolidate_enrichment"),
+        "consolidate_stats": {
+            **process_stats.get("consolidate_enrichment", {}),
+            **processes.get("consolidate_enrichment", {}).get("data", {})
+        } or None,
         "scraper_last_success": process_stats.get("queue_scraper", {}).get("last_success"),
         "annotator_last_success": process_stats.get("queue_annotator", {}).get("last_success"),
     })
@@ -973,52 +927,23 @@ def api_consolidate_enrichment():
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
 
-    try:
-        # Snapshot known files before consolidation to count new ones
-        known_scrape = set()
-        known_annotation = set()
-        if data_io.exists(storage_location="recoded", filename="consolidated_enrichment_files.json"):
-            meta_before = data_io.load_json(storage_location="recoded", filename="consolidated_enrichment_files.json")
-            known_scrape = set(meta_before.get(SCRAPES_LABEL, {}).get("filenames", []))
-            known_annotation = set(meta_before.get(MACHINE_ANNOTATIONS_LABEL, {}).get("filenames", []))
+    from fyp.fyp_config import CONSOLIDATE_ENRICHMENT_SCRIPT
 
-        current_scrape = {fn for fn in data_io.listdir(storage_location="scrape")
-                          if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet")}
-        current_annotation = {fn for fn in data_io.listdir(storage_location="machine_annotations_refined")
-                              if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet")}
+    proc_state = processes.get("consolidate_enrichment", {})
+    if proc_state.get("proc") is not None and proc_state["proc"].poll() is None:
+        return jsonify({"status": "error", "message": "Consolidation already running"}), 409
 
-        new_scrape_count = len(current_scrape - known_scrape)
-        new_annotation_count = len(current_annotation - known_annotation)
+    data = request.json or {}
+    task_args = {}
+    if data.get("force"):
+        task_args["force_consolidation"] = True
 
-        from fyp.organize_datasets import consolidate_enrichment_data
-        result = consolidate_enrichment_data(force_consolidation=False, verbose=False)
-        had_new_data = result.get("had_new_data", False) if result else False
-
-        impact = result.get("impact") if result else None
-
-        now_iso = datetime.now().isoformat()
-        stats_entry = process_stats.get("consolidate_enrichment", {})
-        if had_new_data:
-            stats_entry["last_consolidation"] = now_iso
-            stats_entry["new_scrape_files"] = new_scrape_count
-            stats_entry["new_annotation_files"] = new_annotation_count
-        if impact:
-            stats_entry["consolidation_impact"] = impact
-        stats_entry["last_status_refresh"] = now_iso
-        process_stats["consolidate_enrichment"] = stats_entry
-        save_process_stats()
-
-        return jsonify({
-            "status": "success",
-            "had_new_data": had_new_data,
-            "new_scrape_files": new_scrape_count,
-            "new_annotation_files": new_annotation_count,
-            "consolidate_stats": stats_entry,
-            "impact": impact
-        })
-    except Exception as e:
-        print(f"Error consolidating enrichment data: {e}")
-        return jsonify({"error": str(e)}), 500
+    success, msg = start_process("consolidate_enrichment", CONSOLIDATE_ENRICHMENT_SCRIPT,
+                                 task_args=task_args if task_args else None)
+    if success:
+        return jsonify({"status": "started", "message": msg})
+    else:
+        return jsonify({"status": "error", "message": msg}), 409
 
 
 
@@ -1028,6 +953,9 @@ def api_refresh_staleness():
     """Check which downstream processes are stale relative to the last consolidation impact."""
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
+
+    # Reload from GCS so we see task-runner writes
+    load_process_stats()
 
     consolidate_entry = process_stats.get("consolidate_enrichment", {})
     impact = consolidate_entry.get("consolidation_impact")

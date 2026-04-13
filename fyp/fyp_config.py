@@ -341,5 +341,5 @@ META_REFRESH_GROUPS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_meta_refresh_
 TIMELINES_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_timelines_refresh.py"
 RECODE_REFRESH_STUDIES_SCRIPT = PROJECT_ROOT / "web_interface" / "run_recode_refresh_studies.py"
 PCA_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_pca_refresh.py"
-PROCESS_STATS_FILE = PROJECT_ROOT / "web_interface" / "process_stats.json"
+CONSOLIDATE_ENRICHMENT_SCRIPT = PROJECT_ROOT / "web_interface" / "run_consolidate_enrichment.py"
 PYTHON_EXEC = sys.executable

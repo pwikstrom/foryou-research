@@ -165,6 +165,7 @@ def start_monitor(
     batch_label: Optional[str] = None,
     cumulative_done: int = 0,
     cumulative_total: int = 0,
+    reporter=None,
 ):
     """
     Monitor progress of concurrent futures with a live progress bar.
@@ -178,6 +179,7 @@ def start_monitor(
         result_checker: optional callable(future) -> bool. If provided,
             called on each completed future to compute a success rate.
             E.g. for scraping: lambda f: isinstance(f.result()[1], pd.DataFrame)
+        reporter: optional TaskStatusReporter for GCS-based progress (Cloud Tasks mode).
     """
 
     def _fmt_secs(s):
@@ -251,8 +253,18 @@ def start_monitor(
             if len(line) > term_width:
                 line = line[:max(0, term_width - 1)]
 
-            # single-line update (web interface vs terminal)
-            if "WEB_INTERFACE" in os.environ:
+            # single-line update (reporter vs web interface vs terminal)
+            if reporter is not None:
+                 overall_done = cumulative_done + done if cumulative_total > 0 else done
+                 overall_total = cumulative_total if cumulative_total > 0 else total
+                 overall_eta = (overall_total - overall_done) / throughput if throughput > 0 else 0
+                 pct = int((overall_done / overall_total) * 100) if overall_total > 0 else 0
+                 batch_str = f"Batch {batch_label}: " if batch_label else ""
+                 reporter.update_progress(
+                     pct,
+                     f"{batch_str}{done}/{total} ({throughput:.1f}/s, ETA {_fmt_secs(overall_eta)})",
+                 )
+            elif "WEB_INTERFACE" in os.environ:
                  overall_done = cumulative_done + done if cumulative_total > 0 else done
                  overall_total = cumulative_total if cumulative_total > 0 else total
                  overall_remaining = overall_total - overall_done

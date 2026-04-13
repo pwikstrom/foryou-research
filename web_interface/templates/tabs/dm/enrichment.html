@@ -118,6 +118,9 @@
         <button type="button" class="action-btn" id="btn-consolidate"
             onclick="consolidateEnrichmentData(this)"
             style="padding: 6px 12px;">Consolidate &amp; Refresh</button>
+        <button type="button" class="action-btn btn-discreet" id="btn-consolidate-force"
+            onclick="consolidateEnrichmentData(this, true)"
+            style="padding: 6px 12px;">Force Reconsolidate</button>
     </div>
     <div id="consolidate-status" class="text-xs" style="margin-top: 6px; color: var(--color-success-light);"></div>
     <div id="consolidate-warning" class="text-xs" style="margin-top: 4px; color: var(--color-warning); display: none;"></div>

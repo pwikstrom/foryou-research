@@ -26,7 +26,7 @@ csrf = CSRFProtect()
 
 # Import Blueprints
 from .routes.auth_routes import auth_bp
-from .routes.process_routes import process_bp
+from .routes.process_routes import process_bp, internal_bp
 from .routes.data_routes import data_bp
 from .routes.management_routes import management_bp
 from .data_service import study_cache # Re-export for tests
@@ -75,8 +75,12 @@ csrf.init_app(app)
 # Register Blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(process_bp)
+app.register_blueprint(internal_bp)
 app.register_blueprint(data_bp)
 app.register_blueprint(management_bp)
+
+# Exempt the Cloud Tasks internal blueprint from CSRF (authenticated via OIDC token)
+csrf.exempt(internal_bp)
 
 
 @app.route('/')

@@ -592,15 +592,16 @@ function setStatus(name, data) {
     if (lastRunEl) {
         if (status === 'running' && data.start_time) {
             const startDate = new Date(data.start_time);
+            const sdd = String(startDate.getDate()).padStart(2, '0');
+            const smon = startDate.toLocaleString('en-US', { month: 'short' });
             const hh = String(startDate.getHours()).padStart(2, '0');
             const mi = String(startDate.getMinutes()).padStart(2, '0');
-            const ss = String(startDate.getSeconds()).padStart(2, '0');
-            lastRunEl.innerText = `This run started: ${hh}:${mi}:${ss}`;
+            lastRunEl.innerText = `This run started: ${sdd}-${smon} ${hh}:${mi}`;
             lastRunEl.style.color = 'var(--color-success-light)';
         } else if (data.last_run_end_time) {
             const endDate = new Date(data.last_run_end_time);
             const dd = String(endDate.getDate()).padStart(2, '0');
-            const mm = String(endDate.getMonth() + 1).padStart(2, '0');
+            const mon = endDate.toLocaleString('en-US', { month: 'short' });
             const hh = String(endDate.getHours()).padStart(2, '0');
             const mi = String(endDate.getMinutes()).padStart(2, '0');
 
@@ -621,7 +622,7 @@ function setStatus(name, data) {
                 lastRunEl.style.color = 'var(--color-text-tertiary)';
             }
 
-            lastRunEl.innerText = `Last: ${dd}/${mm} ${hh}:${mi}${durStr}${outcomeStr}`;
+            lastRunEl.innerText = `Last: ${dd}-${mon} ${hh}:${mi}${durStr}${outcomeStr}`;
         } else {
             lastRunEl.innerText = '';
         }
@@ -708,9 +709,12 @@ function setDiscreetStatus(name, data) {
             }
 
         } else if (data.last_success) {
-            // Fallback for old stats or undefined new stats
-            const successTime = new Date(data.last_success);
-            text.innerText = "Last success: " + successTime.toLocaleString();
+            const sd = new Date(data.last_success);
+            const sdd = String(sd.getDate()).padStart(2, '0');
+            const smon = sd.toLocaleString('en-US', { month: 'short' });
+            const shh = String(sd.getHours()).padStart(2, '0');
+            const smi = String(sd.getMinutes()).padStart(2, '0');
+            text.innerText = `Last success: ${sdd}-${smon} ${shh}:${smi}`;
             text.style.color = 'var(--color-text-tertiary)';
         } else {
             text.innerText = "Last success: Never"; // Or empty

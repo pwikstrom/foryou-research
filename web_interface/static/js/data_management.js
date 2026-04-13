@@ -3,6 +3,7 @@
 
 let allStudies = [];
 const savingStudies = new Set(); // Track studies currently being saved
+const refreshingStudies = new Map(); // Track studies being refreshed: name → {message, percent}
 
 function loadStudies() {
     fetch('/api/manage/studies')
@@ -373,19 +374,42 @@ function renderStudiesTable() {
     allStudies.forEach((study, index) => {
         const tr = document.createElement('tr');
         tr.className = 'study-row';
-        tr.style.cursor = 'pointer';
         tr.style.borderBottom = '1px solid var(--chart-grid)';
-        tr.onclick = () => openStudyModal(index);
+
+        const isRefreshing = refreshingStudies.has(study.STUDY_NAME);
+        const isSaving = savingStudies.has(study.STUDY_NAME);
+
+        if (isRefreshing || isSaving) {
+            tr.style.cursor = 'default';
+            tr.style.opacity = '0.45';
+        } else {
+            tr.style.cursor = 'pointer';
+            tr.style.opacity = '1';
+            tr.onclick = () => openStudyModal(index);
+        }
 
         const stats = study.stats || {};
         const formatNum = (num) => num !== undefined ? num.toLocaleString() : '-';
 
-        const savingIndicator = savingStudies.has(study.STUDY_NAME)
-            ? ' <span class="font-bold" style="color: var(--color-success-light); text-shadow: 0 0 5px var(--color-success-light);">Saving...</span>'
-            : '';
+        // Build action cell content
+        let actionHtml = '';
+        if (isSaving) {
+            actionHtml = '<span class="text-sm font-semibold" style="color: var(--color-warning);">Saving...</span>';
+        } else if (isRefreshing) {
+            const info = refreshingStudies.get(study.STUDY_NAME);
+            const pct = info.percent !== undefined ? info.percent : 0;
+            const msg = info.message || 'Refreshing...';
+            actionHtml = `
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <span class="text-sm font-semibold" style="color: var(--color-warning);">${msg}</span>
+                    <div class="progress-bar" style="height: 5px; border-radius: 3px;">
+                        <div style="width: ${pct}%; height: 100%; background: var(--color-warning); border-radius: 3px; transition: width 0.3s;"></div>
+                    </div>
+                </div>`;
+        }
 
         tr.innerHTML = `
-            <td style="padding: 5px;"><strong>${study.STUDY_NAME}</strong>${savingIndicator}</td>
+            <td style="padding: 5px;"><strong>${study.STUDY_NAME}</strong></td>
             <td style="padding: 5px;">${study.START_DATE || '-'}</td>
             <td style="padding: 5px;">${study.END_DATE || '-'}</td>
             <td style="padding: 5px;">${study.SAMPLE_FRAME || '-'}</td>
@@ -394,6 +418,7 @@ function renderStudiesTable() {
             <td style="text-align: right; padding: 5px;">${formatNum(stats.unique_videos)}</td>
             <td style="text-align: right; padding: 5px;">${formatNum(stats.scraped_videos)}</td>
             <td style="text-align: right; padding: 5px;">${formatNum(stats.annotated_videos)}</td>
+            <td style="padding: 5px;">${actionHtml}</td>
         `;
 
         tbody.appendChild(tr);
@@ -403,6 +428,9 @@ function renderStudiesTable() {
 function openStudyModal(index) {
     const study = allStudies[index];
     if (!study) return;
+
+    // Block opening if study is currently refreshing
+    if (refreshingStudies.has(study.STUDY_NAME)) return;
 
     // Refresh roles before populating to pick up any newly defined roles
     loadSystemRoles(() => _showStudyModal(study));
@@ -436,7 +464,7 @@ function _showStudyModal(study, isNew = false) {
     const lastUpdatedEl = document.getElementById('editStudyModalLastUpdated');
     if (lastUpdatedEl) {
         lastUpdatedEl.textContent = study.last_updated
-            ? 'Last updated: ' + new Date(study.last_updated).toLocaleString()
+            ? 'Last updated: ' + formatShortDate(study.last_updated)
             : '';
     }
 
@@ -802,15 +830,10 @@ function saveStudy(btn, event) {
         formData.STUDY_NAME = studyName;
 
         savingStudies.add(studyName);
+        btn.className = 'btn-running';
         btn.textContent = "Saving...";
         btn.disabled = true;
-        btn.style.color = 'var(--color-warning)';
-        btn.style.animation = 'btn-running-pulse 1.5s ease-in-out infinite';
-
-        // Update table row indicator
         renderStudiesTable();
-
-        let isSuccess = false;
 
         fetch('/api/manage/studies/save', {
             method: 'POST',
@@ -819,60 +842,107 @@ function saveStudy(btn, event) {
         })
             .then(res => res.json())
             .then(data => {
+                savingStudies.delete(studyName);
+
                 if (data.status === 'success') {
-                    isSuccess = true;
                     const index = allStudies.findIndex(s => s.STUDY_NAME === studyName);
                     if (index !== -1) {
                         allStudies[index] = data.study;
                     } else {
                         allStudies.push(data.study);
                     }
-                    if (isNew) {
-                        formContainer.dataset.isNew = '';
-                        const title = document.getElementById('editStudyModalTitle');
-                        if (title) title.textContent = studyName;
+
+                    if (data.refresh_status === 'dispatched') {
+                        // Close modal and track progress in the table
+                        closeStudyModal();
+                        _pollStudyRefresh(studyName);
+                    } else {
+                        // Local/sync save — show success briefly then close
+                        btn.className = 'btn-save';
+                        btn.textContent = "Saved!";
+                        btn.style.backgroundColor = 'var(--color-success)';
+                        btn.disabled = false;
+                        renderStudiesTable();
+                        setTimeout(() => {
+                            closeStudyModal();
+                            btn.textContent = "Save/Refresh Study";
+                            btn.style.backgroundColor = "";
+                        }, 1500);
                     }
                 } else if (data.status === 'no_change') {
                     _showSaveStatusMsg(btn, 'No changes to save');
+                    btn.className = 'btn-save';
+                    btn.textContent = "Save/Refresh Study";
+                    btn.disabled = false;
+                    renderStudiesTable();
                 } else {
-                    alert("Error saving: " + data.error);
+                    alert("Error saving: " + (data.error || "Unknown error"));
+                    btn.className = 'btn-save';
+                    btn.textContent = "Save/Refresh Study";
+                    btn.disabled = false;
+                    renderStudiesTable();
                 }
             })
             .catch(err => {
                 console.error(err);
                 alert("Save failed.");
-            })
-            .finally(() => {
                 savingStudies.delete(studyName);
-                renderStudiesTable();
-
+                btn.className = 'btn-save';
+                btn.textContent = "Save/Refresh Study";
                 btn.disabled = false;
-                btn.style.animation = '';
-                btn.style.color = '';
-                if (isSuccess) {
-                    btn.textContent = "Saved!";
-                    btn.style.backgroundColor = 'var(--color-success)';
-
-                    // Update last updated in modal header
-                    const lastUpdatedEl = document.getElementById('editStudyModalLastUpdated');
-                    const study = allStudies.find(s => s.STUDY_NAME === studyName);
-                    if (lastUpdatedEl && study && study.last_updated) {
-                        lastUpdatedEl.textContent = 'Last updated: ' + new Date(study.last_updated).toLocaleString();
-                    }
-
-                    setTimeout(() => {
-                        btn.textContent = "Save/Refresh Study";
-                        btn.style.backgroundColor = "";
-                    }, 2000);
-                } else {
-                    btn.textContent = "Save/Refresh Study";
-                }
+                renderStudiesTable();
             });
 
     } catch (e) {
         // Validation failed
     }
 }
+
+
+function _pollStudyRefresh(studyName) {
+    refreshingStudies.set(studyName, { message: 'Starting...', percent: 0 });
+    renderStudiesTable();
+
+    const interval = setInterval(() => {
+        fetch(`/api/status/study_refresh/${encodeURIComponent(studyName)}`)
+            .then(res => res.json())
+            .then(proc => {
+                if (!proc || proc.state === 'unknown') return;
+
+                if (proc.state === 'running') {
+                    const progress = proc.progress || {};
+                    refreshingStudies.set(studyName, {
+                        message: progress.message || 'Refreshing...',
+                        percent: progress.percent !== undefined ? progress.percent : 0,
+                    });
+                    renderStudiesTable();
+                } else {
+                    // Task finished
+                    clearInterval(interval);
+                    refreshingStudies.delete(studyName);
+
+                    // Reload study data to get updated stats
+                    fetch('/api/manage/studies')
+                        .then(r => r.json())
+                        .then(studiesData => {
+                            if (Array.isArray(studiesData)) {
+                                allStudies = studiesData;
+                            } else if (studiesData.studies) {
+                                allStudies = studiesData.studies;
+                            }
+                            renderStudiesTable();
+                        })
+                        .catch(() => renderStudiesTable());
+                }
+            })
+            .catch(() => {
+                clearInterval(interval);
+                refreshingStudies.delete(studyName);
+                renderStudiesTable();
+            });
+    }, 3000);
+}
+
 
 window.updateStudyEstimates = function (btn, event) {
     if (event) event.preventDefault();
@@ -1006,11 +1076,12 @@ loadIngestionSources();
 
 function formatShortDate(isoStr) {
     const d = new Date(isoStr);
+    if (isNaN(d)) return '';
     const day = String(d.getDate()).padStart(2, '0');
     const mon = d.toLocaleString('en-US', { month: 'short' });
     const hrs = String(d.getHours()).padStart(2, '0');
     const min = String(d.getMinutes()).padStart(2, '0');
-    return `${day} ${mon} ${hrs}:${min}`;
+    return `${day}-${mon} ${hrs}:${min}`;
 }
 
 function renderConsolidateStatus(stats) {
@@ -1374,39 +1445,98 @@ function emptyQueue(queueType) {
         .catch(err => console.error("Failed to empty queue: " + err));
 }
 
-function consolidateEnrichmentData(btn) {
+function consolidateEnrichmentData(btn, force = false) {
     const originalText = btn.textContent;
     const originalClass = btn.className;
     btn.textContent = "Consolidating...";
     btn.disabled = true;
     btn.className = 'btn-running';
+    // Disable both buttons while running
+    const otherBtn = force
+        ? document.getElementById('btn-consolidate')
+        : document.getElementById('btn-consolidate-force');
+    if (otherBtn) otherBtn.disabled = true;
     const statusEl = document.getElementById('consolidate-status');
 
     fetch('/api/manage/enrichment/consolidate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(force ? { force: true } : {})
     })
         .then(res => res.json())
         .then(data => {
-            if (data.status === 'success') {
-                renderConsolidateStatus(data.consolidate_stats);
-                renderConsolidationImpact(data.impact);
-                fetchEnrichmentStats();
+            if (data.status === 'started') {
+                statusEl.textContent = 'Consolidation running...';
+                statusEl.style.color = 'var(--color-text-secondary)';
+                pollConsolidationStatus(btn, originalText, originalClass);
             } else {
-                statusEl.textContent = "Error: " + (data.error || "Unknown error");
+                statusEl.textContent = "Error: " + (data.message || data.error || "Unknown error");
                 statusEl.style.color = 'var(--color-danger)';
+                btn.className = originalClass;
+                btn.textContent = originalText;
+                btn.disabled = false;
             }
         })
         .catch(err => {
-            console.error("Failed to consolidate:", err);
-            statusEl.textContent = "Failed to consolidate. See console for details.";
+            console.error("Failed to start consolidation:", err);
+            statusEl.textContent = "Failed to start consolidation.";
             statusEl.style.color = 'var(--color-danger)';
-        })
-        .finally(() => {
             btn.className = originalClass;
             btn.textContent = originalText;
             btn.disabled = false;
         });
+}
+
+function pollConsolidationStatus(btn, originalText, originalClass) {
+    const statusEl = document.getElementById('consolidate-status');
+    const interval = setInterval(() => {
+        fetch('/api/status')
+            .then(res => res.json())
+            .then(data => {
+                const proc = data.consolidate_enrichment;
+                if (!proc) return;
+
+                if (proc.state === 'running') {
+                    const progress = proc.progress || {};
+                    if (progress.message) {
+                        let msg = progress.message;
+                        if (progress.percent !== undefined) msg += ` (${progress.percent}%)`;
+                        statusEl.textContent = msg;
+                    }
+                } else {
+                    clearInterval(interval);
+                    btn.className = originalClass;
+                    btn.textContent = originalText;
+                    btn.disabled = false;
+                    // Re-enable both consolidation buttons
+                    const btnC = document.getElementById('btn-consolidate');
+                    const btnF = document.getElementById('btn-consolidate-force');
+                    if (btnC) btnC.disabled = false;
+                    if (btnF) btnF.disabled = false;
+
+                    const procData = proc.data || {};
+                    if (proc.last_run_outcome === 'Success') {
+                        renderConsolidateStatus(procData);
+                        renderConsolidationImpact(procData.consolidation_impact);
+                        fetchEnrichmentStats();
+                    } else {
+                        statusEl.textContent = "Consolidation failed. Check logs.";
+                        statusEl.style.color = 'var(--color-danger)';
+                    }
+                }
+            })
+            .catch(err => {
+                console.error("Error polling consolidation status:", err);
+                clearInterval(interval);
+                btn.className = originalClass;
+                btn.textContent = originalText;
+                btn.disabled = false;
+                const btnC = document.getElementById('btn-consolidate');
+                const btnF = document.getElementById('btn-consolidate-force');
+                if (btnC) btnC.disabled = false;
+                if (btnF) btnF.disabled = false;
+            });
+    }, 2000);
 }
 
 function fetchStalenessStatus() {
