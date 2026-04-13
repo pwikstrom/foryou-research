@@ -18,6 +18,7 @@ import time
 import fyp.data_io as data_io
 from fyp.utils import chunk_list, start_monitor
 import fyp.mypyktok as pyk
+import fyp.tiktok_dl as tiktok_dl
 from fyp.recode_variables import rename_columns, recode_events_df
 from fyp.fyp_config import fyp_cf
 
@@ -226,21 +227,31 @@ def download_single_video(
 
 
     gcs_media_prefix = fyp_cf['data_io']['gcs_media_prefix']
-
-    pyk.specify_browser('chrome')
+    scraper_backend = fyp_cf['misc'].get('scraper_backend', 'pyktok')
 
     tiktok_url = f"https://www.tiktok.com/@/video/{video_id}/"
 
     # try to scrape metadata and download video
-    scrape_metadata = pyk.save_tiktok(
-        tiktok_url,
-        save_video=save_video,
-        max_duration_to_save = fyp_cf['misc']['max_duration_for_download'],
-        browser_name='chrome',
-        save_path=gcs_media_prefix,
-        stream_to_bucket = fyp_cf["data_io"]["bucket"],
-        verbose=verbose
-    )
+    if scraper_backend == 'ytdlp':
+        scrape_metadata = tiktok_dl.save_tiktok(
+            tiktok_url,
+            save_video=save_video,
+            max_duration_to_save=fyp_cf['misc']['max_duration_for_download'],
+            save_path=gcs_media_prefix,
+            stream_to_bucket=fyp_cf["data_io"]["bucket"],
+            verbose=verbose,
+        )
+    else:
+        pyk.specify_browser('chrome')
+        scrape_metadata = pyk.save_tiktok(
+            tiktok_url,
+            save_video=save_video,
+            max_duration_to_save=fyp_cf['misc']['max_duration_for_download'],
+            browser_name='chrome',
+            save_path=gcs_media_prefix,
+            stream_to_bucket=fyp_cf["data_io"]["bucket"],
+            verbose=verbose,
+        )
 
     try:
         # if there are columns in the result and a something has been downloaded
