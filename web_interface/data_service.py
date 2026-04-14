@@ -742,7 +742,15 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
             first_date = None
             try:
                 if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
-                    ddp_meta = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=False)
+                    # Project to just the column we need; the metadata parquet stores
+                    # MultiIndex columns as stringified tuples on disk.
+                    ddp_meta = data_io.load_parquet_selective(
+                        storage_location="recoded",
+                        filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
+                        columns=["('personas', 'first_event_ts')", "first_event_ts"],
+                        set_index='collection_id',
+                        verbose=False,
+                    )
                     if ddp_meta is not None:
                         # Check index or column for collection_id
                         if ddp_meta.index.name == 'collection_id' or ddp_meta.index.name is None:
@@ -751,7 +759,7 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
                             mask = ddp_meta['collection_id'].astype(str) == str(collection_id)
                         else:
                             mask = ddp_meta.index.astype(str) == str(collection_id)
-                            
+
                         row = ddp_meta[mask]
                         if not row.empty:
                             if ('personas', 'first_event_ts') in row.columns:

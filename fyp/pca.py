@@ -634,9 +634,19 @@ def calculate_scaled_pca_scores(
             storage_location="cache",
             filename=f"{study_name}_recoded.parquet",
             ):
-            study_recoded_dataset = data_io.load_parquet(
+            # Project to only the columns PCA actually consumes. The cache
+            # `*_recoded.parquet` files contain 91 columns (collections joined
+            # with scrapes + annotations), but PCA only needs the var_schema
+            # factors/features/grouping_factors plus `annotated_ok` (filter)
+            # and `dd_event_id` (defensively dropped below if present).
+            pca_factors, pca_features = get_factors_and_features_from_var_schema(verbose=False)
+            pca_grouping = get_grouping_factors_from_var_schema(verbose=False)
+            cols_for_pca = sorted(set(pca_factors + pca_features + pca_grouping
+                                      + ['annotated_ok', 'dd_event_id']))
+            study_recoded_dataset = data_io.load_parquet_selective(
                 storage_location="cache",
                 filename=f"{study_name}_recoded.parquet",
+                columns=cols_for_pca,
                 verbose=verbose)
 
     if study_name is not None and study_recoded_dataset is None:

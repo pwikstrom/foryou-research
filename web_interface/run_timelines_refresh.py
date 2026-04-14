@@ -95,7 +95,19 @@ def _discover_collections(reporter: TaskStatusReporter,
     if data_io.exists(storage_location="recoded", filename=meta_file):
         try:
             reporter.log(f"Loading {meta_file} to identify accepted collections...")
-            df = data_io.load_parquet(storage_location="recoded", filename=meta_file, verbose=False)
+            # Project to only the columns this routine reads: the `accepted`
+            # flag and `first_event_ts` (both stored as MultiIndex stringified
+            # tuples on disk, with flat-name fallbacks for older files).
+            df = data_io.load_parquet_selective(
+                storage_location="recoded",
+                filename=meta_file,
+                columns=[
+                    "('other', 'accepted')", "other_accepted",
+                    "('personas', 'first_event_ts')", "first_event_ts",
+                ],
+                set_index='collection_id',
+                verbose=False,
+            )
 
             if df is not None and not df.empty:
                 found_col = False

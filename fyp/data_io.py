@@ -872,6 +872,120 @@ def load_parquet(
 
 
 
+
+
+def load_parquet_selective(
+        storage_location: str = "cache",
+        filename: str = "",
+        columns: list = None,
+        filters: list = None,
+        set_index: str = None,
+        verbose: bool = False,
+    ):
+    """Load a parquet file with column projection and optional row filters.
+
+    Uses a pyarrow.parquet.read_table pipeline that strips the embedded
+    `pandas_metadata` from the table schema before converting to a DataFrame.
+    This is required because pandas' default conversion path attempts to
+    resolve ArrowDtype for every column listed in `pandas_metadata` (including
+    list-typed columns we did not request), which fails on parquet files
+    written with the older `list<element: string>` notation.
+
+    Performance: 10x-30x faster than `load_parquet()` on the large
+    `*_recoded.parquet` files when only a few columns are needed. See
+    `tmp/parquet_selective_loading_findings.md` for measured numbers.
+
+    Args:
+        storage_location: Named storage location (e.g. "cache", "recoded").
+        filename: Parquet file name. Must end in ".parquet".
+        columns: Optional list of on-disk column names to load. None loads all.
+            For files with MultiIndex columns (e.g. `collections_metadata.parquet`),
+            pass the on-disk stringified-tuple form, e.g.
+            `"('personas', 'first_event_ts')"`.
+        filters: Optional PyArrow filter expressions, e.g.
+            `[("collection_id", "==", "abc")]` or
+            `[("item_id", "in", ["a", "b"])]`. Note: filter pushdown only
+            prunes row groups when the file is sorted on the filter column;
+            otherwise it just discards rows after decode.
+        set_index: Optional on-disk column name to set as the index after read.
+            Required when the parquet was written with an indexed DataFrame and
+            the caller relies on `df.index` (stripping `pandas_metadata` drops
+            implicit-index information).
+        verbose: Print timing and shape info.
+
+    Returns:
+        The loaded DataFrame, or None on failure.
+    """
+
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+    root, ext = os.path.splitext(filename)
+    if ext != '.parquet':
+        raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
+
+    if not exists(storage_location, filename):
+        raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
+
+    primary, _, mode, _ = _resolve_paths(storage_location, filename)
+
+    t1 = _dt.datetime.now()
+
+    if mode == 'gcs':
+        fs = gcsfs.GCSFileSystem()
+        with fs.open(primary) as f:
+            existing_cols = pq.read_schema(f).names
+    else:
+        existing_cols = pq.read_schema(primary).names
+
+    if columns is not None:
+        missing = [c for c in columns if c not in existing_cols]
+        cols_to_read = [c for c in columns if c in existing_cols]
+        if missing and verbose:
+            print(f"    [DATA_IO] Selective: {len(missing)} requested column(s) not in schema, skipping: {missing}")
+        if not cols_to_read:
+            print(f" !! [DATA_IO] WARNING: load_parquet_selective: no requested columns exist in '{filename}'")
+            return None
+    else:
+        cols_to_read = None
+
+    if set_index is not None and cols_to_read is not None and set_index not in cols_to_read:
+        cols_to_read = cols_to_read + [set_index]
+
+    try:
+        if mode == 'gcs':
+            tbl = pq.read_table(primary, columns=cols_to_read, filters=filters, filesystem=fs)
+        else:
+            tbl = pq.read_table(primary, columns=cols_to_read, filters=filters)
+    except Exception as e:
+        print(f" !! [DATA_IO] WARNING: load_parquet_selective: read failed for '{filename}': {e}")
+        return None
+
+    # Strip the `pandas` schema metadata to avoid the
+    # `list<element: string>[pyarrow]` dtype-resolution failure during
+    # to_pandas() when other (unselected) columns are list-typed on disk.
+    meta = tbl.schema.metadata or {}
+    new_meta = {k: v for k, v in meta.items() if k != b'pandas'}
+    tbl = tbl.replace_schema_metadata(new_meta or None)
+
+    df = tbl.to_pandas(types_mapper=pd.ArrowDtype)
+
+    df = _repair_stringified_multiindex(df)
+
+    if set_index is not None and set_index in df.columns:
+        df = df.set_index(set_index)
+
+    if verbose:
+        t2 = _dt.datetime.now()
+        print(f"    [DATA_IO] Selective load: '{filename}' shape={df.shape} time={(t2-t1).total_seconds():.3f}s")
+
+    return df
+
+
+
+
 # Create a global lock object
 file_lock = threading.Lock()
 

@@ -1702,9 +1702,17 @@ def api_timeline_collections():
     if not allowed_collection_ids:
         return jsonify([])
 
-    # 3. Load Metadata to get details 
-    
-    meta_df = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet")
+    # 3. Load Metadata to get details
+
+    # Project to only the columns this handler uses: the `accepted` flag (under
+    # the MultiIndex `('other', 'accepted')` form on disk, or the flat
+    # 'accepted' name as a fallback) and `collection_id` as the index.
+    meta_df = data_io.load_parquet_selective(
+        storage_location="recoded",
+        filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
+        columns=["('other', 'accepted')", "accepted"],
+        set_index='collection_id',
+    )
     
     if meta_df is None or meta_df.empty:
         return jsonify([])

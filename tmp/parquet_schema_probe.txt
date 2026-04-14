@@ -1,0 +1,335 @@
+
+==============================================================================
+recoded/collections_metadata.parquet  --  Tier 1: metadata hot path
+==============================================================================
+  size:        52.6 KB
+  rows:        131
+  columns:     43
+  row groups:  1
+  column names (first 40):
+    [  0] "('counts', 'comment')"                                       dtype=int64
+    [  1] "('counts', 'fave')"                                          dtype=int64
+    [  2] "('counts', 'followed_by')"                                   dtype=int64
+    [  3] "('counts', 'following')"                                     dtype=int64
+    [  4] "('counts', 'login')"                                         dtype=int64
+    [  5] "('counts', 'observe')"                                       dtype=int64
+    [  6] "('counts', 'play')"                                          dtype=int64
+    [  7] "('counts', 'search')"                                        dtype=int64
+    [  8] "('counts', 'total')"                                         dtype=int64
+    [  9] "('other', 'ts_added_to_dataset')"                            dtype=timestamp[ns]
+    [ 10] "('participants', 'consentProvided')"                         dtype=bool
+    [ 11] "('participants', 'donationType')"                            dtype=string
+    [ 12] "('participants', 'consentToContact')"                        dtype=bool
+    [ 13] "('participants', 'email')"                                   dtype=string
+    [ 14] "('participants', 'name')"                                    dtype=string
+    [ 15] "('participants', 'date')"                                    dtype=string
+    [ 16] "('participants', 'campaign')"                                dtype=string
+    [ 17] "('participants', 'age')"                                     dtype=list<element: string>
+    [ 18] "('participants', 'tiktokHandle')"                            dtype=string
+    [ 19] "('participants', 'country')"                                 dtype=string
+    [ 20] "('participants', 'postCode')"                                dtype=string
+    [ 21] "('personas', 'inferred_tz_offset')"                          dtype=int64
+    [ 22] "('personas', 'active_days')"                                 dtype=int64
+    [ 23] "('personas', 'lifespan_days')"                               dtype=int64
+    [ 24] "('personas', 'total_events')"                                dtype=int64
+    [ 25] "('personas', 'events_per_active_day')"                       dtype=double
+    [ 26] "('personas', 'videos_per_day')"                              dtype=double
+    [ 27] "('personas', 'comments_per_day')"                            dtype=double
+    [ 28] "('personas', 'likes_per_day')"                               dtype=double
+    [ 29] "('personas', 'likes_per_video')"                             dtype=double
+    [ 30] "('personas', 'daily_watch_time_s')"                          dtype=double
+    [ 31] "('personas', 'num_watches')"                                 dtype=int64
+    [ 32] "('personas', 'total_watch_time_s')"                          dtype=int64
+    [ 33] "('personas', 'median_watch_time_s')"                         dtype=double
+    [ 34] "('personas', 'num_comments')"                                dtype=int64
+    [ 35] "('personas', 'num_likes')"                                   dtype=int64
+    [ 36] "('personas', 'num_posts')"                                   dtype=int64
+    [ 37] "('personas', 'peak_activity_hour_local')"                    dtype=int64
+    [ 38] "('personas', 'most_active_weekday')"                         dtype=int64
+    [ 39] "('personas', 'first_event_ts')"                              dtype=string
+    ... and 3 more
+
+==============================================================================
+recoded/collections_recoded.parquet  --  Tier 2: events, organize_datasets
+==============================================================================
+  size:        92.0 MB
+  rows:        4,781,858
+  columns:     16
+  row groups:  5
+  column names (first 40):
+    [  0] 'activity_type'                                               dtype=string
+    [  1] 'item_id'                                                     dtype=string
+    [  2] 'ts_added_to_dataset'                                         dtype=timestamp[ns]
+    [  3] 'extra_data'                                                  dtype=string
+    [  4] 'play_duration'                                               dtype=int64
+    [  5] 'utc_timestamp'                                               dtype=timestamp[ns]
+    [  6] 'raw_file'                                                    dtype=string
+    [  7] 'tz_offset'                                                   dtype=int64
+    [  8] 'source_platform'                                             dtype=string
+    [  9] 'data_source'                                                 dtype=string
+    [ 10] 'collection_id'                                               dtype=string
+    [ 11] 'local_timestamp'                                             dtype=timestamp[ns]
+    [ 12] 'local_weekday'                                               dtype=string
+    [ 13] 'local_week'                                                  dtype=string
+    [ 14] 'local_day_segment'                                           dtype=string
+    [ 15] 'local_date'                                                  dtype=timestamp[ms]
+
+==============================================================================
+recoded/scrapes_recoded.parquet  --  Tier 2: scrape data, run_timelines_refresh
+==============================================================================
+  size:        234.9 MB
+  rows:        1,082,888
+  columns:     35
+  row groups:  2
+  column names (first 40):
+    [  0] 'item_id'                                                     dtype=string
+    [  1] 'video_downloaded'                                            dtype=bool
+    [  2] 'anchors'                                                     dtype=string
+    [  3] 'author_nickname'                                             dtype=string
+    [  4] 'author_signature'                                            dtype=string
+    [  5] 'author_uniqueId'                                             dtype=string
+    [  6] 'music_album'                                                 dtype=string
+    [  7] 'music_authorName'                                            dtype=string
+    [  8] 'music_title'                                                 dtype=string
+    [  9] 'poi_address'                                                 dtype=string
+    [ 10] 'poi_city'                                                    dtype=string
+    [ 11] 'poi_country'                                                 dtype=string
+    [ 12] 'poi_name'                                                    dtype=string
+    [ 13] 'poi_province'                                                dtype=string
+    [ 14] 'isAd'                                                        dtype=string
+    [ 15] 'IsAigc'                                                      dtype=string
+    [ 16] 'image_list'                                                  dtype=int64
+    [ 17] 'author_id'                                                   dtype=string
+    [ 18] 'createTime'                                                  dtype=timestamp[ns]
+    [ 19] 'music_id'                                                    dtype=string
+    [ 20] 'video_duration'                                              dtype=int64
+    [ 21] 'stats_collectCount'                                          dtype=int64
+    [ 22] 'stats_commentCount'                                          dtype=int64
+    [ 23] 'stats_diggCount'                                             dtype=int64
+    [ 24] 'stats_playCount'                                             dtype=int64
+    [ 25] 'stats_shareCount'                                            dtype=int64
+    [ 26] 'music_duration'                                              dtype=int64
+    [ 27] 'music_original'                                              dtype=bool
+    [ 28] 'desc_raw'                                                    dtype=string
+    [ 29] 'desc_hashtags'                                               dtype=list<element: string>
+    [ 30] 'scraped_ok'                                                  dtype=bool
+    [ 31] 'challenges'                                                  dtype=string
+    [ 32] 'desc_mentions'                                               dtype=list<element: string>
+    [ 33] 'desc_not_hashtags'                                           dtype=list<element: string>
+    [ 34] '__index_level_0__'                                           dtype=int64
+
+==============================================================================
+recoded/machine_annotations_recoded.parquet  --  Tier 2: annotations, study refresh
+==============================================================================
+  size:        279.1 MB
+  rows:        273,572
+  columns:     39
+  row groups:  1
+  column names (first 40):
+    [  0] 'item_id'                                                     dtype=string
+    [  1] 'objects'                                                     dtype=list<element: string>
+    [  2] 'symbols_and_brands'                                          dtype=list<element: string>
+    [  3] 'text_overlays'                                               dtype=list<element: string>
+    [  4] 'main_activity'                                               dtype=string
+    [  5] 'video_story'                                                 dtype=string
+    [  6] 'type_of_story'                                               dtype=string
+    [  7] 'content_category'                                            dtype=list<element: string>
+    [  8] 'australian_relevance'                                        dtype=string
+    [  9] 'tiktok_native'                                               dtype=string
+    [ 10] 'trend'                                                       dtype=string
+    [ 11] 'advertising'                                                 dtype=string
+    [ 12] 'aigc'                                                        dtype=string
+    [ 13] 'main_gender'                                                 dtype=string
+    [ 14] 'main_ethnicity'                                              dtype=string
+    [ 15] 'political_score'                                             dtype=double
+    [ 16] 'sensitivity_score'                                           dtype=double
+    [ 17] 'FA_problem_definition'                                       dtype=string
+    [ 18] 'FA_attribution_of_responsibility'                            dtype=string
+    [ 19] 'FA_moral_evaluation'                                         dtype=string
+    [ 20] 'FA_treatment_recommendation'                                 dtype=string
+    [ 21] 'CRA_key_groups'                                              dtype=string
+    [ 22] 'CRA_complexity_vs_stereotypes'                               dtype=string
+    [ 23] 'CRA_symbolism_and_imagery'                                   dtype=string
+    [ 24] 'CRA_inclusion_and_exclusion'                                 dtype=string
+    [ 25] 'IA_dominant_ideologies'                                      dtype=string
+    [ 26] 'IA_power_dynamics'                                           dtype=string
+    [ 27] 'IA_critique_or_reinforcement'                                dtype=string
+    [ 28] 'IA_cultural_or_historical_context'                           dtype=string
+    [ 29] 'scene_sentiments'                                            dtype=list<element: string>
+    [ 30] 'speech_vs_music'                                             dtype=double
+    [ 31] 'background_music'                                            dtype=list<element: string>
+    [ 32] 'notable_sounds'                                              dtype=list<element: string>
+    [ 33] 'faces_age_estimate'                                          dtype=double
+    [ 34] 'transcript_no_repetitions'                                   dtype=string
+    [ 35] 'call_to_action_words'                                        dtype=list<element: string>
+    [ 36] 'annotated_ok'                                                dtype=bool
+    [ 37] 'annotated_fail'                                              dtype=bool
+    [ 38] '__index_level_0__'                                           dtype=int64
+
+==============================================================================
+recoded/enrichment_status.parquet  --  Tier 1: enrichment status
+==============================================================================
+  size:        23.9 MB
+  rows:        2,804,227
+  columns:     9
+  row groups:  3
+  column names (first 40):
+    [  0] 'nunique_collections'                                         dtype=int64
+    [  1] 'total_observations'                                          dtype=int64
+    [  2] 'scraped_ok'                                                  dtype=bool
+    [  3] 'video_downloaded'                                            dtype=bool
+    [  4] 'annotated_ok'                                                dtype=bool
+    [  5] 'annotated_fail'                                              dtype=bool
+    [  6] 'scrape_fail'                                                 dtype=bool
+    [  7] 'annotation_votes'                                            dtype=int64
+    [  8] 'item_id'                                                     dtype=string
+
+==============================================================================
+cache/everything_recoded.parquet  --  Tier 2: largest study cache
+==============================================================================
+  size:        1.1 GB
+  rows:        4,666,790
+  columns:     91
+  row groups:  5
+  column names (first 40):
+    [  0] 'activity_type'                                               dtype=string
+    [  1] 'item_id'                                                     dtype=string
+    [  2] 'ts_added_to_dataset'                                         dtype=timestamp[ns]
+    [  3] 'extra_data'                                                  dtype=string
+    [  4] 'play_duration'                                               dtype=int64
+    [  5] 'utc_timestamp'                                               dtype=timestamp[ns]
+    [  6] 'raw_file'                                                    dtype=string
+    [  7] 'tz_offset'                                                   dtype=int64
+    [  8] 'source_platform'                                             dtype=string
+    [  9] 'data_source'                                                 dtype=string
+    [ 10] 'collection_id'                                               dtype=string
+    [ 11] 'local_timestamp'                                             dtype=timestamp[ns]
+    [ 12] 'local_weekday'                                               dtype=string
+    [ 13] 'local_week'                                                  dtype=string
+    [ 14] 'local_day_segment'                                           dtype=string
+    [ 15] 'local_date'                                                  dtype=timestamp[ms]
+    [ 16] 'video_downloaded'                                            dtype=bool
+    [ 17] 'anchors'                                                     dtype=string
+    [ 18] 'author_nickname'                                             dtype=string
+    [ 19] 'author_signature'                                            dtype=string
+    [ 20] 'author_uniqueId'                                             dtype=string
+    [ 21] 'music_album'                                                 dtype=string
+    [ 22] 'music_authorName'                                            dtype=string
+    [ 23] 'music_title'                                                 dtype=string
+    [ 24] 'poi_address'                                                 dtype=string
+    [ 25] 'poi_city'                                                    dtype=string
+    [ 26] 'poi_country'                                                 dtype=string
+    [ 27] 'poi_name'                                                    dtype=string
+    [ 28] 'poi_province'                                                dtype=string
+    [ 29] 'isAd'                                                        dtype=string
+    [ 30] 'IsAigc'                                                      dtype=string
+    [ 31] 'image_list'                                                  dtype=int64
+    [ 32] 'author_id'                                                   dtype=string
+    [ 33] 'createTime'                                                  dtype=timestamp[ns]
+    [ 34] 'music_id'                                                    dtype=string
+    [ 35] 'video_duration'                                              dtype=int64
+    [ 36] 'stats_collectCount'                                          dtype=int64
+    [ 37] 'stats_commentCount'                                          dtype=int64
+    [ 38] 'stats_diggCount'                                             dtype=int64
+    [ 39] 'stats_playCount'                                             dtype=int64
+    ... and 51 more
+
+==============================================================================
+cache/paper_three_recoded.parquet  --  Tier 2: large study cache
+==============================================================================
+  size:        869.4 MB
+  rows:        2,460,789
+  columns:     91
+  row groups:  3
+  column names (first 40):
+    [  0] 'activity_type'                                               dtype=string
+    [  1] 'item_id'                                                     dtype=string
+    [  2] 'ts_added_to_dataset'                                         dtype=timestamp[ns]
+    [  3] 'extra_data'                                                  dtype=string
+    [  4] 'play_duration'                                               dtype=int64
+    [  5] 'utc_timestamp'                                               dtype=timestamp[ns]
+    [  6] 'raw_file'                                                    dtype=string
+    [  7] 'tz_offset'                                                   dtype=int64
+    [  8] 'source_platform'                                             dtype=string
+    [  9] 'data_source'                                                 dtype=string
+    [ 10] 'collection_id'                                               dtype=string
+    [ 11] 'local_timestamp'                                             dtype=timestamp[ns]
+    [ 12] 'local_weekday'                                               dtype=string
+    [ 13] 'local_week'                                                  dtype=string
+    [ 14] 'local_day_segment'                                           dtype=string
+    [ 15] 'local_date'                                                  dtype=timestamp[ms]
+    [ 16] 'video_downloaded'                                            dtype=bool
+    [ 17] 'anchors'                                                     dtype=string
+    [ 18] 'author_nickname'                                             dtype=string
+    [ 19] 'author_signature'                                            dtype=string
+    [ 20] 'author_uniqueId'                                             dtype=string
+    [ 21] 'music_album'                                                 dtype=string
+    [ 22] 'music_authorName'                                            dtype=string
+    [ 23] 'music_title'                                                 dtype=string
+    [ 24] 'poi_address'                                                 dtype=string
+    [ 25] 'poi_city'                                                    dtype=string
+    [ 26] 'poi_country'                                                 dtype=string
+    [ 27] 'poi_name'                                                    dtype=string
+    [ 28] 'poi_province'                                                dtype=string
+    [ 29] 'isAd'                                                        dtype=string
+    [ 30] 'IsAigc'                                                      dtype=string
+    [ 31] 'image_list'                                                  dtype=int64
+    [ 32] 'author_id'                                                   dtype=string
+    [ 33] 'createTime'                                                  dtype=timestamp[ns]
+    [ 34] 'music_id'                                                    dtype=string
+    [ 35] 'video_duration'                                              dtype=int64
+    [ 36] 'stats_collectCount'                                          dtype=int64
+    [ 37] 'stats_commentCount'                                          dtype=int64
+    [ 38] 'stats_diggCount'                                             dtype=int64
+    [ 39] 'stats_playCount'                                             dtype=int64
+    ... and 51 more
+
+==============================================================================
+cache/chenglong_recoded.parquet  --  Tier 2: medium study cache
+==============================================================================
+  size:        25.6 MB
+  rows:        32,606
+  columns:     91
+  row groups:  1
+  column names (first 40):
+    [  0] 'collection_id'                                               dtype=string
+    [  1] 'local_date'                                                  dtype=timestamp[ms]
+    [  2] 'activity_type'                                               dtype=string
+    [  3] 'item_id'                                                     dtype=string
+    [  4] 'ts_added_to_dataset'                                         dtype=timestamp[ns]
+    [  5] 'extra_data'                                                  dtype=string
+    [  6] 'play_duration'                                               dtype=int64
+    [  7] 'utc_timestamp'                                               dtype=timestamp[ns]
+    [  8] 'raw_file'                                                    dtype=string
+    [  9] 'tz_offset'                                                   dtype=int64
+    [ 10] 'source_platform'                                             dtype=string
+    [ 11] 'data_source'                                                 dtype=string
+    [ 12] 'local_timestamp'                                             dtype=timestamp[ns]
+    [ 13] 'local_weekday'                                               dtype=string
+    [ 14] 'local_week'                                                  dtype=string
+    [ 15] 'local_day_segment'                                           dtype=string
+    [ 16] 'video_downloaded'                                            dtype=bool
+    [ 17] 'anchors'                                                     dtype=string
+    [ 18] 'author_nickname'                                             dtype=string
+    [ 19] 'author_signature'                                            dtype=string
+    [ 20] 'author_uniqueId'                                             dtype=string
+    [ 21] 'music_album'                                                 dtype=string
+    [ 22] 'music_authorName'                                            dtype=string
+    [ 23] 'music_title'                                                 dtype=string
+    [ 24] 'poi_address'                                                 dtype=string
+    [ 25] 'poi_city'                                                    dtype=string
+    [ 26] 'poi_country'                                                 dtype=string
+    [ 27] 'poi_name'                                                    dtype=string
+    [ 28] 'poi_province'                                                dtype=string
+    [ 29] 'isAd'                                                        dtype=string
+    [ 30] 'IsAigc'                                                      dtype=string
+    [ 31] 'image_list'                                                  dtype=int64
+    [ 32] 'author_id'                                                   dtype=string
+    [ 33] 'createTime'                                                  dtype=timestamp[ns]
+    [ 34] 'music_id'                                                    dtype=string
+    [ 35] 'video_duration'                                              dtype=int64
+    [ 36] 'stats_collectCount'                                          dtype=int64
+    [ 37] 'stats_commentCount'                                          dtype=int64
+    [ 38] 'stats_diggCount'                                             dtype=int64
+    [ 39] 'stats_playCount'                                             dtype=int64
+    ... and 51 more
