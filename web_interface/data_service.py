@@ -81,15 +81,22 @@ def get_explorer_data(study, context=None, verbose=False):
     
     # Apply Context Filtering on a COPY
     if raw_df is not None:
+        # annotated_ok only exists once machine_annotations have been merged in.
+        # Without annotations (fresh app) the filter reduces to play/observe + item_id present.
+        if "annotated_ok" in raw_df.columns:
+            annotated_mask = raw_df["annotated_ok"].fillna(False)
+        else:
+            annotated_mask = pd.Series(False, index=raw_df.index)
+
         if context == "viewer":
             filtered_df = raw_df[
-                (raw_df.annotated_ok)
+                annotated_mask
                 & (raw_df['activity_type'].isin(['play', 'observe']))
                 & (raw_df['item_id'].notna())
             ].copy()
         elif context == "explorer":
             filtered_df = raw_df[
-                (raw_df.annotated_ok)
+                annotated_mask
                 & (raw_df['activity_type'].isin(['play', 'observe']))
                 & (raw_df['item_id'].notna())
             ].copy()

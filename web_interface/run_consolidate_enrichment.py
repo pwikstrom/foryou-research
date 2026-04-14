@@ -60,9 +60,12 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         "new_scrape_files": new_scrape_count,
         "new_annotation_files": new_annotation_count,
         "last_status_refresh": now_iso,
+        # Always record when consolidation was last run — the UI warning uses
+        # this timestamp to decide whether the scraper/annotator has completed
+        # more recently than the last consolidation. had_new_data in the same
+        # payload separately captures whether anything actually changed.
+        "last_consolidation": now_iso,
     }
-    if had_new_data:
-        data_payload["last_consolidation"] = now_iso
     if impact:
         data_payload["consolidation_impact"] = impact
 

@@ -57,6 +57,13 @@ def _load_cached_core_datasets(verbose: bool = False) -> dict:
                 continue
 
         # fallback: load from main storage
+        if not data_io.exists(storage_location="recoded", filename=f"{k}_recoded.parquet"):
+            if verbose:
+                print(f"    [Core datasets] '{k}_recoded.parquet' not present in main storage — treating as empty")
+            tutti_data[k] = pd.DataFrame()
+            tutti_data[k].attrs["study_name"] = 'everything'
+            continue
+
         if verbose:
             print(f"    [Core datasets] Loading '{k}' from main storage...")
         tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
@@ -90,11 +97,15 @@ def _filter_enrichment_data(
 
     # scrape data
     if tutti_data.get(SCRAPES_LABEL) is None or tutti_data[SCRAPES_LABEL].empty:
-        print("    [Scrape] Loading scraped data from main storage...", end="", flush=True)
-        if verbose: print()
-        tutti_data[SCRAPES_LABEL] = data_io.load_parquet(
-            storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
-        if not verbose: print(" ...done")
+        if not data_io.exists(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"):
+            print(f"    [Scrape] '{SCRAPES_LABEL}_recoded.parquet' not present — treating as empty")
+            tutti_data[SCRAPES_LABEL] = pd.DataFrame()
+        else:
+            print("    [Scrape] Loading scraped data from main storage...", end="", flush=True)
+            if verbose: print()
+            tutti_data[SCRAPES_LABEL] = data_io.load_parquet(
+                storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
+            if not verbose: print(" ...done")
     else:
         print(f"    [Scrape] There are {len(tutti_data[SCRAPES_LABEL]):,} scraped data items in the cache", end="", flush=True)
         tutti_data[SCRAPES_LABEL] = tutti_data[SCRAPES_LABEL][tutti_data[SCRAPES_LABEL]["item_id"].isin(unique_videos)].copy()
@@ -102,11 +113,15 @@ def _filter_enrichment_data(
 
     # machine annotations
     if tutti_data.get(MACHINE_ANNOTATIONS_LABEL) is None or tutti_data[MACHINE_ANNOTATIONS_LABEL].empty:
-        print("    [Machine annotations] Loading machine annotations from main storage...", end="", flush=True)
-        if verbose: print()
-        tutti_data[MACHINE_ANNOTATIONS_LABEL] = data_io.load_parquet(
-            storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
-        if not verbose: print(" ...done")
+        if not data_io.exists(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"):
+            print(f"    [Machine annotations] '{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet' not present — treating as empty")
+            tutti_data[MACHINE_ANNOTATIONS_LABEL] = pd.DataFrame()
+        else:
+            print("    [Machine annotations] Loading machine annotations from main storage...", end="", flush=True)
+            if verbose: print()
+            tutti_data[MACHINE_ANNOTATIONS_LABEL] = data_io.load_parquet(
+                storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
+            if not verbose: print(" ...done")
     else:
         print(f"    [Machine annotations] There are {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} annotations in the cache", end="", flush=True)
         tutti_data[MACHINE_ANNOTATIONS_LABEL] = tutti_data[MACHINE_ANNOTATIONS_LABEL][tutti_data[MACHINE_ANNOTATIONS_LABEL]["item_id"].isin(unique_videos)].copy()
@@ -330,16 +345,24 @@ def simple_sample_collection_events(
 
     if enrichment_status is not None:
         enrichment_status_df = enrichment_status
-    else:
+    elif data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
         enrichment_status_df = data_io.load_parquet(
             storage_location="recoded",
             filename="enrichment_status.parquet")
-
-    # Ensure item_id is the index for the merge (callers may pass it as a column)
-    if enrichment_status_df is not None and 'item_id' in enrichment_status_df.columns:
-        enrichment_status_df = enrichment_status_df.set_index('item_id')
+    else:
+        enrichment_status_df = None
 
     combined_deduped = combined.drop_duplicates(subset="item_id", keep="first")[["item_id"]]
+
+    if enrichment_status_df is None:
+        print(f"    [Sampling] No enrichment_status available — skipping enrichment summary")
+        print(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+        print(f"    [Sampling] - Unique items: {len(combined_deduped):,}")
+        return combined
+
+    # Ensure item_id is the index for the merge (callers may pass it as a column)
+    if 'item_id' in enrichment_status_df.columns:
+        enrichment_status_df = enrichment_status_df.set_index('item_id')
 
     combined_deduped_enrichment_status = pd.merge(left=combined_deduped, right=enrichment_status_df, left_on='item_id', right_index=True, how='left')
 
@@ -430,18 +453,27 @@ def load_study_datasets(
     else:
         # enrichment_status is only needed when sampling is active
         if enrichment_status is None:
-            enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+            if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+                enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+            else:
+                print("    [DD Sampling] 'enrichment_status.parquet' not present — no enrichment data available yet")
 
         if sample_frame_setting == "events":
             sample_frame = tutti_data["collections"].copy()
             print(f"    [DD Sampling] Sample frame setting is 'events'. Using all {len(sample_frame):,} collection events as sample frame.")
 
         elif sample_frame_setting == "scraped":
+            if enrichment_status is None:
+                print(f"!!! [DD Sampling] Sample frame setting is 'scraped' but no enrichment_status is available. Returning None")
+                return None
             selected_videos = enrichment_status[enrichment_status["scraped_ok"]].index.tolist()
             sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
             print(f"    [DD Sampling] Sample frame setting is 'scraped'. Using only {len(sample_frame):,} collection events that are scraped as sample frame.")
 
         elif sample_frame_setting == "annotated":
+            if enrichment_status is None:
+                print(f"!!! [DD Sampling] Sample frame setting is 'annotated' but no enrichment_status is available. Returning None")
+                return None
             selected_videos = enrichment_status[enrichment_status["annotated_ok"]].index.tolist()
             sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
             print(f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} collection events that are annotated as sample frame.")
@@ -623,9 +655,19 @@ def update_enrichment_status(
     most_common_item_id_length = enrichment_status_df["item_id"].str.len().value_counts().index[0]
     enrichment_status_df = enrichment_status_df[enrichment_status_df["item_id"].str.len()==most_common_item_id_length].copy()
 
-    enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets[SCRAPES_LABEL][['item_id','scraped_ok','video_downloaded']], on='item_id', how='left')
+    scrapes_for_merge = all_datasets.get(SCRAPES_LABEL)
+    if scrapes_for_merge is not None and not scrapes_for_merge.empty and {'item_id', 'scraped_ok', 'video_downloaded'}.issubset(scrapes_for_merge.columns):
+        enrichment_status_df = pd.merge(left=enrichment_status_df, right=scrapes_for_merge[['item_id','scraped_ok','video_downloaded']], on='item_id', how='left')
+    else:
+        enrichment_status_df["scraped_ok"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
+        enrichment_status_df["video_downloaded"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
 
-    enrichment_status_df = pd.merge(left=enrichment_status_df, right=all_datasets[MACHINE_ANNOTATIONS_LABEL][['item_id','annotated_ok','annotated_fail']], on='item_id', how='left')
+    annotations_for_merge = all_datasets.get(MACHINE_ANNOTATIONS_LABEL)
+    if annotations_for_merge is not None and not annotations_for_merge.empty and {'item_id', 'annotated_ok', 'annotated_fail'}.issubset(annotations_for_merge.columns):
+        enrichment_status_df = pd.merge(left=enrichment_status_df, right=annotations_for_merge[['item_id','annotated_ok','annotated_fail']], on='item_id', how='left')
+    else:
+        enrichment_status_df["annotated_ok"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
+        enrichment_status_df["annotated_fail"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
 
     failed_scrapes = load_failed_scrapes()
     failed_scrapes = pd.DataFrame(failed_scrapes, columns=["item_id"])
@@ -755,12 +797,17 @@ def new_merge(
 
 
     # merge scrape + annotations into enrichment data
-    if all_datasets.get(SCRAPES_LABEL) is not None and all_datasets.get(MACHINE_ANNOTATIONS_LABEL) is not None:
-        enriched_data = pd.merge(left=all_datasets[SCRAPES_LABEL], right=all_datasets[MACHINE_ANNOTATIONS_LABEL], on='item_id', how='left')
-    elif all_datasets.get(SCRAPES_LABEL) is not None:
-        enriched_data = all_datasets[SCRAPES_LABEL]
-    elif all_datasets.get(MACHINE_ANNOTATIONS_LABEL) is not None:
-        enriched_data = all_datasets[MACHINE_ANNOTATIONS_LABEL]
+    scrapes_df = all_datasets.get(SCRAPES_LABEL)
+    annotations_df = all_datasets.get(MACHINE_ANNOTATIONS_LABEL)
+    has_scrapes = scrapes_df is not None and not scrapes_df.empty
+    has_annotations = annotations_df is not None and not annotations_df.empty
+
+    if has_scrapes and has_annotations:
+        enriched_data = pd.merge(left=scrapes_df, right=annotations_df, on='item_id', how='left')
+    elif has_scrapes:
+        enriched_data = scrapes_df
+    elif has_annotations:
+        enriched_data = annotations_df
     else:
         enriched_data = pd.DataFrame()
 
@@ -772,40 +819,50 @@ def new_merge(
     if len(activity_data) == 0:
         print("No activity data")
         return enriched_data
+
     if len(enriched_data) == 0:
-        print("No enriched data")
-        return activity_data
+        print("No enriched data — caching activity-only dataset")
+        shebang = activity_data.copy()
+    else:
+        shebang = pd.merge(left=activity_data, right=enriched_data, on='item_id', how='left')
 
-    shebang = pd.merge(left=activity_data, right=enriched_data, on='item_id', how='left')
+        # --------------------------------------------------------------------------------------------------
+        # adding some calculated columns to this merged dataset
+        # --------------------------------------------------------------------------------------------------
 
-    # --------------------------------------------------------------------------------------------------
-    # adding some calculated columns to this merged dataset
-    # --------------------------------------------------------------------------------------------------
+        # 1. days since created
+        calc_col = ["days_since_created"]
+        if "local_timestamp" in shebang.columns and "createTime" in shebang.columns:
+            shebang[calc_col[-1]] = shebang["local_timestamp"] - shebang["createTime"]
+            shebang[calc_col[-1]] = shebang[calc_col[-1]].map(lambda x: x.days if x is not pd.NA else pd.NA).astype("int64[pyarrow]")
+            shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0)
+        else:
+            shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="int64[pyarrow]")
 
-    # 1. days since created
-    calc_col = ["days_since_created"]
-    shebang[calc_col[-1]] = shebang["local_timestamp"] - shebang["createTime"]
-    shebang[calc_col[-1]] = shebang[calc_col[-1]].map(lambda x: x.days if x is not pd.NA else pd.NA).astype("int64[pyarrow]")
-    shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0)
+        # 2. plays per day
+        calc_col += ["plays_per_day"]
+        def _safe_vector_divide(x, y):
+            return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
+        if "stats_playCount" in shebang.columns and "days_since_created" in shebang.columns and not shebang["days_since_created"].isna().all():
+            shebang[calc_col[-1]] = _safe_vector_divide(shebang['stats_playCount'],shebang['days_since_created'])
+        else:
+            shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
 
-    # 2. plays per day
-    calc_col += ["plays_per_day"]
-    def _safe_vector_divide(x, y):
-        return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
-    shebang[calc_col[-1]] = _safe_vector_divide(shebang['stats_playCount'],shebang['days_since_created'])
+        # 3. scraped fail
+        failed_scrapes = set(load_failed_scrapes(verbose=verbose))
+        calc_col += ["scraped_fail"]
+        shebang[calc_col[-1]] = shebang["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
 
-    # 3. scraped fail
-    failed_scrapes = set(load_failed_scrapes(verbose=verbose))
-    calc_col += ["scraped_fail"]
-    shebang[calc_col[-1]] = shebang["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
+        # 4. completion rate
+        calc_col += ["completion_rate"]
+        if "play_duration" in shebang.columns and "video_duration" in shebang.columns:
+            shebang[calc_col[-1]] = shebang["play_duration"] / shebang["video_duration"]
+            shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0,upper=1).astype("double[pyarrow]")
+        else:
+            shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
 
-    # 4. completion rate
-    calc_col += ["completion_rate"]
-    shebang[calc_col[-1]] = shebang["play_duration"] / shebang["video_duration"]
-    shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0,upper=1).astype("double[pyarrow]")
-
-    if verbose:
-        print(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
+        if verbose:
+            print(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
     # --------------------------------------------------------------------------------------------------
 
 

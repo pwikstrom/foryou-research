@@ -27,6 +27,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         task_args: Must contain 'study_name'. Optional: 'refresh_pca' (bool),
                    'refresh_metadata' (bool).
     """
+    import pandas as pd
     import fyp.data_io as data_io
     from fyp.fyp_config import fyp_cf
     from fyp.pca import calculate_scaled_pca_scores
@@ -114,9 +115,16 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.log(f"Classifying columns for metadata generation...")
         col_types = explorer.classify_columns(df_recoded)
 
-        # Filter to annotated play/observe events
+        # Filter to annotated play/observe events.
+        # annotated_ok comes from merged machine_annotations — absent on fresh apps
+        # that only have activity data, in which case no rows pass the filter.
+        if "annotated_ok" in df_recoded.columns:
+            annotated_mask = df_recoded["annotated_ok"].fillna(False)
+        else:
+            annotated_mask = pd.Series(False, index=df_recoded.index)
+
         df_filtered = df_recoded[
-            df_recoded.annotated_ok
+            annotated_mask
             & df_recoded['activity_type'].isin(['play', 'observe'])
             & df_recoded['item_id'].notna()
         ].copy()
