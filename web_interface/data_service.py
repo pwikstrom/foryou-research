@@ -355,9 +355,13 @@ def get_viz_config():
 
 
 def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, preloaded_df=None):
-    """
-    Ensures that timeline aggregation for day exists in cache.
+    """Ensures that timeline aggregation for day exists in cache.
+
     If not, calculates it from the unified collection dataset.
+
+    Returns:
+        dict mapping interval name to aggregated DataFrame, or None on failure.
+        Truthy when successful (backward-compatible with old bool return).
     """
 
     intervals = ['day']
@@ -388,26 +392,26 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
     if not missing:
         if verbose:
             print(f"    [TIMELINE] Using cached timeline data for {collection_id}")
-        return True # All good
+        return {"day": None}  # truthy — cache already exists, no agg_df available
             
     # Generate Data
     # 1. Load Unified Dataset
     if preloaded_df is not None:
         if verbose:
             print(f"    [TIMELINE] Using locally provided dataframe for {collection_id} (shape: {preloaded_df.shape})")
-        df = preloaded_df.copy()
+        df = preloaded_df
     else:
         df = create_collection_unified_dataset(collection_id=collection_id, verbose=False)
         
     if df is None or df.empty:
         print("ERROR: Could not load unified dataset for collection", collection_id)
-        return False
+        return None
         
     # Ensure date column
     date_col = 'local_date'
     if date_col not in df.columns:
          print(f"ERROR: {date_col} missing in unified dataset")
-         return False
+         return None
          
     df[date_col] = pd.to_datetime(df[date_col]).astype('datetime64[ns]')
     
@@ -422,16 +426,12 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
 
     # ---------------------------------------------------------
     # 2. Iterate and Aggregate
-    # We allow regenerating ALL intervals if any is missing to keep them in sync, 
-    # or just missing. Let's do all to be safe if one is missing (might be stale).
-    # Actually user said "check ... and if they are not there", implying lazy load.
-    # But loading unified is expensive, so efficiently do all 3 if we loaded it.
+    result_dfs: dict[str, pd.DataFrame] = {}
     
     for interval in intervals:
 
-        # Grouping
-        temp_df = df.copy()
-        temp_df['period'] = temp_df[date_col].dt.date.astype(str)
+        # Grouping — assign() shares underlying column data, avoiding a full copy
+        temp_df = df.assign(period=df[date_col].dt.date.astype(str))
 
         group_col = 'period'
 
@@ -487,48 +487,47 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
             agg_df = agg_df.merge(ed_counts, on=group_col, how='left')
             agg_df['extra_data_count'] = agg_df['extra_data_count'].fillna(0).astype(int)
 
+        # --- Accumulate all per-variable columns, single merge at end ---
+        extra_cols: dict[str, pd.Series] = {}
+
         # --- Numeric variables: vectorized groupby mean + count ---
         if numeric_vars:
             means = temp_df.groupby(group_col)[numeric_vars].mean()
-            means.columns = [f"{v}_val" for v in numeric_vars]
             counts = temp_df.groupby(group_col)[numeric_vars].count()
-            counts.columns = [f"{v}_valid" for v in numeric_vars]
-            agg_df = agg_df.merge(means, on=group_col, how='left')
-            agg_df = agg_df.merge(counts, on=group_col, how='left')
+            for v in numeric_vars:
+                extra_cols[f"{v}_val"] = means[v]
+                extra_cols[f"{v}_valid"] = counts[v]
 
         # --- Categorical (non-list) variables: groupby + value_counts ---
         for var in categorical_vars:
-            # Valid count per period
-            valid_counts = temp_df.groupby(group_col)[var].count().rename(f"{var}_valid")
-            agg_df = agg_df.merge(valid_counts, on=group_col, how='left')
+            extra_cols[f"{var}_valid"] = temp_df.groupby(group_col)[var].count()
 
-            # Category counts per period as JSON strings
             vc = temp_df.groupby(group_col)[var].value_counts()
             unstacked = vc.unstack(fill_value=0)
-            json_series = unstacked.apply(
+            extra_cols[f"{var}_counts"] = unstacked.apply(
                 lambda row: json.dumps({k: int(v) for k, v in row.items() if v > 0}), axis=1
-            ).rename(f"{var}_counts")
-            agg_df = agg_df.merge(json_series, on=group_col, how='left')
+            )
 
         # --- List variables: explode once, then groupby + value_counts ---
         for var in list_vars:
-            # Valid count: rows with non-empty lists
             is_valid_list = temp_df[var].apply(lambda x: isinstance(x, list) and len(x) > 0)
-            valid_counts = temp_df.assign(_is_valid=is_valid_list).groupby(group_col)['_is_valid'].sum().astype(int).rename(f"{var}_valid")
-            agg_df = agg_df.merge(valid_counts, on=group_col, how='left')
+            extra_cols[f"{var}_valid"] = temp_df.assign(_is_valid=is_valid_list).groupby(group_col)['_is_valid'].sum().astype(int)
 
-            # Explode and count
             exploded = temp_df[[group_col, var]].explode(var)
             exploded = exploded[exploded[var].notna()]
             vc = exploded.groupby(group_col)[var].value_counts()
             if not vc.empty:
                 unstacked = vc.unstack(fill_value=0)
-                json_series = unstacked.apply(
+                extra_cols[f"{var}_counts"] = unstacked.apply(
                     lambda row: json.dumps({k: int(v) for k, v in row.items() if v > 0}), axis=1
-                ).rename(f"{var}_counts")
-                agg_df = agg_df.merge(json_series, on=group_col, how='left')
+                )
             else:
                 agg_df[f"{var}_counts"] = '{}'
+
+        # Single merge for all accumulated columns
+        if extra_cols:
+            extras_df = pd.DataFrame(extra_cols)
+            agg_df = agg_df.merge(extras_df, on=group_col, how='left')
 
         # Sort by period
         agg_df = agg_df.sort_values(group_col).reset_index(drop=True)
@@ -536,15 +535,17 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         # Save
         filename = f"timeline_{collection_id}_{interval}.parquet"
         data_io.save_parquet(df=agg_df, storage_location="cache", filename=filename)
+        result_dfs[interval] = agg_df
 
-    return True
+    return result_dfs
 
 
 
 
-def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = False):
-    """
-    Returns timeline data for plotting.
+def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = False,
+                      preloaded_agg_df: pd.DataFrame | None = None):
+    """Returns timeline data for plotting.
+
     - Numeric: Daily Mean (Raw values, invalid/missing ignored).
       Includes metadata if log scale is requested.
     - Categorical: Daily Counts per category + Daily Total Count (for % calc).
@@ -554,6 +555,8 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
         interval: Aggregation interval ('day', 'week', 'month').
         skip_cache_check: If True, skip the cache existence check. Use when
             the caller has already ensured the cache is fresh (e.g. batch refresh).
+        preloaded_agg_df: Pre-computed aggregated DataFrame for this interval.
+            When provided, skips loading from cache (avoids write-then-read I/O).
     """
 
     if 'var_schema' not in fyp_cf:
@@ -595,7 +598,10 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
     # Load all to get counts
     aggs = {}
     for inv in ['day']:
-        df_agg = load_interval_df(inv)
+        if preloaded_agg_df is not None and inv == interval:
+            df_agg = preloaded_agg_df
+        else:
+            df_agg = load_interval_df(inv)
         if df_agg is not None:
              period_counts[inv] = len(df_agg)
              aggs[inv] = df_agg

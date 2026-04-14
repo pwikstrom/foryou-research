@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 import json
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add project root to sys.path
 current_dir = Path(__file__).resolve().parent
@@ -32,12 +32,6 @@ _DISPATCH_DEADLINE = 1800
 
 
 
-def _init_worker() -> None:
-    """Initialise fyp_config and study definitions in a worker process."""
-    from fyp.studies import init_study_defs
-    init_study_defs()
-
-
 def process_one_collection(
     collection_id: str,
     preloaded_slice: pd.DataFrame | None,
@@ -46,22 +40,12 @@ def process_one_collection(
 ) -> bool:
     """Process a single collection: aggregate timeline cache + run analysis.
 
-    This function is designed to run in a worker process. It initialises
-    configuration on first call (per-process) and then performs all timeline
-    work for one collection.
-
     Returns:
         True if the collection was processed successfully.
     """
-    from fyp.fyp_config import fyp_cf
-    from fyp.studies import init_study_defs
     import fyp.data_io as data_io
     from web_interface.data_service import check_and_update_timeline_cache, get_timeline_data
     from fyp.timeline_analysis import analyse_timeline
-
-    # Ensure config is initialised in this process
-    if 'studies' not in fyp_cf:
-        init_study_defs()
 
     # Remove existing cache to force recalculation
     for interval in ['day']:#, 'week', 'month']:
@@ -69,14 +53,17 @@ def process_one_collection(
         if data_io.exists(storage_location="cache", filename=filename):
             data_io.remove(storage_location="cache", filename=filename)
 
-    # Aggregate
-    if not check_and_update_timeline_cache(collection_id, viz_vars, preloaded_df=preloaded_slice):
+    # Aggregate — returns {interval: agg_df} or None on failure
+    agg_result = check_and_update_timeline_cache(collection_id, viz_vars, preloaded_df=preloaded_slice)
+    if not agg_result:
         return False
 
-    # Analyse for each interval
+    # Analyse for each interval, passing preloaded agg_df to avoid re-reading cache
     for a_interval in ['day']:#, 'week', 'month']:
         try:
-            tdata = get_timeline_data(collection_id, interval=a_interval, skip_cache_check=True)
+            agg_df = agg_result.get(a_interval)
+            tdata = get_timeline_data(collection_id, interval=a_interval,
+                                      skip_cache_check=True, preloaded_agg_df=agg_df)
             if tdata and tdata.get("dates"):
                 analysis = analyse_timeline(tdata, interval=a_interval, first_activity_date=first_activity_date)
                 if analysis:
@@ -173,11 +160,32 @@ def _preload_and_slice(reporter: TaskStatusReporter,
 
     reporter.log("Preloading core datasets...")
     all_datasets: dict[str, pd.DataFrame] = {}
-    for k, f in [(COLLECTIONS_LABEL, f"{COLLECTIONS_LABEL}_recoded.parquet"),
-                 (SCRAPES_LABEL, f"{SCRAPES_LABEL}_recoded.parquet"),
+    cid_strs = [str(c) for c in collection_ids]
+
+    # Load collections filtered to only this batch's collection_ids
+    coll_file = f"{COLLECTIONS_LABEL}_recoded.parquet"
+    if data_io.exists(storage_location="recoded", filename=coll_file):
+        all_datasets[COLLECTIONS_LABEL] = data_io.load_parquet(
+            storage_location="recoded", filename=coll_file,
+            filters=[("collection_id", "in", cid_strs)], verbose=False)
+    else:
+        all_datasets[COLLECTIONS_LABEL] = pd.DataFrame()
+
+    # Extract item_ids from filtered collections to narrow scrapes + annotations
+    item_ids: list[str] = []
+    coll_df = all_datasets[COLLECTIONS_LABEL]
+    if not coll_df.empty and "item_id" in coll_df.columns:
+        item_ids = coll_df["item_id"].dropna().unique().tolist()
+    item_filter = [("item_id", "in", item_ids)] if item_ids else None
+
+    reporter.log(f"Filtered collections to {len(coll_df)} rows, {len(item_ids)} unique items.")
+
+    for k, f in [(SCRAPES_LABEL, f"{SCRAPES_LABEL}_recoded.parquet"),
                  (MACHINE_ANNOTATIONS_LABEL, f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet")]:
         if data_io.exists(storage_location="recoded", filename=f):
-            all_datasets[k] = data_io.load_parquet(storage_location="recoded", filename=f, verbose=False)
+            all_datasets[k] = data_io.load_parquet(
+                storage_location="recoded", filename=f,
+                filters=item_filter, verbose=False)
         else:
             all_datasets[k] = pd.DataFrame()
 
@@ -240,7 +248,7 @@ def _process_batch(reporter: TaskStatusReporter,
         reporter.log(f"Using {max_workers} parallel workers.")
         completed = 0
 
-        with ProcessPoolExecutor(max_workers=max_workers, initializer=_init_worker) as pool:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {}
             for cid in collection_ids:
                 f = pool.submit(

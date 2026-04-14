@@ -72,8 +72,6 @@ def compute_break(vals: list[float]) -> dict[str, Any]:
         Returns empty delta if series is too short.
     """
     n = len(vals)
-    best_i = 0
-    best_delta = 0.0
 
     # Need at least 4 points on each side
     if n < 8:
@@ -88,13 +86,14 @@ def compute_break(vals: list[float]) -> dict[str, Any]:
     cumsum = np.cumsum(arr)
     total_sum = cumsum[-1]
 
-    for i in range(4, n - 4):
-        m1 = cumsum[i - 1] / i
-        m2 = (total_sum - cumsum[i - 1]) / (n - i)
-        delta = m2 - m1
-        if abs(delta) > abs(best_delta):
-            best_delta = delta
-            best_i = i
+    # Vectorized: compute mean-before and mean-after at every candidate split
+    indices = np.arange(4, n - 4)
+    m1 = cumsum[indices - 1] / indices
+    m2 = (total_sum - cumsum[indices - 1]) / (n - indices)
+    deltas = m2 - m1
+    best_local = int(np.argmax(np.abs(deltas)))
+    best_i = int(indices[best_local])
+    best_delta = float(deltas[best_local])
 
     return {
         "index": best_i,
@@ -287,31 +286,63 @@ def analyse_timeline(timeline_data: dict, interval: str = "day",
 
         # Pre-compute denominator array once (shared across all categories)
         n_periods = len(parsed_counts)
-        denominators = []
+        denom_arr = np.ones(n_periods, dtype=np.float64)
         for i in range(n_periods):
-            total = 1
             if sliced_valid and i < len(sliced_valid):
-                total = sliced_valid[i] if sliced_valid[i] and sliced_valid[i] > 0 else 1
+                val = sliced_valid[i]
+                if val and val > 0:
+                    denom_arr[i] = val
             elif sliced_video and i < len(sliced_video):
-                total = sliced_video[i] if sliced_video[i] and sliced_video[i] > 0 else 1
-            denominators.append(total)
+                val = sliced_video[i]
+                if val and val > 0:
+                    denom_arr[i] = val
 
-        # Compute share % time series for each category (using pre-parsed data)
+        # Build (n_categories x n_periods) counts matrix for vectorized computation
+        cats_list = sorted(all_cats)
+        n_cats = len(cats_list)
+        counts_matrix = np.zeros((n_cats, n_periods), dtype=np.float64)
+        for i, dc in enumerate(parsed_counts):
+            for cat_idx, cat in enumerate(cats_list):
+                counts_matrix[cat_idx, i] = dc.get(cat, 0)
+
+        # Vectorized share % and moving average across all categories at once
+        share_matrix = (counts_matrix / denom_arr[np.newaxis, :]) * 100.0
+        smoothed_df = pd.DataFrame(share_matrix.T).rolling(7, center=True, min_periods=1).mean()
+        smoothed_matrix = np.round(smoothed_df.values.T, 2)
+
+        # Vectorized linear regression for all categories
+        x = np.arange(n_periods, dtype=np.float64)
+        x_mean = x.mean()
+        x_var = float(np.sum((x - x_mean) ** 2))
+        y_means = smoothed_matrix.mean(axis=1)
+        if x_var > 0:
+            slopes = ((smoothed_matrix - y_means[:, np.newaxis]) * (x - x_mean)[np.newaxis, :]).sum(axis=1) / x_var
+        else:
+            slopes = np.zeros(n_cats)
+        intercepts = y_means - slopes * x_mean
+
+        # Total counts per category (for reporting)
+        total_counts = counts_matrix.sum(axis=1)
+
+        # Per-category metrics (anomalies/break/volatility have branching logic)
         category_results = []
+        for cat_idx, cat in enumerate(cats_list):
+            vals = smoothed_matrix[cat_idx].tolist()
 
-        for cat in all_cats:
-            vals = [(parsed_counts[i].get(cat, 0) / denominators[i]) * 100
-                    for i in range(n_periods)]
-
-            # Smooth the values before analysis using a 7-day trailing average to match UI
-            vals = moving_average(vals, window=7)
-
-            # Skip categories with no meaningful data
             if not vals or max(vals) == 0:
                 continue
 
-            # Compute metrics on smoothed post-first-activity data
-            trend = compute_linreg(vals)
+            slope = float(slopes[cat_idx])
+            intercept = float(intercepts[cat_idx])
+            mean_val = float(y_means[cat_idx])
+            total_change = slope * (n_periods - 1)
+
+            trend = {
+                "slope": round(slope, 3),
+                "intercept": round(intercept, 2),
+                "total_change": round(total_change, 1),
+                "mean": round(mean_val, 1),
+            }
             anomalies = compute_anomalies(vals)
             brk = compute_break(vals)
             vol = compute_volatility(vals)
@@ -331,17 +362,12 @@ def analyse_timeline(timeline_data: dict, interval: str = "day",
             brk["index"] = brk["index"] + start_offset
 
             # Offset trend intercept to be relative to full timeline index 0
-            # intercept was computed for sliced index 0 = full index start_offset
-            # So for full index 0: y = intercept - slope * start_offset
             trend["intercept"] = round(trend["intercept"] - trend["slope"] * start_offset, 2)
-
-            # Count total occurrences from pre-parsed data
-            total_count = sum(dc.get(cat, 0) for dc in parsed_counts)
 
             category_results.append({
                 "id": cat,
                 "label": cat,
-                "count": total_count,
+                "count": int(total_counts[cat_idx]),
                 "score": score,
                 "trend": trend,
                 "anomalies": anomalies[:3],
