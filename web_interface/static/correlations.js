@@ -418,8 +418,8 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
             customdata: groups[g].factors,
             hoverinfo: 'text',
             marker: {
-                size: 8,
-                opacity: 0.8,
+                size: (window.userSettings && window.userSettings.big_dots) ? 16 : 8,
+                opacity: (window.userSettings && window.userSettings.big_dots) ? 0.45 : 0.8,
                 color: color
             }
         });
