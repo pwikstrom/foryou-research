@@ -10,6 +10,7 @@ that generate_data_row() produces so downstream code is unchanged.
 
 from typing import Optional
 from datetime import datetime
+import os
 from os.path import join, getsize, exists
 from os import remove
 from pathlib import Path
@@ -679,10 +680,11 @@ def save_tiktok(
                         blob.upload_from_filename(downloaded)
                         data_row.loc[0, 'video_downloaded'] = True
                     else:
-                        from shutil import move
                         target = join(save_path, video_fn)
                         if downloaded != target:
-                            move(downloaded, target)
+                            # Atomic rename when src and dst are on the same filesystem.
+                            # Avoids partial-file reads if another thread/process touches dst.
+                            os.replace(downloaded, target)
                         data_row.loc[0, 'video_downloaded'] = True
 
                     # Clean up temp file

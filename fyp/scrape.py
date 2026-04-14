@@ -218,15 +218,24 @@ def download_single_video(
         return video_id
 
 
-    if fyp_cf['data_io']['bucket'] is None:
-        raise ValueError("No GCS bucket specified")
     if video_id is None:
         raise ValueError("No video id specified")
 
+    use_gcs = fyp_cf['data_io']['use_gcs_for_media']
+    bucket = fyp_cf['data_io']['bucket']
+    media_dir = fyp_cf['paths']['media']
+    min_size = fyp_cf["misc"]["min_media_object_size"]
+    temp_dir = fyp_cf["paths"]["temp"]
 
+    if use_gcs and bucket is None:
+        raise ValueError("No GCS bucket specified")
 
     gcs_media_prefix = fyp_cf['data_io']['gcs_media_prefix']
     scraper_backend = fyp_cf['misc'].get('scraper_backend', 'pyktok')
+
+    # Routing for save_tiktok: GCS mode -> bucket + gcs prefix; local mode -> local dir, no bucket
+    save_path_arg = gcs_media_prefix if use_gcs else media_dir
+    stream_to_bucket_arg = bucket if use_gcs else None
 
     tiktok_url = f"https://www.tiktok.com/@/video/{video_id}/"
 
@@ -236,8 +245,8 @@ def download_single_video(
             tiktok_url,
             save_video=save_video,
             max_duration_to_save=fyp_cf['misc']['max_duration_for_download'],
-            save_path=gcs_media_prefix,
-            stream_to_bucket=fyp_cf["data_io"]["bucket"],
+            save_path=save_path_arg,
+            stream_to_bucket=stream_to_bucket_arg,
             verbose=verbose,
         )
     else:
@@ -247,8 +256,8 @@ def download_single_video(
             save_video=save_video,
             max_duration_to_save=fyp_cf['misc']['max_duration_for_download'],
             browser_name='chrome',
-            save_path=gcs_media_prefix,
-            stream_to_bucket=fyp_cf["data_io"]["bucket"],
+            save_path=save_path_arg,
+            stream_to_bucket=stream_to_bucket_arg,
             verbose=verbose,
         )
 
@@ -262,70 +271,137 @@ def download_single_video(
                 if verbose:
                     print(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
 
-                # if there isn't a video already associated to this post...
-                blob = fyp_cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
-                if blob.exists():
-                    if verbose:
-                        print(f"Photo slideshow already in bucket")
-                    scrape_metadata.loc[0,'video_downloaded'] = True
-                else:
-                    if verbose:
-                        print(f"Converting photos to video slideshow")
-
-                    # look for image files and download those that are found
-                    ccc = 1
-                    image_files = []
-                    blob = fyp_cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
-
-                    while blob and blob.exists():
-                        blob.download_to_filename(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
-                        if blob.size >= fyp_cf["misc"]["min_media_object_size"]:
-                            image_files.append(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}_{ccc:02}.jpeg"))
-                        ccc += 1
-                        blob = fyp_cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
-
-                    # use the images to build a slideshow
-                    make_slideshow(
-                        image_files,
-                        output=os.path.join(fyp_cf["paths"]["temp"],f"{video_id}.mp4"),
-                        duration=2,
-                        swipe=False,
-                        verbose=verbose
-                    )
-
-                    # upload the video slideshow to the storage bucket if it is large enough
-                    if os.path.getsize(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}.mp4")) > fyp_cf["misc"]["min_media_object_size"]:
+                if use_gcs:
+                    # GCS path: check bucket, download jpegs to temp, assemble, upload
+                    blob = bucket.blob(f"{gcs_media_prefix}/{video_id}.mp4")
+                    if blob.exists():
                         if verbose:
-                            print(f"Uploading video file to storage bucket...")
-                        blob = fyp_cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4")
-                        blob.upload_from_filename(os.path.join(fyp_cf["paths"]["temp"],f"{video_id}.mp4"))
+                            print(f"Photo slideshow already in bucket")
                         scrape_metadata.loc[0,'video_downloaded'] = True
                     else:
                         if verbose:
-                            print(f"Generated video file is too small, not uploading.")
-                        scrape_metadata.loc[0,'video_downloaded'] = False
+                            print(f"Converting photos to video slideshow")
+
+                        ccc = 1
+                        image_files = []
+                        blob = bucket.get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
+
+                        while blob and blob.exists():
+                            blob.download_to_filename(os.path.join(temp_dir,f"{video_id}_{ccc:02}.jpeg"))
+                            if blob.size >= min_size:
+                                image_files.append(os.path.join(temp_dir,f"{video_id}_{ccc:02}.jpeg"))
+                            ccc += 1
+                            blob = bucket.get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
+
+                        make_slideshow(
+                            image_files,
+                            output=os.path.join(temp_dir,f"{video_id}.mp4"),
+                            duration=2,
+                            swipe=False,
+                            verbose=verbose
+                        )
+
+                        if os.path.getsize(os.path.join(temp_dir,f"{video_id}.mp4")) > min_size:
+                            if verbose:
+                                print(f"Uploading video file to storage bucket...")
+                            blob = bucket.blob(f"{gcs_media_prefix}/{video_id}.mp4")
+                            blob.upload_from_filename(os.path.join(temp_dir,f"{video_id}.mp4"))
+                            scrape_metadata.loc[0,'video_downloaded'] = True
+                        else:
+                            if verbose:
+                                print(f"Generated video file is too small, not uploading.")
+                            scrape_metadata.loc[0,'video_downloaded'] = False
+                else:
+                    # Local path: jpegs are in media_dir (written by _download_images).
+                    # Assemble the slideshow to a temp file, validate size, then atomically
+                    # move into media_dir and remove source jpegs.
+                    final_mp4 = os.path.join(media_dir, f"{video_id}.mp4")
+                    if os.path.exists(final_mp4):
+                        if verbose:
+                            print(f"Photo slideshow already exists locally")
+                        scrape_metadata.loc[0,'video_downloaded'] = True
+                    else:
+                        if verbose:
+                            print(f"Converting photos to video slideshow")
+
+                        ccc = 1
+                        image_files = []
+                        while True:
+                            cand = os.path.join(media_dir, f"{video_id}_{ccc:02}.jpeg")
+                            if not os.path.exists(cand):
+                                break
+                            if os.path.getsize(cand) >= min_size:
+                                image_files.append(cand)
+                            ccc += 1
+
+                        temp_mp4 = os.path.join(temp_dir, f"{video_id}.mp4")
+                        make_slideshow(
+                            image_files,
+                            output=temp_mp4,
+                            duration=2,
+                            swipe=False,
+                            verbose=verbose
+                        )
+
+                        if os.path.exists(temp_mp4) and os.path.getsize(temp_mp4) > min_size:
+                            if verbose:
+                                print(f"Moving slideshow to media folder...")
+                            os.replace(temp_mp4, final_mp4)
+                            scrape_metadata.loc[0,'video_downloaded'] = True
+                        else:
+                            if verbose:
+                                print(f"Generated video file is too small, discarding.")
+                            if os.path.exists(temp_mp4):
+                                try: os.remove(temp_mp4)
+                                except OSError: pass
+                            scrape_metadata.loc[0,'video_downloaded'] = False
+
+                        # Clean up source jpegs from media_dir either way
+                        for cand in image_files:
+                            try: os.remove(cand)
+                            except OSError: pass
 
             # if this is a video...
             else:
                 if verbose:
                     print(f"OK   - Video downloaded '{video_id}' - {col_count} metadata fields")
 
-                # check if it truly is stored and is big enough
-                if verbose:
-                    print(f"Checking video file in bucket")
-                if fyp_cf["data_io"]["bucket"].blob(f"{gcs_media_prefix}/{video_id}.mp4").exists():
-                    blob = fyp_cf["data_io"]["bucket"].get_blob(f"{gcs_media_prefix}/{video_id}.mp4")
-                    if blob.size < fyp_cf["misc"]["min_media_object_size"]:
-                        if verbose:
-                            print(f"   - Deleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
-                        blob.delete()
-                        scrape_metadata.loc[0,'video_downloaded'] = False
+                if use_gcs:
+                    # check if it truly is stored and is big enough
                     if verbose:
-                        print(f"   - Video file {blob.name} of size {blob.size:,} bytes is okay")
+                        print(f"Checking video file in bucket")
+                    if bucket.blob(f"{gcs_media_prefix}/{video_id}.mp4").exists():
+                        blob = bucket.get_blob(f"{gcs_media_prefix}/{video_id}.mp4")
+                        if blob.size < min_size:
+                            if verbose:
+                                print(f"   - Deleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
+                            blob.delete()
+                            scrape_metadata.loc[0,'video_downloaded'] = False
+                        if verbose:
+                            print(f"   - Video file {blob.name} of size {blob.size:,} bytes is okay")
+                    else:
+                        if verbose:
+                            print("   - WARNING: File not found")
+                        scrape_metadata.loc[0,'video_downloaded'] = False
                 else:
                     if verbose:
-                        print("   - WARNING: File not found")
-                    scrape_metadata.loc[0,'video_downloaded'] = False
+                        print(f"Checking video file in local media folder")
+                    local_mp4 = os.path.join(media_dir, f"{video_id}.mp4")
+                    if os.path.exists(local_mp4):
+                        local_size = os.path.getsize(local_mp4)
+                        if local_size < min_size:
+                            if verbose:
+                                print(f"   - Deleting video file smaller than threshold: {local_mp4} of size {local_size} bytes")
+                            try: os.remove(local_mp4)
+                            except OSError: pass
+                            scrape_metadata.loc[0,'video_downloaded'] = False
+                        else:
+                            if verbose:
+                                print(f"   - Video file {local_mp4} of size {local_size:,} bytes is okay")
+                    else:
+                        if verbose:
+                            print("   - WARNING: File not found")
+                        scrape_metadata.loc[0,'video_downloaded'] = False
 
             return scrape_metadata
         
@@ -1046,8 +1122,11 @@ def consolidate_and_save_scrape_data(
         if top_verbose:
             print("No new scrape files found. No need to consolidate.")
         if return_saved_data:
-            if verbose: print("Returning existing file.")
-            return False, data_io.load_parquet(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"), set()
+            if data_io.exists(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"):
+                if verbose: print("Returning existing file.")
+                return False, data_io.load_parquet(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"), set()
+            if verbose: print("No existing consolidated file — returning empty.")
+            return False, pd.DataFrame(), set()
         return False, None, set()
 
     

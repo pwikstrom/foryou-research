@@ -110,9 +110,9 @@ def initialize_machine():
 
 
 def call_machine(
-        video_id: str = None, 
+        video_id: str = None,
         use_local_video_file = False,
-        local_path: str = '/Users/<user>/Downloads/',
+        local_path: str | None = None,
         verbose = False,
         dry_run = False,
     ) -> dict:
@@ -131,7 +131,7 @@ def call_machine(
             "finish_reason": "dry run",
             "response" : "dry run",
         }
-            
+
 
 
     times = [_dt.datetime.now()]
@@ -148,17 +148,20 @@ def call_machine(
 
     temp_fn = f"temp_machine_annotations_{output['item_id']}_{output['inference_ts']}.json"
 
+    # The explicit kwarg is an override; otherwise the config flag decides.
+    effective_local = use_local_video_file or not fyp_cf['data_io']['use_gcs_for_media']
+    effective_local_dir = local_path or fyp_cf['paths']['media']
 
     # initialise the contents for the model
     try:
-        if use_local_video_file:
+        if effective_local:
             if verbose:
                 print(f"Using local video file for video id {video_id}")
-            with open(join(local_path,f"{video_id}.mp4"),'rb') as f:
+            with open(os.path.join(effective_local_dir,f"{video_id}.mp4"),'rb') as f:
                 video_bytes = f.read()
             contents = [
                 google.genai.types.Part(
-                    inline_data=google.genai.types.Blob(data=video_bytes, 
+                    inline_data=google.genai.types.Blob(data=video_bytes,
                     mime_type='video/mp4')
                 ),
                 google.genai.types.Part.from_text(text="Analyze this video")
@@ -191,7 +194,10 @@ def call_machine(
     except Exception as e:
         times += [_dt.datetime.now()]
 
-        video_found = fyp_cf["data_io"]["bucket"].blob(f"{fyp_cf['data_io']['gcs_media_prefix']}/{video_id}.mp4").exists()
+        if effective_local:
+            video_found = os.path.exists(os.path.join(effective_local_dir, f"{video_id}.mp4"))
+        else:
+            video_found = fyp_cf["data_io"]["bucket"].blob(f"{fyp_cf['data_io']['gcs_media_prefix']}/{video_id}.mp4").exists()
 
         output["error"] = str(e)
         output["inference_duration"] = (times[-1] - times[-2]).total_seconds()
@@ -1397,8 +1403,11 @@ def consolidate_and_save_refined_annotations(
         if top_verbose:
             print("No new refined machine annotations files found. No need to consolidate.")
         if return_saved_data:
-            if verbose: print("Returning existing file.")
-            return False, data_io.load_parquet(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"), set()
+            if data_io.exists(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"):
+                if verbose: print("Returning existing file.")
+                return False, data_io.load_parquet(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"), set()
+            if verbose: print("No existing consolidated file — returning empty.")
+            return False, pd.DataFrame(), set()
         return False, None, set()
     
  

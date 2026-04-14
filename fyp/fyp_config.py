@@ -44,6 +44,12 @@ def _create_local_dirs(cf: dict, verbose: bool = False):
                 print("Creating missing local folder for cache")
             os.makedirs(cf["paths"]["cache"], exist_ok=True)
 
+    # Media is orthogonal to data/cache - ensure its folder exists whenever GCS media is off
+    if not cf['data_io']['use_gcs_for_media'] or cf['misc']['local_mode']:
+        if verbose:
+            print(f"Media is stored locally")
+        os.makedirs(cf["paths"]["media"], exist_ok=True)
+
 
 
 
@@ -100,6 +106,12 @@ def initialize(
     # I'm creating the paths as if they are local - if everything is GCS, these will just be
     # used as a template for the gcs paths 
     cf["paths"]["local_data"] = os.path.abspath(os.path.join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
+
+    # Resolve the local media path the same way. Accepts absolute or project-relative values.
+    cf["paths"]["media"] = os.path.abspath(
+        os.path.join(cf["paths"]["project_root"], cf["paths"]["local_media"])
+    )
+    del cf["paths"]["local_media"]
 
 
     cf["paths"]["activity_data"] = os.path.join(cf["paths"]["local_data"],"activity_data")
@@ -174,6 +186,8 @@ def initialize(
         cf["gcs_paths"] = {}
         gcs_prefix = cf["data_io"].get("gcs_data_prefix", "")
         for k, v in cf["paths"].items():
+            if k == "media":
+                continue  # media uses data_io.gcs_media_prefix, not gcs_paths
             if isinstance(v, str) and v.startswith(cf["paths"]["local_data"]) and k != "local_data":
                 rel = os.path.relpath(v, cf["paths"]["local_data"])
                 if rel == ".": 

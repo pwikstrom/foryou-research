@@ -2125,24 +2125,74 @@ def api_timeline_collections():
 @data_bp.route('/api/video/<study>/<item_id>', methods=['GET'])
 def api_video_stream(study, item_id):
 
-    bucket = fyp_cf.get("data_io", {}).get("bucket")
-    if not bucket:
-        return "GCS Bucket not available. Check credentials or internet connection.", 503
-
-    blob_name = f"{fyp_cf['data_io']['gcs_media_prefix']}/{item_id}.mp4"
-    blob = bucket.blob(blob_name)
-    
-    if not blob.exists():
-         return f"Video {blob_name} not found", 404
-
-    blob.reload()
-    total_size = blob.size
+    use_gcs = fyp_cf.get('data_io', {}).get('use_gcs_for_media', True)
     chunk_size = 4096 * 16
-
     range_header = request.headers.get('Range')
 
+    if use_gcs:
+        bucket = fyp_cf.get("data_io", {}).get("bucket")
+        if not bucket:
+            return "GCS Bucket not available. Check credentials or internet connection.", 503
+
+        blob_name = f"{fyp_cf['data_io']['gcs_media_prefix']}/{item_id}.mp4"
+        blob = bucket.blob(blob_name)
+
+        if not blob.exists():
+             return f"Video {blob_name} not found", 404
+
+        blob.reload()
+        total_size = blob.size
+
+        if range_header:
+            range_spec = range_header.replace('bytes=', '').strip()
+            parts = range_spec.split('-')
+            start = int(parts[0])
+            end = int(parts[1]) if parts[1] else min(start + chunk_size * 16 - 1, total_size - 1)
+            end = min(end, total_size - 1)
+            length = end - start + 1
+
+            def generate_range():
+                with blob.open("rb") as f:
+                    f.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        read_size = min(chunk_size, remaining)
+                        data = f.read(read_size)
+                        if not data:
+                            break
+                        remaining -= len(data)
+                        yield data
+
+            headers = {
+                'Content-Range': f'bytes {start}-{end}/{total_size}',
+                'Accept-Ranges': 'bytes',
+                'Content-Length': str(length),
+                'Content-Type': 'video/mp4',
+                'Cache-Control': 'private, max-age=3600',
+            }
+            return Response(stream_with_context(generate_range()), status=206, headers=headers)
+
+        def generate():
+            with blob.open("rb") as f:
+                while chunk := f.read(chunk_size):
+                    yield chunk
+
+        headers = {
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(total_size),
+            'Content-Type': 'video/mp4',
+            'Cache-Control': 'private, max-age=3600',
+        }
+        return Response(stream_with_context(generate()), headers=headers)
+
+    # Local filesystem path
+    media_path = os.path.join(fyp_cf['paths']['media'], f"{item_id}.mp4")
+    if not os.path.exists(media_path):
+        return f"Video {item_id}.mp4 not found", 404
+
+    total_size = os.path.getsize(media_path)
+
     if range_header:
-        # Parse "bytes=start-end"
         range_spec = range_header.replace('bytes=', '').strip()
         parts = range_spec.split('-')
         start = int(parts[0])
@@ -2151,7 +2201,7 @@ def api_video_stream(study, item_id):
         length = end - start + 1
 
         def generate_range():
-            with blob.open("rb") as f:
+            with open(media_path, 'rb') as f:
                 f.seek(start)
                 remaining = length
                 while remaining > 0:
@@ -2171,9 +2221,8 @@ def api_video_stream(study, item_id):
         }
         return Response(stream_with_context(generate_range()), status=206, headers=headers)
 
-    # No Range header — return full file
     def generate():
-        with blob.open("rb") as f:
+        with open(media_path, 'rb') as f:
             while chunk := f.read(chunk_size):
                 yield chunk
 
