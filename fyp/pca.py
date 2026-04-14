@@ -688,10 +688,18 @@ def calculate_scaled_pca_scores(
     fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
 
     pre_len = len(study_recoded_dataset)
-    study_recoded_dataset = study_recoded_dataset[study_recoded_dataset.annotated_ok]
+    if "annotated_ok" in study_recoded_dataset.columns:
+        study_recoded_dataset = study_recoded_dataset[study_recoded_dataset["annotated_ok"].fillna(False)]
+    else:
+        # No annotations ingested yet — drop everything so downstream sees empty
+        study_recoded_dataset = study_recoded_dataset.iloc[0:0]
     post_len = len(study_recoded_dataset)
     if verbose:
-        print(f"    [PCA] Only keeping events that are successfully annotated -> {pre_len - post_len:,} events dropped. Shape: {study_recoded_dataset.shape}")    
+        print(f"    [PCA] Only keeping events that are successfully annotated -> {pre_len - post_len:,} events dropped. Shape: {study_recoded_dataset.shape}")
+
+    if post_len == 0:
+        print("    [PCA] No annotated events available for this study. Terminating.")
+        return None, None
 
 
     not_na_columns = study_recoded_dataset[fyp_features + grouping_factors].notna().sum() / len(study_recoded_dataset)

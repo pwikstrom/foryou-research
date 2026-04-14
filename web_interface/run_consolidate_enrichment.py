@@ -65,9 +65,11 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         # more recently than the last consolidation. had_new_data in the same
         # payload separately captures whether anything actually changed.
         "last_consolidation": now_iso,
+        # Always emit consolidation_impact (None when nothing changed) so the
+        # UI panel clears after a no-op run. emit_data merges into stats, so
+        # omitting the key would leave the previous run's impact in place.
+        "consolidation_impact": impact if impact else None,
     }
-    if impact:
-        data_payload["consolidation_impact"] = impact
 
     reporter.emit_data(data_payload)
     reporter.log("Consolidation finished.")

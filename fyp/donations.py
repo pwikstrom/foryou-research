@@ -389,8 +389,14 @@ def generate_collection_metadata(
         combined_ddp_metadata = pd.merge(combined_ddp_metadata, collection_personas, left_index=True, right_index=True, how="left")
 
 
-    if old_metadata_df is not None:
-        combined_ddp_metadata = pd.concat([old_metadata_df, combined_ddp_metadata], axis=0)
+    if old_metadata_df is not None and not old_metadata_df.empty:
+        # Only concat frames that have data - pandas 2.x FutureWarning about
+        # empty/all-NA entries influencing result dtypes.
+        frames = [f for f in (old_metadata_df, combined_ddp_metadata) if not f.empty]
+        if len(frames) > 1:
+            combined_ddp_metadata = pd.concat(frames, axis=0)
+        elif frames:
+            combined_ddp_metadata = frames[0]
         
     if save_to_disk_ok:
         if verbose:

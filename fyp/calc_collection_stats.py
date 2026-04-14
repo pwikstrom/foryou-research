@@ -56,16 +56,18 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     # 'observe' activities are treated as equivalent to 'play' for stats purposes
     play_df = df[df['activity_type'].isin(['play', 'observe'])].copy()
     #play_df['duration'] = pd.to_numeric(play_df['secondary_value'], errors='coerce')
-    
-    # Filter insane durations (> 1 hour?) or keep all? 
-    # Ideally filter outliers or very long paused videos
-    valid_watches = play_df.dropna(subset=['play_duration'])
-    # Keeping logic from old code: duration <= 300s considered 'normal' short form watch?
-    # User didn't specify, but old code did. Let's keep raw metrics then stats on filtered.
-    
-    total_watch_time = valid_watches['play_duration'].sum()
-    avg_watch_time = valid_watches['play_duration'].mean() if not valid_watches.empty else 0
-    median_watch_time = valid_watches['play_duration'].median() if not valid_watches.empty else 0
+
+    # play_duration is only populated by collection ingesters that capture watch time
+    # (DDP has it; zeeschuimer doesn't). Absent that column, watch-time stats are 0.
+    if 'play_duration' in play_df.columns:
+        valid_watches = play_df.dropna(subset=['play_duration'])
+        total_watch_time = valid_watches['play_duration'].sum()
+        avg_watch_time = valid_watches['play_duration'].mean() if not valid_watches.empty else 0
+        median_watch_time = valid_watches['play_duration'].median() if not valid_watches.empty else 0
+    else:
+        total_watch_time = 0
+        avg_watch_time = 0
+        median_watch_time = 0
     
     # 6. Sessions
     # Defined by gap > 15 mins (900s)
@@ -332,13 +334,15 @@ def generate_personas(events_df: pd.DataFrame) -> pd.DataFrame:
     # Using groupby apply might be slow for complex logic, iterating groups is safer for debugging
     grouped = events_df.groupby('collection_id')
     
+    import traceback
     for collection_id, group in grouped:
         try:
             stats = process_single_collection(group)
             if stats:
                 results.append(stats)
         except Exception as e:
-            print(f"Error processing collection {collection_id}: {e}")
+            print(f"Error processing collection {collection_id}: {type(e).__name__}: {e}")
+            traceback.print_exc()
             continue
             
     return pd.DataFrame(results)
