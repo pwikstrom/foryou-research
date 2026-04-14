@@ -541,7 +541,8 @@ def download_video_threads(
     batch_label: str | None = None,
     cumulative_done: int = 0,
     cumulative_total: int = 0,
-    on_concurrency_change: "callable | None" = None):
+    on_concurrency_change: "callable | None" = None,
+    on_video_done: "callable | None" = None):
 
 
 
@@ -573,6 +574,9 @@ def download_video_threads(
             else:
                 error_cat = None
             throttle.report_result(error_cat)
+            if on_video_done:
+                ok = isinstance(res, pd.DataFrame) and not res.empty
+                on_video_done(idx, ok, error_cat)
             return idx, res
         except Exception:
             throttle.report_result("unknown")

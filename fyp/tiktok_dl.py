@@ -101,7 +101,7 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     return "unknown", msg
 
 
-_THROTTLE_CATEGORIES = {"rate_limited", "ip_blocked"}
+_THROTTLE_CATEGORIES = {"rate_limited"}
 
 
 class ThrottleController:
