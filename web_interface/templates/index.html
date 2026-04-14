@@ -4,6 +4,10 @@
 <!-- App Header -->
 <div class="auth-header">
     <a class="app-brand" onclick="openTab(event, 'home')">The For You Data Hub</a>
+    <span id="global-tasks-badge" class="global-tasks-badge" style="display:none;" title="">
+        <span class="global-tasks-spinner"></span>
+        <span id="global-tasks-count" class="global-tasks-count"></span>
+    </span>
     <span class="auth-header-user text-sm">
         {{ user.username }} ({{ user.role }})
         &middot;

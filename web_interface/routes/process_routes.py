@@ -4,6 +4,7 @@ import traceback
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
 import web_interface.auth as auth
+import fyp.data_io as data_io
 from fyp.fyp_config import (
     QUEUE_SCRAPER_SCRIPT, QUEUE_ANNOTATOR_SCRIPT, META_REFRESH_VIEWER_SCRIPT,
     META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT, RECODE_REFRESH_STUDIES_SCRIPT,
@@ -91,12 +92,35 @@ def api_status():
         load_process_stats()
 
     status_data = {}
+
+    # study_refresh uses keyed status files (study_refresh__<study>).
+    # Scan GCS for any running study_refresh task to surface in the global badge.
+    _study_refresh_gcs = None
+    if is_cloud_run():
+        try:
+            bucket = data_io.fyp_cf['data_io'].get('bucket')
+            gcs_prefix = data_io.fyp_cf['gcs_paths'].get('cache', '')
+            if bucket and gcs_prefix:
+                prefix = f"{gcs_prefix}/task_status/study_refresh__"
+                for blob in bucket.list_blobs(prefix=prefix):
+                    sr_status = read_task_status(
+                        blob.name.split("/")[-1].replace(".json", "")
+                    )
+                    if sr_status and sr_status.get("state") == "running":
+                        _study_refresh_gcs = sr_status
+                        break
+        except Exception:
+            pass
+
     for name, p_data in processes.items():
         gcs_status = None
 
         # Cloud Tasks path: read status from GCS for eligible processes
         if is_cloud_run() and name in CLOUD_TASK_ELIGIBLE:
-            gcs_status = read_task_status(name)
+            if name == "study_refresh":
+                gcs_status = _study_refresh_gcs
+            else:
+                gcs_status = read_task_status(name)
             if gcs_status and gcs_status.get("state") == "running":
                 # Check for stale status (task timed out without updating)
                 updated_str = gcs_status.get("updated_at", "")

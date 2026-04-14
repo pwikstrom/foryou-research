@@ -1949,6 +1949,40 @@ button {
     color: var(--color-text-secondary);
 }
 
+.global-tasks-badge {
+    margin-left: auto;
+    margin-right: 12px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: var(--color-bg-tertiary);
+    color: var(--status-running);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    cursor: default;
+    user-select: none;
+}
+
+.global-tasks-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--status-running);
+    border-radius: 50%;
+    animation: global-spin 0.8s linear infinite;
+}
+
+@keyframes global-spin {
+    to { transform: rotate(360deg); }
+}
+
+.global-tasks-count {
+    font-variant-numeric: tabular-nums;
+}
+
 .app-brand {
     font-family: 'DM Sans', var(--font-sans);
     font-size: 1.75rem;

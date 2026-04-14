@@ -96,7 +96,10 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         reporter.update_progress(int(((i + 1) / total) * 100), f"Done {i + 1}/{total}")
 
     # Persist updated stats to studies.json
-    fyp_cf['study_defs'] = studies
+    # Merge updated studies back into the full study_defs to avoid clobbering
+    # non-targeted studies when a filtered refresh is run.
+    for sn, sc in studies.items():
+        fyp_cf['study_defs'][sn] = sc
     save_study_defs()
     reporter.log("Stats saved to studies.json.")
     reporter.log("Study Definitions (Recoded Data) refresh completed.")

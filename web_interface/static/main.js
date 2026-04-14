@@ -448,6 +448,22 @@ async function updateStatus() {
         setStatus('recode_refresh_studies', data.recode_refresh_studies);
         setStatus('pca_refresh', data.pca_refresh);
 
+        // Update global running-tasks badge
+        const runningNames = Object.entries(data)
+            .filter(([, v]) => v && (v.state === 'running' || v.state === 'stopping'))
+            .map(([k]) => k.replace(/_/g, ' '));
+        const badge = document.getElementById('global-tasks-badge');
+        const countEl = document.getElementById('global-tasks-count');
+        if (badge && countEl) {
+            if (runningNames.length > 0) {
+                badge.style.display = 'inline-flex';
+                countEl.textContent = runningNames.length;
+                badge.title = runningNames.join(', ');
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
         // Detect scraper/annotator completion → refresh enrichment stats for consolidation warning
         ['queue_scraper', 'queue_annotator'].forEach(name => {
             const pData = data[name];
