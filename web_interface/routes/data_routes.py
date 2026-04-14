@@ -237,9 +237,9 @@ def api_explorer_metadata():
   
 
     cached_metadata = None
-    if data_io.exists(storage_location="cache", filename=f"{study}_{context}_metadata.json"):
+    if data_io.exists(storage_location="cache", filename=f"{study}_explorer_metadata.json"):
         try:
-            potential_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_{context}_metadata.json")
+            potential_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_explorer_metadata.json")
             
             # ... (Dynamic columns logic omitted for brevity as it modifies potential_metadata in place) ...
             # To avoid complexity in replacement, I will assume the dynamic logic is robust or harmless if metadata is discarded later.
