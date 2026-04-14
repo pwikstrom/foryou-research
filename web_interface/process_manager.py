@@ -16,7 +16,7 @@ GRACEFUL_STOP_DIR = PROJECT_ROOT / "tmp" / "graceful_stop"
 
 
 # Processes eligible for Cloud Tasks dispatch.
-# Others (queue_scraper, queue_annotator, timelines_refresh) stay subprocess-only for now.
+# Others (queue_scraper) stay subprocess-only for now.
 CLOUD_TASK_ELIGIBLE = {
     "consolidate_enrichment",
     "recode_refresh_studies",
@@ -25,6 +25,7 @@ CLOUD_TASK_ELIGIBLE = {
     "pca_refresh",
     "study_refresh",
     "queue_annotator",
+    "timelines_refresh",
 }
 
 

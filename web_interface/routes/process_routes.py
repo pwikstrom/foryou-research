@@ -271,6 +271,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_pca_refresh import run_pca_refresh
     from web_interface.run_study_refresh import run_study_refresh
     from web_interface.run_queue_annotator import run_queue_annotator
+    from web_interface.run_timelines_refresh import run_timelines_refresh
 
     TASK_FUNCTIONS.update({
         "consolidate_enrichment": run_consolidate_enrichment,
@@ -280,6 +281,7 @@ def _ensure_task_functions_loaded() -> None:
         "pca_refresh": run_pca_refresh,
         "study_refresh": run_study_refresh,
         "queue_annotator": run_queue_annotator,
+        "timelines_refresh": run_timelines_refresh,
     })
 
 
@@ -332,7 +334,10 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
                 reporter.log(f"Chained to next batch: {msg}")
             else:
                 reporter.fail(f"Chain dispatch failed: {msg}")
-            # Either way, return without writing completion stats — the chain
+            # Stop the heartbeat so it doesn't race with the next chain
+            # link's reporter writing to the same GCS status file.
+            reporter._stop_heartbeat()
+            # Return without writing completion stats — the chain
             # continues (on success) or the failure is recorded above.
             return
 
