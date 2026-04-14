@@ -105,9 +105,9 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
             fail_in_batch += 1
         completed = videos_processed + done_in_batch
         pct = int(completed / overall_total * 100) if overall_total else 0
+        pending = len(batch) - done_in_batch
         reporter.update_progress(pct,
-            f"Batch {batch_label}: {done_in_batch}/{len(batch)} "
-            f"({ok_in_batch} OK, {fail_in_batch} fail)")
+            f"Batch {batch_label}: {ok_in_batch} OK, {fail_in_batch} fail, {pending} pending")
 
     # ---- Scrape ----
     results_df, permanent_failed, transient_failed = download_video_threads(
@@ -202,7 +202,9 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             max_batches=args.max_batches,
             verbose=False,
-            dry_run=False
+            dry_run=False,
+            reporter=reporter,
+            cancellation_check=reporter.check_cancelled,
         )
         reporter.complete()
         print("Queue scraping process completed.")

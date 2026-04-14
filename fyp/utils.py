@@ -260,9 +260,14 @@ def start_monitor(
                  overall_eta = (overall_total - overall_done) / throughput if throughput > 0 else 0
                  pct = int((overall_done / overall_total) * 100) if overall_total > 0 else 0
                  batch_str = f"Batch {batch_label}: " if batch_label else ""
+                 if n_good is not None and done > 0:
+                     fail_count = done - n_good
+                     counts_str = f"{n_good} OK, {fail_count} fail, {pending} pending"
+                 else:
+                     counts_str = f"{done}/{total} done, {pending} pending"
                  reporter.update_progress(
                      pct,
-                     f"{batch_str}{done}/{total} ({throughput:.1f}/s, ETA {_fmt_secs(overall_eta)})",
+                     f"{batch_str}{counts_str} ({throughput:.1f}/s, ETA {_fmt_secs(overall_eta)})",
                  )
             elif "WEB_INTERFACE" in os.environ:
                  overall_done = cumulative_done + done if cumulative_total > 0 else done

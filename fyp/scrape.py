@@ -742,7 +742,9 @@ def scraper_loop_from_list(
     batch_size = 500,
     max_batches = None,
     verbose = False,
-    dry_run = False
+    dry_run = False,
+    reporter=None,
+    cancellation_check=None,
     ):
 
 
@@ -767,10 +769,38 @@ def scraper_loop_from_list(
     all_permanent_failed = []
     all_transient_failed = []
 
+    if reporter is not None:
+        reporter.emit_data({"threads": 8})
+
+    def _on_threads_change(n):
+        if reporter is not None:
+            reporter.emit_data({"threads": n})
+
     for batch in chunk_list(video_list, batch_size):
 
         batch_label = f"{batch_number}/{batch_target}"
         print(f"  Batch {batch_label}")
+
+        ok_in_batch = 0
+        fail_in_batch = 0
+        done_in_batch = 0
+        current_batch_size = len(batch)
+
+        def _on_video_done(idx, ok, error_cat):
+            nonlocal done_in_batch, ok_in_batch, fail_in_batch
+            done_in_batch += 1
+            if ok:
+                ok_in_batch += 1
+            else:
+                fail_in_batch += 1
+            if reporter is not None:
+                completed = cumulative_done + done_in_batch
+                pct = int(completed / total_items * 100) if total_items else 0
+                pending = current_batch_size - done_in_batch
+                reporter.update_progress(
+                    pct,
+                    f"Batch {batch_label}: {ok_in_batch} OK, {fail_in_batch} fail, {pending} pending",
+                )
 
         results_from_scraper, perm_failed, trans_failed = download_video_threads(
             interesting_videos = batch,
@@ -779,7 +809,9 @@ def scraper_loop_from_list(
             dry_run = dry_run,
             batch_label=batch_label,
             cumulative_done=cumulative_done,
-            cumulative_total=total_items)
+            cumulative_total=total_items,
+            on_concurrency_change=_on_threads_change,
+            on_video_done=_on_video_done)
 
         if not results_from_scraper.empty and "item_id" in results_from_scraper.columns:
             good_scrapes += results_from_scraper["item_id"].to_list()
@@ -795,15 +827,21 @@ def scraper_loop_from_list(
         cumulative_done += len(batch)
 
         # Emit queue update after each batch (for web UI)
-        if "WEB_INTERFACE" in os.environ:
-            queue_remaining = len(video_list) - cumulative_done
+        queue_remaining = len(video_list) - cumulative_done
+        if reporter is not None:
+            reporter.emit_data({"scrape_queue_len": max(0, queue_remaining)})
+        elif "WEB_INTERFACE" in os.environ:
             print(f"::DATA::{{\"scrape_queue_len\": {max(0, queue_remaining)}}}", flush=True)
 
         if max_batches is not None and batch_number >= max_batches:
             break
 
-        # Check for graceful stop request
-        if _check_graceful_stop("queue_scraper"):
+        # Check for cancellation request
+        if cancellation_check is not None:
+            if cancellation_check():
+                print("  Cancellation requested. Finishing after this batch.")
+                break
+        elif _check_graceful_stop("queue_scraper"):
             print("  Graceful stop requested. Finishing after this batch.")
             break
 
@@ -936,17 +974,19 @@ def queue_scraper_loop(
     batch_size = 500,
     max_batches = 10,
     verbose = False,
-    dry_run = False
+    dry_run = False,
+    reporter=None,
+    cancellation_check=None,
     ):
 
 
     # Load queue
     target_queue_file = 'to_scrape.json'
-    
+
     video_list = []
     if data_io.exists(storage_location='cache', filename=target_queue_file):
             video_list = data_io.load_json(storage_location='cache', filename=target_queue_file)
-    
+
     if not video_list or not isinstance(video_list, list) or len(video_list) == 0:
         print("Queue is empty or invalid. Nothing to scrape.")
         return
@@ -958,7 +998,9 @@ def queue_scraper_loop(
         batch_size=batch_size,
         max_batches=max_batches,
         verbose=verbose,
-        dry_run=dry_run
+        dry_run=dry_run,
+        reporter=reporter,
+        cancellation_check=cancellation_check,
     )
 
 

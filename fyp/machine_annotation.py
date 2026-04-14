@@ -293,6 +293,13 @@ def call_machine_threads(
             print("  [dry run] - ", end="", flush=True)
         print(f"Calling {fyp_cf['machine']['model']} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
 
+    def _annotation_ok(fut):
+        try:
+            _, rr = fut.result()
+            return bool(rr) and bool(rr.get("response")) and not str(rr.get("finish_reason", "")).startswith("DNF")
+        except Exception:
+            return False
+
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
 
         futures = []
@@ -304,6 +311,7 @@ def call_machine_threads(
 
         monitor_thread = start_monitor(
             futures, submit_times, interval=5, label="machine", bar_width=32,
+            result_checker=_annotation_ok,
             batch_label=batch_label,
             cumulative_done=cumulative_done,
             cumulative_total=cumulative_total,
