@@ -15,12 +15,89 @@ from os import remove
 from pathlib import Path
 from time import sleep
 from glob import glob
+import logging
 
 import pandas as pd
 import yt_dlp
+from yt_dlp.utils import ExtractorError, GeoRestrictedError
+from yt_dlp.networking.exceptions import HTTPError, TransportError
 
 
 from fyp.fyp_config import fyp_cf
+
+
+logger = logging.getLogger(__name__)
+
+
+# -------------------------------------------------------------------------
+# Error classification — maps yt-dlp exceptions to actionable categories
+# -------------------------------------------------------------------------
+
+_RETRYABLE = {"rate_limited", "network", "server_error", "unknown"}
+_PERMANENT = {"removed", "private", "geo_blocked", "ip_blocked", "extraction"}
+
+
+def _classify_error(exc: Exception) -> tuple[str, str]:
+    """Classify a yt-dlp error into (category, detail) for logging and retry decisions.
+
+    Returns:
+        (category, detail) where category is one of:
+        - "ip_blocked"   — TikTok status 10204, HTTP 403 from TikTok
+        - "rate_limited"  — HTTP 429
+        - "private"       — TikTok status 10216/10222, login required
+        - "removed"       — video deleted/unavailable, nonexistent ID
+        - "geo_blocked"   — GeoRestrictedError
+        - "network"       — timeout, connection refused, DNS failure, SSL
+        - "server_error"  — HTTP 5xx from TikTok
+        - "extraction"    — JS challenge, parsing failure, unexpected response
+        - "unknown"       — unrecognised error
+    """
+    msg = str(exc)
+    cause = getattr(exc, 'cause', None)
+
+    # GeoRestrictedError is a subclass of ExtractorError
+    if isinstance(exc, GeoRestrictedError):
+        return "geo_blocked", msg
+
+    # Check the underlying HTTP error for status codes
+    if isinstance(cause, HTTPError):
+        status = cause.status
+        if status == 429:
+            return "rate_limited", f"HTTP 429: {msg}"
+        if status == 403:
+            return "ip_blocked", f"HTTP 403: {msg}"
+        if 500 <= status < 600:
+            return "server_error", f"HTTP {status}: {msg}"
+
+    # Check for network-level transport errors
+    if isinstance(cause, TransportError):
+        return "network", f"Transport error: {msg}"
+
+    # String-based classification from TikTok extractor messages
+    msg_lower = msg.lower()
+
+    if 'ip address is blocked' in msg_lower or 'status code 10204' in msg_lower:
+        return "ip_blocked", msg
+
+    if 'not have permission' in msg_lower or 'log into' in msg_lower:
+        return "private", msg
+
+    if any(kw in msg_lower for kw in ('unavailable', 'removed', 'deleted', 'not found',
+                                       'does not exist', 'status code 10')):
+        return "removed", msg
+
+    if any(kw in msg_lower for kw in ('challenge', 'js challenge', 'unable to extract',
+                                       'unable to solve')):
+        return "extraction", msg
+
+    if any(kw in msg_lower for kw in ('timed out', 'timeout', 'connection', 'network',
+                                       'ssl', 'certificate', 'dns', 'reset by peer')):
+        return "network", msg
+
+    if any(kw in msg_lower for kw in ('429', 'rate limit', 'too many requests')):
+        return "rate_limited", msg
+
+    return "unknown", msg
 
 
 
@@ -160,18 +237,51 @@ def _info_to_row(info: dict) -> pd.DataFrame:
 
 
 # -------------------------------------------------------------------------
-# Image carousel detection and download
+# Page JSON extraction — fetches TikTok's embedded itemStruct to
+# supplement yt-dlp metadata and detect image carousels.
 # -------------------------------------------------------------------------
 
-def _extract_image_urls(video_url: str) -> list[str]:
-    """Fetch TikTok page and extract image carousel URLs from itemStruct.
+# Each entry: (script_tag_id, function that extracts itemStruct from parsed JSON)
+_JSON_PATHS: list[tuple[str, str]] = [
+    ("__UNIVERSAL_DATA_FOR_REHYDRATION__", "rehydration"),
+    ("__NEXT_DATA__", "next_data"),
+    ("SIGI_STATE", "sigi_state"),
+]
+
+
+def _struct_rehydration(data: dict, video_id: str) -> dict:
+    return data['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct']
+
+
+def _struct_next_data(data: dict, video_id: str) -> dict:
+    return data['props']['pageProps']['itemInfo']['itemStruct']
+
+
+def _struct_sigi_state(data: dict, video_id: str) -> dict:
+    return data['ItemModule'][video_id]
+
+
+_STRUCT_EXTRACTORS = {
+    "rehydration": _struct_rehydration,
+    "next_data": _struct_next_data,
+    "sigi_state": _struct_sigi_state,
+}
+
+
+def _fetch_item_struct(video_url: str) -> dict | None:
+    """Fetch TikTok page and extract the full itemStruct dict.
+
+    Tries multiple known JSON embedding paths that TikTok has used
+    historically. Returns the itemStruct dict on success, None on failure.
 
     Uses a plain HTTP request — no browser_cookie3 dependency so it works
-    on Cloud Run. Image posts are typically public so cookies are optional.
+    on Cloud Run.
     """
     from bs4 import BeautifulSoup
     from requests import get as requests_get
     from json import loads
+
+    video_id = video_url.rstrip('/').split('/')[-1]
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
@@ -183,16 +293,74 @@ def _extract_image_urls(video_url: str) -> list[str]:
     try:
         resp = requests_get(video_url, headers=headers, timeout=20)
         soup = BeautifulSoup(resp.text, 'html.parser')
-        script = soup.find('script', attrs={'id': '__UNIVERSAL_DATA_FOR_REHYDRATION__'})
-        if script is None:
-            return []
-        tt_json = loads(script.string)
-        item_struct = tt_json['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct']
-        image_post = item_struct.get('imagePost', {})
-        images = image_post.get('images', [])
-        return [img['imageURL']['urlList'][0] for img in images if img.get('imageURL', {}).get('urlList')]
-    except Exception:
-        return []
+    except Exception as e:
+        logger.warning("Page fetch failed for %s: %s", video_url, e)
+        return None
+
+    for script_id, extractor_name in _JSON_PATHS:
+        script = soup.find('script', attrs={'id': script_id})
+        if script is None or not script.string:
+            continue
+
+        try:
+            data = loads(script.string)
+            item_struct = _STRUCT_EXTRACTORS[extractor_name](data, video_id)
+            if item_struct:
+                logger.info("Page JSON extracted via '%s' for %s", script_id, video_id)
+                return item_struct
+        except KeyError as e:
+            logger.debug("Page JSON path '%s' missing key %s for %s",
+                         script_id, e, video_id)
+        except Exception as e:
+            logger.debug("Page JSON path '%s' failed for %s: %s",
+                         script_id, video_id, e)
+
+    logger.warning("All page JSON extraction paths failed for %s", video_url)
+    return None
+
+
+def _get_image_urls_from_struct(item_struct: dict) -> list[str]:
+    """Extract carousel image URLs from an itemStruct dict."""
+    image_post = item_struct.get('imagePost', {})
+    images = image_post.get('images', [])
+    return [img['imageURL']['urlList'][0]
+            for img in images
+            if img.get('imageURL', {}).get('urlList')]
+
+
+def _supplement_from_struct(data_row: pd.DataFrame, item_struct: dict) -> None:
+    """Fill in metadata fields that yt-dlp doesn't extract, using the page JSON."""
+    music = item_struct.get('music', {})
+    author = item_struct.get('author', {})
+    challenges = item_struct.get('challenges', [])
+
+    # Music fields
+    if music.get('id'):
+        data_row.loc[0, 'music_id'] = str(music['id'])
+    if music.get('duration'):
+        data_row.loc[0, 'music_duration'] = int(music['duration'])
+    if 'original' in music:
+        data_row.loc[0, 'music_original'] = bool(music['original'])
+
+    # Author fields
+    if author.get('signature'):
+        data_row.loc[0, 'author_signature'] = str(author['signature'])
+    if 'verified' in author:
+        data_row.loc[0, 'author_verified'] = bool(author['verified'])
+
+    # Challenges (hashtag names, pipe-separated)
+    if challenges:
+        challenge_titles = [c.get('title', '') for c in challenges if c.get('title')]
+        if challenge_titles:
+            data_row.loc[0, 'challenges'] = " | ".join(challenge_titles)
+
+    # AIGC fields
+    if 'IsAigc' in item_struct:
+        data_row.loc[0, 'IsAigc'] = bool(item_struct['IsAigc'])
+    if item_struct.get('AIGCDescription'):
+        data_row.loc[0, 'AIGCDescription'] = str(item_struct['AIGCDescription'])
+    if item_struct.get('aigcLabelType') is not None:
+        data_row.loc[0, 'aigcLabelType'] = str(item_struct['aigcLabelType'])
 
 
 
@@ -246,6 +414,27 @@ def _download_images(
 # Main entry point — matches mypyktok.save_tiktok() interface
 # -------------------------------------------------------------------------
 
+def _empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
+    """Return an empty DataFrame tagged with error classification metadata."""
+    df = pd.DataFrame()
+    df.attrs['error_type'] = error_type
+    df.attrs['error_detail'] = error_detail
+    return df
+
+
+def _cleanup_temp_files(temp_dir: str, video_id: str) -> None:
+    """Remove any partial download files for a video from the temp directory."""
+    for f in glob(join(temp_dir, f"{video_id}.*")):
+        try:
+            remove(f)
+        except OSError:
+            pass
+
+
+_META_MAX_RETRIES = 3
+_DL_MAX_RETRIES = 2
+
+
 def save_tiktok(
     video_url: str,
     save_video: bool = True,
@@ -257,7 +446,9 @@ def save_tiktok(
     """Download a TikTok video's metadata and media using yt-dlp.
 
     Returns a single-row DataFrame matching the mypyktok schema,
-    or an empty DataFrame on failure.
+    or an empty DataFrame on failure. Failed DataFrames carry
+    ``attrs['error_type']`` and ``attrs['error_detail']`` for
+    downstream retry/queue decisions.
     """
 
     video_id = video_url.rstrip('/').split('/')[-1]
@@ -272,42 +463,63 @@ def save_tiktok(
         **_cookie_opts(),
         'skip_download': True,
         'no_color': True,
+        'extractor_retries': 3,
+        'socket_timeout': 30,
     }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=False)
-    except yt_dlp.utils.DownloadError as e:
-        if verbose:
-            print(f"ERROR (yt-dlp)-1: Failed to extract info for {video_url}: {e}")
-        return pd.DataFrame()
-    except Exception as e:
-        if verbose:
-            print(f"ERROR (yt-dlp)-2: Unexpected error for {video_url}: {e}")
-        return pd.DataFrame()
+    info = None
+    last_category, last_detail = "unknown", ""
+
+    for attempt in range(_META_MAX_RETRIES):
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(video_url, download=False)
+            break
+        except (yt_dlp.utils.DownloadError, ExtractorError) as e:
+            last_category, last_detail = _classify_error(e)
+            logger.warning("Scrape %s metadata attempt %d/%d failed: [%s] %s",
+                           video_id, attempt + 1, _META_MAX_RETRIES,
+                           last_category, last_detail)
+            if last_category in _RETRYABLE and attempt < _META_MAX_RETRIES - 1:
+                backoff = 3 * (2 ** attempt)
+                logger.info("Retrying %s in %ds...", video_id, backoff)
+                sleep(backoff)
+                continue
+            return _empty_fail(last_category, last_detail)
+        except Exception as e:
+            last_category, last_detail = "unknown", str(e)
+            logger.error("Scrape %s metadata unexpected error: %s", video_id, e)
+            return _empty_fail(last_category, last_detail)
 
     if info is None:
-        if verbose:
-            print(f"ERROR (yt-dlp)-3: No info returned for {video_url}")
-        return pd.DataFrame()
+        logger.warning("Scrape %s: no info returned", video_id)
+        return _empty_fail("extraction", "No info returned by yt-dlp")
 
     data_row = _info_to_row(info)
 
     # -------------------------------------------
-    # Step 2: detect image carousel
+    # Step 2: supplement metadata from page JSON
     # -------------------------------------------
+    item_struct = _fetch_item_struct(video_url)
+    if item_struct:
+        _supplement_from_struct(data_row, item_struct)
+
+    # Detect image carousel
     is_slideshow = False
     image_urls: list[str] = []
 
-    # yt-dlp slideshows have duration 0 or only audio formats
     formats = info.get('formats') or []
     has_video_format = any(f.get('vcodec', 'none') != 'none' for f in formats)
 
-    if not has_video_format:
-        image_urls = _extract_image_urls(video_url)
+    if not has_video_format or (info.get('duration') or 0) == 0:
+        if item_struct:
+            image_urls = _get_image_urls_from_struct(item_struct)
         if image_urls:
             is_slideshow = True
             data_row.loc[0, 'image_list'] = " | ".join(image_urls)
+        elif not has_video_format:
+            logger.warning("Suspected image post (no video formats) but carousel "
+                           "extraction returned no images: %s", video_url)
 
     # -------------------------------------------
     # Step 3: download media
@@ -317,12 +529,11 @@ def save_tiktok(
 
     duration = data_row.loc[0, 'video_duration']
     if isinstance(duration, (int, float)) and duration > max_duration_to_save:
-        if verbose:
-            print(f"Video '{video_id}' duration ({duration:,}s) exceeds {max_duration_to_save:,}s. Skipping download.")
+        logger.info("Video '%s' duration (%ss) exceeds %ss. Skipping download.",
+                     video_id, duration, max_duration_to_save)
         return data_row
 
     if is_slideshow and image_urls:
-        # Download carousel images (same as pyktok path)
         ok = _download_images(
             image_urls=image_urls,
             video_id=video_id,
@@ -344,52 +555,63 @@ def save_tiktok(
             'overwrites': True,
             'format': 'best[ext=mp4]/best',
             'merge_output_format': 'mp4',
+            'retries': 3,
+            'socket_timeout': 30,
         }
 
-        try:
-            with yt_dlp.YoutubeDL(dl_opts) as ydl:
-                ydl.download([video_url])
+        for attempt in range(_DL_MAX_RETRIES):
+            try:
+                with yt_dlp.YoutubeDL(dl_opts) as ydl:
+                    ydl.download([video_url])
 
-            # Find the downloaded file
-            downloaded = join(temp_dir, f"{video_id}.mp4")
-            if not exists(downloaded):
-                # yt-dlp may have chosen a different extension
-                candidates = glob(join(temp_dir, f"{video_id}.*"))
-                mp4_candidates = [c for c in candidates if c.endswith('.mp4')]
-                downloaded = mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
+                # Find the downloaded file
+                downloaded = join(temp_dir, f"{video_id}.mp4")
+                if not exists(downloaded):
+                    candidates = glob(join(temp_dir, f"{video_id}.*"))
+                    mp4_candidates = [c for c in candidates if c.endswith('.mp4')]
+                    downloaded = mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
 
-            if downloaded and exists(downloaded):
-                video_fn = f"{video_id}.mp4"
+                if downloaded and exists(downloaded):
+                    video_fn = f"{video_id}.mp4"
 
-                if stream_to_bucket is not None:
-                    blob = stream_to_bucket.blob(f"{save_path}/{video_fn}")
-                    blob.upload_from_filename(downloaded)
-                    data_row.loc[0, 'video_downloaded'] = True
+                    if stream_to_bucket is not None:
+                        blob = stream_to_bucket.blob(f"{save_path}/{video_fn}")
+                        blob.upload_from_filename(downloaded)
+                        data_row.loc[0, 'video_downloaded'] = True
+                    else:
+                        from shutil import move
+                        target = join(save_path, video_fn)
+                        if downloaded != target:
+                            move(downloaded, target)
+                        data_row.loc[0, 'video_downloaded'] = True
+
+                    # Clean up temp file
+                    if exists(downloaded):
+                        try:
+                            remove(downloaded)
+                        except OSError:
+                            pass
                 else:
-                    # Local mode: file is already in temp or move to save_path
-                    from shutil import move
-                    target = join(save_path, video_fn)
-                    if downloaded != target:
-                        move(downloaded, target)
-                    data_row.loc[0, 'video_downloaded'] = True
+                    logger.warning("Download succeeded but file not found for '%s'", video_id)
 
-                # Clean up temp file
-                if exists(downloaded):
-                    try:
-                        remove(downloaded)
-                    except OSError:
-                        pass
-            else:
-                if verbose:
-                    print(f"WARNING (yt-dlp): Download succeeded but file not found for '{video_id}'")
+                break
 
-        except yt_dlp.utils.DownloadError as e:
-            if verbose:
-                print(f"WARNING (yt-dlp)-2: Failed to download video for {video_url}: {e}")
-            sleep(3)
-        except Exception as e:
-            if verbose:
-                print(f"WARNING (yt-dlp)-3: Unexpected download error for {video_url}: {e}")
-            sleep(3)
+            except (yt_dlp.utils.DownloadError, ExtractorError) as e:
+                category, detail = _classify_error(e)
+                logger.warning("Scrape %s download attempt %d/%d failed: [%s] %s",
+                               video_id, attempt + 1, _DL_MAX_RETRIES,
+                               category, detail)
+                _cleanup_temp_files(temp_dir, video_id)
+                if category in _RETRYABLE and attempt < _DL_MAX_RETRIES - 1:
+                    backoff = 3 * (3 ** attempt)
+                    logger.info("Retrying download %s in %ds...", video_id, backoff)
+                    sleep(backoff)
+                    continue
+                break
+
+            except Exception as e:
+                logger.error("Scrape %s download unexpected error: %s", video_id, e)
+                _cleanup_temp_files(temp_dir, video_id)
+                break
 
     return data_row

@@ -340,8 +340,12 @@ def download_single_video(
 
     except Exception as e:
         print(e)
-    
-    # things have gone terribly wrong if we end up down here
+
+    # Failure path: return the empty DataFrame if it carries error attrs
+    # (from tiktok_dl), otherwise fall back to the video_id string.
+    if isinstance(scrape_metadata, pd.DataFrame) and scrape_metadata.empty and scrape_metadata.attrs.get('error_type'):
+        return scrape_metadata
+
     return video_id
 
 
@@ -417,15 +421,28 @@ def rescue_tiktok_meta_threads(
 
     results = []
     failed_items = []
+    permanent_failed_ids: list[str] = []
+    transient_failed_ids: list[str] = []
     for idx in range(len(interesting_videos)):
-        if idx in results_by_index.keys() and type(results_by_index[idx])==pd.DataFrame and results_by_index[idx].shape[1]>10: # download good
-            results += [results_by_index[idx]]
+        res = results_by_index.get(idx)
+        if isinstance(res, pd.DataFrame) and res.shape[1] > 10:
+            results += [res]
         else:
-            failed_items += [results_by_index[idx]]
+            vid = interesting_videos[idx]
+            failed_items += [vid]
+            error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
+            if error_type in ('removed', 'private', 'geo_blocked', 'ip_blocked', 'extraction'):
+                permanent_failed_ids.append(vid)
+            else:
+                transient_failed_ids.append(vid)
+
+    if permanent_failed_ids or transient_failed_ids:
+        print(f"  Failures: {len(permanent_failed_ids)} permanent, "
+              f"{len(transient_failed_ids)} transient (will retry)")
 
     if len(results)==0:
         print("The scrape procedure did not generate any useful results")
-        return pd.DataFrame()
+        return pd.DataFrame(), permanent_failed_ids, transient_failed_ids
 
     results = pd.concat(results)
 
@@ -509,7 +526,7 @@ def rescue_tiktok_meta_threads(
         data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
         print(f"Saved {len(failed_items)} failed items")
 
-    return results
+    return results, permanent_failed_ids, transient_failed_ids
 
 
 
@@ -579,15 +596,28 @@ def download_video_threads(
 
     results = []
     failed_items = []
+    permanent_failed_ids: list[str] = []
+    transient_failed_ids: list[str] = []
     for idx in range(len(interesting_videos)):
-        if idx in results_by_index.keys() and type(results_by_index[idx])==pd.DataFrame and results_by_index[idx].shape[1]>10: # download good
-            results += [results_by_index[idx]]
+        res = results_by_index.get(idx)
+        if isinstance(res, pd.DataFrame) and res.shape[1] > 10:
+            results += [res]
         else:
-            failed_items += [results_by_index[idx]]
+            vid = interesting_videos[idx]
+            failed_items += [vid]
+            error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
+            if error_type in ('removed', 'private', 'geo_blocked', 'ip_blocked', 'extraction'):
+                permanent_failed_ids.append(vid)
+            else:
+                transient_failed_ids.append(vid)
+
+    if permanent_failed_ids or transient_failed_ids:
+        print(f"  Failures: {len(permanent_failed_ids)} permanent, "
+              f"{len(transient_failed_ids)} transient (will retry)")
 
     if len(results)==0:
         print("The scrape procedure did not generate any useful results")
-        return pd.DataFrame()
+        return pd.DataFrame(), permanent_failed_ids, transient_failed_ids
 
     results = pd.concat(results)
 
@@ -666,7 +696,7 @@ def download_video_threads(
         data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
         print(f"Saved {len(failed_items)} failed items")
 
-    return results
+    return results, permanent_failed_ids, transient_failed_ids
 
 
 
@@ -706,14 +736,15 @@ def scraper_loop_from_list(
     total_items = min(len(video_list), batch_target * batch_size)
     cumulative_done = 0
     good_scrapes = []
-    failed_scrapes = []
+    all_permanent_failed = []
+    all_transient_failed = []
 
     for batch in chunk_list(video_list, batch_size):
 
         batch_label = f"{batch_number}/{batch_target}"
         print(f"  Batch {batch_label}")
 
-        results_from_scraper = download_video_threads(
+        results_from_scraper, perm_failed, trans_failed = download_video_threads(
             interesting_videos = batch,
             max_workers=4,
             verbose = verbose,
@@ -725,9 +756,11 @@ def scraper_loop_from_list(
         if not results_from_scraper.empty and "item_id" in results_from_scraper.columns:
             good_scrapes += results_from_scraper["item_id"].to_list()
 
-        failed_scrapes += [v for v in batch if v not in good_scrapes]
+        all_permanent_failed += perm_failed
+        all_transient_failed += trans_failed
+
         with open(os.path.join(fyp_cf['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
-            json.dump(failed_scrapes, f)
+            json.dump(all_permanent_failed + all_transient_failed, f)
         with open(os.path.join(fyp_cf['paths']['temp'], "temp_good_scrapes.json"), "w") as f:
             json.dump(good_scrapes, f)
 
@@ -752,31 +785,31 @@ def scraper_loop_from_list(
             break
 
     # ----------------
-    # Update scrape queue file, by removing the items that have been scraped - both good and failed
+    # Update scrape queue: remove successful + permanently failed items.
+    # Transient failures stay in the queue for retry on next run.
     # -----------------
     target_queue_file = 'to_scrape.json'
 
     if data_io.exists(storage_location='cache', filename=target_queue_file, verbose=verbose):
-        # Load the existing queue
         to_scrape_queue = data_io.load_json(storage_location='cache', filename=target_queue_file, verbose=verbose)
-        
+
         if isinstance(to_scrape_queue, list):
-            # Identify items to remove (both good and failed are considered "processed" in this context)
-            processed_items = set(good_scrapes + failed_scrapes)
-            
-            # Filter the queue
+            # Only remove items that succeeded or permanently failed
+            items_to_remove = set(good_scrapes + all_permanent_failed)
+
             original_len = len(to_scrape_queue)
-            updated_queue = [item for item in to_scrape_queue if item not in processed_items]
-            
-            # Save if changed
+            updated_queue = [item for item in to_scrape_queue if item not in items_to_remove]
+
             if len(updated_queue) < original_len:
                 data_io.save_json(data=updated_queue, storage_location='cache', filename=target_queue_file, verbose=verbose)
-                if verbose:
-                    print(f"    Updated scrape queue: Removed {original_len - len(updated_queue)} items. New length: {len(updated_queue)}")
+                print(f"  Queue update: removed {original_len - len(updated_queue)} "
+                      f"({len(good_scrapes)} OK, {len(all_permanent_failed)} permanent fail). "
+                      f"{len(all_transient_failed)} transient failures remain for retry. "
+                      f"Queue length: {len(updated_queue)}")
 
 
     print(f"  Loop ended: {datetime.now()}")
-    return good_scrapes, failed_scrapes
+    return good_scrapes, all_permanent_failed, all_transient_failed
 
 
 

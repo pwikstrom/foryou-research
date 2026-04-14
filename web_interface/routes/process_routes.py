@@ -271,6 +271,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_pca_refresh import run_pca_refresh
     from web_interface.run_study_refresh import run_study_refresh
     from web_interface.run_queue_annotator import run_queue_annotator
+    from web_interface.run_queue_scraper import run_queue_scraper
     from web_interface.run_timelines_refresh import run_timelines_refresh
 
     TASK_FUNCTIONS.update({
@@ -281,6 +282,7 @@ def _ensure_task_functions_loaded() -> None:
         "pca_refresh": run_pca_refresh,
         "study_refresh": run_study_refresh,
         "queue_annotator": run_queue_annotator,
+        "queue_scraper": run_queue_scraper,
         "timelines_refresh": run_timelines_refresh,
     })
 

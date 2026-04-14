@@ -586,12 +586,20 @@ def empty_enrichment_queue(queue_type):
         if queue_type == "scrape":
             if data_io.exists(storage_location='cache', filename='to_scrape.json'):
                 data_io.remove(storage_location='cache', filename='to_scrape.json')
+            load_process_stats()
+            if "scrape_queue_len" in process_stats.get("queue_scraper", {}):
+                process_stats["queue_scraper"]["scrape_queue_len"] = 0
+                save_process_stats()
         elif queue_type == "annotate":
             if data_io.exists(storage_location='cache', filename='to_annotate.json'):
                 data_io.remove(storage_location='cache', filename='to_annotate.json')
+            load_process_stats()
+            if "annotate_queue_len" in process_stats.get("queue_annotator", {}):
+                process_stats["queue_annotator"]["annotate_queue_len"] = 0
+                save_process_stats()
         else:
             return jsonify({"error": "Invalid queue type"}), 400
-            
+
         return jsonify({"status": "success", "message": f"{queue_type.capitalize()} queue emptied."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

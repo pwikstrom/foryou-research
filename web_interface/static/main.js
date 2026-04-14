@@ -644,15 +644,18 @@ function setStatus(name, data) {
         }
     }
 
-    // Update queue displays from ::DATA:: output
-    const procData = data.data || {};
-    if (name === 'queue_scraper' && procData.scrape_queue_len !== undefined) {
-        const el = document.getElementById('enrich_scrape_targets');
-        if (el) el.textContent = procData.scrape_queue_len.toLocaleString();
-    }
-    if (name === 'queue_annotator' && procData.annotate_queue_len !== undefined) {
-        const el = document.getElementById('enrich_annotate_targets');
-        if (el) el.textContent = procData.annotate_queue_len.toLocaleString();
+    // Update queue displays from ::DATA:: output (only while running —
+    // when idle the management stats endpoint is the source of truth)
+    if (data.state === 'running') {
+        const procData = data.data || {};
+        if (name === 'queue_scraper' && procData.scrape_queue_len !== undefined) {
+            const el = document.getElementById('enrich_scrape_targets');
+            if (el) el.textContent = procData.scrape_queue_len.toLocaleString();
+        }
+        if (name === 'queue_annotator' && procData.annotate_queue_len !== undefined) {
+            const el = document.getElementById('enrich_annotate_targets');
+            if (el) el.textContent = procData.annotate_queue_len.toLocaleString();
+        }
     }
 }
 

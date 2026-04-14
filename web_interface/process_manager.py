@@ -16,7 +16,6 @@ GRACEFUL_STOP_DIR = PROJECT_ROOT / "tmp" / "graceful_stop"
 
 
 # Processes eligible for Cloud Tasks dispatch.
-# Others (queue_scraper) stay subprocess-only for now.
 CLOUD_TASK_ELIGIBLE = {
     "consolidate_enrichment",
     "recode_refresh_studies",
@@ -25,6 +24,7 @@ CLOUD_TASK_ELIGIBLE = {
     "pca_refresh",
     "study_refresh",
     "queue_annotator",
+    "queue_scraper",
     "timelines_refresh",
 }
 
@@ -236,11 +236,13 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         if task_args is None:
             task_args = _cli_args_to_dict(name, args, study_name)
 
-        # For queue_annotator, set dispatch_deadline based on batch_size
+        # Set dispatch_deadline for self-chaining processes
         deadline = None
         if name == "queue_annotator" and task_args:
             batch_size = int(task_args.get("batch_size", 500))
             deadline = 3600 if batch_size > 1000 else 1800
+        elif name == "queue_scraper":
+            deadline = 1800
 
         success, msg = _dispatch_cloud_task(name, task_args,
                                             dispatch_deadline_seconds=deadline)
