@@ -442,7 +442,6 @@ async function updateStatus() {
         //setStatus('create_subsets', data.create_subsets);
         setStatus('queue_scraper', data.queue_scraper);
         setStatus('queue_annotator', data.queue_annotator);
-        setStatus('meta_refresh_viewer', data.meta_refresh_viewer);
         setStatus('meta_refresh_groups', data.meta_refresh_groups);
         setStatus('timelines_refresh', data.timelines_refresh);
         setStatus('recode_refresh_studies', data.recode_refresh_studies);
@@ -476,7 +475,7 @@ async function updateStatus() {
         });
 
         // Detect downstream process completion → refresh staleness indicators + cascade logic
-        ['recode_refresh_studies', 'meta_refresh_viewer', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].forEach(name => {
+        ['recode_refresh_studies', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].forEach(name => {
             const pData = data[name];
             if (pData && previousProcessStates[name] === 'running' && pData.state !== 'running') {
                 if (typeof fetchStalenessStatus === 'function') {
@@ -489,13 +488,13 @@ async function updateStatus() {
                         onCascadeStudiesComplete();
                     }
                     // Check if all cascade processes have finished
-                    const allDone = ['recode_refresh_studies', 'meta_refresh_viewer', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].every(p => {
+                    const allDone = ['recode_refresh_studies', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].every(p => {
                         const pd = data[p];
                         return !pd || pd.state !== 'running';
                     });
                     if (allDone && _cascadeRefresh.phase === 'waiting_for_meta' && typeof onCascadeRefreshComplete === 'function') {
                         // Ensure meta processes were actually started before declaring complete
-                        if (_cascadeRefresh.startedMetaViewer || _cascadeRefresh.startedMetaGroups || _cascadeRefresh.startedPca) {
+                        if (_cascadeRefresh.startedMetaGroups || _cascadeRefresh.startedPca) {
                             onCascadeRefreshComplete();
                         }
                     }
@@ -657,6 +656,20 @@ function setStatus(name, data) {
             if (el) el.textContent = procData.annotate_queue_len.toLocaleString();
         }
     }
+
+    // Thread count for scraper (show while running, hide when idle)
+    if (name === 'queue_scraper') {
+        const threadsEl = document.getElementById('queue_scraper-threads');
+        if (threadsEl) {
+            const procData = data.data || {};
+            if (data.state === 'running' && procData.threads !== undefined) {
+                threadsEl.textContent = `${procData.threads} threads`;
+                threadsEl.style.display = '';
+            } else {
+                threadsEl.style.display = 'none';
+            }
+        }
+    }
 }
 
 
@@ -802,7 +815,6 @@ async function updateLogs() {
     //await fetchLogs('create_subsets');
     await fetchLogs('queue_scraper');
     await fetchLogs('queue_annotator');
-    await fetchLogs('meta_refresh_viewer');
     await fetchLogs('meta_refresh_groups');
     await fetchLogs('timelines_refresh');
     await fetchLogs('recode_refresh_studies');

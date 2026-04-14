@@ -336,7 +336,6 @@ fyp_cf = load_var_schema(fyp_cf, verbose=True)
 
 QUEUE_SCRAPER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_queue_scraper.py"
 QUEUE_ANNOTATOR_SCRIPT = PROJECT_ROOT / "web_interface" / "run_queue_annotator.py"
-META_REFRESH_VIEWER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_meta_refresh_viewer.py"
 META_REFRESH_GROUPS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_meta_refresh_groups.py"
 TIMELINES_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_timelines_refresh.py"
 RECODE_REFRESH_STUDIES_SCRIPT = PROJECT_ROOT / "web_interface" / "run_recode_refresh_studies.py"

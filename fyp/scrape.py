@@ -535,13 +535,14 @@ def rescue_tiktok_meta_threads(
 
 def download_video_threads(
     interesting_videos:list[str] = None,
-    max_workers:int = 4,
+    max_workers:int = 8,
     verbose:bool = False,
     dry_run:bool = False,
     batch_label: str | None = None,
     cumulative_done: int = 0,
-    cumulative_total: int = 0):
-    
+    cumulative_total: int = 0,
+    on_concurrency_change: "callable | None" = None):
+
 
 
     if dry_run:
@@ -554,21 +555,40 @@ def download_video_threads(
             return pd.DataFrame()
 
     results_by_index = {}
+    throttle = tiktok_dl.ThrottleController(
+        initial=max_workers, minimum=2, maximum=max(max_workers, 12),
+        on_change=on_concurrency_change)
 
     def worker(idx_video):
         idx, video = idx_video
-        return idx, download_single_video(
-            video_id = video, 
-            verbose=verbose,
-            dry_run=dry_run)
+        throttle.acquire()
+        try:
+            res = download_single_video(
+                video_id=video,
+                verbose=verbose,
+                dry_run=dry_run)
+            # Report outcome to throttle controller
+            if isinstance(res, pd.DataFrame) and res.empty:
+                error_cat = res.attrs.get('error_type')
+            else:
+                error_cat = None
+            throttle.report_result(error_cat)
+            return idx, res
+        except Exception:
+            throttle.report_result("unknown")
+            raise
+        finally:
+            throttle.release()
 
 
     if verbose:
         print(f"dry_run: {dry_run}")
         print(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
 
-
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+    # Pool is oversized so the ThrottleController's semaphore governs
+    # actual concurrency — allows dynamic resizing without pool restart
+    pool_size = max(max_workers, 12)
+    with ThreadPoolExecutor(max_workers=pool_size) as ex:
 
 
         futures = []
@@ -591,8 +611,12 @@ def download_video_threads(
         for fut in as_completed(futures):
             idx, res = fut.result()
             results_by_index[idx] = res
-        
+
         monitor_thread.join()
+
+    if throttle.total_throttle_events > 0:
+        print(f"  Throttle: {throttle.total_throttle_events} rate-limit events, "
+              f"final concurrency: {throttle.current}")
 
     results = []
     failed_items = []
@@ -746,7 +770,7 @@ def scraper_loop_from_list(
 
         results_from_scraper, perm_failed, trans_failed = download_video_threads(
             interesting_videos = batch,
-            max_workers=4,
+            max_workers=8,
             verbose = verbose,
             dry_run = dry_run,
             batch_label=batch_label,

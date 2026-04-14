@@ -3,29 +3,7 @@
 
 <div style="display: flex; gap: 20px; flex-wrap: wrap;">
 
-    <!-- 1. Video Analysis Metadata -->
-    <div
-        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">Video Analysis Metadata
-            <span id="meta_refresh_viewer-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
-        </div>
-        <div class="controls"
-            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
-            <span id="meta_refresh_viewer-status" class="status-indicator status-stopped"></span>
-            <button id="meta_refresh_viewer-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('meta_refresh_viewer')" style="padding: 4px 12px;">Refresh</button>
-        </div>
-        <div class="progress-container">
-            <div class="progress-bar" id="meta_refresh_viewer-bar"></div>
-            <div class="progress-text" id="meta_refresh_viewer-text">Idle</div>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-            <span id="meta_refresh_viewer-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
-            <a class="text-xs view-log-link" onclick="openLogModal('meta_refresh_viewer', 'Video Analysis Metadata')">View Log</a>
-        </div>
-    </div>
-
-    <!-- 2. Group Comparisons Metadata -->
+    <!-- 1. Group Comparisons Metadata -->
     <div
         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
         <div class="font-bold" style="margin-bottom: 10px;">'Explore' Metadata

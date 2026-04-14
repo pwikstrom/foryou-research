@@ -24,99 +24,83 @@ management_bp = Blueprint('management_bp', __name__)
 
 
 
-def _calculate_stats(study_config, save_to_cache=True):
+def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFrame | None]:
+    """Calculate stats for a study using enrichment_status.parquet AND the study's specific recoded dataset.
+
+    Returns:
+        Tuple of (stats_dict, full_recoded_dataframe). The DataFrame is None when no data exists.
     """
-    Calculate stats for a study using enrichment_status.parquet AND the study's specific recoded dataset.
-    """
 
+    empty_stats = {"total_activities": 0, "unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
 
-    if True:#try:
-        study_name = study_config.get("STUDY_NAME")
-        if not study_name:
-             return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
+    study_name = study_config.get("STUDY_NAME")
+    if not study_name:
+         return empty_stats, None
 
-        # If no collections are selected, the study is empty — skip expensive computation
-        selected = study_config.get("SELECTED_COLLECTIONS", [])
-        if not selected:
-             return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
+    # If no collections are selected, the study is empty — skip expensive computation
+    selected = study_config.get("SELECTED_COLLECTIONS", [])
+    if not selected:
+         return empty_stats, None
 
-        # 1. Load Study Dataset (create if missing)
-        #recoded_fn = f"{study_name}_recoded.parquet"
-        
-        # Logic adapted from explorer_backend.load_data
-        #if data_io.exists(storage_location="cache", filename=recoded_fn):
-        #     # Load only needed columns
-        #     df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)#, columns=["item_id", "collection_id"], verbose=True)
-        if True:#else:
-             # Force update of the study dataset for every change of the study definition
-             print(f"Creating/updating recoded dataset for '{study_name}' to calculate stats...")
-             # create_study_recoded_dataset returns the DF
-             df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=save_to_cache, verbose=False)
-             if df_study is not None:
-                 # Keep only what we need if it returned full DF
-                 df_study = df_study[["item_id", "collection_id"]]
-        
-        if df_study is None or df_study.empty:
-            print(f"No data found for study '{study_name}'. Removing all cached files for this study.")
-            data_io.remove(storage_location="cache", filename=f"{study_name}_recoded.parquet")
-            data_io.remove(storage_location="cache", filename=f"{study_name}_explorer_metadata.json")
-            data_io.remove(storage_location="cache", filename=f"{study_name}_viewer_metadata.json")
-            data_io.remove(storage_location="cache", filename=f"{study_name}_comp_interpretations.json")
-            data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
-            return {"total_activities": 0, "unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
+    # 1. Load enrichment status once (used for both dataset creation and stats matching)
+    df_status = None
+    if data_io.exists(storage_location="recoded", filename='enrichment_status.parquet'):
+        df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
 
-        # 2. Count Unique Donations
-        total_activities = len(df_study)
-        unique_collections = df_study['collection_id'].nunique()
-        unique_videos = df_study['item_id'].nunique()
+    # 2. Create the recoded dataset, passing enrichment_status to avoid reloading
+    print(f"Creating/updating recoded dataset for '{study_name}' to calculate stats...")
+    df_study = create_study_recoded_dataset(
+        study_name=study_name, save_to_cache=save_to_cache,
+        enrichment_status=df_status, verbose=False)
 
-        # 3. Load Enrichment Status
-        df_status = None
-        if data_io.exists(storage_location="recoded", filename='enrichment_status.parquet'):
-            df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
+    if df_study is None or df_study.empty:
+        print(f"No data found for study '{study_name}'. Removing all cached files for this study.")
+        data_io.remove(storage_location="cache", filename=f"{study_name}_recoded.parquet")
+        data_io.remove(storage_location="cache", filename=f"{study_name}_explorer_metadata.json")
+        data_io.remove(storage_location="cache", filename=f"{study_name}_comp_interpretations.json")
+        data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
+        return empty_stats, None
 
-        scraped_videos = 0
-        annotated_videos = 0
+    # 3. Count unique items
+    total_activities = len(df_study)
+    unique_collections = df_study['collection_id'].nunique()
+    unique_videos = df_study['item_id'].nunique()
 
-        if df_status is not None and not df_status.empty:
-            
-            # Filter status df to only include items in the study
-            
-            # Robust alignment: Ensure item_id is a column and use PyArrow strings
-            if 'item_id' not in df_status.columns and df_status.index.name == 'item_id':
-                df_status = df_status.reset_index()
+    # 4. Match against enrichment status for scrape/annotation counts
+    scraped_videos = 0
+    annotated_videos = 0
 
-            if 'item_id' in df_status.columns:
-                try:
-                    status_ids = df_status['item_id'].astype("string[pyarrow]")
-                    study_ids = df_study['item_id'].astype("string[pyarrow]")
-                    matched_status = df_status.loc[status_ids.isin(study_ids)].copy()
-                except Exception as e:
-                    print(f"Error during robust index matching: {e}. Falling back to standard matching.")
-                    study_item_ids = df_study['item_id'].unique()
-                    matched_status = df_status.loc[df_status.index.isin(study_item_ids)].copy()
-            else:
-                # Fallback if we couldn't get item_id column
+    if df_status is not None and not df_status.empty:
+        # Robust alignment: Ensure item_id is a column and use PyArrow strings
+        if 'item_id' not in df_status.columns and df_status.index.name == 'item_id':
+            df_status = df_status.reset_index()
+
+        if 'item_id' in df_status.columns:
+            try:
+                status_ids = df_status['item_id'].astype("string[pyarrow]")
+                study_ids = df_study['item_id'].astype("string[pyarrow]")
+                matched_status = df_status.loc[status_ids.isin(study_ids)].copy()
+            except Exception as e:
+                print(f"Error during robust index matching: {e}. Falling back to standard matching.")
                 study_item_ids = df_study['item_id'].unique()
                 matched_status = df_status.loc[df_status.index.isin(study_item_ids)].copy()
-            
-            # Calculate counts
-            if 'scraped_ok' in matched_status.columns:
-                scraped_videos = int(matched_status['scraped_ok'].fillna(False).sum())
-            if 'annotated_ok' in matched_status.columns:
-                annotated_videos = int(matched_status['annotated_ok'].fillna(False).sum())
-        
-        return {
-            "total_activities": int(total_activities),
-            "unique_videos": int(unique_videos),
-            "scraped_videos": scraped_videos,
-            "annotated_videos": annotated_videos,
-            "unique_collections": int(unique_collections)
-        }
+        else:
+            study_item_ids = df_study['item_id'].unique()
+            matched_status = df_status.loc[df_status.index.isin(study_item_ids)].copy()
 
-    if False:#except Exception as e:
-        print(f"Error calculating stats: {e}")
-        return {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0, "error": str(e)}
+        if 'scraped_ok' in matched_status.columns:
+            scraped_videos = int(matched_status['scraped_ok'].fillna(False).sum())
+        if 'annotated_ok' in matched_status.columns:
+            annotated_videos = int(matched_status['annotated_ok'].fillna(False).sum())
+
+    stats = {
+        "total_activities": int(total_activities),
+        "unique_videos": int(unique_videos),
+        "scraped_videos": scraped_videos,
+        "annotated_videos": annotated_videos,
+        "unique_collections": int(unique_collections)
+    }
+    return stats, df_study
 
 
 
@@ -324,8 +308,8 @@ def calculate_study_stats():
     try:
         # 3. specific instruction: "Force update of the study dataset"
         # The logic in _calculate_stats calls create_study_recoded_dataset
-        stats = _calculate_stats(data, save_to_cache=False) # The argument to _calculate_stats is actually just used for getting STUDY_NAME inside it (line 24)
-        
+        stats, _ = _calculate_stats(data, save_to_cache=False)
+
         return jsonify({"status": "success", "stats": stats})
         
     except Exception as e:
@@ -368,7 +352,6 @@ def delete_study():
         for cached_file in [
             f"{study_name}_recoded.parquet",
             f"{study_name}_explorer_metadata.json",
-            f"{study_name}_viewer_metadata.json",
             f"{study_name}_comp_interpretations.json",
             f"{study_name}_PCA.parquet",
         ]:
@@ -978,10 +961,6 @@ def api_refresh_staleness():
     downstream = {
         "recode_refresh_studies": {
             "label": "Study Definitions",
-            "affected": affected_studies,
-        },
-        "meta_refresh_viewer": {
-            "label": "Video Analysis Metadata",
             "affected": affected_studies,
         },
         "meta_refresh_groups": {

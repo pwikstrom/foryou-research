@@ -55,7 +55,7 @@ All visual styling is managed through a **CSS custom property (token) system** i
 - **Analysis**: Scikit-learn, SciPy, Statsmodels, Seaborn
 - **Storage**: Local filesystem (`/Users/<user>/fyp_local`) or Google Cloud Storage
 - **AI/LLM**: Google Gemini (Vertex AI), OpenAI (secondary)
-- **Scraping**: PykTok (custom fork `mypyktok.py`), BeautifulSoup4, browser-cookie3
+- **Scraping**: yt-dlp (primary), BeautifulSoup4, browser-cookie3
 - **Frontend**: Vanilla JS + jQuery, Jinja2 templates, no build step
 - **Auth**: Flask-Login, Flask-WTF (CSRF), JSON-file user store
 
@@ -79,8 +79,9 @@ fyp_main_v02/
 │   ├── utils.py                 # Shared utility functions
 │   ├── ingest.py                # Data ingestion pipeline
 │   ├──  # Donation-level data handling
-│   ├── scrape.py                # Metadata enrichment & scraping
-│   ├── mypyktok.py              # Custom PykTok fork for TikTok scraping
+│   ├── scrape.py                # Scrape orchestration (queue, batching, threads)
+│   ├── tiktok_dl.py             # yt-dlp wrapper (download, retry, error classification)
+│   ├── mypyktok.py              # Legacy PykTok fork (deprecated, kept for reference)
 │   ├── machine_annotation.py    # Gemini-based annotation
 │   ├── recode_variables.py      # Variable recoding, feature engineering
 │   ├── organize_datasets.py     # Dataset filtering & organisation

@@ -34,5 +34,5 @@ from web_interface.routes.management_routes import _calculate_stats
 print("\n--- Testing _calculate_stats directly ---")
 config = fyp_cf['study_defs'][study_name]
 config['STUDY_NAME'] = study_name
-stats = _calculate_stats(config, save_to_cache=False)
+stats, _ = _calculate_stats(config, save_to_cache=False)
 print(f"Stats from _calculate_stats: {stats}")

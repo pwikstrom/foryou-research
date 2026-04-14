@@ -745,14 +745,12 @@ def calculate_scaled_pca_scores(
     events_pca_scores = []
     comp_interpretations = {}
 
-    # first, run through the numerical features.
-    for i,c in enumerate(study_recoded_dataset[fyp_features].columns):
-        if c in study_recoded_dataset.select_dtypes(include=["number"]).columns:
-            the_pc_df = None
-            one_comp_interpretation = {}
-            wer = pd.DataFrame(study_recoded_dataset[[c] + grouping_factors].groupby(grouping_factors).mean())
-
-            events_pca_scores += [wer.copy()]
+    # batch all numerical features into a single groupby
+    numerical_features = [c for c in study_recoded_dataset[fyp_features].columns
+                          if c in study_recoded_dataset.select_dtypes(include=["number"]).columns]
+    if numerical_features:
+        numerical_means = study_recoded_dataset[numerical_features + grouping_factors].groupby(grouping_factors).mean()
+        events_pca_scores.append(numerical_means)
 
 
     # transform categorical features to a list of counts dataframes

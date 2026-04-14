@@ -1250,10 +1250,6 @@ function startMetaRefreshes() {
         ? { studies: _cascadeRefresh.studyNames.join(',') } : {};
     const promises = [];
     promises.push(
-        startTargetedRefresh('meta_refresh_viewer', {})
-            .then(() => { _cascadeRefresh.startedMetaViewer = true; })
-    );
-    promises.push(
         startTargetedRefresh('meta_refresh_groups', {})
             .then(() => { _cascadeRefresh.startedMetaGroups = true; })
     );
@@ -1291,7 +1287,7 @@ function updateCascadeButton() {
 
 function updateCascadeRefreshPageLock(locked) {
     // Disable/enable the toggle buttons on the Refresh Caches page
-    const processNames = ['recode_refresh_studies', 'meta_refresh_viewer', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'];
+    const processNames = ['recode_refresh_studies', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'];
     processNames.forEach(name => {
         const toggleBtn = document.getElementById(`${name}-toggle`);
         if (toggleBtn) {
@@ -1544,7 +1540,7 @@ function fetchStalenessStatus() {
         .then(res => res.json())
         .then(data => {
             if (!data.has_impact) {
-                ['recode_refresh_studies', 'meta_refresh_viewer', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].forEach(name => {
+                ['recode_refresh_studies', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].forEach(name => {
                     const el = document.getElementById(`${name}-stale`);
                     if (el) el.style.display = 'none';
                 });

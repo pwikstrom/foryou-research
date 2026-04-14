@@ -19,7 +19,6 @@ GRACEFUL_STOP_DIR = PROJECT_ROOT / "tmp" / "graceful_stop"
 CLOUD_TASK_ELIGIBLE = {
     "consolidate_enrichment",
     "recode_refresh_studies",
-    "meta_refresh_viewer",
     "meta_refresh_groups",
     "pca_refresh",
     "study_refresh",
@@ -34,7 +33,6 @@ CLOUD_TASK_ELIGIBLE = {
 processes = {
     "queue_scraper": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "queue_annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "meta_refresh_viewer": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "meta_refresh_groups": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "timelines_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "recode_refresh_studies": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},

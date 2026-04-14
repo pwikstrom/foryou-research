@@ -87,16 +87,21 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     pct_before = int(videos_processed / overall_total * 100) if overall_total else 0
     reporter.update_progress(pct_before,
         f"Batch {batch_label}: scraping {len(batch):,} videos")
+    reporter.emit_data({"threads": 8})
+
+    def _on_threads_change(n: int) -> None:
+        reporter.emit_data({"threads": n})
 
     # ---- Scrape ----
     results_df, permanent_failed, transient_failed = download_video_threads(
         interesting_videos=batch,
-        max_workers=4,
+        max_workers=8,
         verbose=False,
         dry_run=False,
         batch_label=batch_label,
         cumulative_done=videos_processed,
         cumulative_total=overall_total,
+        on_concurrency_change=_on_threads_change,
     )
 
     good_ids = []

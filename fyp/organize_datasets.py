@@ -183,18 +183,13 @@ def load_collection_data(
     else:
         if verbose:
             print(f"    [DDP] Selecting date range from cached collection data")
-        cached_collections_df = all_data.copy()
-        out_df = cached_collections_df[(cached_collections_df[timestamp_column]>=START_DATE) & (cached_collections_df[timestamp_column]<=END_DATE)].copy()
-
-        if collection_id_column not in out_df.columns or timestamp_column not in out_df.columns or len(out_df) == 0:
-            print(f"!!! [DDP] No events found in date range. Returning None.")
-            return None
-
+        mask = (all_data[timestamp_column] >= START_DATE) & (all_data[timestamp_column] <= END_DATE)
         if len(the_selected_collections) > 0:
-            out_df = out_df[out_df[collection_id_column].isin(the_selected_collections)].copy()
+            mask = mask & all_data[collection_id_column].isin(the_selected_collections)
+        out_df = all_data[mask].copy()
 
         if collection_id_column not in out_df.columns or timestamp_column not in out_df.columns or len(out_df) == 0:
-            print(f"!!! [DDP] The selected collections have no events in the date range. Returning None.")
+            print(f"!!! [DDP] No events found matching the study filters. Returning None.")
             return None
 
     print(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique collections: {out_df[collection_id_column].nunique()} | Date range: {out_df[timestamp_column].min():%Y-%m-%d} -- {out_df[timestamp_column].max():%Y-%m-%d}")
@@ -212,6 +207,7 @@ def load_collection_data(
 def simple_sample_collection_events(
     study_name: str = None,
     all_collections_df: pd.DataFrame = None,
+    enrichment_status: pd.DataFrame | None = None,
     verbose: bool = False
     ) -> pd.DataFrame:
     """Sample activity events using study-defined grouping factors and thresholds.
@@ -239,7 +235,7 @@ def simple_sample_collection_events(
         raise ValueError("[Sampling] all_collections_df cannot be None")
 
     rng = np.random.RandomState(42)
-    the_df = all_collections_df.copy()
+    the_df = all_collections_df
 
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
@@ -332,9 +328,16 @@ def simple_sample_collection_events(
     combined.drop("D_id", axis=1, inplace=True, errors='ignore')
 
 
-    enrichment_status_df = data_io.load_parquet(
-        storage_location="recoded",
-        filename="enrichment_status.parquet")
+    if enrichment_status is not None:
+        enrichment_status_df = enrichment_status
+    else:
+        enrichment_status_df = data_io.load_parquet(
+            storage_location="recoded",
+            filename="enrichment_status.parquet")
+
+    # Ensure item_id is the index for the merge (callers may pass it as a column)
+    if enrichment_status_df is not None and 'item_id' in enrichment_status_df.columns:
+        enrichment_status_df = enrichment_status_df.set_index('item_id')
 
     combined_deduped = combined.drop_duplicates(subset="item_id", keep="first")[["item_id"]]
 
@@ -366,6 +369,7 @@ def load_study_datasets(
     study_name: str = None,
     all_datasets: dict = {},
     load_from_cache: bool = True,
+    enrichment_status: pd.DataFrame | None = None,
     verbose: bool = False
     ) -> dict | None:
     """Load all core datasets for a study: collections, scrape data, and machine annotations.
@@ -388,16 +392,6 @@ def load_study_datasets(
     # load core datasets from cache or main storage
     if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']:
         tutti_data = _load_cached_core_datasets(verbose=verbose)
-
-        # check if a study-specific cache exists (not just 'everything')
-        for k in [SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL]:
-            if data_io.exists(storage_location="cache", filename=f"core_{k}.parquet"):
-                parquet_study_name = data_io.find_key_value_in_pq_metadata(
-                    storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
-                if parquet_study_name == study_name:
-                    if verbose:
-                        print(f"    [Core datasets] Found study-specific cache for '{k}' (study: '{study_name}'). Loading...")
-                    tutti_data[k] = data_io.load_parquet(storage_location="cache", filename=f"core_{k}.parquet")
 
     elif len(all_datasets) > 0:
         tutti_data = deepcopy(all_datasets)
@@ -427,31 +421,35 @@ def load_study_datasets(
     # --------------------------------------------------------------------
     # sample activity data
     # --------------------------------------------------------------------
-    enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
-
     sample_frame_setting = fyp_cf["study_defs"][study_name].get("SAMPLE_FRAME", "off")
 
     if sample_frame_setting == "off":
         print(f"    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data.")
         sample_frame = None
 
-    elif sample_frame_setting == "events":
-        sample_frame = tutti_data["collections"].copy()
-        print(f"    [DD Sampling] Sample frame setting is 'events'. Using all {len(sample_frame):,} collection events as sample frame.")
+    else:
+        # enrichment_status is only needed when sampling is active
+        if enrichment_status is None:
+            enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
 
-    elif sample_frame_setting == "scraped":
-        selected_videos = enrichment_status[enrichment_status["scraped_ok"]].index.tolist()
-        sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
-        print(f"    [DD Sampling] Sample frame setting is 'scraped'. Using only {len(sample_frame):,} collection events that are scraped as sample frame.")
+        if sample_frame_setting == "events":
+            sample_frame = tutti_data["collections"].copy()
+            print(f"    [DD Sampling] Sample frame setting is 'events'. Using all {len(sample_frame):,} collection events as sample frame.")
 
-    elif sample_frame_setting == "annotated":
-        selected_videos = enrichment_status[enrichment_status["annotated_ok"]].index.tolist()
-        sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
-        print(f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} collection events that are annotated as sample frame.")
+        elif sample_frame_setting == "scraped":
+            selected_videos = enrichment_status[enrichment_status["scraped_ok"]].index.tolist()
+            sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
+            print(f"    [DD Sampling] Sample frame setting is 'scraped'. Using only {len(sample_frame):,} collection events that are scraped as sample frame.")
+
+        elif sample_frame_setting == "annotated":
+            selected_videos = enrichment_status[enrichment_status["annotated_ok"]].index.tolist()
+            sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
+            print(f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} collection events that are annotated as sample frame.")
 
     if sample_frame is not None:
         tutti_data["collections"] = simple_sample_collection_events(
-            study_name=study_name, all_collections_df=sample_frame, verbose=verbose)
+            study_name=study_name, all_collections_df=sample_frame,
+            enrichment_status=enrichment_status, verbose=verbose)
 
     if tutti_data.get("collections", pd.DataFrame()).empty:
         print(f"!!! [Core datasets] Sampling resulted in empty datasets for study definition '{study_name}'. Returning None")
@@ -820,7 +818,7 @@ def new_merge(
             df=shebang,
             storage_location="cache",
             filename=f"{study_name}_recoded.parquet",
-            asyncronous=False,
+            asyncronous=True,
             verbose=verbose)
         if verbose:
             print(f"  ...done. Time taken to save datasets to cache: {(_dt.datetime.now() - t1).total_seconds():.1f} seconds")
@@ -841,6 +839,8 @@ def create_study_recoded_dataset(
     study_name: str = None,
     all_datasets: dict = {},
     save_to_cache: bool = True,
+    load_from_cache: bool = True,
+    enrichment_status: pd.DataFrame | None = None,
     verbose: bool = False
     ) -> pd.DataFrame | None:
     """Generate a unified, merged dataset for a study definition.
@@ -859,7 +859,8 @@ def create_study_recoded_dataset(
     all_datasets = load_study_datasets(
         study_name=study_name,
         all_datasets=all_datasets,
-        load_from_cache=True,
+        load_from_cache=load_from_cache,
+        enrichment_status=enrichment_status,
         verbose=verbose)
 
     if all_datasets is None:

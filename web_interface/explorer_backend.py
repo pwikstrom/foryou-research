@@ -339,6 +339,95 @@ def make_serializable(obj):
     return obj
 
 
+def classify_columns(df: pd.DataFrame) -> dict:
+    """Classify DataFrame columns into type categories based on Arrow dtypes and heuristics.
+
+    Returns:
+        Dict mapping column name to type string: 'list', 'number', 'identifier', 'long_text', or 'category'.
+    """
+    column_types = {}
+
+    for col in df.columns:
+        dtype = df[col].dtype
+
+        # 1. Check for Lists (List, LargeList, FixedSizeList)
+        is_list = False
+        if isinstance(dtype, pd.ArrowDtype):
+            pa_type = dtype.pyarrow_dtype
+            if (pa.types.is_list(pa_type) or
+                pa.types.is_large_list(pa_type) or
+                pa.types.is_fixed_size_list(pa_type)):
+                is_list = True
+
+        if is_list:
+            column_types[col] = "list"
+            continue
+
+        # 2. Check for Numbers (Integers, Floats)
+        # We explicitly exclude booleans from "number" to treat them as categorical/other
+        is_numeric = False
+        is_bool = False
+
+        if isinstance(dtype, pd.ArrowDtype):
+            pa_type = dtype.pyarrow_dtype
+            if pa.types.is_boolean(pa_type):
+                is_bool = True
+            elif pa.types.is_integer(pa_type) or pa.types.is_floating(pa_type):
+                is_numeric = True
+        else:
+            # Fallback for numpy dtypes (though we expect Arrow)
+            if pd.api.types.is_bool_dtype(dtype):
+                is_bool = True
+            elif pd.api.types.is_numeric_dtype(dtype):
+                is_numeric = True
+
+        if is_numeric:
+             try:
+                 max_val = df[col].max()
+                 if pd.isna(max_val):
+                     column_types[col] = "number"
+                 elif max_val > 1e15:
+                     column_types[col] = "identifier"
+                 else:
+                     column_types[col] = "number"
+             except:
+                 column_types[col] = "number"
+             continue
+
+        # 3. Strings / Categories
+        # Boolean also falls through here to be treated as category (heuristic)
+
+        # Check for Long Text / Category / Identifier
+        # We still use data-based heuristics for this distinction as Arrow string type is generic
+        series_sample = df[col].dropna()
+        if len(series_sample) > 1000:
+            series_sample = series_sample.head(1000)
+
+        series_sample = series_sample[series_sample != fyp_cf['labels']['OTHER_THINGS']]
+
+        if series_sample.empty:
+            column_types[col] = "category"
+            continue
+
+        lengths = series_sample.astype(str).str.len()
+        lengths = lengths[lengths > 0]
+
+        if not lengths.empty and lengths.mean() > 60:
+             column_types[col] = "long_text"
+        else:
+             n_rows = len(df[col].dropna())
+             if n_rows > 100:
+                 n_unique = df[col].nunique()
+                 if n_unique > 0.9 * n_rows:
+                     column_types[col] = "identifier"
+                 else:
+                     column_types[col] = "category"
+             else:
+                 column_types[col] = "category"
+
+    return column_types
+
+
 def load_data(study: str, verbose: bool = False):
 
     if verbose:
@@ -367,89 +456,9 @@ def load_data(study: str, verbose: bool = False):
     if df is None:
         print("ERROR: This process cannot run without a study dataset. Process failed.")
         return None, {}
-    
-    
-    column_types = {}
-    
-    # Bulk type inspection based on Parquet/Arrow Schema
-    for col in df.columns:
-        dtype = df[col].dtype
-        
-        # 1. Check for Lists (List, LargeList, FixedSizeList)
-        is_list = False
-        if isinstance(dtype, pd.ArrowDtype):
-            pa_type = dtype.pyarrow_dtype
-            if (pa.types.is_list(pa_type) or 
-                pa.types.is_large_list(pa_type) or 
-                pa.types.is_fixed_size_list(pa_type)):
-                is_list = True
-        
-        if is_list:
-            column_types[col] = "list"
-            continue
 
-        # 2. Check for Numbers (Integers, Floats)
-        # We explicitly exclude booleans from "number" to treat them as categorical/other
-        is_numeric = False
-        is_bool = False
+    column_types = classify_columns(df)
 
-        if isinstance(dtype, pd.ArrowDtype):
-            pa_type = dtype.pyarrow_dtype
-            if pa.types.is_boolean(pa_type):
-                is_bool = True
-            elif pa.types.is_integer(pa_type) or pa.types.is_floating(pa_type):
-                is_numeric = True
-        else:
-            # Fallback for numpy dtypes (though we expect Arrow)
-            if pd.api.types.is_bool_dtype(dtype):
-                is_bool = True
-            elif pd.api.types.is_numeric_dtype(dtype):
-                is_numeric = True
-
-        if is_numeric:
-             try:
-                 max_val = df[col].max()
-                 if pd.isna(max_val): 
-                     column_types[col] = "number" 
-                 elif max_val > 1e15:
-                     column_types[col] = "identifier"
-                 else:
-                     column_types[col] = "number"
-             except:
-                 column_types[col] = "number"
-             continue
-        
-        # 3. Strings / Categories
-        # Boolean also falls through here to be treated as category (heuristic)
-        
-        # Check for Long Text / Category / Identifier
-        # We still use data-based heuristics for this distinction as Arrow string type is generic
-        series_sample = df[col].dropna()
-        if len(series_sample) > 1000:
-            series_sample = series_sample.head(1000)
-            
-        series_sample = series_sample[series_sample != fyp_cf['labels']['OTHER_THINGS']]
-        
-        if series_sample.empty:
-            column_types[col] = "category"
-            continue
-            
-        lengths = series_sample.astype(str).str.len()
-        lengths = lengths[lengths > 0]
-        
-        if not lengths.empty and lengths.mean() > 60:
-             column_types[col] = "long_text"
-        else:
-             n_rows = len(df[col].dropna()) 
-             if n_rows > 100:
-                 n_unique = df[col].nunique()
-                 if n_unique > 0.9 * n_rows:
-                     column_types[col] = "identifier"
-                 else:
-                     column_types[col] = "category"
-             else:
-                 column_types[col] = "category"
-    
     return df, column_types
 
 

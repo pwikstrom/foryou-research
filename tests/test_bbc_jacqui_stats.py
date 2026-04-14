@@ -22,7 +22,7 @@ if 'study_defs' not in fyp_cf or study_name not in fyp_cf['study_defs']:
 
 config = fyp_cf['study_defs'][study_name]
 config['STUDY_NAME'] = study_name
-stats = _calculate_stats(config, save_to_cache=False)
+stats, _ = _calculate_stats(config, save_to_cache=False)
 print(f"Stats from _calculate_stats: {stats}")
 
 if stats['scraped_videos'] == 0 or stats['annotated_videos'] == 0:

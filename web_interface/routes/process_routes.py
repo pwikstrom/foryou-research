@@ -6,7 +6,7 @@ from flask_login import login_required
 import web_interface.auth as auth
 import fyp.data_io as data_io
 from fyp.fyp_config import (
-    QUEUE_SCRAPER_SCRIPT, QUEUE_ANNOTATOR_SCRIPT, META_REFRESH_VIEWER_SCRIPT,
+    QUEUE_SCRAPER_SCRIPT, QUEUE_ANNOTATOR_SCRIPT,
     META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT, RECODE_REFRESH_STUDIES_SCRIPT,
     PCA_REFRESH_SCRIPT, CONSOLIDATE_ENRICHMENT_SCRIPT
 )
@@ -49,7 +49,6 @@ def api_start(name):
     script_map = {
         "queue_scraper": QUEUE_SCRAPER_SCRIPT,
         "queue_annotator": QUEUE_ANNOTATOR_SCRIPT,
-        "meta_refresh_viewer": META_REFRESH_VIEWER_SCRIPT,
         "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
         "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
         "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,
@@ -266,7 +265,6 @@ def _ensure_task_functions_loaded() -> None:
 
     from web_interface.run_consolidate_enrichment import run_consolidate_enrichment
     from web_interface.run_recode_refresh_studies import run_recode_refresh_studies
-    from web_interface.run_meta_refresh_viewer import run_meta_refresh_viewer
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
     from web_interface.run_pca_refresh import run_pca_refresh
     from web_interface.run_study_refresh import run_study_refresh
@@ -277,7 +275,6 @@ def _ensure_task_functions_loaded() -> None:
     TASK_FUNCTIONS.update({
         "consolidate_enrichment": run_consolidate_enrichment,
         "recode_refresh_studies": run_recode_refresh_studies,
-        "meta_refresh_viewer": run_meta_refresh_viewer,
         "meta_refresh_groups": run_meta_refresh_groups,
         "pca_refresh": run_pca_refresh,
         "study_refresh": run_study_refresh,

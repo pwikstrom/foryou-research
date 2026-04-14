@@ -58,8 +58,8 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     study_config = studies[study_name]
     study_config["STUDY_NAME"] = study_name
 
-    # Reuse the same stats logic as the synchronous save path
-    stats = _calculate_stats(study_config, save_to_cache=True)
+    # _calculate_stats creates the recoded dataset and returns it alongside stats
+    stats, df_recoded = _calculate_stats(study_config, save_to_cache=True)
 
     # Persist stats to study definition
     studies[study_name]["stats"] = stats
@@ -72,16 +72,19 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.log("Cancelled by user.")
         return
 
-    # ---- Step 2: PCA ----
+    # ---- Step 2: PCA (reuses in-memory DataFrame) ----
     # Always delete stale PCA to avoid version mismatch
     if data_io.exists(storage_location="cache", filename=f"{study_name}_PCA.parquet"):
         data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
 
-    if refresh_pca and stats["annotated_videos"] > 0:
+    if refresh_pca and stats["annotated_videos"] > 0 and df_recoded is not None:
         reporter.update_progress(25, "Calculating PCA...")
         reporter.log(f"Running PCA for {study_name}...")
         calculate_scaled_pca_scores(
-            study_name=study_name, load_from_cache=True, save_to_cache=True,
+            study_name=study_name,
+            study_recoded_dataset=df_recoded,
+            load_from_cache=False,
+            save_to_cache=True,
         )
         reporter.log("PCA complete.")
     else:
@@ -91,12 +94,11 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.log("Cancelled by user.")
         return
 
-    # ---- Step 3: Metadata ----
+    # ---- Step 3: Metadata (reuses in-memory DataFrame) ----
     # Always invalidate stale metadata and RAM cache
-    for suffix in ("_viewer_metadata.json", "_explorer_metadata.json"):
-        fn = f"{study_name}{suffix}"
-        if data_io.exists(storage_location="cache", filename=fn):
-            data_io.remove(storage_location="cache", filename=fn)
+    fn = f"{study_name}_explorer_metadata.json"
+    if data_io.exists(storage_location="cache", filename=fn):
+        data_io.remove(storage_location="cache", filename=fn)
 
     # Invalidate RAM cache
     try:
@@ -107,67 +109,53 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     except Exception:
         pass
 
-    if refresh_metadata and stats["unique_videos"] > 0:
+    if refresh_metadata and stats["unique_videos"] > 0 and df_recoded is not None:
         reporter.update_progress(50, "Generating metadata...")
-        reporter.log(f"Loading data for metadata generation...")
-        df, col_types = explorer.load_data(study_name, verbose=False)
+        reporter.log(f"Classifying columns for metadata generation...")
+        col_types = explorer.classify_columns(df_recoded)
 
-        if df is not None:
-            # Viewer metadata
-            reporter.update_progress(60, "Generating viewer metadata...")
-            df_viewer = df[df.annotated_ok].copy()
-            df_viewer = df_viewer[df_viewer["activity_type"].isin(["play", "observe"])]
-            df_viewer = df_viewer[df_viewer["item_id"].notna()]
-            viewer_meta = explorer.get_metadata(df_viewer, col_types)
-            viewer_meta = load_schema_metadata(viewer_meta)
-            data_io.save_json(
-                data=make_serializable(viewer_meta),
-                storage_location="cache",
-                filename=f"{study_name}_viewer_metadata.json",
-                verbose=False,
-            )
-            reporter.log("Viewer metadata saved.")
+        # Filter to annotated play/observe events
+        df_filtered = df_recoded[
+            df_recoded.annotated_ok
+            & df_recoded['activity_type'].isin(['play', 'observe'])
+            & df_recoded['item_id'].notna()
+        ].copy()
 
-            if reporter.check_cancelled():
-                reporter.log("Cancelled by user.")
-                return
+        reporter.update_progress(60, "Generating explorer metadata...")
+        explorer_meta = explorer.get_metadata(df_filtered, col_types)
 
-            # Explorer metadata
-            reporter.update_progress(75, "Generating explorer metadata...")
-            df_explorer = df[df.annotated_ok].copy()
-            df_explorer = df_explorer[df_explorer["activity_type"].isin(["play", "observe"])]
-            df_explorer = df_explorer[df_explorer["item_id"].notna()]
-            explorer_meta = explorer.get_metadata(df_explorer, col_types)
+        viz_config = get_viz_config()
+        stats_res = explorer.get_current_stats(df_filtered, col_types, viz_config=viz_config)
+        explorer_meta["total_stats"] = stats_res["stats"]
 
-            viz_config = get_viz_config()
-            stats_res = explorer.get_current_stats(df_explorer, col_types, viz_config=viz_config)
-            explorer_meta["total_stats"] = stats_res["stats"]
-
-            try:
-                the_recoded_file = f"{study_name}_recoded.parquet"
-                if data_io.exists(storage_location="cache", filename=the_recoded_file):
-                    explorer_meta["source_file"] = the_recoded_file
-                    mtime = datetime.fromtimestamp(
-                        data_io.getmtime(storage_location="cache", filename=the_recoded_file),
-                    )
-                    explorer_meta["source_file_modified"] = mtime.strftime("%Y-%m-%d %H:%M:%S")
-                else:
-                    explorer_meta["source_file"] = "Unknown"
-                    explorer_meta["source_file_modified"] = ""
-            except Exception:
-                explorer_meta["source_file"] = "Error"
+        try:
+            the_recoded_file = f"{study_name}_recoded.parquet"
+            if data_io.exists(storage_location="cache", filename=the_recoded_file):
+                explorer_meta["source_file"] = the_recoded_file
+                mtime = datetime.fromtimestamp(
+                    data_io.getmtime(storage_location="cache", filename=the_recoded_file),
+                )
+                explorer_meta["source_file_modified"] = mtime.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                explorer_meta["source_file"] = "Unknown"
                 explorer_meta["source_file_modified"] = ""
+        except Exception:
+            explorer_meta["source_file"] = "Error"
+            explorer_meta["source_file_modified"] = ""
 
-            explorer_meta = load_schema_metadata(explorer_meta)
-            data_io.save_json(
-                data=make_serializable(explorer_meta),
-                storage_location="cache",
-                filename=f"{study_name}_explorer_metadata.json",
-                verbose=False,
-            )
-            reporter.log("Explorer metadata saved.")
+        explorer_meta = load_schema_metadata(explorer_meta)
+        data_io.save_json(
+            data=make_serializable(explorer_meta),
+            storage_location="cache",
+            filename=f"{study_name}_explorer_metadata.json",
+            verbose=False,
+        )
+        reporter.log("Explorer metadata saved.")
     else:
         reporter.log("Metadata refresh skipped.")
+
+    # Free the large DataFrame now that all steps are done
+    del df_recoded
 
     reporter.emit_data({"study_name": study_name, "stats": stats})
     reporter.log(f"Study refresh for '{study_name}' complete.")

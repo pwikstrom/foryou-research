@@ -16,6 +16,7 @@ from pathlib import Path
 from time import sleep
 from glob import glob
 import logging
+import threading
 
 import pandas as pd
 import yt_dlp
@@ -100,6 +101,105 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     return "unknown", msg
 
 
+_THROTTLE_CATEGORIES = {"rate_limited", "ip_blocked"}
+
+
+class ThrottleController:
+    """Dynamic concurrency controller that reacts to TikTok rate signals.
+
+    Workers call ``acquire()`` before each video and ``report_result()``
+    after.  The controller adjusts the semaphore so that fewer workers
+    run concurrently when rate-limit signals arrive, and gradually
+    recovers when things are healthy.
+
+    Args:
+        initial:  Starting concurrency (default 8).
+        minimum:  Floor — never go below this (default 2).
+        maximum:  Ceiling — never exceed this (default 12).
+        cooldown_successes: How many consecutive clean results before
+            growing concurrency by 1 (default 10).
+    """
+
+    def __init__(
+        self,
+        initial: int = 8,
+        minimum: int = 2,
+        maximum: int = 12,
+        cooldown_successes: int = 10,
+        on_change: "callable | None" = None,
+    ) -> None:
+        self._lock = threading.Lock()
+        self._sem = threading.Semaphore(initial)
+        self._current = initial
+        self._minimum = minimum
+        self._maximum = maximum
+        self._cooldown_successes = cooldown_successes
+        self._consecutive_ok = 0
+        self._total_throttle_events = 0
+        self._on_change = on_change
+
+    # -- public API used by workers --
+
+    def acquire(self) -> None:
+        """Block until a concurrency slot is available."""
+        self._sem.acquire()
+
+    def release(self) -> None:
+        """Return a concurrency slot (call in finally block)."""
+        self._sem.release()
+
+    def report_result(self, error_category: str | None) -> None:
+        """Report the outcome of one video scrape.
+
+        Args:
+            error_category: The error category string from
+                ``_classify_error()``, or ``None`` for success.
+        """
+        with self._lock:
+            if error_category in _THROTTLE_CATEGORIES:
+                self._consecutive_ok = 0
+                self._total_throttle_events += 1
+                self._shrink()
+            else:
+                self._consecutive_ok += 1
+                if self._consecutive_ok >= self._cooldown_successes:
+                    self._consecutive_ok = 0
+                    self._grow()
+
+    # -- read-only properties --
+
+    @property
+    def current(self) -> int:
+        with self._lock:
+            return self._current
+
+    @property
+    def total_throttle_events(self) -> int:
+        with self._lock:
+            return self._total_throttle_events
+
+    # -- internal helpers (caller holds _lock) --
+
+    def _shrink(self) -> None:
+        target = max(self._minimum, self._current // 2)
+        drop = self._current - target
+        if drop <= 0:
+            return
+        logger.warning("Throttle: reducing concurrency %d → %d", self._current, target)
+        for _ in range(drop):
+            self._sem.acquire(blocking=False)  # drain permits
+        self._current = target
+        if self._on_change:
+            self._on_change(self._current)
+
+    def _grow(self) -> None:
+        if self._current >= self._maximum:
+            return
+        self._current += 1
+        self._sem.release()  # add one permit
+        logger.info("Throttle: growing concurrency to %d", self._current)
+        if self._on_change:
+            self._on_change(self._current)
 
 
 

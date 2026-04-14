@@ -50,7 +50,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         reporter.log(f"Processing study: {study_name}")
 
         try:
-            df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
+            df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, enrichment_status=df_status, verbose=False)
 
             if df_study is None:
                 reporter.log(f"Skipping {study_name}: No data generated.")
