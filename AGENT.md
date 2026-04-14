@@ -16,6 +16,8 @@
   - `FLASK_SECRET_KEY`
   - `FYP_GCS_BUCKET_NAME` (production)
   - `FLASK_DEBUG` (optional)
+  - `K_SERVICE` (auto-set by Cloud Run — triggers GCS storage and Cloud Tasks dispatch)
+  - `CLOUD_RUN_SERVICE_URL`, `GCP_PROJECT_ID`, `CLOUD_TASKS_LOCATION`, `CLOUD_TASKS_QUEUE`, `CLOUD_TASKS_SA_EMAIL` (Cloud Tasks config)
 
 ---
 
@@ -92,17 +94,21 @@ fyp_main_v02/
 │   ├── data_service.py          # Study cache, PCA computation
 │   ├── auth.py                  # Authentication, @admin_required decorator
 │   ├── security.py              # Login manager, user manager
-│   ├── process_manager.py       # Background job management
-│   ├── process_stats.json       # Background job state
+│   ├── process_manager.py       # Background job management (subprocess + Cloud Tasks)
+│   ├── task_status.py           # GCS/local status reporters, heartbeat, cancellation
 │   ├── explorer_backend.py      # Data explorer backend logic
 │   ├── slack_service.py         # Slack integration
 │   ├── static_content.py        # Static page content
 │   ├── mail_utils.py            # Email utilities
-│   ├── run_queue_annotator.py   # Gemini annotation worker
+│   ├── run_queue_annotator.py   # Gemini annotation (self-chaining Cloud Task)
 │   ├── run_queue_scraper.py     # TikTok scraping worker
 │   ├── run_timelines_refresh.py # Timeline updates worker
-│   ├── run_meta_refresh_groups.py  # Group metadata refresh
-│   ├── run_meta_refresh_viewer.py  # Viewer metadata refresh
+│   ├── run_meta_refresh_groups.py  # Group metadata refresh (Cloud Task)
+│   ├── run_meta_refresh_viewer.py  # Viewer metadata refresh (Cloud Task)
+│   ├── run_pca_refresh.py       # PCA/correlations refresh (Cloud Task)
+│   ├── run_recode_refresh_studies.py  # Study recoding (Cloud Task)
+│   ├── run_consolidate_enrichment.py  # Consolidation (Cloud Task)
+│   ├── run_study_refresh.py     # Single-study refresh (Cloud Task)
 │   ├── routes/                  # Flask Blueprints
 │   │   ├── auth_routes.py       #   Login, signup, settings
 │   │   ├── data_routes.py       #   Data API endpoints (largest)
@@ -149,6 +155,8 @@ fyp_main_v02/
 - **`fyp/fyp_config.py`**: Config loader. Walks up the directory tree looking for `__proj__.py` to locate the project root. Call `fyp_config.initialize()` to set up.
 - **`fyp/types.py`**: PyArrow-aware dtype conversion helpers. Use these for dtype handling.
 - **`web_interface/`**: Contains the Flask app routes and templates.
+- **`web_interface/task_status.py`**: Status reporting framework. `GCSStatusReporter` for Cloud Tasks (writes to GCS with heartbeat), `LocalStatusReporter` for subprocess mode (stdout). Use `get_reporter(name)` to get the right one.
+- **`web_interface/process_manager.py`**: Process lifecycle. `CLOUD_TASK_ELIGIBLE` set controls which processes use Cloud Tasks. `start_process()` auto-selects Cloud Tasks vs subprocess based on `K_SERVICE` env var.
 
 ---
 
@@ -162,19 +170,57 @@ python web_interface/fyp_data_hub.py
 # → http://localhost:5002
 ```
 
-### Docker (Production)
+### Cloud Run Deployment (Production)
+
+The app runs on **Google Cloud Run** as two services sharing the same Docker image:
+
+- **`fyp-data-hub`** — Web server (Flask/Gunicorn, 2 CPU, 4 GB)
+- **`fyp-task-runner`** — Background task executor (8 CPU, 32 GB, timeout 3600s, concurrency 1)
+
+**GCP Configuration:**
+- Project: `<gcp-project>`, Region: `australia-southeast1`
+- Cloud Tasks queue: `fyp-background-tasks` (max-attempts=1)
+- Service account: `<project-number>-compute@developer.gserviceaccount.com`
+- Base image: `australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest`
+- App image: `australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest`
+
+**Docker image structure (two layers):**
+- **Base image** (`Dockerfile.base`): Python 3.12-slim + gcc + Rust + all pip deps. Only rebuild when `requirements312.txt` changes.
+- **App image** (`Dockerfile`): Thin layer on top of base — just copies application code. Fast to build (~1 min).
+
+**Deploy steps (both services share the same app image):**
 
 ```bash
-docker build -t fyp-hub:latest .
-docker run -p 5000:$PORT \
-  -e FLASK_SECRET_KEY="..." \
-  -e GEMINI_API_KEY="..." \
-  -e FYP_GCS_BUCKET_NAME="..." \
-  -v /path/to/config:/app/config \
-  fyp-hub:latest
+# 0. Rebuild base image (ONLY when requirements312.txt changes — slow, ~5 min)
+#    gcloud builds submit doesn't support -f, so use --config with a build spec:
+gcloud builds submit \
+  --config=cloudbuild-base.yaml \
+  --project=<gcp-project> --region=australia-southeast1
+
+# 1. Build the app image (always required before deploying — fast, ~1 min)
+gcloud builds submit \
+  --tag australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest \
+  --project=<gcp-project> --region=australia-southeast1
+
+# 2. Deploy web server
+gcloud run deploy fyp-data-hub \
+  --image australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest \
+  --region=australia-southeast1 --project=<gcp-project>
+
+# 3. Deploy task runner
+gcloud run deploy fyp-task-runner \
+  --image australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest \
+  --region=australia-southeast1 --project=<gcp-project>
 ```
 
-### Background Workers
+**When to deploy which service:**
+- UI/route/template/JS changes only → deploy just `fyp-data-hub`
+- Task worker logic only (`run_*.py`) → deploy just `fyp-task-runner`
+- Shared code (`fyp/`, `process_manager.py`, `task_status.py`) → deploy **both**
+- Step 1 (build) is always required before any deploy
+- Step 0 (base image) is only needed when Python dependencies change
+
+### Background Workers (Local Dev)
 
 ```bash
 python web_interface/run_queue_annotator.py   # Gemini annotation
@@ -220,8 +266,20 @@ Single-page app with tab navigation controlled by `main.js`. All data endpoints 
 ### Role-Based Access
 Use `@admin_required` decorator from `web_interface/auth.py`. User data lives in JSON files under `{local_data}/users/`.
 
-### Background Jobs
-Job queues are tracked via JSON-persisted `process_stats`. Workers poll the queue; annotation/scraping progress is visible in the web UI's process tab.
+### Background Jobs & Cloud Tasks
+On Cloud Run, eligible background processes run as **Google Cloud Tasks** dispatched to the `fyp-task-runner` service. Locally, they run as subprocesses. The toggle is automatic via `K_SERVICE` env var.
+
+**Architecture:**
+- `process_manager.py` — `CLOUD_TASK_ELIGIBLE` set defines which processes use Cloud Tasks. `start_process()` dispatches via `_dispatch_cloud_task()` on Cloud Run, falls back to subprocess locally.
+- `task_status.py` — `GCSStatusReporter` writes progress/data to GCS (`task_status/*.json`). Has a background heartbeat thread (30s interval) for stale detection. `LocalStatusReporter` prints `::PROGRESS::`/`::DATA::` to stdout for subprocess mode.
+- `process_routes.py` — `internal_bp` blueprint receives Cloud Tasks HTTP requests at `/internal/run-task/<name>`. `TASK_FUNCTIONS` registry maps names to worker functions. `_run_task_with_stats()` handles execution, stats, and chaining.
+- Each `run_*.py` worker has a `run_<name>(reporter, task_args)` function for Cloud Tasks and a `__main__` block for local subprocess mode.
+
+**Self-chaining (queue_annotator):** Long-running annotation processes one batch per Cloud Task, then returns `{"chain": True, "next_task_args": {...}}` to dispatch the next batch. Each link inherits the GCS status via `reporter.resume()`.
+
+**Cross-service data:** Both services share `process_stats.json` on GCS. Always call `load_process_stats()` before reading or writing to avoid clobbering the other service's data.
+
+**Stale detection:** If a task's GCS heartbeat is >600s old, the UI and `start_process()` treat it as dead.
 
 ---
 
@@ -245,11 +303,17 @@ Save test/debug data in the `tmp/` folder. Save test scripts in the `tests/` fol
 | File | Purpose |
 |---|---|
 | `web_interface/fyp_data_hub.py` | Web app (Flask, port 5002) |
-| `web_interface/run_queue_annotator.py` | Gemini annotation worker |
+| `web_interface/task_status.py` | Status reporters (GCS + local), heartbeat, cancellation |
+| `web_interface/process_manager.py` | Process lifecycle, Cloud Tasks dispatch, subprocess fallback |
+| `web_interface/run_queue_annotator.py` | Gemini annotation (self-chaining Cloud Task) |
 | `web_interface/run_queue_scraper.py` | Scraping worker |
+| `web_interface/run_consolidate_enrichment.py` | Consolidation + impact analysis (Cloud Task) |
+| `web_interface/run_study_refresh.py` | Single-study stats/PCA/metadata refresh (Cloud Task) |
+| `web_interface/run_recode_refresh_studies.py` | Study recoding (Cloud Task) |
+| `web_interface/run_pca_refresh.py` | PCA/correlations refresh (Cloud Task) |
+| `web_interface/run_meta_refresh_viewer.py` | Viewer metadata refresh (Cloud Task) |
+| `web_interface/run_meta_refresh_groups.py` | Group metadata refresh (Cloud Task) |
 | `web_interface/run_timelines_refresh.py` | Timeline refresh worker |
-| `web_interface/run_meta_refresh_groups.py` | Group metadata refresh |
-| `web_interface/run_meta_refresh_viewer.py` | Viewer metadata refresh |
 | `fyp/fyp_config.py` | Config initialisation (`fyp_config.initialize()`) |
 | `fyp/ingest.py` | Data ingestion classes |
 | `fyp/organize_datasets.py` | Dataset organisation & filtering |
