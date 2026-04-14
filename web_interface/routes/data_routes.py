@@ -202,6 +202,316 @@ def _inject_collection_tags(metadata: dict, collection_ids: list[str]) -> dict:
     return metadata
 
 
+def _get_shared_simple_map(username, user_settings):
+    """
+    Returns the merged item_id -> set(tags) map of all other users who opted into
+    sharing, or None when the current user has sharing disabled or no sharing peers exist.
+    Extracted for reuse between the legacy and overlay endpoints.
+    """
+    user_settings = user_settings or {}
+    if not user_settings.get('share_annotations', True):
+        return None
+    sharing_users = []
+    for u_name, u_obj in user_manager.users.items():
+        if u_name == username:
+            continue
+        if u_obj.settings and u_obj.settings.get('share_annotations', True):
+            sharing_users.append(u_name)
+    if not sharing_users:
+        return None
+    shared_simple_map, _ = load_shared_tags(sharing_users)
+    return shared_simple_map
+
+
+
+
+def _inject_dynamic_priorities(metadata):
+    """
+    Inserts User Tags / Has Annotation / Machine Annotations into filter_priority and
+    display_priority (at the front), and writes their schema_map entries.
+    Idempotent — only inserts columns that exist in `metadata`.
+    """
+    if 'schema_map' not in metadata:
+        metadata['schema_map'] = {}
+    if 'filter_priority' not in metadata:
+        metadata['filter_priority'] = []
+    if 'display_priority' not in metadata:
+        metadata['display_priority'] = []
+
+    fp = metadata['filter_priority']
+    dp = metadata['display_priority']
+    sm = metadata['schema_map']
+
+    if 'User Tags' in metadata:
+        sm['User Tags'] = {
+            "section": "Annotation Status",
+            "display_name": "Tags by Humans",
+            "description": "Tags you have assigned to items.",
+        }
+        if 'User Tags' in fp: fp.remove('User Tags')
+        fp.insert(0, 'User Tags')
+        if 'User Tags' in dp: dp.remove('User Tags')
+        dp.insert(0, 'User Tags')
+
+    if 'Has Annotation' in metadata:
+        sm['Has Annotation'] = {
+            "section": "Annotation Status",
+            "display_name": "Has Human Annotations",
+            "description": "Filter items that have notes, tags, or closed tags.",
+        }
+        if 'Has Annotation' in fp: fp.remove('Has Annotation')
+        idx = 1 if 'User Tags' in metadata else 0
+        fp.insert(idx, 'Has Annotation')
+        if 'Has Annotation' in dp: dp.remove('Has Annotation')
+        dp.insert(idx, 'Has Annotation')
+
+    if 'Machine Annotations' in metadata:
+        sm['Machine Annotations'] = {
+            "section": "Annotation Status",
+            "display_name": "Machine Annotations",
+            "description": "Filter items by their machine annotation status.",
+        }
+        if 'Machine Annotations' in fp: fp.remove('Machine Annotations')
+        idx = 0
+        if 'User Tags' in metadata: idx += 1
+        if 'Has Annotation' in metadata: idx += 1
+        fp.insert(idx, 'Machine Annotations')
+        if 'Machine Annotations' in dp: dp.remove('Machine Annotations')
+        dp.insert(idx, 'Machine Annotations')
+
+    return metadata
+
+
+
+
+def _inject_collection_display_ids(metadata):
+    """
+    Adds `label` to each value in metadata['collection_id']['values'] from the
+    project's display-ID map. Returns metadata unchanged when there's nothing to do.
+    """
+    display_map = load_display_id_map()
+    if not display_map:
+        return metadata
+    for col in ['collection_id']:
+        section = metadata.get(col)
+        if not section or section.get('type') != 'category':
+            continue
+        values = section.get('values') or []
+        for item in values:
+            val = item.get('value')
+            if val in display_map:
+                item['label'] = display_map[val]
+    return metadata
+
+
+
+
+def _finalize_base_metadata(metadata, study):
+    """
+    Apply the schema/display/collection enrichment that doesn't require the
+    DataFrame. Used by /api/explore/metadata/base and the cold-path fallback.
+    Returns the finalized metadata, or None when collection enforcement
+    invalidates the cache (signals the caller to regenerate).
+    """
+    metadata = load_schema_metadata(metadata)
+    _inject_collection_display_ids(metadata)
+    metadata = _enforce_study_collections(metadata, study)
+    if metadata is None:
+        return None
+    collection_ids = metadata.get('collection_ids')
+    if collection_ids is None:
+        # Older metadata file without baked collection_ids — derive from the
+        # collection_id values (a superset that's still safe; will be replaced
+        # on next study refresh).
+        cid_values = (metadata.get('collection_id') or {}).get('values') or []
+        collection_ids = [str(v.get('value')) for v in cid_values if v.get('value') is not None]
+    metadata = _inject_collection_tags(metadata, collection_ids)
+    return metadata
+
+
+
+
+def _build_full_metadata(df, col_types, study):
+    """
+    Cold-path metadata builder. Computes the static metadata from the recoded
+    DataFrame, bakes collection_ids, and applies all base finalization steps.
+    Returns (metadata, full_metadata_for_save) — the same dict, ready to JSON.
+    """
+    metadata = explorer.get_metadata(df, col_types)
+
+    viz_config = get_viz_config()
+    for col, cfg in viz_config.items():
+        if col in metadata and metadata[col].get('type') == 'number' and cfg.get('log'):
+            metadata[col]['log'] = True
+    res = explorer.get_current_stats(df, col_types, viz_config=viz_config)
+    metadata['total_stats'] = res['stats']
+
+    try:
+        the_recoded_file = f"{study}_recoded.parquet"
+        if data_io.exists(storage_location="cache", filename=the_recoded_file):
+            metadata['source_file'] = the_recoded_file
+            mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file))
+            metadata['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            metadata['source_file'] = "Unknown"
+            metadata['source_file_modified'] = ""
+    except Exception as e:
+        print(f"Error getting file info: {e}")
+        metadata['source_file'] = "Error"
+        metadata['source_file_modified'] = ""
+
+    if 'collection_id' in df.columns:
+        metadata['collection_ids'] = sorted(
+            df['collection_id'].dropna().astype(str).unique().tolist()
+        )
+    else:
+        metadata['collection_ids'] = []
+
+    return metadata
+
+
+
+
+def _compute_dynamic_overlay(df, col_types):
+    """
+    Compute per-user dynamic columns (User Tags, Has Annotation, Machine
+    Annotations) plus their schema_map entries and a User-Tags total_stats
+    overlay. Returns a dict shaped for the overlay endpoint.
+    """
+    dynamic_cols = {}
+    if 'User Tags' in col_types:
+        dynamic_cols['User Tags'] = 'list'
+    if 'Has Annotation' in col_types:
+        dynamic_cols['Has Annotation'] = 'category'
+    if 'Machine Annotations' in col_types:
+        dynamic_cols['Machine Annotations'] = 'category'
+
+    columns = {}
+    schema_map = {}
+    stats_overlay = {}
+    filter_priority_prepend = []
+    display_priority_prepend = []
+
+    if dynamic_cols:
+        cols_to_get = [c for c in dynamic_cols.keys() if c in df.columns]
+        if cols_to_get:
+            columns = explorer.get_metadata(df[cols_to_get], dynamic_cols)
+            if 'User Tags' in df.columns:
+                res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'}, viz_config=get_viz_config())
+                stats_overlay.update(res_tags.get('stats', {}))
+
+    if 'User Tags' in columns:
+        schema_map['User Tags'] = {
+            "section": "Annotation Status",
+            "display_name": "Tags by Humans",
+            "description": "Tags you have assigned to items.",
+        }
+        filter_priority_prepend.append('User Tags')
+        display_priority_prepend.append('User Tags')
+    if 'Has Annotation' in columns:
+        schema_map['Has Annotation'] = {
+            "section": "Annotation Status",
+            "display_name": "Has Human Annotations",
+            "description": "Filter items that have notes, tags, or closed tags.",
+        }
+        filter_priority_prepend.append('Has Annotation')
+        display_priority_prepend.append('Has Annotation')
+    if 'Machine Annotations' in columns:
+        schema_map['Machine Annotations'] = {
+            "section": "Annotation Status",
+            "display_name": "Machine Annotations",
+            "description": "Filter items by their machine annotation status.",
+        }
+        filter_priority_prepend.append('Machine Annotations')
+        display_priority_prepend.append('Machine Annotations')
+
+    return {
+        "columns": columns,
+        "schema_map": schema_map,
+        "stats_overlay": stats_overlay,
+        "filter_priority_prepend": filter_priority_prepend,
+        "display_priority_prepend": display_priority_prepend,
+    }
+
+
+
+
+@data_bp.route('/api/explore/metadata/base', methods=['GET'])
+@login_required
+def api_explorer_metadata_base():
+    """
+    Fast path: returns the static filter shape (column types, value lists,
+    ranges, schema, priorities) without loading the recoded DataFrame, when
+    {study}_explorer_metadata.json is on disk.
+
+    Falls back to the cold path (loads the DF, computes metadata, saves under
+    the canonical filename) when the JSON is missing or invalidated.
+    """
+    study = request.args.get('study')
+    if not study:
+        return jsonify({"error": "No study specified"}), 400
+
+    canonical_filename = f"{study}_explorer_metadata.json"
+
+    # Fast path
+    if data_io.exists(storage_location="cache", filename=canonical_filename):
+        try:
+            metadata = data_io.load_json(storage_location="cache", filename=canonical_filename)
+            metadata = _finalize_base_metadata(metadata, study)
+            if metadata is not None:
+                return jsonify(make_serializable(metadata))
+            print(f"    [DATA_ROUTES] Cache invalidated for {study}, regenerating...")
+        except Exception as e:
+            print(f"    Warning: Error loading/processing cached base metadata: {e}")
+            traceback.print_exc()
+
+    # Cold path: need the DataFrame to compute metadata from scratch
+    df, col_types = get_explorer_data(study, context='explorer')
+    if df is None:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    metadata = _build_full_metadata(df, col_types, study)
+    data_io.save_json(
+        data=make_serializable(metadata),
+        storage_location="cache",
+        filename=canonical_filename,
+        verbose=False,
+    )
+    metadata = _finalize_base_metadata(metadata, study)
+    return jsonify(make_serializable(metadata))
+
+
+
+
+@data_bp.route('/api/explore/metadata/overlay', methods=['GET'])
+@login_required
+def api_explorer_metadata_overlay():
+    """
+    Per-user dynamic metadata: User Tags, Has Annotation, Machine Annotations.
+    Loads the DataFrame and enriches it with the current user's tags (plus
+    shared annotations from peers), then returns just the overlay dict.
+    The frontend merges this into the base metadata once it arrives.
+    """
+    study = request.args.get('study')
+    if not study:
+        return jsonify({"error": "No study specified"}), 400
+
+    context = request.args.get('context', 'explorer')
+
+    df, col_types = get_explorer_data(study, context=context)
+    if df is None:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    username = current_user.username
+    shared_simple_map = _get_shared_simple_map(username, current_user.settings)
+    df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
+
+    overlay = _compute_dynamic_overlay(df, col_types)
+    return jsonify(make_serializable(overlay))
+
+
+
+
 @data_bp.route('/api/explore/metadata', methods=['GET'])
 @login_required
 def api_explorer_metadata():
@@ -213,26 +523,13 @@ def api_explorer_metadata():
     context = request.args.get('context', 'explorer')
 
     df, col_types = get_explorer_data(study, context=context)
- 
+
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
 
     # Enrich with User Tags
     username = current_user.username
-    
-    # Check for Shared Annotations
-    shared_simple_map = None
-    user_settings = current_user.settings or {}
-    if user_settings.get('share_annotations', True):
-        sharing_users = []
-        for u_name, u_obj in user_manager.users.items():
-            if u_name == username: continue
-            if u_obj.settings and u_obj.settings.get('share_annotations', True):
-                sharing_users.append(u_name)
-        
-        if sharing_users:
-            shared_simple_map, _ = load_shared_tags(sharing_users)
-
+    shared_simple_map = _get_shared_simple_map(username, current_user.settings)
     df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
   
 
@@ -482,7 +779,12 @@ def api_explorer_metadata():
     if 'collection_id' in df.columns:
         metadata = _inject_collection_tags(metadata, df['collection_id'].dropna().unique().tolist())
 
-    data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_{context}_metadata.json", verbose=False)
+    # Write to the canonical filename (dropping the per-context suffix) so the
+    # cached payload is reused on subsequent reads regardless of which tab
+    # triggered the cold computation. Both contexts compute identical metadata
+    # because get_explorer_data() applies the same filter for explorer and
+    # viewer (see data_service.py).
+    data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_explorer_metadata.json", verbose=False)
 
     return jsonify(make_serializable(metadata))
 

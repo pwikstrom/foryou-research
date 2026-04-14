@@ -291,30 +291,76 @@ async function loadViewerMetadata() {
     const funLoader = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading...</div></div>';
     filterContainer.innerHTML = funLoader;
 
+    const study = viewerData.activeStudy;
+    const studyParam = encodeURIComponent(study);
+
+    // Two-phase fetch: base returns the static filter shape from a cached JSON
+    // (no parquet load); overlay returns the per-user dynamic columns and
+    // resolves a moment later. Filter panel renders as soon as base lands.
+    const basePromise = fetch(`/api/explore/metadata/base?study=${studyParam}`).then(r => r.json());
+    const overlayPromise = fetch(`/api/explore/metadata/overlay?study=${studyParam}&context=viewer`).then(r => r.json());
+
+    let baseData;
     try {
-        const res = await fetch(`/api/explore/metadata?study=${encodeURIComponent(viewerData.activeStudy)}&context=viewer`);
-        const data = await res.json();
-
-        if (data.error) {
-            filterContainer.innerHTML = `<div style="color:var(--color-danger); text-align:center;">${data.error}</div>`;
-            return;
-        }
-
-        // Update File Info Display
-        const infoSpan = document.getElementById('viewer-file-info');
-        if (infoSpan) {
-            infoSpan.innerText = "";
-        }
-
-        viewerData.metadata = data;
-        renderViewerFilters(data);
-
-        // We removed `applyViewerFilters()` from here because `changeViewerStudy()` now
-        // calls it in parallel immediately, significantly speeding up the initial video load!
-
+        baseData = await basePromise;
     } catch (e) {
         console.error(e);
         filterContainer.innerHTML = '<div style="color:var(--color-danger); text-align:center;">Failed to load metadata</div>';
+        return;
+    }
+
+    if (baseData.error) {
+        filterContainer.innerHTML = `<div style="color:var(--color-danger); text-align:center;">${baseData.error}</div>`;
+        return;
+    }
+
+    if (viewerData.activeStudy !== study) return;
+
+    const infoSpan = document.getElementById('viewer-file-info');
+    if (infoSpan) {
+        infoSpan.innerText = "";
+    }
+
+    viewerData.metadata = baseData;
+    renderViewerFilters(baseData);
+
+    overlayPromise.then(overlay => {
+        if (!overlay || overlay.error) return;
+        if (viewerData.activeStudy !== study) return;
+        mergeOverlayIntoViewerMetadata(overlay);
+        renderViewerFilters(viewerData.metadata);
+    }).catch(e => {
+        console.error("Overlay metadata fetch failed:", e);
+    });
+}
+
+
+function mergeOverlayIntoViewerMetadata(overlay) {
+    const m = viewerData.metadata;
+    if (!m || !overlay) return;
+
+    Object.assign(m, overlay.columns || {});
+
+    if (!m.schema_map) m.schema_map = {};
+    Object.assign(m.schema_map, overlay.schema_map || {});
+
+    if (!m.filter_priority) m.filter_priority = [];
+    if (!m.display_priority) m.display_priority = [];
+
+    (overlay.filter_priority_prepend || []).slice().reverse().forEach(col => {
+        const idx = m.filter_priority.indexOf(col);
+        if (idx > -1) m.filter_priority.splice(idx, 1);
+        m.filter_priority.unshift(col);
+    });
+    (overlay.display_priority_prepend || []).slice().reverse().forEach(col => {
+        const idx = m.display_priority.indexOf(col);
+        if (idx > -1) m.display_priority.splice(idx, 1);
+        m.display_priority.unshift(col);
+    });
+
+    if (overlay.stats_overlay && Object.keys(overlay.stats_overlay).length > 0) {
+        if (!m.total_stats) m.total_stats = {};
+        Object.assign(m.total_stats, overlay.stats_overlay);
     }
 }
 
@@ -433,7 +479,20 @@ function renderViewerFilters(metadata) {
     }
     updateSortBtnUI();
 
+    // Helper: populate a section body lazily (only when expanded)
+    const populateSectionBody = (body, vars) => {
+        if (body.dataset.populated === '1') return;
+        body.dataset.populated = '1';
+        const inner = document.createDocumentFragment();
+        vars.forEach(col => {
+            const wrapper = renderViewerFilterColumn(col, metadata, schemaMap);
+            if (wrapper) inner.appendChild(wrapper);
+        });
+        body.appendChild(inner);
+    };
+
     // Render Sections (default collapsed, store expanded list)
+    const fragment = document.createDocumentFragment();
     sectionNames.forEach(sec => {
         const vars = sections[sec];
         if (vars.length === 0) return;
@@ -471,10 +530,17 @@ function renderViewerFilters(metadata) {
         body.style.background = 'var(--color-bg-surface)';
         body.style.display = isExpanded ? 'block' : 'none';
 
+        // Populate eagerly only if expanded; otherwise defer until first expand
+        if (isExpanded) {
+            populateSectionBody(body, vars);
+        }
+
         // Toggle Logic
         header.onclick = () => {
             const currentlyHidden = body.style.display === 'none';
             if (currentlyHidden) {
+                // Lazy populate on first expand
+                populateSectionBody(body, vars);
                 body.style.display = 'block';
                 header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9662;</span> ${sec}`;
                 // Add to expanded list
@@ -492,195 +558,193 @@ function renderViewerFilters(metadata) {
         };
 
         sectionDiv.appendChild(header);
+        sectionDiv.appendChild(body);
+        fragment.appendChild(sectionDiv);
+    });
+    container.appendChild(fragment);
+}
 
-        // Render variables inside
-        vars.forEach(col => {
-            const info = metadata[col];
-            const wrapper = document.createElement('div');
-            wrapper.className = 'filter-group';
-            wrapper.style.marginBottom = '15px';
-            wrapper.style.borderBottom = '1px solid var(--color-border-subtle)';
-            wrapper.style.paddingBottom = '10px';
 
-            const label = document.createElement('label');
+function renderViewerFilterColumn(col, metadata, schemaMap) {
+    const info = metadata[col];
+    if (!info) return null;
 
-            let displayName = col;
-            if (schemaMap && schemaMap[col] && schemaMap[col].display_name) {
-                displayName = schemaMap[col].display_name;
-            }
+    const wrapper = document.createElement('div');
+    wrapper.className = 'filter-group';
+    wrapper.style.marginBottom = '15px';
+    wrapper.style.borderBottom = '1px solid var(--color-border-subtle)';
+    wrapper.style.paddingBottom = '10px';
 
-            label.innerText = displayName;
-            label.classList.add('font-bold');
-            label.style.display = 'block';
-            label.style.marginBottom = '5px';
-            label.style.color = 'var(--color-text-primary)';
-            wrapper.appendChild(label);
+    const label = document.createElement('label');
 
-            if (info.type === 'number') {
-                const sliderDiv = document.createElement('div');
-                sliderDiv.style.marginBottom = '10px';
-                sliderDiv.style.marginLeft = '5px';
-                sliderDiv.style.marginRight = '5px';
-                wrapper.appendChild(sliderDiv);
+    let displayName = col;
+    if (schemaMap && schemaMap[col] && schemaMap[col].display_name) {
+        displayName = schemaMap[col].display_name;
+    }
 
-                // Min/Max Labels
-                const labelRow = document.createElement('div');
-                labelRow.style.display = 'flex';
-                labelRow.style.justifyContent = 'space-between';
-                labelRow.classList.add('text-sm');
-                labelRow.style.color = 'var(--color-text-muted)';
-                labelRow.style.marginTop = '-5px'; // Tweak spacing
+    label.innerText = displayName;
+    label.classList.add('font-bold');
+    label.style.display = 'block';
+    label.style.marginBottom = '5px';
+    label.style.color = 'var(--color-text-primary)';
+    wrapper.appendChild(label);
 
-                const minLabel = document.createElement('span');
-                const maxLabel = document.createElement('span');
+    if (info.type === 'number') {
+        const sliderDiv = document.createElement('div');
+        sliderDiv.style.marginBottom = '10px';
+        sliderDiv.style.marginLeft = '5px';
+        sliderDiv.style.marginRight = '5px';
+        wrapper.appendChild(sliderDiv);
 
-                labelRow.appendChild(minLabel);
-                labelRow.appendChild(maxLabel);
-                wrapper.appendChild(labelRow);
+        // Min/Max Labels
+        const labelRow = document.createElement('div');
+        labelRow.style.display = 'flex';
+        labelRow.style.justifyContent = 'space-between';
+        labelRow.classList.add('text-sm');
+        labelRow.style.color = 'var(--color-text-muted)';
+        labelRow.style.marginTop = '-5px'; // Tweak spacing
 
-                // Log scale helpers
-                const useLog = info.log === true && info.min >= 0;
-                const toLog = (v) => Math.log10(v + 1);
-                const fromLog = (v) => Math.pow(10, v) - 1;
+        const minLabel = document.createElement('span');
+        const maxLabel = document.createElement('span');
 
-                // Current Values (linear space)
-                let currentMin = info.min;
-                let currentMax = info.max;
+        labelRow.appendChild(minLabel);
+        labelRow.appendChild(maxLabel);
+        wrapper.appendChild(labelRow);
 
-                if (viewerData.filters[col] && viewerData.filters[col].value) {
-                    if (viewerData.filters[col].value.min !== undefined) currentMin = viewerData.filters[col].value.min;
-                    if (viewerData.filters[col].value.max !== undefined) currentMax = viewerData.filters[col].value.max;
-                }
+        // Log scale helpers
+        const useLog = info.log === true && info.min >= 0;
+        const toLog = (v) => Math.log10(v + 1);
+        const fromLog = (v) => Math.pow(10, v) - 1;
 
-                // Helper format
-                const fmt = (n) => Math.round(n).toLocaleString();
+        // Current Values (linear space)
+        let currentMin = info.min;
+        let currentMax = info.max;
 
-                minLabel.innerText = fmt(currentMin);
-                maxLabel.innerText = fmt(currentMax);
+        if (viewerData.filters[col] && viewerData.filters[col].value) {
+            if (viewerData.filters[col].value.min !== undefined) currentMin = viewerData.filters[col].value.min;
+            if (viewerData.filters[col].value.max !== undefined) currentMax = viewerData.filters[col].value.max;
+        }
 
-                // Slider range and start values (log or linear)
-                const sliderMin = useLog ? toLog(info.min) : info.min;
-                const sliderMax = useLog ? toLog(info.max) : info.max;
-                const sliderStartMin = useLog ? toLog(currentMin) : currentMin;
-                const sliderStartMax = useLog ? toLog(currentMax) : currentMax;
+        // Helper format
+        const fmt = (n) => Math.round(n).toLocaleString();
 
-                // Initialize Slider
-                if (typeof noUiSlider !== 'undefined') {
-                    if (info.min >= info.max) {
-                        sliderDiv.style.display = 'none';
-                    } else {
-                        noUiSlider.create(sliderDiv, {
-                            start: [sliderStartMin, sliderStartMax],
-                            connect: true,
-                            range: {
-                                'min': sliderMin,
-                                'max': sliderMax
-                            },
-                            step: useLog ? (sliderMax - sliderMin) / 200 : ((info.max - info.min) > 100 ? 1 : ((info.max - info.min) / 100))
-                        });
+        minLabel.innerText = fmt(currentMin);
+        maxLabel.innerText = fmt(currentMax);
 
-                        // Debounce slider updates
-                        let debounceTimer;
-                        sliderDiv.noUiSlider.on('update', function (values, handle) {
-                            const raw = parseFloat(values[handle]);
-                            const display = useLog ? fromLog(raw) : raw;
-                            if (handle === 0) {
-                                minLabel.innerText = fmt(display);
-                            } else {
-                                maxLabel.innerText = fmt(display);
-                            }
-                        });
+        // Slider range and start values (log or linear)
+        const sliderMin = useLog ? toLog(info.min) : info.min;
+        const sliderMax = useLog ? toLog(info.max) : info.max;
+        const sliderStartMin = useLog ? toLog(currentMin) : currentMin;
+        const sliderStartMax = useLog ? toLog(currentMax) : currentMax;
 
-                        sliderDiv.noUiSlider.on('change', function (values, handle) {
-                            const rawMin = parseFloat(values[0]);
-                            const rawMax = parseFloat(values[1]);
-                            const vMin = useLog ? fromLog(rawMin) : rawMin;
-                            const vMax = useLog ? fromLog(rawMax) : rawMax;
-
-                            // If slider is back at full range, remove the filter
-                            if (rawMin <= sliderMin && rawMax >= sliderMax) {
-                                delete viewerData.filters[col];
-                            } else {
-                                if (!viewerData.filters[col]) viewerData.filters[col] = { type: 'number', value: {} };
-                                viewerData.filters[col].value.min = vMin;
-                                viewerData.filters[col].value.max = vMax;
-                            }
-
-                            updateViewerStats();
-                            updateViewerFilterHighlights();
-                        });
-                    }
-                } else {
-                    // Fallback for no slider lib (unlikely but safe)
-                    minLabel.innerText = "Error: Slider lib missing";
-                }
-
-            } else if (info.type === 'category' || info.type === 'list') {
-                const listContainer = document.createElement('div');
-                listContainer.style.maxHeight = '150px';
-                listContainer.style.overflowY = 'auto';
-                listContainer.style.background = 'var(--color-bg-surface)';
-                listContainer.style.border = '1px solid var(--color-border)';
-                listContainer.style.padding = '5px';
-
-                info.values.forEach(val => {
-                    const item = document.createElement('div');
-                    item.style.display = 'flex';
-                    item.style.alignItems = 'center';
-
-                    let actualValue = val;
-                    let displayValue = val;
-
-                    if (typeof val === 'object' && val !== null && val.value !== undefined) {
-                        actualValue = val.value;
-                        // Use label if available (display_id), else value
-                        const label = val.label || val.value;
-                        displayValue = `${label} (${val.count.toLocaleString()})`;
-                    }
-
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox';
-                    cb.value = actualValue;
-                    cb.dataset.rawValue = actualValue;
-                    cb.style.marginRight = '5px';
-
-                    // Restore checked state if filter exists
-                    if (viewerData.filters[col] && Array.isArray(viewerData.filters[col].value)) {
-                        if (viewerData.filters[col].value.includes(actualValue)) {
-                            cb.checked = true;
-                        }
-                    }
-
-                    cb.onchange = () => {
-                        const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
-                        setViewerFilter(col, info.type, 'list', checked);
-                    };
-
-                    const span = document.createElement('span');
-                    span.innerText = displayValue;
-                    span.classList.add('text-sm');
-
-                    item.appendChild(cb);
-                    item.appendChild(span);
-                    listContainer.appendChild(item);
+        // Initialize Slider
+        if (typeof noUiSlider !== 'undefined') {
+            if (info.min >= info.max) {
+                sliderDiv.style.display = 'none';
+            } else {
+                noUiSlider.create(sliderDiv, {
+                    start: [sliderStartMin, sliderStartMax],
+                    connect: true,
+                    range: {
+                        'min': sliderMin,
+                        'max': sliderMax
+                    },
+                    step: useLog ? (sliderMax - sliderMin) / 200 : ((info.max - info.min) > 100 ? 1 : ((info.max - info.min) / 100))
                 });
 
-                if (info.total_unique && info.total_unique > info.values.length) {
-                    const notice = document.createElement('div');
-                    notice.classList.add('text-xs');
-                    notice.style.cssText = 'color: var(--color-text-faint); padding: 6px 4px 2px; font-style: italic;';
-                    notice.textContent = `Showing top ${info.values.length} of ${info.total_unique.toLocaleString()} categories`;
-                    listContainer.appendChild(notice);
-                }
+                sliderDiv.noUiSlider.on('update', function (values, handle) {
+                    const raw = parseFloat(values[handle]);
+                    const display = useLog ? fromLog(raw) : raw;
+                    if (handle === 0) {
+                        minLabel.innerText = fmt(display);
+                    } else {
+                        maxLabel.innerText = fmt(display);
+                    }
+                });
 
-                wrapper.appendChild(listContainer);
+                sliderDiv.noUiSlider.on('change', function (values, handle) {
+                    const rawMin = parseFloat(values[0]);
+                    const rawMax = parseFloat(values[1]);
+                    const vMin = useLog ? fromLog(rawMin) : rawMin;
+                    const vMax = useLog ? fromLog(rawMax) : rawMax;
+
+                    // If slider is back at full range, remove the filter
+                    if (rawMin <= sliderMin && rawMax >= sliderMax) {
+                        delete viewerData.filters[col];
+                    } else {
+                        if (!viewerData.filters[col]) viewerData.filters[col] = { type: 'number', value: {} };
+                        viewerData.filters[col].value.min = vMin;
+                        viewerData.filters[col].value.max = vMax;
+                    }
+
+                    updateViewerStats();
+                    updateViewerFilterHighlights();
+                });
             }
-            body.appendChild(wrapper);
+        } else {
+            minLabel.innerText = "Error: Slider lib missing";
+        }
+
+    } else if (info.type === 'category' || info.type === 'list') {
+        const listContainer = document.createElement('div');
+        listContainer.style.maxHeight = '150px';
+        listContainer.style.overflowY = 'auto';
+        listContainer.style.background = 'var(--color-bg-surface)';
+        listContainer.style.border = '1px solid var(--color-border)';
+        listContainer.style.padding = '5px';
+
+        info.values.forEach(val => {
+            const item = document.createElement('div');
+            item.style.display = 'flex';
+            item.style.alignItems = 'center';
+
+            let actualValue = val;
+            let displayValue = val;
+
+            if (typeof val === 'object' && val !== null && val.value !== undefined) {
+                actualValue = val.value;
+                const lbl = val.label || val.value;
+                displayValue = `${lbl} (${val.count.toLocaleString()})`;
+            }
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = actualValue;
+            cb.dataset.rawValue = actualValue;
+            cb.style.marginRight = '5px';
+
+            if (viewerData.filters[col] && Array.isArray(viewerData.filters[col].value)) {
+                if (viewerData.filters[col].value.includes(actualValue)) {
+                    cb.checked = true;
+                }
+            }
+
+            cb.onchange = () => {
+                const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
+                setViewerFilter(col, info.type, 'list', checked);
+            };
+
+            const span = document.createElement('span');
+            span.innerText = displayValue;
+            span.classList.add('text-sm');
+
+            item.appendChild(cb);
+            item.appendChild(span);
+            listContainer.appendChild(item);
         });
 
-        sectionDiv.appendChild(body);
-        container.appendChild(sectionDiv);
-    });
+        if (info.total_unique && info.total_unique > info.values.length) {
+            const notice = document.createElement('div');
+            notice.classList.add('text-xs');
+            notice.style.cssText = 'color: var(--color-text-faint); padding: 6px 4px 2px; font-style: italic;';
+            notice.textContent = `Showing top ${info.values.length} of ${info.total_unique.toLocaleString()} categories`;
+            listContainer.appendChild(notice);
+        }
+
+        wrapper.appendChild(listContainer);
+    }
+
+    return wrapper;
 }
 
 function setViewerFilter(col, type, subtype, value) {

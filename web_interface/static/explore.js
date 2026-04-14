@@ -174,36 +174,92 @@ async function loadExplorerV2Metadata() {
     filterContainer1.innerHTML = funLoader;
     filterContainer2.innerHTML = funLoader;
 
+    const study = explorerDataV2.activeStudy;
+    const studyParam = encodeURIComponent(study);
+
+    // Kick off both requests in parallel. The base call hits a fast disk-cache
+    // path that doesn't need to load the recoded parquet; the overlay call
+    // pays the parquet load (User Tags, Has Annotation, Machine Annotations)
+    // and resolves a moment later. We render filters as soon as base lands.
+    const basePromise = fetch(`/api/explore/metadata/base?study=${studyParam}`).then(r => r.json());
+    const overlayPromise = fetch(`/api/explore/metadata/overlay?study=${studyParam}`).then(r => r.json());
+
+    let baseData;
     try {
-        const res = await fetch(`/api/explore/metadata?study=${encodeURIComponent(explorerDataV2.activeStudy)}`);
-        const data = await res.json();
-
-        if (data.error) {
-            const errHtml = `<div style="color:var(--color-danger); text-align:center;">${data.error}</div>`;
-            filterContainer1.innerHTML = errHtml;
-            filterContainer2.innerHTML = errHtml;
-            return;
-        }
-
-        // Update File Info Display
-        const infoSpan = document.getElementById('explorer-v2-file-info');
-        if (infoSpan) {
-            if (data.source_file && data.source_file_modified) {
-                infoSpan.innerText = `Using file: ${data.source_file} - saved ${data.source_file_modified}`;
-            } else {
-                infoSpan.innerText = "";
-            }
-        }
-
-        explorerDataV2.metadata = data;
-        renderFiltersV2(data, 1);
-        renderFiltersV2(data, 2);
-
-        // Initial fetch of stats
-        updateExplorerV2Stats();
+        baseData = await basePromise;
     } catch (e) {
         console.error(e);
         filterContainer1.innerHTML = '<div style="color:var(--color-danger); text-align:center;">Failed to load metadata</div>';
+        filterContainer2.innerHTML = '<div style="color:var(--color-danger); text-align:center;">Failed to load metadata</div>';
+        return;
+    }
+
+    if (baseData.error) {
+        const errHtml = `<div style="color:var(--color-danger); text-align:center;">${baseData.error}</div>`;
+        filterContainer1.innerHTML = errHtml;
+        filterContainer2.innerHTML = errHtml;
+        return;
+    }
+
+    // Stop processing if the user has switched studies while we were waiting.
+    if (explorerDataV2.activeStudy !== study) return;
+
+    const infoSpan = document.getElementById('explorer-v2-file-info');
+    if (infoSpan) {
+        if (baseData.source_file && baseData.source_file_modified) {
+            infoSpan.innerText = `Using file: ${baseData.source_file} - saved ${baseData.source_file_modified}`;
+        } else {
+            infoSpan.innerText = "";
+        }
+    }
+
+    explorerDataV2.metadata = baseData;
+    renderFiltersV2(baseData, 1);
+    renderFiltersV2(baseData, 2);
+
+    updateExplorerV2Stats();
+
+    // Merge in the user-specific overlay once it arrives.
+    overlayPromise.then(overlay => {
+        if (!overlay || overlay.error) return;
+        if (explorerDataV2.activeStudy !== study) return;
+        mergeOverlayIntoMetadataV2(overlay);
+        renderFiltersV2(explorerDataV2.metadata, 1);
+        renderFiltersV2(explorerDataV2.metadata, 2);
+    }).catch(e => {
+        console.error("Overlay metadata fetch failed:", e);
+    });
+}
+
+
+function mergeOverlayIntoMetadataV2(overlay) {
+    const m = explorerDataV2.metadata;
+    if (!m || !overlay) return;
+
+    Object.assign(m, overlay.columns || {});
+
+    if (!m.schema_map) m.schema_map = {};
+    Object.assign(m.schema_map, overlay.schema_map || {});
+
+    if (!m.filter_priority) m.filter_priority = [];
+    if (!m.display_priority) m.display_priority = [];
+
+    // Prepend dynamic columns in reverse so the final order matches the
+    // overlay's filter_priority_prepend order.
+    (overlay.filter_priority_prepend || []).slice().reverse().forEach(col => {
+        const idx = m.filter_priority.indexOf(col);
+        if (idx > -1) m.filter_priority.splice(idx, 1);
+        m.filter_priority.unshift(col);
+    });
+    (overlay.display_priority_prepend || []).slice().reverse().forEach(col => {
+        const idx = m.display_priority.indexOf(col);
+        if (idx > -1) m.display_priority.splice(idx, 1);
+        m.display_priority.unshift(col);
+    });
+
+    if (overlay.stats_overlay && Object.keys(overlay.stats_overlay).length > 0) {
+        if (!m.total_stats) m.total_stats = {};
+        Object.assign(m.total_stats, overlay.stats_overlay);
     }
 }
 
@@ -289,6 +345,22 @@ function renderFiltersV2(metadata, sliceId) {
     const storageKey = `explorer_expanded_filters_${sliceId}`;
     const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
 
+    // Lazily build a section's per-column widgets the first time it's expanded.
+    // Defers heavy DOM (sliders, checkbox lists) until the user actually opens
+    // the section, which is the dominant cost when a study has many filters.
+    const populateSectionBody = (body, vars) => {
+        if (body.dataset.populated === '1') return;
+        body.dataset.populated = '1';
+        const inner = document.createDocumentFragment();
+        vars.forEach(col => {
+            const wrapper = renderFilterColumnV2(col, metadata, sliceId);
+            if (wrapper) inner.appendChild(wrapper);
+        });
+        body.appendChild(inner);
+    };
+
+    const fragment = document.createDocumentFragment();
+
     sectionNames.forEach(sec => {
         const vars = sections[sec];
         if (vars.length === 0) return;
@@ -331,6 +403,7 @@ function renderFiltersV2(metadata, sliceId) {
         header.onclick = () => {
             const currentlyHidden = body.style.display === 'none';
             if (currentlyHidden) {
+                populateSectionBody(body, vars);
                 body.style.display = 'block';
                 header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9662;</span> ${sec}`;
                 // Add to expanded list
@@ -347,29 +420,45 @@ function renderFiltersV2(metadata, sliceId) {
         };
 
         sectionDiv.appendChild(header);
+        sectionDiv.appendChild(body);
 
-        // Render vars
-        vars.forEach(col => {
-            const info = metadata[col];
-            const wrapper = document.createElement('div');
-            wrapper.className = 'filter-group';
-            wrapper.style.marginBottom = '15px';
-            wrapper.style.borderBottom = '1px solid var(--color-border-subtle)';
-            wrapper.style.paddingBottom = '10px';
+        if (isExpanded) {
+            populateSectionBody(body, vars);
+        }
 
-            const label = document.createElement('label');
+        fragment.appendChild(sectionDiv);
+    });
 
-            let displayName = col;
-            if (metadata.schema_map && metadata.schema_map[col] && metadata.schema_map[col].display_name) {
-                displayName = metadata.schema_map[col].display_name;
-            }
+    container.appendChild(fragment);
+}
 
-            label.innerText = displayName;
-            label.classList.add('font-bold');
-            label.style.display = 'block';
-            label.style.marginBottom = '5px';
-            label.style.color = 'var(--color-text-primary)';
-            wrapper.appendChild(label);
+
+// Builds the DOM subtree for a single filter (slider / checkbox list) without
+// inserting it. Extracted so renderFiltersV2 can defer construction until a
+// section is actually expanded.
+function renderFilterColumnV2(col, metadata, sliceId) {
+    const info = metadata[col];
+    if (!info) return null;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'filter-group';
+    wrapper.style.marginBottom = '15px';
+    wrapper.style.borderBottom = '1px solid var(--color-border-subtle)';
+    wrapper.style.paddingBottom = '10px';
+
+    const label = document.createElement('label');
+
+    let displayName = col;
+    if (metadata.schema_map && metadata.schema_map[col] && metadata.schema_map[col].display_name) {
+        displayName = metadata.schema_map[col].display_name;
+    }
+
+    label.innerText = displayName;
+    label.classList.add('font-bold');
+    label.style.display = 'block';
+    label.style.marginBottom = '5px';
+    label.style.color = 'var(--color-text-primary)';
+    wrapper.appendChild(label);
 
             if (info.type === 'number') {
                 const sliderDiv = document.createElement('div');
@@ -535,12 +624,7 @@ function renderFiltersV2(metadata, sliceId) {
                 wrapper.appendChild(listContainer);
             }
 
-            body.appendChild(wrapper);
-        });
-
-        sectionDiv.appendChild(body);
-        container.appendChild(sectionDiv);
-    });
+    return wrapper;
 }
 
 function setFilterV2(sliceId, col, type, subtype, value) {

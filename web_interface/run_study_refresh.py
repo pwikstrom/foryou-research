@@ -128,6 +128,20 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         stats_res = explorer.get_current_stats(df_filtered, col_types, viz_config=viz_config)
         explorer_meta["total_stats"] = stats_res["stats"]
 
+        # Bake the list of collection_ids actually present in the filtered study data.
+        # Lets the base metadata endpoint inject the Collection Tags filter without
+        # having to load the recoded parquet on every study selection.
+        try:
+            if "collection_id" in df_filtered.columns:
+                explorer_meta["collection_ids"] = sorted(
+                    df_filtered["collection_id"].dropna().astype(str).unique().tolist()
+                )
+            else:
+                explorer_meta["collection_ids"] = []
+        except Exception as e:
+            reporter.log(f"Warning: could not extract collection_ids: {e}")
+            explorer_meta["collection_ids"] = []
+
         try:
             the_recoded_file = f"{study_name}_recoded.parquet"
             if data_io.exists(storage_location="cache", filename=the_recoded_file):
