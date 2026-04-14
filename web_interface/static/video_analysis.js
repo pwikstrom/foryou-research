@@ -22,6 +22,7 @@ let viewerData = {
     _metadataCache: new Map(),       // itemId -> {data, timestamp}
     _metadataCacheMax: 50,           // LRU eviction threshold
     _prefetchAbort: null,            // AbortController for in-flight prefetch
+    _itemFetchAbort: null,           // AbortController for in-flight item-metadata fetch
     _preloadedVideoIndex: null       // Index whose video is preloaded in the hidden element
 };
 
@@ -1068,75 +1069,108 @@ async function loadViewerItem(index) {
     const rowIdx = viewerData.rowIdxs ? viewerData.rowIdxs[relativeIndex] : undefined;
     const displayId = viewerData.displayIds[itemId] || itemId;
 
-    // Cancel any in-flight prefetch so it doesn't race with the real load
+    // Cancel any in-flight prefetch and any stale item-metadata fetch so
+    // they don't race with this new load.
     if (viewerData._prefetchAbort) viewerData._prefetchAbort.abort();
+    if (viewerData._itemFetchAbort) viewerData._itemFetchAbort.abort();
 
     document.getElementById('viewer-status').innerText = `Loading ${displayId}...`;
 
-    try {
-        // Check metadata cache first, otherwise fetch
-        let item = getCachedMetadata(itemId);
-        if (!item) {
-            const res = await fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    row_idx: rowIdx,
-                    filters: viewerData.filters,
-                    search_query: viewerData.searchQuery
-                })
-            });
-            item = await res.json();
-        }
+    // -------------------------------------------------------------------
+    // 1. Start the video stream FIRST — independent of the metadata fetch.
+    //    This lets the browser begin requesting bytes immediately rather
+    //    than waiting on the per-item metadata round-trip.
+    // -------------------------------------------------------------------
+    const videoEl = document.getElementById('viewer-video');
+    const preloadEl = document.getElementById('viewer-video-preload');
+    const videoUrl = `/api/video/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`;
+    const autoplay = window.userSettings && window.userSettings.video_autostart;
 
-        if (item.error) {
-            document.getElementById('viewer-status').innerText = "Error loading item";
-            return;
-        }
-
-        // Cache this item's metadata for back-navigation
-        cacheMetadata(itemId, item);
-        renderMetadata(item);
-
-        // Load Video — swap in the preloaded element if it matches this index
-        const videoEl = document.getElementById('viewer-video');
-        const preloadEl = document.getElementById('viewer-video-preload');
-        const videoUrl = `/api/video/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`;
-        const autoplay = window.userSettings && window.userSettings.video_autostart;
-
-        if (preloadEl && viewerData._preloadedVideoIndex === index && preloadEl.src) {
-            // The hidden element already has this video buffered — swap src
-            videoEl.preload = autoplay ? "auto" : "metadata";
-            videoEl.src = preloadEl.src;
-            preloadEl.removeAttribute('src');
-            viewerData._preloadedVideoIndex = null;
-        } else {
-            videoEl.preload = autoplay ? "auto" : "metadata";
-            videoEl.src = videoUrl;
-        }
-
-        // Hide loading message once the first frame is available
-        const msgEl = document.getElementById('viewer-video-msg');
-        videoEl.addEventListener('loadeddata', () => { msgEl.style.display = "none"; }, { once: true });
-        setTimeout(() => { msgEl.style.display = "none"; }, 5000);
-
-        // Check if tab is visible before playing
-        const viewerTab = document.getElementById('video_analysis');
-        if (viewerTab && viewerTab.classList.contains('active')) {
-            if (autoplay) {
-                videoEl.play().catch(e => console.log("Auto-play blocked or failed:", e));
-            }
-        }
-
-        updateNavUI();
-
-        // Kick off prefetch of the next item in the background
-        prefetchNext();
-
-    } catch (e) {
-        console.error(e);
-        document.getElementById('viewer-status').innerText = "Error";
+    if (preloadEl && viewerData._preloadedVideoIndex === index && preloadEl.src) {
+        // The hidden element already has this video buffered — swap src
+        videoEl.preload = autoplay ? "auto" : "metadata";
+        videoEl.src = preloadEl.src;
+        preloadEl.removeAttribute('src');
+        viewerData._preloadedVideoIndex = null;
+    } else {
+        videoEl.preload = autoplay ? "auto" : "metadata";
+        videoEl.src = videoUrl;
     }
+
+    // Hide loading message once the first frame is available
+    const msgEl = document.getElementById('viewer-video-msg');
+    videoEl.addEventListener('loadeddata', () => { msgEl.style.display = "none"; }, { once: true });
+    setTimeout(() => { msgEl.style.display = "none"; }, 5000);
+
+    // Check if tab is visible before playing
+    const viewerTab = document.getElementById('video_analysis');
+    if (viewerTab && viewerTab.classList.contains('active') && autoplay) {
+        videoEl.play().catch(e => console.log("Auto-play blocked or failed:", e));
+    }
+
+    updateNavUI();
+    // Kick off prefetch of the next item in the background
+    prefetchNext();
+
+    // -------------------------------------------------------------------
+    // 2. Fetch (or read from cache) the item metadata in parallel with the
+    //    video stream. Render the right-side details panel when it lands.
+    // -------------------------------------------------------------------
+    const cached = getCachedMetadata(itemId);
+    if (cached) {
+        // Cache hit: render synchronously, no placeholder flash.
+        renderMetadata(cached);
+        document.getElementById('viewer-status').innerText = "";
+        return;
+    }
+
+    // Cache miss: show a placeholder in the details panel so the previous
+    // item's metadata isn't shown attached to the new video.
+    const tbody = document.getElementById('viewer-metadata').querySelector('tbody');
+    tbody.innerHTML = '<tr><td colspan="2" style="color: var(--color-text-muted); padding: 12px; text-align: center;">Loading details…</td></tr>';
+    const voteContainer = document.getElementById('viewer-vote-container');
+    if (voteContainer) voteContainer.innerHTML = '';
+
+    const requestedIndex = index;
+    const abort = new AbortController();
+    viewerData._itemFetchAbort = abort;
+
+    fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            row_idx: rowIdx,
+            filters: viewerData.filters,
+            search_query: viewerData.searchQuery
+        }),
+        signal: abort.signal
+    })
+        .then(r => r.json())
+        .then(item => {
+            // Always cache a successful response — useful for back-navigation
+            // even if the user has moved on from this index.
+            if (!item.error) cacheMetadata(itemId, item);
+
+            // Race guard: only update the panel if the user is still on this index.
+            if (viewerData.currentIndex !== requestedIndex) return;
+
+            if (item.error) {
+                tbody.innerHTML = '<tr><td colspan="2" style="color: var(--color-danger); padding: 12px; text-align: center;">Error loading details</td></tr>';
+                document.getElementById('viewer-status').innerText = "Error loading item";
+                return;
+            }
+
+            renderMetadata(item);
+            document.getElementById('viewer-status').innerText = "";
+        })
+        .catch(e => {
+            if (e.name === 'AbortError') return; // superseded by a newer load
+            console.error(e);
+            if (viewerData.currentIndex === requestedIndex) {
+                tbody.innerHTML = '<tr><td colspan="2" style="color: var(--color-danger); padding: 12px; text-align: center;">Error loading details</td></tr>';
+                document.getElementById('viewer-status').innerText = "Error";
+            }
+        });
 }
 
 function linkify(text) {
