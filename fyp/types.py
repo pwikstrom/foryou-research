@@ -240,8 +240,19 @@ def convert_index_dtype_pyarrow(an_index):
 
 def convert_dtypes_to_pyarrow(df_in, verbose=False):
 
+    # Fast path: when every column is already a pyarrow ArrowDtype, the
+    # pipeline below is a no-op. The expensive `.describe()` overflow check at
+    # the end (~1.1s on `everything_recoded.parquet`) exists to catch int64
+    # values >2^53 in object/numpy-backed columns, which cannot occur in data
+    # already typed by pyarrow on disk. Skipping is safe and saves ~50% of
+    # `load_parquet()` wall-clock on the largest cache files.
+    if all(isinstance(d, pd.ArrowDtype) for d in df_in.dtypes):
+        if verbose:
+            print("    [PYARROW dtypes] All columns already ArrowDtype - skipping conversion.")
+        return df_in.copy()
+
     df = df_in.copy()
-    
+
     # ---------------------------------------------------------
     # 1. OPTIMISTIC BATCH CONVERSION
     # ---------------------------------------------------------
