@@ -104,8 +104,7 @@ fyp_main_v02/
 │   ├── run_queue_annotator.py   # Gemini annotation (self-chaining Cloud Task)
 │   ├── run_queue_scraper.py     # TikTok scraping worker
 │   ├── run_timelines_refresh.py # Timeline updates worker
-│   ├── run_meta_refresh_groups.py  # Group metadata refresh (Cloud Task)
-│   ├── run_meta_refresh_viewer.py  # Viewer metadata refresh (Cloud Task)
+│   ├── run_meta_refresh_groups.py  # Group + Video Analysis metadata refresh (Cloud Task)
 │   ├── run_pca_refresh.py       # PCA/correlations refresh (Cloud Task)
 │   ├── run_recode_refresh_studies.py  # Study recoding (Cloud Task)
 │   ├── run_consolidate_enrichment.py  # Consolidation (Cloud Task)
@@ -227,8 +226,7 @@ gcloud run deploy fyp-task-runner \
 python web_interface/run_queue_annotator.py   # Gemini annotation
 python web_interface/run_queue_scraper.py     # TikTok scraping
 python web_interface/run_timelines_refresh.py # Timeline updates
-python web_interface/run_meta_refresh_groups.py  # Group metadata refresh
-python web_interface/run_meta_refresh_viewer.py  # Viewer metadata refresh
+python web_interface/run_meta_refresh_groups.py  # Group + Video Analysis metadata refresh
 ```
 
 ---
@@ -312,8 +310,7 @@ Save test/debug data in the `tmp/` folder. Save test scripts in the `tests/` fol
 | `web_interface/run_study_refresh.py` | Single-study stats/PCA/metadata refresh (Cloud Task) |
 | `web_interface/run_recode_refresh_studies.py` | Study recoding (Cloud Task) |
 | `web_interface/run_pca_refresh.py` | PCA/correlations refresh (Cloud Task) |
-| `web_interface/run_meta_refresh_viewer.py` | Viewer metadata refresh (Cloud Task) |
-| `web_interface/run_meta_refresh_groups.py` | Group metadata refresh (Cloud Task) |
+| `web_interface/run_meta_refresh_groups.py` | Group + Video Analysis metadata refresh (Cloud Task) |
 | `web_interface/run_timelines_refresh.py` | Timeline refresh worker |
 | `fyp/fyp_config.py` | Config initialisation (`fyp_config.initialize()`) |
 | `fyp/ingest.py` | Data ingestion classes |
