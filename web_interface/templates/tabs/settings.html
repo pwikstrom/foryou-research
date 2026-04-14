@@ -26,6 +26,14 @@
             </label>
         </div>
 
+        <div class="setting-group" style="margin-bottom: 12px;">
+            <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
+                <input type="checkbox" id="setting-big-dots" style="margin-right: 10px;"
+                    onchange="autoSaveSettings()">
+                <span><span class="font-semibold">Large dots in correlations:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, scatter plots in the Correlations tab use bigger markers for better visibility.</span></span>
+            </label>
+        </div>
+
         <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 30px 0;">
 
         <h2>Manage My Video Tags</h2>
@@ -75,6 +83,12 @@
                 // Default to true if not set (or if explicitly true)
                 shareAnnotations.checked = (window.userSettings && window.userSettings.share_annotations !== undefined) ? window.userSettings.share_annotations : true;
             }
+
+            // Big dots in correlations
+            const bigDots = document.getElementById('setting-big-dots');
+            if (bigDots) {
+                bigDots.checked = !!(window.userSettings && window.userSettings.big_dots);
+            }
         }
 
         // Sync theme checkbox with current theme
@@ -120,8 +134,11 @@
     function autoSaveSettings() {
         const s = {
             video_autostart: document.getElementById('setting-video-autostart').checked,
-            share_annotations: document.getElementById('setting-share-annotations').checked
+            share_annotations: document.getElementById('setting-share-annotations').checked,
+            big_dots: document.getElementById('setting-big-dots').checked
         };
-        saveUserSettings(s);
+        saveUserSettings(s).then(() => {
+            if (typeof updatePcaPlot === 'function') updatePcaPlot();
+        });
     }
 </script>
