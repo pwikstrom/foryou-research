@@ -58,6 +58,11 @@ window.timelines = {
         }
     },
 
+    // Collections with fewer than this many active days can't be analysed
+    // meaningfully (7-day moving average + break/anomaly stats need breathing
+    // room). Kept in sync with fyp.timeline_analysis.MIN_ACTIVE_DAYS_FOR_TIMELINE.
+    MIN_ACTIVE_DAYS_FOR_TIMELINE: 14,
+
     renderCollectionDropdown: function () {
         const select = document.getElementById('timelines-collection-select');
         const countSpan = document.getElementById('timelines-collection-count');
@@ -68,12 +73,20 @@ window.timelines = {
             return;
         }
 
+        const minDays = this.MIN_ACTIVE_DAYS_FOR_TIMELINE;
         this.collectionList.forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.collection_id;
-            opt.textContent = d.display_collection_id && d.display_collection_id.trim() !== ''
+            const base = d.display_collection_id && d.display_collection_id.trim() !== ''
                 ? d.display_collection_id
                 : d.collection_id;
+            const ad = (d.active_days != null) ? d.active_days : null;
+            const suffix = (ad != null) ? ` (${ad}d)` : '';
+            opt.textContent = `${base}${suffix}`;
+            if (ad != null && ad < minDays) {
+                opt.disabled = true;
+                opt.title = `Only ${ad} active day${ad === 1 ? '' : 's'} — need at least ${minDays} for timeline analysis.`;
+            }
             if (d.collection_id === this.currentDonationId) {
                 opt.selected = true;
             }
@@ -84,9 +97,13 @@ window.timelines = {
             countSpan.textContent = `${this.collectionList.length} collections`;
         }
 
-        // Auto-select first if none selected
-        if (!this.currentDonationId && this.collectionList.length > 0) {
-            this.selectDonation(this.collectionList[0].collection_id);
+        // Auto-select first non-disabled option if none selected.
+        if (!this.currentDonationId) {
+            const firstEligible = this.collectionList.find(d =>
+                d.active_days == null || d.active_days >= minDays);
+            if (firstEligible) {
+                this.selectDonation(firstEligible.collection_id);
+            }
         }
     },
 
@@ -376,10 +393,14 @@ window.timelines = {
                     });
                 }
 
-                // Default selection: top 3 by interestingness (or all for machine_state)
+                // Default selection: top 3 by interestingness, skipping the
+                // "Other" bucket (a heterogeneous residual, not a signal).
+                const OTHER_BUCKET = 'Other';
+                const interestingnessOrderReal = interestingnessOrder.filter(c => c !== OTHER_BUCKET);
+                const topCatsReal = (varData.top_categories || []).filter(c => c !== OTHER_BUCKET);
                 const defaultCats = varData.default_all
                     ? (varData.top_categories || [])
-                    : (interestingnessOrder.length > 0 ? interestingnessOrder.slice(0, 3) : (varData.top_categories ? varData.top_categories.slice(0, 3) : []));
+                    : (interestingnessOrderReal.length > 0 ? interestingnessOrderReal.slice(0, 3) : topCatsReal.slice(0, 3));
                 const selectedCats = this.timelineState.categoricalSelections[varName] || defaultCats;
 
                 // Store in state if not already
@@ -399,11 +420,15 @@ window.timelines = {
                     });
                 });
 
-                // Sort categories by interestingness score (fall back to frequency for unscored)
+                // Sort categories by interestingness score (fall back to frequency
+                // for unscored). "Other" is pinned to the end — it's a residual
+                // bucket and its stats aren't interpretable.
                 const allCatsByFreq = Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]);
                 const allCategories = allCatsByFreq.slice().sort((a, b) => {
-                    const scoreA = analysisMap[a] ? analysisMap[a].score : -1;
-                    const scoreB = analysisMap[b] ? analysisMap[b].score : -1;
+                    if (a === OTHER_BUCKET) return 1;
+                    if (b === OTHER_BUCKET) return -1;
+                    const scoreA = analysisMap[a] && analysisMap[a].score != null ? analysisMap[a].score : -1;
+                    const scoreB = analysisMap[b] && analysisMap[b].score != null ? analysisMap[b].score : -1;
                     return scoreB - scoreA;
                 });
 
@@ -411,10 +436,11 @@ window.timelines = {
                 // Balances two goals: keep the sidebar manageable, but don't drop too
                 // many observations.  High-cardinality variables (hashtags, brands) get
                 // more slots via the observation floor so they stay representative.
+                // Categories that don't make the cut are folded into the "Other"
+                // bucket rather than dropped outright, so the chart and ribbon stay
+                // honest and only one residual message is needed.
                 const grandTotal = allCatsByFreq.reduce((sum, cat) => sum + catTotals[cat], 0);
                 const keptCategories = [];
-                let omittedCount = 0;
-                let omittedObservations = 0;
 
                 const minCategories = 5;
                 const maxCategories = 25;
@@ -427,6 +453,7 @@ window.timelines = {
                 const coveredSet = new Set();
                 for (let i = 0; i < allCatsByFreq.length; i++) {
                     const cat = allCatsByFreq[i];
+                    if (cat === OTHER_BUCKET) { coveredSet.add(cat); continue; }
                     const catCount = catTotals[cat];
                     const isSelected = selectedCats.includes(cat);
                     const isWithinMin = i < minCategories;
@@ -452,26 +479,52 @@ window.timelines = {
                     }
                 }
 
-                // Count omissions
-                for (const cat of allCatsByFreq) {
-                    if (!coveredSet.has(cat)) {
-                        omittedCount++;
-                        omittedObservations += catTotals[cat];
+                // Collect cats that didn't make the cut — these get folded into
+                // the "Other" bucket (not dropped) so the chart and ribbon add
+                // up to 100% and there is one unified residual to explain.
+                const frontendFolded = allCatsByFreq.filter(c => !coveredSet.has(c));
+
+                // If anything was folded, ensure the Other bucket exists in
+                // catTotals, coveredSet, and the per-day counts. We mutate a
+                // fresh clone of slicedCounts to avoid polluting varData.counts
+                // (shared by reference with the cached response).
+                if (frontendFolded.length > 0) {
+                    const clonedCounts = slicedCounts.map(day => Object.assign({}, day || {}));
+                    let foldedGrand = 0;
+                    for (const cat of frontendFolded) {
+                        foldedGrand += catTotals[cat] || 0;
+                        for (const day of clonedCounts) {
+                            if (day[cat]) {
+                                day[OTHER_BUCKET] = (day[OTHER_BUCKET] || 0) + day[cat];
+                                delete day[cat];
+                            }
+                        }
+                        delete catTotals[cat];
                     }
+                    catTotals[OTHER_BUCKET] = (catTotals[OTHER_BUCKET] || 0) + foldedGrand;
+                    coveredSet.add(OTHER_BUCKET);
+                    // Reassign sliced counts so downstream code sees the folded view.
+                    slicedCounts.length = 0;
+                    for (const day of clonedCounts) slicedCounts.push(day);
                 }
 
-                // Build kept list in interestingness order
+                // Build kept list in interestingness order (Other pinned to end)
                 allCategories.forEach(cat => {
-                    if (coveredSet.has(cat)) keptCategories.push(cat);
+                    if (coveredSet.has(cat) && cat !== OTHER_BUCKET) keptCategories.push(cat);
                 });
+                if (coveredSet.has(OTHER_BUCKET) && (catTotals[OTHER_BUCKET] || 0) > 0) {
+                    keptCategories.push(OTHER_BUCKET);
+                }
 
-                // Populate the shared per-category color map (declared above
-                // the categorical branch so findings-panel code can reuse it).
+                // Populate the shared per-category color map. The synthetic
+                // "Other" bucket (low-occurrence cats folded together) gets a
+                // muted gray so it reads as a residual bucket rather than
+                // competing for attention with real categories.
+                const otherColor = getCSSVar('--color-text-tertiary') || '#888888';
                 keptCategories.forEach((cat, i) => {
-                    catColorMap[cat] = colors[i % colors.length];
+                    catColorMap[cat] = (cat === OTHER_BUCKET) ? otherColor : colors[i % colors.length];
                 });
 
-                const omittedPercent = grandTotal > 0 ? ((omittedObservations / grandTotal) * 100).toFixed(1) : 0;
                 const activeFilter = this.timelineState.activeFilters[varName] || 'all';
 
                 // Inject "Select top..." + filter chips as a second row under the title
@@ -551,16 +604,42 @@ window.timelines = {
                     window.timelines.toggleCategory(varName, cat);
                 });
 
-                if (omittedCount > 0) {
-                    const ribbonFooter = document.createElement('div');
-                    ribbonFooter.className = 'text-xs italic';
-                    ribbonFooter.style.color = 'var(--color-text-muted)';
-                    ribbonFooter.style.marginTop = '4px';
-                    ribbonFooter.textContent = `Dropped ${omittedCount} tiny cats → ${omittedPercent}% obs lost.`;
-                    chartWrapper.appendChild(ribbonFooter);
+                // Unified residual message: combines backend-folded and
+                // frontend-folded low-occurrence categories into a single
+                // "Other" bucket description. Members list is the union of
+                // both sources, shown as a tooltip for transparency.
+                const backendOtherMembers = (varAnalysis && Array.isArray(varAnalysis.other_members))
+                    ? varAnalysis.other_members : [];
+                const combinedOtherMembers = Array.from(new Set([
+                    ...backendOtherMembers,
+                    ...frontendFolded
+                ])).sort();
+                if (combinedOtherMembers.length > 0) {
+                    const otherTotal = catTotals[OTHER_BUCKET] || 0;
+                    const otherPct = grandTotal > 0 ? ((otherTotal / grandTotal) * 100).toFixed(1) : '0.0';
+                    const otherFooter = document.createElement('div');
+                    otherFooter.className = 'text-xs italic meta-tooltip';
+                    otherFooter.style.color = 'var(--color-text-muted)';
+                    otherFooter.style.marginTop = '4px';
+                    const preview = combinedOtherMembers.slice(0, 8).join(', ');
+                    const suffix = combinedOtherMembers.length > 8 ? `, +${combinedOtherMembers.length - 8} more` : '';
+                    otherFooter.setAttribute('data-tooltip', `${preview}${suffix}`);
+                    const noun = combinedOtherMembers.length === 1 ? 'category' : 'categories';
+                    otherFooter.textContent = `"Other" bundles ${combinedOtherMembers.length} low-occurrence ${noun} (${otherPct}% of mentions).`;
+                    chartWrapper.appendChild(otherFooter);
                 }
 
-                // Calculate share values and render as line/area charts
+                // Calculate share values and render as line/area charts.
+                // Denominator is per-day sum of all category counts (share of
+                // mentions), matching the ribbon. For single-label variables
+                // this equals daily_valid_counts; for multi-label variables
+                // (hashtags, symbols) it correctly normalises to 100% across
+                // categories so the "Other" bucket stays on the same axis.
+                const slicedDailyTotal = slicedCounts.map(day => {
+                    let s = 0;
+                    for (const v of Object.values(day || {})) s += (v || 0);
+                    return s;
+                });
 
                 let allYVals = []; // Track all y-values for axis range
 
@@ -572,7 +651,7 @@ window.timelines = {
                     dates.forEach((d, i) => {
                         const dailyRecord = slicedCounts[i] || {};
                         const val = dailyRecord[cat] || 0;
-                        const total = slicedValidCounts ? slicedValidCounts[i] : (slicedVideoCounts ? slicedVideoCounts[i] : 1);
+                        const total = slicedDailyTotal[i];
                         const share = total > 0 ? (val / total) * 100 : 0;
                         yVals.push(share);
                         hoverTexts.push(
@@ -1173,6 +1252,8 @@ window.timelines = {
             const matching = [];
             if (varAnalysis && Array.isArray(varAnalysis.categories)) {
                 varAnalysis.categories.forEach(cd => {
+                    // "Other" is a residual bucket; exclude from all filters.
+                    if (cd.is_other) return;
                     const isRising = (cd.trend && cd.trend.total_change > 4);
                     const isFalling = (cd.trend && cd.trend.total_change < -4);
                     const hasSpikes = (cd.anomalies && cd.anomalies.length > 0);

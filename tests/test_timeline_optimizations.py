@@ -34,10 +34,10 @@ def test_compute_break_basic():
 
 
 def test_compute_break_short_series():
-    """Short series (<8 points) should return zero delta."""
+    """Short series should return None (no meaningful break can be located)."""
     vals = [1.0, 2.0, 3.0]
     result = compute_break(vals)
-    assert result["delta"] == 0.0
+    assert result is None
     print("  PASS: compute_break short series")
 
 
@@ -135,7 +135,9 @@ def test_analyse_timeline_first_activity_date():
     dates = [f"2024-01-{d:02d}" for d in range(1, 21)]
     labels = dates
 
-    counts = [{"cat_x": 10}] * 20
+    # Two categories with meaningful variation so both pass the occurrence
+    # floor, the zero-variance gate, and the <2-category cull.
+    counts = [{"cat_a": 5 + (d % 3), "cat_b": 3 + (d % 5)} for d in range(20)]
 
     timeline_data = {
         "dates": dates,
@@ -144,8 +146,8 @@ def test_analyse_timeline_first_activity_date():
             "v": {
                 "type": "categorical",
                 "counts": counts,
-                "daily_valid_counts": [10] * 20,
-                "daily_video_counts": [10] * 20,
+                "daily_valid_counts": [20] * 20,
+                "daily_video_counts": [20] * 20,
             }
         },
     }

@@ -2016,11 +2016,14 @@ def api_timeline_collections():
 
     # Project to only the columns this handler uses: the `accepted` flag (under
     # the MultiIndex `('other', 'accepted')` form on disk, or the flat
-    # 'accepted' name as a fallback) and `collection_id` as the index.
+    # 'accepted' name as a fallback), `active_days` so the dropdown can
+    # surface timeline-length context and disable sub-threshold collections,
+    # and `collection_id` as the index.
     meta_df = data_io.load_parquet_selective(
         storage_location="recoded",
         filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
-        columns=["('other', 'accepted')", "accepted"],
+        columns=["('other', 'accepted')", "accepted",
+                 "('personas', 'active_days')", "active_days"],
         set_index='collection_id',
     )
     
@@ -2029,15 +2032,21 @@ def api_timeline_collections():
         
     # Reset index if needed
     df_reset = meta_df.reset_index()
-    
-    # Handle MultiIndex columns (same logic as before)
+
+    # Resolve column names. `load_parquet_selective` returns tuple column
+    # names directly (not wrapped in a MultiIndex), so check for tuples in
+    # the plain Index first, then fall back to flat string names.
     accepted_col = None
-    if isinstance(meta_df.columns, pd.MultiIndex):
-        if ('other', 'accepted') in meta_df.columns:
-            accepted_col = ('other', 'accepted')
-    else:
-        if 'accepted' in meta_df.columns:
-            accepted_col = 'accepted'
+    active_days_col = None
+    cols_set = set(meta_df.columns)
+    if ('other', 'accepted') in cols_set:
+        accepted_col = ('other', 'accepted')
+    elif 'accepted' in cols_set:
+        accepted_col = 'accepted'
+    if ('personas', 'active_days') in cols_set:
+        active_days_col = ('personas', 'active_days')
+    elif 'active_days' in cols_set:
+        active_days_col = 'active_days'
             
     filtered = df_reset
     if accepted_col:
@@ -2090,11 +2099,26 @@ def api_timeline_collections():
             
         unique_ids = don_ids_series.unique().tolist()
         #print(f"DEBUG TIMELINE: Total unique collections in metadata: {len(unique_ids)}")
-        
+
         # Filter against allowed set
         # Only include if in allowed_collection_ids
         final_valid_ids = [uid for uid in unique_ids if str(uid) in allowed_collection_ids]
-        
+
+        # Build a {collection_id -> active_days} lookup for the dropdown.
+        active_days_map: dict[str, int | None] = {}
+        if active_days_col is not None:
+            try:
+                ad_df = filtered[[target_id_col, active_days_col]].dropna(subset=[target_id_col])
+                for _, row in ad_df.iterrows():
+                    cid = str(row[target_id_col])
+                    val = row[active_days_col]
+                    if pd.isna(val):
+                        active_days_map[cid] = None
+                    else:
+                        active_days_map[cid] = int(val)
+            except Exception:
+                pass
+
         # Load annotations
         da_filename = f"{COLLECTIONS_LABEL}_tags.json"
         annotations = {}
@@ -2109,20 +2133,24 @@ def api_timeline_collections():
             if pd.isna(uid): continue
             uid_str = str(uid)
             item = {'collection_id': uid_str}
-            
+
+            # Active days (timeline-length context for the dropdown).
+            if uid_str in active_days_map:
+                item['active_days'] = active_days_map[uid_str]
+
             # Inject display ID and tags
             if uid_str in annotations:
                  annot_data = annotations[uid_str]
                  disp = annot_data.get('display_collection_id')
                  tags = annot_data.get('annotation_tags')
                  hidden = annot_data.get('hidden')
-                 
+
                  if disp: item['display_collection_id'] = disp
                  if tags: item['annotation_tags'] = tags
                  if hidden is not None: item['hidden'] = bool(hidden)
-            
+
             final_list.append(item)
-        
+
         return jsonify(final_list)
         
     except Exception as e:

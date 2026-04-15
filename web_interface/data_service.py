@@ -830,18 +830,23 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
                 result["analysis"] = analysis
         else:
             # Analysis is missing, generate it on the fly
-            from fyp.timeline_analysis import analyse_timeline
-            
-            # Try to fetch first_activity_date from {COLLECTIONS_LABEL}_metadata.parquet
+            from fyp.timeline_analysis import analyse_timeline, MIN_ACTIVE_DAYS_FOR_TIMELINE
+
+            # Try to fetch first_activity_date and active_days from
+            # {COLLECTIONS_LABEL}_metadata.parquet. Collections with
+            # active_days below the timeline threshold are skipped entirely —
+            # the stats aren't meaningful and caching them wastes disk.
             first_date = None
+            active_days = None
             try:
                 if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
-                    # Project to just the column we need; the metadata parquet stores
-                    # MultiIndex columns as stringified tuples on disk.
+                    # Project to just the columns we need; the metadata parquet
+                    # stores MultiIndex columns as stringified tuples on disk.
                     ddp_meta = data_io.load_parquet_selective(
                         storage_location="recoded",
                         filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
-                        columns=["('personas', 'first_event_ts')", "first_event_ts"],
+                        columns=["('personas', 'first_event_ts')", "first_event_ts",
+                                 "('personas', 'active_days')", "active_days"],
                         set_index='collection_id',
                         verbose=False,
                     )
@@ -864,18 +869,88 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
                                 ts = row['first_event_ts'].iloc[0]
                                 if pd.notna(ts):
                                     first_date = str(ts)[:10]
-            except Exception as e:
-                print(f"Warning: Could not get first_event_ts for analysis generation: {e}")
 
-            analysis = analyse_timeline(result, interval=interval, first_activity_date=first_date)
-            if analysis:
-                data_io.save_json(analysis, storage_location="cache", filename=analysis_fname)
-                result["analysis"] = analysis
+                            if ('personas', 'active_days') in row.columns:
+                                ad = row[('personas', 'active_days')].iloc[0]
+                                if pd.notna(ad):
+                                    active_days = int(ad)
+                            elif 'active_days' in row.columns:
+                                ad = row['active_days'].iloc[0]
+                                if pd.notna(ad):
+                                    active_days = int(ad)
+            except Exception as e:
+                print(f"Warning: Could not get metadata for analysis generation: {e}")
+
+            if active_days is not None and active_days < MIN_ACTIVE_DAYS_FOR_TIMELINE:
+                # Not enough data for meaningful timeline stats — skip the
+                # compute (and the cache write) rather than emit misleading
+                # output. The UI already disables these collections.
+                print(f"Skipping timeline analysis for {collection_id}: "
+                      f"active_days={active_days} < {MIN_ACTIVE_DAYS_FOR_TIMELINE}.")
+            else:
+                analysis = analyse_timeline(result, interval=interval, first_activity_date=first_date)
+                if analysis:
+                    data_io.save_json(analysis, storage_location="cache", filename=analysis_fname)
+                    result["analysis"] = analysis
 
     except Exception as e:
         print(f"Warning: Could not load or generate analysis for {collection_id}/{interval}: {e}")
 
+    # Inject the synthetic "Other" bucket into the per-day counts whenever
+    # analyse_timeline rolled low-occurrence categories into one, so the
+    # frontend sidebar can surface it and plot its per-day share.  Done
+    # here (not in analyse_timeline) because analyse_timeline should not
+    # mutate its input, and we want the injection to apply equally whether
+    # the analysis was freshly computed or loaded from cache.
+    _inject_other_bucket(result)
+
     return result
+
+
+def _inject_other_bucket(result: dict) -> None:
+    """Fold low-occurrence categories into a synthetic "Other" per-day bucket.
+
+    analyse_timeline() returns an ``other_members`` list for each variable
+    whose low-occurrence categories were folded into a synthetic "Other"
+    bucket.  We mirror that aggregation into ``var_data["counts"]`` (the
+    raw per-day totals consumed by the frontend) so the sidebar and ribbon
+    match the analysis: the member categories are removed from each day's
+    dict and their sum is stored under "Other".  ``top_categories`` is also
+    updated so default selections don't reference cats that no longer exist
+    in the per-day counts.
+    """
+    analysis = result.get("analysis") or {}
+    variables = result.get("variables") or {}
+    other_label = "Other"
+    for var_name, var_analysis in analysis.items():
+        members = var_analysis.get("other_members") if isinstance(var_analysis, dict) else None
+        if not members:
+            continue
+        var_data = variables.get(var_name)
+        if not var_data or var_data.get("type") != "categorical":
+            continue
+        counts_list = var_data.get("counts")
+        if not counts_list:
+            continue
+        member_set = set(members)
+        other_total = 0
+        for day_counts in counts_list:
+            if not isinstance(day_counts, dict):
+                continue
+            day_total = 0
+            for m in list(day_counts.keys()):
+                if m in member_set:
+                    v = day_counts.pop(m) or 0
+                    day_total += v
+            if day_total:
+                day_counts[other_label] = day_counts.get(other_label, 0) + day_total
+                other_total += day_total
+        # Rebuild top_categories so it doesn't point at cats we just removed.
+        top_cats = var_data.get("top_categories") or []
+        filtered_top = [c for c in top_cats if c not in member_set]
+        if other_total and other_label not in filtered_top:
+            filtered_top.append(other_label)
+        var_data["top_categories"] = filtered_top
 
 
 # --- Collection Tags Cache ---

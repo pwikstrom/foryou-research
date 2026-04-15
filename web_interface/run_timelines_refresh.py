@@ -86,6 +86,7 @@ def _discover_collections(reporter: TaskStatusReporter,
         (sorted_collection_ids, {collection_id: first_event_date_str})
     """
     from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE
     import fyp.data_io as data_io
 
     all_collections: set[str] = set()
@@ -96,14 +97,16 @@ def _discover_collections(reporter: TaskStatusReporter,
         try:
             reporter.log(f"Loading {meta_file} to identify accepted collections...")
             # Project to only the columns this routine reads: the `accepted`
-            # flag and `first_event_ts` (both stored as MultiIndex stringified
-            # tuples on disk, with flat-name fallbacks for older files).
+            # flag, `first_event_ts`, and `active_days` (both stored as
+            # MultiIndex stringified tuples on disk, with flat-name fallbacks
+            # for older files).
             df = data_io.load_parquet_selective(
                 storage_location="recoded",
                 filename=meta_file,
                 columns=[
                     "('other', 'accepted')", "other_accepted",
                     "('personas', 'first_event_ts')", "first_event_ts",
+                    "('personas', 'active_days')", "active_days",
                 ],
                 set_index='collection_id',
                 verbose=False,
@@ -126,6 +129,37 @@ def _discover_collections(reporter: TaskStatusReporter,
                         all_collections = set(df.index.astype(str))
                     elif 'collection_id' in df.columns:
                         all_collections = set(df['collection_id'].astype(str))
+
+                # Skip collections with too few active days — not enough data
+                # for the 7-day moving average, break detection, or anomaly
+                # stats to produce meaningful results.
+                active_days_col = None
+                if ('personas', 'active_days') in df.columns:
+                    active_days_col = ('personas', 'active_days')
+                elif 'active_days' in df.columns:
+                    active_days_col = 'active_days'
+
+                if active_days_col is not None:
+                    before = len(all_collections)
+                    eligible = set()
+                    skipped_low = []
+                    for did in all_collections:
+                        if did in df.index:
+                            ad = df.loc[did, active_days_col]
+                            if pd.notna(ad) and int(ad) >= MIN_ACTIVE_DAYS_FOR_TIMELINE:
+                                eligible.add(did)
+                            else:
+                                skipped_low.append((did, None if pd.isna(ad) else int(ad)))
+                        else:
+                            # Without active_days data, keep the collection
+                            # rather than silently drop it.
+                            eligible.add(did)
+                    all_collections = eligible
+                    if skipped_low:
+                        reporter.log(
+                            f"Skipped {len(skipped_low)} of {before} collections "
+                            f"with active_days < {MIN_ACTIVE_DAYS_FOR_TIMELINE}."
+                        )
 
                 # Extract first_event_ts map for analysis filtering
                 first_event_col = None
