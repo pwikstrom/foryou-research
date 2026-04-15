@@ -39,18 +39,8 @@
 
         <span id="timelines-collection-count" class="text-sm" style="display: none;"></span>
 
-        <!-- Right-aligned checkboxes -->
+        <!-- Right-aligned help button -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 20px;">
-            <label class="switch" style="display: flex; align-items: center; cursor: pointer;">
-                <input type="checkbox" id="timelines-exclude-nodata"
-                    onchange="timelines.renderTimelineCharts()" checked>
-                <span class="font-bold" style="color: var(--control-bar-text); margin-left: 5px;">Exclude empty dates</span>
-            </label>
-            <label class="switch" style="display: flex; align-items: center; cursor: pointer;">
-                <input type="checkbox" id="timelines-exclude-before-first-activity"
-                    onchange="timelines.renderTimelineCharts()" checked>
-                <span class="font-bold" style="color: var(--control-bar-text); margin-left: 5px;">Exclude pre-activity</span>
-            </label>
             <button class="help-icon" onclick="showHelp('timelines')">?</button>
         </div>
     </div>

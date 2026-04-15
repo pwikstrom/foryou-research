@@ -288,8 +288,9 @@ window.timelines = {
 
         container.innerHTML = '';
 
-        const excludeNoData = document.getElementById('timelines-exclude-nodata').checked;
-        const excludeBeforeFirst = document.getElementById('timelines-exclude-before-first-activity').checked;
+        const settings = window.userSettings || {};
+        const excludeNoData = !settings.timelines_include_empty_dates;
+        const excludeBeforeFirst = !settings.timelines_include_pre_activity;
         const data = this.timelineData;
         let dates = data.dates;
 

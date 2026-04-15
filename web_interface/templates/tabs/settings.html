@@ -2,13 +2,17 @@
     <div style="background: var(--color-bg-surface); padding: 20px; border-radius: 8px;">
         <h2>Preferences</h2>
 
-        <div class="setting-group" style="margin-top: 15px; margin-bottom: 12px;">
+        <h4 class="text-sm font-semibold" style="margin-top: 15px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Appearance</h4>
+
+        <div class="setting-group" style="margin-bottom: 12px;">
             <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
                 <input type="checkbox" id="setting-theme-toggle" style="margin-right: 10px;"
                     onchange="toggleTheme()">
                 <span><span class="font-semibold">Dark theme:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, the app uses a dark theme instead of a light theme.</span></span>
             </label>
         </div>
+
+        <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Video Analysis</h4>
 
         <div class="setting-group" style="margin-bottom: 12px;">
             <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
@@ -26,11 +30,31 @@
             </label>
         </div>
 
+        <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Correlations</h4>
+
         <div class="setting-group" style="margin-bottom: 12px;">
             <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
                 <input type="checkbox" id="setting-big-dots" style="margin-right: 10px;"
                     onchange="autoSaveSettings()">
                 <span><span class="font-semibold">Large dots in correlations:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, scatter plots in the Correlations tab use bigger markers for better visibility.</span></span>
+            </label>
+        </div>
+
+        <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Timelines</h4>
+
+        <div class="setting-group" style="margin-bottom: 12px;">
+            <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
+                <input type="checkbox" id="setting-timelines-include-empty-dates" style="margin-right: 10px;"
+                    onchange="autoSaveSettings()">
+                <span><span class="font-semibold">Include empty dates:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, dates with no activity are shown in timeline charts.</span></span>
+            </label>
+        </div>
+
+        <div class="setting-group" style="margin-bottom: 12px;">
+            <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
+                <input type="checkbox" id="setting-timelines-include-pre-activity" style="margin-right: 10px;"
+                    onchange="autoSaveSettings()">
+                <span><span class="font-semibold">Include activity before first play:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, timeline charts include activity recorded before the first video play.</span></span>
             </label>
         </div>
 
@@ -89,6 +113,18 @@
             if (bigDots) {
                 bigDots.checked = !!(window.userSettings && window.userSettings.big_dots);
             }
+
+            // Timelines: include empty dates (default false)
+            const tlIncludeEmpty = document.getElementById('setting-timelines-include-empty-dates');
+            if (tlIncludeEmpty) {
+                tlIncludeEmpty.checked = !!(window.userSettings && window.userSettings.timelines_include_empty_dates);
+            }
+
+            // Timelines: include pre-activity (default false)
+            const tlIncludePre = document.getElementById('setting-timelines-include-pre-activity');
+            if (tlIncludePre) {
+                tlIncludePre.checked = !!(window.userSettings && window.userSettings.timelines_include_pre_activity);
+            }
         }
 
         // Sync theme checkbox with current theme
@@ -136,7 +172,9 @@
         const s = {
             video_autostart: document.getElementById('setting-video-autostart').checked,
             share_annotations: document.getElementById('setting-share-annotations').checked,
-            big_dots: document.getElementById('setting-big-dots').checked
+            big_dots: document.getElementById('setting-big-dots').checked,
+            timelines_include_empty_dates: document.getElementById('setting-timelines-include-empty-dates').checked,
+            timelines_include_pre_activity: document.getElementById('setting-timelines-include-pre-activity').checked
         };
         saveUserSettings(s).then(() => {
             if (typeof updatePcaPlot === 'function') updatePcaPlot();
