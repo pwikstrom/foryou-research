@@ -609,6 +609,72 @@ def rescue_tiktok_meta_threads(
 
 
 
+def check_existing_media(video_ids: list[str], max_workers: int = 16) -> set[str]:
+    """Return the subset of video_ids whose media file is already stored.
+
+    A video_id qualifies as "already downloaded" when a file named
+    ``{video_id}.mp4`` exists at the configured media location and its size
+    meets ``fyp_cf['misc']['min_media_object_size']``. Under-sized files are
+    treated as invalid (consistent with post-download validation in
+    ``download_single_video``) and are not included in the returned set.
+
+    Routes between local filesystem and GCS via the same config as
+    ``download_single_video`` (``fyp_cf['data_io']['use_gcs_for_media']``).
+    GCS probes run on a bounded thread pool for throughput.
+
+    Any exception on a single probe is treated as "unknown — include in the
+    normal scrape path" (fail-safe: never falsely skip a media download).
+
+    Args:
+        video_ids: Video IDs to check.
+        max_workers: Parallelism for GCS probes (ignored in local mode).
+
+    Returns:
+        Set of video_ids with valid existing media.
+    """
+    if not video_ids:
+        return set()
+
+    use_gcs = fyp_cf['data_io']['use_gcs_for_media']
+    min_size = fyp_cf['misc']['min_media_object_size']
+
+    if use_gcs:
+        bucket = fyp_cf['data_io']['bucket']
+        gcs_media_prefix = fyp_cf['data_io']['gcs_media_prefix']
+        if bucket is None:
+            return set()
+
+        def _probe(vid: str) -> str | None:
+            try:
+                blob = bucket.get_blob(f"{gcs_media_prefix}/{vid}.mp4")
+                if blob is not None and blob.size is not None and blob.size >= min_size:
+                    return vid
+            except Exception:
+                return None
+            return None
+
+        present: set[str] = set()
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            for result in ex.map(_probe, video_ids):
+                if result is not None:
+                    present.add(result)
+        return present
+
+    media_dir = fyp_cf['paths']['media']
+    present = set()
+    for vid in video_ids:
+        try:
+            path = os.path.join(media_dir, f"{vid}.mp4")
+            if os.path.exists(path) and os.path.getsize(path) >= min_size:
+                present.add(vid)
+        except Exception:
+            continue
+    return present
+
+
+
+
+
 def download_video_threads(
     interesting_videos:list[str] = None,
     max_workers:int = 8,
@@ -631,6 +697,15 @@ def download_video_threads(
         if len(interesting_videos) == 0:
             return pd.DataFrame()
 
+    already_have_media: set[str] = set()
+    if not dry_run and interesting_videos:
+        already_have_media = check_existing_media(interesting_videos)
+        if already_have_media:
+            print(
+                f"  {len(already_have_media)}/{len(interesting_videos)} items "
+                f"already have media — will do metadata-only scrape for those"
+            )
+
     results_by_index = {}
     throttle = tiktok_dl.ThrottleController(
         initial=max_workers, minimum=2, maximum=max(max_workers, 12),
@@ -640,10 +715,20 @@ def download_video_threads(
         idx, video = idx_video
         throttle.acquire()
         try:
+            skip_media = video in already_have_media
             res = download_single_video(
                 video_id=video,
                 verbose=verbose,
+                save_video=not skip_media,
                 dry_run=dry_run)
+            # For items where media already exists, reflect actual storage state
+            # in the metadata row — save_tiktok returns video_downloaded=False
+            # when save_video=False, which is misleading for skipped items.
+            if skip_media and isinstance(res, pd.DataFrame) and not res.empty:
+                try:
+                    res.loc[res.index[0], 'video_downloaded'] = True
+                except Exception:
+                    pass
             # Report outcome to throttle controller
             if isinstance(res, pd.DataFrame) and res.empty:
                 error_cat = res.attrs.get('error_type')
