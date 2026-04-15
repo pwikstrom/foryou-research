@@ -269,10 +269,10 @@ def getsize(storage_location: str = "cache", filename: str = "", verbose: bool =
     """
     Get the size of the file.
     """
-    
+
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
@@ -290,6 +290,63 @@ def getsize(storage_location: str = "cache", filename: str = "", verbose: bool =
                 raise ValueError("GCS bucket not initialized")
     else:
         return os.path.getsize(primary)
+
+
+
+
+
+def stat(storage_location: str = "cache", filename: str = "", verbose: bool = False) -> dict | None:
+    """Return a fingerprint dict ({'size': int, 'mtime': float}) for a file, or None if missing.
+
+    Single round-trip on GCS (one get_blob call) — cheaper than calling getsize + getmtime separately.
+    Returns None when the file does not exist so callers can use it directly as a sentinel.
+    """
+
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+
+    if mode == 'gcs':
+        bucket = _get_bucket()
+        if not bucket:
+            raise ValueError("GCS bucket not initialized")
+        blob = bucket.get_blob(blob_name)
+        if blob is None:
+            return None
+        mtime = blob.updated.timestamp() if blob.updated else 0.0
+        return {"size": int(blob.size or 0), "mtime": float(mtime)}
+    else:
+        if not os.path.exists(primary):
+            return None
+        return {"size": int(os.path.getsize(primary)), "mtime": float(os.path.getmtime(primary))}
+
+
+
+
+def get_parquet_columns(storage_location: str = "cache", filename: str = "") -> list[str] | None:
+    """Return the column names of a parquet file without reading row data.
+
+    Uses `pq.read_metadata` on the resolved primary path (local path or gs:// URI),
+    which only reads the file footer. Returns None when the file does not exist.
+    Used by incremental-refresh planners that need to know which columns belong
+    to source parquets (scrapes, annotations) without actually loading them.
+    """
+
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+    if not exists(storage_location=storage_location, filename=filename):
+        return None
+
+    primary, _secondary, _mode, _blob_name = _resolve_paths(storage_location, filename)
+    meta = pq.read_metadata(primary)
+    return list(meta.schema.to_arrow_schema().names)
 
 
 

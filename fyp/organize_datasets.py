@@ -1,4 +1,6 @@
 
+import hashlib
+import json
 import re
 import numpy as np
 import pandas as pd
@@ -10,7 +12,7 @@ import fyp.data_io as data_io
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.studies import init_study_defs, save_study_defs
-from fyp.recode_variables import get_grouping_factors_from_var_schema
+from fyp.recode_variables import get_grouping_factors_from_var_schema, compute_var_schema_hash
 from fyp.fyp_config import fyp_cf
 
 
@@ -22,6 +24,296 @@ event_type_column = "activity_type"
 SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
 MACHINE_ANNOTATIONS_LABEL = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
 COLLECTIONS_LABEL = fyp_cf["labels"]["COLLECTIONS_LABEL"]
+
+
+# ============================================================================
+# Refresh fingerprinting — sidecar metadata for incremental refresh
+# ============================================================================
+#
+# Each `{study}_recoded.parquet` gets a sidecar `{study}_recoded.meta.json`
+# that records fingerprints of every input whose change could invalidate the
+# cached output. On refresh, the entry point compares current fingerprints to
+# the sidecar to decide between full rebuild, incremental patch, and short-
+# circuit (skip entirely). Missing/malformed sidecar -> full rebuild.
+
+
+_FINGERPRINT_INPUT_FILES = {
+    "collections_fp":  ("recoded", f"{COLLECTIONS_LABEL}_recoded.parquet"),
+    "scrapes_fp":      ("recoded", f"{SCRAPES_LABEL}_recoded.parquet"),
+    "annotations_fp":  ("recoded", f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"),
+}
+
+
+
+
+def _sidecar_filename(study_name: str) -> str:
+    """Return the sidecar filename for a given study's recoded dataset."""
+    return f"{study_name}_recoded.meta.json"
+
+
+
+
+def compute_study_config_hash(study_name: str) -> str:
+    """Return a deterministic SHA-256 hash of a study's configuration.
+
+    Covers every study-definition field that can change the set of rows or the
+    recoded column values: selected collections, date range, sampling mode and
+    thresholds. Ordered JSON serialisation keeps the digest stable across
+    Python-dict insertion order.
+    """
+
+    if "study_defs" not in fyp_cf:
+        init_study_defs()
+    cfg = fyp_cf["study_defs"].get(study_name, {}) or {}
+    # Explicit key list: adding a new key should require a deliberate bump here,
+    # and we don't want transient UI-only fields (stats, last_updated) to affect the hash.
+    relevant_keys = [
+        "SELECTED_COLLECTIONS",
+        "START_DATE",
+        "END_DATE",
+        "SAMPLE_FRAME",
+        "MIN_EVENTS",
+        "MAX_EVENTS",
+        "GROUPING_FACTORS",
+    ]
+    ordered = {k: cfg.get(k) for k in relevant_keys}
+    # SELECTED_COLLECTIONS order shouldn't matter
+    if isinstance(ordered.get("SELECTED_COLLECTIONS"), list):
+        ordered["SELECTED_COLLECTIONS"] = sorted(str(x) for x in ordered["SELECTED_COLLECTIONS"])
+    payload = json.dumps(ordered, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+
+
+def compute_input_fingerprints() -> dict:
+    """Stat each core input parquet and return a dict of fingerprint dicts.
+
+    A missing file maps to None in the returned dict so callers can distinguish
+    "file not present" from "file unchanged".
+    """
+
+    return {
+        key: data_io.stat(storage_location=loc, filename=fn)
+        for key, (loc, fn) in _FINGERPRINT_INPUT_FILES.items()
+    }
+
+
+
+
+def compute_failed_scrapes_fingerprint() -> dict:
+    """Return a lightweight fingerprint of the failed-scrapes JSON set.
+
+    `load_failed_scrapes` consolidates multiple JSON files into a single set of
+    item_ids; fingerprint is (count, hash-of-sorted-ids). Cheap enough that we
+    can compute it at refresh-planning time without paying the file read twice.
+    """
+
+    try:
+        items = sorted(str(x) for x in load_failed_scrapes(verbose=False))
+    except Exception as exc:
+        print(f"    [FP] Could not load failed_scrapes for fingerprint: {exc}")
+        return {"count": 0, "hash": ""}
+    digest = hashlib.sha256("\n".join(items).encode("utf-8")).hexdigest()
+    return {"count": len(items), "hash": digest}
+
+
+
+
+def _hash_item_ids(df: pd.DataFrame) -> str:
+    """Return a stable hash of the unique item_ids in a recoded dataset."""
+    if df is None or df.empty or "item_id" not in df.columns:
+        return "empty"
+    ids = sorted(set(df["item_id"].dropna().astype(str).tolist()))
+    return hashlib.sha256("\n".join(ids).encode("utf-8")).hexdigest()
+
+
+
+
+def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
+    """Assemble the sidecar payload for a freshly (re)built recoded dataset."""
+
+    cfg = fyp_cf.get("study_defs", {}).get(study_name, {}) or {}
+    sampling_active = str(cfg.get("SAMPLE_FRAME", "off")) != "off"
+
+    fps = compute_input_fingerprints()
+
+    return {
+        "created_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "sidecar_version": 1,
+        "study_name": study_name,
+        "study_config_hash": compute_study_config_hash(study_name),
+        "var_schema_hash": compute_var_schema_hash(),
+        "sampling_active": sampling_active,
+        "collections_fp": fps.get("collections_fp"),
+        "scrapes_fp": fps.get("scrapes_fp"),
+        "annotations_fp": fps.get("annotations_fp"),
+        "failed_scrapes_fp": compute_failed_scrapes_fingerprint(),
+        "item_ids_hash": _hash_item_ids(recoded_df),
+        "row_count": int(len(recoded_df)) if recoded_df is not None else 0,
+    }
+
+
+
+
+def save_sidecar(study_name: str, recoded_df: pd.DataFrame, verbose: bool = False) -> dict:
+    """Build and persist the sidecar for a study; return the payload written."""
+
+    sidecar = build_sidecar(study_name, recoded_df)
+    data_io.save_json(
+        data=sidecar,
+        storage_location="cache",
+        filename=_sidecar_filename(study_name),
+        verbose=verbose,
+    )
+    if verbose:
+        print(f"    [Sidecar] Wrote {_sidecar_filename(study_name)} (rows={sidecar['row_count']})")
+    return sidecar
+
+
+
+
+def load_sidecar(study_name: str, verbose: bool = False) -> dict | None:
+    """Load the sidecar for a study, or None if missing/malformed."""
+
+    filename = _sidecar_filename(study_name)
+    if not data_io.exists(storage_location="cache", filename=filename):
+        return None
+    try:
+        payload = data_io.load_json(storage_location="cache", filename=filename, verbose=verbose)
+        if not isinstance(payload, dict):
+            return None
+        return payload
+    except Exception as exc:
+        print(f"    [Sidecar] Could not load '{filename}': {exc}")
+        return None
+
+
+
+
+def _fp_equal(a: dict | None, b: dict | None) -> bool:
+    """Return True when two stat/fingerprint dicts compare as equal (both None is equal)."""
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    return a == b
+
+
+
+
+def plan_refresh(study_name: str, verbose: bool = False) -> dict:
+    """Decide the cheapest correct refresh path for a study.
+
+    Compares current input fingerprints against the sidecar and returns a plan:
+
+    - `action`: "short_circuit" | "enrichment_patch" | "video_set_delta" | "full_rebuild"
+    - `reasons`: list[str] — human-readable explanation for logging
+    - `changed`: dict[str, bool] — which fingerprint categories drifted
+    - `old_sidecar`, `current_fps`: raw inputs so callers can reuse them
+
+    In Phase 2 only "short_circuit" vs "full_rebuild" are emitted; the patch
+    actions will be decided by this function in Phase 3/4 once the patch paths
+    land. Callers should treat unknown actions as "full_rebuild" for safety.
+    """
+
+    reasons: list[str] = []
+    changed = {
+        "cache_missing": False,
+        "sidecar_missing": False,
+        "var_schema": False,
+        "study_config": False,
+        "collections": False,
+        "scrapes": False,
+        "annotations": False,
+        "failed_scrapes": False,
+    }
+
+    cache_filename = f"{study_name}_recoded.parquet"
+    cache_exists = data_io.exists(storage_location="cache", filename=cache_filename)
+    sidecar = load_sidecar(study_name, verbose=verbose)
+
+    # Compute current fingerprints once — reused by the caller when a patch path runs.
+    current_fps = compute_input_fingerprints()
+    current_failed_fp = compute_failed_scrapes_fingerprint()
+    current_var_hash = compute_var_schema_hash()
+    current_cfg_hash = compute_study_config_hash(study_name)
+    cfg = fyp_cf.get("study_defs", {}).get(study_name, {}) or {}
+    sampling_active = str(cfg.get("SAMPLE_FRAME", "off")) != "off"
+
+    bundle = {
+        "current_fps": current_fps,
+        "current_failed_fp": current_failed_fp,
+        "current_var_hash": current_var_hash,
+        "current_cfg_hash": current_cfg_hash,
+        "old_sidecar": sidecar,
+        "sampling_active": sampling_active,
+    }
+
+    if not cache_exists:
+        reasons.append("cache parquet missing")
+        changed["cache_missing"] = True
+        return {"action": "full_rebuild", "reasons": reasons, "changed": changed, **bundle}
+
+    if sidecar is None:
+        reasons.append("sidecar missing")
+        changed["sidecar_missing"] = True
+        return {"action": "full_rebuild", "reasons": reasons, "changed": changed, **bundle}
+
+    if sidecar.get("var_schema_hash") != current_var_hash:
+        reasons.append("var_schema changed")
+        changed["var_schema"] = True
+
+    if sidecar.get("study_config_hash") != current_cfg_hash:
+        reasons.append("study_config changed")
+        changed["study_config"] = True
+
+    if not _fp_equal(sidecar.get("collections_fp"), current_fps.get("collections_fp")):
+        reasons.append("collections parquet changed")
+        changed["collections"] = True
+
+    if not _fp_equal(sidecar.get("scrapes_fp"), current_fps.get("scrapes_fp")):
+        reasons.append("scrapes parquet changed")
+        changed["scrapes"] = True
+
+    if not _fp_equal(sidecar.get("annotations_fp"), current_fps.get("annotations_fp")):
+        reasons.append("annotations parquet changed")
+        changed["annotations"] = True
+
+    if not _fp_equal(sidecar.get("failed_scrapes_fp"), current_failed_fp):
+        reasons.append("failed_scrapes list changed")
+        changed["failed_scrapes"] = True
+
+    if not any(changed.values()):
+        reasons.append("all fingerprints match")
+        return {"action": "short_circuit", "reasons": reasons, "changed": changed, **bundle}
+
+    # Enrichment-only patch: scrapes / annotations / failed_scrapes changed, but
+    # the activity side (collections parquet, study config, var schema) is
+    # unchanged. Safe only when SAMPLE_FRAME does not depend on enrichment
+    # state — "scraped" / "annotated" modes pick the sample frame from
+    # enrichment_status, so any enrichment change can shift which activity rows
+    # are kept, which breaks the assumption that we can reuse the cached rows.
+    sample_frame = str(cfg.get("SAMPLE_FRAME", "off"))
+    enrichment_driven_sampling = sample_frame in ("scraped", "annotated")
+
+    enrichment_bits_changed = (
+        changed["scrapes"] or changed["annotations"] or changed["failed_scrapes"]
+    )
+    activity_bits_changed = (
+        changed["var_schema"] or changed["study_config"] or changed["collections"]
+    )
+
+    if enrichment_bits_changed and not activity_bits_changed:
+        if enrichment_driven_sampling:
+            reasons.append(
+                f"sampling='{sample_frame}' depends on enrichment — forcing full rebuild"
+            )
+        else:
+            return {"action": "enrichment_patch", "reasons": reasons, "changed": changed, **bundle}
+
+    # Phase 4 will add the video-set delta patch here. For now, anything else => full rebuild.
+    return {"action": "full_rebuild", "reasons": reasons, "changed": changed, **bundle}
 
 
 
@@ -896,6 +1188,123 @@ def new_merge(
 
 
 # ============================================================================
+# Incremental refresh — enrichment-only patch
+# ============================================================================
+
+
+# Columns computed by new_merge() *after* the enrichment merge. Must be dropped
+# from the cached recoded dataset before re-merging, otherwise new_merge would
+# produce _x/_y suffixed duplicates.
+_CALCULATED_ENRICHMENT_COLUMNS = {
+    "days_since_created",
+    "plays_per_day",
+    "scraped_fail",
+    "completion_rate",
+}
+
+
+
+
+def apply_enrichment_only_patch(
+    study_name: str,
+    verbose: bool = False,
+) -> pd.DataFrame | None:
+    """Re-merge fresh enrichment onto the cached activity rows of a study.
+
+    Intended for the case where `plan_refresh` reports that only scrapes /
+    annotations / failed_scrapes changed. Skips the (expensive) collections
+    load and sampling entirely: reads the existing `{study}_recoded.parquet`,
+    drops enrichment + calculated columns, re-loads scrapes + annotations
+    filtered to the cached item_id set, then calls `new_merge` to rebuild the
+    merged dataset. Writes both the new parquet and a fresh sidecar.
+
+    Returns the new dataframe on success with ``attrs["refresh_action"] =
+    "enrichment_patch"``. Returns None when the cached dataset is missing or
+    unreadable so the caller can fall through to a full rebuild.
+    """
+
+    cache_filename = f"{study_name}_recoded.parquet"
+    _t0 = _time.perf_counter()
+    cached_df = data_io.load_parquet(
+        storage_location="cache", filename=cache_filename, verbose=verbose
+    )
+    if cached_df is None or cached_df.empty:
+        print(f"    [EnrichPatch] Cached '{cache_filename}' missing/empty — aborting patch")
+        return None
+
+    if "item_id" not in cached_df.columns:
+        print(f"    [EnrichPatch] Cached dataset missing 'item_id' column — aborting patch")
+        return None
+
+    scrape_filename = f"{SCRAPES_LABEL}_recoded.parquet"
+    annot_filename = f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"
+    scrape_schema_cols = set(data_io.get_parquet_columns(storage_location="recoded", filename=scrape_filename) or [])
+    annot_schema_cols = set(data_io.get_parquet_columns(storage_location="recoded", filename=annot_filename) or [])
+
+    # Columns we will recompute in new_merge(): anything sourced from scrapes or
+    # annotations, plus the four calculated columns. item_id stays — it is the
+    # join key and also lives in the activity data.
+    enrichment_and_calc = (scrape_schema_cols | annot_schema_cols | _CALCULATED_ENRICHMENT_COLUMNS) - {"item_id"}
+    activity_cols = [c for c in cached_df.columns if c not in enrichment_and_calc]
+
+    activity_df = cached_df[activity_cols].copy()
+    unique_videos = set(activity_df["item_id"].dropna().astype(str).unique().tolist())
+    print(
+        f"    [EnrichPatch] Reusing {len(activity_df):,} activity rows / "
+        f"{len(unique_videos):,} unique items; dropping "
+        f"{len(cached_df.columns) - len(activity_cols)} enrichment/calc columns"
+    )
+
+    # Free the original cached dataframe before loading enrichment to cap peak memory.
+    del cached_df
+
+    tutti_data: dict = {
+        COLLECTIONS_LABEL: activity_df,
+        SCRAPES_LABEL: None,
+        MACHINE_ANNOTATIONS_LABEL: None,
+    }
+    _t_enrich = _time.perf_counter()
+    _filter_enrichment_data(tutti_data, unique_videos, study_name=study_name, verbose=verbose)
+    _t_enrich = _time.perf_counter() - _t_enrich
+
+    _t_merge = _time.perf_counter()
+    result = new_merge(
+        study_name=study_name,
+        all_datasets=tutti_data,
+        save_to_cache=True,
+        verbose=verbose,
+    )
+    _t_merge = _time.perf_counter() - _t_merge
+
+    if result is None or result.empty:
+        print("    [EnrichPatch] Merge returned empty — aborting patch (caller should full-rebuild)")
+        return None
+
+    # Block until the async parquet write in new_merge finishes before writing
+    # the sidecar — otherwise a concurrent refresh could load a stale sidecar
+    # that points at a half-written parquet.
+    try:
+        with data_io.file_lock:
+            pass
+        save_sidecar(study_name=study_name, recoded_df=result, verbose=verbose)
+    except Exception as exc:
+        print(f"    [Sidecar] Non-fatal: failed to write sidecar after enrichment patch: {exc}")
+
+    result.attrs["refresh_action"] = "enrichment_patch"
+    result.attrs["study_name"] = study_name
+
+    _t_total = _time.perf_counter() - _t0
+    print(
+        f"[ENRICH PATCH][TIMING] study={study_name} "
+        f"enrichment_load={_t_enrich:.2f}s merge={_t_merge:.2f}s "
+        f"total={_t_total:.2f}s rows={len(result):,}"
+    )
+    return result
+
+
+
+
+# ============================================================================
 # Entry points — create unified datasets
 # ============================================================================
 
@@ -906,11 +1315,19 @@ def create_study_recoded_dataset(
     save_to_cache: bool = True,
     load_from_cache: bool = True,
     enrichment_status: pd.DataFrame | None = None,
+    force_full_rebuild: bool = False,
     verbose: bool = False
     ) -> pd.DataFrame | None:
     """Generate a unified, merged dataset for a study definition.
 
     Loads core datasets, applies sampling, merges activity + enrichment data, and caches the result.
+
+    When `save_to_cache=True` and the refresh sidecar reports that no input has
+    changed since the cached recoded parquet was written, this function returns
+    the cached dataframe without rebuilding. Callers can inspect
+    `df.attrs["refresh_action"]` to tell short-circuited loads ("short_circuit")
+    from full rebuilds ("full_rebuild"). Pass `force_full_rebuild=True` to
+    bypass the sidecar check.
     """
 
     if study_name is None:
@@ -918,6 +1335,43 @@ def create_study_recoded_dataset(
 
     if study_name not in fyp_cf["study_defs"].keys():
         raise ValueError(f"study_name '{study_name}' not found in config")
+
+    # Sidecar-guided refresh: fingerprint inputs and pick the cheapest correct
+    # path. Saves both I/O and CPU for the "user clicked refresh but nothing
+    # actually changed" case and for enrichment-only trickle-in updates.
+    if save_to_cache and not force_full_rebuild:
+        plan = plan_refresh(study_name, verbose=verbose)
+        print(
+            f"[REFRESH PLAN] study={study_name} action={plan['action']} "
+            f"reasons={'; '.join(plan['reasons']) or 'no sidecar or changed inputs'}"
+        )
+
+        if plan["action"] == "short_circuit":
+            cached_df = data_io.load_parquet(
+                storage_location="cache",
+                filename=f"{study_name}_recoded.parquet",
+                verbose=verbose,
+            )
+            if cached_df is not None and not cached_df.empty:
+                cached_df.attrs["refresh_action"] = "short_circuit"
+                cached_df.attrs["refresh_plan"] = plan
+                cached_df.attrs["study_name"] = study_name
+                return cached_df
+            # Cache surprisingly unreadable/empty — fall through to full rebuild.
+            print(
+                "    [Sidecar] Short-circuit aborted: cached parquet unreadable/empty. "
+                "Falling through to full rebuild."
+            )
+
+        elif plan["action"] == "enrichment_patch":
+            patched_df = apply_enrichment_only_patch(study_name=study_name, verbose=verbose)
+            if patched_df is not None and not patched_df.empty:
+                patched_df.attrs["refresh_plan"] = plan
+                return patched_df
+            # Patch refused (missing cache, empty merge, etc.) — fall through.
+            print(
+                "    [EnrichPatch] Patch path aborted — falling through to full rebuild."
+            )
 
     print(f"Generating unified dataset for study '{study_name}'")
 
@@ -943,6 +1397,23 @@ def create_study_recoded_dataset(
         verbose=verbose
     )
     _t_merge = _time.perf_counter() - _t_phase
+
+    # Write the refresh sidecar alongside the recoded parquet so future refresh
+    # calls can fingerprint inputs and skip redundant rebuilds. `new_merge`
+    # submits the parquet save to a background thread guarded by
+    # `data_io.file_lock`; acquire the same lock here to wait for the write to
+    # finish before writing the sidecar. Otherwise a subsequent refresh could
+    # load the sidecar, trust it, and try to read a half-written parquet.
+    if save_to_cache and study_recoded_dataset is not None and not study_recoded_dataset.empty:
+        try:
+            with data_io.file_lock:
+                pass
+            save_sidecar(study_name=study_name, recoded_df=study_recoded_dataset, verbose=verbose)
+        except Exception as exc:
+            print(f"    [Sidecar] Non-fatal: failed to write sidecar for '{study_name}': {exc}")
+
+    if study_recoded_dataset is not None:
+        study_recoded_dataset.attrs["refresh_action"] = "full_rebuild"
 
     print(f"...done. Unified dataset for study '{study_name}' generated. Total memory used: {_df_size_mb(study_recoded_dataset):.2f} MB")
     print(

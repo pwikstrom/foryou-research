@@ -4,11 +4,12 @@
 import pandas as pd
 from datetime import datetime
 from copy import copy
+import hashlib
 import numpy as np
 import difflib
 
 from fyp.fyp_config import fyp_cf
-from fyp.types import convert_dtypes_to_pyarrow 
+from fyp.types import convert_dtypes_to_pyarrow
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 GENERIC_MAPPER = fyp_cf["labels"]["GENERIC_MAPPER"]
@@ -138,6 +139,30 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
     return round(offset) # Round to nearest hour for simplicity (or keeping half hours?)
                          # User said rough guess. 
                          
+
+
+
+def compute_var_schema_hash() -> str:
+    """Return a deterministic SHA-256 hash of the active variable schema.
+
+    Used by the study-refresh fingerprint machinery to detect when the
+    recoding rules have changed and a full rebuild of `{study}_recoded.parquet`
+    is required. The schema is hashed by serialising the sorted-by-index CSV
+    form of `fyp_cf['var_schema']` so the digest is stable across pandas
+    dtype-backend variations and irrespective of row order in the source CSV.
+    """
+
+    if "var_schema" not in fyp_cf or fyp_cf["var_schema"] is None or fyp_cf["var_schema"].empty:
+        return "empty"
+
+    schema = fyp_cf["var_schema"].copy()
+    if "variable_name" in schema.columns:
+        schema = schema.sort_values("variable_name").reset_index(drop=True)
+    schema = schema.reindex(sorted(schema.columns), axis=1)
+    payload = schema.to_csv(index=False).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 
 
 

@@ -19,7 +19,10 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
     import fyp.data_io as data_io
 
     task_args = task_args or {}
+    force_full_rebuild: bool = bool(task_args.get("force_full_rebuild", False))
     reporter.log("Starting Study Definitions (Recoded Data) Refresh...")
+    if force_full_rebuild:
+        reporter.log("force_full_rebuild=True — sidecars will be removed before each study.")
     _t_run_start = time.perf_counter()
 
     # Init studies
@@ -56,7 +59,18 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         _t_study_start = time.perf_counter()
 
         try:
-            df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, enrichment_status=df_status, verbose=False)
+            if force_full_rebuild:
+                sidecar_fn = f"{study_name}_recoded.meta.json"
+                if data_io.exists(storage_location="cache", filename=sidecar_fn):
+                    data_io.remove(storage_location="cache", filename=sidecar_fn)
+
+            df_study = create_study_recoded_dataset(
+                study_name=study_name,
+                save_to_cache=True,
+                enrichment_status=df_status,
+                force_full_rebuild=force_full_rebuild,
+                verbose=False,
+            )
 
             if df_study is None:
                 reporter.log(f"Skipping {study_name}: No data generated.")
@@ -67,7 +81,13 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
                     "unique_collections": 0
                 }
             else:
-                reporter.log(f"  Successfully refreshed data for {study_name} ({len(df_study)} rows)")
+                refresh_action = df_study.attrs.get("refresh_action", "full_rebuild")
+                if refresh_action == "short_circuit":
+                    reporter.log(f"  Short-circuit for {study_name}: cached parquet reused ({len(df_study)} rows)")
+                elif refresh_action == "enrichment_patch":
+                    reporter.log(f"  Enrichment patch for {study_name}: re-merged enrichment onto cached activity ({len(df_study)} rows)")
+                else:
+                    reporter.log(f"  Successfully refreshed data for {study_name} ({len(df_study)} rows)")
 
                 unique_collections = int(df_study['collection_id'].nunique())
                 unique_videos = int(df_study['item_id'].nunique())
@@ -124,12 +144,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--studies', type=str, default=None,
                         help='Comma-separated study names to refresh (default: all)')
+    parser.add_argument('--force', action='store_true',
+                        help='Force full rebuild of every study, ignoring sidecar fingerprints')
     parser.add_argument('study_name', nargs='?', default=None)
     args = parser.parse_args()
 
     task_args = {}
     if args.studies:
         task_args["studies"] = args.studies
+    if args.force:
+        task_args["force_full_rebuild"] = True
 
     reporter = LocalStatusReporter("recode_refresh_studies")
     try:

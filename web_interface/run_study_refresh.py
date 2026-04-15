@@ -45,6 +45,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     study_name: str = task_args["study_name"]
     refresh_pca: bool = task_args.get("refresh_pca", True)
     refresh_metadata: bool = task_args.get("refresh_metadata", True)
+    force_full_rebuild: bool = bool(task_args.get("force_full_rebuild", False))
 
     reporter.log(f"Starting study refresh for '{study_name}'...")
     _t_run_start = time.perf_counter()
@@ -65,8 +66,28 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     study_config = studies[study_name]
     study_config["STUDY_NAME"] = study_name
 
-    # _calculate_stats creates the recoded dataset and returns it alongside stats
+    # _calculate_stats creates the recoded dataset and returns it alongside stats.
+    # If force_full_rebuild is requested, remove the sidecar first so the
+    # fingerprint short-circuit inside create_study_recoded_dataset cannot fire.
+    if force_full_rebuild:
+        try:
+            sidecar_fn = f"{study_name}_recoded.meta.json"
+            if data_io.exists(storage_location="cache", filename=sidecar_fn):
+                data_io.remove(storage_location="cache", filename=sidecar_fn)
+                reporter.log(f"force_full_rebuild: removed sidecar {sidecar_fn}")
+        except Exception as exc:
+            reporter.log(f"force_full_rebuild: could not remove sidecar: {exc}")
+
     stats, df_recoded = _calculate_stats(study_config, save_to_cache=True)
+
+    # A short-circuited rebuild means the recoded parquet is unchanged on disk.
+    # Tagged by create_study_recoded_dataset on the returned DataFrame's attrs.
+    refresh_action = (df_recoded.attrs.get("refresh_action") if df_recoded is not None else None)
+    is_short_circuit = refresh_action == "short_circuit"
+    if is_short_circuit:
+        reporter.log("Short-circuit: inputs unchanged since last refresh.")
+    elif refresh_action == "enrichment_patch":
+        reporter.log("Enrichment patch: re-merged enrichment onto cached activity rows (skipped collections load + sampling).")
 
     # Persist stats to study definition
     studies[study_name]["stats"] = stats
@@ -81,45 +102,59 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         return
 
     # ---- Step 2: PCA (reuses in-memory DataFrame) ----
-    # Always delete stale PCA to avoid version mismatch
-    if data_io.exists(storage_location="cache", filename=f"{study_name}_PCA.parquet"):
-        data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
+    # On short-circuit, the cached PCA is still valid — keep it. Otherwise the
+    # recoded dataset has been rewritten and stale PCA must be removed to avoid
+    # a version mismatch.
+    pca_filename = f"{study_name}_PCA.parquet"
+    pca_exists = data_io.exists(storage_location="cache", filename=pca_filename)
 
-    if refresh_pca and stats["annotated_videos"] > 0 and df_recoded is not None:
-        reporter.update_progress(25, "Calculating PCA...")
-        reporter.log(f"Running PCA for {study_name}...")
-        _t_phase = time.perf_counter()
-        calculate_scaled_pca_scores(
-            study_name=study_name,
-            study_recoded_dataset=df_recoded,
-            load_from_cache=False,
-            save_to_cache=True,
-        )
-        _t_pca_phase = time.perf_counter() - _t_phase
-        reporter.log("PCA complete.")
+    if is_short_circuit and pca_exists:
+        reporter.log("PCA kept (inputs unchanged; cached artifact still valid).")
     else:
-        reporter.log("PCA skipped (no annotated videos or flag off).")
+        if pca_exists:
+            data_io.remove(storage_location="cache", filename=pca_filename)
+
+        if refresh_pca and stats["annotated_videos"] > 0 and df_recoded is not None:
+            reporter.update_progress(25, "Calculating PCA...")
+            reporter.log(f"Running PCA for {study_name}...")
+            _t_phase = time.perf_counter()
+            calculate_scaled_pca_scores(
+                study_name=study_name,
+                study_recoded_dataset=df_recoded,
+                load_from_cache=False,
+                save_to_cache=True,
+            )
+            _t_pca_phase = time.perf_counter() - _t_phase
+            reporter.log("PCA complete.")
+        else:
+            reporter.log("PCA skipped (no annotated videos or flag off).")
 
     if reporter.check_cancelled():
         reporter.log("Cancelled by user.")
         return
 
     # ---- Step 3: Metadata (reuses in-memory DataFrame) ----
-    # Always invalidate stale metadata and RAM cache
+    # Short-circuit keeps the cached metadata + RAM cache entry, since the
+    # underlying recoded dataset was not rewritten. A full rebuild still
+    # invalidates both (matches the pre-fingerprint behaviour).
     fn = f"{study_name}_explorer_metadata.json"
-    if data_io.exists(storage_location="cache", filename=fn):
-        data_io.remove(storage_location="cache", filename=fn)
+    metadata_exists = data_io.exists(storage_location="cache", filename=fn)
 
-    # Invalidate RAM cache
-    try:
-        with study_cache.lock:
-            if study_name in study_cache.cache:
-                del study_cache.cache[study_name]
-                reporter.log(f"Invalidated RAM cache for {study_name}")
-    except Exception:
-        pass
+    if is_short_circuit and metadata_exists:
+        reporter.log("Metadata kept (inputs unchanged; cached artifact still valid).")
+    else:
+        if metadata_exists:
+            data_io.remove(storage_location="cache", filename=fn)
 
-    if refresh_metadata and stats["unique_videos"] > 0 and df_recoded is not None:
+        try:
+            with study_cache.lock:
+                if study_name in study_cache.cache:
+                    del study_cache.cache[study_name]
+                    reporter.log(f"Invalidated RAM cache for {study_name}")
+        except Exception:
+            pass
+
+    if (not (is_short_circuit and metadata_exists)) and refresh_metadata and stats["unique_videos"] > 0 and df_recoded is not None:
         reporter.update_progress(50, "Generating metadata...")
         reporter.log(f"Classifying columns for metadata generation...")
         _t_phase = time.perf_counter()
@@ -193,7 +228,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         )
         reporter.log("Explorer metadata saved.")
         _t_meta = time.perf_counter() - _t_phase
-    else:
+    elif not (is_short_circuit and metadata_exists):
         reporter.log("Metadata refresh skipped.")
 
     # Free the large DataFrame now that all steps are done
@@ -215,7 +250,7 @@ if __name__ == "__main__":
     from web_interface.task_status import LocalStatusReporter
 
     if len(sys.argv) < 2:
-        print("Usage: python run_study_refresh.py <study_name> [--no-pca] [--no-metadata]")
+        print("Usage: python run_study_refresh.py <study_name> [--no-pca] [--no-metadata] [--force]")
         sys.exit(1)
 
     study_name = sys.argv[1]
@@ -224,6 +259,8 @@ if __name__ == "__main__":
         args["refresh_pca"] = False
     if "--no-metadata" in sys.argv:
         args["refresh_metadata"] = False
+    if "--force" in sys.argv:
+        args["force_full_rebuild"] = True
 
     reporter = LocalStatusReporter("study_refresh")
     try:
