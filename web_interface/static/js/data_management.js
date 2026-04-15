@@ -1106,6 +1106,16 @@ function checkConsolidationNeeded(data) {
     const warningEl = document.getElementById('consolidate-warning');
     if (!warningEl) return;
 
+    const consolidateBtn = document.getElementById('btn-consolidate');
+    const setNeedsAction = (needs) => {
+        if (!consolidateBtn) return;
+        if (needs) {
+            consolidateBtn.classList.add('btn-has-pending');
+        } else {
+            consolidateBtn.classList.remove('btn-has-pending');
+        }
+    };
+
     const lastConsolidation = data.consolidate_stats?.last_consolidation;
     const scraperSuccess = data.scraper_last_success;
     const annotatorSuccess = data.annotator_last_success;
@@ -1115,6 +1125,9 @@ function checkConsolidationNeeded(data) {
         if (scraperSuccess || annotatorSuccess) {
             warningEl.textContent = 'New enrichment data has not been consolidated yet. Click "Consolidate & Refresh" to update.';
             warningEl.style.display = '';
+            setNeedsAction(true);
+        } else {
+            setNeedsAction(false);
         }
         return;
     }
@@ -1129,8 +1142,10 @@ function checkConsolidationNeeded(data) {
         if (annotatorNewer) parts.push('annotator');
         warningEl.textContent = `The ${parts.join(' and ')} completed after the last consolidation. Click "Consolidate & Refresh" to incorporate new data.`;
         warningEl.style.display = '';
+        setNeedsAction(true);
     } else {
         warningEl.style.display = 'none';
+        setNeedsAction(false);
     }
 }
 
@@ -1178,6 +1193,8 @@ function renderConsolidationImpact(impact) {
         btn.disabled = true;
         btn.textContent = _cascadeRefresh.statusText || 'Refreshing...';
         btn.className = 'btn-running text-xs';
+    } else {
+        btn.classList.add('btn-has-pending');
     }
     actions.appendChild(btn);
 
