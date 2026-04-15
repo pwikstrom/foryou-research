@@ -32,7 +32,7 @@ You are a rigorous TikTok video analyst. Input: a single video file. Your job is
         17. Mental Health & Wellbeing - Videos addressing mental health topics, self-care practices, or mindfulness techniques.
         18. News - Content that informs or comments on current and specific events, political developments, or trending topics.
         19. Education - Videos aimed at teaching or instructing viewers through tutorials, how-to guides, or academic content.
-        20. Technology, Design & Reviews - Content focusing on technological innovations, product design, and detailed reviews.
+        20. Technology & Design & Reviews - Content focusing on technological innovations, product design, and detailed reviews.
         21. Finance - Videos addressing financial topics such as budgeting, investments, money management, or economic trends.
         22. Society - Videos engaging with social issues, cultural phenomena, or community trends—including social commentary and activism. 
    • 'australian_relevance': “Yes” or “No” (Definition: is the video directly connected to Australia through one or more of the following dimensions: the creator’s origin, the content’s subject matter, or the intended audience.)

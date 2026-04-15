@@ -1124,12 +1124,51 @@ def clean_up_machine_annotations(some_events, verbose = False):
 
             pre_fuzzy_nunique = valid_items.nunique()
 
-            valid_items = recode_fuzzy_match(
-                list_a=valid_items, 
-                list_b=accepted_labels, 
-                threshold=0.8, 
-                verbose=verbose
+            # Remember where scalar NAs were so we can restore them after the
+            # fuzzy match. recode_fuzzy_match replaces NA values with
+            # OTHER_THINGS, but downstream code (e.g. the annotated_ok /
+            # annotated_fail flags built from `type_of_story.isna()` at the
+            # end of refine_one_raw_annotation_batch) depends on NAs staying
+            # NA.
+            na_mask = series.isna()
+
+            # Fuzzy-match the WHOLE series (handles lists, scalars, NAs) so
+            # that the consolidation and the final writeback below both operate
+            # on the normalized values. Running the fuzzy match only on the
+            # exploded valid_items (the previous behaviour) left the original
+            # series unchanged, causing any value that needed fuzzy matching to
+            # fail the keep_set membership check below and be collapsed to
+            # OTHER_THINGS.
+            series = recode_fuzzy_match(
+                list_a=series,
+                list_b=accepted_labels,
+                threshold=0.8,
+                verbose=verbose,
             )
+
+            # Restore NAs that fuzzy matching turned into OTHER_THINGS.
+            if na_mask.any():
+                series = series.astype(object)
+                series[na_mask] = pd.NA
+
+            # Write the normalized series back immediately so columns that
+            # have an accepted_labels list always get their fuzzy-match output
+            # preserved, even if the consolidation step below is skipped
+            # (e.g. avg_len >= 60 or tail too flat).
+            some_cleaned_up_events[c] = series
+
+            # Re-derive exploded / valid_items from the now-normalized series
+            # for the downstream consolidation step.
+            try:
+                exploded = series.explode().dropna()
+            except ValueError:
+                continue
+
+            valid_mask = ~exploded.isin(exclude_set)
+            valid_items = exploded[valid_mask]
+
+            if valid_items.empty:
+                continue
 
             if verbose:
                 print(f"    {c}: Recoded against accepted labels with fuzzy matching... {valid_items.nunique()} ({pre_fuzzy_nunique})")
@@ -1187,14 +1226,18 @@ def clean_up_machine_annotations(some_events, verbose = False):
 
             # Step 3: Replacement
             # We need to iterate rows since we want to preserve list structure [[a, b], [c]] -> [[a, OTHER], [c]]
-            # A simple map with set lookup is fastest for object columns with lists
+            # A simple map with set lookup is fastest for object columns with lists.
+            # NOTE: `series` here is either the original series (when there is
+            # no accepted_labels list) or the fuzzy-match-normalized series
+            # (when there is). That keeps the membership check against
+            # keep_set consistent with how keep_set was built.
             def _fast_replace(x):
                 if isinstance(x, (list, np.ndarray)):
                     return [y if y in keep_set else fyp_cf['labels']['OTHER_THINGS'] for y in x]
                 if isinstance(x, str):
                     return x if x in keep_set else fyp_cf['labels']['OTHER_THINGS']
                 return x # keep NA or other
-                
+
             some_cleaned_up_events[c] = series.apply(_fast_replace)
 
 
@@ -1352,21 +1395,30 @@ def refine_one_raw_annotation_batch(
 
 
 
-def refine_and_save_all_raw_annotation_files(verbose = False, notebook_mode = False):
+def refine_and_save_all_raw_annotation_files(verbose = False, notebook_mode = False, force = False):
 
     result = {}
-    
+
     raw_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_raw") if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".json")]
     result["raw_files"] = len(raw_annotation_files)
 
     refined_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_refined") if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet")]
     result["refined_files_before"] = len(refined_annotation_files)
 
-    raw_files_up_for_refinement = [g for g in raw_annotation_files if not g.replace(".json",".parquet") in refined_annotation_files]
+    if force:
+        # Re-refine every raw file regardless of whether a refined parquet
+        # already exists. Use this after a fix to the refinement pipeline that
+        # invalidates the cached refined files.
+        raw_files_up_for_refinement = list(raw_annotation_files)
+    else:
+        raw_files_up_for_refinement = [g for g in raw_annotation_files if not g.replace(".json",".parquet") in refined_annotation_files]
     if verbose:
-        print(f"{len(refined_annotation_files)} raw annotation files have already been refined")
-        print(f"{len(raw_files_up_for_refinement)} files are up for refinement")
-    
+        if force:
+            print(f"Force mode: re-refining all {len(raw_files_up_for_refinement)} raw files (ignoring {len(refined_annotation_files)} existing refined files)")
+        else:
+            print(f"{len(refined_annotation_files)} raw annotation files have already been refined")
+            print(f"{len(raw_files_up_for_refinement)} files are up for refinement")
+
     for i,fn in enumerate(raw_files_up_for_refinement):
         if verbose:
             print(f"\n{i+1}/{len(raw_files_up_for_refinement)} {fn}")
