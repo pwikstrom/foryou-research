@@ -7,6 +7,8 @@ from copy import copy
 import hashlib
 import numpy as np
 import difflib
+import re
+import traceback
 
 from fyp.fyp_config import fyp_cf
 from fyp.types import convert_dtypes_to_pyarrow
@@ -323,6 +325,9 @@ def recode_call_to_action(
     
     if isinstance(a_text, pd.Series):
         def _fast_parse_cta(text):
+            # Non-str input (including NA) and empty strings collapse to the
+            # empty-words dict. The Series branch is the canonical behaviour
+            # here; the scalar branch below mirrors it.
             if not isinstance(text, str) or not text:
                 return {"words": []}
             cta_words = []
@@ -334,14 +339,10 @@ def recode_call_to_action(
             return {"words": cta_words}
         return a_text.apply(_fast_parse_cta)
 
-    if not isinstance(a_text, str):
-        return a_text
+    if not isinstance(a_text, str) or len(a_text) == 0:
+        return {"words": []}
 
     cta_words = []
-    if not isinstance(a_text,str) or len(a_text) == 0:
-        return {
-            "words":[],
-        }
     words = a_text.split(" ")
     
     for w in words:
@@ -405,9 +406,8 @@ def recode_scores(
     if isinstance(a_string,str):
         the_val = a_string.split(", ")[0]
         try:
-            the_val = np.int64(the_val)
-            return the_val / 100
-        except:
+            return float(the_val) / 100.0
+        except (ValueError, TypeError):
             return pd.NA
     else:
         return a_string
@@ -426,21 +426,24 @@ def recode_long_strings(
                 return x[0] if len(x) > 0 else ""
             if isinstance(x, str):
                 return x
+            # NA or any other non-str/non-list value collapses to "". The Series
+            # branch is the canonical behaviour here; the scalar branch below
+            # mirrors it.
             return ""
-        
+
         new_s = s.map(_get_first_if_list)
         new_s = new_s.replace("-", "")
-        return new_s.fillna(NOT_CODED)
+        return new_s
 
     if not isinstance(s,(str,list)):
-        return NOT_CODED
+        return ""
     if isinstance(s,list) and len(s)>0:
         new_string = s[0]
     elif isinstance(s,list) and len(s)==0:
         new_string = ""
     else:
         new_string = copy(s)
-    
+
     if new_string == "-":
         new_string = ""
 
@@ -451,15 +454,21 @@ def recode_long_strings(
 
 
 def recode_scene_sentiments(
-    a_string: str, 
-    recoding_policy : dict = {}) -> dict:
+    a_string: str | pd.Series,
+    recoding_policy : dict = {}) -> dict | pd.Series:
     """takes a string assumed to contain words that are describing positive/negative valence as well as high/low energy
-    and returns a dict with two values (valence and energy) ranging between -1 and 1 
+    and returns a dict with two values (valence and energy) ranging between -1 and 1
 
     TODO: check the word lists. They are probably not exhaustive.
     """
 
-
+    if isinstance(a_string, pd.Series):
+        # The scalar branch does substring membership against four disjoint word
+        # lists with a constant-time short-circuit per list. The Series branch
+        # applies the same scalar function element-wise - substring matching
+        # across four word lists is already cheap and vectorising it with regex
+        # would change the matching semantics (e.g. partial emoji collisions).
+        return a_string.apply(lambda x: recode_scene_sentiments(x, recoding_policy))
 
     if not isinstance(a_string,str):
         return {"valence":pd.NA,"energy":pd.NA}
@@ -514,30 +523,35 @@ def recode_faces_age_estimate(
 
 
     if isinstance(an_age_range_list, pd.Series):
-        # Explode, parse range to mean, groupby index mean.
-        # "20-30 | 40-50" -> ["20-30", "40-50"]
-        s = an_age_range_list.astype(str).str.split(" | ")
+        # Explode "A | B | C" -> per-element Series, parse each element as either
+        # an age range ("20-30") or a single age ("25"), then average back per row.
+        mask_na = an_age_range_list.isna()
+        # regex=False so the pipe in " | " is a literal, not a regex alternation.
+        s = an_age_range_list.astype(str).str.split(" | ", regex=False)
         exploded = s.explode()
-        
-        # Parse "20-30"
-        # regex capture
-        ranges = exploded.str.extract(r'(\d+)-(\d+)')
+
+        # Primary path: "lo-hi" ranges.
+        ranges = exploded.str.extract(r'^(\d+)-(\d+)$')
         low = pd.to_numeric(ranges[0], errors='coerce')
         high = pd.to_numeric(ranges[1], errors='coerce')
-        
-        # Valid means
-        means = (low + high) / 2.0
-        # Filter invalid (where high < low or NaN)
-        valid_mask = (high >= low) & (~means.isna())
-        means = means.where(valid_mask)
-        
-        # Group back to original index
-        # We need to handle the index properly (explode keeps index)
-        # groupby(level=0).mean()
+        range_means = (low + high) / 2.0
+        range_valid = (high >= low) & range_means.notna()
+        range_means = range_means.where(range_valid)
+
+        # Fallback path: bare single number ("25" -> 25.0). Matches the scalar
+        # branch which tries np.float64(...) before the dash-split logic.
+        single = pd.to_numeric(exploded, errors='coerce')
+
+        # Prefer the range mean when valid, otherwise the single-number parse.
+        means = range_means.where(range_valid, single)
         final_means = means.groupby(level=0).mean()
-        
-        # Align with original index to ensure size
-        return final_means.reindex(an_age_range_list.index)
+        result = final_means.reindex(an_age_range_list.index)
+        # Original NA cells should stay NA; astype(str) above turned them into
+        # "nan" which pd.to_numeric already coerces to NaN, so this is belt-and-
+        # braces in case the input contains surprising sentinels.
+        if mask_na.any():
+            result.loc[mask_na] = pd.NA
+        return result
 
 
 
@@ -555,31 +569,24 @@ def recode_challenges(
 
     
     if isinstance(challenges, pd.Series):
-        # Result should be list of strings
-        # vector split
-        # We need to strip spaces? " | " split usually handles the main separator.
-        # But if we need exact "strip" behavior:
-        # split(" | ") -> list.
-        # Then clean elements? 
-        # Fast path: str.split(" | ")
-        # But cleaning "  " -> " " inside list elements is hard vectorized.
-        # Assuming " | " is good enough separator.
-        
-        # If strict cleaning needed: replace "  " with " " on the full string first?
-        # challenges.str.replace("  ", " ").str.split(" | ")
-        
-        s = challenges.astype(str).str.replace("  ", " ", regex=False).str.split(" | ")
-        # Filter empty strings in list? 
-        # `[v for v in ... if v.strip()]`
-        # Using apply for simple list filtering is acceptable if not huge lists.
-        # Or just return the split result if data is clean.
-        
-        # Preserving original logic strictly:
+        # Split on the literal " | " separator. Must pass regex=False because the
+        # pipe would otherwise be parsed as a regex alternation operator, splitting
+        # on whitespace instead of the full " | " token.
+        mask_na = challenges.isna()
+        s = challenges.astype(str).str.replace("  ", " ", regex=False).str.split(" | ", regex=False)
+
         def _clean_list(mod_list):
             if not isinstance(mod_list, list): return []
             return [v.strip() for v in mod_list if v.strip()]
-            
-        return s.map(_clean_list)
+
+        result = s.map(_clean_list)
+        # NA inputs should round-trip to [] to match the scalar branch.
+        if mask_na.any():
+            result.loc[mask_na] = pd.Series(
+                [[] for _ in range(int(mask_na.sum()))],
+                index=result.index[mask_na],
+            )
+        return result
 
     if isinstance(challenges, str):
         return [
@@ -603,111 +610,42 @@ def recode_main_activity(
 
     
     if isinstance(fine_actitivies_string, pd.Series):
-        # Parse stringified list
-        # Then find first *ing
-        # Vectorized:
-        # 1. Parse stringified list (use vectorized logic if possible)
-        # Assuming splitter from policy (usually ", " or similar?)
-        # If we use recode_stringified_list in vectorized way...
-        
-        # Let's use the vectorized recode_stringified_list logic inline or helper.
-        # Then apply *ing filter.
-        
-        # Step 1: get lists
-        #if 'splitter' in recoding_policy and not pd.isna(recoding_policy['splitter']):
-        #    splitter = recoding_policy['splitter']
-        #    # split
-        #    # clean chars?
-        #    # This is complex to fully vectorize without regex.
-        #    # let's assume simple split for now or use the helper with apply if simpler.
-        #    pass
-        
-        # Optimized Apply Approach
-        # recode_stringified_list is complex.
-        # But finding "word ending in ing" might be done with regex on original string!
-        # Regex: r'\b(\w+ing)\b'
-        # This is MUCH faster than parsing list.
-        
-        extracted = fine_actitivies_string.astype(str).str.lower().extract(r'\b([a-zA-Z]+ing)\b', expand=False)
-        # If matched, return [match]. Else [UNABLE_TO_DETECT] or [NOT_CODED]?
-        # Logic: if list empty -> NOT_CODED (if was empty string?) or fallback.
-        # If no ing found -> UNABLE_TO_DETECT.
-        
-        # This regex approach is an approximation but likely accurate for "first word ending in ing".
-        # Original code picked "first word that ends with -ing". 
-        
-        
-        # extracted = extracted.fillna(mask_na=False) # don't mask yet
-        # extract returns NaN for no match, which is what we want.
+        # Find the first -ing word in each lower-cased cell. Bare .extract is not
+        # a Series method - the str accessor is required after each .str.lower().
+        extracted = fine_actitivies_string.astype(str).str.lower().str.extract(
+            r'\b([a-zA-Z]+ing)\b', expand=False
+        )
 
-        
-        # We need to handle NA inputs -> NOT_CODED.
-        # Logic:
-        # If string NA/empty -> NOT_CODED.
-        # If no *ing found -> UNABLE_TO_DETECT.
-        
-        # result series
-        res = extracted.apply(lambda x: [x] if pd.notna(x) else [UNABLE_TO_DETECT])
-        
-        # Fix NA inputs
-        mask_na = fine_actitivies_string.isna() | (fine_actitivies_string == "")
-        res[mask_na] = [[NOT_CODED] for _ in range(mask_na.sum())] # annoying assignment
-        # simpler:
-        # res = res.where(~mask_na, other=[[NOT_CODED]] * len(res)) # no, series assignment
-        
-        # Simple map for final fixup might be fast enough
-        def _finalize(val, original):
-             if pd.isna(original) or original == "": return [NOT_CODED]
-             if pd.isna(val): return [UNABLE_TO_DETECT] # extract failed
-             return [val]
-             
-        # extracted has the word or NaN.
-        # original has the string.
-        # We can reconstruct.
-        
-        # Actually, let's use the exact original logic via helper if regex is risky.
-        # But regex is FAST.
-        # Let's stick to regex `r'\b(\w+ing)\b'`.
-        
-        has_ing = extracted.notna()
-        result = pd.Series([ [UNABLE_TO_DETECT] ] * len(fine_actitivies_string), index=fine_actitivies_string.index)
-        
-        # Set found
-        # result[has_ing] = extracted[has_ing].apply(lambda x: [x]) # slow?
-        result[has_ing] = extracted[has_ing].map(lambda x: [x])
-        
-        # Set NA/Not coded
-        # Original: if string valid but list empty -> fallback?
-        # If original string is NA -> [NOT_CODED]
-        mask_original_na = fine_actitivies_string.isna() | (fine_actitivies_string == NOT_CODED)
-        # Assigning list to series slice is tricky.
-        # Use a generator/list comp for the whole series construction?
-        
+        ext_arr = extracted.to_numpy()
+        orig_arr = fine_actitivies_string.to_numpy()
         final_list = []
-        ext_arr = extracted.values
-        orig_arr = fine_actitivies_string.values
         for i in range(len(fine_actitivies_string)):
-             if pd.isna(orig_arr[i]) or orig_arr[i] == NOT_CODED:
-                 final_list.append([NOT_CODED])
-             elif pd.notna(ext_arr[i]):
-                 final_list.append([ext_arr[i]])
-             else:
-                 final_list.append([UNABLE_TO_DETECT])
-                 
+            if pd.isna(orig_arr[i]) or orig_arr[i] == NOT_CODED:
+                final_list.append([NOT_CODED])
+            elif pd.notna(ext_arr[i]):
+                final_list.append([ext_arr[i]])
+            else:
+                final_list.append([UNABLE_TO_DETECT])
+
         return pd.Series(final_list, index=fine_actitivies_string.index)
 
     fine_actitivies_list = recode_stringified_list(fine_actitivies_string, recoding_policy)
 
-    if isinstance(fine_actitivies_list,list):
-        jj = [q for q in fine_actitivies_list if isinstance(q,str) and q.endswith("ing")]
-        if fine_actitivies_list == [NOT_CODED]:
-            return [NOT_CODED]
-        elif len(jj)>0:
-            return [(jj[0])]
-        else:
-            return [UNABLE_TO_DETECT]
-    else:
+    if not isinstance(fine_actitivies_list, list):
         return [NOT_CODED]
+    if fine_actitivies_list == [NOT_CODED]:
+        return [NOT_CODED]
+
+    # Find the first word ending in -ing anywhere inside any list element, matching
+    # the Series branch. An earlier implementation checked `q.endswith("ing")` on
+    # each whole element, which collapsed almost every multi-word phrase (e.g.
+    # "person walking the dog") to UNABLE_TO_DETECT.
+    for item in fine_actitivies_list:
+        if isinstance(item, str):
+            m = re.search(r'\b([a-zA-Z]+ing)\b', item.lower())
+            if m:
+                return [m.group(1)]
+    return [UNABLE_TO_DETECT]
 
 
 
@@ -719,52 +657,15 @@ def recode_stringified_list(
 
     
     if isinstance(a_string_representing_a_list, pd.Series):
-        # This function is the heavy lifter for parsing stringified lists.
-        # Vectorizing:
-        # If straightforward split:
-        #splitter = recoding_policy.get("splitter", pd.NA)
-        mapper = recoding_policy.get("mapper", {})
-        ignore_strings = recoding_policy.get("ignore_strings", [])
-        
-        # Helper for apply
-        def _parse(val):
-            if pd.isna(val): return [NOT_CODED]
-            s_val = str(val)
-            if len(s_val) < 1 or s_val in ["-", " "]: return [UNABLE_TO_DETECT] # no_data_fallback
-            
-            # mini mapper check (1->yes etc provided in original code but not robustly?)
-            # The original code has `mini_mapper`.
-            
-            out = []
-            parts = s_val.lower().split(SPLITTER)
-            for an_element in parts:
-                if len(an_element) > 0:
-                    cleaned = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
-                    # removal of chars
-                    # strict char filter
-                    # ".,:;!)(*/&|^%$#@<>?'`’1234567890"
-                    # This loop is heavy.
-                    # return cleaned part
-                    out.append(cleaned) 
-            
-            if not out: return [UNABLE_TO_DETECT]
-            return out
-            
-        # Due to complexity of cleaning logic (char replacement loops), pure vectorization is hard.
-        # But we can optimize the apply.
-        # Or checking if we can use regex replacement.
-        
-        # For now, sticking to apply() logic but ensuring it accepts Series to fit the pattern.
-        # But actually, implementing the EXACT logic of original using apply is safer than rewriting logic incorrectly.
-        pass # use fallback processing or implement apply loop below
+        # Full vectorisation is impractical given the mapper/ignore_strings lookup
+        # and the strict per-character filter further down, so the Series branch
+        # delegates to the scalar branch element-wise. Keeping this explicit
+        # (rather than relying on a silent fallback in recode_events_df) makes
+        # the scalar call-site visible for future profiling.
+        return a_string_representing_a_list.apply(lambda x: recode_stringified_list(x, recoding_policy))
 
     # Legacy / Single Item logic
-    no_data_fallback = UNABLE_TO_DETECT 
-    
-    # ... (rest of original function logic if called on single item)
-    # Since we are modifying the function signature, we should support Series input by delegating to apply
-    if isinstance(a_string_representing_a_list, pd.Series):
-         return a_string_representing_a_list.apply(lambda x: recode_stringified_list(x, recoding_policy))
+    no_data_fallback = UNABLE_TO_DETECT
 
     ignore_strings = recoding_policy.get("ignore_strings", [])
     #splitter = recoding_policy.get("splitter", None)
@@ -789,6 +690,7 @@ def recode_stringified_list(
             if len(an_element)>0:
                 an_element = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
                 clean_word = "".join([j for j in an_element.lower() if not j in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
+                clean_word = clean_word.strip()
                 if (len(clean_word)>1 and not clean_word in ignore_strings)  or _is_emoji(clean_word):
                     list_of_the_words += [mapper.get(clean_word,clean_word)]
         
@@ -1106,17 +1008,32 @@ def recode_events_df(
                 # ------------------------------------------------------
                 func = this_var_schema.get("recode_func", None)
                 if not pd.isna(func):
-                   # Pass the full series
+                    # Pass the full series. If the Series branch of the recode function
+                    # raises, the fallback to a per-element .map() is OPT-IN via the
+                    # `allow_scalar_fallback` flag in var_schema (default: False).
+                    # Silent fallback has historically masked real bugs (e.g. main_activity
+                    # calling .extract() instead of .str.extract(), content_category
+                    # whitespace/fuzzy-match length mismatch), so the default is now to
+                    # re-raise with the full traceback visible.
                     try:
                         cool_events[c] = func(cool_events[c], this_var_schema)
                         if verbose: print(f"Recoded successfully ({this_var_schema.get('scale', 'unknown scale')})")
                     except Exception as e:
-                        # Fallback
-                        print(f"Warning: Vectorized recode failed: ({e}). Falling back to map.")
+                        traceback.print_exc()
+                        raw_flag = this_var_schema.get("allow_scalar_fallback", False)
+                        allow_fallback = str(raw_flag).strip().lower() in ("true", "1", "yes")
+                        if not allow_fallback:
+                            raise Exception(
+                                f"Vectorized recode failed for column '{c}' and scalar fallback is "
+                                f"not enabled. Fix the Series branch of {getattr(func, '__name__', func)!r} "
+                                f"or set `allow_scalar_fallback=true` in var_schema for this column "
+                                f"if the scalar fallback is intentional."
+                            ) from e
+                        print(f"Warning: Vectorized recode failed for '{c}' ({e}). Falling back to map (allow_scalar_fallback=true).")
                         try:
                             cool_events[c] = cool_events[c].map(lambda x: func(x, this_var_schema))
-                        except Exception as e:
-                            raise Exception(f"Error: Map recode also failed: ({e}).")
+                        except Exception as map_e:
+                            raise Exception(f"Error: Map recode also failed for '{c}': ({map_e}).") from map_e
                 else:
                     if verbose: print(f"Has no recode func, so no change ({this_var_schema.get('scale', 'unknown scale')})")
 
