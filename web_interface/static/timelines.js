@@ -6,7 +6,6 @@ window.timelines = {
     currentDonationId: null,
     collectionList: [],
     timelineData: null,
-    sidebarVisible: true,
     timelineState: {
         categoricalSelections: {},
         analysisToggles: {},
@@ -99,17 +98,6 @@ window.timelines = {
             this.timelineState.activeFilters = {};
             this.selectDonation(select.value);
         }
-    },
-
-    toggleSidebar: function () {
-        this.sidebarVisible = !this.sidebarVisible;
-        document.querySelectorAll('#timelines-charts-container .timeline-controls-div').forEach(el => {
-            el.style.display = this.sidebarVisible ? 'flex' : 'none';
-        });
-        // Trigger Plotly resize so charts fill the space
-        document.querySelectorAll('#timelines-charts-container [id^="timeline-plot-"]').forEach(el => {
-            Plotly.Plots.resize(el);
-        });
     },
 
     onSmoothingChange: function (value) {
@@ -281,17 +269,6 @@ window.timelines = {
         const scrollContainer = document.querySelector('.timelines-main');
         const scrollPos = scrollContainer ? scrollContainer.scrollTop : 0;
 
-        // Save scroll positions of category lists before clearing container
-        const catScrollPositions = {};
-        if (container) {
-            container.querySelectorAll('[id^="controls-timeline-plot-"]').forEach(menu => {
-                const scroller = menu.querySelector('div[style*="overflow-y:auto"]');
-                if (scroller) {
-                    catScrollPositions[menu.id] = scroller.scrollTop;
-                }
-            });
-        }
-
         container.innerHTML = '';
 
         const excludeNoData = document.getElementById('timelines-exclude-nodata').checked;
@@ -358,32 +335,6 @@ window.timelines = {
             const subtitle = varData.type !== 'categorical' ? `<span class="text-xs font-normal" style="color: var(--color-text-tertiary);"> (mean values)</span>` : '';
             titleDiv.innerHTML = `<h3 class="text-h3" style="margin-top: 0; margin-bottom: 0;">${displayTitle}${subtitle}</h3>`;
 
-            // Layout: controlsDiv (left sidebar) | rightCol (title + chips + plot + findings)
-            const outerFlexDiv = document.createElement('div');
-            outerFlexDiv.style.display = 'flex';
-            outerFlexDiv.style.flexDirection = 'row';
-
-            // Left Menu for Categorical (or placeholder for alignment)
-            const controlsDiv = document.createElement('div');
-            controlsDiv.className = 'timeline-controls-div';
-            controlsDiv.style.width = '300px';
-            controlsDiv.style.flexShrink = '0';
-            controlsDiv.style.display = this.sidebarVisible ? 'flex' : 'none';
-            controlsDiv.style.flexDirection = 'column';
-            controlsDiv.style.overflow = 'hidden';
-            controlsDiv.style.height = '400px';
-
-            if (varData.type === 'categorical') {
-                controlsDiv.style.paddingRight = '10px';
-                controlsDiv.style.borderRight = '1px solid var(--color-border-subtle)';
-            }
-
-            // Right column: title/chips above plot, findings below
-            const rightCol = document.createElement('div');
-            rightCol.style.cssText = 'flex:1; min-width:0; display:flex; flex-direction:column;';
-
-            rightCol.appendChild(titleDiv);
-
             const plotDiv = document.createElement('div');
             plotDiv.style.width = '100%';
             plotDiv.style.height = '400px';
@@ -392,11 +343,8 @@ window.timelines = {
             const plotId = `timeline-plot-${varName.replace(/\\s+/g, '_')}`;
             plotDiv.id = plotId;
 
-            rightCol.appendChild(plotDiv);
-
-            outerFlexDiv.appendChild(controlsDiv);
-            outerFlexDiv.appendChild(rightCol);
-            chartWrapper.appendChild(outerFlexDiv);
+            chartWrapper.appendChild(titleDiv);
+            chartWrapper.appendChild(plotDiv);
             container.appendChild(chartWrapper);
 
             const traces = [];
@@ -409,6 +357,11 @@ window.timelines = {
                 '#00BCD4', '#CDDC39', '#FF5722', '#795548', '#607D8B',
                 '#26A69A', '#AB47BC', '#EF5350', '#66BB6A'
             ];
+
+            // Stable per-category color map — populated below for categorical
+            // variables and reused by the ribbon, line traces, and findings panel
+            // so each category keeps the same color everywhere.
+            let catColorMap = {};
 
             // Logic per type
             if (varData.type === 'categorical') {
@@ -512,8 +465,11 @@ window.timelines = {
                     if (coveredSet.has(cat)) keptCategories.push(cat);
                 });
 
-                // Preserve scroll position if re-rendering an existing menu
-                const catScrollPos = catScrollPositions[`controls-${plotId}`] || 0;
+                // Populate the shared per-category color map (declared above
+                // the categorical branch so findings-panel code can reuse it).
+                keptCategories.forEach((cat, i) => {
+                    catColorMap[cat] = colors[i % colors.length];
+                });
 
                 const omittedPercent = grandTotal > 0 ? ((omittedObservations / grandTotal) * 100).toFixed(1) : 0;
                 const activeFilter = this.timelineState.activeFilters[varName] || 'all';
@@ -532,64 +488,76 @@ window.timelines = {
                 `;
                 titleDiv.appendChild(chipRow);
 
-                controlsDiv.id = `controls-${plotId}`;
-                controlsDiv.innerHTML = `
-                    <div id="cat-list-${plotId}" style="flex:1; min-height:0; overflow-y:auto; border:1px solid var(--chart-grid); padding:5px;">
-                        ${keptCategories.map(cat => {
-                            const cd = analysisMap[cat] || {};
-                            const isRising = (cd.trend && cd.trend.total_change > 4);
-                            const isFalling = (cd.trend && cd.trend.total_change < -4);
-                            const hasSpikes = (cd.anomalies && cd.anomalies.length > 0);
-                            const hasBreak = (cd.break && Math.abs(cd.break.delta) > 4);
-                            const isVolatile = (cd.volatility && cd.volatility.std > 2.5);
-                            const isStable = (!isRising && !isFalling && !hasSpikes && !hasBreak && !isVolatile);
+                // Ribbon: horizontal Plotly stacked bar shown under the plot.
+                // Clicking a segment toggles the category's line in the chart.
+                // Selection cue: unselected segments render at 40% opacity.
+                const ribbonId = `ribbon-${plotId}`;
+                const ribbonDiv = document.createElement('div');
+                ribbonDiv.id = ribbonId;
+                ribbonDiv.style.width = '100%';
+                ribbonDiv.style.height = '50px';
+                ribbonDiv.style.marginTop = '8px';
+                ribbonDiv.style.cursor = 'pointer';
+                chartWrapper.appendChild(ribbonDiv);
 
-                            // Build inline badge string
-                            let badges = '';
-                            if (isRising)   badges += `<span class="text-xs" style="color:var(--color-accent);" title="Rising">↑</span> `;
-                            if (isFalling)  badges += `<span class="text-xs" style="color:var(--color-danger-soft);" title="Falling">↓</span> `;
-                            if (hasSpikes)  badges += `<span class="text-xs" style="color:var(--color-save);" title="Spikes">◎</span> `;
-                            if (hasBreak)   badges += `<span class="text-xs" style="color:var(--color-info);" title="Step change">⋮</span> `;
-                            if (isVolatile) badges += `<span class="text-xs" style="color:var(--color-purple);" title="Volatile">~</span> `;
-                            if (isStable)   badges += `<span class="text-xs" style="color:var(--color-text-tertiary);" title="Stable">—</span> `;
+                const ribbonTotal = keptCategories.reduce((s, c) => s + catTotals[c], 0);
+                const ribbonTraces = keptCategories.map(cat => {
+                    const pct = (catTotals[cat] / Math.max(1, ribbonTotal)) * 100;
+                    const isSelected = selectedCats.includes(cat);
+                    const cd = analysisMap[cat] || {};
+                    const badgeBits = [];
+                    if (cd.trend && cd.trend.total_change > 4) badgeBits.push('↑ Rising');
+                    if (cd.trend && cd.trend.total_change < -4) badgeBits.push('↓ Falling');
+                    if (cd.anomalies && cd.anomalies.length > 0) badgeBits.push('◎ Spikes');
+                    if (cd.break && Math.abs(cd.break.delta) > 4) badgeBits.push('⋮ Step change');
+                    if (cd.volatility && cd.volatility.std > 2.5) badgeBits.push('~ Volatile');
+                    const trendLine = badgeBits.length ? `<br>${badgeBits.join(' · ')}` : '';
+                    return {
+                        x: [pct],
+                        y: ['cats'],
+                        name: cat,
+                        type: 'bar',
+                        orientation: 'h',
+                        marker: {
+                            color: catColorMap[cat],
+                            opacity: isSelected ? 1.0 : 0.4,
+                            line: { width: 0 }
+                        },
+                        text: [cat],
+                        textposition: 'inside',
+                        insidetextanchor: 'middle',
+                        customdata: [[cat, pct.toFixed(1), catTotals[cat].toLocaleString(), trendLine]],
+                        hovertemplate: '<b>%{customdata[0]}</b><br>%{customdata[1]}% of obs (%{customdata[2]})%{customdata[3]}<extra></extra>'
+                    };
+                });
 
-                            return `
-                            <div class="category-item"
-                                 data-cat="${cat}"
-                                 data-rising="${isRising}"
-                                 data-falling="${isFalling}"
-                                 data-spikes="${hasSpikes}"
-                                 data-breaks="${hasBreak}"
-                                 data-volatile="${isVolatile}"
-                                 data-stable="${isStable}"
-                                 style="display:flex; align-items:flex-start; margin-bottom:3px;">
-                                <input type="checkbox"
-                                       value="${cat}"
-                                       ${selectedCats.includes(cat) ? 'checked' : ''}
-                                       onchange="window.timelines.toggleCategory('${varName}', '${cat}')"
-                                       style="margin-right:5px; margin-top:2px;">
-                                <span style="line-height:1.2;">
-                                    ${cat}
-                                    <span class="text-sm" style="color:var(--color-text-tertiary); white-space:nowrap;">(${catTotals[cat].toLocaleString()})</span>
-                                    ${badges ? '<span style="margin-left:3px;">' + badges + '</span>' : ''}
-                                </span>
-                            </div>
-                            `;
-                        }).join('')}
-                    </div>
-                    ${omittedCount > 0 ? `<div class="text-xs italic" style="color:var(--color-text-muted); margin-top:5px;">Dropped ${omittedCount} tiny cats → ${omittedPercent}% obs lost.</div>` : ''}
-                `;
+                const ribbonLayout = {
+                    barmode: 'stack',
+                    margin: { t: 2, b: 2, l: 2, r: 2 },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    showlegend: false,
+                    font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-primary') },
+                    xaxis: { range: [0, 100], showgrid: false, showticklabels: false, fixedrange: true, zeroline: false },
+                    yaxis: { showticklabels: false, fixedrange: true, zeroline: false },
+                    height: 50
+                };
 
-                // Restore scroll position
-                if (catScrollPos > 0) {
-                    // Small timeout ensures the DOM is painted first before we try to scroll
-                    setTimeout(() => {
-                        const newMenu = document.getElementById(`controls-${plotId}`);
-                        if (newMenu) {
-                            const scroller = newMenu.querySelector('div[style*="overflow-y:auto"]');
-                            if (scroller) scroller.scrollTop = catScrollPos;
-                        }
-                    }, 0);
+                Plotly.newPlot(ribbonDiv, ribbonTraces, ribbonLayout, { displayModeBar: false, responsive: true });
+
+                ribbonDiv.on('plotly_click', function (eventData) {
+                    if (!eventData || !eventData.points || !eventData.points.length) return;
+                    const cat = eventData.points[0].data.name;
+                    window.timelines.toggleCategory(varName, cat);
+                });
+
+                if (omittedCount > 0) {
+                    const ribbonFooter = document.createElement('div');
+                    ribbonFooter.className = 'text-xs italic';
+                    ribbonFooter.style.color = 'var(--color-text-muted)';
+                    ribbonFooter.style.marginTop = '4px';
+                    ribbonFooter.textContent = `Dropped ${omittedCount} tiny cats → ${omittedPercent}% obs lost.`;
+                    chartWrapper.appendChild(ribbonFooter);
                 }
 
                 // Calculate share values and render as line/area charts
@@ -620,7 +588,7 @@ window.timelines = {
                     const displayY = smoothW > 1 ? this._movingAvg(yVals, smoothW) : yVals;
 
                     allYVals = allYVals.concat(displayY);
-                    const catColor = colors[idx % colors.length];
+                    const catColor = catColorMap[cat] || colors[idx % colors.length];
 
                     // Reduce data line prominence when analysis overlays are visible
                     // Plotly's trace-level opacity doesn't fade line strokes, so we
@@ -1004,11 +972,11 @@ window.timelines = {
                     const isOpen = this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName];
                     toggleBtn.textContent = isOpen ? 'Hide Findings' : 'Show Findings';
 
-                    // Centre the button below the chart in the right column
+                    // Centre the button below the ribbon.
                     const btnWrapper = document.createElement('div');
                     btnWrapper.style.cssText = 'display:flex; justify-content:center; margin-top:4px;';
                     btnWrapper.appendChild(toggleBtn);
-                    rightCol.appendChild(btnWrapper);
+                    chartWrapper.appendChild(btnWrapper);
 
                     const findingsContainer = document.createElement('div');
                     findingsContainer.id = `findings-panel-${varName}`;
@@ -1025,7 +993,7 @@ window.timelines = {
                         if (!selectedSet.has(catData.id)) return;
 
                         const globalRank = index + 1;
-                        const catColor = colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
+                        const catColor = catColorMap[catData.id] || colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
 
                         const card = document.createElement('div');
                         card.style.cssText = `background: var(--color-bg-elevated); padding: 15px; border-radius: 8px; border-left: 4px solid ${catColor};`;
