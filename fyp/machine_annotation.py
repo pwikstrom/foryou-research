@@ -20,6 +20,7 @@ import fuzzy_json
 import google.genai
 
 import threading
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import time
@@ -306,8 +307,18 @@ def call_machine_threads(
         except Exception:
             return False
 
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+    # Per-batch deadline guards against individual Gemini calls hanging past the
+    # SDK's http_options_timeout (observed in practice — SDK timeout is not
+    # always honored). Deadline scales with the number of waves the thread
+    # pool needs to process, with 1.5x safety margin plus startup-jitter buffer.
+    _per_call_seconds = 180       # matches http_options_timeout (ms→s)
+    _safety_margin = 1.5
+    _startup_sleep = 3 + max_workers / 2  # upper bound of worker() sleep
+    _waves = max(1, (len(interesting_videos) + max_workers - 1) // max_workers)
+    batch_deadline = int(_waves * _per_call_seconds * _safety_margin + _startup_sleep + 60)
 
+    ex = ThreadPoolExecutor(max_workers=max_workers)
+    try:
         futures = []
         submit_times = {}
         for iv in enumerate(interesting_videos):
@@ -324,12 +335,35 @@ def call_machine_threads(
             reporter=reporter,
         )
 
+        try:
+            for fut in as_completed(futures, timeout=batch_deadline):
+                idx, res = fut.result()
+                results_by_index[idx] = res
+        except concurrent.futures.TimeoutError:
+            stuck = [interesting_videos[i] for i, f in enumerate(futures) if not f.done()]
+            print(
+                f"[machine] Batch deadline of {batch_deadline}s exceeded; "
+                f"{len(stuck)} worker(s) did not return: {stuck[:5]}"
+                + (" ..." if len(stuck) > 5 else ""),
+                flush=True,
+            )
 
-        for fut in as_completed(futures):
-            idx, res = fut.result()
-            results_by_index[idx] = res
+        # Record DNF entries for any video whose worker didn't return in time
+        for i, fut in enumerate(futures):
+            if i in results_by_index:
+                continue
+            results_by_index[i] = {
+                "item_id": interesting_videos[i],
+                "error": f"worker did not complete within {batch_deadline}s",
+                "finish_reason": "DNF - worker timeout",
+                "response": "",
+                "model": fyp_cf["machine"]["model"],
+            }
 
-        monitor_thread.join()
+        monitor_thread.join(timeout=10)
+    finally:
+        # Don't wait for stuck worker threads — they'll be killed at process exit
+        ex.shutdown(wait=False, cancel_futures=True)
 
 
     if verbose:

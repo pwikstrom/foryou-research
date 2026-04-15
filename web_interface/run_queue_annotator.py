@@ -9,6 +9,7 @@ reached, or the user cancels.
 Locally it runs all batches in a single subprocess (same as before).
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -154,8 +155,16 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
 
 if __name__ == "__main__":
     import argparse
+    import atexit
+    import concurrent.futures.thread as _ft
     from web_interface.task_status import LocalStatusReporter
     from fyp.machine_annotation import queue_annotation_loop
+
+    # When a Gemini worker hangs, call_machine_threads() marks it DNF and
+    # returns without waiting. The ThreadPoolExecutor's atexit hook would
+    # otherwise block process exit until the stuck thread finishes — so drop
+    # it so the subprocess can exit cleanly.
+    atexit.unregister(_ft._python_exit)
 
     parser = argparse.ArgumentParser(description="Run queue annotator")
     parser.add_argument("--batch-size", type=int, default=5, help="Batch size")
@@ -178,9 +187,10 @@ if __name__ == "__main__":
         )
         reporter.complete()
         print("Queue annotation process completed.")
+        os._exit(0)
     except Exception as e:
         reporter.fail(str(e))
         print(f"Queue annotation process failed: {e}")
         import traceback
         traceback.print_exc()
-        sys.exit(1)
+        os._exit(1)
