@@ -910,10 +910,16 @@ async function applyViewerFilters() {
             // Clear display
             document.getElementById('viewer-video').src = "";
             document.getElementById('viewer-video').src = "";
-            document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "<tr><td>No items found</td></tr>";
-            // Show plain text 
+
+            // Prefer the server-supplied stale-data message when present so
+            // the user knows to refresh the study, not just that the filters
+            // happened to match nothing.
+            const staleMsg = data.dataset_status && data.dataset_status.message;
+            const emptyMsg = staleMsg || "No videos found";
+            document.getElementById('viewer-metadata').querySelector('tbody').innerHTML =
+                `<tr><td>${emptyMsg}</td></tr>`;
             const msgEl = document.getElementById('viewer-video-msg');
-            msgEl.innerHTML = "No videos found";
+            msgEl.innerHTML = emptyMsg;
             msgEl.style.display = "block";
         }
 

@@ -115,16 +115,25 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.log(f"Classifying columns for metadata generation...")
         col_types = explorer.classify_columns(df_recoded)
 
-        # Filter to annotated play/observe events.
-        # annotated_ok comes from merged machine_annotations — absent on fresh apps
-        # that only have activity data, in which case no rows pass the filter.
-        if "annotated_ok" in df_recoded.columns:
-            annotated_mask = df_recoded["annotated_ok"].fillna(False)
+        # Filter to annotated (or scraped) play/observe events.
+        # The [viz] require_annotated_items flag mirrors data_service.get_explorer_data
+        # so the saved metadata (filter dropdowns, value counts) reflects the same
+        # row set the Explore tab actually shows at request time. When the flag is
+        # False we fall back to scraped_ok so items without media are still excluded.
+        require_annotated = fyp_cf.get("viz", {}).get("require_annotated_items", True)
+        if require_annotated:
+            if "annotated_ok" in df_recoded.columns:
+                enrichment_mask = df_recoded["annotated_ok"].fillna(False)
+            else:
+                enrichment_mask = pd.Series(False, index=df_recoded.index)
         else:
-            annotated_mask = pd.Series(False, index=df_recoded.index)
+            if "scraped_ok" in df_recoded.columns:
+                enrichment_mask = df_recoded["scraped_ok"].fillna(False)
+            else:
+                enrichment_mask = pd.Series(False, index=df_recoded.index)
 
         df_filtered = df_recoded[
-            annotated_mask
+            enrichment_mask
             & df_recoded['activity_type'].isin(['play', 'observe'])
             & df_recoded['item_id'].notna()
         ].copy()

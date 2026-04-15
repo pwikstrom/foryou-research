@@ -981,6 +981,14 @@ def api_viewer_ids():
     if extra_data_indices is not None:
         result["extra_data_indices"] = extra_data_indices
 
+    # When the empty result is caused by the recoded parquet missing the
+    # enrichment column the current viz config requires (e.g. scraped_ok
+    # before the study has been re-recoded), pass the explanation through so
+    # the UI can prompt the user to refresh instead of just saying "0 items".
+    status = filtered_df.attrs.get('fyp_dataset_status')
+    if status and not status.get('ok'):
+        result["dataset_status"] = status
+
     return jsonify(result)
 
 

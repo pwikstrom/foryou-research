@@ -1423,6 +1423,19 @@ button {
     bottom: 110%;
 }
 
+/* Modifier: render the tooltip below the trigger instead of above. Use on
+   buttons that sit near the top of an overflow-hidden container, where an
+   upward tooltip would be clipped. */
+.meta-tooltip.tooltip-below::after {
+    bottom: auto;
+    top: 100%;
+}
+
+.meta-tooltip.tooltip-below:hover::after {
+    bottom: auto;
+    top: 110%;
+}
+
 
 /* ============================================================
    Collections Tab Styles (moved from inline)

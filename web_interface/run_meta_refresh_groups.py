@@ -39,11 +39,22 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
                 reporter.log(f"Skipping {study_name}: No data found.")
                 continue
 
-            # Context = Explorer (Annotated OK + Activity Filter)
-            if 'annotated_ok' in df.columns:
-                df_explorer = df[df.annotated_ok].copy()
+            # Context = Explorer (Annotated OK + Activity Filter).
+            # The [viz] require_annotated_items flag mirrors data_service.get_explorer_data
+            # so the saved metadata reflects the same row set the Explore tab will show.
+            # When the flag is False we still require scraped_ok so items without media
+            # are excluded.
+            require_annotated = fyp_cf.get("viz", {}).get("require_annotated_items", True)
+            if require_annotated:
+                if 'annotated_ok' in df.columns:
+                    df_explorer = df[df['annotated_ok'].fillna(False)].copy()
+                else:
+                    df_explorer = df.iloc[0:0].copy()
             else:
-                df_explorer = df.copy()
+                if 'scraped_ok' in df.columns:
+                    df_explorer = df[df['scraped_ok'].fillna(False)].copy()
+                else:
+                    df_explorer = df.iloc[0:0].copy()
             df_explorer = df_explorer[df_explorer['activity_type'].isin(['play', 'observe'])]
             df_explorer = df_explorer[df_explorer['item_id'].notna()]
 

@@ -439,6 +439,16 @@ def load_data(study: str, verbose: bool = False):
         filename = f"{study}_recoded.parquet",
         verbose=verbose
         ):
+        # Cold-start path: only attempt to build the recoded dataset for a
+        # study that actually exists in the config. An unknown name would
+        # otherwise crash deep inside create_study_recoded_dataset and
+        # surface as a 500 in every route that calls get_explorer_data.
+        study_defs = fyp_cf.get("study_defs", {}) or {}
+        if study not in study_defs:
+            if verbose:
+                print(f"    Study '{study}' is not defined in config; nothing to load.")
+            return None, {}
+
         print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
         df = create_study_recoded_dataset(
             study_name = study,

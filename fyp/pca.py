@@ -687,6 +687,10 @@ def calculate_scaled_pca_scores(
 
     fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
 
+    # PCA always requires annotated rows, regardless of the [viz] require_annotated_items
+    # flag. The PCA features are themselves annotation-derived recoded variables, so
+    # un-annotated rows would be dropped at the dropna(subset=fyp_features) step below
+    # anyway — keeping the filter explicit avoids confusing downstream behaviour.
     pre_len = len(study_recoded_dataset)
     if "annotated_ok" in study_recoded_dataset.columns:
         study_recoded_dataset = study_recoded_dataset[study_recoded_dataset["annotated_ok"].fillna(False)]

@@ -19,13 +19,32 @@ class StudyCache:
         self.cache = LRUCache(maxsize=maxsize)
         self.lock = threading.Lock()
 
-    def get(self, study_name):
+    def get(self, study_name, current_mtime=None):
+        """Return the cached entry, evicting it first if the on-disk parquet
+        has been rewritten since this entry was cached. ``current_mtime`` is
+        the file mtime the caller just observed; pass ``None`` to skip the
+        staleness check (e.g. when the file isn't accessible)."""
         with self.lock:
-            return self.cache.get(study_name)
+            entry = self.cache.get(study_name)
+            if entry is None:
+                return None
+            cached_mtime = entry.get('mtime')
+            if current_mtime is not None and cached_mtime is not None:
+                # Treat any mtime change as stale — workers (potentially in
+                # another process) may have rewritten the parquet.
+                if current_mtime != cached_mtime:
+                    del self.cache[study_name]
+                    return None
+            return entry
 
     def put(self, study_name, data):
         with self.lock:
             self.cache[study_name] = data
+
+    def invalidate(self, study_name):
+        with self.lock:
+            if study_name in self.cache:
+                del self.cache[study_name]
 
 
 
@@ -35,14 +54,66 @@ study_cache = StudyCache(maxsize=2)
 
 
 
+def _get_recoded_mtime(study):
+    """Return the on-disk mtime of the study's recoded parquet, or ``None``
+    if the file is missing / unreadable. Used to detect stale RAM cache
+    entries when the parquet is refreshed by a worker subprocess."""
+    try:
+        filename = f"{study}_recoded.parquet"
+        if not data_io.exists(storage_location="cache", filename=filename):
+            return None
+        return data_io.getmtime(storage_location="cache", filename=filename)
+    except Exception:
+        return None
+
+
+
+
+def _enrichment_status(raw_df, require_annotated):
+    """Describe whether the loaded recoded dataset has the column needed to
+    satisfy the current ``require_annotated_items`` setting. Returned dict
+    is attached to the filtered DataFrame via ``df.attrs`` so routes can
+    surface a clear "stale data" message instead of a silent empty result.
+    """
+    needed = "annotated_ok" if require_annotated else "scraped_ok"
+    if needed in raw_df.columns:
+        return {
+            "ok": True,
+            "missing_column": None,
+            "message": None,
+        }
+    if require_annotated:
+        msg = (
+            "This study's recoded dataset is missing the 'annotated_ok' column. "
+            "Refresh the study to pick up the latest enrichment data."
+        )
+    else:
+        msg = (
+            "This study's recoded dataset is missing the 'scraped_ok' column. "
+            "Refresh the study to pick up the latest enrichment data."
+        )
+    return {
+        "ok": False,
+        "missing_column": needed,
+        "message": msg,
+    }
+
+
+
+
 def get_explorer_data(study, context=None, verbose=False):
+    # Capture parquet mtime up front so a worker rewriting the file in another
+    # process invalidates this Flask process's RAM cache automatically on the
+    # next request.
+    current_mtime = _get_recoded_mtime(study)
+
     # Check cache (First Check)
-    cached = study_cache.get(study)
-    
+    cached = study_cache.get(study, current_mtime=current_mtime)
+
     # Store raw data in cache, filter on retrieval
     raw_df = None
     raw_col_types = None
-    
+
     if cached:
         if verbose:
             print(f"    Study {study} found in RAM cache. Accessing {len(cached['df']):,} rows")
@@ -52,10 +123,10 @@ def get_explorer_data(study, context=None, verbose=False):
         # Double-Checked Locking
         if not hasattr(study_cache, 'loading_lock'):
              study_cache.loading_lock = threading.Lock()
-             
+
         with study_cache.loading_lock:
             # Check cache again (Second Check)
-            cached = study_cache.get(study)
+            cached = study_cache.get(study, current_mtime=current_mtime)
             if cached:
                 if verbose:
                     print(f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows")
@@ -72,31 +143,40 @@ def get_explorer_data(study, context=None, verbose=False):
                         print(f"The requested recoded study dataset was not found")
                     return None, None
 
-                # Store in cache (RAW DATA)
+                # Re-read the mtime *after* loading so the cache entry is
+                # tagged with the version we actually have in memory.
                 cache_item = {
-                    "df": raw_df, 
+                    "df": raw_df,
                     "col_types": raw_col_types,
+                    "mtime": _get_recoded_mtime(study),
                 }
                 study_cache.put(study, cache_item)
-    
+
     # Apply Context Filtering on a COPY
     if raw_df is not None:
-        # annotated_ok only exists once machine_annotations have been merged in.
-        # Without annotations (fresh app) the filter reduces to play/observe + item_id present.
-        if "annotated_ok" in raw_df.columns:
-            annotated_mask = raw_df["annotated_ok"].fillna(False)
-        else:
-            annotated_mask = pd.Series(False, index=raw_df.index)
+        # annotated_ok / scraped_ok only exist once the corresponding enrichment
+        # data has been merged in. Without it (fresh app) the columns may be
+        # missing — treat as all-False so nothing leaks through.
+        # When require_annotated_items is False we still require scraped_ok so that
+        # the Video Analysis viewer always has a media file to play and Explore has
+        # populated scrape metadata. Items not yet scraped are excluded either way.
+        require_annotated = fyp_cf.get("viz", {}).get("require_annotated_items", True)
+        status = _enrichment_status(raw_df, require_annotated)
 
-        if context == "viewer":
+        if require_annotated:
+            if "annotated_ok" in raw_df.columns:
+                enrichment_mask = raw_df["annotated_ok"].fillna(False)
+            else:
+                enrichment_mask = pd.Series(False, index=raw_df.index)
+        else:
+            if "scraped_ok" in raw_df.columns:
+                enrichment_mask = raw_df["scraped_ok"].fillna(False)
+            else:
+                enrichment_mask = pd.Series(False, index=raw_df.index)
+
+        if context in ("viewer", "explorer"):
             filtered_df = raw_df[
-                annotated_mask
-                & (raw_df['activity_type'].isin(['play', 'observe']))
-                & (raw_df['item_id'].notna())
-            ].copy()
-        elif context == "explorer":
-            filtered_df = raw_df[
-                annotated_mask
+                enrichment_mask
                 & (raw_df['activity_type'].isin(['play', 'observe']))
                 & (raw_df['item_id'].notna())
             ].copy()
@@ -104,6 +184,13 @@ def get_explorer_data(study, context=None, verbose=False):
             # return raw copy to be safe. this should never happen though...
             filtered_df = raw_df.copy()
 
+        # Stash the dataset status on the DataFrame so routes can surface a
+        # clear message when an empty result is caused by missing enrichment
+        # columns (i.e. the recoded parquet predates the current pipeline).
+        try:
+            filtered_df.attrs['fyp_dataset_status'] = status
+        except Exception:
+            pass
 
         return filtered_df, raw_col_types.copy()
 
