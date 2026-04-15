@@ -240,7 +240,7 @@ def _process_batch(reporter: TaskStatusReporter,
         Number of successfully processed collections in this batch.
     """
     batch_total = len(collection_ids)
-    max_workers = min(4, batch_total, os.cpu_count() or 1)
+    max_workers = min(batch_total, os.cpu_count() or 1)
     valid_count = 0
 
     if max_workers <= 1:
