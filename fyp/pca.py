@@ -16,6 +16,7 @@ from fyp.fyp_config import fyp_cf
 
 from scipy.spatial.distance import pdist as scipy_pdist, squareform as scipy_squareform
 import datetime as _dt
+import time as _time
 
 
 Group = Union[Dict[str, int], Sequence[str]]
@@ -622,12 +623,21 @@ def calculate_scaled_pca_scores(
     print(
         f"Starting Principal Component Analysis. Now: {_dt.datetime.now()}...")
 
+    # Phase timers (for Cloud Run vs local diagnostics). Each phase wall-clock
+    # is accumulated below and emitted in a single summary line at the end.
+    _t_start = _time.perf_counter()
+    _t_load = 0.0
+    _t_prep = 0.0
+    _t_pca = 0.0
+    _t_scale = 0.0
+    _t_save = 0.0
 
     if study_name is None and study_recoded_dataset is None:
         print("    [PCA] ERROR: This process cannot run without a study name or a recoded study dataset as input. Process failed.")
         return None
 
 
+    _t_phase = _time.perf_counter()
     if load_from_cache and study_name is not None:
 
         if data_io.exists(
@@ -664,8 +674,11 @@ def calculate_scaled_pca_scores(
         print("    [PCA] ERROR: This process cannot run without a study dataset. Process failed.")
         return None
 
+    _t_load = _time.perf_counter() - _t_phase
+    _t_phase = _time.perf_counter()
+
     if verbose:
-        print(f"    [PCA] Starting with a dataset of shape {study_recoded_dataset.shape}")    
+        print(f"    [PCA] Starting with a dataset of shape {study_recoded_dataset.shape}")
 
 
     # I was experimenting with this column during one stage - dropping it in case it lingers in the dataset somewhere
@@ -758,6 +771,9 @@ def calculate_scaled_pca_scores(
         if verbose:
             print("    [PCA] No groups were below the threshold")
 
+    _t_prep = _time.perf_counter() - _t_phase
+    _t_phase = _time.perf_counter()
+
     # ----------------------------
     # PCA transformation
     # ----------------------------
@@ -814,20 +830,23 @@ def calculate_scaled_pca_scores(
         
     events_pca_scores = pd.concat(events_pca_scores, axis=1)
 
+    _t_pca = _time.perf_counter() - _t_phase
+    _t_phase = _time.perf_counter()
+
     if verbose:
         print(f"    [PCA] Shape of PCA scores table: {events_pca_scores.shape}")
 
     if not scale_it:
         if verbose:
             print("    [PCA] Not scaling the scores and not saving them either")
-        
+
 
     if verbose:
         print("    [PCA] Scaling pca scores and concatenating factors into the scaled table")
-    
+
     events_pca_scores_scaled = pd.DataFrame(
-        StandardScaler().fit_transform(events_pca_scores), 
-        index=events_pca_scores.index, 
+        StandardScaler().fit_transform(events_pca_scores),
+        index=events_pca_scores.index,
         columns=events_pca_scores.columns)
 
     events_pca_scores_scaled.reset_index(inplace=True)
@@ -877,6 +896,8 @@ def calculate_scaled_pca_scores(
         print("    [PCA] Converting dtypes to pyarrow")
     events_pca_scores_scaled = convert_dtypes_to_pyarrow(events_pca_scores_scaled, verbose=verbose)
 
+    _t_scale = _time.perf_counter() - _t_phase
+    _t_phase = _time.perf_counter()
 
     if save_to_cache and study_name is not None:
         pca_filename = f"{study_name}_PCA.parquet"
@@ -901,9 +922,17 @@ def calculate_scaled_pca_scores(
         if verbose:
             print(f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'.")
 
+    _t_save = _time.perf_counter() - _t_phase
+    _t_total = _time.perf_counter() - _t_start
+
+    print(
+        f"    [PCA][TIMING] study={study_name} "
+        f"load={_t_load:.2f}s prep={_t_prep:.2f}s pca={_t_pca:.2f}s "
+        f"scale={_t_scale:.2f}s save={_t_save:.2f}s total={_t_total:.2f}s"
+    )
     print(f"...done. PCA completed at {_dt.datetime.now()}")
 
 
-            
+
     return events_pca_scores_scaled, comp_interpretations
 

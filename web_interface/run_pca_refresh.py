@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 
 # Add project root to sys.path
@@ -17,6 +18,7 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
 
     task_args = task_args or {}
     reporter.log("Starting PCA / Correlations Refresh...")
+    _t_run_start = time.perf_counter()
 
     # Init studies
     init_study_defs()
@@ -40,6 +42,7 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
             break
         reporter.update_progress(int((i / total) * 100), f"Processing {study_name} ({i + 1}/{total})...")
         reporter.log(f"Processing study: {study_name}")
+        _t_study_start = time.perf_counter()
 
         try:
             stats = config.get('stats', {})
@@ -64,8 +67,12 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
         except Exception as e:
             reporter.log(f"Error processing {study_name}: {e}")
 
+        _t_study = time.perf_counter() - _t_study_start
+        reporter.log(f"  [TIMING] study={study_name} total={_t_study:.2f}s")
         reporter.update_progress(int(((i + 1) / total) * 100), f"Done {i + 1}/{total}")
 
+    _t_run = time.perf_counter() - _t_run_start
+    reporter.log(f"[TIMING] pca_refresh wall={_t_run:.2f}s studies={total}")
     reporter.log("PCA / Correlations refresh completed.")
 
 

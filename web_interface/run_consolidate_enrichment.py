@@ -1,5 +1,6 @@
 import sys
 import json
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -18,8 +19,11 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         consolidate_enrichment_data, SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL
     )
 
+    _t_run_start = time.perf_counter()
+
     # Stage 1: Count new files before consolidation
     reporter.update_progress(0, "Counting new files...")
+    _t_phase = time.perf_counter()
 
     known_scrape: set[str] = set()
     known_annotation: set[str] = set()
@@ -44,13 +48,18 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     new_scrape_count = len(current_scrape - known_scrape)
     new_annotation_count = len(current_annotation - known_annotation)
 
+    _t_discover = time.perf_counter() - _t_phase
+
     # Stage 2: Run consolidation
     reporter.update_progress(10, "Consolidating annotations...")
+    _t_phase = time.perf_counter()
 
     force = bool(task_args.get("force_consolidation")) if task_args else False
     result = consolidate_enrichment_data(force_consolidation=force, verbose=False)
     had_new_data = result.get("had_new_data", False) if result else False
     impact = result.get("impact") if result else None
+
+    _t_consolidate = time.perf_counter() - _t_phase
 
     # Stage 3: Emit results
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -72,6 +81,13 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     }
 
     reporter.emit_data(data_payload)
+    _t_total = time.perf_counter() - _t_run_start
+    reporter.log(
+        f"[TIMING] consolidate_enrichment discover={_t_discover:.2f}s "
+        f"consolidate={_t_consolidate:.2f}s total={_t_total:.2f}s "
+        f"new_scrape={new_scrape_count} new_anno={new_annotation_count} "
+        f"had_new_data={had_new_data}"
+    )
     reporter.log("Consolidation finished.")
 
 

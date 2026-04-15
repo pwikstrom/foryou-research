@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -19,6 +20,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
 
     task_args = task_args or {}
     reporter.log("Starting Study Definitions (Recoded Data) Refresh...")
+    _t_run_start = time.perf_counter()
 
     # Init studies
     init_study_defs()
@@ -37,10 +39,13 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         return
 
     # Pre-load enrichment status once for all studies
+    _t_phase = time.perf_counter()
     df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
     if df_status is not None and not df_status.empty:
         if 'item_id' not in df_status.columns and df_status.index.name == 'item_id':
             df_status = df_status.reset_index()
+    _t_status_load = time.perf_counter() - _t_phase
+    reporter.log(f"[TIMING] enrichment_status load={_t_status_load:.2f}s")
 
     for i, (study_name, config) in enumerate(studies.items()):
         if reporter.check_cancelled():
@@ -48,6 +53,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
             break
         reporter.update_progress(int((i / total) * 100), f"Processing {study_name} ({i + 1}/{total})...")
         reporter.log(f"Processing study: {study_name}")
+        _t_study_start = time.perf_counter()
 
         try:
             df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, enrichment_status=df_status, verbose=False)
@@ -93,6 +99,8 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         except Exception as e:
             reporter.log(f"Error processing {study_name}: {e}")
 
+        _t_study = time.perf_counter() - _t_study_start
+        reporter.log(f"  [TIMING] study={study_name} total={_t_study:.2f}s")
         reporter.update_progress(int(((i + 1) / total) * 100), f"Done {i + 1}/{total}")
 
     # Persist updated stats to studies.json
@@ -102,6 +110,8 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         fyp_cf['study_defs'][sn] = sc
     save_study_defs()
     reporter.log("Stats saved to studies.json.")
+    _t_run = time.perf_counter() - _t_run_start
+    reporter.log(f"[TIMING] recode_refresh_studies wall={_t_run:.2f}s studies={total}")
     reporter.log("Study Definitions (Recoded Data) refresh completed.")
 
 

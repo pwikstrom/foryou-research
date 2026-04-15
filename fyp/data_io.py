@@ -10,7 +10,9 @@ Author: Patrik
 import datetime as _dt
 from datetime import datetime, timedelta
 from fyp.types import convert_dtypes_to_pyarrow
+import io
 import shutil
+import tempfile
 import gcsfs
 import json
 import os
@@ -18,8 +20,20 @@ import pandas as pd
 import pyarrow.parquet as pq
 import numpy as np
 import threading
+import time as _time
 from concurrent.futures import ThreadPoolExecutor
 from fyp.fyp_config import fyp_cf
+
+
+def _io_log(op: str, loc: str, filename: str, mode: str, bytes_: int, t_ms: float) -> None:
+    """Emit a single-line IO timing log line for grepping in Cloud Run logs.
+
+    Format: [IO] op=OP loc=LOC file=FILE mode=MODE bytes=N ms=MS
+    Bytes is an approximation (in-memory DataFrame size for parquet, JSON payload
+    length for json). Used to compare GCS vs local I/O cost.
+    """
+    bn = os.path.basename(filename) if filename else ""
+    print(f"[IO] op={op} loc={loc} file={bn} mode={mode} bytes={bytes_} ms={t_ms:.1f}")
 
 
 
@@ -328,8 +342,9 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
     List files in the given storage location.
     Handles GCS listing if configured.
     """
-    
-    
+
+    _t_io = _time.perf_counter()
+
     gcs_base = False
     use_gcs = False
     if storage_location == 'cache':
@@ -403,6 +418,15 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
             files = [os.path.join(local_dir, f) for f in files]
 
         #if verbose: print(f"    [DATA_IO] Listed {len(files)} files in local storage '{storage_location}'")
+
+    _io_log(
+        op="listdir",
+        loc=storage_location,
+        filename="",
+        mode=("gcs" if use_gcs and gcs_base else "local"),
+        bytes_=len(files),
+        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+    )
 
     return files
 
@@ -582,8 +606,9 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
         if verbose: print(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
-    
+
     # Attempt Primary Load
+    _t_io = _time.perf_counter()
     try:
         if mode == 'gcs':
             bucket = _get_bucket()
@@ -592,6 +617,14 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
                 # Check existence to avoid generic 404 error masked as something else
                 if blob.exists():
                      content = blob.download_as_text()
+                     _io_log(
+                         op="load_json",
+                         loc=storage_location,
+                         filename=filename,
+                         mode=mode,
+                         bytes_=len(content),
+                         t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+                     )
                      return json.loads(content)
                 else:
                      if verbose: print(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
@@ -600,8 +633,17 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
         else:
             # Local from local
             with open(primary, 'r', encoding='utf-8') as file:
-                return json.load(file)
-                
+                content = file.read()
+                _io_log(
+                    op="load_json",
+                    loc=storage_location,
+                    filename=filename,
+                    mode=mode,
+                    bytes_=len(content),
+                    t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+                )
+                return json.loads(content)
+
     except Exception as e:
         if verbose: print(f"    [DATA_IO] Loading json failed ({mode}): {e}")
         # If we are in local mode, primary failed, no secondary. Raise/Return None.
@@ -638,12 +680,15 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
         
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
+    payload = json.dumps(data)
+
     # 1. Save Primary
+    _t_io = _time.perf_counter()
     if mode == 'gcs':
         bucket = _get_bucket()
         if bucket:
              blob = bucket.blob(blob_name)
-             blob.upload_from_string(json.dumps(data))
+             blob.upload_from_string(payload)
              if verbose: print(f"    [DATA_IO] Saved JSON to GCS: {blob_name}")
         else:
              raise ValueError("GCS bucket not initialized")
@@ -651,7 +696,16 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
         # Local
         os.makedirs(os.path.dirname(primary), exist_ok=True)
         with open(primary, 'w', encoding='utf-8') as file:
-            json.dump(data, file)
+            file.write(payload)
+
+    _io_log(
+        op="save_json",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=len(payload),
+        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+    )
 
     return 0
             
@@ -792,8 +846,9 @@ def load_parquet(
                 print(f"    [DATA_IO] Column selection: {columns}")
 
 
-        if verbose: 
+        if verbose:
             print(f"    [DATA_IO] Loading: all parquet files from folder '{storage_location}' (gcs)... ")
+        _t_io = _time.perf_counter()
         df = pd.read_parquet(
             files,
             filesystem=fs,
@@ -802,12 +857,22 @@ def load_parquet(
             dtype_backend="pyarrow",
             columns=columns,
             filters=filters)
-        if verbose: 
+        _t_io_ms = (_time.perf_counter() - _t_io) * 1000.0
+        if verbose:
             print(f"    [DATA_IO] ...done (shape: {df.shape})")
 
         # type management to be sure
         df = convert_dtypes_to_pyarrow(df, verbose=verbose)
         df = _repair_stringified_multiindex(df)
+
+        _io_log(
+            op="load_parquet_glob",
+            loc=storage_location,
+            filename=f"*.parquet ({len(files)} files)",
+            mode="gcs",
+            bytes_=int(df.memory_usage(deep=True).sum()),
+            t_ms=_t_io_ms,
+        )
 
         if verbose:
             t2 = _dt.datetime.now()
@@ -847,21 +912,50 @@ def load_parquet(
 
 
     if verbose: print(f"    [DATA_IO] Loading: '{filename}' from '{storage_location}' ({mode})...")
+    _t_io = _time.perf_counter()
     try:
-        df = pd.read_parquet(
-            primary,
-            engine='pyarrow',
-            dtype_backend="pyarrow",
-            use_threads=True,
-            columns=columns,
-            filters=filters)
+        if mode == 'gcs':
+            # Bypass gcsfs: download the blob to memory, then decode with
+            # pyarrow directly. Benchmarks on task-runner showed this is
+            # ~1.2-2.3x faster than pd.read_parquet("gs://...") and has
+            # lower tail-latency variance. See run_benchmark_parquet_read.py.
+            _, _, _, blob_name = _resolve_paths(storage_location, filename)
+            bucket = _get_bucket()
+            if not bucket:
+                raise ValueError("GCS bucket not initialized")
+            raw = bucket.blob(blob_name).download_as_bytes()
+            table = pq.read_table(
+                io.BytesIO(raw),
+                columns=columns,
+                filters=filters,
+                use_threads=True,
+            )
+            df = table.to_pandas(types_mapper=pd.ArrowDtype)
+        else:
+            df = pd.read_parquet(
+                primary,
+                engine='pyarrow',
+                dtype_backend="pyarrow",
+                use_threads=True,
+                columns=columns,
+                filters=filters)
     except Exception as e:
         print(f" !! [DATA_IO] WARNING: Loading '{filename}' failed: {e}")
         return None
+    _t_io_ms = (_time.perf_counter() - _t_io) * 1000.0
 
     # type management to be sure
     df = convert_dtypes_to_pyarrow(df, verbose=verbose)
     df = _repair_stringified_multiindex(df)
+
+    _io_log(
+        op="load_parquet",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=int(df.memory_usage(deep=True).sum()),
+        t_ms=_t_io_ms,
+    )
 
     if verbose:
         t2 = _dt.datetime.now()
@@ -954,6 +1048,7 @@ def load_parquet_selective(
     if set_index is not None and cols_to_read is not None and set_index not in cols_to_read:
         cols_to_read = cols_to_read + [set_index]
 
+    _t_io = _time.perf_counter()
     try:
         if mode == 'gcs':
             tbl = pq.read_table(primary, columns=cols_to_read, filters=filters, filesystem=fs)
@@ -962,6 +1057,7 @@ def load_parquet_selective(
     except Exception as e:
         print(f" !! [DATA_IO] WARNING: load_parquet_selective: read failed for '{filename}': {e}")
         return None
+    _t_io_ms = (_time.perf_counter() - _t_io) * 1000.0
 
     # Strip the `pandas` schema metadata to avoid the
     # `list<element: string>[pyarrow]` dtype-resolution failure during
@@ -976,6 +1072,15 @@ def load_parquet_selective(
 
     if set_index is not None and set_index in df.columns:
         df = df.set_index(set_index)
+
+    _io_log(
+        op="load_parquet_selective",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=int(df.memory_usage(deep=True).sum()),
+        t_ms=_t_io_ms,
+    )
 
     if verbose:
         t2 = _dt.datetime.now()
@@ -1048,6 +1153,46 @@ def save_parquet(
     else:
         my_compression_level = 0
     
+    _t_io = _time.perf_counter()
+    _io_sync = True  # only flip to False on the async branch below
+
+    def _write_parquet(df_to_write):
+        """Write df as parquet to its resolved destination.
+
+        For GCS, write to a local tempfile then upload via blob.upload_from_filename
+        — significantly faster than pd.to_parquet("gs://...") which goes through
+        gcsfs and incurs large per-call overhead on small files.
+        """
+        if mode == 'gcs':
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+                    tmp_path = tmp.name
+                df_to_write.to_parquet(
+                    tmp_path,
+                    engine='pyarrow',
+                    compression="zstd",
+                    compression_level=my_compression_level,
+                )
+                bucket = _get_bucket()
+                if not bucket:
+                    raise ValueError("GCS bucket not initialized")
+                bucket.blob(blob_name).upload_from_filename(tmp_path)
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+        else:
+            os.makedirs(os.path.dirname(primary), exist_ok=True)
+            df_to_write.to_parquet(
+                primary,
+                engine='pyarrow',
+                compression="zstd",
+                compression_level=my_compression_level,
+            )
+
     if storage_location == "cache":
         def alert_finished(future):
             if future.exception():
@@ -1056,32 +1201,41 @@ def save_parquet(
             else:
                 if verbose:
                     print("    [DATA_IO ASYNC] Parquet save succeeded.")
-                    
-        def safe_save(df, path):
+
+        def safe_save(df):
             # This 'with' block ensures only one thread can execute the save at a time
             with file_lock:
                 if verbose:
-                    print(f"    [DATA_IO ASYNC] Starting save to {path}... (locked)")
-                df.to_parquet(path, engine='pyarrow', compression="zstd", compression_level=my_compression_level)
+                    print(f"    [DATA_IO ASYNC] Starting save to {primary}... (locked)")
+                _write_parquet(df)
                 if verbose:
-                    print(f"    [DATA_IO ASYNC] Finished save to {path}. (unlocked)")
+                    print(f"    [DATA_IO ASYNC] Finished save to {primary}. (unlocked)")
 
-        os.makedirs(os.path.dirname(primary), exist_ok=True)
         if asyncronous:
+            _io_sync = False
             executor = ThreadPoolExecutor(max_workers=2)
 
-            future = executor.submit(safe_save, this_df.copy(), primary)
+            future = executor.submit(safe_save, this_df.copy())
             future.add_done_callback(alert_finished)
         else:
-            safe_save(this_df.copy(), primary)
+            safe_save(this_df.copy())
 
     else:
-        os.makedirs(os.path.dirname(primary), exist_ok=True)
-        this_df.to_parquet(primary, engine='pyarrow', compression="zstd", compression_level=my_compression_level)
-    
-    
+        _write_parquet(this_df)
+
+    if _io_sync:
+        _t_io_ms = (_time.perf_counter() - _t_io) * 1000.0
+        _io_log(
+            op="save_parquet",
+            loc=storage_location,
+            filename=filename,
+            mode=mode,
+            bytes_=int(total_memory_bytes),
+            t_ms=_t_io_ms,
+        )
+
     if verbose: print(f"    [DATA_IO] ...moving on. Shape: {this_df.shape}")
-    
+
     return this_df
 
 

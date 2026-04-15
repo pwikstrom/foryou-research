@@ -1,5 +1,6 @@
 import os
 import json
+import time as _time
 from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 from flask_login import login_required, current_user
@@ -42,16 +43,26 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
     if not selected:
          return empty_stats, None
 
-    # 1. Load enrichment status once (used for both dataset creation and stats matching)
+    _t_total = _time.perf_counter()
+
+    # 1. Load enrichment status once (used for both dataset creation and stats matching).
+    # We previously tried backgrounding this load, but simple_sample_collection_events
+    # reloaded the parquet for its diagnostic summary, defeating the parallelism and
+    # causing a duplicate read. Serial load + pass-through is simpler and lets callees
+    # reuse the DataFrame without a second GCS round-trip.
+    _t_phase = _time.perf_counter()
     df_status = None
     if data_io.exists(storage_location="recoded", filename='enrichment_status.parquet'):
         df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
+    _t_status = _time.perf_counter() - _t_phase
 
-    # 2. Create the recoded dataset, passing enrichment_status to avoid reloading
+    # 2. Create the recoded dataset, passing enrichment_status to avoid reloading.
     print(f"Creating/updating recoded dataset for '{study_name}' to calculate stats...")
+    _t_phase = _time.perf_counter()
     df_study = create_study_recoded_dataset(
         study_name=study_name, save_to_cache=save_to_cache,
         enrichment_status=df_status, verbose=False)
+    _t_recode = _time.perf_counter() - _t_phase
 
     if df_study is None or df_study.empty:
         print(f"No data found for study '{study_name}'. Removing all cached files for this study.")
@@ -62,6 +73,7 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
         return empty_stats, None
 
     # 3. Count unique items
+    _t_phase = _time.perf_counter()
     total_activities = len(df_study)
     unique_collections = df_study['collection_id'].nunique()
     unique_videos = df_study['item_id'].nunique()
@@ -100,6 +112,15 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
         "annotated_videos": annotated_videos,
         "unique_collections": int(unique_collections)
     }
+
+    _t_count = _time.perf_counter() - _t_phase
+    _t_stats_total = _time.perf_counter() - _t_total
+    print(
+        f"[STATS][TIMING] study={study_name} "
+        f"status_load={_t_status:.2f}s recode={_t_recode:.2f}s "
+        f"count={_t_count:.2f}s total={_t_stats_total:.2f}s"
+    )
+
     return stats, df_study
 
 

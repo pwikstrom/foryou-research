@@ -25,6 +25,7 @@ CLOUD_TASK_ELIGIBLE = {
     "queue_annotator",
     "queue_scraper",
     "timelines_refresh",
+    "benchmark_parquet_read",
 }
 
 

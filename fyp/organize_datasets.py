@@ -3,6 +3,7 @@ import re
 import numpy as np
 import pandas as pd
 import datetime as _dt
+import time as _time
 from copy import deepcopy
 
 import fyp.data_io as data_io
@@ -93,39 +94,49 @@ def _filter_enrichment_data(
     If the data is already present (from cache), it is filtered. Otherwise it is loaded from
     main storage with a parquet filter.
     """
-    sel = None if study_name == 'everything' else [("item_id", "in", list(unique_videos))]
+    # Previously we pushed filters=[("item_id", "in", <27k ids>)] into pyarrow.
+    # That forced pyarrow to decode every row group and evaluate a 27k-element
+    # set-membership predicate per row — slower than just reading the full file.
+    # We now load whole files and filter in memory. Parallel loads were tried
+    # here but offered no speedup (GIL-serialised decode), so this stays serial.
 
     # scrape data
+    _t_s = _time.perf_counter()
     if tutti_data.get(SCRAPES_LABEL) is None or tutti_data[SCRAPES_LABEL].empty:
         if not data_io.exists(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"):
             print(f"    [Scrape] '{SCRAPES_LABEL}_recoded.parquet' not present — treating as empty")
             tutti_data[SCRAPES_LABEL] = pd.DataFrame()
         else:
-            print("    [Scrape] Loading scraped data from main storage...", end="", flush=True)
-            if verbose: print()
-            tutti_data[SCRAPES_LABEL] = data_io.load_parquet(
-                storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
-            if not verbose: print(" ...done")
+            print("    [Scrape] Loading scraped data from main storage...", flush=True)
+            scrapes_df = data_io.load_parquet(
+                storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet", verbose=verbose)
+            if scrapes_df is not None and not scrapes_df.empty and study_name != 'everything':
+                scrapes_df = scrapes_df[scrapes_df["item_id"].isin(unique_videos)].copy()
+            tutti_data[SCRAPES_LABEL] = scrapes_df if scrapes_df is not None else pd.DataFrame()
+            print(f"    [Scrape] ...done. Kept {len(tutti_data[SCRAPES_LABEL]):,} rows in {_time.perf_counter() - _t_s:.2f}s.")
     else:
-        print(f"    [Scrape] There are {len(tutti_data[SCRAPES_LABEL]):,} scraped data items in the cache", end="", flush=True)
-        tutti_data[SCRAPES_LABEL] = tutti_data[SCRAPES_LABEL][tutti_data[SCRAPES_LABEL]["item_id"].isin(unique_videos)].copy()
-        print(f" and {len(tutti_data[SCRAPES_LABEL]):,} of those overlap with the activity datasets.")
+        cached = tutti_data[SCRAPES_LABEL]
+        tutti_data[SCRAPES_LABEL] = cached[cached["item_id"].isin(unique_videos)].copy()
+        print(f"    [Scrape] Cache had {len(cached):,} items; {len(tutti_data[SCRAPES_LABEL]):,} overlap with activity datasets.")
 
     # machine annotations
+    _t_a = _time.perf_counter()
     if tutti_data.get(MACHINE_ANNOTATIONS_LABEL) is None or tutti_data[MACHINE_ANNOTATIONS_LABEL].empty:
         if not data_io.exists(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"):
             print(f"    [Machine annotations] '{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet' not present — treating as empty")
             tutti_data[MACHINE_ANNOTATIONS_LABEL] = pd.DataFrame()
         else:
-            print("    [Machine annotations] Loading machine annotations from main storage...", end="", flush=True)
-            if verbose: print()
-            tutti_data[MACHINE_ANNOTATIONS_LABEL] = data_io.load_parquet(
-                storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
-            if not verbose: print(" ...done")
+            print("    [Machine annotations] Loading machine annotations from main storage...", flush=True)
+            annotations_df = data_io.load_parquet(
+                storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", verbose=verbose)
+            if annotations_df is not None and not annotations_df.empty and study_name != 'everything':
+                annotations_df = annotations_df[annotations_df["item_id"].isin(unique_videos)].copy()
+            tutti_data[MACHINE_ANNOTATIONS_LABEL] = annotations_df if annotations_df is not None else pd.DataFrame()
+            print(f"    [Machine annotations] ...done. Kept {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} rows in {_time.perf_counter() - _t_a:.2f}s.")
     else:
-        print(f"    [Machine annotations] There are {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} annotations in the cache", end="", flush=True)
-        tutti_data[MACHINE_ANNOTATIONS_LABEL] = tutti_data[MACHINE_ANNOTATIONS_LABEL][tutti_data[MACHINE_ANNOTATIONS_LABEL]["item_id"].isin(unique_videos)].copy()
-        print(f" and {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} of those overlap with the activity datasets.")
+        cached = tutti_data[MACHINE_ANNOTATIONS_LABEL]
+        tutti_data[MACHINE_ANNOTATIONS_LABEL] = cached[cached["item_id"].isin(unique_videos)].copy()
+        print(f"    [Machine annotations] Cache had {len(cached):,} items; {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} overlap with activity datasets.")
 
 
 
@@ -343,14 +354,10 @@ def simple_sample_collection_events(
     combined.drop("D_id", axis=1, inplace=True, errors='ignore')
 
 
-    if enrichment_status is not None:
-        enrichment_status_df = enrichment_status
-    elif data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-        enrichment_status_df = data_io.load_parquet(
-            storage_location="recoded",
-            filename="enrichment_status.parquet")
-    else:
-        enrichment_status_df = None
+    # Caller is responsible for passing enrichment_status if the summary is wanted.
+    # We deliberately do not reload from GCS here — an earlier version did, which
+    # caused a duplicate read of enrichment_status.parquet per study refresh.
+    enrichment_status_df = enrichment_status
 
     combined_deduped = combined.drop_duplicates(subset="item_id", keep="first")[["item_id"]]
 
@@ -450,19 +457,20 @@ def load_study_datasets(
         print(f"    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data.")
         sample_frame = None
 
+    elif sample_frame_setting == "events":
+        # 'events' doesn't need enrichment_status — use all collection events as the frame.
+        sample_frame = tutti_data["collections"].copy()
+        print(f"    [DD Sampling] Sample frame setting is 'events'. Using all {len(sample_frame):,} collection events as sample frame.")
+
     else:
-        # enrichment_status is only needed when sampling is active
+        # 'scraped' and 'annotated' require enrichment_status to pick rows.
         if enrichment_status is None:
             if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
                 enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
             else:
                 print("    [DD Sampling] 'enrichment_status.parquet' not present — no enrichment data available yet")
 
-        if sample_frame_setting == "events":
-            sample_frame = tutti_data["collections"].copy()
-            print(f"    [DD Sampling] Sample frame setting is 'events'. Using all {len(sample_frame):,} collection events as sample frame.")
-
-        elif sample_frame_setting == "scraped":
+        if sample_frame_setting == "scraped":
             if enrichment_status is None:
                 print(f"!!! [DD Sampling] Sample frame setting is 'scraped' but no enrichment_status is available. Returning None")
                 return None
@@ -913,25 +921,35 @@ def create_study_recoded_dataset(
 
     print(f"Generating unified dataset for study '{study_name}'")
 
+    _t_phase = _time.perf_counter()
     all_datasets = load_study_datasets(
         study_name=study_name,
         all_datasets=all_datasets,
         load_from_cache=load_from_cache,
         enrichment_status=enrichment_status,
         verbose=verbose)
+    _t_load = _time.perf_counter() - _t_phase
 
     if all_datasets is None:
         print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
+        print(f"[RECODE][TIMING] study={study_name} load={_t_load:.2f}s merge=0.00s total={_t_load:.2f}s")
         return None
 
+    _t_phase = _time.perf_counter()
     study_recoded_dataset = new_merge(
         study_name=study_name,
         all_datasets=all_datasets,
         save_to_cache=save_to_cache,
         verbose=verbose
     )
+    _t_merge = _time.perf_counter() - _t_phase
 
     print(f"...done. Unified dataset for study '{study_name}' generated. Total memory used: {_df_size_mb(study_recoded_dataset):.2f} MB")
+    print(
+        f"[RECODE][TIMING] study={study_name} "
+        f"load={_t_load:.2f}s merge={_t_merge:.2f}s "
+        f"total={(_t_load + _t_merge):.2f}s"
+    )
 
     return study_recoded_dataset
 

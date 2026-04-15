@@ -8,6 +8,7 @@ or run synchronously as a subprocess in local dev.
 
 import sys
 import json
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -46,10 +47,15 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     refresh_metadata: bool = task_args.get("refresh_metadata", True)
 
     reporter.log(f"Starting study refresh for '{study_name}'...")
+    _t_run_start = time.perf_counter()
+    _t_stats = 0.0
+    _t_pca_phase = 0.0
+    _t_meta = 0.0
 
     # ---- Step 1: Calculate stats (creates recoded dataset) ----
     reporter.update_progress(0, "Calculating stats...")
     reporter.log(f"Calculating stats for {study_name}...")
+    _t_phase = time.perf_counter()
 
     init_study_defs()
     studies = fyp_cf["study_defs"]
@@ -68,6 +74,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     fyp_cf["study_defs"] = studies
     save_study_defs()
     reporter.log(f"Stats: {stats}")
+    _t_stats = time.perf_counter() - _t_phase
 
     if reporter.check_cancelled():
         reporter.log("Cancelled by user.")
@@ -81,12 +88,14 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     if refresh_pca and stats["annotated_videos"] > 0 and df_recoded is not None:
         reporter.update_progress(25, "Calculating PCA...")
         reporter.log(f"Running PCA for {study_name}...")
+        _t_phase = time.perf_counter()
         calculate_scaled_pca_scores(
             study_name=study_name,
             study_recoded_dataset=df_recoded,
             load_from_cache=False,
             save_to_cache=True,
         )
+        _t_pca_phase = time.perf_counter() - _t_phase
         reporter.log("PCA complete.")
     else:
         reporter.log("PCA skipped (no annotated videos or flag off).")
@@ -113,6 +122,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     if refresh_metadata and stats["unique_videos"] > 0 and df_recoded is not None:
         reporter.update_progress(50, "Generating metadata...")
         reporter.log(f"Classifying columns for metadata generation...")
+        _t_phase = time.perf_counter()
         col_types = explorer.classify_columns(df_recoded)
 
         # Filter to annotated (or scraped) play/observe events.
@@ -182,6 +192,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
             verbose=False,
         )
         reporter.log("Explorer metadata saved.")
+        _t_meta = time.perf_counter() - _t_phase
     else:
         reporter.log("Metadata refresh skipped.")
 
@@ -189,6 +200,12 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     del df_recoded
 
     reporter.emit_data({"study_name": study_name, "stats": stats})
+    _t_total = time.perf_counter() - _t_run_start
+    reporter.log(
+        f"[TIMING] study_refresh study={study_name} "
+        f"stats={_t_stats:.2f}s pca={_t_pca_phase:.2f}s meta={_t_meta:.2f}s "
+        f"total={_t_total:.2f}s"
+    )
     reporter.log(f"Study refresh for '{study_name}' complete.")
 
 

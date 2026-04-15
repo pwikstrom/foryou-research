@@ -271,6 +271,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_queue_annotator import run_queue_annotator
     from web_interface.run_queue_scraper import run_queue_scraper
     from web_interface.run_timelines_refresh import run_timelines_refresh
+    from web_interface.run_benchmark_parquet_read import run_benchmark_parquet_read
 
     TASK_FUNCTIONS.update({
         "consolidate_enrichment": run_consolidate_enrichment,
@@ -281,6 +282,7 @@ def _ensure_task_functions_loaded() -> None:
         "queue_annotator": run_queue_annotator,
         "queue_scraper": run_queue_scraper,
         "timelines_refresh": run_timelines_refresh,
+        "benchmark_parquet_read": run_benchmark_parquet_read,
     })
 
 
