@@ -1284,8 +1284,14 @@ function onCascadeRefreshComplete() {
     _cascadeRefresh = null;
     updateCascadeButton();
     updateCascadeRefreshPageLock(false);
-    fetchEnrichmentStats(); // Re-fetch to update impact panel (should hide it)
-    if (typeof fetchStalenessStatus === 'function') fetchStalenessStatus();
+    // Call staleness FIRST so the backend clears `consolidation_impact` from
+    // process_stats when all downstream is fresh. Only then refresh enrichment
+    // stats — otherwise the stats endpoint still returns the stale impact and
+    // the panel re-appears.
+    const stalePromise = (typeof fetchStalenessStatus === 'function')
+        ? fetchStalenessStatus()
+        : Promise.resolve();
+    Promise.resolve(stalePromise).finally(() => fetchEnrichmentStats());
 }
 
 function updateCascadeButton() {
@@ -1559,7 +1565,7 @@ function pollConsolidationStatus(btn, originalText, originalClass) {
 }
 
 function fetchStalenessStatus() {
-    fetch('/api/manage/refresh/staleness')
+    return fetch('/api/manage/refresh/staleness')
         .then(res => res.json())
         .then(data => {
             if (!data.has_impact) {
@@ -1567,6 +1573,11 @@ function fetchStalenessStatus() {
                     const el = document.getElementById(`${name}-stale`);
                     if (el) el.style.display = 'none';
                 });
+                // Authoritative signal that impact is gone — hide the panel
+                // immediately so it doesn't linger while enrichment stats reload.
+                if (typeof renderConsolidationImpact === 'function') {
+                    renderConsolidationImpact(null);
+                }
                 return;
             }
             const procs = data.processes || {};

@@ -818,7 +818,11 @@ function resetViewerFilters() {
     const searchInput = document.getElementById('viewer-search-input');
     if (searchInput) searchInput.value = "";
 
-    loadViewerMetadata(); // Re-render to clear inputs
+    const hideDup = document.getElementById('viewer-hide-duplicates');
+    if (hideDup) hideDup.checked = false;
+
+    loadViewerMetadata(); // Re-render filter panel to clear inputs
+    applyViewerFilters(); // Re-query the video list with cleared filters
 }
 
 function toggleViewerSort() {
