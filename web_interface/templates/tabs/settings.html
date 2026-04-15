@@ -112,8 +112,9 @@
                     ['Architecture', info.architecture],
                     ['Python', info.python_version],
                     ['CPUs', info.cpu_count],
-                    ['RAM', `${info.ram_total_gb} GB (${info.ram_used_pct}% used)`],
-                    ['Disk', `${info.disk_total_gb} GB total, ${info.disk_free_gb} GB free`],
+                    ['Data storage', info.data_location],
+                    ['Media storage', info.media_location],
+                    ['Cache storage', info.cache_location],
                 ].filter(Boolean);
 
                 const html = rows.map(([label, value]) =>

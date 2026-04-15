@@ -2250,17 +2250,6 @@ def api_video_stream(study, item_id):
 def system_info():
     """Return basic system information for the Information panel."""
     import platform
-    import shutil
-    import psutil
-
-    mem = psutil.virtual_memory()
-
-    # Disk: use shutil.disk_usage which reports the full filesystem correctly
-    # On macOS with APFS, psutil.disk_usage('/') only sees the volume, not the container
-    disk = shutil.disk_usage('/')
-    disk_total_gb = round(disk.total / (1024 ** 3), 1)
-    disk_used_gb = round(disk.used / (1024 ** 3), 1)
-    disk_free_gb = round(disk.free / (1024 ** 3), 1)
 
     # Detect Google Cloud Run via its injected environment variables
     k_service = os.environ.get('K_SERVICE')
@@ -2273,18 +2262,22 @@ def system_info():
         environment = "Local"
         revision = None
 
+    # Storage locations: Local or Remote based on the use_gcs_for_* flags
+    data_io_cf = fyp_cf.get('data_io', {})
+    data_location = "Remote" if data_io_cf.get('use_gcs_for_data') else "Local"
+    media_location = "Remote" if data_io_cf.get('use_gcs_for_media') else "Local"
+    cache_location = "Remote" if data_io_cf.get('use_gcs_for_cache') else "Local"
+
     info = {
         'os': f"{platform.system()} {platform.release()}",
         'architecture': platform.machine(),
         'python_version': platform.python_version(),
         'cpu_count': os.cpu_count(),
-        'ram_total_gb': round(mem.total / (1024 ** 3), 1),
-        'ram_used_pct': mem.percent,
-        'disk_total_gb': disk_total_gb,
-        'disk_used_gb': disk_used_gb,
-        'disk_free_gb': disk_free_gb,
         'environment': environment,
         'revision': revision,
+        'data_location': data_location,
+        'media_location': media_location,
+        'cache_location': cache_location,
     }
 
     return jsonify(info)
