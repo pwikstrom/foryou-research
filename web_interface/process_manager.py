@@ -279,6 +279,11 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         processes[name]["study_name"] = study_name
         processes[name]["progress"] = {}
         processes[name]["last_message"] = ""
+        # Reset emitted data too — otherwise the in-memory ::DATA:: payload
+        # from a previous run leaks into /api/status until the new worker
+        # emits its own, making the UI show stale values (e.g. the
+        # Consolidation Impact panel carrying the prior run's impact).
+        processes[name]["data"] = {}
 
         # Start logging thread
         t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]))

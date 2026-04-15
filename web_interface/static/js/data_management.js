@@ -1470,6 +1470,9 @@ function consolidateEnrichmentData(btn, force = false) {
         : document.getElementById('btn-consolidate-force');
     if (otherBtn) otherBtn.disabled = true;
     const statusEl = document.getElementById('consolidate-status');
+    // Hide the impact panel up-front so the old run's summary doesn't linger
+    // while the new run is in flight. It will re-render on completion.
+    renderConsolidationImpact(null);
 
     fetch('/api/manage/enrichment/consolidate', {
         method: 'POST',
@@ -1535,6 +1538,9 @@ function pollConsolidationStatus(btn, originalText, originalClass) {
                     } else {
                         statusEl.textContent = "Consolidation failed. Check logs.";
                         statusEl.style.color = 'var(--color-danger)';
+                        // Clear the impact panel so a failed run doesn't
+                        // leave the previous summary on screen.
+                        renderConsolidationImpact(null);
                     }
                 }
             })
