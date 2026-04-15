@@ -1019,6 +1019,13 @@ def _evaluate_consolidation_staleness() -> dict:
         consolidate_entry.pop("consolidation_impact", None)
         process_stats["consolidate_enrichment"] = consolidate_entry
         save_process_stats()
+        # Also drop the in-memory copy. get_enrichment_stats merges
+        # process_stats with processes[name]["data"] when building its
+        # response, so a lingering in-memory copy would re-surface the
+        # impact panel even after we popped it from process_stats.
+        in_memory_data = processes.get("consolidate_enrichment", {}).get("data")
+        if isinstance(in_memory_data, dict):
+            in_memory_data.pop("consolidation_impact", None)
         return {"has_impact": False, "impact": impact, "processes": result}
 
     return {"has_impact": True, "impact": impact, "processes": result}
