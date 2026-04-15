@@ -515,8 +515,11 @@ def get_enrichment_stats():
     if not current_user.is_admin():
          return jsonify({"error": "Unauthorized"}), 403
 
-    # Reload process_stats from GCS so we pick up task-runner writes
-    load_process_stats()
+    # Reload process_stats from GCS so we pick up task-runner writes, and
+    # drop any consolidation_impact that has already been fully resolved by
+    # downstream refreshes — otherwise the impact panel lingers forever when
+    # the UI never happens to call /api/manage/refresh/staleness.
+    _evaluate_consolidation_staleness()
 
     # 1. Load Enrichment Status
     enrichment_status = None
@@ -959,21 +962,22 @@ def api_consolidate_enrichment():
 
 
 
-@management_bp.route('/api/manage/refresh/staleness', methods=['GET'])
-@login_required
-def api_refresh_staleness():
-    """Check which downstream processes are stale relative to the last consolidation impact."""
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
+def _evaluate_consolidation_staleness() -> dict:
+    """Return impact/freshness for the latest consolidation, clearing stale impact.
 
-    # Reload from GCS so we see task-runner writes
+    Reloads process_stats from GCS, inspects the stored consolidation_impact,
+    and removes it when every downstream process has run successfully since the
+    impact timestamp. Returns a dict with ``has_impact``, ``impact``, and a
+    per-process ``processes`` map — safe to call from any endpoint that needs
+    to reason about whether the consolidation impact panel should be visible.
+    """
     load_process_stats()
 
     consolidate_entry = process_stats.get("consolidate_enrichment", {})
     impact = consolidate_entry.get("consolidation_impact")
 
     if not impact or not impact.get("timestamp"):
-        return jsonify({"has_impact": False})
+        return {"has_impact": False, "impact": None, "processes": {}}
 
     impact_ts = impact["timestamp"]
     affected_studies = impact.get("affected_study_names", [])
@@ -1011,13 +1015,33 @@ def api_refresh_staleness():
         if stale:
             all_fresh = False
 
-    # If all downstream processes are fresh, clear the impact
     if all_fresh:
         consolidate_entry.pop("consolidation_impact", None)
         process_stats["consolidate_enrichment"] = consolidate_entry
         save_process_stats()
+        return {"has_impact": False, "impact": impact, "processes": result}
 
-    return jsonify({"has_impact": not all_fresh, "impact": impact, "processes": result})
+    return {"has_impact": True, "impact": impact, "processes": result}
+
+
+
+
+@management_bp.route('/api/manage/refresh/staleness', methods=['GET'])
+@login_required
+def api_refresh_staleness():
+    """Check which downstream processes are stale relative to the last consolidation impact."""
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    status = _evaluate_consolidation_staleness()
+    if not status["has_impact"] and not status.get("impact"):
+        return jsonify({"has_impact": False})
+
+    return jsonify({
+        "has_impact": status["has_impact"],
+        "impact": status["impact"],
+        "processes": status["processes"],
+    })
 
 
 @management_bp.route('/api/manage/schema/reload', methods=['POST'])
