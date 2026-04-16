@@ -1113,30 +1113,64 @@ window.timelines = {
                 layout.yaxis.type = 'log';
             }
 
-            // Extra-data engagement markers (small diamonds along the bottom of the chart)
+            // Extra-data engagement spikes (vertical lines from baseline, height = count)
             if (data.extra_data_counts) {
+                const SPIKE_MAX_FRAC = 0.15;
                 const edXVals = [];
+                const edCounts = [];
                 const edTexts = [];
                 const slicedEdCounts = startIdx > 0 ? data.extra_data_counts.slice(startIdx) : data.extra_data_counts;
                 slicedEdCounts.forEach((cnt, i) => {
                     if (cnt > 0) {
                         edXVals.push(xVals[i]);
+                        edCounts.push(cnt);
                         edTexts.push(`${cnt} engagement activit${cnt === 1 ? 'y' : 'ies'}`);
                     }
                 });
                 if (edXVals.length > 0) {
+                    const maxCount = Math.max(...edCounts);
+
+                    layout.yaxis2 = {
+                        overlaying: 'y',
+                        side: 'right',
+                        range: [0, maxCount / SPIKE_MAX_FRAC],
+                        showticklabels: false,
+                        showgrid: false,
+                        zeroline: false,
+                        fixedrange: true,
+                        showline: false
+                    };
+
+                    const spikeX = [];
+                    const spikeY = [];
+                    edXVals.forEach((x, i) => {
+                        spikeX.push(x, x, null);
+                        spikeY.push(0, edCounts[i], null);
+                    });
+                    traces.push({
+                        x: spikeX,
+                        y: spikeY,
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { width: 2, color: getCSSVar('--color-warning') },
+                        opacity: 0.7,
+                        showlegend: false,
+                        hoverinfo: 'skip',
+                        yaxis: 'y2'
+                    });
+
                     traces.push({
                         x: edXVals,
-                        y: edXVals.map(() => 0),
+                        y: edCounts,
                         type: 'scatter',
                         mode: 'markers',
-                        marker: { symbol: 'diamond', size: 7, color: getCSSVar('--color-warning'), opacity: 0.8 },
+                        marker: { symbol: 'diamond', size: 5, color: getCSSVar('--color-warning'), opacity: 0.9 },
                         name: 'Engagement',
                         text: edTexts,
                         hoverinfo: 'text',
                         hovertemplate: '%{text}<extra></extra>',
                         showlegend: false,
-                        yaxis: 'y'
+                        yaxis: 'y2'
                     });
                 }
             }
