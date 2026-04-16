@@ -448,6 +448,18 @@ def get_viz_config():
 
 
 
+TIMELINE_SCHEMA_VERSION = 3
+# Marker columns that prove a cached timeline parquet was written by the
+# current schema.  Any one missing → cache is stale and gets regenerated.
+# Bump TIMELINE_SCHEMA_VERSION and edit this set whenever the parquet
+# schema or universe definition changes.
+_TIMELINE_REQUIRED_COLUMNS: set[str] = {
+    'machine_state_counts',         # original v1 marker
+    'weighted_video_total',         # v2: per-period attention denominator
+    'timeline_universe',            # v3: universe = scraped+annotated plays only
+}
+
+
 def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, preloaded_df=None):
     """Ensures that timeline aggregation for day exists in cache.
 
@@ -460,28 +472,36 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
 
     intervals = ['day']
     missing = []
-    
-    # Check if files exist and have the required viz_vars
+
+    # Check if files exist and have the v2 marker columns.  Any cache from
+    # a prior schema is regenerated; the dependent analysis JSON is also
+    # invalidated so the two never go out of sync.
     for interval in intervals:
         filename = f"timeline_{collection_id}_{interval}.parquet"
         if not data_io.exists(storage_location="cache", filename=filename):
             missing.append(interval)
-        else:
+            continue
+
+        try:
+            sample_df = data_io.load_parquet(storage_location="cache", filename=filename)
+            if not _TIMELINE_REQUIRED_COLUMNS.issubset(sample_df.columns):
+                if verbose:
+                    print(f"    [TIMELINE] Cache for {collection_id}/{interval} missing v{TIMELINE_SCHEMA_VERSION} columns; regenerating.")
+                missing.append(interval)
+        except Exception:
+            missing.append(interval)
+
+    # When regenerating a parquet, also drop the matching analysis JSON so
+    # the two artefacts can't drift apart across schema versions.
+    for interval in missing:
+        analysis_fname = f"timeline_analysis_{collection_id}_{interval}.json"
+        if data_io.exists(storage_location="cache", filename=analysis_fname):
             try:
-                # Basic schema check: make sure machine_state is actually in the cached datasets
-                existing_df = data_io.load_parquet(storage_location="cache", filename=filename, columns=['period'])
-                # If we could load the whole thing to check columns, it's slow. We can just check the schema safely:
-                schema = data_io.get_parquet_schema(storage_location="cache", filename=filename) # Assuming get_parquet_schema exists, or we just load 1 row
-            except Exception:
-                pass # Just let missing logic handle it or below
-            
-            try:
-                # Cheaper check: load 1 row to get columns
-                sample_df = data_io.load_parquet(storage_location="cache", filename=filename) # Should ideally be rows=1 but this works
-                if 'machine_state_counts' not in sample_df.columns:
-                     if interval not in missing: missing.append(interval)
+                data_io.remove(storage_location="cache", filename=analysis_fname)
+                if verbose:
+                    print(f"    [TIMELINE] Removed stale analysis: {analysis_fname}")
             except Exception as e:
-                if interval not in missing: missing.append(interval)
+                print(f"    [TIMELINE] Failed to remove stale analysis {analysis_fname}: {e}")
 
     if not missing:
         if verbose:
@@ -508,15 +528,45 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
          return None
          
     df[date_col] = pd.to_datetime(df[date_col]).astype('datetime64[ns]')
-    
-    # Filter for Watch events only removed - now processing all events
-    # Construct 'machine_state'
+
+    # Construct 'machine_state' before the universe filter so the synthetic
+    # state value is set on every play (the filter strips non-play rows next).
     if 'scraped_ok' in df.columns and 'scraped_fail' in df.columns and 'annotated_ok' in df.columns:
         df['machine_state'] = '1: Activity data only'
         df.loc[df['scraped_fail'] == True, 'machine_state'] = '2: Scrape failed'
         df.loc[(df['scraped_ok'] == True) & (df['annotated_ok'].isna()), 'machine_state'] = '3: Scrape ok, not tried MA'
         df.loc[(df['scraped_ok'] == True) & (df['annotated_ok'] == False), 'machine_state'] = '4: Scrape ok, MA failed'
         df.loc[(df['scraped_ok'] == True) & (df['annotated_ok'] == True), 'machine_state'] = '5: Scrape ok, MA ok'
+
+    # Universe filter: timelines describe only plays on videos that were both
+    # successfully scraped and successfully machine-annotated, with recorded
+    # watch time.  This keeps "untagged" semantically clean — it means
+    # "annotation succeeded but returned no tag of this kind", a meaningful
+    # zero.  Plays without scrape/annotation are excluded because their
+    # emptiness reflects the pipeline (data gap), not user behaviour.
+    if 'play_duration' not in df.columns:
+        print(f"ERROR: play_duration missing in unified dataset for {collection_id}")
+        return None
+
+    play_mask = (df['activity_type'] == 'play') if 'activity_type' in df.columns else pd.Series(True, index=df.index)
+    duration_mask = df['play_duration'].notna() & (df['play_duration'] > 0)
+    scrape_mask = (df['scraped_ok'] == True) if 'scraped_ok' in df.columns else pd.Series(True, index=df.index)
+    annot_mask = (df['annotated_ok'] == True) if 'annotated_ok' in df.columns else pd.Series(True, index=df.index)
+    df = df[play_mask & duration_mask & scrape_mask & annot_mask].copy()
+
+    if df.empty:
+        print(f"WARN: No annotated plays with recorded play_duration for {collection_id}; nothing to aggregate.")
+        return None
+
+    # Per-play attention weight: w = min(play_duration, video_duration).
+    # video_duration is NaN for some slideshows (fyp/scrape.py:558,842); fall back
+    # to play_duration in that case so we don't drop those attention seconds.
+    play_dur = df['play_duration'].astype('float64')
+    if 'video_duration' in df.columns:
+        vid_dur = df['video_duration'].astype('float64')
+        df['_w'] = np.minimum(play_dur, vid_dur.fillna(play_dur))
+    else:
+        df['_w'] = play_dur
 
     # ---------------------------------------------------------
     # 2. Iterate and Aggregate
@@ -569,14 +619,18 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
                 categorical_vars.append(var)
 
         # --- Video counts per period (vectorized) ---
+        # video_count is the unweighted count of plays-with-duration in the period;
+        # weighted_video_total is the sum of attention weights (used as the denominator
+        # for multi-label share calculations).
         agg_df = temp_df.groupby(group_col).size().reset_index(name='video_count')
+        weighted_total = temp_df.groupby(group_col)['_w'].sum().reset_index(name='weighted_video_total')
+        agg_df = agg_df.merge(weighted_total, on=group_col, how='left')
+        agg_df['weighted_video_total'] = agg_df['weighted_video_total'].fillna(0.0).astype('float64')
 
         # --- Extra data counts per period ---
         has_extra_data_col = 'extra_data' in temp_df.columns
         if has_extra_data_col:
             ed_mask = temp_df['extra_data'].notna()
-            if 'play_duration' in temp_df.columns:
-                ed_mask = ed_mask & temp_df['play_duration'].notna() & (temp_df['play_duration'] != 0)
             ed_counts = temp_df[ed_mask].groupby(group_col).size().reset_index(name='extra_data_count')
             agg_df = agg_df.merge(ed_counts, on=group_col, how='left')
             agg_df['extra_data_count'] = agg_df['extra_data_count'].fillna(0).astype(int)
@@ -584,15 +638,23 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         # --- Accumulate all per-variable columns, single merge at end ---
         extra_cols: dict[str, pd.Series] = {}
 
-        # --- Numeric variables: vectorized groupby mean + count ---
-        if numeric_vars:
-            means = temp_df.groupby(group_col)[numeric_vars].mean()
-            counts = temp_df.groupby(group_col)[numeric_vars].count()
-            for v in numeric_vars:
-                extra_cols[f"{v}_val"] = means[v]
-                extra_cols[f"{v}_valid"] = counts[v]
+        # --- Numeric variables: watch-time-weighted mean + non-null count ---
+        # Mean is Σ(value · w) / Σ(w) over rows where the variable is non-null.
+        # The unweighted count remains as the occurrence floor in downstream analysis;
+        # weighted_valid is the matching attention-seconds total over the same rows.
+        for v in numeric_vars:
+            sub = temp_df[[group_col, v, '_w']].dropna(subset=[v])
+            if len(sub):
+                num = (sub[v] * sub['_w']).groupby(sub[group_col]).sum()
+                den = sub.groupby(group_col)['_w'].sum()
+                extra_cols[f"{v}_val"] = num / den.where(den > 0)
+                extra_cols[f"{v}_weighted_valid"] = den
+            else:
+                extra_cols[f"{v}_val"] = pd.Series(dtype='float64')
+                extra_cols[f"{v}_weighted_valid"] = pd.Series(dtype='float64')
+            extra_cols[f"{v}_valid"] = temp_df.groupby(group_col)[v].count()
 
-        # --- Categorical (non-list) variables: groupby + value_counts ---
+        # --- Categorical (non-list) variables: unweighted + weighted aggregates ---
         for var in categorical_vars:
             extra_cols[f"{var}_valid"] = temp_df.groupby(group_col)[var].count()
 
@@ -602,11 +664,25 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
                 lambda row: json.dumps({k: int(v) for k, v in row.items() if v > 0}), axis=1
             )
 
-        # --- List variables: explode once, then groupby + value_counts ---
+            # Weighted: Σw per (period, category) and Σw where var is non-null.
+            wsub = temp_df[[group_col, var, '_w']].dropna(subset=[var])
+            if len(wsub):
+                wvc = wsub.groupby([group_col, var])['_w'].sum().unstack(fill_value=0.0)
+                extra_cols[f"{var}_weighted_counts"] = wvc.apply(
+                    lambda row: json.dumps({k: round(float(v), 2) for k, v in row.items() if v > 0}), axis=1
+                )
+                extra_cols[f"{var}_weighted_valid"] = wsub.groupby(group_col)['_w'].sum()
+            else:
+                extra_cols[f"{var}_weighted_counts"] = pd.Series(dtype='object')
+                extra_cols[f"{var}_weighted_valid"] = pd.Series(dtype='float64')
+
+        # --- List variables: explode (carrying weight) once per side ---
         for var in list_vars:
             is_valid_list = temp_df[var].apply(lambda x: isinstance(x, list) and len(x) > 0)
             extra_cols[f"{var}_valid"] = temp_df.assign(_is_valid=is_valid_list).groupby(group_col)['_is_valid'].sum().astype(int)
+            extra_cols[f"{var}_weighted_valid"] = temp_df.loc[is_valid_list].groupby(group_col)['_w'].sum()
 
+            # Unweighted exploded counts (kept for hover and occurrence-floor filtering).
             exploded = temp_df[[group_col, var]].explode(var)
             exploded = exploded[exploded[var].notna()]
             vc = exploded.groupby(group_col)[var].value_counts()
@@ -618,6 +694,17 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
             else:
                 agg_df[f"{var}_counts"] = '{}'
 
+            # Weighted exploded counts: each exploded tag inherits its play's weight.
+            wexploded = temp_df[[group_col, var, '_w']].explode(var)
+            wexploded = wexploded[wexploded[var].notna()]
+            if not wexploded.empty:
+                wvc = wexploded.groupby([group_col, var])['_w'].sum().unstack(fill_value=0.0)
+                extra_cols[f"{var}_weighted_counts"] = wvc.apply(
+                    lambda row: json.dumps({k: round(float(v), 2) for k, v in row.items() if v > 0}), axis=1
+                )
+            else:
+                agg_df[f"{var}_weighted_counts"] = '{}'
+
         # Single merge for all accumulated columns
         if extra_cols:
             extras_df = pd.DataFrame(extra_cols)
@@ -625,6 +712,11 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
 
         # Sort by period
         agg_df = agg_df.sort_values(group_col).reset_index(drop=True)
+
+        # v3 universe marker — presence of this column (checked in
+        # _TIMELINE_REQUIRED_COLUMNS) proves the parquet was written with
+        # the "scraped + annotated plays only" universe definition.
+        agg_df['timeline_universe'] = 'annotated_plays'
 
         # Save
         filename = f"timeline_{collection_id}_{interval}.parquet"
@@ -724,38 +816,67 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
             date_labels.append(str(d_str))
             
     variables = {}
-    
+
+    # Common per-period denominators read once.
+    video_counts = df['video_count'].tolist()
+    weighted_video_total = df.get('weighted_video_total', pd.Series([0.0] * len(df))).astype('float64').tolist()
+
+    ignore_cats = {
+        fyp_cf.get('labels', {}).get('OTHER_THINGS', 'Other things'),
+        fyp_cf.get('labels', {}).get('UNABLE_TO_DETECT', 'Unable to detect'),
+        fyp_cf.get('labels', {}).get('NOT_CODED', 'Not coded')
+    }
+
+    def _parse_counts_column(series, value_cast):
+        """Parse a JSON-string-per-period column into a list of dicts.
+        Drops the ignored category labels in one pass."""
+        out = []
+        for json_str in series:
+            try:
+                if json_str and isinstance(json_str, str):
+                    d = json.loads(json_str)
+                    for igc in ignore_cats:
+                        d.pop(igc, None)
+                    d = {k: value_cast(v) for k, v in d.items()}
+                else:
+                    d = {}
+            except Exception:
+                d = {}
+            out.append(d)
+        return out
+
     for var in viz_vars:
-        # Check if we have columns for this var
-        # Expected: {var}_val (numeric) OR {var}_counts (categorical)
-        # And {var}_valid
-        
-        # Determine type based on cols existence
         has_val = f"{var}_val" in df.columns
         has_counts = f"{var}_counts" in df.columns
-        
+
         if not has_val and not has_counts:
             continue
-            
+
         # Log Scale Config
         use_log = False
         if schema_map.get(var, {}).get('web_viz_log') == 'yes':
              use_log = True
         elif isinstance(schema, dict) and schema.get(var, {}).get('web_viz_log') == 'yes':
              use_log = True
-             
-        # Get Display Name
+
+        # Display Name
         display_name = schema_map.get(var, {}).get('display_name', var)
         if var == 'machine_state':
             display_name = 'Scrape and Annotation States'
-             
-        # Metadata common props
-        valid_counts = df.get(f"{var}_valid", pd.Series([0]*len(df))).tolist()
-        video_counts = df['video_count'].tolist() # Total videos per period
-        
+
+        # Multi-label flag: schema-driven.  Variables not in the schema
+        # (e.g. the synthetic 'machine_state') default to single-label.
+        is_multi_label = (schema_map.get(var, {}).get('web_viz_multi_label') == 'yes')
+        share_denominator = 'videos' if is_multi_label else 'valid'
+
+        # Per-period denominators consumed downstream.
+        valid_counts = df.get(f"{var}_valid", pd.Series([0] * len(df))).tolist()
+        weighted_valid = df.get(f"{var}_weighted_valid", pd.Series([0.0] * len(df))).astype('float64').tolist()
+
         if has_val:
-            # Numeric
-            # Using list comprehension to avoid PyArrow Result bug with .where(..., None)
+            # Numeric: {var}_val is already the watch-time-weighted mean
+            # (computed in check_and_update_timeline_cache).  Use list
+            # comprehension to coerce NaN → None for JSON safety.
             vals = [None if pd.isna(x) else float(x) for x in df[f"{var}_val"]]
             variables[var] = {
                 "type": "numeric",
@@ -763,55 +884,67 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
                 "log": use_log,
                 "daily_valid_counts": valid_counts,
                 "daily_video_counts": video_counts,
-                "display_name": display_name
+                "daily_weighted_valid": weighted_valid,
+                "daily_weighted_video_total": weighted_video_total,
+                "display_name": display_name,
             }
-        elif has_counts:
-            # Categorical
-            # Parse JSON counts
-            counts_list = []
-            
-            # Need to get top categories globally to match frontend logic?
-            # Or just return all? Frontend sorts them. 
-            # Frontend expects "counts" as list of dicts.
-            # And "top_categories" for initial selection.
-            
-            global_cat_counts = {}
-            
-            ignore_cats = {
-                fyp_cf.get('labels', {}).get('OTHER_THINGS', 'Other things'),
-                fyp_cf.get('labels', {}).get('UNABLE_TO_DETECT', 'Unable to detect'),
-                fyp_cf.get('labels', {}).get('NOT_CODED', 'Not coded')
-            }
-            
-            for json_str in df[f"{var}_counts"]:
-                try:
-                    if json_str and isinstance(json_str, str):
-                        c_dict = json.loads(json_str)
-                        for igc in ignore_cats:
-                            c_dict.pop(igc, None)
-                    else:
-                        c_dict = {}
-                except:
-                    c_dict = {}
-                
-                counts_list.append(c_dict)
-                
-                # Aggregate for top_categories
-                for k, v in c_dict.items():
-                    global_cat_counts[k] = global_cat_counts.get(k, 0) + v
-            
-            # Top categories
-            top_cats = sorted(global_cat_counts.keys(), key=lambda x: global_cat_counts[x], reverse=True)
-            
-            variables[var] = {
-                "type": "categorical",
-                "counts": counts_list,
-                "daily_video_counts": video_counts,
-                "daily_valid_counts": valid_counts,
-                "top_categories": top_cats if var == 'machine_state' else top_cats[:3],
-                "default_all": True if var == 'machine_state' else False,
-                "display_name": display_name
-            }
+            continue
+
+        # Categorical
+        counts_list = _parse_counts_column(df[f"{var}_counts"], int)
+        weighted_counts_list = _parse_counts_column(
+            df.get(f"{var}_weighted_counts", pd.Series([''] * len(df))),
+            float,
+        )
+
+        # Pre-compute share series in the backend so the analysis layer and
+        # the frontend share one source of truth.  Numerator is the weighted
+        # count for the category; denominator is governed by the multi-label
+        # flag (videos for sparse multi-label, valid-count for single-label).
+        share_series = []
+        for i, wcounts in enumerate(weighted_counts_list):
+            if share_denominator == 'videos':
+                denom = weighted_video_total[i] if i < len(weighted_video_total) else 0.0
+            else:
+                denom = weighted_valid[i] if i < len(weighted_valid) else 0.0
+            if denom and denom > 0:
+                share_series.append({
+                    k: round((v / denom) * 100.0, 2)
+                    for k, v in wcounts.items() if v > 0
+                })
+            else:
+                share_series.append({})
+
+        # Rank categories by total weighted attention across the window so
+        # the default selection surfaces the most-watched, not just the
+        # most-frequent.  Falls back to raw-count ranking if no weighted data.
+        global_weighted = {}
+        for d in weighted_counts_list:
+            for k, v in d.items():
+                global_weighted[k] = global_weighted.get(k, 0.0) + v
+        if global_weighted:
+            top_cats = sorted(global_weighted.keys(), key=lambda x: global_weighted[x], reverse=True)
+        else:
+            global_raw = {}
+            for d in counts_list:
+                for k, v in d.items():
+                    global_raw[k] = global_raw.get(k, 0) + v
+            top_cats = sorted(global_raw.keys(), key=lambda x: global_raw[x], reverse=True)
+
+        variables[var] = {
+            "type": "categorical",
+            "counts": counts_list,
+            "weighted_counts": weighted_counts_list,
+            "share_series": share_series,
+            "share_denominator": share_denominator,
+            "daily_video_counts": video_counts,
+            "daily_valid_counts": valid_counts,
+            "daily_weighted_valid": weighted_valid,
+            "daily_weighted_video_total": weighted_video_total,
+            "top_categories": top_cats if var == 'machine_state' else top_cats[:3],
+            "default_all": True if var == 'machine_state' else False,
+            "display_name": display_name,
+        }
 
     # Extra-data (engagement activity) counts per period
     extra_data_counts = df['extra_data_count'].tolist() if 'extra_data_count' in df.columns else None
@@ -912,16 +1045,39 @@ def _inject_other_bucket(result: dict) -> None:
 
     analyse_timeline() returns an ``other_members`` list for each variable
     whose low-occurrence categories were folded into a synthetic "Other"
-    bucket.  We mirror that aggregation into ``var_data["counts"]`` (the
-    raw per-day totals consumed by the frontend) so the sidebar and ribbon
-    match the analysis: the member categories are removed from each day's
-    dict and their sum is stored under "Other".  ``top_categories`` is also
-    updated so default selections don't reference cats that no longer exist
-    in the per-day counts.
+    bucket.  We mirror that aggregation into all per-day series the
+    frontend consumes (raw counts, weighted counts, and pre-computed
+    shares) so the sidebar, ribbon, and chart agree with the analysis:
+    member categories are removed from each day's dict and their sum is
+    stored under "Other".  ``top_categories`` is also updated so default
+    selections don't reference cats that no longer exist in the per-day
+    series.
     """
     analysis = result.get("analysis") or {}
     variables = result.get("variables") or {}
     other_label = "Other"
+
+    def _fold_series(series_list, member_set, round_to: int | None):
+        """Return total mass folded into Other across the series."""
+        if not series_list:
+            return 0.0
+        running_total = 0.0
+        for day in series_list:
+            if not isinstance(day, dict):
+                continue
+            day_total = 0.0
+            for m in list(day.keys()):
+                if m in member_set:
+                    val = day.pop(m) or 0
+                    day_total += val
+            if day_total:
+                merged = (day.get(other_label) or 0) + day_total
+                if round_to is not None:
+                    merged = round(merged, round_to)
+                day[other_label] = merged
+                running_total += day_total
+        return running_total
+
     for var_name, var_analysis in analysis.items():
         members = var_analysis.get("other_members") if isinstance(var_analysis, dict) else None
         if not members:
@@ -933,18 +1089,11 @@ def _inject_other_bucket(result: dict) -> None:
         if not counts_list:
             continue
         member_set = set(members)
-        other_total = 0
-        for day_counts in counts_list:
-            if not isinstance(day_counts, dict):
-                continue
-            day_total = 0
-            for m in list(day_counts.keys()):
-                if m in member_set:
-                    v = day_counts.pop(m) or 0
-                    day_total += v
-            if day_total:
-                day_counts[other_label] = day_counts.get(other_label, 0) + day_total
-                other_total += day_total
+
+        other_total = _fold_series(counts_list, member_set, round_to=None)
+        _fold_series(var_data.get("weighted_counts"), member_set, round_to=2)
+        _fold_series(var_data.get("share_series"), member_set, round_to=2)
+
         # Rebuild top_categories so it doesn't point at cats we just removed.
         top_cats = var_data.get("top_categories") or []
         filtered_top = [c for c in top_cats if c not in member_set]
@@ -1254,7 +1403,15 @@ def load_schema_metadata(metadata):
                     prio = row['web_display_prio']
                     if pd.notna(prio):
                          schema_map[var_name]['web_display_prio'] = float(prio)
-            
+
+                # Multi-label flag for timeline share denominator
+                if 'web_viz_multi_label' in row:
+                    mval = row['web_viz_multi_label']
+                    if pd.notna(mval):
+                        mval = str(mval).lower().strip()
+                        if mval in ('yes', 'no'):
+                            schema_map[var_name]['web_viz_multi_label'] = mval
+
             metadata['schema_map'] = schema_map
                 
         else:

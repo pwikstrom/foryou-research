@@ -410,22 +410,63 @@ window.timelines = {
                 }
 
                 // Setup Sidebar Category Selection
-                // Calculate total frequency (use sliced counts)
-                const slicedCounts = startIdx > 0 ? varData.counts.slice(startIdx) : varData.counts;
-                const slicedVideoCounts = startIdx > 0 && varData.daily_video_counts ? varData.daily_video_counts.slice(startIdx) : varData.daily_video_counts;
-                const slicedValidCounts = startIdx > 0 && varData.daily_valid_counts ? varData.daily_valid_counts.slice(startIdx) : varData.daily_valid_counts;
+                // Slice all per-period series in lockstep — counts (raw plays
+                // for hover & sidebar heuristic), weighted_counts (Σw per cat),
+                // share_series (pre-computed share pct from the backend), plus
+                // the per-period denominators.
+                //
+                // IMPORTANT: sliceList always returns a NEW array, even when
+                // startIdx is 0.  This prevents the frontend "Other"-fold
+                // from mutating varData.counts / weighted_counts / share_series
+                // on subsequent re-renders (which would accumulate folded
+                // categories into Other and make selection-driven renders
+                // diverge from the first render).
+                const sliceList = (arr) => Array.isArray(arr) ? arr.slice(startIdx) : [];
+                let slicedCounts = sliceList(varData.counts);
+                let slicedWeightedCounts = sliceList(varData.weighted_counts);
+                let slicedShareSeries = sliceList(varData.share_series);
+                const slicedVideoCounts = sliceList(varData.daily_video_counts);
+                const slicedValidCounts = sliceList(varData.daily_valid_counts);
+                const slicedWeightedValid = sliceList(varData.daily_weighted_valid);
+                const slicedWeightedVideoTotal = sliceList(varData.daily_weighted_video_total);
+                const isMultiLabel = (varData.share_denominator === 'videos');
+                // Sidebar heuristic still ranks by raw plays — that's the right
+                // structural signal for "did this appear often enough to keep".
                 const catTotals = {};
                 slicedCounts.forEach(day => {
                     Object.keys(day).forEach(c => {
                         catTotals[c] = (catTotals[c] || 0) + day[c];
                     });
                 });
+                // Weighted totals across the window — these drive ribbon segment
+                // sizing (so the ribbon reads as "share of attention" too).
+                const catWeightedTotals = {};
+                slicedWeightedCounts.forEach(day => {
+                    Object.keys(day).forEach(c => {
+                        catWeightedTotals[c] = (catWeightedTotals[c] || 0) + day[c];
+                    });
+                });
+                // Window denominator used by the ribbon — matches per-day
+                // chart denominator semantics:
+                //   single-label → Σ weighted_valid     (videos with this annotation)
+                //   multi-label  → Σ weighted_video_total (all watched videos)
+                const windowDenom = isMultiLabel
+                    ? slicedWeightedVideoTotal.reduce((s, v) => s + (v || 0), 0)
+                    : slicedWeightedValid.reduce((s, v) => s + (v || 0), 0);
 
-                // Sort categories by interestingness score (fall back to frequency
-                // for unscored). "Other" is pinned to the end — it's a residual
-                // bucket and its stats aren't interpretable.
-                const allCatsByFreq = Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]);
-                const allCategories = allCatsByFreq.slice().sort((a, b) => {
+                // Two sort orders for different purposes:
+                //  - allCatsByAttention: drives ribbon ORDER and fold priority
+                //    so the ribbon reads left-to-right from widest to narrowest
+                //    segment.  Matches how the ribbon actually looks.
+                //  - allCategories (by interestingness): drives default selection
+                //    and findings-panel ordering, so the "most interesting" cats
+                //    surface first in the chart.
+                const allCatsByAttention = Object.keys(catWeightedTotals).sort((a, b) => {
+                    if (a === OTHER_BUCKET) return 1;
+                    if (b === OTHER_BUCKET) return -1;
+                    return (catWeightedTotals[b] || 0) - (catWeightedTotals[a] || 0);
+                });
+                const allCategories = allCatsByAttention.slice().sort((a, b) => {
                     if (a === OTHER_BUCKET) return 1;
                     if (b === OTHER_BUCKET) return -1;
                     const scoreA = analysisMap[a] && analysisMap[a].score != null ? analysisMap[a].score : -1;
@@ -433,141 +474,273 @@ window.timelines = {
                     return scoreB - scoreA;
                 });
 
-                // --- Adaptive Category Filtering Heuristic ---
-                // Balances two goals: keep the sidebar manageable, but don't drop too
-                // many observations.  High-cardinality variables (hashtags, brands) get
-                // more slots via the observation floor so they stay representative.
-                // Categories that don't make the cut are folded into the "Other"
-                // bucket rather than dropped outright, so the chart and ribbon stay
-                // honest and only one residual message is needed.
-                const grandTotal = allCatsByFreq.reduce((sum, cat) => sum + catTotals[cat], 0);
+                // --- Category Filtering Heuristic ---
+                // Hard-cap the ribbon at maxCategories.  For high-cardinality
+                // variables (hashtags, symbols) the long tail folds into the
+                // "Other" bucket, which the user can toggle on via the footer
+                // checkbox.  The previous "ensure 50 % coverage" second pass
+                // was removed — for long-tail variables it made the ribbon
+                // unreadable (hundreds of sliver-width segments).
+                //
+                // Note: selected cats — whether set manually or via the filter
+                // chips (setFilter) — bypass the cap via `isSelected`, so
+                // clicking "↑ Rising" can surface a rising cat that didn't
+                // make the top-N by attention.  Intended behaviour.
+                const grandWeighted = allCatsByAttention.reduce((s, c) => s + (catWeightedTotals[c] || 0), 0);
                 const keptCategories = [];
 
                 const minCategories = 5;
-                const maxCategories = 25;
+                const maxCategories = 30;
                 const coverageTarget = 0.95;
                 const minObservations = 10;
-                const minCoverageFloor = 0.50;
 
-                // First pass: apply standard filters (coverage target + max cap + min obs)
-                let cumulativeSum = 0;
+                let cumulativeWeighted = 0;
                 const coveredSet = new Set();
-                for (let i = 0; i < allCatsByFreq.length; i++) {
-                    const cat = allCatsByFreq[i];
+                for (let i = 0; i < allCatsByAttention.length; i++) {
+                    const cat = allCatsByAttention[i];
                     if (cat === OTHER_BUCKET) { coveredSet.add(cat); continue; }
-                    const catCount = catTotals[cat];
+                    const catAttention = catWeightedTotals[cat] || 0;
+                    const catCount = catTotals[cat] || 0;
                     const isSelected = selectedCats.includes(cat);
                     const isWithinMin = i < minCategories;
                     const isMeaningful = catCount >= minObservations;
                     const isWithinMax = coveredSet.size < maxCategories;
-                    const isWithinCoverage = cumulativeSum < (coverageTarget * grandTotal);
+                    const isWithinCoverage = cumulativeWeighted < (coverageTarget * grandWeighted);
 
                     if (isSelected || isWithinMin || (isWithinCoverage && isMeaningful && isWithinMax)) {
                         coveredSet.add(cat);
                     }
-                    cumulativeSum += catCount;
+                    cumulativeWeighted += catAttention;
                 }
 
-                // Second pass: if we've dropped more than 50% of observations,
-                // keep adding categories (by frequency) until we reach the floor
-                let coveredObs = allCatsByFreq.filter(c => coveredSet.has(c)).reduce((s, c) => s + catTotals[c], 0);
-                if (coveredObs < minCoverageFloor * grandTotal) {
-                    for (const cat of allCatsByFreq) {
-                        if (coveredSet.has(cat)) continue;
-                        coveredSet.add(cat);
-                        coveredObs += catTotals[cat];
-                        if (coveredObs >= minCoverageFloor * grandTotal) break;
-                    }
-                }
+                // Cats that didn't make the cut fold into "Other" — visible
+                // only via the footer toggle.
+                const frontendFolded = allCatsByAttention.filter(c => !coveredSet.has(c) && c !== OTHER_BUCKET);
 
-                // Collect cats that didn't make the cut — these get folded into
-                // the "Other" bucket (not dropped) so the chart and ribbon add
-                // up to 100% and there is one unified residual to explain.
-                const frontendFolded = allCatsByFreq.filter(c => !coveredSet.has(c));
-
-                // If anything was folded, ensure the Other bucket exists in
-                // catTotals, coveredSet, and the per-day counts. We mutate a
-                // fresh clone of slicedCounts to avoid polluting varData.counts
-                // (shared by reference with the cached response).
+                // If anything was folded, mirror the fold across all three
+                // per-day series (raw counts, weighted counts, pre-computed
+                // shares) so the chart, ribbon, and sidebar agree.  Clone
+                // first to avoid polluting varData.* (shared by reference).
                 if (frontendFolded.length > 0) {
-                    const clonedCounts = slicedCounts.map(day => Object.assign({}, day || {}));
-                    let foldedGrand = 0;
-                    for (const cat of frontendFolded) {
-                        foldedGrand += catTotals[cat] || 0;
-                        for (const day of clonedCounts) {
-                            if (day[cat]) {
-                                day[OTHER_BUCKET] = (day[OTHER_BUCKET] || 0) + day[cat];
-                                delete day[cat];
+                    const foldSeries = (series, roundTo) => {
+                        const cloned = series.map(day => Object.assign({}, day || {}));
+                        for (const cat of frontendFolded) {
+                            for (const day of cloned) {
+                                if (day[cat]) {
+                                    let merged = (day[OTHER_BUCKET] || 0) + day[cat];
+                                    if (roundTo != null) merged = +merged.toFixed(roundTo);
+                                    day[OTHER_BUCKET] = merged;
+                                    delete day[cat];
+                                }
                             }
                         }
+                        return cloned;
+                    };
+
+                    const clonedCounts = foldSeries(slicedCounts, null);
+                    const clonedWeighted = foldSeries(slicedWeightedCounts, 2);
+                    const clonedShares = foldSeries(slicedShareSeries, 2);
+
+                    let foldedRawGrand = 0;
+                    let foldedWeightedGrand = 0;
+                    for (const cat of frontendFolded) {
+                        foldedRawGrand += catTotals[cat] || 0;
+                        foldedWeightedGrand += catWeightedTotals[cat] || 0;
                         delete catTotals[cat];
+                        delete catWeightedTotals[cat];
                     }
-                    catTotals[OTHER_BUCKET] = (catTotals[OTHER_BUCKET] || 0) + foldedGrand;
+                    catTotals[OTHER_BUCKET] = (catTotals[OTHER_BUCKET] || 0) + foldedRawGrand;
+                    catWeightedTotals[OTHER_BUCKET] = (catWeightedTotals[OTHER_BUCKET] || 0) + foldedWeightedGrand;
                     coveredSet.add(OTHER_BUCKET);
-                    // Reassign sliced counts so downstream code sees the folded view.
-                    slicedCounts.length = 0;
-                    for (const day of clonedCounts) slicedCounts.push(day);
+
+                    // Reassign (don't mutate) — slicedCounts is already a
+                    // local array produced by sliceList, but reassigning is
+                    // cleaner and leaves the per-day dicts inside varData
+                    // untouched regardless.
+                    slicedCounts = clonedCounts;
+                    slicedWeightedCounts = clonedWeighted;
+                    slicedShareSeries = clonedShares;
                 }
 
-                // Build kept list in interestingness order (Other pinned to end)
-                allCategories.forEach(cat => {
+                // Build kept list in weighted-attention order so ribbon
+                // segments read left-to-right from widest to narrowest.
+                // "Other" is intentionally excluded from the ribbon — it's
+                // opt-in only, controlled by the toggle next to the "Other"
+                // footer under the ribbon.
+                allCatsByAttention.forEach(cat => {
                     if (coveredSet.has(cat) && cat !== OTHER_BUCKET) keptCategories.push(cat);
                 });
-                if (coveredSet.has(OTHER_BUCKET) && (catTotals[OTHER_BUCKET] || 0) > 0) {
-                    keptCategories.push(OTHER_BUCKET);
-                }
+                const otherInData = coveredSet.has(OTHER_BUCKET) && (catTotals[OTHER_BUCKET] || 0) > 0;
 
-                // Populate the shared per-category color map. The synthetic
-                // "Other" bucket (low-occurrence cats folded together) gets a
-                // muted gray so it reads as a residual bucket rather than
-                // competing for attention with real categories.
+                // Populate the shared per-category color map.  "Other" still
+                // gets a muted gray so if the user toggles it on in the chart
+                // it reads as a residual bucket.
                 const otherColor = getCSSVar('--color-text-tertiary') || '#888888';
                 keptCategories.forEach((cat, i) => {
-                    catColorMap[cat] = (cat === OTHER_BUCKET) ? otherColor : colors[i % colors.length];
+                    catColorMap[cat] = colors[i % colors.length];
                 });
+                catColorMap[OTHER_BUCKET] = otherColor;
 
                 const activeFilter = this.timelineState.activeFilters[varName] || 'all';
 
-                // Inject "Select top..." + filter chips as a second row under the title
+                // Compute per-chip availability: is there any category in
+                // the analysis whose signal matches this filter?  Uses the
+                // same normalised thresholds as setFilter and the badges
+                // so the three agree.
+                const chipAvailable = { rising: false, falling: false, spikes: false, breaks: false, volatile: false };
+                if (varAnalysis && Array.isArray(varAnalysis.categories)) {
+                    for (const cd of varAnalysis.categories) {
+                        if (cd.is_other) continue;
+                        const meanShare = (cd.volatility && cd.volatility.mean) || (cd.trend && cd.trend.mean) || 0;
+                        const trendThresh = 0.5 * Math.max(meanShare, 1.0);
+                        const breakThresh = 0.5 * Math.max(meanShare, 1.0);
+                        const volThresh = 0.3 * Math.max(meanShare, 1.0);
+                        if (cd.trend && cd.trend.total_change > trendThresh) chipAvailable.rising = true;
+                        if (cd.trend && cd.trend.total_change < -trendThresh) chipAvailable.falling = true;
+                        if (cd.anomalies && cd.anomalies.length > 0) chipAvailable.spikes = true;
+                        if (cd.break && Math.abs(cd.break.delta) > breakThresh) chipAvailable.breaks = true;
+                        if (cd.volatility && cd.volatility.std > volThresh) chipAvailable.volatile = true;
+                    }
+                }
+
+                // Filter chips — styled so the default state reads as the
+                // "active look" (bright, full opacity).  Selected state is
+                // conveyed by an outline ring + bold weight, not by turning
+                // unselected chips faint.  Chips with no matching cats for
+                // this variable are the only ones shown as faded/disabled.
                 const chipRow = document.createElement('div');
                 chipRow.className = 'text-sm';
                 chipRow.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:8px;';
-                chipRow.innerHTML = `
-                    <span style="color:var(--color-text-tertiary); white-space:nowrap;">Select top...</span>
-                    <div class="filter-chip" id="chip-${plotId}-rising" onclick="window.timelines.setFilter('${varName}', 'rising')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-rising-bg); color:var(--color-accent); border:1px solid var(--trend-rising-border); opacity:${activeFilter === 'rising' ? '1.0' : '0.4'};">↑ Rising</div>
-                    <div class="filter-chip" id="chip-${plotId}-falling" onclick="window.timelines.setFilter('${varName}', 'falling')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-falling-bg); color:var(--color-danger-soft); border:1px solid var(--trend-falling-border); opacity:${activeFilter === 'falling' ? '1.0' : '0.4'};">↓ Falling</div>
-                    <div class="filter-chip" id="chip-${plotId}-spikes" onclick="window.timelines.setFilter('${varName}', 'spikes')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-spikes-bg); color:var(--color-save); border:1px solid var(--trend-spikes-border); opacity:${activeFilter === 'spikes' ? '1.0' : '0.4'};">◎ Spikes</div>
-                    <div class="filter-chip" id="chip-${plotId}-breaks" onclick="window.timelines.setFilter('${varName}', 'breaks')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-breaks-bg); color:var(--color-info); border:1px solid var(--trend-breaks-border); opacity:${activeFilter === 'breaks' ? '1.0' : '0.4'};">⋮ Breaks</div>
-                    <div class="filter-chip" id="chip-${plotId}-volatile" onclick="window.timelines.setFilter('${varName}', 'volatile')" style="padding:2px 6px; border-radius:10px; cursor:pointer; background:var(--trend-volatile-bg); color:var(--color-purple); border:1px solid var(--trend-volatile-border); opacity:${activeFilter === 'volatile' ? '1.0' : '0.4'};">~ Volatile</div>
-                `;
+
+                const chipDefs = [
+                    { key: 'rising',   label: '↑ Rising',      bg: 'var(--trend-rising-bg)',   color: 'var(--color-accent)',      border: 'var(--trend-rising-border)' },
+                    { key: 'falling',  label: '↓ Falling',     bg: 'var(--trend-falling-bg)',  color: 'var(--color-danger-soft)', border: 'var(--trend-falling-border)' },
+                    { key: 'spikes',   label: '◎ Spikes',      bg: 'var(--trend-spikes-bg)',   color: 'var(--color-save)',        border: 'var(--trend-spikes-border)' },
+                    { key: 'breaks',   label: '⋮ Breaks',      bg: 'var(--trend-breaks-bg)',   color: 'var(--color-info)',        border: 'var(--trend-breaks-border)' },
+                    { key: 'volatile', label: '~ Volatile',    bg: 'var(--trend-volatile-bg)', color: 'var(--color-purple)',      border: 'var(--trend-volatile-border)' },
+                ];
+
+                const selectTopSpan = document.createElement('span');
+                selectTopSpan.style.cssText = 'color: var(--color-text-tertiary); white-space: nowrap;';
+                selectTopSpan.textContent = 'Select top...';
+                chipRow.appendChild(selectTopSpan);
+
+                chipDefs.forEach(def => {
+                    const chip = document.createElement('div');
+                    chip.className = 'filter-chip';
+                    chip.id = `chip-${plotId}-${def.key}`;
+                    const isActive = (activeFilter === def.key);
+                    const isAvail = !!chipAvailable[def.key];
+                    const base = `padding: 2px 6px; border-radius: 10px; background: ${def.bg}; color: ${def.color}; border: 1px solid ${def.border};`;
+                    if (isAvail) {
+                        // Active: outline ring (offset by 2 px) + bold weight.
+                        const ring = isActive
+                            ? ` box-shadow: 0 0 0 2px ${def.color}; font-weight: 600;`
+                            : '';
+                        chip.style.cssText = base + ' cursor: pointer; opacity: 1;' + ring;
+                        chip.addEventListener('click', () => this.setFilter(varName, def.key));
+                    } else {
+                        chip.style.cssText = base + ' cursor: not-allowed; opacity: 0.35;';
+                        chip.setAttribute('aria-disabled', 'true');
+                        chip.setAttribute('title', 'No matching labels for this variable');
+                    }
+                    chip.textContent = def.label;
+                    chipRow.appendChild(chip);
+                });
                 titleDiv.appendChild(chipRow);
+
+                // Selection indicator — absolutely-positioned markers above
+                // the ribbon, one per selected category.  Using absolute
+                // positioning avoids flex sibling-shrink drift (which was
+                // pulling markers up to ~8 px left of their ribbon segment
+                // when multiple tiny selected cats forced min-width growth).
+                //
+                // Layout:
+                //   indicatorWrapper (2 px horizontal padding = Plotly ribbon margin)
+                //     indicatorRow (100 % of wrapper content box = plot area)
+                //       marker for each selected cat (position: absolute)
+                //
+                // left/width in %:
+                //   left = (Σ catWeight before this cat) / totalKeptWeight * 100
+                //   width = max(this cat's segPct%, 6 px) via min-width
+                const _indicatorRibbonDenom = Math.max(1, keptCategories.reduce((s, c) => s + (catWeightedTotals[c] || 0), 0));
+                const indicatorWrapper = document.createElement('div');
+                indicatorWrapper.style.cssText = 'padding: 0 2px; margin-top: 3px; margin-bottom: 2px; box-sizing: border-box;';
+                const indicatorRow = document.createElement('div');
+                indicatorRow.style.cssText = 'position: relative; width: 100%; height: 3px;';
+                indicatorWrapper.appendChild(indicatorRow);
+                let cumWeighted = 0;
+                keptCategories.forEach(cat => {
+                    const wTotal = catWeightedTotals[cat] || 0;
+                    const leftPct = (cumWeighted / _indicatorRibbonDenom) * 100;
+                    const segPct = (wTotal / _indicatorRibbonDenom) * 100;
+                    const isSelected = selectedCats.includes(cat);
+                    if (isSelected) {
+                        const marker = document.createElement('div');
+                        marker.style.cssText = `position: absolute; left: ${leftPct.toFixed(4)}%; width: ${segPct.toFixed(4)}%; min-width: 6px; height: 100%; background: ${catColorMap[cat]}; border-radius: 1.5px;`;
+                        indicatorRow.appendChild(marker);
+                    }
+                    cumWeighted += wTotal;
+                });
+                chartWrapper.appendChild(indicatorWrapper);
 
                 // Ribbon: horizontal Plotly stacked bar shown under the plot.
                 // Clicking a segment toggles the category's line in the chart.
-                // Selection cue: unselected segments render at 40% opacity.
+                // Selection cue: unselected segments render at 40% opacity
+                // plus no indicator bar above them; selected segments render
+                // at full opacity with a colored indicator bar above.
                 const ribbonId = `ribbon-${plotId}`;
                 const ribbonDiv = document.createElement('div');
                 ribbonDiv.id = ribbonId;
                 ribbonDiv.style.width = '100%';
                 ribbonDiv.style.height = '50px';
-                ribbonDiv.style.marginTop = '8px';
                 ribbonDiv.style.cursor = 'pointer';
                 chartWrapper.appendChild(ribbonDiv);
 
-                const ribbonTotal = keptCategories.reduce((s, c) => s + catTotals[c], 0);
+                // Ribbon segment denominator: use Σ(kept-cat weighted) for
+                // BOTH single- and multi-label vars.  Segments then sum to
+                // 100 % and fill the bar end-to-end.  For single-label the
+                // hover still reads "X % of watch time" (using the true
+                // watch-time denominator, which equals Σ weighted_valid —
+                // includes folded/Other cats).  For multi-label we show
+                // both "% of tag mentions" (segment width) and "% of watch
+                // time" (unbiased truth) since they diverge.
+                const ribbonSegmentDenom = keptCategories.reduce((s, c) => s + (catWeightedTotals[c] || 0), 0);
+                const safeRibbonDenom = Math.max(1, ribbonSegmentDenom);
+                const safeWatchDenom = Math.max(1, windowDenom);
+
+                const UNTAGGED_BUCKET = 'No label';
+
                 const ribbonTraces = keptCategories.map(cat => {
-                    const pct = (catTotals[cat] / Math.max(1, ribbonTotal)) * 100;
+                    const wTotal = catWeightedTotals[cat] || 0;
+                    const segPct = (wTotal / safeRibbonDenom) * 100;
+                    const watchPct = (wTotal / safeWatchDenom) * 100;
                     const isSelected = selectedCats.includes(cat);
                     const cd = analysisMap[cat] || {};
+                    // Findings thresholds normalised by category mean share so
+                    // multi-label vars (smaller absolute shares) still surface
+                    // their genuine signals.
+                    const meanShare = (cd.volatility && cd.volatility.mean) || (cd.trend && cd.trend.mean) || 0;
+                    const trendChange = cd.trend ? cd.trend.total_change : 0;
+                    const trendThresh = 0.5 * Math.max(meanShare, 1.0);
+                    const breakDelta = cd.break ? cd.break.delta : 0;
+                    const breakThresh = 0.5 * Math.max(meanShare, 1.0);
+                    const volStd = cd.volatility ? cd.volatility.std : 0;
+                    const volThresh = 0.3 * Math.max(meanShare, 1.0);
                     const badgeBits = [];
-                    if (cd.trend && cd.trend.total_change > 4) badgeBits.push('↑ Rising');
-                    if (cd.trend && cd.trend.total_change < -4) badgeBits.push('↓ Falling');
+                    if (trendChange > trendThresh) badgeBits.push('↑ Rising');
+                    if (trendChange < -trendThresh) badgeBits.push('↓ Falling');
                     if (cd.anomalies && cd.anomalies.length > 0) badgeBits.push('◎ Spikes');
-                    if (cd.break && Math.abs(cd.break.delta) > 4) badgeBits.push('⋮ Step change');
-                    if (cd.volatility && cd.volatility.std > 2.5) badgeBits.push('~ Volatile');
+                    if (cd.break && Math.abs(breakDelta) > breakThresh) badgeBits.push('⋮ Step change');
+                    if (cd.volatility && volStd > volThresh) badgeBits.push('~ Volatile');
                     const trendLine = badgeBits.length ? `<br>${badgeBits.join(' · ')}` : '';
+                    const watchSec = Math.round(wTotal);
+                    const playCount = (catTotals[cat] || 0).toLocaleString();
+                    const primaryLine = isMultiLabel
+                        ? `${segPct.toFixed(1)}% of label mentions · ${watchPct.toFixed(1)}% of play time`
+                        : `${watchPct.toFixed(1)}% of play time`;
                     return {
-                        x: [pct],
+                        x: [segPct],
                         y: ['cats'],
                         name: cat,
                         type: 'bar',
@@ -580,8 +753,8 @@ window.timelines = {
                         text: [cat],
                         textposition: 'inside',
                         insidetextanchor: 'middle',
-                        customdata: [[cat, pct.toFixed(1), catTotals[cat].toLocaleString(), trendLine]],
-                        hovertemplate: '<b>%{customdata[0]}</b><br>%{customdata[1]}% of obs (%{customdata[2]})%{customdata[3]}<extra></extra>'
+                        customdata: [[cat, primaryLine, watchSec.toLocaleString(), playCount, trendLine]],
+                        hovertemplate: '<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}s across %{customdata[3]} plays%{customdata[4]}<extra></extra>'
                     };
                 });
 
@@ -615,79 +788,126 @@ window.timelines = {
                     ...backendOtherMembers,
                     ...frontendFolded
                 ])).sort();
+                // Window-level "untagged" share — share of attention paid
+                // to plays where the variable was empty (no tag at all).
+                // Computed directly from per-day denominators (NOT from
+                // 100 - sum_of_shares, which is unreliable for multi-label
+                // because per-cat shares can overlap).
+                const totalUntaggedW = isMultiLabel
+                    ? slicedWeightedVideoTotal.reduce((s, v, i) => s + Math.max(0, (v || 0) - (slicedWeightedValid[i] || 0)), 0)
+                    : 0;
+                const untaggedWindowPct = windowDenom > 0 ? (totalUntaggedW / windowDenom) * 100 : 0;
+
+                // Toggle state defaults: both Other and Untagged off.  Users
+                // opt in explicitly via the footer checkbox.  "No category"
+                // is a useful residual but it can dominate the axis range
+                // on sparse multi-label vars, so default-off keeps the
+                // primary label traces visible.
+                if (!this.timelineState.showOther) this.timelineState.showOther = {};
+                if (!this.timelineState.showUntagged) this.timelineState.showUntagged = {};
+                const showOther = !!this.timelineState.showOther[varName];
+                const showUntagged = !!this.timelineState.showUntagged[varName];
+
+                // Helper to build a footer row: `[☐] <text>`.  Clicking the
+                // checkbox (or its wrapping label which includes the text)
+                // toggles the trace.  Uses addEventListener so varName with
+                // unusual chars is safe.
+                const makeFooterRow = (textContent, tooltip, toggleFn, toggleState) => {
+                    const label = document.createElement('label');
+                    label.className = 'text-xs italic' + (tooltip ? ' meta-tooltip' : '');
+                    label.style.cssText = 'display: flex; align-items: baseline; gap: 6px; margin-top: 4px; color: var(--color-text-muted); cursor: pointer; user-select: none;';
+                    if (tooltip) label.setAttribute('data-tooltip', tooltip);
+
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.checked = !!toggleState;
+                    cb.style.cssText = 'margin: 0; flex-shrink: 0; cursor: pointer;';
+                    cb.addEventListener('change', () => toggleFn(varName));
+                    label.appendChild(cb);
+
+                    const textEl = document.createElement('span');
+                    textEl.textContent = textContent;
+                    label.appendChild(textEl);
+                    return label;
+                };
+
                 if (combinedOtherMembers.length > 0) {
-                    const otherTotal = catTotals[OTHER_BUCKET] || 0;
-                    const otherPct = grandTotal > 0 ? ((otherTotal / grandTotal) * 100).toFixed(1) : '0.0';
-                    const otherFooter = document.createElement('div');
-                    otherFooter.className = 'text-xs italic meta-tooltip';
-                    otherFooter.style.color = 'var(--color-text-muted)';
-                    otherFooter.style.marginTop = '4px';
                     const preview = combinedOtherMembers.slice(0, 8).join(', ');
                     const suffix = combinedOtherMembers.length > 8 ? `, +${combinedOtherMembers.length - 8} more` : '';
-                    otherFooter.setAttribute('data-tooltip', `${preview}${suffix}`);
-                    const noun = combinedOtherMembers.length === 1 ? 'category' : 'categories';
-                    otherFooter.textContent = `"Other" bundles ${combinedOtherMembers.length} low-occurrence ${noun} (${otherPct}% of mentions).`;
-                    chartWrapper.appendChild(otherFooter);
+                    const tooltip = `${preview}${suffix}`;
+                    const noun = combinedOtherMembers.length === 1 ? 'label' : 'labels';
+                    const otherWeighted = catWeightedTotals[OTHER_BUCKET] || 0;
+                    let otherPct;
+                    if (isMultiLabel) {
+                        // For multi-label, summing per-cat weighted totals
+                        // overcounts when plays carry multiple folded tags.
+                        // Cap at the tagged-share ceiling so the stated %
+                        // stays in [0, tagged%] — an honest upper bound.
+                        const taggedCeiling = slicedWeightedValid.reduce((s, v) => s + (v || 0), 0);
+                        const capped = Math.min(otherWeighted, taggedCeiling);
+                        otherPct = windowDenom > 0 ? ((capped / windowDenom) * 100).toFixed(1) : '0.0';
+                    } else {
+                        otherPct = windowDenom > 0 ? ((otherWeighted / windowDenom) * 100).toFixed(1) : '0.0';
+                    }
+                    const text = `"Other" bundles ${combinedOtherMembers.length} low-occurrence ${noun} (${otherPct}% of play time).`;
+                    chartWrapper.appendChild(makeFooterRow(
+                        text, tooltip, this.toggleOther.bind(this), showOther
+                    ));
                 }
 
-                // Calculate share values and render as line/area charts.
-                // Denominator is per-day sum of all category counts (share of
-                // mentions), matching the ribbon. For single-label variables
-                // this equals daily_valid_counts; for multi-label variables
-                // (hashtags, symbols) it correctly normalises to 100% across
-                // categories so the "Other" bucket stays on the same axis.
-                const slicedDailyTotal = slicedCounts.map(day => {
-                    let s = 0;
-                    for (const v of Object.values(day || {})) s += (v || 0);
-                    return s;
-                });
+                if (isMultiLabel) {
+                    const text = `"No label" — ${untaggedWindowPct.toFixed(1)}% of play time on items with no label for this variable.`;
+                    chartWrapper.appendChild(makeFooterRow(
+                        text, null, this.toggleUntagged.bind(this), showUntagged
+                    ));
+                }
 
-                let allYVals = []; // Track all y-values for axis range
+                // Per-category traces — read pre-computed share values directly
+                // from the backend (one source of truth across chart, ribbon,
+                // and analysis overlays).  The `val` (raw plays) and `wval`
+                // (watch-seconds) feed the hover only.
+                //
+                // OTHER_BUCKET is filtered out here — its visibility is
+                // controlled exclusively by the "Show in chart" toggle next
+                // to the "Other" footer below the ribbon.
+                let allYVals = [];
+                const slicedDateLabels = startIdx > 0 ? (data.date_labels || dates).slice(startIdx) : (data.date_labels || dates);
+                const hexToRgba = (hex, alpha) => {
+                    const r = parseInt(hex.slice(1, 3), 16);
+                    const g = parseInt(hex.slice(3, 5), 16);
+                    const b = parseInt(hex.slice(5, 7), 16);
+                    return `rgba(${r},${g},${b},${alpha})`;
+                };
+                const overlaysActive = this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName];
+                const lineAlpha = overlaysActive ? 0.25 : 1.0;
+                const lineWidth = overlaysActive ? 1.5 : 2;
+                const fillAlpha = overlaysActive ? '06' : '12';
+                const smoothW = this.timelineState.smoothing || 1;
 
                 selectedCats.forEach((cat, idx) => {
+                    if (cat === OTHER_BUCKET) return;
                     const yVals = [];
                     const hoverTexts = [];
-                    const slicedDateLabels = startIdx > 0 ? (data.date_labels || dates).slice(startIdx) : (data.date_labels || dates);
 
                     dates.forEach((d, i) => {
-                        const dailyRecord = slicedCounts[i] || {};
-                        const val = dailyRecord[cat] || 0;
-                        const total = slicedDailyTotal[i];
-                        const share = total > 0 ? (val / total) * 100 : 0;
+                        const shareDay = slicedShareSeries[i] || {};
+                        const share = shareDay[cat] || 0;
+                        const val = (slicedCounts[i] || {})[cat] || 0;
+                        const wval = (slicedWeightedCounts[i] || {})[cat] || 0;
                         yVals.push(share);
                         hoverTexts.push(
                             `<b>${cat}</b><br>` +
                             `Period: ${slicedDateLabels[i] || d}<br>` +
                             `Share: ${share.toFixed(1)}%<br>` +
-                            `Count: ${val.toLocaleString()}`
+                            `Play time: ${Math.round(wval).toLocaleString()}s across ${val.toLocaleString()} plays`
                         );
                     });
 
-                    // Apply smoothing if active
-                    const smoothW = this.timelineState.smoothing || 1;
                     const displayY = smoothW > 1 ? this._movingAvg(yVals, smoothW) : yVals;
-
                     allYVals = allYVals.concat(displayY);
                     const catColor = catColorMap[cat] || colors[idx % colors.length];
-
-                    // Reduce data line prominence when analysis overlays are visible
-                    // Plotly's trace-level opacity doesn't fade line strokes, so we
-                    // bake the alpha directly into the line color via rgba.
-                    const overlaysActive = this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName];
-                    const lineAlpha = overlaysActive ? 0.25 : 1.0;
-                    const lineWidth = overlaysActive ? 1.5 : 2;
-                    const fillAlpha = overlaysActive ? '06' : '12';
-
-                    // Convert hex (#RRGGBB) to rgba string
-                    const hexToRgba = (hex, alpha) => {
-                        const r = parseInt(hex.slice(1, 3), 16);
-                        const g = parseInt(hex.slice(3, 5), 16);
-                        const b = parseInt(hex.slice(5, 7), 16);
-                        return `rgba(${r},${g},${b},${alpha})`;
-                    };
                     const lineColor = hexToRgba(catColor, lineAlpha);
 
-                    // Line trace
                     traces.push({
                         x: xVals,
                         y: displayY,
@@ -703,7 +923,92 @@ window.timelines = {
                     });
                 });
 
-                // Compute y-axis range from actual data
+                // "Other" residual trace — toggled on via the footer checkbox.
+                // For multi-label, cap at each day's tagged-share ceiling
+                // (weighted_valid / weighted_video_total) because summing
+                // per-cat shares can overcount when plays carry multiple
+                // folded tags.
+                if (showOther && otherInData) {
+                    const yVals = [];
+                    const hoverTexts = [];
+                    dates.forEach((d, i) => {
+                        const shareDay = slicedShareSeries[i] || {};
+                        let share = shareDay[OTHER_BUCKET] || 0;
+                        const val = (slicedCounts[i] || {})[OTHER_BUCKET] || 0;
+                        const wval = (slicedWeightedCounts[i] || {})[OTHER_BUCKET] || 0;
+                        if (isMultiLabel) {
+                            const denom = slicedWeightedVideoTotal[i] || 0;
+                            const valid = slicedWeightedValid[i] || 0;
+                            const ceiling = denom > 0 ? (valid / denom) * 100 : 100;
+                            if (share > ceiling) share = ceiling;
+                        }
+                        yVals.push(share);
+                        const extraNote = isMultiLabel
+                            ? '<br><i>(aggregate of rare labels; may under-report days with many overlapping labels)</i>'
+                            : '';
+                        hoverTexts.push(
+                            `<b>Other</b><br>` +
+                            `Period: ${slicedDateLabels[i] || d}<br>` +
+                            `Share: ${share.toFixed(1)}%<br>` +
+                            `Watch time: ${Math.round(wval).toLocaleString()}s across ${val.toLocaleString()} plays${extraNote}`
+                        );
+                    });
+                    const displayY = smoothW > 1 ? this._movingAvg(yVals, smoothW) : yVals;
+                    allYVals = allYVals.concat(displayY);
+                    const lineColor = hexToRgba(otherColor, lineAlpha);
+                    traces.push({
+                        x: xVals,
+                        y: displayY,
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { width: lineWidth, shape: 'spline', color: lineColor },
+                        fill: 'tozeroy',
+                        fillcolor: otherColor + fillAlpha,
+                        name: OTHER_BUCKET,
+                        text: hoverTexts,
+                        hoverinfo: 'text',
+                        hovertemplate: '%{text}<extra></extra>'
+                    });
+                }
+
+                // Untagged residual trace (multi-label only) — toggled on via
+                // the footer checkbox.  Per day, untagged share is the
+                // proportion of attention paid to plays with NO tag for this
+                // variable: (video_total − valid) / video_total.  That's
+                // non-additive and robust to overlapping tags.
+                if (isMultiLabel && showUntagged) {
+                    const untaggedY = [];
+                    const untaggedHover = [];
+                    dates.forEach((d, i) => {
+                        const dayDenom = slicedWeightedVideoTotal[i] || 0;
+                        const dayValid = slicedWeightedValid[i] || 0;
+                        const untaggedW = Math.max(0, dayDenom - dayValid);
+                        const untagged = dayDenom > 0 ? (untaggedW / dayDenom) * 100 : 0;
+                        untaggedY.push(untagged);
+                        untaggedHover.push(
+                            `<b>${UNTAGGED_BUCKET}</b><br>` +
+                            `Period: ${slicedDateLabels[i] || d}<br>` +
+                            `Share: ${untagged.toFixed(1)}%<br>` +
+                            `${Math.round(untaggedW).toLocaleString()}s on items with no label`
+                        );
+                    });
+                    const displayUntagged = smoothW > 1 ? this._movingAvg(untaggedY, smoothW) : untaggedY;
+                    allYVals = allYVals.concat(displayUntagged);
+                    const untaggedColor = getCSSVar('--color-text-faint') || '#bbbbbb';
+                    traces.push({
+                        x: xVals,
+                        y: displayUntagged,
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { width: 1.5, shape: 'spline', color: untaggedColor, dash: 'dot' },
+                        fill: 'none',
+                        name: UNTAGGED_BUCKET,
+                        text: untaggedHover,
+                        hoverinfo: 'text',
+                        hovertemplate: '%{text}<extra></extra>'
+                    });
+                }
+
                 if (allYVals.length > 0) {
                     const yMax = Math.max(...allYVals);
                     const yMin = Math.min(...allYVals);
@@ -711,16 +1016,22 @@ window.timelines = {
                     chartWrapper._catYRange = [Math.max(0, yMin - padding), Math.min(100, yMax + padding)];
                 }
 
-                yAxisTitle = 'Share (%)';
+                // Y-axis label: single consistent phrasing for all categorical
+                // charts.  Multi-label shares are naturally smaller (items
+                // often carry more than one label) but the meaning is the
+                // same in both cases — share of play time on items carrying
+                // the specific label.
+                yAxisTitle = '% of play time on items with label';
 
             } else {
-                // Numeric
-                // Remove [0,1] normalization assumption.
-                // Log Support
+                // Numeric — values are watch-time-weighted means
+                // (Σ(value · w) / Σ(w)).  Each play's contribution is
+                // proportional to attention paid, so a 5-second swipe-past
+                // sways the mean a fifth as much as a 25-second dwell.
                 if (varData.log) {
-                    yAxisTitle = 'Value (Log)';
+                    yAxisTitle = 'Play-time-weighted mean (log)';
                 } else {
-                    yAxisTitle = 'Value';
+                    yAxisTitle = 'Play-time-weighted mean';
                 }
 
                 const slicedValues = startIdx > 0 ? varData.values.slice(startIdx) : varData.values;
@@ -1097,8 +1408,18 @@ window.timelines = {
 
                         let isStable = true;
 
+                        // Findings thresholds normalised by category mean
+                        // share — keeps badges meaningful for multi-label
+                        // vars where absolute shares are naturally smaller
+                        // (e.g. 0.5%-2% per category).  1 pp floor avoids
+                        // over-firing on near-zero categories.
+                        const meanShareCat = (catData.volatility && catData.volatility.mean) || (catData.trend && catData.trend.mean) || 0;
+                        const trendThreshCat = 0.5 * Math.max(meanShareCat, 1.0);
+                        const breakThreshCat = 0.5 * Math.max(meanShareCat, 1.0);
+                        const volThreshCat = 0.3 * Math.max(meanShareCat, 1.0);
+
                         // 1. Trend
-                        if (catData.trend && Math.abs(catData.trend.total_change) > 4) {
+                        if (catData.trend && Math.abs(catData.trend.total_change) > trendThreshCat) {
                             isStable = false;
                             const isRising = catData.trend.total_change > 0;
                             if (isRising) {
@@ -1111,7 +1432,7 @@ window.timelines = {
                         }
 
                         // 2. Step Change
-                        if (catData.break && Math.abs(catData.break.delta) > 4) {
+                        if (catData.break && Math.abs(catData.break.delta) > breakThreshCat) {
                             isStable = false;
                             headerRow.innerHTML += makeBadge('⋮ Step change', 'var(--trend-breaks-bg)', 'var(--color-info)', 'var(--trend-breaks-border)');
 
@@ -1146,7 +1467,7 @@ window.timelines = {
                         }
 
                         // 4. Volatility
-                        if (catData.volatility && catData.volatility.std > 2.5) {
+                        if (catData.volatility && catData.volatility.std > volThreshCat) {
                             isStable = false;
                             headerRow.innerHTML += makeBadge('~ Volatile', 'var(--trend-volatile-bg)', 'var(--color-purple)', 'var(--trend-volatile-border)');
                             bullets.push(`High variation — standard dev ${catData.volatility.std} pp around mean of ${catData.volatility.mean}%.`);
@@ -1249,17 +1570,23 @@ window.timelines = {
                 this.timelineState.categoricalSelections[varName] = varAnalysis.categories.slice(0, 3).map(c => c.id);
             }
         } else {
-            // Collect all matching categories (in interestingness order)
+            // Collect all matching categories (in interestingness order).
+            // Thresholds here mirror the badge thresholds in the ribbon and
+            // findings panel (0.5×/0.3× of category mean share, 1 pp floor)
+            // so the chip, the badge, and the stats cards agree.
             const matching = [];
             if (varAnalysis && Array.isArray(varAnalysis.categories)) {
                 varAnalysis.categories.forEach(cd => {
-                    // "Other" is a residual bucket; exclude from all filters.
-                    if (cd.is_other) return;
-                    const isRising = (cd.trend && cd.trend.total_change > 4);
-                    const isFalling = (cd.trend && cd.trend.total_change < -4);
+                    if (cd.is_other) return; // "Other" is a residual bucket
+                    const meanShare = (cd.volatility && cd.volatility.mean) || (cd.trend && cd.trend.mean) || 0;
+                    const trendThresh = 0.5 * Math.max(meanShare, 1.0);
+                    const breakThresh = 0.5 * Math.max(meanShare, 1.0);
+                    const volThresh = 0.3 * Math.max(meanShare, 1.0);
+                    const isRising = (cd.trend && cd.trend.total_change > trendThresh);
+                    const isFalling = (cd.trend && cd.trend.total_change < -trendThresh);
                     const hasSpikes = (cd.anomalies && cd.anomalies.length > 0);
-                    const hasBreak = (cd.break && Math.abs(cd.break.delta) > 4);
-                    const isVolatile = (cd.volatility && cd.volatility.std > 2.5);
+                    const hasBreak = (cd.break && Math.abs(cd.break.delta) > breakThresh);
+                    const isVolatile = (cd.volatility && cd.volatility.std > volThresh);
                     const isStable = (!isRising && !isFalling && !hasSpikes && !hasBreak && !isVolatile);
 
                     if ((activeFilter === 'rising' && isRising) ||
@@ -1292,6 +1619,24 @@ window.timelines = {
             list.push(cat);
         }
 
+        this.renderTimelineCharts();
+    },
+
+    // Toggle the "Other" residual trace in the chart for `varName`.
+    // Default state is off (opt-in); Other is intentionally excluded from
+    // the ribbon so it can't visually dominate unless the user asks for it.
+    toggleOther: function (varName) {
+        if (!this.timelineState.showOther) this.timelineState.showOther = {};
+        this.timelineState.showOther[varName] = !this.timelineState.showOther[varName];
+        this.renderTimelineCharts();
+    },
+
+    // Toggle the "No label" dashed residual trace in the chart for
+    // `varName`.  Default state is off; users opt-in via the footer
+    // checkbox.  Only rendered for multi-label vars.
+    toggleUntagged: function (varName) {
+        if (!this.timelineState.showUntagged) this.timelineState.showUntagged = {};
+        this.timelineState.showUntagged[varName] = !this.timelineState.showUntagged[varName];
         this.renderTimelineCharts();
     },
 

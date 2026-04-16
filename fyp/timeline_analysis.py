@@ -569,22 +569,47 @@ def _analyse_variable(var_data: dict,
     if len(analysis_cats) < 2:
         return None
 
-    # (#2) Build the counts matrix via pandas reindex rather than a Python
-    # nested loop — O(n_cats * n_periods) → C-speed fill.
-    df_counts = pd.DataFrame(parsed_counts).fillna(0)
-    if include_other:
-        existing_dropped = [c for c in dropped_cats if c in df_counts.columns]
-        if existing_dropped:
-            df_counts[OTHER_BUCKET_LABEL] = df_counts[existing_dropped].sum(axis=1)
-        else:
-            df_counts[OTHER_BUCKET_LABEL] = 0.0
+    # Build the share matrix from the backend's pre-computed share_series so
+    # the analysis overlays and the chart traces use the same numbers.  The
+    # "Other" bucket's per-day share is the sum of dropped categories' shares,
+    # which is exact because all shares were computed against the same per-day
+    # denominator (`share_denominator` in var_data).
+    share_series_raw = var_data.get("share_series") or []
+    sliced_shares = share_series_raw[start_offset:] if start_offset > 0 else share_series_raw
+    parsed_shares = _parse_daily_counts(sliced_shares)
 
-    counts_matrix = df_counts.reindex(columns=analysis_cats,
-                                      fill_value=0).values.T.astype(np.float64)
-    n_cats = counts_matrix.shape[0]
+    if len(parsed_shares) == n_periods:
+        df_shares = pd.DataFrame(parsed_shares).fillna(0)
+        if include_other:
+            existing_dropped = [c for c in dropped_cats if c in df_shares.columns]
+            if existing_dropped:
+                df_shares[OTHER_BUCKET_LABEL] = df_shares[existing_dropped].sum(axis=1)
+            else:
+                df_shares[OTHER_BUCKET_LABEL] = 0.0
+        share_matrix = df_shares.reindex(columns=analysis_cats,
+                                         fill_value=0).values.T.astype(np.float64)
+    else:
+        # Legacy fallback for callers that pass a result without share_series
+        # (e.g. old fixtures, external callers).  Keeps the function from
+        # crashing but warns so we notice the cache mismatch.
+        if share_series_raw:
+            print(f"WARN: share_series/counts length mismatch "
+                  f"({len(parsed_shares)} vs {n_periods}); recomputing from counts.")
+        df_counts = pd.DataFrame(parsed_counts).fillna(0)
+        if include_other:
+            existing_dropped = [c for c in dropped_cats if c in df_counts.columns]
+            if existing_dropped:
+                df_counts[OTHER_BUCKET_LABEL] = df_counts[existing_dropped].sum(axis=1)
+            else:
+                df_counts[OTHER_BUCKET_LABEL] = 0.0
+        counts_matrix = df_counts.reindex(columns=analysis_cats,
+                                          fill_value=0).values.T.astype(np.float64)
+        share_matrix = (counts_matrix / denom_arr[np.newaxis, :]) * 100.0
 
-    # Share % matrix → 7-day centred moving average.
-    share_matrix = (counts_matrix / denom_arr[np.newaxis, :]) * 100.0
+    n_cats = share_matrix.shape[0]
+
+    # 7-day centred moving average — preserves the smoothing semantics used
+    # by all downstream metrics (slope, breaks, anomalies, volatility).
     smoothed_df = pd.DataFrame(share_matrix.T).rolling(
         7, center=True, min_periods=1).mean()
     smoothed_matrix = np.round(smoothed_df.values.T, 2)
