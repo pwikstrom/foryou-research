@@ -2246,6 +2246,24 @@ button {
     color: var(--btn-primary-text) !important;
 }
 
+.filter-sort-toggle {
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    font-size: var(--text-xs);
+    font-family: var(--font-mono);
+    line-height: 1;
+    padding: 2px 5px;
+    transition: color 0.15s, border-color 0.15s;
+    flex-shrink: 0;
+}
+.filter-sort-toggle:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-text-muted);
+}
+
 
 /* ── Explore chart drill-down affordance ── */
 #explorer-v2-stats .js-plotly-plot .bars .point path,

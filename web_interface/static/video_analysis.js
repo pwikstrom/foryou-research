@@ -710,6 +710,21 @@ function renderViewerFilterColumn(col, metadata, schemaMap) {
         }
 
     } else if (info.type === 'category' || info.type === 'list') {
+        // Wrap label in header row with sort toggle
+        const headerRow = document.createElement('div');
+        headerRow.style.cssText = 'display:flex; align-items:center; justify-content:space-between;';
+        label.style.marginBottom = '0';
+        wrapper.removeChild(label);
+        headerRow.appendChild(label);
+
+        const sortBtn = document.createElement('button');
+        sortBtn.className = 'filter-sort-toggle meta-tooltip';
+        sortBtn.dataset.tooltip = 'Sort A\u2013Z';
+        sortBtn.dataset.sortMode = 'freq';
+        sortBtn.textContent = '#\u2193';
+        headerRow.appendChild(sortBtn);
+        wrapper.appendChild(headerRow);
+
         const listContainer = document.createElement('div');
         listContainer.style.maxHeight = '150px';
         listContainer.style.overflowY = 'auto';
@@ -721,15 +736,23 @@ function renderViewerFilterColumn(col, metadata, schemaMap) {
             const item = document.createElement('div');
             item.style.display = 'flex';
             item.style.alignItems = 'center';
+            item.className = 'filter-checkbox-item';
 
             let actualValue = val;
             let displayValue = val;
+            let sortLabel = String(val);
+            let sortCount = 0;
 
             if (typeof val === 'object' && val !== null && val.value !== undefined) {
                 actualValue = val.value;
                 const lbl = val.label || val.value;
                 displayValue = `${lbl} (${val.count.toLocaleString()})`;
+                sortLabel = String(lbl);
+                sortCount = val.count;
             }
+
+            item.dataset.sortLabel = sortLabel.toLowerCase();
+            item.dataset.sortCount = sortCount;
 
             const cb = document.createElement('input');
             cb.type = 'checkbox';
@@ -756,6 +779,22 @@ function renderViewerFilterColumn(col, metadata, schemaMap) {
             item.appendChild(span);
             listContainer.appendChild(item);
         });
+
+        sortBtn.onclick = () => {
+            const items = Array.from(listContainer.querySelectorAll('.filter-checkbox-item'));
+            if (sortBtn.dataset.sortMode === 'freq') {
+                items.sort((a, b) => a.dataset.sortLabel.localeCompare(b.dataset.sortLabel));
+                sortBtn.dataset.sortMode = 'alpha';
+                sortBtn.textContent = 'A\u2193';
+                sortBtn.dataset.tooltip = 'Sort by frequency';
+            } else {
+                items.sort((a, b) => b.dataset.sortCount - a.dataset.sortCount);
+                sortBtn.dataset.sortMode = 'freq';
+                sortBtn.textContent = '#\u2193';
+                sortBtn.dataset.tooltip = 'Sort A\u2013Z';
+            }
+            items.forEach(el => listContainer.appendChild(el));
+        };
 
         if (info.total_unique && info.total_unique > info.values.length) {
             const notice = document.createElement('div');
