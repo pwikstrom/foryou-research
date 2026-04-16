@@ -737,8 +737,8 @@ window.timelines = {
                     const watchSec = Math.round(wTotal);
                     const playCount = (catTotals[cat] || 0).toLocaleString();
                     const primaryLine = isMultiLabel
-                        ? `${segPct.toFixed(1)}% of label mentions · ${watchPct.toFixed(1)}% of play time`
-                        : `${watchPct.toFixed(1)}% of play time`;
+                        ? `${segPct.toFixed(1)}% of label mentions · ${watchPct.toFixed(1)}% of time spent`
+                        : `${watchPct.toFixed(1)}% of time spent`;
                     return {
                         x: [segPct],
                         y: ['cats'],
@@ -754,7 +754,7 @@ window.timelines = {
                         textposition: 'inside',
                         insidetextanchor: 'middle',
                         customdata: [[cat, primaryLine, watchSec.toLocaleString(), playCount, trendLine]],
-                        hovertemplate: '<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}s across %{customdata[3]} plays%{customdata[4]}<extra></extra>'
+                        hovertemplate: '<b>%{customdata[0]}</b><br>%{customdata[1]}%{customdata[4]}<extra></extra>'
                     };
                 });
 
@@ -849,14 +849,14 @@ window.timelines = {
                     } else {
                         otherPct = windowDenom > 0 ? ((otherWeighted / windowDenom) * 100).toFixed(1) : '0.0';
                     }
-                    const text = `"Other" bundles ${combinedOtherMembers.length} low-occurrence ${noun} (${otherPct}% of play time).`;
+                    const text = `"Other" bundles ${combinedOtherMembers.length} low-occurrence ${noun} (${otherPct}% of time spent).`;
                     chartWrapper.appendChild(makeFooterRow(
                         text, tooltip, this.toggleOther.bind(this), showOther
                     ));
                 }
 
                 if (isMultiLabel) {
-                    const text = `"No label" — ${untaggedWindowPct.toFixed(1)}% of play time on items with no label for this variable.`;
+                    const text = `"No label" — ${untaggedWindowPct.toFixed(1)}% of time spent on items with no label for this variable.`;
                     chartWrapper.appendChild(makeFooterRow(
                         text, null, this.toggleUntagged.bind(this), showUntagged
                     ));
@@ -898,8 +898,7 @@ window.timelines = {
                         hoverTexts.push(
                             `<b>${cat}</b><br>` +
                             `Period: ${slicedDateLabels[i] || d}<br>` +
-                            `Share: ${share.toFixed(1)}%<br>` +
-                            `Play time: ${Math.round(wval).toLocaleString()}s across ${val.toLocaleString()} plays`
+                            `Share: ${share.toFixed(1)}%`
                         );
                     });
 
@@ -949,8 +948,7 @@ window.timelines = {
                         hoverTexts.push(
                             `<b>Other</b><br>` +
                             `Period: ${slicedDateLabels[i] || d}<br>` +
-                            `Share: ${share.toFixed(1)}%<br>` +
-                            `Watch time: ${Math.round(wval).toLocaleString()}s across ${val.toLocaleString()} plays${extraNote}`
+                            `Share: ${share.toFixed(1)}%${extraNote}`
                         );
                     });
                     const displayY = smoothW > 1 ? this._movingAvg(yVals, smoothW) : yVals;
@@ -988,8 +986,7 @@ window.timelines = {
                         untaggedHover.push(
                             `<b>${UNTAGGED_BUCKET}</b><br>` +
                             `Period: ${slicedDateLabels[i] || d}<br>` +
-                            `Share: ${untagged.toFixed(1)}%<br>` +
-                            `${Math.round(untaggedW).toLocaleString()}s on items with no label`
+                            `Share: ${untagged.toFixed(1)}%`
                         );
                     });
                     const displayUntagged = smoothW > 1 ? this._movingAvg(untaggedY, smoothW) : untaggedY;
@@ -1019,9 +1016,9 @@ window.timelines = {
                 // Y-axis label: single consistent phrasing for all categorical
                 // charts.  Multi-label shares are naturally smaller (items
                 // often carry more than one label) but the meaning is the
-                // same in both cases — share of play time on items carrying
+                // same in both cases — share of time spent on items carrying
                 // the specific label.
-                yAxisTitle = '% of play time on items with label';
+                yAxisTitle = '% of time spent on items with label';
 
             } else {
                 // Numeric — values are watch-time-weighted means

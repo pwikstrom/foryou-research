@@ -316,6 +316,10 @@ def call_machine_threads(
     _startup_sleep = 3 + max_workers / 2  # upper bound of worker() sleep
     _waves = max(1, (len(interesting_videos) + max_workers - 1) // max_workers)
     batch_deadline = int(_waves * _per_call_seconds * _safety_margin + _startup_sleep + 60)
+    print(
+        f"[machine] batch_deadline={batch_deadline}s for {len(interesting_videos)} items, "
+        f"{max_workers} workers, {_waves} waves"
+    )
 
     ex = ThreadPoolExecutor(max_workers=max_workers)
     try:

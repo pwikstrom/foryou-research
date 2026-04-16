@@ -136,11 +136,13 @@ def _enforce_study_collections(metadata, study, verbose=False):
 @data_bp.route('/api/studies/defined', methods=['GET'])
 @login_required
 def api_get_study_defs():
+    detail = request.args.get('detail', 'false').lower() == 'true'
 
     studies = get_accessible_studies(
         username=current_user.username,
         role=current_user.role,
-        is_admin=current_user.is_admin()
+        is_admin=current_user.is_admin(),
+        include_stats=detail,
     )
     return jsonify(studies)
 

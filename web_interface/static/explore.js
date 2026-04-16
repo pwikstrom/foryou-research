@@ -113,8 +113,14 @@ async function loadExplorerV2Studies() {
     const selector = document.getElementById('explorer-v2-study-select');
 
     try {
-        const res = await fetch('/api/studies/defined');
-        const studies = await res.json();
+        const res = await fetch('/api/studies/defined?detail=true');
+        const studyDetails = await res.json();
+
+        // Cache stats for size checks and extract names
+        const studies = studyDetails.map(s => {
+            _studyStatsCache[s.name] = s.stats || {};
+            return s.name;
+        });
 
         selector.innerHTML = '<option value="" disabled selected>Select a study...</option>';
 
@@ -133,8 +139,10 @@ async function loadExplorerV2Studies() {
             selector.appendChild(opt);
         });
 
-        // Auto-select first study
-        if (studies.length > 0) {
+        // Preserve current selection if still available, otherwise auto-select first
+        if (explorerDataV2.activeStudy && studies.includes(explorerDataV2.activeStudy)) {
+            selector.value = explorerDataV2.activeStudy;
+        } else if (studies.length > 0) {
             selector.value = studies[0];
             changeExplorerV2Study(studies[0]);
         }
@@ -146,11 +154,27 @@ async function loadExplorerV2Studies() {
     }
 }
 
-function changeExplorerV2Study(val) {
+async function changeExplorerV2Study(val) {
     const selector = document.getElementById('explorer-v2-study-select');
     const studyName = val || selector.value;
 
     if (!studyName) return;
+
+    // Check study size and warn if large
+    const stats = _studyStatsCache[studyName] || {};
+    const uniqueVids = stats.unique_videos || 0;
+    if (uniqueVids > _LARGE_LOAD_THRESHOLD) {
+        const proceed = await showLargeStudyLoadWarning(studyName, uniqueVids);
+        if (!proceed) {
+            // Revert dropdown to previous selection
+            if (explorerDataV2.activeStudy) {
+                selector.value = explorerDataV2.activeStudy;
+            } else {
+                selector.selectedIndex = 0;
+            }
+            return;
+        }
+    }
 
     explorerDataV2.activeStudy = studyName;
     explorerDataV2.filters1 = {}; // Reset filters

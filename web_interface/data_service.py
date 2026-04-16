@@ -1272,17 +1272,24 @@ def get_pca_df(study_name):
 
 
 
-def get_accessible_studies(username, role, is_admin):
-    """
-    Returns a list of study names that the user has access to.
+def get_accessible_studies(username: str, role: str, is_admin: bool,
+                           include_stats: bool = False) -> list:
+    """Return study names (or dicts with stats) that the user has access to.
+
+    Args:
+        username: Current user's username.
+        role: Current user's role.
+        is_admin: Whether the user is an admin.
+        include_stats: When True, return ``[{"name": ..., "stats": {...}}]``
+            instead of a flat list of names.
     """
     from fyp.studies import init_study_defs
-    
+
     if not 'study_defs' in fyp_cf:
         init_study_defs()
 
     accessible_studies = []
-    
+
     if 'study_defs' in fyp_cf:
         for study_name, study_config in fyp_cf['study_defs'].items():
             # 1. Admin Override
@@ -1317,13 +1324,18 @@ def get_accessible_studies(username, role, is_admin):
                 # Data Integrity Checks
                 if not data_io.exists(storage_location="cache", filename=f"{study_name}_recoded.parquet"):
                     continue
-                
+
                 stats = study_config.get('stats', {})
                 if stats.get('unique_videos', 0) <= 0:
                     continue
 
-                accessible_studies.append(study_name)
-    
+                if include_stats:
+                    accessible_studies.append({"name": study_name, "stats": stats})
+                else:
+                    accessible_studies.append(study_name)
+
+    if include_stats:
+        return sorted(accessible_studies, key=lambda s: s["name"])
     return sorted(accessible_studies)
 
 

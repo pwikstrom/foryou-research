@@ -146,6 +146,7 @@ def api_status():
                     "last_run_duration": stats_entry.get("last_run_duration"),
                     "last_run_outcome": stats_entry.get("last_run_outcome"),
                     "last_run_study": stats_entry.get("last_run_study"),
+                    "task_args": gcs_status.get("task_args", {}),
                 }
                 continue
 
@@ -176,6 +177,7 @@ def api_status():
             "last_run_duration": stats_entry.get("last_run_duration"),
             "last_run_outcome": stats_entry.get("last_run_outcome"),
             "last_run_study": stats_entry.get("last_run_study"),
+            "task_args": p_data.get("data", {}).get("task_args", {}),
         }
     return jsonify(status_data)
 

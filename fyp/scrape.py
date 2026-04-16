@@ -773,11 +773,32 @@ def download_video_threads(
         )
 
 
-        for fut in as_completed(futures):
-            idx, res = fut.result()
-            results_by_index[idx] = res
+        # Batch-level deadline: prevents a single slow download from blocking
+        # the entire batch indefinitely.  Stuck items are recorded as failures.
+        _per_item_ceiling = 120
+        _waves = max(1, (len(interesting_videos) + pool_size - 1) // pool_size)
+        batch_deadline = min(int(_waves * _per_item_ceiling * 1.5 + 60), 1800)
 
-        monitor_thread.join()
+        try:
+            for fut in as_completed(futures, timeout=batch_deadline):
+                idx, res = fut.result()
+                results_by_index[idx] = res
+        except TimeoutError:
+            stuck = [interesting_videos[i] for i, f in enumerate(futures) if not f.done()]
+            print(
+                f"  [scrape] Batch deadline of {batch_deadline}s exceeded; "
+                f"{len(stuck)} worker(s) did not finish: {stuck[:5]}"
+                + (" ..." if len(stuck) > 5 else ""),
+                flush=True,
+            )
+            # Record DNF items as empty DataFrames (failures)
+            for i in range(len(interesting_videos)):
+                if i not in results_by_index:
+                    empty = pd.DataFrame()
+                    empty.attrs['error_type'] = 'timeout'
+                    results_by_index[i] = empty
+
+        monitor_thread.join(timeout=5)
 
     if throttle.total_throttle_events > 0:
         print(f"  Throttle: {throttle.total_throttle_events} rate-limit events, "

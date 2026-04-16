@@ -253,6 +253,10 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             placeholder._status["state"] = "running"
             placeholder._status["start_time"] = datetime.now(timezone.utc).isoformat()
             placeholder._status["progress"] = {"percent": 0, "message": "Starting..."}
+            placeholder._status["task_args"] = {
+                "batch_size": task_args.get("batch_size"),
+                "max_batches": task_args.get("max_batches"),
+            }
             placeholder._write_status(force=True)
         return success, msg
 
@@ -284,7 +288,13 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         # from a previous run leaks into /api/status until the new worker
         # emits its own, making the UI show stale values (e.g. the
         # Consolidation Impact panel carrying the prior run's impact).
-        processes[name]["data"] = {}
+        _ta = task_args if task_args else _cli_args_to_dict(name, args, study_name)
+        processes[name]["data"] = {
+            "task_args": {
+                "batch_size": _ta.get("batch_size"),
+                "max_batches": _ta.get("max_batches"),
+            }
+        }
 
         # Start logging thread
         t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]))

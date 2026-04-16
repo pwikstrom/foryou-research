@@ -86,6 +86,17 @@
     // Close modal when clicking outside is handled by the onclick on the modal div
 </script>
 
+<!-- Large Study Load Warning (shared across explore/video analysis) -->
+<div id="large-load-warning" class="stop-confirm-overlay">
+    <div class="stop-confirm-card" style="max-width: 440px;">
+        <p id="large-load-warning-text" class="text-sm" style="margin: 0 0 16px 0;"></p>
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn-discreet" id="large-load-warning-back">Pick another study</button>
+            <button class="btn-primary" id="large-load-warning-continue">Continue</button>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}

@@ -245,6 +245,10 @@ def save_study():
     fyp_cf['study_defs'] = studies
     save_study_defs()
 
+    # Definition-only save: skip heavy refresh (used by "Check data counts" for new studies)
+    if data.get("definition_only"):
+        return jsonify({"status": "success", "study": studies[study_name]})
+
     # --- Dispatch heavy refresh work ---
     task_args = {
         "study_name": study_name,

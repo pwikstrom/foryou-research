@@ -219,8 +219,14 @@ async function loadViewerStudies() {
     const selector = document.getElementById('viewer-study-select');
 
     try {
-        const res = await fetch('/api/studies/defined'); // Reuse endpoint
-        const studies = await res.json();
+        const res = await fetch('/api/studies/defined?detail=true');
+        const studyDetails = await res.json();
+
+        // Cache stats for size checks and extract names
+        const studies = studyDetails.map(s => {
+            _studyStatsCache[s.name] = s.stats || {};
+            return s.name;
+        });
 
         selector.innerHTML = '<option value="" disabled selected>Select a study...</option>';
 
@@ -239,8 +245,10 @@ async function loadViewerStudies() {
             selector.appendChild(opt);
         });
 
-        // Auto-select first study
-        if (studies.length > 0) {
+        // Preserve current selection if still available, otherwise auto-select first
+        if (viewerData.activeStudy && studies.includes(viewerData.activeStudy)) {
+            selector.value = viewerData.activeStudy;
+        } else if (studies.length > 0) {
             selector.value = studies[0];
             changeViewerStudy(studies[0]);
         }
@@ -257,6 +265,21 @@ async function changeViewerStudy(val) {
     const studyName = val || selector.value;
 
     if (!studyName) return;
+
+    // Check study size and warn if large
+    const stats = _studyStatsCache[studyName] || {};
+    const uniqueVids = stats.unique_videos || 0;
+    if (uniqueVids > _LARGE_LOAD_THRESHOLD) {
+        const proceed = await showLargeStudyLoadWarning(studyName, uniqueVids);
+        if (!proceed) {
+            if (viewerData.activeStudy) {
+                selector.value = viewerData.activeStudy;
+            } else {
+                selector.selectedIndex = 0;
+            }
+            return;
+        }
+    }
 
     viewerData.activeStudy = studyName;
     viewerData.filters = {};

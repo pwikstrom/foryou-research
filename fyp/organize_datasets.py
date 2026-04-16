@@ -749,10 +749,10 @@ def load_study_datasets(
         print(f"    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data.")
         sample_frame = None
 
-    elif sample_frame_setting == "events":
-        # 'events' doesn't need enrichment_status — use all collection events as the frame.
+    elif sample_frame_setting in ("events", "activities"):
+        # 'activities' (formerly 'events') doesn't need enrichment_status — use all collection events as the frame.
         sample_frame = tutti_data["collections"].copy()
-        print(f"    [DD Sampling] Sample frame setting is 'events'. Using all {len(sample_frame):,} collection events as sample frame.")
+        print(f"    [DD Sampling] Sample frame setting is '{sample_frame_setting}'. Using all {len(sample_frame):,} collection events as sample frame.")
 
     else:
         # 'scraped' and 'annotated' require enrichment_status to pick rows.

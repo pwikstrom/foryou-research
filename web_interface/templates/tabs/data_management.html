@@ -148,6 +148,17 @@
         </div>
     </div>
 
+    <!-- Large Study Warning (after modal so it renders on top at same z-index) -->
+    <div id="large-study-warning" class="stop-confirm-overlay" style="z-index: 1200;">
+        <div class="stop-confirm-card" style="max-width: 440px;">
+            <p id="large-study-warning-text" class="text-sm" style="margin: 0 0 16px 0;"></p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button class="btn-discreet" id="large-study-warning-back">Go back</button>
+                <button class="btn-primary" id="large-study-warning-continue">Continue anyway</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Template for Study Edit Form (cloned into modal) -->
     <template id="study_detail_template">
         <div class="study-edit-form" data-study-name="">
@@ -184,7 +195,7 @@
                             onchange="toggleSamplingOptions(this)" {% if not current_user.is_admin() %}disabled{%
                             endif %}>
                             <option value="off">off</option>
-                            <option value="events">activities</option>
+                            <option value="activities">activities</option>
                             <option value="scraped">scraped</option>
                             <option value="annotated">annotated</option>
                         </select>
@@ -239,7 +250,7 @@
                     style="padding: 2px 8px;">Save/Refresh Study</button>
                 <button type="button" class="text-xs" onclick="updateStudyEstimates(this, event)"
                     style="padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
-                    {% if not current_user.is_admin() %}disabled{% endif %}>Update data counts</button>
+                    {% if not current_user.is_admin() %}disabled{% endif %}>Check data counts</button>
                 <div style="flex: 1;"></div>
                 <button type="button" class="btn-danger text-xs" onclick="deleteStudy(this, event)"
                     style="padding: 2px 8px;">Delete Study</button>

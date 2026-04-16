@@ -213,6 +213,27 @@ async function deleteUserTag(tagName) {
     }
 }
 
+const _LARGE_LOAD_THRESHOLD = 100000;
+let _studyStatsCache = {};
+
+function showLargeStudyLoadWarning(studyName, uniqueVideos) {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('large-load-warning');
+        const textEl = document.getElementById('large-load-warning-text');
+        textEl.innerHTML = `<strong>${studyName}</strong> contains ${uniqueVideos.toLocaleString()} items. ` +
+            `Loading this study may take a moment and app performance may be affected.`;
+        overlay.classList.add('visible');
+        document.getElementById('large-load-warning-back').onclick = () => {
+            overlay.classList.remove('visible');
+            resolve(false);
+        };
+        document.getElementById('large-load-warning-continue').onclick = () => {
+            overlay.classList.remove('visible');
+            resolve(true);
+        };
+    });
+}
+
 async function loadDefinedStudies() {
     try {
         const response = await fetch('/api/studies/defined');
@@ -226,6 +247,8 @@ async function loadDefinedStudies() {
         dropdownIds.forEach(id => {
             const select = document.getElementById(id);
             if (select) {
+                const currentValue = select.value;
+
                 // Keep the first "Select..." option if it exists and value is empty
                 let hasDefault = false;
                 if (select.options.length > 0 && select.options[0].value === "") {
@@ -249,6 +272,11 @@ async function loadDefinedStudies() {
                     option.text = study;
                     select.appendChild(option);
                 });
+
+                // Preserve previous selection if still available
+                if (currentValue && studies.includes(currentValue)) {
+                    select.value = currentValue;
+                }
             }
         });
 
@@ -557,6 +585,21 @@ function setStatus(name, data) {
             toggleBtn.innerText = startLabel;
             toggleBtn.style.padding = '4px 12px';
             toggleBtn.onclick = function () { startProcess(name); };
+        }
+    }
+
+    // Show running process settings for scraper/annotator
+    if (name === 'queue_scraper' || name === 'queue_annotator') {
+        const prefix = name === 'queue_scraper' ? 'scrapes' : 'annotations';
+        const bsEl = document.getElementById(`${prefix}-batch-size`);
+        const mbEl = document.getElementById(`${prefix}-max-batches`);
+        if (status === 'running' && data.task_args) {
+            if (bsEl && data.task_args.batch_size) { bsEl.value = data.task_args.batch_size; bsEl.disabled = true; }
+            if (mbEl && data.task_args.max_batches) { mbEl.value = data.task_args.max_batches; mbEl.disabled = true; }
+            else if (mbEl) { mbEl.value = ''; mbEl.disabled = true; }
+        } else if (status !== 'running') {
+            if (bsEl) { bsEl.value = 500; bsEl.disabled = false; }
+            if (mbEl) { mbEl.value = ''; mbEl.disabled = false; }
         }
     }
 

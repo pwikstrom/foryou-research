@@ -233,6 +233,47 @@ function _syncUpdateCountsBtn(formContainer) {
     btn.style.pointerEvents = needsUpdate ? '' : 'none';
 }
 
+const _LARGE_STUDY_THRESHOLD = 500000;
+
+function _sumSelectedActivities(formContainer) {
+    const hiddenInput = formContainer.querySelector('input[data-field="SELECTED_COLLECTIONS"]');
+    let selectedIds = [];
+    try {
+        selectedIds = JSON.parse((hiddenInput ? hiddenInput.value : '[]').replace(/'/g, '"'));
+    } catch (e) { return 0; }
+    let total = 0;
+    selectedIds.forEach(id => {
+        const col = availableCollections.find(c => c.id === id);
+        if (col && col.personas) total += (col.personas.total_events || 0);
+    });
+    return total;
+}
+
+function _checkLargeStudy(formContainer) {
+    const sampleSelect = formContainer.querySelector('[data-field="SAMPLE_FRAME"]');
+    const sampleValue = sampleSelect ? sampleSelect.value : 'off';
+    if (sampleValue !== 'off') return Promise.resolve(true);
+
+    const totalActivities = _sumSelectedActivities(formContainer);
+    if (totalActivities <= _LARGE_STUDY_THRESHOLD) return Promise.resolve(true);
+
+    return new Promise(resolve => {
+        const overlay = document.getElementById('large-study-warning');
+        const textEl = document.getElementById('large-study-warning-text');
+        textEl.innerHTML = `This study covers approximately <strong>${totalActivities.toLocaleString()}</strong> activities with no sampling. ` +
+            `To avoid impacting the hub's performance, consider limiting the time period, enabling sampling, or reducing the number of collections.`;
+        overlay.classList.add('visible');
+        document.getElementById('large-study-warning-back').onclick = () => {
+            overlay.classList.remove('visible');
+            resolve(false);
+        };
+        document.getElementById('large-study-warning-continue').onclick = () => {
+            overlay.classList.remove('visible');
+            resolve(true);
+        };
+    });
+}
+
 function updateCollectionSelection(selectorDiv) {
     if (!selectorDiv) return;
     const container = selectorDiv.querySelector('.collection-checklist-container');
@@ -412,7 +453,7 @@ function renderStudiesTable() {
             <td style="padding: 5px;"><strong>${study.STUDY_NAME}</strong></td>
             <td style="padding: 5px;">${study.START_DATE || '-'}</td>
             <td style="padding: 5px;">${study.END_DATE || '-'}</td>
-            <td style="padding: 5px;">${study.SAMPLE_FRAME || '-'}</td>
+            <td style="padding: 5px;">${(study.SAMPLE_FRAME === 'events' ? 'activities' : study.SAMPLE_FRAME) || '-'}</td>
             <td style="text-align: right; padding: 5px;">${formatNum(stats.unique_collections)}</td>
             <td style="text-align: right; padding: 5px;">${formatNum(stats.total_activities)}</td>
             <td style="text-align: right; padding: 5px;">${formatNum(stats.unique_videos)}</td>
@@ -544,7 +585,7 @@ function populateForm(row, study) {
         // Handle Booleans (Selects)
         else if (input.tagName === 'SELECT') {
             if (field === 'SAMPLE_FRAME') {
-                input.value = value || "off";
+                input.value = (value === 'events' ? 'activities' : value) || "off";
                 // Trigger visibility update
                 toggleSamplingOptions(input);
             }
@@ -798,7 +839,7 @@ function _validateStudyForm(formData, btn) {
     return true;
 }
 
-function saveStudy(btn, event) {
+async function saveStudy(btn, event) {
     if (event) event.preventDefault();
     const formContainer = btn.closest('.study-edit-form');
     const isNew = formContainer.dataset.isNew === 'true';
@@ -824,6 +865,9 @@ function saveStudy(btn, event) {
     try {
         const formData = collectFormData(formContainer);
         if (!_validateStudyForm(formData, btn)) return;
+
+        const proceed = await _checkLargeStudy(formContainer);
+        if (!proceed) return;
 
         const saveSettings = collectSaveSettings(formContainer);
         Object.assign(formData, saveSettings);
@@ -851,6 +895,12 @@ function saveStudy(btn, event) {
                     } else {
                         allStudies.push(data.study);
                     }
+
+                    // Refresh study dropdowns across all tabs
+                    if (typeof loadDefinedStudies === 'function') loadDefinedStudies();
+                    if (typeof loadExplorerV2Studies === 'function') loadExplorerV2Studies();
+                    if (typeof loadPcaStudies === 'function') loadPcaStudies();
+                    if (typeof loadViewerStudies === 'function') loadViewerStudies();
 
                     if (data.refresh_status === 'dispatched') {
                         // Close modal and track progress in the table
@@ -944,13 +994,70 @@ function _pollStudyRefresh(studyName) {
 }
 
 
-window.updateStudyEstimates = function (btn, event) {
+window.updateStudyEstimates = async function (btn, event) {
     if (event) event.preventDefault();
     const formContainer = btn.closest('.study-edit-form');
-    const studyName = formContainer.dataset.studyName;
+    let studyName = formContainer.dataset.studyName;
+    const isNew = formContainer.dataset.isNew === 'true';
 
-    if (!studyName || formContainer.dataset.isNew === 'true') {
-        _showSaveStatusMsg(btn, 'Save the study first');
+    // For new studies, auto-save the definition first
+    if (isNew) {
+        const nameInput = document.getElementById('newStudyNameInput');
+        const name = nameInput ? nameInput.value.trim() : '';
+        if (!name) {
+            _showSaveStatusMsg(btn, 'Enter a study name');
+            if (nameInput) nameInput.focus();
+            return;
+        }
+        if (allStudies.find(s => s.STUDY_NAME === name)) {
+            _showSaveStatusMsg(btn, 'Study name already exists');
+            if (nameInput) nameInput.focus();
+            return;
+        }
+        studyName = name;
+
+        btn.textContent = "Saving...";
+        btn.disabled = true;
+
+        try {
+            const saveData = collectFormData(formContainer);
+            saveData.STUDY_NAME = studyName;
+            saveData.definition_only = true;
+
+            const saveRes = await fetch('/api/manage/studies/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify(saveData)
+            });
+            const saveResult = await saveRes.json();
+            if (saveResult.status !== 'success') {
+                _showSaveStatusMsg(btn, saveResult.error || 'Save failed');
+                btn.textContent = "Check data counts";
+                btn.disabled = false;
+                return;
+            }
+            // Update local state
+            formContainer.dataset.isNew = 'false';
+            formContainer.dataset.studyName = studyName;
+            allStudies.push(saveResult.study);
+            renderStudiesTable();
+
+            // Refresh study dropdowns across all tabs
+            if (typeof loadDefinedStudies === 'function') loadDefinedStudies();
+            if (typeof loadExplorerV2Studies === 'function') loadExplorerV2Studies();
+            if (typeof loadPcaStudies === 'function') loadPcaStudies();
+            if (typeof loadViewerStudies === 'function') loadViewerStudies();
+        } catch (err) {
+            console.error(err);
+            _showSaveStatusMsg(btn, 'Save failed');
+            btn.textContent = "Check data counts";
+            btn.disabled = false;
+            return;
+        }
+    }
+
+    if (!studyName) {
+        _showSaveStatusMsg(btn, 'No study name');
         return;
     }
 
@@ -958,7 +1065,10 @@ window.updateStudyEstimates = function (btn, event) {
         const formData = collectFormData(formContainer);
         formData.STUDY_NAME = studyName;
 
-        btn.textContent = "Updating...";
+        const proceed = await _checkLargeStudy(formContainer);
+        if (!proceed) return;
+
+        btn.textContent = "Checking...";
         btn.disabled = true;
 
         fetch('/api/manage/studies/calculate_stats', {
@@ -991,13 +1101,13 @@ window.updateStudyEstimates = function (btn, event) {
                 alert("Update failed.");
             })
             .finally(() => {
-                btn.textContent = "Update data counts";
+                btn.textContent = "Check data counts";
                 btn.disabled = false;
             });
 
     } catch (e) {
         console.error("Failed to collect data for estimate update", e);
-        btn.textContent = "Update data counts";
+        btn.textContent = "Check data counts";
         btn.disabled = false;
     }
 }
