@@ -145,6 +145,7 @@ window.timelines = {
         if (header) header.style.display = '';
 
         const collection = this.collectionList.find(d => d.collection_id === collectionId);
+        this.currentStudy = (collection && collection.study) || null;
 
         // Render tag chips next to the dropdown
         const tagChipsContainer = document.getElementById('timelines-tag-chips');
@@ -1714,43 +1715,77 @@ window.timelines = {
             });
     },
 
+    viewInVideoAnalysis: function () {
+        if (!this.currentStatsPeriod || !this.currentDonationId) return;
+
+        const collection = this.collectionList.find(d => d.collection_id === this.currentDonationId);
+        const study = collection && collection.study;
+        if (!study) {
+            alert('No study found for this collection.');
+            return;
+        }
+
+        window._pendingDrillDown = {
+            study: study,
+            filters: {
+                'collection_id': { type: 'category', value: [this.currentDonationId] },
+                'local_date': { type: 'category', value: [this.currentStatsPeriod] }
+            },
+            searchQuery: '',
+            timestamp: Date.now()
+        };
+
+        document.getElementById('timeline-stats-modal').style.display = 'none';
+        const tabBtn = document.querySelector('.tab-button[onclick*="video_analysis"]');
+        if (tabBtn) tabBtn.click();
+    },
+
     showPeriodStats: function (clickedDate) {
         if (!this.timelineData || !this.timelineData.dates) return;
 
-        const dateIndex = this.timelineData.dates.indexOf(clickedDate);
+        const esc = (s) => {
+            const el = document.createElement('span');
+            el.textContent = s;
+            return el.innerHTML;
+        };
+
+        // Normalise date string for lookup (Plotly date-axis may append time)
+        const dateStr = String(clickedDate).slice(0, 10);
+        const dateIndex = this.timelineData.dates.findIndex(d => String(d).slice(0, 10) === dateStr);
         if (dateIndex === -1) return;
 
-        // Find formatted label
-        const formattedLabel = this.timelineData.date_labels ? this.timelineData.date_labels[dateIndex] : clickedDate;
+        const formattedLabel = this.timelineData.date_labels ? this.timelineData.date_labels[dateIndex] : dateStr;
 
         const modal = document.getElementById('timeline-stats-modal');
         const titleEl = document.getElementById('timeline-stats-title');
         const contentEl = document.getElementById('timeline-stats-content');
-
         if (!modal || !titleEl || !contentEl) return;
 
-        let periodStr = clickedDate;
+        this.currentStatsPeriod = this.timelineData.dates[dateIndex];
 
-        // Save state for voting button
-        this.currentStatsPeriod = periodStr;
+        titleEl.textContent = `Stats for ${formattedLabel}`;
 
-        titleEl.innerText = `Stats for: ${formattedLabel}`;
-
-        // Reset vote button state from previous clicks
-        const btn = document.getElementById('timeline-vote-btn');
-        if (btn) {
-            btn.innerText = 'Vote to machine annotate';
-            btn.style.backgroundColor = 'var(--btn-primary-bg)';
-            btn.disabled = false;
+        // Reset vote button
+        const voteBtn = document.getElementById('timeline-vote-btn');
+        if (voteBtn) {
+            voteBtn.textContent = 'Vote to annotate';
+            voteBtn.style.backgroundColor = '';
+            voteBtn.disabled = false;
         }
 
-        let html = '<table style="width: 100%; border-collapse: collapse; margin-top: 10px; color: var(--color-text-primary);">';
-        html += '<thead style="border-bottom: 2px solid var(--color-border-strong);"><tr><th style="padding: 8px; text-align: left;">Variable</th><th style="padding: 8px; text-align: left;">Value</th></tr></thead>';
+        // Hide "View videos" if no study mapping
+        const viewBtn = document.getElementById('timeline-view-videos-btn');
+        if (viewBtn) {
+            const collection = this.collectionList.find(d => d.collection_id === this.currentDonationId);
+            viewBtn.style.display = (collection && collection.study) ? '' : 'none';
+        }
+
+        let html = '<table class="stats-table" style="margin-top: 4px;">';
+        html += '<thead><tr><th style="padding: 4px; text-align: left; border-bottom: 2px solid var(--color-border-strong);">Variable</th>';
+        html += '<th style="padding: 4px; text-align: left; border-bottom: 2px solid var(--color-border-strong);">Value</th></tr></thead>';
         html += '<tbody>';
 
-        // Use the ordered keys to keep machine_state at top and preserve schema priorities
         let varKeys = Object.keys(this.timelineData.variables);
-
         if (this.timelineData.variables_order && Array.isArray(this.timelineData.variables_order)) {
             varKeys.sort((a, b) => {
                 const idxA = this.timelineData.variables_order.indexOf(a);
@@ -1761,7 +1796,6 @@ window.timelines = {
                 return idxA - idxB;
             });
         }
-
         if (varKeys.includes('machine_state')) {
             varKeys = varKeys.filter(k => k !== 'machine_state');
             varKeys.push('machine_state');
@@ -1771,38 +1805,48 @@ window.timelines = {
             const varData = this.timelineData.variables[varName];
             const displayTitle = varData.display_name || (varName === 'machine_state' ? 'Scrape/Annotation States' : varName);
 
-            html += `<tr style="border-bottom: 1px solid var(--color-border-subtle);"><td class="font-bold" style="padding: 8px; vertical-align: top;">${displayTitle}</td>`;
-            html += `<td style="padding: 8px; vertical-align: top;">`;
+            html += `<tr><td style="padding: 4px; vertical-align: top; font-weight: var(--weight-semibold);">${esc(displayTitle)}</td>`;
+            html += `<td style="padding: 4px; vertical-align: top;">`;
 
-            if (varData.type === 'categorical' && varData.counts) {
-                const dayCounts = varData.counts[dateIndex] || {};
+            if (varData.type === 'categorical') {
+                const dayShares = (varData.share_series && varData.share_series[dateIndex]) || {};
+                const dayCounts = (varData.counts && varData.counts[dateIndex]) || {};
 
-                // Sort categories by count descending for this specific day
-                const sortedCats = Object.keys(dayCounts).sort((a, b) => dayCounts[b] - dayCounts[a]);
+                // Sort by share descending (matches chart), fall back to raw count
+                const cats = Object.keys({...dayShares, ...dayCounts});
+                cats.sort((a, b) => (dayShares[b] || 0) - (dayShares[a] || 0) || (dayCounts[b] || 0) - (dayCounts[a] || 0));
 
-                if (sortedCats.length === 0) {
-                    html += `<span style="color: var(--color-text-muted);">No Data</span>`;
+                if (cats.length === 0) {
+                    html += `<span style="color: var(--color-text-muted);">No data</span>`;
                 } else {
-                    html += `<ul style="margin: 0; padding-left: 20px;">`;
-                    sortedCats.forEach(cat => {
-                        html += `<li>${cat}: <b>${dayCounts[cat]}</b></li>`;
+                    const MAX_SHOW = 20;
+                    const visible = cats.slice(0, MAX_SHOW);
+                    html += `<ul style="margin: 0; padding-left: 16px; line-height: var(--leading-normal);">`;
+                    visible.forEach(cat => {
+                        const share = dayShares[cat];
+                        const count = dayCounts[cat] || 0;
+                        const shareStr = share != null ? `${share.toFixed(1)}%` : '';
+                        const countStr = `${count}`;
+                        if (shareStr) {
+                            html += `<li>${esc(cat)}: <b>${shareStr}</b> <span style="color: var(--color-text-muted);">(${countStr})</span></li>`;
+                        } else {
+                            html += `<li>${esc(cat)}: <b>${countStr}</b></li>`;
+                        }
                     });
                     html += `</ul>`;
+                    if (cats.length > MAX_SHOW) {
+                        html += `<span class="text-xs" style="color: var(--color-text-muted);">and ${cats.length - MAX_SHOW} more\u2026</span>`;
+                    }
                 }
             } else if (varData.type === 'numeric' && varData.values) {
                 let val = varData.values[dateIndex];
                 if (val === null || val === undefined) {
-                    html += `<span style="color: var(--color-text-muted);">No Data</span>`;
+                    html += `<span style="color: var(--color-text-muted);">No data</span>`;
                 } else {
-                    // Format numeric
-                    if (Number.isInteger(val)) {
-                        html += `<b>${val}</b>`;
-                    } else {
-                        html += `<b>${val.toFixed(2)}</b>`;
-                    }
+                    html += `<b>${Number.isInteger(val) ? val : val.toFixed(2)}</b>`;
                 }
             } else {
-                html += `<span style="color: var(--color-text-muted);">Unknown</span>`;
+                html += `<span style="color: var(--color-text-muted);">\u2014</span>`;
             }
 
             html += `</td></tr>`;

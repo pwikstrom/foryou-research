@@ -2000,7 +2000,8 @@ def api_timeline_collections():
         
     # 2. Collect allowed collection IDs from these studies
     allowed_collection_ids = set()
-    
+    collection_study_map: dict[str, str] = {}
+
     # Iterate studies and get collections (using optimized loader)
     for study in studies:
         study_collections = get_study_collections(study) # returns list of dicts
@@ -2008,7 +2009,10 @@ def api_timeline_collections():
         for d in study_collections:
             # d is {'collection_id': ..., }
             if 'collection_id' in d:
-                allowed_collection_ids.add(str(d['collection_id']))
+                cid = str(d['collection_id'])
+                allowed_collection_ids.add(cid)
+                if cid not in collection_study_map:
+                    collection_study_map[cid] = study
                 
     #print(f"DEBUG TIMELINE: Total allowed collection IDs: {len(allowed_collection_ids)}")
     if not allowed_collection_ids:
@@ -2135,6 +2139,10 @@ def api_timeline_collections():
             if pd.isna(uid): continue
             uid_str = str(uid)
             item = {'collection_id': uid_str}
+
+            # Study that contains this collection (for drill-down to Video Analysis).
+            if uid_str in collection_study_map:
+                item['study'] = collection_study_map[uid_str]
 
             # Active days (timeline-length context for the dropdown).
             if uid_str in active_days_map:
