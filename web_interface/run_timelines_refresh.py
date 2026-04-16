@@ -8,12 +8,13 @@ are done or the user cancels.
 Locally it runs all collections in a single subprocess (same as before).
 """
 
-import sys
-from pathlib import Path
-import pandas as pd
 import json
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+import pandas as pd
 
 # Add project root to sys.path
 current_dir = Path(__file__).resolve().parent
@@ -21,7 +22,6 @@ project_root = current_dir.parent
 sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
-
 
 # How many collections to process per Cloud Task before chaining.
 COLLECTIONS_PER_BATCH = 30
@@ -44,8 +44,8 @@ def process_one_collection(
         True if the collection was processed successfully.
     """
     import fyp.data_io as data_io
-    from web_interface.data_service import check_and_update_timeline_cache, get_timeline_data
     from fyp.timeline_analysis import analyse_timeline
+    from web_interface.data_service import check_and_update_timeline_cache, get_timeline_data
 
     # Remove existing cache to force recalculation
     for interval in ['day']:#, 'week', 'month']:
@@ -85,9 +85,9 @@ def _discover_collections(reporter: TaskStatusReporter,
     Returns:
         (sorted_collection_ids, {collection_id: first_event_date_str})
     """
+    import fyp.data_io as data_io
     from fyp.organize_datasets import COLLECTIONS_LABEL
     from fyp.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE
-    import fyp.data_io as data_io
 
     all_collections: set[str] = set()
     collection_first_event: dict[str, str] = {}
@@ -199,10 +199,13 @@ def _preload_and_slice(reporter: TaskStatusReporter,
     Returns:
         {collection_id: DataFrame_slice_or_None}
     """
-    from fyp.organize_datasets import (
-        COLLECTIONS_LABEL, SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, new_merge,
-    )
     import fyp.data_io as data_io
+    from fyp.organize_datasets import (
+        COLLECTIONS_LABEL,
+        MACHINE_ANNOTATIONS_LABEL,
+        SCRAPES_LABEL,
+        new_merge,
+    )
 
     reporter.log("Preloading core datasets...")
     all_datasets: dict[str, pd.DataFrame] = {}
@@ -475,6 +478,7 @@ def run_timelines_refresh(reporter: TaskStatusReporter,
 
 if __name__ == "__main__":
     import argparse
+
     from web_interface.task_status import LocalStatusReporter
 
     parser = argparse.ArgumentParser(description="Refresh timeline caches")

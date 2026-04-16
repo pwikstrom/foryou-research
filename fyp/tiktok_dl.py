@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 TikTok downloader using yt-dlp as backend.
 
@@ -8,25 +7,21 @@ that generate_data_row() produces so downstream code is unchanged.
 """
 
 
-from typing import Optional
-from datetime import datetime
-import os
-from os.path import join, getsize, exists
-from os import remove
-from pathlib import Path
-from time import sleep
-from glob import glob
 import logging
+import os
 import threading
+from datetime import datetime
+from glob import glob
+from os import remove
+from os.path import exists, join
+from time import sleep
 
 import pandas as pd
 import yt_dlp
-from yt_dlp.utils import ExtractorError, GeoRestrictedError
 from yt_dlp.networking.exceptions import HTTPError, TransportError
-
+from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp.fyp_config import fyp_cf
-
 
 logger = logging.getLogger(__name__)
 
@@ -378,9 +373,10 @@ def _fetch_item_struct(video_url: str) -> dict | None:
     Uses a plain HTTP request — no browser_cookie3 dependency so it works
     on Cloud Run.
     """
+    from json import loads
+
     from bs4 import BeautifulSoup
     from requests import get as requests_get
-    from json import loads
 
     video_id = video_url.rstrip('/').split('/')[-1]
 

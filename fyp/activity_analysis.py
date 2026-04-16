@@ -1,6 +1,6 @@
 
 import pandas as pd
-import numpy as np
+
 
 def analyze_activity_peak(df: pd.DataFrame, period_hours: int = 1) -> dict:
     """

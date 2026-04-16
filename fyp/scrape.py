@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Script Name: 
 Description: 
@@ -9,31 +8,25 @@ Date:
 
 
 
-from typing import List, Tuple, Union, Sequence
-from PIL import Image, ImageColor
+import json
+import os
+import textwrap
+import time
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-import time
-
-import fyp.data_io as data_io
-from fyp.utils import chunk_list, start_monitor
-import fyp.mypyktok as pyk
-import fyp.tiktok_dl as tiktok_dl
-from fyp.recode_variables import rename_columns, recode_events_df
-from fyp.fyp_config import fyp_cf
-
-import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import threading
-import sys
-import shutil
-import json
-import textwrap
-from pathlib import Path
+from PIL import Image, ImageColor
 
-
+import fyp.data_io as data_io
+import fyp.mypyktok as pyk
+import fyp.tiktok_dl as tiktok_dl
+from fyp.fyp_config import fyp_cf
+from fyp.recode_variables import recode_events_df, rename_columns
+from fyp.utils import chunk_list, start_monitor
 
 SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
 FAILED_SCRAPES_LABEL = fyp_cf["labels"]["FAILED_SCRAPES_LABEL"]
@@ -50,13 +43,13 @@ def _check_graceful_stop(process_name: str) -> bool:
 
 
 def make_slideshow(
-    files: List[str],
+    files: list[str],
     output: str = "slideshow.mp4",
     duration: float = 3.0,
     transition: float = 0.6,
     swipe: bool = True,
-    canvas_size: Tuple[int, int] = None,  # auto if None
-    bg_color: Union[str, Tuple[int, int, int]] = "#000000",
+    canvas_size: tuple[int, int] = None,  # auto if None
+    bg_color: str | tuple[int, int, int] = "#000000",
     fps: int = 1,
     codec: str = "libx264",
     crf: int = 18,
@@ -65,12 +58,7 @@ def make_slideshow(
 ):
     # Creates a slideshow video from a list of image files.
 
-    from moviepy import (
-        ImageClip,
-        ColorClip,
-        CompositeVideoClip,
-        concatenate_videoclips
-    )
+    from moviepy import ColorClip, CompositeVideoClip, ImageClip, concatenate_videoclips
     
 
     def _normalize_color(color): 
@@ -116,7 +104,7 @@ def make_slideshow(
     def _build_slide(
         image_path: str,
         duration: float,
-        canvas_size: Tuple[int, int],
+        canvas_size: tuple[int, int],
         bg_color,
         swipe: bool,
         transition: float,
@@ -136,7 +124,7 @@ def make_slideshow(
 
 
 
-    def _infer_canvas_size(files: List[str]) -> Tuple[int, int]:
+    def _infer_canvas_size(files: list[str]) -> tuple[int, int]:
         widths = []
         heights = []
         for f in files:
@@ -276,11 +264,11 @@ def download_single_video(
                     blob = bucket.blob(f"{gcs_media_prefix}/{video_id}.mp4")
                     if blob.exists():
                         if verbose:
-                            print(f"Photo slideshow already in bucket")
+                            print("Photo slideshow already in bucket")
                         scrape_metadata.loc[0,'video_downloaded'] = True
                     else:
                         if verbose:
-                            print(f"Converting photos to video slideshow")
+                            print("Converting photos to video slideshow")
 
                         ccc = 1
                         image_files = []
@@ -303,13 +291,13 @@ def download_single_video(
 
                         if os.path.getsize(os.path.join(temp_dir,f"{video_id}.mp4")) > min_size:
                             if verbose:
-                                print(f"Uploading video file to storage bucket...")
+                                print("Uploading video file to storage bucket...")
                             blob = bucket.blob(f"{gcs_media_prefix}/{video_id}.mp4")
                             blob.upload_from_filename(os.path.join(temp_dir,f"{video_id}.mp4"))
                             scrape_metadata.loc[0,'video_downloaded'] = True
                         else:
                             if verbose:
-                                print(f"Generated video file is too small, not uploading.")
+                                print("Generated video file is too small, not uploading.")
                             scrape_metadata.loc[0,'video_downloaded'] = False
                 else:
                     # Local path: jpegs are in media_dir (written by _download_images).
@@ -318,11 +306,11 @@ def download_single_video(
                     final_mp4 = os.path.join(media_dir, f"{video_id}.mp4")
                     if os.path.exists(final_mp4):
                         if verbose:
-                            print(f"Photo slideshow already exists locally")
+                            print("Photo slideshow already exists locally")
                         scrape_metadata.loc[0,'video_downloaded'] = True
                     else:
                         if verbose:
-                            print(f"Converting photos to video slideshow")
+                            print("Converting photos to video slideshow")
 
                         ccc = 1
                         image_files = []
@@ -345,12 +333,12 @@ def download_single_video(
 
                         if os.path.exists(temp_mp4) and os.path.getsize(temp_mp4) > min_size:
                             if verbose:
-                                print(f"Moving slideshow to media folder...")
+                                print("Moving slideshow to media folder...")
                             os.replace(temp_mp4, final_mp4)
                             scrape_metadata.loc[0,'video_downloaded'] = True
                         else:
                             if verbose:
-                                print(f"Generated video file is too small, discarding.")
+                                print("Generated video file is too small, discarding.")
                             if os.path.exists(temp_mp4):
                                 try: os.remove(temp_mp4)
                                 except OSError: pass
@@ -369,7 +357,7 @@ def download_single_video(
                 if use_gcs:
                     # check if it truly is stored and is big enough
                     if verbose:
-                        print(f"Checking video file in bucket")
+                        print("Checking video file in bucket")
                     if bucket.blob(f"{gcs_media_prefix}/{video_id}.mp4").exists():
                         blob = bucket.get_blob(f"{gcs_media_prefix}/{video_id}.mp4")
                         if blob.size < min_size:
@@ -385,7 +373,7 @@ def download_single_video(
                         scrape_metadata.loc[0,'video_downloaded'] = False
                 else:
                     if verbose:
-                        print(f"Checking video file in local media folder")
+                        print("Checking video file in local media folder")
                     local_mp4 = os.path.join(media_dir, f"{video_id}.mp4")
                     if os.path.exists(local_mp4):
                         local_size = os.path.getsize(local_mp4)
@@ -1078,7 +1066,8 @@ def scraper_loop(
     dry_run = False
     ):
 
-
+    # Imported inside function to avoid circular import: organize_datasets imports from fyp.scrape
+    from fyp.organize_datasets import create_study_recoded_dataset, select_videos_from_study_dataset
 
     #max_batches = max_batches if max_batches is not None else np.inf
 
@@ -1269,7 +1258,7 @@ def consolidate_and_save_scrape_data(
     items_w_consistent_video_download_status = scrape_df[~scrape_df['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
     items_w_inconsistent_video_download_status = scrape_df[scrape_df['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
     if verbose:
-        print(f"    Identifying conflicting items in the dataset listed twice - once as video_downloaded and once as not")
+        print("    Identifying conflicting items in the dataset listed twice - once as video_downloaded and once as not")
         print(
             f"    There are {len(items_w_inconsistent_video_download_status):,} items with such inconsistencies, "
             f"and {len(items_w_consistent_video_download_status):,} that look alright.")
@@ -1278,7 +1267,7 @@ def consolidate_and_save_scrape_data(
         # for items with inconsistent video download status, only keep the ones where video_downloaded is True
         items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status['video_downloaded']].copy()
         if verbose:
-            print(f"    Fixed the inconsistencies by keeping the one of the pairs with video_download=True")
+            print("    Fixed the inconsistencies by keeping the one of the pairs with video_download=True")
             print(f"    This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}")
 
         # recombine the two dataframes
@@ -1311,7 +1300,7 @@ def consolidate_and_save_scrape_data(
 
 
     # update the dataset meta file
-    if not SCRAPES_LABEL in dataset_meta:
+    if SCRAPES_LABEL not in dataset_meta:
         dataset_meta[SCRAPES_LABEL] = {}
     dataset_meta[SCRAPES_LABEL]["filenames"] = files_to_concatenate
     _ = data_io.save_json(data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")

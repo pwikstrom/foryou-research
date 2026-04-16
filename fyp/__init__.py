@@ -1,6 +1,7 @@
 # development version
-from py_compile import compile
 import os
+from py_compile import compile
+
 package_dir = os.path.dirname(__file__)
 for fn in os.listdir(package_dir):
     if fn.endswith(".py"):

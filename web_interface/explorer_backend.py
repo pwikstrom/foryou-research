@@ -1,16 +1,13 @@
-import pandas as pd
-import numpy as np
 import datetime as _dt
-import pyarrow as pa
-
 from collections import Counter
+
+import numpy as np
+import pandas as pd
+import pyarrow as pa
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
-from fyp.organize_datasets import create_study_recoded_dataset, COLLECTIONS_LABEL
-
-
-
+from fyp.organize_datasets import create_study_recoded_dataset
 
 
 def get_robust_bounds(series):
@@ -566,7 +563,7 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
                      
                      tick_vals = []
                      tick_text = []
-                     if 0 >= min_val and 0 <= max_val:
+                     if min_val <= 0 and max_val >= 0:
                         tick_vals.append(np.log10(1))
                         tick_text.append("0")
                      p = 0

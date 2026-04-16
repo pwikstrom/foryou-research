@@ -1,6 +1,6 @@
-from flask import request, jsonify, redirect, url_for
+from flask import jsonify, redirect, request, url_for
 from flask_login import LoginManager
-from fyp.fyp_config import PROJECT_ROOT, fyp_cf
+
 import web_interface.auth as auth
 
 # --- Auth Setup ---

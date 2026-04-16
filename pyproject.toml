@@ -1,0 +1,44 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+    "_archive",
+    "sandbox",
+    "tmp",
+    "patrik_secrets",
+    ".fypenv",
+    ".fypenv314",
+    "fyp/mypyktok.py",
+    "tests/scratchpads",
+    "tests/debug",
+    "tests/_archive",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort (import ordering)
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "PIE",  # flake8-pie
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",   # line too long (handled by formatter if adopted)
+    "B008",   # function call in default arg (common in Flask)
+    "SIM108", # ternary-vs-if (often less readable)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["F401", "F841", "E402"]
+"web_interface/run_*.py" = ["E402"]  # path-setup before imports is intentional
+
+[tool.ruff.lint.isort]
+known-first-party = ["fyp", "web_interface"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

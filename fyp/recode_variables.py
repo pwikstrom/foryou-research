@@ -1,14 +1,15 @@
 
 
 
-import pandas as pd
-from datetime import datetime
-from copy import copy
-import hashlib
-import numpy as np
 import difflib
+import hashlib
 import re
 import traceback
+from copy import copy
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
 
 from fyp.fyp_config import fyp_cf
 from fyp.types import convert_dtypes_to_pyarrow
@@ -49,7 +50,7 @@ def rename_columns(some_events):
     pd.set_option('future.no_silent_downcasting', True)
 
     for fu in fixer_upper:
-        mapper = {c:c.replace(fu[0],fu[1]) for c in some_eventsC.columns if (c != c.replace(fu[0],fu[1])) and (not c.replace(fu[0],fu[1]) in some_eventsC.columns)}
+        mapper = {c:c.replace(fu[0],fu[1]) for c in some_eventsC.columns if (c != c.replace(fu[0],fu[1])) and (c.replace(fu[0],fu[1]) not in some_eventsC.columns)}
         some_eventsC = some_eventsC.rename(columns=mapper).copy()
     
     return some_eventsC
@@ -250,7 +251,6 @@ def recode_descriptions(
         
         # Let's stick to the list comprehension for now as it's readable and Python 3.14 is fast.
         # Pre-compile translation table for fast cleaning
-        import string
         # chars to remove: ",.:;!)(*/&|^%$#@<>?'`’1234567890"
         remove_chars = ",.:;!)(*/&|^%$#@<>?'`’1234567890"
         trans_table = str.maketrans("", "", remove_chars)
@@ -302,8 +302,8 @@ def recode_descriptions(
     for w in words:
         if len(w)>0:
             first_char = w[0]
-            clean_word = "".join([j for j in w.lower() if not j in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
-            if (len(clean_word)>1 and not clean_word in IRRELEVANT_WORDS) or _is_emoji(clean_word):
+            clean_word = "".join([j for j in w.lower() if j not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
+            if (len(clean_word)>1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
                 if first_char=="#":
                     hashtags += [clean_word]
                 elif first_char=="@":
@@ -347,8 +347,8 @@ def recode_call_to_action(
     
     for w in words:
         if len(w)>0:
-            clean_word = "".join([j for j in w.lower() if not j in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
-            if (len(clean_word)>1 and not clean_word in IRRELEVANT_WORDS) or _is_emoji(clean_word):
+            clean_word = "".join([j for j in w.lower() if j not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
+            if (len(clean_word)>1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
                 cta_words += [clean_word]
         
     return {
@@ -689,9 +689,9 @@ def recode_stringified_list(
         for an_element in str(a_string_representing_a_list).lower().split(SPLITTER):
             if len(an_element)>0:
                 an_element = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
-                clean_word = "".join([j for j in an_element.lower() if not j in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
+                clean_word = "".join([j for j in an_element.lower() if j not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
                 clean_word = clean_word.strip()
-                if (len(clean_word)>1 and not clean_word in ignore_strings)  or _is_emoji(clean_word):
+                if (len(clean_word)>1 and clean_word not in ignore_strings)  or _is_emoji(clean_word):
                     list_of_the_words += [mapper.get(clean_word,clean_word)]
         
     if len(list_of_the_words) == 0:
@@ -919,7 +919,7 @@ def recode_events_df(
             return s
 
 
-    print(f"Recoding variables, implementing missing data policy and a whole range of other things...")
+    print("Recoding variables, implementing missing data policy and a whole range of other things...")
 
     # This thing now only works with a study dataset as input
     # It is not used in the web interface but only in the offline data prep
@@ -948,7 +948,7 @@ def recode_events_df(
     try:
         if "session_id" in cool_events.columns:
             cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int(x):05}" if pd.notna(x) else pd.NA)
-    except Exception as e:
+    except Exception:
         # it's not vital that this goes well
         pass
 
@@ -1137,7 +1137,7 @@ def recode_events_df(
 
                     new_thing_cols = copy(new_thing.columns)
                     for new_thing_c in new_thing_cols:
-                        if not new_thing_c in var_schema.index or var_schema.loc[new_thing_c, "role"] == "skip":
+                        if new_thing_c not in var_schema.index or var_schema.loc[new_thing_c, "role"] == "skip":
                             if verbose:
                                 print(f"{preamble2}Skipping new variable: {new_thing_c}")
                             new_thing = new_thing.drop(columns=new_thing_c)
@@ -1176,7 +1176,7 @@ def recode_events_df(
 
 # Try to import rapidfuzz for faster matching
 try:
-    from rapidfuzz import process, fuzz
+    from rapidfuzz import fuzz, process
     _HAS_RAPIDFUZZ = True
 except ImportError:
     _HAS_RAPIDFUZZ = False

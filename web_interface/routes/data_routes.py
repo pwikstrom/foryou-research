@@ -1,26 +1,38 @@
+import ast
 import os
-from flask import Blueprint, jsonify, request, Response, stream_with_context
-from flask_login import login_required, current_user
-import pandas as pd
-import numpy as np
+import traceback
 from datetime import datetime
-from fyp.fyp_config import fyp_cf, PROJECT_ROOT
+
+import numpy as np
+import pandas as pd
+import pyarrow.parquet as pq
+from flask import Blueprint, Response, jsonify, request, stream_with_context
+from flask_login import current_user, login_required
+
+import fyp.data_io as data_io
+from fyp.fyp_config import fyp_cf
+from fyp.ingest import TikTokDDPCollection
+from fyp.organize_datasets import COLLECTIONS_LABEL
+from fyp.recode_variables import get_factors_and_features_from_var_schema
+
+from .. import explorer_backend as explorer
+from ..auth import admin_required
 from ..data_service import (
-    get_explorer_data, get_pca_df, get_viz_config, make_serializable, enrich_with_user_tags,
-    load_schema_metadata, get_timeline_data, get_study_collections, load_shared_tags,
-    load_display_id_map, get_accessible_studies, get_collection_tags, invalidate_collection_tags_cache
+    enrich_with_user_tags,
+    get_accessible_studies,
+    get_collection_tags,
+    get_explorer_data,
+    get_pca_df,
+    get_study_collections,
+    get_timeline_data,
+    get_viz_config,
+    invalidate_collection_tags_cache,
+    load_display_id_map,
+    load_schema_metadata,
+    load_shared_tags,
+    make_serializable,
 )
 from ..security import user_manager
-from ..auth import admin_required
-from .. import explorer_backend as explorer
-from fyp.recode_variables import get_factors_and_features_from_var_schema
-from fyp.organize_datasets import COLLECTIONS_LABEL
-from fyp.studies import init_study_defs, save_study_defs
-from fyp.ingest import TikTokDDPCollection, TikTokZeeschuimerCollection
-import fyp.data_io as data_io
-import pyarrow.parquet as pq
-import ast
-import traceback
 
 data_bp = Blueprint('data_bp', __name__)
 
@@ -395,7 +407,7 @@ def _compute_dynamic_overlay(df, col_types):
     display_priority_prepend = []
 
     if dynamic_cols:
-        cols_to_get = [c for c in dynamic_cols.keys() if c in df.columns]
+        cols_to_get = [c for c in dynamic_cols if c in df.columns]
         if cols_to_get:
             columns = explorer.get_metadata(df[cols_to_get], dynamic_cols)
             if 'User Tags' in df.columns:
@@ -552,7 +564,7 @@ def api_explorer_metadata():
             if 'Machine Annotations' in col_types: dynamic_cols['Machine Annotations'] = 'category'
             
             if dynamic_cols:
-                 cols_to_get = [c for c in dynamic_cols.keys() if c in df.columns]
+                 cols_to_get = [c for c in dynamic_cols if c in df.columns]
                  if cols_to_get:
                       dynamic_meta = explorer.get_metadata(df[cols_to_get], dynamic_cols)
                       potential_metadata.update(dynamic_meta)
@@ -1433,7 +1445,7 @@ def api_pca_data():
                     if '.' in formatted:
                         formatted = formatted.rstrip('0').rstrip('.')
                 return formatted if formatted else "0"
-            except Exception as e:
+            except Exception:
                 return str(val)
             
         return str(val)
@@ -1622,7 +1634,7 @@ def api_persona_stats():
             # Correctly determine admin status (is_admin is a METHOD, must be called)
             is_admin = False
             if hasattr(current_user, 'is_admin'):
-                attr = getattr(current_user, 'is_admin')
+                attr = current_user.is_admin
                 if callable(attr):
                     is_admin = attr()
                 else:
@@ -1677,7 +1689,7 @@ def api_persona_stats():
                  stats_df = pd.DataFrame(data)
              except Exception as e2:
                  print(f"Fallback loading failed: {e2}")
-                 return jsonify({"error": f"Failed to load data: {str(e)} / {str(e2)}"}), 500
+                 return jsonify({"error": f"Failed to load data: {e!s} / {e2!s}"}), 500
 
 
         if isinstance(stats_df.index, pd.Index) and stats_df.index.name == 'collection_id':
@@ -2083,7 +2095,7 @@ def api_timeline_collections():
         
         # We need to handle the case where columns are duplicated (DataFrame result)
         # So let's extract the series specifically
-        pass # handled above
+        # handled above
         
         # We can't use .isin on a DataFrame property if it's duplicated easily without care.
         # But let's assume standard case or handle unique.
@@ -2163,7 +2175,7 @@ def api_timeline_collections():
 
         return jsonify(final_list)
         
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
         return jsonify([])
 

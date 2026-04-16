@@ -1,8 +1,7 @@
 import sys
-import json
 import time
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 # Add project root to sys.path
 current_dir = Path(__file__).resolve().parent
@@ -16,7 +15,9 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     """Consolidate enrichment data (scrapes + machine annotations)."""
     import fyp.data_io as data_io
     from fyp.organize_datasets import (
-        consolidate_enrichment_data, SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL
+        MACHINE_ANNOTATIONS_LABEL,
+        SCRAPES_LABEL,
+        consolidate_enrichment_data,
     )
 
     _t_run_start = time.perf_counter()
@@ -62,7 +63,7 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     _t_consolidate = time.perf_counter() - _t_phase
 
     # Stage 3: Emit results
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     data_payload: dict = {
         "had_new_data": had_new_data,

@@ -1,16 +1,16 @@
-from difflib import SequenceMatcher
-from urllib.parse import unquote
-import pandas as pd
-import pyarrow as pa
-from typing import Iterable, List, Callable, Optional
-
 import http.client
-import threading
-import time
-import sys
+import json
 import os
 import shutil
-import json
+import sys
+import threading
+import time
+from collections.abc import Callable, Iterable
+from difflib import SequenceMatcher
+from urllib.parse import unquote
+
+import pandas as pd
+import pyarrow as pa
 
 
 # check internet connectivity
@@ -55,7 +55,7 @@ def is_list_like_col(s):
 
 
 
-def sort_by_similarity(reference: str, candidates: Iterable[str]) -> List[str]:
+def sort_by_similarity(reference: str, candidates: Iterable[str]) -> list[str]:
     """
     Return the candidates sorted from most to least similar to the reference string.
     Similarity is measured via difflib.SequenceMatcher ratio (0.0–1.0).
@@ -161,8 +161,8 @@ def start_monitor(
     interval=5,
     label="monitor",
     bar_width=30,
-    result_checker: Optional[Callable] = None,
-    batch_label: Optional[str] = None,
+    result_checker: Callable | None = None,
+    batch_label: str | None = None,
     cumulative_done: int = 0,
     cumulative_total: int = 0,
     reporter=None,

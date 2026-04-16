@@ -1,16 +1,19 @@
+import json
 import threading
 import time
-import pandas as pd
-import json
+
 import numpy as np
-from sklearn.metrics import cohen_kappa_score
+import pandas as pd
 from cachetools import LRUCache
+from sklearn.metrics import cohen_kappa_score
+
 import fyp.data_io as data_io
+from fyp.fyp_config import fyp_cf
+from fyp.organize_datasets import COLLECTIONS_LABEL, create_collection_unified_dataset
 from fyp.pca import calculate_scaled_pca_scores
-from fyp.fyp_config import fyp_cf, PROJECT_ROOT
-from . import explorer_backend as explorer
-from fyp.organize_datasets import create_collection_unified_dataset, COLLECTIONS_LABEL
 from fyp.studies import init_study_defs
+
+from . import explorer_backend as explorer
 
 # --- Explorer State ---
 
@@ -140,7 +143,7 @@ def get_explorer_data(study, context=None, verbose=False):
 
                 if raw_df is None:
                     if verbose:
-                        print(f"The requested recoded study dataset was not found")
+                        print("The requested recoded study dataset was not found")
                     return None, None
 
                 # Re-read the mtime *after* loading so the cache entry is
@@ -854,9 +857,7 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
 
         # Log Scale Config
         use_log = False
-        if schema_map.get(var, {}).get('web_viz_log') == 'yes':
-             use_log = True
-        elif isinstance(schema, dict) and schema.get(var, {}).get('web_viz_log') == 'yes':
+        if schema_map.get(var, {}).get('web_viz_log') == 'yes' or (isinstance(schema, dict) and schema.get(var, {}).get('web_viz_log') == 'yes'):
              use_log = True
 
         # Display Name
@@ -963,7 +964,7 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
                 result["analysis"] = analysis
         else:
             # Analysis is missing, generate it on the fly
-            from fyp.timeline_analysis import analyse_timeline, MIN_ACTIVE_DAYS_FOR_TIMELINE
+            from fyp.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE, analyse_timeline
 
             # Try to fetch first_activity_date and active_days from
             # {COLLECTIONS_LABEL}_metadata.parquet. Collections with
@@ -1164,10 +1165,10 @@ def get_study_collections(study):
     Returns: [{ 'collection_id': '...', }, ...]
     """
 
-    if not "study_defs" in fyp_cf:
+    if "study_defs" not in fyp_cf:
         init_study_defs()
 
-    if not study in fyp_cf["study_defs"]:
+    if study not in fyp_cf["study_defs"]:
         return []
 
     selected_collections = fyp_cf["study_defs"][study].get("SELECTED_COLLECTIONS", [])
@@ -1266,10 +1267,6 @@ def get_pca_df(study_name):
         pca_df_cache[study_name] = events_pca_scores_scaled
         return events_pca_scores_scaled
 
-    if False: #except Exception as e:
-        print(f"Error loading PCA for {study_name}: {e}")
-        return None
-
 
 
 def get_accessible_studies(username: str, role: str, is_admin: bool,
@@ -1285,7 +1282,7 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
     """
     from fyp.studies import init_study_defs
 
-    if not 'study_defs' in fyp_cf:
+    if 'study_defs' not in fyp_cf:
         init_study_defs()
 
     accessible_studies = []
@@ -1299,23 +1296,7 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
                 user_access = study_config.get('USER_ACCESS')
 
                 # 2. Missing or Empty => Default Allow
-                if not user_access:
-                    has_access = True
-
-                # Ensure it is a list
-                elif not isinstance(user_access, list):
-                    has_access = True
-
-                # 3. 'all' keyword
-                elif 'all' in user_access:
-                    has_access = True
-
-                # 4. Role Match
-                elif role in user_access:
-                    has_access = True
-
-                # 5. Username Match
-                elif username in user_access:
+                if not user_access or not isinstance(user_access, list) or 'all' in user_access or role in user_access or username in user_access:
                     has_access = True
                 else:
                     has_access = False
@@ -1436,7 +1417,6 @@ def load_schema_metadata(metadata):
     except Exception as e:
         print(f"Error loading priority list: {e}")
         # Don't overwrite with empty if error?
-        pass
     return metadata
 
 
@@ -1454,7 +1434,7 @@ def calculate_inter_coder_reliability():
     # Identify Variables with accepted_labels (Closed Tags)
     closed_vars = {}
     for var, details in schema_map.items():
-        if 'accepted_labels' in details and details['accepted_labels']:
+        if details.get('accepted_labels'):
             closed_vars[var] = details['accepted_labels']
 
     if not closed_vars:
@@ -1469,7 +1449,7 @@ def calculate_inter_coder_reliability():
         user_files = [f for f in all_files if f.endswith('.json') and not f.endswith('_tags.json')]
     except Exception as e:
         print(f"Error listing users: {e}")
-        return {"error": f"Error listing users: {str(e)}"}
+        return {"error": f"Error listing users: {e!s}"}
 
     if not user_files:
         return {"error": "No user files found."}
@@ -1592,7 +1572,6 @@ def calculate_inter_coder_reliability():
                  # Let's keep it 0.0 but rely on Agreement for interpretation.
                  kappa = 0.0 
                  # Wait, if I have 1 item and I match, Agreement is 100%. Kappa is undefined.
-                 pass
 
             user_kappas.append(kappa)
             

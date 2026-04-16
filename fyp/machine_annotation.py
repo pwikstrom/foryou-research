@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Script Name: 
 Description: 
@@ -7,35 +6,31 @@ Author: Patrik
 Date: 
 """
 
+import collections
+import concurrent.futures
 import datetime as _dt
-import pandas as pd
-import numpy as np
+import json
 import os
 import re
-import sys
-import shutil
-import json
-import fuzzy_json
-
-import google.genai
-
-import threading
-import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 import time
-from random import random
-from copy import deepcopy, copy
-import collections
- 
-from fyp.types import convert_dtypes_to_pyarrow
-#from fyp.organize_datasets import select_videos_from_study_dataset
-from fyp.recode_variables import rename_columns, recode_events_df, recode_fuzzy_match
-import fyp.utils as fyp_utils
-from fyp.utils import start_monitor
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import copy, deepcopy
 from pathlib import Path
+from random import random
+
+import fuzzy_json
+import google.genai
+import numpy as np
+import pandas as pd
+
+import fyp.data_io as data_io
+import fyp.utils as fyp_utils
+from fyp.fyp_config import fyp_cf
+
+#from fyp.organize_datasets import select_videos_from_study_dataset
+from fyp.recode_variables import recode_events_df, recode_fuzzy_match, rename_columns
+from fyp.types import convert_dtypes_to_pyarrow
+from fyp.utils import start_monitor
 
 
 def _check_graceful_stop(process_name: str) -> bool:
@@ -73,7 +68,7 @@ def initialize_machine():
 
     if fyp_utils.online_ok():
         try:
-            with open(fyp_cf['machine']['prompt'], 'r') as file:
+            with open(fyp_cf['machine']['prompt']) as file:
                 machine_prompt = file.read()
 
             fyp_cf["machine"]["client"] = google.genai.Client(
@@ -455,7 +450,7 @@ def consolidate_rare_columns_from_gemini_output(
             try:
                 if verbose:
                     print(len(outputs_from_machine_df) - outputs_from_machine_df[unusual_col_name].isna().sum())
-                dominant_col_name = sort_by_similarity(unusual_col_name, nonnull_ratio[nonnull_ratio>0.9].index)[0]
+                dominant_col_name = fyp_utils.sort_by_similarity(unusual_col_name, nonnull_ratio[nonnull_ratio>0.9].index)[0]
                 
                 rows_w_nonnull_value_in_unusual_col = outputs_from_machine_df[~outputs_from_machine_df[unusual_col_name].isna()].loc[:,[dominant_col_name,unusual_col_name]]
                 
@@ -527,7 +522,7 @@ def flatten_one_machine_response(
 
     # check if required keys are present
     for rk in REQUIRED_KEYS:
-        if not rk in flat_response.keys():
+        if rk not in flat_response.keys():
             if verbose:
                 print(f"WARNING: Required key '{rk}' is missing in response. Returning None")
             return None
@@ -539,7 +534,7 @@ def flatten_one_machine_response(
             flat_response['scenes'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['scenes'])
             try:
                 flat_response['scenes'] = fuzzy_json.loads(flat_response['scenes'])
-            except Exception as e:
+            except Exception:
                 return None
         if isinstance(flat_response['scenes'], list):
             try:
@@ -555,7 +550,7 @@ def flatten_one_machine_response(
                     flat_response['scene_sentiments'] = ""
                 else:
                     flat_response['scene_sentiments'] = tt1[0][0]
-            except Exception as e:
+            except Exception:
                 return None
         else:
             return None
@@ -567,7 +562,7 @@ def flatten_one_machine_response(
             flat_response['transcript'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['transcript'])
             try:
                 flat_response['transcript'] = fuzzy_json.loads(flat_response['transcript'])
-            except Exception as e:
+            except Exception:
                 return None
         if isinstance(flat_response['transcript'], list):
             try:
@@ -578,7 +573,7 @@ def flatten_one_machine_response(
                     elif isinstance(k, str):
                         text_list += [k]
                 flat_response['transcript'] = " | ".join(text_list)
-            except Exception as e:
+            except Exception:
                 return None
             #elif isinstance(flat_response['transcript'], str):
             #    aa = re.sub(r"\{.*?\|", ' | ', flat_response['transcript'].replace("'text':"," | "))
@@ -596,7 +591,7 @@ def flatten_one_machine_response(
                 flat_response[res_key] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response[res_key])
                 try:
                     flat_response[res_key] = fuzzy_json.loads(flat_response[res_key])
-                except Exception as e:
+                except Exception:
                     if verbose:
                         print(flat_response[res_key])
                     return None
@@ -609,7 +604,7 @@ def flatten_one_machine_response(
                         elif isinstance(k, str):
                             res_list += [k]
                     flat_response[res_key] = " | ".join(res_list)
-                except Exception as e:
+                except Exception:
                     return None
             else:#elif not isinstance(flat_response[res_key], str):
                 return None
@@ -625,7 +620,7 @@ def flatten_one_machine_response(
             flat_response['audio_summary'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['audio_summary'])
             try:
                 flat_response['audio_summary'] = fuzzy_json.loads(flat_response['audio_summary'])
-            except Exception as e:
+            except Exception:
                 if verbose:
                     print(flat_response['audio_summary'])
                 return None
@@ -652,7 +647,7 @@ def flatten_one_machine_response(
             flat_response['faces'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['faces'])
             try:
                 flat_response['faces'] = fuzzy_json.loads(flat_response['faces'])
-            except Exception as e:
+            except Exception:
                 if verbose:
                     print(flat_response['faces'])
                 return None
@@ -661,11 +656,11 @@ def flatten_one_machine_response(
             for face in flat_response['faces']:
                 if isinstance(face, dict):
                     for k in face:
-                        if not "faces_"+k in flat_response.keys():
+                        if "faces_"+k not in flat_response.keys():
                             flat_response["faces_"+k] = ""                    
                         try:
                             flat_response["faces_"+k] += str(face[k]) + " | "
-                        except Exception as e:
+                        except Exception:
                             return None
                 else:
                     return None
@@ -1092,7 +1087,7 @@ def clean_up_machine_annotations(some_events, verbose = False):
     some_cleaned_up_events = some_events.copy()
 
     # iterate over all object type columns in the events DF that starts w G_, i.e. are machine annotations
-    g_cols = [k for k in some_events.select_dtypes(exclude=["number"]).columns if not k in ["item_id","annotated_ok","annotated_fail"]]
+    g_cols = [k for k in some_events.select_dtypes(exclude=["number"]).columns if k not in ["item_id","annotated_ok","annotated_fail"]]
     
     exclude_set = {fyp_cf['labels']['UNABLE_TO_DETECT'], "", fyp_cf['labels']['OTHER_THINGS']}
 
@@ -1321,7 +1316,7 @@ def refine_one_raw_annotation_batch(
     # ---------------------------------------------------------------
     found_all_required_keys = True
     for rk in REQUIRED_KEYS:
-        if not rk in outputs_from_machine_df.columns:
+        if rk not in outputs_from_machine_df.columns:
             print(f"WARNING: Essential column '{rk}' is missing in machine output")
             found_all_required_keys = False
 
@@ -1415,7 +1410,7 @@ def refine_and_save_all_raw_annotation_files(verbose = False, notebook_mode = Fa
         # invalidates the cached refined files.
         raw_files_up_for_refinement = list(raw_annotation_files)
     else:
-        raw_files_up_for_refinement = [g for g in raw_annotation_files if not g.replace(".json",".parquet") in refined_annotation_files]
+        raw_files_up_for_refinement = [g for g in raw_annotation_files if g.replace(".json",".parquet") not in refined_annotation_files]
     if verbose:
         if force:
             print(f"Force mode: re-refining all {len(raw_files_up_for_refinement)} raw files (ignoring {len(refined_annotation_files)} existing refined files)")
@@ -1559,7 +1554,7 @@ def consolidate_and_save_refined_annotations(
 
     # ---------------------------------------------------------------
     # update the dataset meta file
-    if not "machine_annotations" in dataset_meta:
+    if "machine_annotations" not in dataset_meta:
         dataset_meta["machine_annotations"] = {}
     dataset_meta["machine_annotations"]["filenames"] = files_to_concatenate
     _ = data_io.save_json(data = dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
@@ -1631,7 +1626,7 @@ def annotate_from_video_id_list(
 
     else:
         if verbose:
-            print(f"No videos to process")
+            print("No videos to process")
 
 
 

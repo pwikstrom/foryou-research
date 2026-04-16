@@ -1,19 +1,23 @@
 import os
-import pandas as pd
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from datetime import datetime
-from flask_login import login_user, logout_user, login_required, current_user
-import web_interface.auth as auth
-from ..security import user_manager
-from email_validator import validate_email, EmailNotValidError
-from ..mail_utils import send_welcome_email_async
-from fyp.fyp_config import fyp_cf
+
+import pandas as pd
+from email_validator import EmailNotValidError, validate_email
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, session, url_for
+from flask_login import current_user, login_required, login_user, logout_user
+
 import fyp.data_io as data_io
+import web_interface.auth as auth
+from fyp.fyp_config import fyp_cf
+
+from ..mail_utils import send_welcome_email_async
+from ..security import user_manager
 
 auth_bp = Blueprint('auth_bp', __name__)
 
 from ..slack_service import get_recent_messages
 from ..static_content import HOME_CONTENT
+
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
@@ -68,7 +72,7 @@ def signup():
         try:
             validate_email(username, check_deliverability=False)
         except EmailNotValidError as e:
-            flash(f"Invalid email: {str(e)}")
+            flash(f"Invalid email: {e!s}")
             return render_template('signup.html')
             
         # Default to requiring approval if not specified, for safety
@@ -190,7 +194,7 @@ def api_admin_users():
         try:
             validate_email(username, check_deliverability=False)
         except EmailNotValidError as e:
-            return jsonify({"error": f"Invalid email: {str(e)}"}), 400
+            return jsonify({"error": f"Invalid email: {e!s}"}), 400
 
         success, msg = user_manager.add_user(username, password, role, approved=True)
         if success:

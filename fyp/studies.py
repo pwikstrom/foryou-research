@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Script Name: 
 Description: 
@@ -12,14 +11,13 @@ import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 
 
-
 def init_study_defs():
     global fyp_cf
 
     if data_io.exists(storage_location="recoded", filename="studies.json"):
         study_defs = data_io.load_json(storage_location="recoded", filename="studies.json")
     else:
-        print(f"Unable to init study defs from disk. Setting to empty dict.")
+        print("Unable to init study defs from disk. Setting to empty dict.")
         study_defs = {}
 
     fyp_cf["study_defs"] = study_defs

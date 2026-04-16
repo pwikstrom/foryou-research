@@ -1,10 +1,7 @@
+
 import pandas as pd
-import numpy as np
-import math
+
 from fyp.activity_analysis import analyze_activity_peak
-
-
-
 
 
 def process_single_collection(df_raw: pd.DataFrame) -> dict:

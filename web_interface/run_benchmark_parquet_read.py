@@ -14,11 +14,11 @@ Defaults to the four recoded parquets that dominate the stats phase.
 """
 
 import io
-import sys
-import time
-import tempfile
 import os
 import statistics
+import sys
+import tempfile
+import time
 from pathlib import Path
 
 current_dir = Path(__file__).resolve().parent
@@ -31,7 +31,9 @@ from web_interface.task_status import TaskStatusReporter
 def _default_targets():
     """Resolve the real recoded filenames (label values come from config)."""
     from fyp.organize_datasets import (
-        SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL,
+        COLLECTIONS_LABEL,
+        MACHINE_ANNOTATIONS_LABEL,
+        SCRAPES_LABEL,
     )
     return [
         ("recoded", f"{SCRAPES_LABEL}_recoded.parquet"),
@@ -46,8 +48,8 @@ REPEATS = 3
 def _bench_one(storage_location: str, filename: str, reporter: TaskStatusReporter) -> None:
     import pandas as pd
     import pyarrow.parquet as pq
-    import fyp.data_io as data_io
-    from fyp.data_io import _resolve_paths, _get_bucket
+
+    from fyp.data_io import _get_bucket, _resolve_paths
 
     gcs_uri, _, mode, blob_name = _resolve_paths(storage_location, filename)
     if mode != 'gcs':

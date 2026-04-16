@@ -142,8 +142,7 @@ fyp_main_v02/
 ├── prompts/                     # Gemini prompt templates (*.txt)
 ├── tmp/                         # Temporary test/debug data
 ├── Dockerfile
-├── requirements.txt
-└── requirements312.txt          # Pinned deps for Docker (3.12)
+└── requirements312.txt          # Pinned deps for Docker (3.12) — single source of truth
 ```
 
 ---

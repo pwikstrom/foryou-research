@@ -1,25 +1,27 @@
 
 
-from typing import Iterable, Hashable, Tuple, Dict, List, Sequence, Union, Literal, Optional
+import datetime as _dt
+import time as _time
+from collections.abc import Sequence
+from typing import Literal, Union
 
-from sklearn.manifold import MDS
-from sklearn.decomposition import PCA
 import numpy as np
 import pandas as pd
+from scipy.spatial.distance import pdist as scipy_pdist
+from scipy.spatial.distance import squareform as scipy_squareform
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 import fyp.data_io as data_io
-from fyp.organize_datasets import create_study_recoded_dataset
-from fyp.recode_variables import get_factors_and_features_from_var_schema, get_grouping_factors_from_var_schema
-from fyp.types import convert_dtypes_to_pyarrow, convert_index_dtype_pyarrow
 from fyp.fyp_config import fyp_cf
+from fyp.organize_datasets import create_study_recoded_dataset
+from fyp.recode_variables import (
+    get_factors_and_features_from_var_schema,
+    get_grouping_factors_from_var_schema,
+)
+from fyp.types import convert_dtypes_to_pyarrow, convert_index_dtype_pyarrow
 
-from scipy.spatial.distance import pdist as scipy_pdist, squareform as scipy_squareform
-import datetime as _dt
-import time as _time
-
-
-Group = Union[Dict[str, int], Sequence[str]]
+Group = Union[dict[str, int], Sequence[str]]
 Metric = Literal["jensen-shannon", "hellinger", "total-variation", "bray-curtis", "chi2"]
 Mode = Literal["distance", "similarity"]
 Weighting = Literal["none", "idf"]
@@ -36,7 +38,7 @@ def pairwise_matrix_for_categorical_groups(
         #labels: Optional[List[str]] = None,
         smoothing: float = 1e-9,
         weighting: Weighting = "none",
-        gamma: Optional[float] = None,
+        gamma: float | None = None,
         drop_rare_globally_below: float = 0.0,
     ):
     """
@@ -83,7 +85,7 @@ def pairwise_matrix_for_categorical_groups(
         W = P * w  # weight then renormalize per row
         return _row_normalize(W)
 
-    def _apply_tempering(P: np.ndarray, gamma: Optional[float]) -> np.ndarray:
+    def _apply_tempering(P: np.ndarray, gamma: float | None) -> np.ndarray:
         # gamma in (0,1] shrinks head and lifts tail, gamma=1 is identity
         if gamma is None or abs(gamma - 1.0) < 1e-12:
             return P
@@ -314,7 +316,7 @@ def interpret_axes_with_categories(
 def transform_category_column_to_counts_df(
     some_events,
     the_column = None,
-    grouping_factors: List = None,
+    grouping_factors: list = None,
 ):
     if the_column is None:
         raise ValueError("No column provided") 
@@ -888,7 +890,7 @@ def calculate_scaled_pca_scores(
         print(f"    [PCA] Shape of scaled PCA scores table: {events_pca_scores_scaled.shape}")
 
     for c in events_pca_scores_scaled.columns:
-        if not c in comp_interpretations.keys():
+        if c not in comp_interpretations:
             comp_interpretations[c] = {'top_positive':'high', 'top_negative':'low'}
 
 

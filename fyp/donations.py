@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Script Name: 
 Description: 
@@ -8,27 +7,21 @@ Date:
 """
 
 
-import json
-import pandas as pd
-import re
-import os
-from collections import deque
-import numpy as np
 import datetime as _dt
-from pathlib import Path
-import subprocess
+import json
+import os
 import shlex
 import shutil
+import subprocess
+from pathlib import Path
 
-from fyp.types import convert_dtypes_to_pyarrow
-from fyp.recode_variables import *
-from fyp.calc_collection_stats import generate_personas
-from fyp.organize_datasets import COLLECTIONS_LABEL
+import pandas as pd
+
 import fyp.data_io as data_io
+from fyp.calc_collection_stats import generate_personas
 from fyp.fyp_config import fyp_cf
-from fyp.studies import init_study_defs
-
-
+from fyp.organize_datasets import COLLECTIONS_LABEL
+from fyp.recode_variables import *
 
 collection_id_column = "collection_id"
 timestamp_column = "local_timestamp"
@@ -59,7 +52,7 @@ def get_donation_metadata_from_aio_aws(
     """
 
     # Compute cut‑off time
-    now = (_dt.datetime.now(_dt.timezone.utc)
+    now = (_dt.datetime.now(_dt.UTC)
            if not use_local_time
            else _dt.datetime.now().astimezone())
     file_stamp = now.strftime("%Y%m%d%H%M%S") 
@@ -140,7 +133,7 @@ def get_recent_data_donations_from_aio_aws(
     # ------------------------------------------------------------------
     # 1) Figure out the time window and format it the way the table stores it
     # ------------------------------------------------------------------
-    now = (_dt.datetime.now(_dt.timezone.utc)
+    now = (_dt.datetime.now(_dt.UTC)
            if not use_local_time
            else _dt.datetime.now().astimezone())     # Brisbane local
     cutoff = now - _dt.timedelta(hours=hours_back)
@@ -195,7 +188,7 @@ def get_recent_data_donations_from_aio_aws(
     for filename in downloaded_files:
         val_path = dest / filename
         # Read the content
-        with open(val_path, 'r', encoding='utf-8') as f:
+        with open(val_path, encoding='utf-8') as f:
             try:
                 # Assuming they are JSONs as per previous scripts?
                 # ingest script treats them as JSONs

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Single-study refresh: recalculate stats, PCA, and metadata for one study.
 
@@ -7,10 +6,9 @@ or run synchronously as a subprocess in local dev.
 """
 
 import sys
-import json
 import time
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 # Add project root to sys.path
 current_dir = Path(__file__).resolve().parent
@@ -29,13 +27,17 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
                    'refresh_metadata' (bool).
     """
     import pandas as pd
+
     import fyp.data_io as data_io
     from fyp.fyp_config import fyp_cf
     from fyp.pca import calculate_scaled_pca_scores
     from fyp.studies import init_study_defs, save_study_defs
     from web_interface import explorer_backend as explorer
     from web_interface.data_service import (
-        get_viz_config, load_schema_metadata, study_cache, make_serializable,
+        get_viz_config,
+        load_schema_metadata,
+        make_serializable,
+        study_cache,
     )
     from web_interface.routes.management_routes import _calculate_stats
 
@@ -91,7 +93,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
 
     # Persist stats to study definition
     studies[study_name]["stats"] = stats
-    studies[study_name]["last_updated"] = datetime.now(timezone.utc).isoformat()
+    studies[study_name]["last_updated"] = datetime.now(UTC).isoformat()
     fyp_cf["study_defs"] = studies
     save_study_defs()
     reporter.log(f"Stats: {stats}")
@@ -156,7 +158,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
 
     if (not (is_short_circuit and metadata_exists)) and refresh_metadata and stats["unique_videos"] > 0 and df_recoded is not None:
         reporter.update_progress(50, "Generating metadata...")
-        reporter.log(f"Classifying columns for metadata generation...")
+        reporter.log("Classifying columns for metadata generation...")
         _t_phase = time.perf_counter()
         col_types = explorer.classify_columns(df_recoded)
 

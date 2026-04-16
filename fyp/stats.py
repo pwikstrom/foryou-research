@@ -49,8 +49,7 @@ def run_anova(
 
     import statsmodels.api as sm
     import statsmodels.formula.api as smf
-
-    from pandas import Series, concat, DataFrame
+    from pandas import DataFrame, Series, concat
 
     anova_results = {}
     lots_of_anova_tables = []
@@ -109,7 +108,7 @@ def run_permanova(
     cols_based_on_fyp_features = []
     for k1 in events_pca_scores_scaled.columns:
         for k2 in fyp_features:
-            if k2 in k1 and not "dominance" in k1 and not "entropy" in k1:
+            if k2 in k1 and "dominance" not in k1 and "entropy" not in k1:
                 cols_based_on_fyp_features += [k1]
     print(f"Number of columns based on the features in the pca scores table: {len(cols_based_on_fyp_features)}")
 

@@ -1,22 +1,34 @@
-import os
 import json
+import os
 import time as _time
+from datetime import UTC, datetime
+
+import pandas as pd
 from flask import Blueprint, jsonify, request
+from flask_login import current_user, login_required
 from werkzeug.utils import secure_filename
-from flask_login import login_required, current_user
-from datetime import datetime, timezone
+
+import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf, load_var_schema
 from fyp.ingest import get_main_collection
-import fyp.data_io as data_io
-from fyp.organize_datasets import create_study_recoded_dataset, SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL
-from fyp.pca import calculate_scaled_pca_scores
+from fyp.organize_datasets import (
+    COLLECTIONS_LABEL,
+    create_study_recoded_dataset,
+)
 from fyp.studies import init_study_defs, save_study_defs
-from .. import explorer_backend as explorer
-from ..process_manager import processes, process_stats, load_process_stats, save_process_stats, start_process, CLOUD_TASK_ELIGIBLE
+
+from ..data_service import (
+    calculate_inter_coder_reliability,
+    invalidate_collection_tags_cache,
+)
+from ..process_manager import (
+    load_process_stats,
+    process_stats,
+    processes,
+    save_process_stats,
+    start_process,
+)
 from ..task_status import is_cloud_run
-from ..data_service import invalidate_collection_tags_cache
-import pandas as pd
-from ..data_service import get_viz_config, load_schema_metadata, study_cache, make_serializable, calculate_inter_coder_reliability
 
 management_bp = Blueprint('management_bp', __name__)
 
@@ -241,7 +253,7 @@ def save_study():
     studies[study_name].pop('REFRESH_METADATA', None)
 
     # Update timestamp and save definition to disk
-    studies[study_name]['last_updated'] = datetime.now(timezone.utc).isoformat()
+    studies[study_name]['last_updated'] = datetime.now(UTC).isoformat()
     fyp_cf['study_defs'] = studies
     save_study_defs()
 
@@ -367,7 +379,7 @@ def delete_study():
         return jsonify({"error": "Missing STUDY_NAME"}), 400
         
     init_study_defs()
-    if not 'study_defs' in fyp_cf:
+    if 'study_defs' not in fyp_cf:
         return jsonify({"error": "No study defs found"}), 404
         
     if study_name in fyp_cf['study_defs']:
@@ -468,9 +480,6 @@ def list_collections():
         else:
             print(f"{COLLECTIONS_LABEL}_metadata.parquet not found")
             return jsonify([])
-            
-    if False:#except Exception as e:
-        print(f"Error listing collections: {e}")
 
 
 @management_bp.route('/api/manage/collection/save_annotation', methods=['POST'])
@@ -638,8 +647,9 @@ def queue_voted_videos():
             return jsonify({"status": "no_votes", "message": "No votes found for machine annotation."})
 
         # 2. Map periods to item_ids 
-        from fyp.organize_datasets import create_collection_unified_dataset
         import pandas as pd
+
+        from fyp.organize_datasets import create_collection_unified_dataset
         target_item_ids = set()
         
         for coll_id, periods in all_votes.items():
@@ -1125,8 +1135,8 @@ def fetch_aio_data():
         return jsonify({"error": "Unauthorized"}), 403
     try:
         from fyp.donations import (
-            get_recent_data_donations_from_aio_aws,
             get_donation_metadata_from_aio_aws,
+            get_recent_data_donations_from_aio_aws,
         )
         hours_back = 24
         if request.is_json and request.json:

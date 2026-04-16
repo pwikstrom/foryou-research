@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Queue scraper: download TikTok video metadata and media via yt-dlp.
 
@@ -18,7 +17,6 @@ project_root = current_dir.parent
 sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
-
 
 # Each video ~10s with 4 threads → 500 videos ≈ 1250s.
 # 1800s dispatch deadline leaves comfortable margin.
@@ -184,8 +182,9 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
 
 if __name__ == "__main__":
     import argparse
-    from web_interface.task_status import LocalStatusReporter
+
     from fyp.scrape import queue_scraper_loop
+    from web_interface.task_status import LocalStatusReporter
 
     parser = argparse.ArgumentParser(description="Run queue scraper")
     parser.add_argument("--batch-size", type=int, default=5, help="Batch size")
@@ -193,7 +192,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    print(f"Starting Queue Scraper")
+    print("Starting Queue Scraper")
     print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
 
     reporter = LocalStatusReporter("queue_scraper")

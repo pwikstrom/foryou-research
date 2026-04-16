@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Queue annotator: process TikTok videos through Gemini for machine annotation.
 
@@ -19,7 +18,6 @@ project_root = current_dir.parent
 sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
-
 
 # Safety validation: reject batch sizes that risk timing out.
 # Each video ~60-90s via Gemini with 50 concurrent workers.
@@ -157,8 +155,9 @@ if __name__ == "__main__":
     import argparse
     import atexit
     import concurrent.futures.thread as _ft
-    from web_interface.task_status import LocalStatusReporter
+
     from fyp.machine_annotation import queue_annotation_loop
+    from web_interface.task_status import LocalStatusReporter
 
     # When a Gemini worker hangs, call_machine_threads() marks it DNF and
     # returns without waiting. The ThreadPoolExecutor's atexit hook would
@@ -172,7 +171,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    print(f"Starting Queue Annotator")
+    print("Starting Queue Annotator")
     print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
 
     reporter = LocalStatusReporter("queue_annotator")

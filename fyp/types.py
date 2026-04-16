@@ -1,7 +1,7 @@
-import pyarrow as pa
 import json
-import pandas as pd
 
+import pandas as pd
+import pyarrow as pa
 
 
 def fix_surrogates(text):
@@ -177,13 +177,13 @@ def fix_complex_types_old(some_iterable, verbose=False):
         nonlist_indeces = row_types[~row_types.isin(["<class 'list'>"])].index
         try:
             some_iterable.loc[nonlist_indeces] = some_iterable.loc[nonlist_indeces].map(lambda x: [element_types[0](x)])
-        except Exception as e:
+        except Exception:
             if verbose:
                 print(f"    [PYARROW dtypes - complex] Failed to convert non-list elements to lists and type {element_types[0]}. Trying one row at a time")
             for i in nonlist_indeces:
                 try:
                     some_iterable.loc[i] = [element_types[0](some_iterable.loc[i])]
-                except Exception as e:
+                except Exception:
                     if verbose:
                         print(f"    [PYARROW dtypes - complex] Failed to convert row {i} to list and type {element_types[0]}. Setting to pd.NA")
                     some_iterable.loc[i] = pd.NA
@@ -359,9 +359,9 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
             if verbose:
                 print(f"    [PYARROW dtypes] Found {len(numeric_cols_to_check)} numeric columns - checking all for overflows...")
             df[numeric_cols_to_check].describe()
-        except Exception as e:
+        except Exception:
             if verbose:
-                print(f"    [PYARROW dtypes] Failed to describe numeric columns in one go - checking each column:")
+                print("    [PYARROW dtypes] Failed to describe numeric columns in one go - checking each column:")
 
             # Iterate through all columns that claim to be numeric now
             for c in numeric_cols_to_check:

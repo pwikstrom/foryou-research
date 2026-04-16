@@ -1,22 +1,35 @@
-import threading
 import traceback
+from datetime import UTC
 
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
-import web_interface.auth as auth
+
 import fyp.data_io as data_io
+import web_interface.auth as auth
 from fyp.fyp_config import (
-    QUEUE_SCRAPER_SCRIPT, QUEUE_ANNOTATOR_SCRIPT,
-    META_REFRESH_GROUPS_SCRIPT, TIMELINES_REFRESH_SCRIPT, RECODE_REFRESH_STUDIES_SCRIPT,
-    PCA_REFRESH_SCRIPT, CONSOLIDATE_ENRICHMENT_SCRIPT
+    CONSOLIDATE_ENRICHMENT_SCRIPT,
+    META_REFRESH_GROUPS_SCRIPT,
+    PCA_REFRESH_SCRIPT,
+    QUEUE_ANNOTATOR_SCRIPT,
+    QUEUE_SCRAPER_SCRIPT,
+    RECODE_REFRESH_STUDIES_SCRIPT,
+    TIMELINES_REFRESH_SCRIPT,
 )
+
 from ..process_manager import (
-    processes, process_stats, load_process_stats, save_process_stats,
-    start_process, stop_process, graceful_stop_process,
     CLOUD_TASK_ELIGIBLE,
+    graceful_stop_process,
+    load_process_stats,
+    process_stats,
+    processes,
+    save_process_stats,
+    start_process,
+    stop_process,
 )
 from ..task_status import (
-    is_cloud_run, read_task_status, GCSStatusReporter,
+    GCSStatusReporter,
+    is_cloud_run,
+    read_task_status,
 )
 
 process_bp = Blueprint('process_bp', __name__)
@@ -124,10 +137,10 @@ def api_status():
                 # Check for stale status (task timed out without updating)
                 updated_str = gcs_status.get("updated_at", "")
                 if updated_str:
-                    from datetime import datetime, timezone
+                    from datetime import datetime
                     try:
                         updated_at = datetime.fromisoformat(updated_str)
-                        age = (datetime.now(timezone.utc) - updated_at).total_seconds()
+                        age = (datetime.now(UTC) - updated_at).total_seconds()
                         if age > 600:  # 10 min without heartbeat = likely dead
                             gcs_status = None
                     except (ValueError, TypeError):
@@ -195,10 +208,10 @@ def api_study_refresh_status(study_name: str):
             if gcs_status.get("state") == "running":
                 updated_str = gcs_status.get("updated_at", "")
                 if updated_str:
-                    from datetime import datetime, timezone
+                    from datetime import datetime
                     try:
                         updated_at = datetime.fromisoformat(updated_str)
-                        age = (datetime.now(timezone.utc) - updated_at).total_seconds()
+                        age = (datetime.now(UTC) - updated_at).total_seconds()
                         if age > 600:
                             gcs_status["state"] = "failed"
                             gcs_status["error"] = "Task timed out"
@@ -265,15 +278,15 @@ def _ensure_task_functions_loaded() -> None:
         return
     _task_functions_loaded = True
 
+    from web_interface.run_benchmark_parquet_read import run_benchmark_parquet_read
     from web_interface.run_consolidate_enrichment import run_consolidate_enrichment
-    from web_interface.run_recode_refresh_studies import run_recode_refresh_studies
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
     from web_interface.run_pca_refresh import run_pca_refresh
-    from web_interface.run_study_refresh import run_study_refresh
     from web_interface.run_queue_annotator import run_queue_annotator
     from web_interface.run_queue_scraper import run_queue_scraper
+    from web_interface.run_recode_refresh_studies import run_recode_refresh_studies
+    from web_interface.run_study_refresh import run_study_refresh
     from web_interface.run_timelines_refresh import run_timelines_refresh
-    from web_interface.run_benchmark_parquet_read import run_benchmark_parquet_read
 
     TASK_FUNCTIONS.update({
         "consolidate_enrichment": run_consolidate_enrichment,
@@ -304,7 +317,8 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
     Cloud Task is dispatched and the reporter is kept in "running" state
     (no complete/stats write) so the next link inherits the same status key.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from ..process_manager import _dispatch_cloud_task
 
     status_key = _get_status_key(name, task_args)
@@ -316,7 +330,7 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
     else:
         reporter.start()
 
-    start_time = datetime.now(timezone.utc)
+    start_time = datetime.now(UTC)
     study_name = task_args.get("study_name")
     chain_result: dict | None = None
 
@@ -352,7 +366,7 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
         chain_result = None
 
     # Update process_stats (same logic as monitor_process_completion)
-    end_time = datetime.now(timezone.utc)
+    end_time = datetime.now(UTC)
     duration = (end_time - start_time).total_seconds()
 
     load_process_stats()

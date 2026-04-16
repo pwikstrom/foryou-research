@@ -1,7 +1,7 @@
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 # Add project root to sys.path
 current_dir = Path(__file__).resolve().parent
@@ -13,10 +13,10 @@ from web_interface.task_status import TaskStatusReporter
 
 def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
     """Refresh recoded datasets and stats for studies."""
-    from fyp.fyp_config import fyp_cf
-    from fyp.studies import init_study_defs, save_study_defs
-    from fyp.organize_datasets import create_study_recoded_dataset
     import fyp.data_io as data_io
+    from fyp.fyp_config import fyp_cf
+    from fyp.organize_datasets import create_study_recoded_dataset
+    from fyp.studies import init_study_defs, save_study_defs
 
     task_args = task_args or {}
     force_full_rebuild: bool = bool(task_args.get("force_full_rebuild", False))
@@ -114,7 +114,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
                     "annotated_videos": annotated_videos,
                     "unique_collections": unique_collections
                 }
-                studies[study_name]['last_updated'] = datetime.now(timezone.utc).isoformat()
+                studies[study_name]['last_updated'] = datetime.now(UTC).isoformat()
 
         except Exception as e:
             reporter.log(f"Error processing {study_name}: {e}")
@@ -139,6 +139,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
 
 if __name__ == "__main__":
     import argparse
+
     from web_interface.task_status import LocalStatusReporter
 
     parser = argparse.ArgumentParser()

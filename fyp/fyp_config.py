@@ -1,15 +1,14 @@
-import sys
+import http.client
 import os
 import shutil
+import sys
 import tempfile
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+import toml
 from google.api_core.exceptions import Forbidden as google_Forbidden
 from google.cloud import storage as gcs_storage
-import http.client
-import toml
-
-
 
 # look for the folder that contains the __proj__.py file, which is the root folder for the project structure
 _cwd = Path(os.getcwd())
@@ -31,14 +30,14 @@ def _create_local_dirs(cf: dict, verbose: bool = False):
     # create missing local folders if not using GCS for data
     if not cf['data_io']['use_gcs_for_data'] or cf['misc']['local_mode']:
         if verbose:
-            print(f"Data is stored in locally")
-            print(f"Cache is stored in locally")
+            print("Data is stored in locally")
+            print("Cache is stored in locally")
         for k in cf["paths"].keys():
             os.makedirs(cf["paths"][k], exist_ok=True)
     # create missing local folders if not using GCS for data
     elif not cf['data_io']['use_gcs_for_cache']:
         if verbose:
-            print(f"Cache is stored in locally")
+            print("Cache is stored in locally")
         if not os.path.exists(cf["paths"]["cache"]):
             if verbose:
                 print("Creating missing local folder for cache")
@@ -47,7 +46,7 @@ def _create_local_dirs(cf: dict, verbose: bool = False):
     # Media is orthogonal to data/cache - ensure its folder exists whenever GCS media is off
     if not cf['data_io']['use_gcs_for_media'] or cf['misc']['local_mode']:
         if verbose:
-            print(f"Media is stored locally")
+            print("Media is stored locally")
         os.makedirs(cf["paths"]["media"], exist_ok=True)
 
 
@@ -252,22 +251,22 @@ def _connect_to_google(cf, verbose=False):
             print(f"Access to GCS bucket '{bucket.name}' ({bucket.location}) is authorized.")
             if verbose:
                 if cf['data_io']['use_gcs_for_data']:
-                    print(f"Data is stored in GCS")
+                    print("Data is stored in GCS")
                 else:
-                    print(f"Data is stored locally")
+                    print("Data is stored locally")
                 if cf['data_io']['use_gcs_for_cache']:
-                    print(f"Cache is stored in GCS")
+                    print("Cache is stored in GCS")
                 else:
-                    print(f"Cache is stored locally")
+                    print("Cache is stored locally")
                 if cf['data_io']['use_gcs_for_media']:
-                    print(f"Media is stored in GCS")
+                    print("Media is stored in GCS")
                 else:
-                    print(f"Media is stored locally")
+                    print("Media is stored locally")
 
             return cf
         
         except google_Forbidden:
-            print(f"I don't have access to the GCS.")
+            print("I don't have access to the GCS.")
         except Exception as e:
             print(f"A GCS error occurred: {e}")
 
@@ -292,17 +291,17 @@ def load_var_schema(cf, verbose=False):
     # Load variable schema
     if cf['data_io']['use_gcs_for_data']:
         if verbose:
-            print(f"Loading variable schema from GCS", end="", flush=True)
+            print("Loading variable schema from GCS", end="", flush=True)
         var_schema_path = f"gs://{cf['data_io']['GCS_bucket_name']}/data/var_schema.csv"
     else:
         if verbose:
-            print(f"Loading variable schema from local disk", end="", flush=True)
+            print("Loading variable schema from local disk", end="", flush=True)
         var_schema_path = os.path.join(cf['paths']['local_data'], "var_schema.csv")
     try:
         cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow", encoding="utf-8")
         if verbose:
             print(f" - OK. Shape: {cf['var_schema'].shape}")
-    except Exception as e:
+    except Exception:
         # var_schema not found — try to bootstrap from template
         template_path = os.path.join(cf["paths"]["project_root"], "config", "var_schema_template.csv")
         if os.path.exists(template_path):
@@ -314,7 +313,7 @@ def load_var_schema(cf, verbose=False):
                 if bucket:
                     blob = bucket.blob(f"{cf['data_io'].get('gcs_data_prefix', 'data')}/var_schema.csv")
                     blob.upload_from_filename(template_path)
-                    print(f"Uploaded var_schema template to GCS.")
+                    print("Uploaded var_schema template to GCS.")
             else:
                 # Copy template to local data directory
                 os.makedirs(os.path.dirname(var_schema_path), exist_ok=True)

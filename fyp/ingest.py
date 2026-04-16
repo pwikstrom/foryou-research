@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Script Name: 
 Description: 
@@ -8,22 +7,22 @@ Date:
 """
 
 
-import re
-import pandas as pd
-from collections import deque
-import numpy as np
 import datetime as _dt
-
-from fyp.recode_variables import infer_timezone_offset
-from fyp.donations import generate_collection_metadata
-from fyp.organize_datasets import SCRAPES_LABEL, COLLECTIONS_LABEL, MACHINE_ANNOTATIONS_LABEL
-from fyp.types import convert_dtypes_to_pyarrow 
-from fyp.utils import clean_url
-from zoneinfo import ZoneInfo
-import fyp.data_io as data_io
-
-from typing import Literal, Type
+import re
 from abc import ABC, abstractmethod
+from collections import deque
+from typing import Literal
+from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
+
+import fyp.data_io as data_io
+from fyp.donations import generate_collection_metadata
+from fyp.organize_datasets import COLLECTIONS_LABEL
+from fyp.recode_variables import infer_timezone_offset
+from fyp.types import convert_dtypes_to_pyarrow
+from fyp.utils import clean_url
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 
@@ -256,7 +255,6 @@ class ForYouBaseCollection(ABC):
     @abstractmethod
     def load_single_raw(self, filename: str) -> pd.DataFrame:
         """Subclasses must implement this logic."""
-        pass
 
 
 
@@ -291,7 +289,6 @@ class ForYouBaseCollection(ABC):
     @abstractmethod
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
         """Subclasses must implement this logic."""
-        pass
 
 
 
@@ -466,7 +463,6 @@ class ForYouBaseCollection(ABC):
                     # Fallback to the robust converter
                     # converting specific column to pyarrow backed using the helper
                     # Note: convert_dtypes_to_pyarrow works on DF, but we can try to apply it to the column or the whole DF later
-                    pass
         
         # Use the robust converter for the whole DF for good measure to ensure everything is pyarrow backed where possible
         # and specifically fixing complex types if any
@@ -517,7 +513,7 @@ class ForYouCollection(ForYouBaseCollection):
 
 
 
-    def register_collection_class(self, collection_class: Type[ForYouBaseCollection]):
+    def register_collection_class(self, collection_class: type[ForYouBaseCollection]):
         if not issubclass(collection_class, ForYouBaseCollection):
             raise ValueError(f"{collection_class} is not a subclass of ForYouBaseCollection")
         if collection_class in [type(x) for x in self.collections]:
@@ -562,7 +558,7 @@ class ForYouCollection(ForYouBaseCollection):
 
     def process(self):
         if len(self.collections) == 0:
-            print(f"This ForYouCollection does not have any sub collections. You need to register a collection class first.")
+            print("This ForYouCollection does not have any sub collections. You need to register a collection class first.")
             return
         if self.verbose:
             print("Processing the registered sub collections...")
@@ -579,7 +575,7 @@ class ForYouCollection(ForYouBaseCollection):
     def load_raw(self):
         if len(self.collections) == 0:
             if self.verbose:
-                print(f"This ForYouCollection does not have any sub collections. You need to register a collection class first.")
+                print("This ForYouCollection does not have any sub collections. You need to register a collection class first.")
             return
         if self.verbose:
             print("Loading new raw data for the registered sub collections...")
@@ -610,7 +606,7 @@ class ForYouCollection(ForYouBaseCollection):
 
         if len(processed_collections) == 0:
             if self.verbose:
-                print(f"No processed sub collections to migrate. Nothing for me to do.")
+                print("No processed sub collections to migrate. Nothing for me to do.")
             return
 
         if self.verbose:
@@ -809,7 +805,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
         mask_date = df['variable_list'].map(lambda x: isinstance(x, list) and len(x) > 1 and x[0] == 'date')
         df = df[mask_date].copy()
 
-        mask_activity_type = df['activity_type'].map(lambda x:not ("chat history with" in x))
+        mask_activity_type = df['activity_type'].map(lambda x:"chat history with" not in x)
         df = df[mask_activity_type].copy()
 
         # get the date from index zero (I don't need the variable name)
@@ -1043,8 +1039,8 @@ class TikTokAIOCollection(TikTokDDPCollection):
     def load_raw(self, skip_these_raw_files: list[str] = []):
         """Fetch recent donations and participant metadata from AWS, then load files."""
         from fyp.donations import (
-            get_recent_data_donations_from_aio_aws,
             get_donation_metadata_from_aio_aws,
+            get_recent_data_donations_from_aio_aws,
         )
         if self.verbose:
             print("Fetching recent AIO donations from AWS...")

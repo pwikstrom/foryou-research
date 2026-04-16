@@ -1,16 +1,17 @@
-import subprocess
-import threading
 import json
 import os
-from pathlib import Path
-from datetime import datetime, timezone
+import subprocess
+import threading
 from collections import deque
-from fyp.fyp_config import PROJECT_ROOT, PYTHON_EXEC
-import fyp.data_io as data_io
-from web_interface.task_status import (
-    is_cloud_run, read_task_status, write_cancel_request,
-)
+from datetime import UTC, datetime
 
+import fyp.data_io as data_io
+from fyp.fyp_config import PROJECT_ROOT, PYTHON_EXEC
+from web_interface.task_status import (
+    is_cloud_run,
+    read_task_status,
+    write_cancel_request,
+)
 
 GRACEFUL_STOP_DIR = PROJECT_ROOT / "tmp" / "graceful_stop"
 
@@ -101,7 +102,7 @@ def monitor_process_completion(name, proc):
     """Waits for process to finish and updates stats."""
     proc.wait()
     
-    end_time = datetime.now(timezone.utc)
+    end_time = datetime.now(UTC)
     start_time_str = processes[name].get("start_time")
     duration = 0
     if start_time_str:
@@ -224,7 +225,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             if updated_str:
                 try:
                     updated_at = datetime.fromisoformat(updated_str)
-                    age = (datetime.now(timezone.utc) - updated_at).total_seconds()
+                    age = (datetime.now(UTC) - updated_at).total_seconds()
                     is_stale = age > 600  # 10 min without heartbeat = likely dead
                 except (ValueError, TypeError):
                     pass
@@ -251,7 +252,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             from web_interface.task_status import GCSStatusReporter
             placeholder = GCSStatusReporter(status_key)
             placeholder._status["state"] = "running"
-            placeholder._status["start_time"] = datetime.now(timezone.utc).isoformat()
+            placeholder._status["start_time"] = datetime.now(UTC).isoformat()
             placeholder._status["progress"] = {"percent": 0, "message": "Starting..."}
             placeholder._status["task_args"] = {
                 "batch_size": task_args.get("batch_size"),
@@ -280,7 +281,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         )
         processes[name]["proc"] = proc
         processes[name]["status"] = "running"
-        processes[name]["start_time"] = datetime.now(timezone.utc).isoformat()
+        processes[name]["start_time"] = datetime.now(UTC).isoformat()
         processes[name]["study_name"] = study_name
         processes[name]["progress"] = {}
         processes[name]["last_message"] = ""

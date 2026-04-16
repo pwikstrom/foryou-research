@@ -1,15 +1,16 @@
-from flask import Flask, render_template, redirect, url_for
-from flask_login import login_required, current_user
+import logging
 import os
 import sys
-import importlib
-import numpy as np
-import pandas as pd
-import logging
 from datetime import datetime
 
 # --- Script Execution Support ---
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from flask import Flask, render_template
+from flask_login import current_user, login_required
+
 if __name__ == "__main__" and __package__ is None:
     file_path = Path(__file__).resolve()
     project_root = file_path.parent.parent
@@ -18,18 +19,18 @@ if __name__ == "__main__" and __package__ is None:
     __package__ = "web_interface"
 
 # Imports
-from .process_manager import load_process_stats # Import load function
-from .security import login_manager, user_manager # Import shared auth objects
 from flask_wtf.csrf import CSRFProtect
+
+from .process_manager import load_process_stats  # Import load function
+from .security import login_manager  # Import shared auth objects
 
 csrf = CSRFProtect()
 
 # Import Blueprints
 from .routes.auth_routes import auth_bp
-from .routes.process_routes import process_bp, internal_bp
 from .routes.data_routes import data_bp
 from .routes.management_routes import management_bp
-from .data_service import study_cache # Re-export for tests
+from .routes.process_routes import internal_bp, process_bp
 from .slack_service import get_recent_messages
 from .static_content import HOME_CONTENT
 
@@ -44,6 +45,7 @@ app = Flask(__name__)
 
 # --- Custom JSON Provider for Numpy/Pandas ---
 from flask.json.provider import DefaultJSONProvider
+
 
 class CustomJSONProvider(DefaultJSONProvider):
     def default(self, obj):

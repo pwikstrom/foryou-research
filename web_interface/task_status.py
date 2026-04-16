@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Task status reporting for background processes.
 
@@ -11,13 +10,12 @@ Both share the same interface so worker functions are execution-mode agnostic.
 
 import json
 import os
-import time
 import threading
+import time
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import fyp.data_io as data_io
-
 
 STATUS_PREFIX = "task_status"
 CANCEL_SUFFIX = "_cancel.json"
@@ -127,7 +125,7 @@ class GCSStatusReporter(TaskStatusReporter):
         if not force and (now - self._last_write) < THROTTLE_INTERVAL:
             return
         with self._lock:
-            self._status["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._status["updated_at"] = datetime.now(UTC).isoformat()
             try:
                 data_io.save_json(
                     data=self._status,
@@ -157,7 +155,7 @@ class GCSStatusReporter(TaskStatusReporter):
 
     def start(self) -> None:
         self._status["state"] = "running"
-        self._status["start_time"] = datetime.now(timezone.utc).isoformat()
+        self._status["start_time"] = datetime.now(UTC).isoformat()
         self._status["progress"] = {}
         self._status["data"] = {}
         self._status["error"] = None
@@ -249,7 +247,7 @@ def write_cancel_request(name: str) -> None:
     """Write a cancellation sentinel to GCS."""
     filename = f"{STATUS_PREFIX}/{name}{CANCEL_SUFFIX}"
     data_io.save_json(
-        data={"requested_at": datetime.now(timezone.utc).isoformat()},
+        data={"requested_at": datetime.now(UTC).isoformat()},
         storage_location="cache",
         filename=filename,
         verbose=False,

@@ -1,6 +1,6 @@
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to sys.path
 current_dir = Path(__file__).resolve().parent
@@ -12,11 +12,16 @@ from web_interface.task_status import TaskStatusReporter
 
 def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
     """Refresh explorer (group comparisons) metadata for all studies."""
-    from fyp.fyp_config import fyp_cf
-    from web_interface.explorer_backend import load_data, get_metadata, get_current_stats, make_serializable
-    from web_interface.data_service import load_schema_metadata, get_viz_config
-    from fyp.studies import init_study_defs
     import fyp.data_io as data_io
+    from fyp.fyp_config import fyp_cf
+    from fyp.studies import init_study_defs
+    from web_interface.data_service import get_viz_config, load_schema_metadata
+    from web_interface.explorer_backend import (
+        get_current_stats,
+        get_metadata,
+        load_data,
+        make_serializable,
+    )
 
     reporter.log("Starting Group Comparisons (Explorer) Metadata Refresh...")
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Script Name: data_io.py
 Description: Centralized I/O operations for dataframes.
@@ -8,21 +7,23 @@ Author: Patrik
 
 
 import datetime as _dt
-from datetime import datetime, timedelta
-from fyp.types import convert_dtypes_to_pyarrow
 import io
-import shutil
-import tempfile
-import gcsfs
 import json
 import os
-import pandas as pd
-import pyarrow.parquet as pq
-import numpy as np
+import shutil
+import tempfile
 import threading
 import time as _time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+
+import gcsfs
+import numpy as np
+import pandas as pd
+import pyarrow.parquet as pq
+
 from fyp.fyp_config import fyp_cf
+from fyp.types import convert_dtypes_to_pyarrow
 
 
 def _io_log(op: str, loc: str, filename: str, mode: str, bytes_: int, t_ms: float) -> None:
@@ -452,7 +453,7 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
 
             #if verbose: print(f"    [DATA_IO] Listed {len(files)} files in GCS storage '{storage_location}'")
                  
-        except Exception as e:
+        except Exception:
             #if verbose: print("    [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
             files = [] # Or raise? Old code just warned and returned empty or had logic flow issues.
 
@@ -538,7 +539,7 @@ def move(src_storage_location: str = "", dst_storage_location: str = "", filenam
                 shutil.move(src_path, dst_primary)
                 if verbose: print(f"    [DATA_IO] Moved from temp to local: '{src_path}' -> '{dst_primary}'")
              else:
-                 if verbose: print(f"    [DATA_IO] ERROR: Destination path resolution failed for local move.")
+                 if verbose: print("    [DATA_IO] ERROR: Destination path resolution failed for local move.")
         
         return
 
@@ -618,19 +619,12 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
                  if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
             # Local Primary
-            with open(primary, 'r', encoding='utf-8') as file:
+            with open(primary, encoding='utf-8') as file:
                 for line in file:
                     #line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
                     #line = '{"log_script":"' + root + '",' + line[1:]
                     data.append(json.loads(line))
             return data
-                
-    if False:#except Exception as e:
-        if verbose: print(f"    [DATA_IO] Primary load failed ({mode}): {e}")
-        # If we are in local mode, primary failed, no secondary. Raise/Return None.
-        if mode == 'local':
-             print(f"    [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
-             return None
 
     # If we are here, things haven't gone very well have they
     return None
@@ -689,7 +683,7 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
                  if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
             # Local from local
-            with open(primary, 'r', encoding='utf-8') as file:
+            with open(primary, encoding='utf-8') as file:
                 content = file.read()
                 _io_log(
                     op="load_json",
