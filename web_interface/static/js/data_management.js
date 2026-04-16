@@ -896,11 +896,11 @@ async function saveStudy(btn, event) {
                         allStudies.push(data.study);
                     }
 
-                    // Refresh study dropdowns across all tabs
-                    if (typeof loadDefinedStudies === 'function') loadDefinedStudies();
-                    if (typeof loadExplorerV2Studies === 'function') loadExplorerV2Studies();
-                    if (typeof loadPcaStudies === 'function') loadPcaStudies();
-                    if (typeof loadViewerStudies === 'function') loadViewerStudies();
+                    // Refresh study dropdowns across all tabs (the new study may
+                    // not appear yet — it needs the background refresh to finish
+                    // producing its recoded parquet — but rename/edit changes show
+                    // up here and we'll refresh again when the refresh completes).
+                    refreshStudyDropdowns();
 
                     if (data.refresh_status === 'dispatched') {
                         // Close modal and track progress in the table
@@ -971,7 +971,10 @@ function _pollStudyRefresh(studyName) {
                     clearInterval(interval);
                     refreshingStudies.delete(studyName);
 
-                    // Reload study data to get updated stats
+                    // Reload study data to get updated stats, then refresh
+                    // the study dropdowns across all tabs — the new study's
+                    // recoded parquet now exists, so /api/studies/defined will
+                    // finally include it.
                     fetch('/api/manage/studies')
                         .then(r => r.json())
                         .then(studiesData => {
@@ -981,6 +984,7 @@ function _pollStudyRefresh(studyName) {
                                 allStudies = studiesData.studies;
                             }
                             renderStudiesTable();
+                            refreshStudyDropdowns();
                         })
                         .catch(() => renderStudiesTable());
                 }
@@ -1042,11 +1046,8 @@ window.updateStudyEstimates = async function (btn, event) {
             allStudies.push(saveResult.study);
             renderStudiesTable();
 
-            // Refresh study dropdowns across all tabs
-            if (typeof loadDefinedStudies === 'function') loadDefinedStudies();
-            if (typeof loadExplorerV2Studies === 'function') loadExplorerV2Studies();
-            if (typeof loadPcaStudies === 'function') loadPcaStudies();
-            if (typeof loadViewerStudies === 'function') loadViewerStudies();
+            // Refresh study dropdowns across all tabs (definition-only save)
+            refreshStudyDropdowns();
         } catch (err) {
             console.error(err);
             _showSaveStatusMsg(btn, 'Save failed');
@@ -1147,6 +1148,9 @@ function populateEnrichmentStudySelect(studies) {
     const select = document.getElementById('enrichment-study-select');
     if (!select) return;
 
+    // Preserve current selection so a refresh from another action doesn't wipe it
+    const currentValue = select.value;
+
     // Keep the first default option
     select.innerHTML = '<option value="">-- Select Study --</option>';
 
@@ -1156,6 +1160,20 @@ function populateEnrichmentStudySelect(studies) {
         opt.textContent = study.STUDY_NAME;
         select.appendChild(opt);
     });
+
+    if (currentValue && studies.some(s => s.STUDY_NAME === currentValue)) {
+        select.value = currentValue;
+    }
+}
+
+// Refresh every study dropdown across the app without triggering any tab
+// navigation. Used after a study is saved or finishes its background refresh.
+function refreshStudyDropdowns() {
+    if (typeof loadDefinedStudies === 'function') loadDefinedStudies();
+    if (typeof loadExplorerV2Studies === 'function') loadExplorerV2Studies(true);
+    if (typeof loadPcaStudies === 'function') loadPcaStudies(true);
+    if (typeof loadViewerStudies === 'function') loadViewerStudies(true);
+    if (Array.isArray(allStudies)) populateEnrichmentStudySelect(allStudies);
 }
 
 // --- Modal ---

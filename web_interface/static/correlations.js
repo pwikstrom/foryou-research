@@ -29,8 +29,9 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 
-async function loadPcaStudies() {
+async function loadPcaStudies(refreshOnly = false) {
     const selector = document.getElementById('pca-study-select');
+    if (!selector) return;
     try {
         const res = await fetch('/api/studies/defined');
         const studies = await res.json();
@@ -44,8 +45,12 @@ async function loadPcaStudies() {
                 selector.appendChild(opt);
             });
 
-            // Auto-load the first accessible study if no study is currently active
-            if (!pcaData.activeStudy && studies.length > 0) {
+            // Preserve current selection if still available, otherwise auto-select first.
+            // In refreshOnly mode (called after a study save from another tab), we never
+            // trigger navigation — that would fire a hidden-tab load on the Correlations tab.
+            if (pcaData.activeStudy && studies.includes(pcaData.activeStudy)) {
+                selector.value = pcaData.activeStudy;
+            } else if (!refreshOnly && studies.length > 0) {
                 selector.value = studies[0];
                 changePcaStudy();
             }

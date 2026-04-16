@@ -215,8 +215,9 @@ async function submitVote(itemId) {
     }
 }
 
-async function loadViewerStudies() {
+async function loadViewerStudies(refreshOnly = false) {
     const selector = document.getElementById('viewer-study-select');
+    if (!selector) return;
 
     try {
         const res = await fetch('/api/studies/defined?detail=true');
@@ -245,10 +246,13 @@ async function loadViewerStudies() {
             selector.appendChild(opt);
         });
 
-        // Preserve current selection if still available, otherwise auto-select first
+        // Preserve current selection if still available, otherwise auto-select first.
+        // In refreshOnly mode (called after a study save from another tab), we never
+        // trigger navigation — that would fire a hidden-tab load and may pop a
+        // large-study warning over the user's current view.
         if (viewerData.activeStudy && studies.includes(viewerData.activeStudy)) {
             selector.value = viewerData.activeStudy;
-        } else if (studies.length > 0) {
+        } else if (!refreshOnly && studies.length > 0) {
             selector.value = studies[0];
             changeViewerStudy(studies[0]);
         }

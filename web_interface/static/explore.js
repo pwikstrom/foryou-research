@@ -109,8 +109,9 @@ function setExplorerV2SliceMode(isDual) {
 }
 
 
-async function loadExplorerV2Studies() {
+async function loadExplorerV2Studies(refreshOnly = false) {
     const selector = document.getElementById('explorer-v2-study-select');
+    if (!selector) return;
 
     try {
         const res = await fetch('/api/studies/defined?detail=true');
@@ -139,10 +140,13 @@ async function loadExplorerV2Studies() {
             selector.appendChild(opt);
         });
 
-        // Preserve current selection if still available, otherwise auto-select first
+        // Preserve current selection if still available, otherwise auto-select first.
+        // In refreshOnly mode (called after a study save from another tab), we never
+        // trigger navigation — that would fire a hidden-tab load and may pop a
+        // large-study warning over the user's current view.
         if (explorerDataV2.activeStudy && studies.includes(explorerDataV2.activeStudy)) {
             selector.value = explorerDataV2.activeStudy;
-        } else if (studies.length > 0) {
+        } else if (!refreshOnly && studies.length > 0) {
             selector.value = studies[0];
             changeExplorerV2Study(studies[0]);
         }
