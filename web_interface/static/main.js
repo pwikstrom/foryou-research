@@ -3,6 +3,11 @@ function getCSSVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+// HTML-escape untrusted strings before inserting into innerHTML
+function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // Poll intervals
 // The updateStatus interval is now handled within window.onload
 
@@ -173,7 +178,7 @@ async function loadAndRenderUserTags() {
             chip.classList.add('text-sm');
 
             chip.innerHTML = `
-                <span>${tag} <span class="text-xs" style="color: var(--color-text-muted);">(${count})</span></span>
+                <span>${escapeHtml(tag)} <span class="text-xs" style="color: var(--color-text-muted);">(${escapeHtml(count)})</span></span>
                 <span class="delete-tag-btn font-bold" style="cursor: pointer; color: var(--color-danger-soft);" title="Delete Tag">×</span>
             `;
 
@@ -220,7 +225,7 @@ function showLargeStudyLoadWarning(studyName, uniqueVideos) {
     return new Promise(resolve => {
         const overlay = document.getElementById('large-load-warning');
         const textEl = document.getElementById('large-load-warning-text');
-        textEl.innerHTML = `<strong>${studyName}</strong> contains ${uniqueVideos.toLocaleString()} items. ` +
+        textEl.innerHTML = `<strong>${escapeHtml(studyName)}</strong> contains ${uniqueVideos.toLocaleString()} items. ` +
             `Loading this study may take a moment and app performance may be affected.`;
         overlay.classList.add('visible');
         document.getElementById('large-load-warning-back').onclick = () => {

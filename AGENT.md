@@ -69,8 +69,7 @@ fyp_main_v02/
 ├── AGENT.md                     # This file (project instructions)
 ├── GEMINI.md                    # Alias for AGENT.md
 ├── config/
-│   ├── config.toml              # Active config (paths, GCS, Gemini, labels)
-│   └── config.toml.template
+│   └── config.toml              # Active config (paths, GCS, Gemini, labels)
 ├── fyp/                         # Core Python package
 │   ├── __init__.py              # Bytecode compilation on import
 │   ├── fyp_config.py            # Config loader; uses __proj__.py to find root

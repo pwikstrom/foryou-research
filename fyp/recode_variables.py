@@ -508,7 +508,7 @@ def recode_faces_age_estimate(
 
         try:
             return np.float64(an_age_range)
-        except:
+        except (ValueError, TypeError):
             pass
 
         if isinstance(an_age_range,str) and an_age_range.count("-")==1:
@@ -517,7 +517,7 @@ def recode_faces_age_estimate(
                 if age_limits[1]<age_limits[0]:
                     return pd.NA
                 return np.float64(np.mean(age_limits))
-            except:
+            except (ValueError, TypeError, IndexError):
                 return pd.NA
         return pd.NA
 
@@ -915,7 +915,7 @@ def recode_events_df(
 
         try:
             return eval(s)
-        except:
+        except Exception:
             return s
 
 

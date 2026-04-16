@@ -428,8 +428,8 @@ def get_viz_config():
                             try:
                                 edges = [float(x) for x in val_str.split("|")]
                                 cfg['bins'] = sorted(edges)
-                                
-                            except:
+
+                            except (ValueError, TypeError):
                                 cfg['bins'] = None
                         elif val_str.isdigit():
                              cfg['bins'] = int(val_str)
@@ -812,7 +812,7 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
             dt = pd.to_datetime(d_str)
             lbl = dt.strftime('%d/%m/%y')
             date_labels.append(lbl)
-        except:
+        except (ValueError, TypeError):
             date_labels.append(str(d_str))
             
     variables = {}
@@ -1582,7 +1582,7 @@ def calculate_inter_coder_reliability():
                 try:
                      kappa = cohen_kappa_score(y_true, y_pred)
                      if pd.isna(kappa): kappa = 0.0
-                except:
+                except Exception:
                     kappa = 0.0
             elif common_items > 0 and y_true == y_pred:
                  # Perfect agreement on single item or constant values

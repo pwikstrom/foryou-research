@@ -215,7 +215,7 @@ def call_machine(
 
     try:
         the_finish_reason = str(resp.candidates[0].finish_reason)
-    except:
+    except (IndexError, AttributeError):
         the_finish_reason = "Finished, but don't know why"
     
     times += [_dt.datetime.now()]
@@ -466,7 +466,7 @@ def consolidate_rare_columns_from_gemini_output(
                         outputs_from_machine_df.loc[ii,dominant_col_name] = outputs_from_machine_df.loc[ii,unusual_col_name]
                     else:
                         outputs_from_machine_df.loc[ii,unusual_col_name] = np.nan
-            except:
+            except KeyError:
                 if verbose:
                     print(f"ERROR: {unusual_col_name} doesn't seem to be among the columns")
 

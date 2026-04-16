@@ -219,7 +219,7 @@ async function loadExplorerV2Metadata() {
     }
 
     if (baseData.error) {
-        const errHtml = `<div style="color:var(--color-danger); text-align:center;">${baseData.error}</div>`;
+        const errHtml = `<div style="color:var(--color-danger); text-align:center;">${escapeHtml(baseData.error)}</div>`;
         filterContainer1.innerHTML = errHtml;
         filterContainer2.innerHTML = errHtml;
         return;
@@ -1213,9 +1213,9 @@ function showDrillDownConfirm(variableName, valueLabel, onConfirm) {
             This will open <strong>Video Analysis</strong> filtered to:
         </p>
         <div class="drilldown-filter-preview">
-            <span class="font-medium">${variableName}</span>
+            <span class="font-medium">${escapeHtml(variableName)}</span>
             <span style="color: var(--color-text-muted); margin: 0 6px;">→</span>
-            <span class="font-semibold" style="color: var(--color-accent);">${valueLabel}</span>
+            <span class="font-semibold" style="color: var(--color-accent);">${escapeHtml(valueLabel)}</span>
         </div>
         <p class="text-sm" style="margin: 8px 0 16px; color: var(--color-text-muted);">
             Your current Explore filters will also be carried over.
