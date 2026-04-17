@@ -4,7 +4,7 @@ import traceback
 from flask_login import current_user
 
 from web_interface.fyp_data_hub import app
-from web_interface.routes.data_routes import api_persona_stats
+from web_interface.routes.api_collections_routes import api_persona_stats
 
 
 class DummyUser:

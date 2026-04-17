@@ -110,7 +110,11 @@ fyp_main_v02/
 │   ├── run_study_refresh.py     # Single-study refresh (Cloud Task)
 │   ├── routes/                  # Flask Blueprints
 │   │   ├── auth_routes.py       #   Login, signup, settings
-│   │   ├── data_routes.py       #   Data API endpoints (largest)
+│   │   ├── api_explorer_routes.py       #   Studies + Explore API + system-info
+│   │   ├── api_viewer_routes.py         #   Video Analysis + media streaming API
+│   │   ├── api_timelines_routes.py      #   Timelines API
+│   │   ├── api_correlations_routes.py   #   Correlations API
+│   │   ├── api_collections_routes.py    #   Collection stats + annotation API
 │   │   ├── management_routes.py #   Admin/management endpoints
 │   │   └── process_routes.py    #   Background process endpoints
 │   ├── templates/

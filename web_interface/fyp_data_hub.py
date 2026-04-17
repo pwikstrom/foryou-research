@@ -27,8 +27,12 @@ from .security import login_manager  # Import shared auth objects
 csrf = CSRFProtect()
 
 # Import Blueprints
+from .routes.api_collections_routes import collections_bp
+from .routes.api_correlations_routes import correlations_bp
+from .routes.api_explorer_routes import explorer_bp
+from .routes.api_timelines_routes import timelines_bp
+from .routes.api_viewer_routes import viewer_bp
 from .routes.auth_routes import auth_bp
-from .routes.data_routes import data_bp
 from .routes.management_routes import management_bp
 from .routes.process_routes import internal_bp, process_bp
 from .slack_service import get_recent_messages
@@ -78,7 +82,11 @@ csrf.init_app(app)
 app.register_blueprint(auth_bp)
 app.register_blueprint(process_bp)
 app.register_blueprint(internal_bp)
-app.register_blueprint(data_bp)
+app.register_blueprint(explorer_bp)
+app.register_blueprint(viewer_bp)
+app.register_blueprint(timelines_bp)
+app.register_blueprint(correlations_bp)
+app.register_blueprint(collections_bp)
 app.register_blueprint(management_bp)
 
 # Exempt the Cloud Tasks internal blueprint from CSRF (authenticated via OIDC token)
