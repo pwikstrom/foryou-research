@@ -120,17 +120,29 @@ def _filter_to_event_windows(df: pd.DataFrame, windows: dict, collection_col: st
     Rows for a collection missing from `windows` are kept (no metadata, no filter).
     """
 
+    import numpy as _np
+
     if df is None or df.empty or not windows or collection_col not in df.columns or timestamp_col not in df.columns:
         return df
 
-    ts = pd.to_datetime(df[timestamp_col], errors='coerce').dt.normalize()
-    cid = df[collection_col].astype(str)
-    first_series = cid.map(lambda c: windows.get(c, (None, None))[0])
-    last_series = cid.map(lambda c: windows.get(c, (None, None))[1])
+    # Normalize all three comparison arrays to plain numpy datetime64[ns] so
+    # the comparison doesn't fail when the DataFrame is backed by an extension
+    # dtype (PyArrow) and the window series is object-dtype Timestamps.
+    ts_arr = pd.to_datetime(df[timestamp_col], errors='coerce').dt.normalize().to_numpy(dtype='datetime64[ns]')
 
-    has_window = first_series.notna() & last_series.notna()
-    in_window = (ts >= first_series) & (ts <= last_series)
-    keep = (~has_window) | (has_window & in_window)
+    cid = df[collection_col].astype(str)
+    first_arr = pd.to_datetime(
+        cid.map(lambda c: windows.get(c, (None, None))[0]),
+        errors='coerce',
+    ).dt.normalize().to_numpy(dtype='datetime64[ns]')
+    last_arr = pd.to_datetime(
+        cid.map(lambda c: windows.get(c, (None, None))[1]),
+        errors='coerce',
+    ).dt.normalize().to_numpy(dtype='datetime64[ns]')
+
+    has_window = (~pd.isna(first_arr)) & (~pd.isna(last_arr))
+    in_window = (ts_arr >= first_arr) & (ts_arr <= last_arr)
+    keep = _np.where(has_window, in_window, True)
     return df.loc[keep]
 
 
