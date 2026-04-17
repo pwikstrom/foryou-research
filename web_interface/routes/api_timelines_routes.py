@@ -119,7 +119,7 @@ def api_timeline_collections():
 
     # 2. Collect allowed collection IDs from these studies
     allowed_collection_ids = set()
-    collection_study_map: dict[str, str] = {}
+    collection_studies_map: dict[str, list[str]] = {}
 
     # Iterate studies and get collections (using optimized loader)
     for study in studies:
@@ -130,8 +130,7 @@ def api_timeline_collections():
             if 'collection_id' in d:
                 cid = str(d['collection_id'])
                 allowed_collection_ids.add(cid)
-                if cid not in collection_study_map:
-                    collection_study_map[cid] = study
+                collection_studies_map.setdefault(cid, []).append(study)
 
     #print(f"DEBUG TIMELINE: Total allowed collection IDs: {len(allowed_collection_ids)}")
     if not allowed_collection_ids:
@@ -259,9 +258,14 @@ def api_timeline_collections():
             uid_str = str(uid)
             item = {'collection_id': uid_str}
 
-            # Study that contains this collection (for drill-down to Video Analysis).
-            if uid_str in collection_study_map:
-                item['study'] = collection_study_map[uid_str]
+            # All studies that include this collection. Used by the client to
+            # filter the dropdown under the active study — a collection can
+            # legitimately belong to multiple studies.
+            if uid_str in collection_studies_map:
+                item['studies'] = collection_studies_map[uid_str]
+                # `study` retained for backward-compat consumers; set to the
+                # first enclosing study.
+                item['study'] = collection_studies_map[uid_str][0]
 
             # Active days (timeline-length context for the dropdown).
             if uid_str in active_days_map:
