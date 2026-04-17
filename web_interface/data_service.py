@@ -1307,6 +1307,11 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
                     continue
 
                 stats = study_config.get('stats', {})
+                # Defensive: a bad client save could persist stats as a string
+                # (e.g. "[object Object]"). Treat anything non-dict as empty
+                # so the listing endpoint keeps working for other studies.
+                if not isinstance(stats, dict):
+                    stats = {}
                 if stats.get('unique_videos', 0) <= 0:
                     continue
 

@@ -546,6 +546,13 @@ function populateForm(row, study) {
         const field = input.dataset.field;
         let value = study[field];
 
+        // Never assign a non-string/number to an input's value — it would
+        // coerce via toString() and round-trip garbage (e.g. "[object Object]")
+        // back to the server on the next save. Skip fields whose shape we
+        // manage via dedicated renderers (stats, SELECTED_COLLECTIONS handled
+        // below, USER_ACCESS is a checkbox group, not a scalar input).
+        if (field === 'stats') return;
+
         // Handle Lists/JSON (Except USER_ACCESS which is now checkboxes)
         if (field === 'SELECTED_COLLECTIONS') {
             // Find the collection selector in this row
@@ -664,6 +671,20 @@ function populateForm(row, study) {
         if (el) el.addEventListener('input', () => _renderDailyChart(row));
     });
 
+    // Seed the chart from the cached snapshot saved on the study so it
+    // renders instantly on modal open. The backend only persists this cache
+    // when the hash matches the study's saved SELECTED_COLLECTIONS, so we
+    // can trust it here. The async fetch below refreshes it regardless.
+    const chartState = _getChartState(row);
+    const cache = study.cached_daily_activities;
+    if (cache && Array.isArray(cache.total_per_day) && cache.total_per_day.length) {
+        chartState.totalPerDay = cache.total_per_day;
+        if (cache.potentials) {
+            _renderStudyMetrics(row, { potentials: cache.potentials });
+        }
+        _renderDailyChart(row);
+    }
+
     // Kick off initial chart fetch for the selected collections.
     _fetchDailyChart(row);
 }
@@ -677,6 +698,9 @@ function collectFormData(row) {
     inputs.forEach(input => {
         const field = input.dataset.field;
         let value = input.value;
+
+        // stats is a server-computed object; never send it from the client.
+        if (field === 'stats') return;
 
         // Parse Types
         if (field === 'SELECTED_COLLECTIONS') {
@@ -1176,25 +1200,37 @@ function _fetchDailyChart(row) {
 
     if (!selected.length) {
         s.totalPerDay = [];
+        s.loading = false;
         _renderDailyChart(row);
         return;
     }
 
+    // Mark loading so the empty/loading placeholder can render correctly
+    // until the response comes back.
+    s.loading = true;
+    _renderDailyChart(row);
+
+    const studyName = row.dataset.studyName || null;
     fetch('/api/manage/studies/daily_activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ SELECTED_COLLECTIONS: selected })
+        body: JSON.stringify({ SELECTED_COLLECTIONS: selected, STUDY_NAME: studyName })
     })
         .then(r => r.json())
         .then(data => {
-            if (data.status !== 'success') return;
+            s.loading = false;
+            if (data.status !== 'success') { _renderDailyChart(row); return; }
             s.totalPerDay = data.total_per_day || [];
             _renderDailyChart(row);
             if (data.potentials) {
                 _renderStudyMetrics(row, { potentials: data.potentials });
             }
         })
-        .catch(err => console.error('daily_activities fetch failed', err));
+        .catch(err => {
+            s.loading = false;
+            _renderDailyChart(row);
+            console.error('daily_activities fetch failed', err);
+        });
 }
 
 function _debouncedRefetchDailyChart(row) {
@@ -1219,11 +1255,19 @@ function _renderDailyChart(row) {
     const s = _getChartState(row);
     const total = s.totalPerDay || [];
     const included = s.includedPerDay;
+    const selected = _getSelectedCollections(row);
 
     if (!total.length) {
         chartDiv.style.display = 'none';
         if (hintDiv) hintDiv.style.display = 'none';
-        if (emptyDiv) emptyDiv.style.display = '';
+        if (emptyDiv) {
+            emptyDiv.style.display = '';
+            if (s.loading && selected.length) {
+                emptyDiv.textContent = 'Loading daily activities\u2026';
+            } else {
+                emptyDiv.textContent = 'Select one or more collections to see activities per day.';
+            }
+        }
         if (chartDiv._plotlyInited && window.Plotly) {
             window.Plotly.purge(chartDiv);
             chartDiv._plotlyInited = false;

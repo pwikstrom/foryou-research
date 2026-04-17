@@ -485,6 +485,11 @@ def save_study():
     studies[study_name].pop('REFRESH_PCA', None)
     studies[study_name].pop('REFRESH_METADATA', None)
 
+    # Invalidate the cached daily-activities snapshot — the saved definition
+    # may now have different collections, so the cache would mislead the
+    # modal on reopen until a fresh /daily_activities call refreshes it.
+    studies[study_name].pop('cached_daily_activities', None)
+
     # Update timestamp and save definition to disk
     studies[study_name]['last_updated'] = datetime.now(UTC).isoformat()
     fyp_cf['study_defs'] = studies
@@ -670,6 +675,16 @@ def calculate_study_stats():
 
 
 
+def _collections_hash(selected: list) -> str:
+    """Return a short stable hash of a selected-collections list."""
+
+    import hashlib
+    ids = sorted(str(x) for x in (selected or []))
+    return hashlib.sha256(",".join(ids).encode("utf-8")).hexdigest()[:16]
+
+
+
+
 @management_bp.route('/api/manage/studies/daily_activities', methods=['POST'])
 @login_required
 def daily_activities():
@@ -686,6 +701,7 @@ def daily_activities():
 
     data = request.json or {}
     selected = data.get("SELECTED_COLLECTIONS") or []
+    study_name = data.get("STUDY_NAME")
 
     if not selected:
         return jsonify({"status": "success", "total_per_day": []})
@@ -717,10 +733,34 @@ def daily_activities():
         potentials["activities"] = int(len(df))
         potentials["active_days"] = int(pd.to_datetime(df["local_timestamp"], errors="coerce").dropna().dt.date.nunique())
 
+    total_per_day = _daily_counts(df)
+    collections_hash = _collections_hash(selected)
+
+    # Cache on the saved study so subsequent modal opens render the chart
+    # instantly. Only persist when the incoming selection matches the saved
+    # SELECTED_COLLECTIONS — otherwise the user is editing an unsaved state
+    # and caching that would mislead on reopen.
+    if study_name:
+        saved = fyp_cf.get('study_defs', {}).get(study_name)
+        if isinstance(saved, dict):
+            saved_hash = _collections_hash(saved.get('SELECTED_COLLECTIONS'))
+            if saved_hash == collections_hash:
+                saved['cached_daily_activities'] = {
+                    "total_per_day": total_per_day,
+                    "potentials": potentials,
+                    "collections_hash": collections_hash,
+                    "computed_at": datetime.now(UTC).isoformat(),
+                }
+                try:
+                    save_study_defs()
+                except Exception as _save_err:
+                    print(f"[daily_activities] non-fatal: failed to persist cache for '{study_name}': {_save_err}")
+
     return jsonify({
         "status": "success",
-        "total_per_day": _daily_counts(df),
+        "total_per_day": total_per_day,
         "potentials": potentials,
+        "collections_hash": collections_hash,
     })
 
 
