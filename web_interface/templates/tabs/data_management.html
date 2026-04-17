@@ -140,7 +140,19 @@
                     <h2 id="editStudyModalTitle" style="margin: 0;">Edit Study</h2>
                     <span id="editStudyModalLastUpdated" class="text-xs" style="color: var(--color-text-tertiary);"></span>
                 </div>
-                <button class="btn-discreet text-h2 font-bold" onclick="closeStudyModal()">&times;</button>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    {% if current_user.is_admin() %}
+                    <div id="studyAccessDropdown" style="position: relative;">
+                        <button type="button" id="studyAccessToggle" class="btn-discreet text-xs"
+                            style="padding: 3px 8px; cursor: pointer;">Access (<span id="studyAccessCount">0</span>) &#9662;</button>
+                        <div id="studyAccessPanel" data-field-group="USER_ACCESS"
+                            style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; z-index: 1300; min-width: 160px; background: var(--color-bg-elevated); border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 6px 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+                            <div class="dynamic-roles-container text-sm" style="text-align: left;">Loading roles...</div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    <button class="btn-discreet text-h2 font-bold" onclick="closeStudyModal()">&times;</button>
+                </div>
             </div>
             <div id="editStudyModalBody">
                 <!-- Populated by JS from template -->
@@ -162,98 +174,104 @@
     <!-- Template for Study Edit Form (cloned into modal) -->
     <template id="study_detail_template">
         <div class="study-edit-form" data-study-name="">
-            <div class="study-form" style="display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 30px;">
-                <!-- Column 1 -->
-                <div>
-                    <div class="form-group-row">
-                        <label class="meta-tooltip" data-tooltip="yyyy-mm-dd — only include events after this date">Start Date</label>
-                        <input type="text" data-field="START_DATE" class="control-input" {% if not
-                            current_user.is_admin() %}disabled{% endif %}>
-                    </div>
-                    <div class="form-group-row">
-                        <label class="meta-tooltip" data-tooltip="yyyy-mm-dd — only include events before this date">End Date</label>
-                        <input type="text" data-field="END_DATE" class="control-input" {% if not
-                            current_user.is_admin() %}disabled{% endif %}>
-                    </div>
+            <input type="hidden" data-field="START_DATE">
+            <input type="hidden" data-field="END_DATE">
+            {% if current_user.is_admin() %}
+            <input type="hidden" data-field="stats" value="{}">
+            <div style="margin-top: 16px; display: flex; gap: 8px; align-items: center;">
+                <button type="button" class="action-btn text-xs" onclick="saveStudy(this, event)"
+                    style="padding: 2px 8px;">Save/Refresh Study</button>
+                <button type="button" class="text-xs meta-tooltip tooltip-below" onclick="updateStudyEstimates(this, event)"
+                    data-tooltip="Runs the sampling pipeline on the current settings, reports the realised counts, and flags oversized studies, sparse day×collection cells, and excluded/downsampled collections."
+                    style="padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
+                    {% if not current_user.is_admin() %}disabled{% endif %}>Check study design</button>
+            </div>
+
+            <div class="study-issues-list text-xs" style="margin-top: 8px; display: none; flex-direction: column; gap: 3px;"></div>
+
+            <div class="study-metrics-row" style="margin-top: 12px; display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap;">
+
+                <div class="study-metrics text-xs" style="display: grid; grid-template-columns: max-content max-content max-content max-content; gap: 2px 10px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums;">
+                    <span></span>
+                    <span style="text-align: right; color: var(--color-text-tertiary);">included</span>
+                    <span style="text-align: center; color: var(--color-text-tertiary);"></span>
+                    <span style="text-align: right; color: var(--color-text-tertiary);">potential</span>
+
+                    <span>Collections</span>
+                    <strong class="metric-actual-collections" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
+                    <span style="color: var(--color-text-tertiary);">/</span>
+                    <span class="metric-potential-collections" style="text-align: right;">&ndash;</span>
+
+                    <span>Active days</span>
+                    <strong class="metric-actual-active-days" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
+                    <span style="color: var(--color-text-tertiary);">/</span>
+                    <span class="metric-potential-active-days" style="text-align: right;">&ndash;</span>
+
+                    <span>Activities</span>
+                    <strong class="metric-actual-activities selected-events-count" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
+                    <span style="color: var(--color-text-tertiary);">/</span>
+                    <span class="metric-potential-activities" style="text-align: right;">&ndash;</span>
+
+                    <span>Items</span>
+                    <strong class="metric-actual-items stat-unique-vids" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
+                    <span style="color: var(--color-text-tertiary);">/</span>
+                    <span class="metric-potential-items" style="text-align: right;">&ndash;</span>
+
+                    <span>Scraped</span>
+                    <strong class="metric-actual-scraped stat-scraped-vids" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
+                    <span style="color: var(--color-text-tertiary);">/</span>
+                    <span class="metric-potential-scraped" style="text-align: right;">&ndash;</span>
+
+                    <span>Annotated</span>
+                    <strong class="metric-actual-annotated stat-annotated-vids" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
+                    <span style="color: var(--color-text-tertiary);">/</span>
+                    <span class="metric-potential-annotated" style="text-align: right;">&ndash;</span>
                 </div>
-                <!-- Column 2 -->
-                <div>
-                    <div class="form-group-row" style="align-items: flex-start;">
-                        <label class="meta-tooltip" data-tooltip="Control which user roles can access this study" style="margin-top: 4px;">Access</label>
-                        <div class="checkbox-group" data-field-group="USER_ACCESS"
-                            style="text-align: left; max-height: 85px; overflow-y: auto; background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 8px; {% if not current_user.is_admin() %}pointer-events: none; opacity: 0.6;{% endif %}">
-                            <div class="dynamic-roles-container">Loading roles...</div>
-                        </div>
-                    </div>
-                </div>
-                <!-- Column 3 -->
-                <div>
-                    <div class="form-group-row">
+
+                <div class="sample-block" style="min-width: 200px; max-width: 220px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
                         <label class="meta-tooltip"
-                            data-tooltip="Control if and how collections are sampled: off, activities, scraped, annotated">Sample</label>
-                        <select data-field="SAMPLE_FRAME" class="control-input"
-                            onchange="toggleSamplingOptions(this)" {% if not current_user.is_admin() %}disabled{%
-                            endif %}>
-                            <option value="off">off</option>
+                            data-tooltip="Control if and how collections are sampled. Set to 'off' to disable sampling."
+                            style="color: var(--color-text-secondary);">Sample</label>
+                        <select data-field="SAMPLE_FRAME" class="control-input" style="flex: 1;" {% if not current_user.is_admin() %}disabled{% endif %}>
                             <option value="activities">activities</option>
                             <option value="scraped">scraped</option>
                             <option value="annotated">annotated</option>
+                            <option value="off">off</option>
                         </select>
                     </div>
+                    <div class="sampling-matrix" style="display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px 8px; align-items: center;">
+                        <span></span>
+                        <span class="text-xs" style="color: var(--color-text-secondary); text-align: center;">Min</span>
+                        <span class="text-xs" style="color: var(--color-text-secondary); text-align: center;">Max</span>
 
-                    <div id="sampling-options-container">
-                        <a href="#" class="sampling-advanced-toggle text-xs" style="color: var(--color-text-secondary); text-decoration: none;"
-                            onclick="event.preventDefault(); const body = this.nextElementSibling; const open = body.style.display !== 'none'; body.style.display = open ? 'none' : 'block'; this.textContent = open ? '▶ Advanced' : '▼ Advanced';">▶ Advanced</a>
-                        <div class="sampling-advanced-body" style="display: none;">
-                            <div class="form-group-row">
-                                <label class="meta-tooltip"
-                                    data-tooltip="Groups with fewer than this number of activities are excluded (default: 10)">Min Activity Count</label>
-                                <input type="number" data-field="MIN_ACTIVITY_COUNT_PER_GROUP"
-                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                            </div>
-                            <div class="form-group-row">
-                                <label class="meta-tooltip"
-                                    data-tooltip="Groups with more than this number of activities are downsampled (default: 100)">Max Activity Count</label>
-                                <input type="number" data-field="MAX_ACTIVITY_COUNT_PER_GROUP"
-                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                            </div>
-                            <div class="form-group-row">
-                                <label class="meta-tooltip"
-                                    data-tooltip="Collections with fewer than this number of accepted groups are excluded (default: 10)">Min Group Count</label>
-                                <input type="number" data-field="MIN_GROUP_COUNT_PER_COLLECTION"
-                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                            </div>
-                            <div class="form-group-row">
-                                <label class="meta-tooltip"
-                                    data-tooltip="Collections with more than this number of accepted groups are downsampled (default: 100)">Max Group Count</label>
-                                <input type="number" data-field="MAX_GROUP_COUNT_PER_COLLECTION"
-                                    class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
-                            </div>
-                        </div>
+                        <label class="meta-tooltip text-xs"
+                            data-tooltip="Days with fewer than Min activities are excluded from the sample; days with more than Max activities are downsampled (defaults: 30 / 50)."
+                            style="color: var(--color-text-secondary);">Activities per day</label>
+                        <input type="number" data-field="MIN_ACTIVITY_COUNT_PER_GROUP"
+                            class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
+                        <input type="number" data-field="MAX_ACTIVITY_COUNT_PER_GROUP"
+                            class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
+
+                        <label class="meta-tooltip text-xs"
+                            data-tooltip="Collections with fewer than Min qualifying days are excluded from the sample; collections with more than Max qualifying days are downsampled (defaults: 20 / 200)."
+                            style="color: var(--color-text-secondary);">Days per collection</label>
+                        <input type="number" data-field="MIN_GROUP_COUNT_PER_COLLECTION"
+                            class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
+                        <input type="number" data-field="MAX_GROUP_COUNT_PER_COLLECTION"
+                            class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
                     </div>
                 </div>
             </div>
-            {% if current_user.is_admin() %}
-            <div class="text-xs" style="margin-top: 16px; display: flex; gap: 12px; color: var(--color-text-secondary); align-items: center; flex-wrap: wrap;">
-                <span>Collections: <strong class="selected-count">0</strong></span>
-                <span>Activities: <strong class="selected-events-count">0</strong></span>
-                <input type="hidden" data-field="stats" value="{}">
-                <span>Items: <strong class="stat-unique-vids"
-                        style="color: var(--color-text-primary);">-</strong></span>
-                <span>Scraped: <strong class="stat-scraped-vids"
-                        style="color: var(--color-text-primary);">-</strong></span>
-                <span>Annotated: <strong class="stat-annotated-vids"
-                        style="color: var(--color-text-primary);">-</strong></span>
-            </div>
-            <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
-                <button type="button" class="action-btn text-xs" onclick="saveStudy(this, event)"
-                    style="padding: 2px 8px;">Save/Refresh Study</button>
-                <button type="button" class="text-xs" onclick="updateStudyEstimates(this, event)"
-                    style="padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
-                    {% if not current_user.is_admin() %}disabled{% endif %}>Check data counts</button>
-                <div style="flex: 1;"></div>
-                <button type="button" class="btn-danger text-xs" onclick="deleteStudy(this, event)"
-                    style="padding: 2px 8px;">Delete Study</button>
+
+            <div class="study-daily-chart-wrap" style="margin-top: 10px; position: relative; z-index: 20;">
+                <div class="study-daily-chart-empty text-xs" style="padding: 16px; color: var(--color-text-tertiary); text-align: center; border: 1px dashed var(--color-border); border-radius: 4px; background: var(--color-bg-surface);">
+                    Select one or more collections to see activities per day.
+                </div>
+                <div class="study-daily-chart" style="display: none; height: 120px; background: var(--chart-bg); border: 1px solid var(--color-border); border-radius: 4px; overflow: visible;"></div>
+                <div class="study-daily-chart-hint text-xxs" style="display: none; color: var(--color-text-tertiary); margin-top: 2px;">
+                    Drag a horizontal range to set the study window. Double-click to reset to the full range.
+                </div>
             </div>
 
             <div class="form-group" style="margin-top: 8px;">
@@ -273,6 +291,11 @@
             </div>
             <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
             <input type="hidden" data-field="SELECTED_COLLECTIONS" value="[]">
+
+            <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+                <button type="button" class="btn-danger text-xs" onclick="deleteStudy(this, event)"
+                    style="padding: 2px 8px;">Delete Study</button>
+            </div>
             {% endif %}
 
             <style>
@@ -297,8 +320,15 @@
                     text-align: right;
                 }
 
-                .sampling-advanced-body .form-group-row .control-input {
-                    width: 70px;
+                /* Strip the native spinner on the sampling min/max number inputs. */
+                .sampling-input::-webkit-outer-spin-button,
+                .sampling-input::-webkit-inner-spin-button {
+                    -webkit-appearance: none;
+                    margin: 0;
+                }
+                .sampling-input {
+                    -moz-appearance: textfield;
+                    appearance: textfield;
                 }
             </style>
         </div>

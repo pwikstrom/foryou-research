@@ -37,6 +37,225 @@ management_bp = Blueprint('management_bp', __name__)
 
 
 
+LARGE_STUDY_THRESHOLD = 500_000
+SPARSE_CELL_MIN_ACTIVITIES = 10
+
+
+
+
+def _daily_counts(df: pd.DataFrame, timestamp_col: str = 'local_timestamp') -> list[dict]:
+    """Return a sorted list of {date: 'YYYY-MM-DD', count: int} from a DataFrame."""
+
+    if df is None or df.empty or timestamp_col not in df.columns:
+        return []
+
+    ts = pd.to_datetime(df[timestamp_col], errors='coerce').dropna()
+    if ts.empty:
+        return []
+
+    grouped = ts.dt.date.value_counts().sort_index()
+    return [{"date": d.isoformat(), "count": int(c)} for d, c in grouped.items()]
+
+
+
+
+def _load_collection_event_windows(collection_ids: list) -> dict:
+    """Return {collection_id: (first_date, last_date)} from collections_metadata.parquet.
+
+    Dates are pandas.Timestamp (date-only, no timezone) so they can be compared
+    directly to `local_timestamp.dt.normalize()`. Collections without metadata
+    are simply absent from the returned dict — the caller should decide whether
+    to include or exclude them.
+    """
+
+    filename = f"{COLLECTIONS_LABEL}_metadata.parquet"
+    if not data_io.exists(storage_location="recoded", filename=filename):
+        return {}
+
+    try:
+        df_meta = data_io.load_parquet_selective(
+            storage_location="recoded",
+            filename=filename,
+            columns=[
+                "('personas', 'first_event_ts')", "first_event_ts",
+                "('personas', 'last_event_ts')", "last_event_ts",
+            ],
+            set_index='collection_id',
+        )
+    except Exception as e:
+        print(f"[daily_activities] failed to load collections_metadata: {e}")
+        return {}
+
+    if df_meta is None or df_meta.empty:
+        return {}
+
+    first_col = ('personas', 'first_event_ts') if ('personas', 'first_event_ts') in df_meta.columns else ('first_event_ts' if 'first_event_ts' in df_meta.columns else None)
+    last_col = ('personas', 'last_event_ts') if ('personas', 'last_event_ts') in df_meta.columns else ('last_event_ts' if 'last_event_ts' in df_meta.columns else None)
+    if first_col is None or last_col is None:
+        return {}
+
+    ids = set(collection_ids) if collection_ids else None
+    out: dict = {}
+    for cid, row in df_meta.iterrows():
+        cid_str = str(cid)
+        if ids is not None and cid_str not in ids:
+            continue
+        first_raw = row[first_col]
+        last_raw = row[last_col]
+        if pd.isna(first_raw) or pd.isna(last_raw):
+            continue
+        first_ts = pd.to_datetime(first_raw, errors='coerce')
+        last_ts = pd.to_datetime(last_raw, errors='coerce')
+        if pd.isna(first_ts) or pd.isna(last_ts):
+            continue
+        out[cid_str] = (first_ts.normalize(), last_ts.normalize())
+    return out
+
+
+
+
+def _filter_to_event_windows(df: pd.DataFrame, windows: dict, collection_col: str = 'collection_id', timestamp_col: str = 'local_timestamp') -> pd.DataFrame:
+    """Drop rows whose timestamp is outside their collection's (first, last) window.
+
+    Rows for a collection missing from `windows` are kept (no metadata, no filter).
+    """
+
+    if df is None or df.empty or not windows or collection_col not in df.columns or timestamp_col not in df.columns:
+        return df
+
+    ts = pd.to_datetime(df[timestamp_col], errors='coerce').dt.normalize()
+    cid = df[collection_col].astype(str)
+    first_series = cid.map(lambda c: windows.get(c, (None, None))[0])
+    last_series = cid.map(lambda c: windows.get(c, (None, None))[1])
+
+    has_window = first_series.notna() & last_series.notna()
+    in_window = (ts >= first_series) & (ts <= last_series)
+    keep = (~has_window) | (has_window & in_window)
+    return df.loc[keep]
+
+
+
+
+def _filter_to_play_observe(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only play/observe rows. If activity_type is missing, return df unchanged."""
+
+    if df is None or df.empty or 'activity_type' not in df.columns:
+        return df
+    return df.loc[df['activity_type'].isin(['play', 'observe'])]
+
+
+
+
+def _count_sparse_cells(df_study: pd.DataFrame) -> tuple[int, int]:
+    """Return (sparse_cells, total_cells) where a cell is (day, collection_id).
+
+    A cell is 'sparse' if it has 1 <= activities < SPARSE_CELL_MIN_ACTIVITIES.
+    Zero-activity cells don't exist in a groupby result, so we only count cells
+    that actually contain at least one activity.
+    """
+
+    if df_study is None or df_study.empty:
+        return 0, 0
+    if 'collection_id' not in df_study.columns or 'local_timestamp' not in df_study.columns:
+        return 0, 0
+
+    ts = pd.to_datetime(df_study['local_timestamp'], errors='coerce')
+    mask = ts.notna()
+    if not mask.any():
+        return 0, 0
+
+    dates = ts[mask].dt.date
+    cids = df_study.loc[mask, 'collection_id'].astype(str)
+    cells = pd.Series(1, index=pd.MultiIndex.from_arrays([dates, cids], names=['date', 'collection_id'])).groupby(level=[0, 1]).sum()
+    total_cells = int(cells.size)
+    sparse_cells = int((cells < SPARSE_CELL_MIN_ACTIVITIES).sum())
+    return sparse_cells, total_cells
+
+
+
+
+def _derive_study_issues(stats: dict, sparse_cells: int, total_cells: int, has_total_days: bool, sampling_report: dict | None = None) -> list[dict]:
+    """Produce an inline feedback list for the study design.
+
+    Returns issues with severity 'ok' | 'warn' | 'error'. Always returns at
+    least one entry — a green 'ok' when no rules trip.
+    """
+
+    issues: list[dict] = []
+    total_activities = int(stats.get("total_activities", 0))
+
+    if total_activities == 0:
+        if has_total_days:
+            issues.append({
+                "severity": "warn",
+                "code": "empty_after_sampling",
+                "message": "No activities remain after the date filter and sampling. Widen the date range or relax sampling.",
+            })
+        else:
+            issues.append({
+                "severity": "warn",
+                "code": "no_activities",
+                "message": "The selected collections have no activities in the recoded dataset.",
+            })
+        return issues
+
+    if total_activities > LARGE_STUDY_THRESHOLD:
+        issues.append({
+            "severity": "warn",
+            "code": "too_big",
+            "message": (
+                f"Study is large ({total_activities:,} activities). "
+                f"Consider a narrower date range, fewer collections, or enabling sampling "
+                f"to keep the hub responsive."
+            ),
+        })
+
+    if sparse_cells > 0 and total_cells > 0:
+        issues.append({
+            "severity": "warn",
+            "code": "sparse_cells",
+            "message": (
+                f"{sparse_cells:,} of {total_cells:,} day \u00d7 collection cells have fewer than "
+                f"{SPARSE_CELL_MIN_ACTIVITIES} activities. Sparse cells may distort analysis."
+            ),
+        })
+
+    if sampling_report:
+        n_excl = int(sampling_report.get('n_excluded_collections', 0) or 0)
+        n_down = int(sampling_report.get('n_downsampled_collections', 0) or 0)
+        min_cells = sampling_report.get('min_cells_per_collection')
+        max_cells = sampling_report.get('max_cells_per_collection')
+        if n_excl > 0:
+            issues.append({
+                "severity": "warn",
+                "code": "collections_excluded",
+                "message": (
+                    f"Sampling excluded {n_excl:,} collection(s) with fewer than {min_cells} "
+                    f"qualifying day \u00d7 collection cells."
+                ),
+            })
+        if n_down > 0:
+            issues.append({
+                "severity": "warn",
+                "code": "collections_downsampled",
+                "message": (
+                    f"Sampling downsampled {n_down:,} collection(s) that had more than {max_cells} "
+                    f"qualifying day \u00d7 collection cells."
+                ),
+            })
+
+    if not issues:
+        issues.append({
+            "severity": "ok",
+            "code": "ok",
+            "message": "Study design looks fine.",
+        })
+
+    return issues
+
+
+
+
 def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFrame | None]:
     """Calculate stats for a study using enrichment_status.parquet AND the study's specific recoded dataset.
 
@@ -89,6 +308,7 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
     total_activities = len(df_study)
     unique_collections = df_study['collection_id'].nunique()
     unique_videos = df_study['item_id'].nunique()
+    active_days = int(pd.to_datetime(df_study['local_timestamp'], errors='coerce').dropna().dt.date.nunique())
 
     # 4. Match against enrichment status for scrape/annotation counts
     scraped_videos = 0
@@ -122,7 +342,8 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
         "unique_videos": int(unique_videos),
         "scraped_videos": scraped_videos,
         "annotated_videos": annotated_videos,
-        "unique_collections": int(unique_collections)
+        "unique_collections": int(unique_collections),
+        "active_days": active_days,
     }
 
     _t_count = _time.perf_counter() - _t_phase
@@ -286,23 +507,33 @@ def save_study():
                 "message": f"Study saved, but background refresh failed to start: {msg}",
             })
     else:
-        # Local dev: run synchronously as before
+        # Local dev: dispatch to a background thread so the HTTP response can
+        # return immediately. The client's `_pollStudyRefresh` will watch the
+        # in-process status via `/api/status/study_refresh/<name>`.
+        import threading as _threading
+
         from web_interface.run_study_refresh import run_study_refresh
-        from web_interface.task_status import LocalStatusReporter
+        from web_interface.task_status import LocalThreadStatusReporter
 
-        reporter = LocalStatusReporter("study_refresh")
-        try:
-            run_study_refresh(reporter=reporter, task_args=task_args)
-            reporter.complete()
-        except Exception as e:
-            print(f"Study refresh failed: {e}")
-            reporter.fail(str(e))
+        status_key = f"study_refresh__{study_name}"
+        reporter = LocalThreadStatusReporter(status_key)
 
-        # Reload study defs to get updated stats
-        init_study_defs()
-        studies = fyp_cf['study_defs']
+        def _run_in_thread():
+            try:
+                run_study_refresh(reporter=reporter, task_args=task_args)
+                reporter.complete()
+            except Exception as e:
+                print(f"Study refresh failed: {e}")
+                reporter.fail(str(e))
 
-        return jsonify({"status": "success", "study": studies.get(study_name, {})})
+        _threading.Thread(target=_run_in_thread, daemon=True, name=status_key).start()
+
+        return jsonify({
+            "status": "success",
+            "study": studies[study_name],
+            "refresh_status": "dispatched",
+            "message": "Study saved. Stats, PCA, and metadata refresh running in background.",
+        })
 
 
 
@@ -342,26 +573,143 @@ def calculate_study_stats():
     # If existing, we overwrite.
     fyp_cf['study_defs'][study_name] = data
     
+    stats_to_persist: dict | None = None
     try:
         # 3. specific instruction: "Force update of the study dataset"
         # The logic in _calculate_stats calls create_study_recoded_dataset
-        stats, _ = _calculate_stats(data, save_to_cache=False)
+        stats, df_study = _calculate_stats(data, save_to_cache=False)
+        stats_to_persist = stats
 
-        return jsonify({"status": "success", "stats": stats})
-        
+        included_per_day = _daily_counts(df_study)
+
+        # Compute pre-filter potentials (collections/activities/active_days/items)
+        # from the raw collections data within each collection's play/observe
+        # window, restricted to play and observe events.
+        has_total_days = False
+        potentials = {
+            "collections": 0,
+            "activities": 0,
+            "active_days": 0,
+            # Cascade semantics on the enrichment side:
+            #   items.potential    = activities in study (how many activities map to items)
+            #   scraped.potential  = items in study
+            #   annotated.potential = scraped items in study
+            "items": int(stats.get("total_activities", 0)),
+            "scraped": int(stats.get("unique_videos", 0)),
+            "annotated": int(stats.get("scraped_videos", 0)),
+        }
+        selected = data.get("SELECTED_COLLECTIONS") or []
+        potentials["collections"] = len(selected)
+
+        if selected and data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
+            df_raw = data_io.load_parquet_selective(
+                storage_location="recoded",
+                filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
+                columns=["collection_id", "local_timestamp", "activity_type"],
+                filters=[("collection_id", "in", selected)],
+            )
+            if df_raw is not None and not df_raw.empty:
+                windows = _load_collection_event_windows(selected)
+                df_raw = _filter_to_event_windows(df_raw, windows)
+                df_raw = _filter_to_play_observe(df_raw)
+                has_total_days = not df_raw.empty
+
+                if has_total_days:
+                    potentials["activities"] = int(len(df_raw))
+                    potentials["active_days"] = int(pd.to_datetime(df_raw["local_timestamp"], errors="coerce").dropna().dt.date.nunique())
+
+        sparse_cells, total_cells = _count_sparse_cells(df_study)
+        sampling_report = None
+        if df_study is not None and hasattr(df_study, 'attrs'):
+            sampling_report = df_study.attrs.get('sampling_report')
+        issues = _derive_study_issues(stats, sparse_cells, total_cells, has_total_days, sampling_report)
+
+        return jsonify({
+            "status": "success",
+            "stats": stats,
+            "potentials": potentials,
+            "included_per_day": included_per_day,
+            "issues": issues,
+        })
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
         
     finally:
-        # 4. Revert config
+        # 4. Revert config. Also cache fresh stats on the saved config so
+        # subsequent modal opens show the full set of metrics — otherwise older
+        # studies saved before the current stats shape lose fields on reopen.
         if original_config is not None:
+             if stats_to_persist:
+                  original_config['stats'] = stats_to_persist
              fyp_cf['study_defs'][study_name] = original_config
+             if stats_to_persist:
+                  try:
+                       save_study_defs()
+                  except Exception as _save_err:
+                       print(f"[calculate_study_stats] non-fatal: failed to persist stats for '{study_name}': {_save_err}")
         else:
-             # If it was new, remove it? 
+             # If it was new, remove it?
              # Or keep it? Safer to remove if it wasn't there.
              if study_name in fyp_cf['study_defs']:
                   del fyp_cf['study_defs'][study_name]
 
+
+
+
+
+@management_bp.route('/api/manage/studies/daily_activities', methods=['POST'])
+@login_required
+def daily_activities():
+    """Return activities-per-day across a set of collections for the modal chart.
+
+    Lightweight: reads only `collection_id` + `local_timestamp` columns from
+    `collections_recoded.parquet` with a pushdown filter on the selected IDs.
+    No date-range filter — the chart shows the full span so the user can pick
+    a window visually.
+    """
+
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.json or {}
+    selected = data.get("SELECTED_COLLECTIONS") or []
+
+    if not selected:
+        return jsonify({"status": "success", "total_per_day": []})
+
+    filename = f"{COLLECTIONS_LABEL}_recoded.parquet"
+    if not data_io.exists(storage_location="recoded", filename=filename):
+        return jsonify({"status": "success", "total_per_day": []})
+
+    try:
+        df = data_io.load_parquet_selective(
+            storage_location="recoded",
+            filename=filename,
+            columns=["collection_id", "local_timestamp", "activity_type"],
+            filters=[("collection_id", "in", selected)],
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    windows = _load_collection_event_windows(selected)
+    df = _filter_to_event_windows(df, windows)
+    df = _filter_to_play_observe(df)
+
+    potentials = {
+        "collections": len(selected),
+        "activities": 0,
+        "active_days": 0,
+    }
+    if df is not None and not df.empty:
+        potentials["activities"] = int(len(df))
+        potentials["active_days"] = int(pd.to_datetime(df["local_timestamp"], errors="coerce").dropna().dt.date.nunique())
+
+    return jsonify({
+        "status": "success",
+        "total_per_day": _daily_counts(df),
+        "potentials": potentials,
+    })
 
 
 

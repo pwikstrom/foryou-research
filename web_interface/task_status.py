@@ -92,6 +92,88 @@ class LocalStatusReporter(TaskStatusReporter):
 
 
 
+# In-memory store for locally-run study_refresh tasks (one thread per study key).
+# Mirrors the structure of GCSStatusReporter's payload so the same client-side
+# poller (`/api/status/study_refresh/<name>`) can consume either source.
+_local_thread_status: dict[str, dict] = {}
+_local_thread_status_lock = threading.Lock()
+
+
+
+
+class LocalThreadStatusReporter(TaskStatusReporter):
+    """Writes status into an in-process dict so the HTTP poller can read it.
+
+    Used when save_study runs `run_study_refresh` on a background thread in
+    local dev, emulating the Cloud Tasks dispatch-and-poll flow.
+    """
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        with _local_thread_status_lock:
+            _local_thread_status[key] = {
+                "state": "running",
+                "start_time": datetime.now(UTC).isoformat(),
+                "progress": {"percent": 0, "message": "Starting..."},
+                "data": {},
+                "error": None,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+
+    def _update(self, patch: dict) -> None:
+        with _local_thread_status_lock:
+            current = _local_thread_status.setdefault(self.key, {})
+            current.update(patch)
+            current["updated_at"] = datetime.now(UTC).isoformat()
+
+    def start(self) -> None:
+        self._update({"state": "running"})
+        print(f"[{self.key}] Starting...")
+
+    def update_progress(self, percent: int, message: str) -> None:
+        self._update({"progress": {"percent": percent, "message": message}})
+        print(f"::PROGRESS::{json.dumps({'percent': percent, 'message': message})}")
+
+    def emit_data(self, payload: dict) -> None:
+        with _local_thread_status_lock:
+            current = _local_thread_status.setdefault(self.key, {})
+            current_data = current.get("data", {}) or {}
+            current_data.update(payload)
+            current["data"] = current_data
+            current["updated_at"] = datetime.now(UTC).isoformat()
+        print(f"::DATA::{json.dumps(payload)}")
+
+    def complete(self, data: dict | None = None) -> None:
+        if data:
+            self.emit_data(data)
+        self._update({
+            "state": "succeeded",
+            "progress": {"percent": 100, "message": "Completed"},
+        })
+
+    def fail(self, error: str) -> None:
+        self._update({"state": "failed", "error": error})
+        print(f"Process failed: {error}")
+
+    def log(self, message: str) -> None:
+        print(message)
+
+    def check_cancelled(self) -> bool:
+        with _local_thread_status_lock:
+            return bool(_local_thread_status.get(self.key, {}).get("cancelled"))
+
+
+
+
+def read_local_thread_status(key: str) -> dict | None:
+    """Return a shallow copy of the in-process status for `key`, or None."""
+    with _local_thread_status_lock:
+        status = _local_thread_status.get(key)
+        return dict(status) if status else None
+
+
+
+
 class GCSStatusReporter(TaskStatusReporter):
     """Writes status JSON to GCS for Cloud Tasks mode."""
 

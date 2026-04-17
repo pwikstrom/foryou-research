@@ -1404,11 +1404,13 @@ button {
     left: 0;
     background: var(--tooltip-bg);
     color: var(--tooltip-text);
-    padding: 8px;
+    padding: 6px 8px;
     border-radius: 4px;
-    font-size: var(--text-sm);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-normal);
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
-    max-width: 300px;
+    max-width: 280px;
     width: max-content;
     opacity: 0;
     pointer-events: none;

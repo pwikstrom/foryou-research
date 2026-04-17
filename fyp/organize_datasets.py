@@ -71,8 +71,10 @@ def compute_study_config_hash(study_name: str) -> str:
         "START_DATE",
         "END_DATE",
         "SAMPLE_FRAME",
-        "MIN_EVENTS",
-        "MAX_EVENTS",
+        "MIN_ACTIVITY_COUNT_PER_GROUP",
+        "MAX_ACTIVITY_COUNT_PER_GROUP",
+        "MIN_GROUP_COUNT_PER_COLLECTION",
+        "MAX_GROUP_COUNT_PER_COLLECTION",
         "GROUPING_FACTORS",
     ]
     ordered = {k: cfg.get(k) for k in relevant_keys}
@@ -575,10 +577,10 @@ def simple_sample_collection_events(
     if "study_defs" not in fyp_cf:
         init_study_defs()
 
-    MIN_EVENTS_REQUIRED = fyp_cf["study_defs"][study_name].get("MIN_ACTIVITY_COUNT_PER_GROUP",10)
-    MAX_EVENTS_SELECTED = fyp_cf["study_defs"][study_name].get("MAX_ACTIVITY_COUNT_PER_GROUP",100)
-    MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION = fyp_cf["study_defs"][study_name].get("MIN_GROUP_COUNT_PER_COLLECTION",10)
-    MAX_GROUP_COUNT_SELECTED_PER_COLLECTION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_PER_COLLECTION",100)
+    MIN_EVENTS_REQUIRED = fyp_cf["study_defs"][study_name].get("MIN_ACTIVITY_COUNT_PER_GROUP", 30)
+    MAX_EVENTS_SELECTED = fyp_cf["study_defs"][study_name].get("MAX_ACTIVITY_COUNT_PER_GROUP", 50)
+    MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION = fyp_cf["study_defs"][study_name].get("MIN_GROUP_COUNT_PER_COLLECTION", 20)
+    MAX_GROUP_COUNT_SELECTED_PER_COLLECTION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_PER_COLLECTION", 200)
 
 
     # Separate play and non-play events
@@ -602,6 +604,13 @@ def simple_sample_collection_events(
 
     # build a df with unique pairs of the two group factors
     unique_group_factor_pairs = play_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
+
+    # Track Stage 2 selection effects for pre-check reporting:
+    #   - excluded: collections with fewer than MIN post-Stage-1 cells
+    #   - downsampled: collections with more than MAX post-Stage-1 cells (capped to MAX)
+    cells_per_collection = unique_group_factor_pairs.groupby(grouping_factors[0]).size()
+    n_excluded_collections = int((cells_per_collection < MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION).sum())
+    n_downsampled_collections = int((cells_per_collection > MAX_GROUP_COUNT_SELECTED_PER_COLLECTION).sum())
 
     if verbose:
         print(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION} aggregation groups within the limits")
@@ -643,6 +652,14 @@ def simple_sample_collection_events(
     if verbose:
         print(f"    [Sampling] Combining the (not sampled) non-play events with the sampled play events: {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     combined.drop("D_id", axis=1, inplace=True, errors='ignore')
+
+    # Surface selection effects so callers (pre-check) can show them to the user.
+    combined.attrs['sampling_report'] = {
+        'n_excluded_collections': n_excluded_collections,
+        'n_downsampled_collections': n_downsampled_collections,
+        'min_cells_per_collection': MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION,
+        'max_cells_per_collection': MAX_GROUP_COUNT_SELECTED_PER_COLLECTION,
+    }
 
 
     # Caller is responsible for passing enrichment_status if the summary is wanted.
@@ -1396,6 +1413,15 @@ def create_study_recoded_dataset(
         verbose=verbose
     )
     _t_merge = _time.perf_counter() - _t_phase
+
+    # Preserve the sampling selection-effect report so pre-check UI can surface it.
+    sampling_report = None
+    if isinstance(all_datasets, dict):
+        collections_df = all_datasets.get("collections")
+        if collections_df is not None and hasattr(collections_df, 'attrs'):
+            sampling_report = collections_df.attrs.get('sampling_report')
+    if sampling_report and study_recoded_dataset is not None:
+        study_recoded_dataset.attrs['sampling_report'] = sampling_report
 
     # Write the refresh sidecar alongside the recoded parquet so future refresh
     # calls can fingerprint inputs and skip redundant rebuilds. `new_merge`

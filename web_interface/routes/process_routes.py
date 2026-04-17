@@ -226,6 +226,18 @@ def api_study_refresh_status(study_name: str):
                 "last_run_outcome": stats_entry.get("last_run_outcome"),
             })
 
+    # Local dev: read the in-process status dict populated by the background
+    # thread spawned from save_study.
+    from web_interface.task_status import read_local_thread_status
+    local_status = read_local_thread_status(status_key)
+    if local_status:
+        return jsonify({
+            "state": local_status.get("state", "unknown"),
+            "progress": local_status.get("progress", {}),
+            "data": local_status.get("data", {}),
+            "last_run_outcome": None,
+        })
+
     return jsonify({"state": "unknown"})
 
 

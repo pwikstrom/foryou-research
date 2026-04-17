@@ -227,8 +227,9 @@ function renderCollectionSelector(container, selectedList) {
 function _syncUpdateCountsBtn(formContainer) {
     const btn = formContainer.querySelector('[onclick*="updateStudyEstimates"]');
     if (!btn) return;
-    const eventsSpan = formContainer.querySelector('.selected-events-count');
-    const needsUpdate = eventsSpan && eventsSpan.textContent.trim() === '-';
+    const el = formContainer.querySelector('.metric-actual-activities');
+    const txt = (el?.textContent || '').trim();
+    const needsUpdate = !txt || txt === '-' || txt === '\u2013';
     btn.style.opacity = needsUpdate ? '1' : '0.4';
     btn.style.pointerEvents = needsUpdate ? '' : 'none';
 }
@@ -283,26 +284,23 @@ function updateCollectionSelection(selectorDiv) {
     const hiddenInput = row.querySelector('input[data-field="SELECTED_COLLECTIONS"]');
 
     const formContainer = selectorDiv.closest('.study-edit-form') || selectorDiv.closest('.form-group') || selectorDiv;
-    const countSpan = formContainer.querySelector('.selected-count');
-    const eventsSpan = formContainer.querySelector('.selected-events-count');
 
-    const checked = container.querySelectorAll('input[type="checkbox"]:checked');
+    const checked = container.querySelectorAll('input[type="checkbox"]:checked:not(.select-all-collections)');
     const values = Array.from(checked).map(c => c.value);
 
-    if (countSpan) countSpan.textContent = values.length;
-    // Reset server-computed stats to indicate they need recalculating
-    if (eventsSpan) eventsSpan.textContent = '-';
-    const uniqueVids = formContainer.querySelector('.stat-unique-vids');
-    const scrapedVids = formContainer.querySelector('.stat-scraped-vids');
-    const annotatedVids = formContainer.querySelector('.stat-annotated-vids');
-    if (uniqueVids) uniqueVids.textContent = '-';
-    if (scrapedVids) scrapedVids.textContent = '-';
-    if (annotatedVids) annotatedVids.textContent = '-';
+    // Collections potential updates instantly; everything else waits on
+    // /daily_activities (debounced) or /calculate_stats.
+    _renderStudyMetrics(formContainer, { resetActuals: true, potentials: { collections: values.length } });
     _syncUpdateCountsBtn(formContainer);
 
     if (hiddenInput && hiddenInput.dataset.field === 'SELECTED_COLLECTIONS') {
         hiddenInput.value = JSON.stringify(values);
     }
+
+    // Clear previous issues & included-per-day overlay; refetch chart totals (debounced).
+    _clearStudyIssues(formContainer);
+    _invalidateDailyChartOverlay(formContainer);
+    _debouncedRefetchDailyChart(formContainer);
 
     // Sync select-all checkbox state
     const selectAllCb = container.querySelector('.select-all-collections');
@@ -522,29 +520,23 @@ function _showStudyModal(study, isNew = false) {
 function closeStudyModal() {
     const modal = document.getElementById('editStudyModal');
     modal.classList.remove('visible');
-}
+    const accessPanel = document.getElementById('studyAccessPanel');
+    if (accessPanel) accessPanel.style.display = 'none';
 
-// Global function for conditional visibility
-window.toggleSamplingOptions = function (selectElement) {
-    // Find the container relative to the select
-    // structure: div.form-group-row > select
-    // container: #sampling-options-container is sibling of grandparent? No, structure is:
-    // col 2 > div.form-group-row (select)
-    // col 2 > div#sampling-options-container
-
-    // safe way: find closest column (div) then find the container
-    const columnDiv = selectElement.closest('.study-form > div') || selectElement.closest('.study-edit-form');
-    if (!columnDiv) return;
-
-    const container = columnDiv.querySelector('#sampling-options-container');
-    if (container) {
-        if (selectElement.value === 'off') {
-            container.style.display = 'none';
-        } else {
-            container.style.display = 'block';
-        }
+    // Tear down the Plotly chart so its interaction layers (drag cover, hover)
+    // don't keep catching pointer events beneath the closed modal. Also clear
+    // the body entirely so no stale DOM lingers.
+    const chartDiv = modal.querySelector('.study-daily-chart');
+    if (chartDiv && chartDiv._plotlyInited && window.Plotly) {
+        window.Plotly.purge(chartDiv);
+        chartDiv._plotlyInited = false;
     }
+    const body = document.getElementById('editStudyModalBody');
+    if (body) body.innerHTML = '';
 }
+
+// Kept as no-op for backwards compatibility if something still calls it.
+window.toggleSamplingOptions = function () { };
 
 
 function populateForm(row, study) {
@@ -585,9 +577,7 @@ function populateForm(row, study) {
         // Handle Booleans (Selects)
         else if (input.tagName === 'SELECT') {
             if (field === 'SAMPLE_FRAME') {
-                input.value = (value === 'events' ? 'activities' : value) || "off";
-                // Trigger visibility update
-                toggleSamplingOptions(input);
+                input.value = (value === 'events' ? 'activities' : value) || "activities";
             }
             else {
                 if (value === true) input.value = "true";
@@ -597,10 +587,10 @@ function populateForm(row, study) {
         }
         else {
             const samplingDefaults = {
-                'MIN_ACTIVITY_COUNT_PER_GROUP': 10,
-                'MAX_ACTIVITY_COUNT_PER_GROUP': 100,
-                'MIN_GROUP_COUNT_PER_COLLECTION': 10,
-                'MAX_GROUP_COUNT_PER_COLLECTION': 100
+                'MIN_ACTIVITY_COUNT_PER_GROUP': 30,
+                'MAX_ACTIVITY_COUNT_PER_GROUP': 50,
+                'MIN_GROUP_COUNT_PER_COLLECTION': 20,
+                'MAX_GROUP_COUNT_PER_COLLECTION': 200
             };
             if (value !== undefined && value !== null && value !== '') {
                 input.value = value;
@@ -610,104 +600,54 @@ function populateForm(row, study) {
         }
     });
 
-    // Auto-expand the Advanced sampling section if any value differs from defaults
-    const advancedDefaults = {
-        'MIN_ACTIVITY_COUNT_PER_GROUP': 10,
-        'MAX_ACTIVITY_COUNT_PER_GROUP': 100,
-        'MIN_GROUP_COUNT_PER_COLLECTION': 10,
-        'MAX_GROUP_COUNT_PER_COLLECTION': 100
-    };
-    const hasCustomSampling = Object.entries(advancedDefaults).some(([key, def]) => {
-        const val = study[key];
-        return val !== undefined && val !== null && val !== '' && Number(val) !== def;
-    });
-    const advancedToggle = row.querySelector('.sampling-advanced-toggle');
-    const advancedBody = row.querySelector('.sampling-advanced-body');
-    if (hasCustomSampling && advancedToggle && advancedBody) {
-        advancedBody.style.display = 'block';
-        advancedToggle.textContent = '▼ Advanced';
-    }
-
-    // 2. Checkbox Groups (USER_ACCESS)
-    const groups = row.querySelectorAll('[data-field-group]');
-    groups.forEach(group => {
-        const field = group.dataset.fieldGroup; // USER_ACCESS
-        const currentList = study[field] || []; // e.g. ["admin", "viewer"]
-        const container = group.querySelector('.dynamic-roles-container');
-
-        if (field === 'USER_ACCESS' && container) {
-            // Render dynamic roles
-            container.innerHTML = '';
-
-            // Ensure admin is always present and handled even if not in systemRoles fetch yet (race condition)
-            // But systemRoles should be loaded.
-            const rolesToRender = systemRoles.length > 0 ? systemRoles : ['admin', 'researcher', 'viewer'];
-
-            rolesToRender.forEach(role => {
-                const item = document.createElement('div');
-                item.style.display = 'flex';
-                item.style.alignItems = 'center';
-                item.style.padding = '1px 0';
-
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.value = role;
-                cb.style.marginRight = '5px';
-
-                // Admin is always included — hide from UI
-                if (role === 'admin') {
-                    cb.checked = true;
-                    item.style.display = 'none';
-                } else {
-                    if (currentList.includes('all')) {
-                        cb.checked = true;
-                    } else {
-                        cb.checked = currentList.includes(role);
-                    }
-                }
-
-                const span = document.createElement('span');
-                span.classList.add('text-sm');
-                span.textContent = role.charAt(0).toUpperCase() + role.slice(1);
-
-                item.appendChild(cb);
-                item.appendChild(span);
-                container.appendChild(item);
+    // Keep sampling-matrix inputs in sync with SAMPLE_FRAME value — gray out when 'off'.
+    const sampleSelect = row.querySelector('[data-field="SAMPLE_FRAME"]');
+    if (sampleSelect) {
+        const syncSamplingInputs = () => {
+            const isOff = sampleSelect.value === 'off';
+            row.querySelectorAll('.sampling-input').forEach(inp => {
+                inp.disabled = isOff;
+                inp.style.opacity = isOff ? '0.4' : '';
             });
-        }
-    });
-
-    // 3. Stats Display
-    const statsInput = row.querySelector('[data-field="stats"]');
-    if (statsInput) {
-        const stats = study.stats || {};
-        const container = statsInput.parentElement;
-        const uniqueVids = container.querySelector('.stat-unique-vids');
-        const scrapedVids = container.querySelector('.stat-scraped-vids');
-        const annotatedVids = container.querySelector('.stat-annotated-vids');
-
-        if (uniqueVids) uniqueVids.textContent = stats.unique_videos !== undefined ? stats.unique_videos.toLocaleString() : '-';
-        if (scrapedVids) scrapedVids.textContent = stats.scraped_videos !== undefined ? stats.scraped_videos.toLocaleString() : '-';
-        if (annotatedVids) annotatedVids.textContent = stats.annotated_videos !== undefined ? stats.annotated_videos.toLocaleString() : '-';
-
-        // Also set the activities count from stored stats
-        const eventsSpan = row.querySelector('.selected-events-count');
-        if (eventsSpan) eventsSpan.textContent = stats.total_activities !== undefined ? stats.total_activities.toLocaleString() : '-';
+            const matrix = row.querySelector('.sampling-matrix');
+            if (matrix) matrix.style.opacity = isOff ? '0.6' : '';
+        };
+        sampleSelect.addEventListener('change', syncSamplingInputs);
+        // Run once after values are populated (end of populateForm).
+        setTimeout(syncSamplingInputs, 0);
     }
+
+    // 2. Checkbox Groups (USER_ACCESS) — now lives in the modal header dropdown
+    // rather than the cloned template, so look it up via the modal scope.
+    _renderAccessDropdown(study);
+
+    // 3. Stats Display (seed from saved study; potentials fill on chart fetch)
+    const stats = study.stats || {};
+    const seededActuals = {
+        collections: stats.unique_collections,
+        active_days: stats.active_days,
+        activities: stats.total_activities,
+        items: stats.unique_videos,
+        scraped: stats.scraped_videos,
+        annotated: stats.annotated_videos,
+    };
+    const seededPotentials = {
+        collections: Array.isArray(study.SELECTED_COLLECTIONS) ? study.SELECTED_COLLECTIONS.length : undefined,
+        // Cascade potentials: derived directly from the saved stats.
+        items: stats.total_activities,
+        scraped: stats.unique_videos,
+        annotated: stats.scraped_videos,
+    };
+    _renderStudyMetrics(row, { actuals: seededActuals, potentials: seededPotentials });
 
     _syncUpdateCountsBtn(row);
 
-    // Invalidate stats when date/sample settings change
+    // Invalidate actuals when date/sample settings change.
     const _resetStats = () => {
-        const ev = row.querySelector('.selected-events-count');
-        const uv = row.querySelector('.stat-unique-vids');
-        const sv = row.querySelector('.stat-scraped-vids');
-        const av = row.querySelector('.stat-annotated-vids');
-        if (ev) ev.textContent = '-';
-        if (uv) uv.textContent = '-';
-        if (sv) sv.textContent = '-';
-        if (av) av.textContent = '-';
+        _renderStudyMetrics(row, { resetActuals: true });
         _syncUpdateCountsBtn(row);
+        _clearStudyIssues(row);
+        _invalidateDailyChartOverlay(row);
     };
     const fieldsToWatch = ['START_DATE', 'END_DATE', 'SAMPLE_FRAME',
         'MIN_ACTIVITY_COUNT_PER_GROUP', 'MAX_ACTIVITY_COUNT_PER_GROUP',
@@ -716,6 +656,16 @@ function populateForm(row, study) {
         const el = row.querySelector(`[data-field="${field}"]`);
         if (el) el.addEventListener('input', _resetStats);
     });
+
+    // Date inputs are hidden and driven by the chart selection; redraw the
+    // chart shading live when they change.
+    ['START_DATE', 'END_DATE'].forEach(field => {
+        const el = row.querySelector(`[data-field="${field}"]`);
+        if (el) el.addEventListener('input', () => _renderDailyChart(row));
+    });
+
+    // Kick off initial chart fetch for the selected collections.
+    _fetchDailyChart(row);
 }
 
 
@@ -758,8 +708,10 @@ function collectFormData(row) {
         }
     });
 
-    // 2. Checkbox Groups (USER_ACCESS)
-    const groups = row.querySelectorAll('[data-field-group]');
+    // 2. Checkbox Groups (USER_ACCESS) — the panel now lives in the modal
+    // header, so search the modal, not just the cloned form.
+    const modal = row.closest('#editStudyModal') || document.getElementById('editStudyModal') || document;
+    const groups = modal.querySelectorAll('[data-field-group]');
     groups.forEach(group => {
         const field = group.dataset.fieldGroup; // USER_ACCESS
         const checkboxes = group.querySelectorAll('input[type="checkbox"]:checked');
@@ -1036,7 +988,7 @@ window.updateStudyEstimates = async function (btn, event) {
             const saveResult = await saveRes.json();
             if (saveResult.status !== 'success') {
                 _showSaveStatusMsg(btn, saveResult.error || 'Save failed');
-                btn.textContent = "Check data counts";
+                btn.textContent = "Check study design";
                 btn.disabled = false;
                 return;
             }
@@ -1051,7 +1003,7 @@ window.updateStudyEstimates = async function (btn, event) {
         } catch (err) {
             console.error(err);
             _showSaveStatusMsg(btn, 'Save failed');
-            btn.textContent = "Check data counts";
+            btn.textContent = "Check study design";
             btn.disabled = false;
             return;
         }
@@ -1080,18 +1032,28 @@ window.updateStudyEstimates = async function (btn, event) {
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
-                    const stats = data.stats;
-
-                    const eventsSpan = formContainer.querySelector('.selected-events-count');
-                    const uniqueVids = formContainer.querySelector('.stat-unique-vids');
-                    const scrapedVids = formContainer.querySelector('.stat-scraped-vids');
-                    const annotatedVids = formContainer.querySelector('.stat-annotated-vids');
-
-                    if (eventsSpan) eventsSpan.textContent = stats.total_activities !== undefined ? stats.total_activities.toLocaleString() : '0';
-                    if (uniqueVids) uniqueVids.textContent = stats.unique_videos !== undefined ? stats.unique_videos.toLocaleString() : '0';
-                    if (scrapedVids) scrapedVids.textContent = stats.scraped_videos !== undefined ? stats.scraped_videos.toLocaleString() : '0';
-                    if (annotatedVids) annotatedVids.textContent = stats.annotated_videos !== undefined ? stats.annotated_videos.toLocaleString() : '0';
+                    const stats = data.stats || {};
+                    const potentials = data.potentials || {};
+                    _renderStudyMetrics(formContainer, {
+                        actuals: {
+                            collections: stats.unique_collections,
+                            active_days: stats.active_days,
+                            activities: stats.total_activities,
+                            items: stats.unique_videos,
+                            scraped: stats.scraped_videos,
+                            annotated: stats.annotated_videos,
+                        },
+                        potentials,
+                    });
                     _syncUpdateCountsBtn(formContainer);
+
+                    // Keep client-side cache in sync so reopening the modal
+                    // shows the full set of metrics without a roundtrip.
+                    const cached = allStudies.find(s => s.STUDY_NAME === studyName);
+                    if (cached) cached.stats = stats;
+
+                    _setDailyChartOverlay(formContainer, data.included_per_day || []);
+                    _renderStudyIssues(formContainer, data.issues || []);
 
                 } else {
                     alert("Error updating estimates: " + data.error);
@@ -1102,13 +1064,13 @@ window.updateStudyEstimates = async function (btn, event) {
                 alert("Update failed.");
             })
             .finally(() => {
-                btn.textContent = "Check data counts";
+                btn.textContent = "Check study design";
                 btn.disabled = false;
             });
 
     } catch (e) {
         console.error("Failed to collect data for estimate update", e);
-        btn.textContent = "Check data counts";
+        btn.textContent = "Check study design";
         btn.disabled = false;
     }
 }
@@ -1176,6 +1138,363 @@ function refreshStudyDropdowns() {
     if (Array.isArray(allStudies)) populateEnrichmentStudySelect(allStudies);
 }
 
+// --- Study daily-activities chart ---
+
+const _studyChartState = new WeakMap();   // formContainer -> {totalPerDay, includedPerDay}
+const _studyChartDebounce = new WeakMap();
+
+function _getChartState(row) {
+    let s = _studyChartState.get(row);
+    if (!s) { s = { totalPerDay: [], includedPerDay: null }; _studyChartState.set(row, s); }
+    return s;
+}
+
+function _invalidateDailyChartOverlay(row) {
+    const s = _getChartState(row);
+    if (s.includedPerDay) {
+        s.includedPerDay = null;
+        _renderDailyChart(row);
+    }
+}
+
+function _setDailyChartOverlay(row, includedPerDay) {
+    const s = _getChartState(row);
+    s.includedPerDay = Array.isArray(includedPerDay) ? includedPerDay : [];
+    _renderDailyChart(row);
+}
+
+function _getSelectedCollections(row) {
+    const hidden = row.querySelector('input[data-field="SELECTED_COLLECTIONS"]');
+    try { return JSON.parse((hidden?.value || '[]').replace(/'/g, '"')); }
+    catch (e) { return []; }
+}
+
+function _fetchDailyChart(row) {
+    const selected = _getSelectedCollections(row);
+    const s = _getChartState(row);
+    s.includedPerDay = null;
+
+    if (!selected.length) {
+        s.totalPerDay = [];
+        _renderDailyChart(row);
+        return;
+    }
+
+    fetch('/api/manage/studies/daily_activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ SELECTED_COLLECTIONS: selected })
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') return;
+            s.totalPerDay = data.total_per_day || [];
+            _renderDailyChart(row);
+            if (data.potentials) {
+                _renderStudyMetrics(row, { potentials: data.potentials });
+            }
+        })
+        .catch(err => console.error('daily_activities fetch failed', err));
+}
+
+function _debouncedRefetchDailyChart(row) {
+    const prev = _studyChartDebounce.get(row);
+    if (prev) clearTimeout(prev);
+    _studyChartDebounce.set(row, setTimeout(() => _fetchDailyChart(row), 400));
+}
+
+function _toIsoDate(v) {
+    const d = new Date(v);
+    if (isNaN(d)) return null;
+    // Use UTC slice to avoid TZ drift pulling the date back a day.
+    return d.toISOString().slice(0, 10);
+}
+
+function _renderDailyChart(row) {
+    const chartDiv = row.querySelector('.study-daily-chart');
+    const emptyDiv = row.querySelector('.study-daily-chart-empty');
+    const hintDiv = row.querySelector('.study-daily-chart-hint');
+    if (!chartDiv) return;
+
+    const s = _getChartState(row);
+    const total = s.totalPerDay || [];
+    const included = s.includedPerDay;
+
+    if (!total.length) {
+        chartDiv.style.display = 'none';
+        if (hintDiv) hintDiv.style.display = 'none';
+        if (emptyDiv) emptyDiv.style.display = '';
+        if (chartDiv._plotlyInited && window.Plotly) {
+            window.Plotly.purge(chartDiv);
+            chartDiv._plotlyInited = false;
+        }
+        return;
+    }
+
+    if (emptyDiv) emptyDiv.style.display = 'none';
+    chartDiv.style.display = '';
+    if (hintDiv) hintDiv.style.display = '';
+
+    const startInput = row.querySelector('[data-field="START_DATE"]');
+    const endInput = row.querySelector('[data-field="END_DATE"]');
+    const startVal = (startInput?.value || '').trim();
+    const endVal = (endInput?.value || '').trim();
+
+    const xs = total.map(d => d.date);
+    const ys = total.map(d => d.count);
+
+    const mutedColor = getCSSVar('--color-text-tertiary') || 'rgba(150,150,150,0.4)';
+    const baseColor = getCSSVar('--color-text-secondary') || 'rgba(100,100,100,0.8)';
+    const accentColor = getCSSVar('--color-accent') || '#5B7E98';
+
+    const inRange = (d) => {
+        if (startVal && d < startVal) return false;
+        if (endVal && d > endVal) return false;
+        return true;
+    };
+
+    const baseColors = xs.map(d => inRange(d) ? baseColor : mutedColor);
+    const baseOpacities = xs.map(d => inRange(d) ? 0.9 : 0.35);
+
+    const hasIncluded = Array.isArray(included) && included.length;
+    const inclMap = hasIncluded ? new Map(included.map(d => [d.date, d.count])) : null;
+    const inclY = hasIncluded ? xs.map(d => inclMap.get(d) || 0) : null;
+
+    const traces = [{
+        type: 'bar',
+        name: '',
+        x: xs,
+        y: ys,
+        customdata: hasIncluded ? inclY : undefined,
+        marker: { color: baseColors, opacity: baseOpacities },
+        hovertemplate: hasIncluded
+            ? '%{customdata:,}/%{y:,} activities<extra></extra>'
+            : '%{y:,} activities<extra></extra>',
+    }];
+
+    if (hasIncluded) {
+        traces.push({
+            type: 'bar',
+            name: '',
+            x: xs,
+            y: inclY,
+            marker: { color: accentColor },
+            hoverinfo: 'skip',
+        });
+    }
+
+    // Date-range caption for the top-right — "Date range: yyyy-mm-dd – yyyy-mm-dd".
+    const startInputVal = (startInput?.value || '').trim();
+    const endInputVal = (endInput?.value || '').trim();
+    const fmtIsoDate = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d)) return iso;
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
+    const rangeFirst = fmtIsoDate(startInputVal || xs[0]);
+    const rangeLast = fmtIsoDate(endInputVal || xs[xs.length - 1]);
+    const dateRangeCaption = `Date range: ${rangeFirst} \u2013 ${rangeLast}`;
+
+    const layout = {
+        barmode: 'overlay',
+        margin: { l: 32, r: 8, t: 18, b: 32 },
+        paper_bgcolor: getCSSVar('--chart-bg'),
+        plot_bgcolor: getCSSVar('--chart-bg'),
+        font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text'), size: 10 },
+        xaxis: {
+            type: 'date',
+            gridcolor: getCSSVar('--chart-grid'),
+            tickfont: { size: 9 },
+            tickformat: '%Y-%m-%d',
+            hoverformat: '%Y-%m-%d',
+            fixedrange: false,
+        },
+        yaxis: {
+            gridcolor: getCSSVar('--chart-grid'),
+            tickfont: { size: 9 },
+            fixedrange: true,
+            rangemode: 'tozero',
+        },
+        annotations: [{
+            text: dateRangeCaption,
+            xref: 'paper', yref: 'paper',
+            x: 1, y: 1.0,
+            xanchor: 'right', yanchor: 'bottom',
+            showarrow: false,
+            font: { size: 10, color: getCSSVar('--color-text-tertiary') },
+        }],
+        showlegend: false,
+        dragmode: 'select',
+        selectdirection: 'h',
+        hovermode: 'x',
+    };
+
+    // Turn off Plotly's own double-click reset so our handler runs instead.
+    const config = { displayModeBar: false, responsive: true, doubleClick: false };
+
+    if (!window.Plotly) return;
+    window.Plotly.react(chartDiv, traces, layout, config);
+
+    if (!chartDiv._plotlyInited) {
+        chartDiv._plotlyInited = true;
+        chartDiv.on('plotly_selected', (ev) => {
+            if (!ev || !ev.range || !ev.range.x) return;
+            const [minX, maxX] = ev.range.x;
+            const s1 = _toIsoDate(minX);
+            const e1 = _toIsoDate(maxX);
+            if (!s1 || !e1) return;
+            startInput.value = s1;
+            endInput.value = e1;
+            startInput.dispatchEvent(new Event('input', { bubbles: true }));
+            endInput.dispatchEvent(new Event('input', { bubbles: true }));
+            window.Plotly.relayout(chartDiv, { selections: [] });
+        });
+        chartDiv.on('plotly_doubleclick', () => {
+            const xs2 = (_getChartState(row).totalPerDay || []).map(d => d.date);
+            if (!xs2.length) return;
+            startInput.value = xs2[0];
+            endInput.value = xs2[xs2.length - 1];
+            startInput.dispatchEvent(new Event('input', { bubbles: true }));
+            endInput.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
+}
+
+// --- Access dropdown in modal header ---
+
+function _updateAccessToggleLabel() {
+    const countEl = document.getElementById('studyAccessCount');
+    const panel = document.getElementById('studyAccessPanel');
+    if (!countEl || !panel) return;
+    // Count visible (non-admin) checked roles. Admin is always implicit.
+    const checked = panel.querySelectorAll('div:not([style*="display: none"]) input[type="checkbox"]:checked');
+    countEl.textContent = String(checked.length);
+}
+
+function _renderAccessDropdown(study) {
+    const panel = document.getElementById('studyAccessPanel');
+    if (!panel) return;
+    const container = panel.querySelector('.dynamic-roles-container');
+    if (!container) return;
+
+    const currentList = study.USER_ACCESS || [];
+    container.innerHTML = '';
+
+    const rolesToRender = systemRoles.length > 0 ? systemRoles : ['admin', 'researcher', 'viewer'];
+    rolesToRender.forEach(role => {
+        const item = document.createElement('div');
+        item.style.display = 'flex';
+        item.style.alignItems = 'center';
+        item.style.padding = '1px 0';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = role;
+        cb.style.marginRight = '5px';
+
+        if (role === 'admin') {
+            cb.checked = true;
+            item.style.display = 'none';
+        } else if (currentList.includes('all')) {
+            cb.checked = true;
+        } else {
+            cb.checked = currentList.includes(role);
+        }
+        cb.addEventListener('change', _updateAccessToggleLabel);
+
+        const span = document.createElement('span');
+        span.classList.add('text-sm');
+        span.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+
+        item.appendChild(cb);
+        item.appendChild(span);
+        container.appendChild(item);
+    });
+
+    _updateAccessToggleLabel();
+}
+
+document.addEventListener('click', (ev) => {
+    const dropdown = document.getElementById('studyAccessDropdown');
+    if (!dropdown) return;
+    const panel = document.getElementById('studyAccessPanel');
+    const toggle = document.getElementById('studyAccessToggle');
+    if (!panel || !toggle) return;
+    if (toggle.contains(ev.target)) {
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    } else if (!panel.contains(ev.target)) {
+        panel.style.display = 'none';
+    }
+});
+
+
+const _METRIC_KEYS = ['collections', 'active_days', 'activities', 'items', 'scraped', 'annotated'];
+const _METRIC_SIDE_SELECTORS = {
+    'collections':  { actual: '.metric-actual-collections',  potential: '.metric-potential-collections'  },
+    'active_days':  { actual: '.metric-actual-active-days',  potential: '.metric-potential-active-days'  },
+    'activities':   { actual: '.metric-actual-activities',   potential: '.metric-potential-activities'   },
+    'items':        { actual: '.metric-actual-items',        potential: '.metric-potential-items'        },
+    'scraped':      { actual: '.metric-actual-scraped',      potential: '.metric-potential-scraped'      },
+    'annotated':    { actual: '.metric-actual-annotated',    potential: '.metric-potential-annotated'    },
+};
+
+function _formatMetric(v) {
+    if (v === undefined || v === null || v === '') return '\u2013';
+    if (typeof v === 'number' && !Number.isNaN(v)) return v.toLocaleString();
+    return String(v);
+}
+
+function _renderStudyMetrics(row, { actuals, potentials, resetActuals } = {}) {
+    if (!row) return;
+    _METRIC_KEYS.forEach(key => {
+        const sel = _METRIC_SIDE_SELECTORS[key];
+        if (!sel) return;
+        const aEl = row.querySelector(sel.actual);
+        const pEl = row.querySelector(sel.potential);
+        if (aEl) {
+            if (resetActuals) aEl.textContent = '\u2013';
+            else if (actuals && Object.prototype.hasOwnProperty.call(actuals, key)) aEl.textContent = _formatMetric(actuals[key]);
+        }
+        if (pEl && potentials && Object.prototype.hasOwnProperty.call(potentials, key)) {
+            pEl.textContent = _formatMetric(potentials[key]);
+        }
+    });
+}
+
+function _clearStudyIssues(row) {
+    const container = row.querySelector('.study-issues-list');
+    if (!container) return;
+    container.innerHTML = '';
+    container.style.display = 'none';
+}
+
+function _renderStudyIssues(row, issues) {
+    const container = row.querySelector('.study-issues-list');
+    if (!container) return;
+    if (!issues || !issues.length) {
+        _clearStudyIssues(row);
+        return;
+    }
+    const colorMap = {
+        ok: 'var(--color-success)',
+        warn: 'var(--color-warning)',
+        error: 'var(--color-danger)',
+    };
+    const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    container.innerHTML = issues.map(i => {
+        const color = colorMap[i.severity] || colorMap.warn;
+        return '<div style="display: flex; align-items: center; gap: 6px;">' +
+            `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex: 0 0 auto;"></span>` +
+            `<span style="color: var(--color-text-secondary);">${esc(i.message)}</span>` +
+            '</div>';
+    }).join('');
+    container.style.display = 'flex';
+}
+
 // --- Modal ---
 
 function createNewStudy() {
@@ -1184,7 +1503,7 @@ function createNewStudy() {
         START_DATE: "2024-05-18",
         END_DATE: "2024-05-25",
         USER_ACCESS: [],
-        SAMPLE_FRAME: "off",
+        SAMPLE_FRAME: "activities",
         SELECTED_COLLECTIONS: []
     };
 

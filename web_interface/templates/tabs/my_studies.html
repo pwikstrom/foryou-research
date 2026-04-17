@@ -67,25 +67,25 @@
                         <div class="sampling-advanced-body" style="display: none;">
                             <div class="form-group-row">
                                 <label class="meta-tooltip"
-                                    data-tooltip="Groups with fewer than this number of activities are excluded (default: 10)">Min Activity Count</label>
+                                    data-tooltip="Groups with fewer than this number of activities are excluded (default: 30)">Min Activity Count</label>
                                 <input type="number" data-field="MIN_ACTIVITY_COUNT_PER_GROUP"
                                     class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                             </div>
                             <div class="form-group-row">
                                 <label class="meta-tooltip"
-                                    data-tooltip="Groups with more than this number of activities are downsampled (default: 100)">Max Activity Count</label>
+                                    data-tooltip="Groups with more than this number of activities are downsampled (default: 50)">Max Activity Count</label>
                                 <input type="number" data-field="MAX_ACTIVITY_COUNT_PER_GROUP"
                                     class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                             </div>
                             <div class="form-group-row">
                                 <label class="meta-tooltip"
-                                    data-tooltip="Collections with fewer than this number of accepted groups are excluded (default: 10)">Min Group Count</label>
+                                    data-tooltip="Collections with fewer than this number of accepted groups are excluded (default: 20)">Min Group Count</label>
                                 <input type="number" data-field="MIN_GROUP_COUNT_PER_COLLECTION"
                                     class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                             </div>
                             <div class="form-group-row">
                                 <label class="meta-tooltip"
-                                    data-tooltip="Collections with more than this number of accepted groups are downsampled (default: 100)">Max Group Count</label>
+                                    data-tooltip="Collections with more than this number of accepted groups are downsampled (default: 200)">Max Group Count</label>
                                 <input type="number" data-field="MAX_GROUP_COUNT_PER_COLLECTION"
                                     class="control-input" {% if not current_user.is_admin() %}disabled{% endif %}>
                             </div>
