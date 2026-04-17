@@ -24,61 +24,34 @@ window.correlationsToggleSidebar = function () {
 // Initialize
 document.addEventListener('DOMContentLoaded', function () {
     if (document.getElementById('correlations')) {
-        loadPcaStudies();
+        if (window.studyState && window.studyState.ready) {
+            window.studyState.ready.then(() => {
+                if (window.studyState.current) {
+                    applyCorrelationsActiveStudy(window.studyState.current);
+                }
+            });
+        }
+
+        document.addEventListener('study:changed', (e) => {
+            const next = e.detail && e.detail.study;
+            applyCorrelationsActiveStudy(next);
+        });
     }
 });
 
 
-async function loadPcaStudies(refreshOnly = false) {
-    const selector = document.getElementById('pca-study-select');
-    if (!selector) return;
-    try {
-        const res = await fetch('/api/studies/defined');
-        const studies = await res.json();
-
-        if (studies.length > 0) {
-            selector.innerHTML = '<option value="" disabled selected>Select a study...</option>';
-            studies.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s;
-                opt.text = s;
-                selector.appendChild(opt);
-            });
-
-            // Preserve current selection if still available, otherwise auto-select first.
-            // In refreshOnly mode (called after a study save from another tab), we never
-            // trigger navigation — that would fire a hidden-tab load on the Correlations tab.
-            if (pcaData.activeStudy && studies.includes(pcaData.activeStudy)) {
-                selector.value = pcaData.activeStudy;
-            } else if (!refreshOnly && studies.length > 0) {
-                selector.value = studies[0];
-                changePcaStudy();
-            }
-        } else {
-            selector.innerHTML = '<option disabled>No studies found</option>';
-        }
-    } catch (e) {
-        console.error(e);
-        selector.innerHTML = '<option disabled>Error loading studies</option>';
-    }
-}
-
-
-function changePcaStudy() {
-    const selector = document.getElementById('pca-study-select');
-    const study = selector.value;
-    if (!study) return;
-
-    pcaData.activeStudy = study;
+function applyCorrelationsActiveStudy(studyName) {
+    pcaData.activeStudy = studyName || null;
     pcaData.filters = {};
 
-    // Clear the existing plot so stale data isn't displayed on error
     const plotDiv = document.getElementById('pca-plot');
-    if (plotDiv) {
+    if (plotDiv && typeof Plotly !== 'undefined') {
         Plotly.purge(plotDiv);
     }
 
-    loadPcaMetadata();
+    if (studyName) {
+        loadPcaMetadata();
+    }
 }
 
 
@@ -627,7 +600,6 @@ function drillDownFromCorrelations(factors) {
 
     showDrillDownConfirm(variableName, valueLabel, () => {
         window._pendingDrillDown = {
-            study: pcaData.activeStudy,
             filters: filters,
             searchQuery: "",
             timestamp: Date.now()

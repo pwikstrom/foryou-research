@@ -1957,6 +1957,14 @@ button {
     background: var(--color-bg-primary);
 }
 
+#global-study-select {
+    margin-left: 16px;
+    max-width: 220px;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+}
+
 .auth-header-user {
     margin-left: auto;
     color: var(--color-text-secondary);
@@ -2449,4 +2457,36 @@ button {
 .view-log-link:hover {
     opacity: 1;
     text-decoration: underline;
+}
+
+/* Cross-browser thin, discreet scrollbars (matches macOS overlay feel on Windows/Linux) */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-border-strong);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+    background: transparent;
 }

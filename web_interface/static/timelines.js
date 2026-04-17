@@ -49,7 +49,42 @@ window.timelines = {
                 return;
             }
 
-            this.collectionList = data.filter(d => !d.hidden);
+            const activeStudy = (window.studyState && window.studyState.current) || null;
+
+            let list = data.filter(d => !d.hidden);
+            if (activeStudy) {
+                list = list.filter(d => {
+                    if (Array.isArray(d.studies)) return d.studies.includes(activeStudy);
+                    return d.study === activeStudy;
+                });
+            }
+            // Normalise `study` to the active study so downstream reads
+            // (currentStudy, drill-down guards) reflect the user's context.
+            if (activeStudy) {
+                list.forEach(d => { d.study = activeStudy; });
+            }
+
+            list.sort((a, b) => {
+                const nameA = (a.display_collection_id && a.display_collection_id.trim())
+                    ? a.display_collection_id : a.collection_id;
+                const nameB = (b.display_collection_id && b.display_collection_id.trim())
+                    ? b.display_collection_id : b.collection_id;
+                return String(nameA).toLowerCase().localeCompare(String(nameB).toLowerCase());
+            });
+
+            this.collectionList = list;
+
+            // If the currently-selected collection is no longer in the filtered
+            // list, clear it so renderCollectionDropdown auto-selects the first
+            // eligible collection under the new study.
+            if (this.currentDonationId &&
+                !this.collectionList.some(d => d.collection_id === this.currentDonationId)) {
+                this.currentDonationId = null;
+                this.timelineData = null;
+                const chartsContainer = document.getElementById('timelines-charts');
+                if (chartsContainer) chartsContainer.innerHTML = '';
+            }
+
             this.renderCollectionDropdown();
 
         } catch (e) {
@@ -1726,7 +1761,6 @@ window.timelines = {
         }
 
         window._pendingDrillDown = {
-            study: study,
             filters: {
                 'collection_id': { type: 'category', value: [this.currentDonationId] },
                 'local_date': { type: 'category', value: [this.currentStatsPeriod] }
@@ -1862,7 +1896,22 @@ window.timelines = {
 document.addEventListener('DOMContentLoaded', () => {
     // If we are on a page with the timelines tab
     if (document.getElementById('timelines')) {
-        window.timelines.init();
+        if (window.studyState && window.studyState.ready) {
+            window.studyState.ready.then(() => {
+                window.timelines.init();
+            });
+        } else {
+            window.timelines.init();
+        }
+
+        document.addEventListener('study:changed', () => {
+            // Reload collections for the new active study.
+            if (window.timelines) {
+                window.timelines.currentDonationId = null;
+                window.timelines.timelineData = null;
+                window.timelines.loadDonations();
+            }
+        });
     }
 });
 

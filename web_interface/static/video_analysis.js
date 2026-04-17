@@ -56,19 +56,17 @@ async function checkPendingDrillDown() {
     _drillDownInProgress = true;
 
     try {
-        const studyChanged = (viewerData.activeStudy !== pending.study);
+        const globalStudy = (window.studyState && window.studyState.current) || null;
+        const studyChanged = (viewerData.activeStudy !== globalStudy);
 
-        // Set state
-        viewerData.activeStudy = pending.study;
+        // Set state — study is sourced from the global selector.
+        viewerData.activeStudy = globalStudy;
         viewerData.filters = pending.filters;
         viewerData.searchQuery = pending.searchQuery || "";
         viewerData.filteredIds = [];
         viewerData.currentIndex = -1;
         clearMetadataCache();
 
-        // Update UI elements
-        const selector = document.getElementById('viewer-study-select');
-        if (selector) selector.value = pending.study;
         const searchInput = document.getElementById('viewer-search-input');
         if (searchInput) searchInput.value = viewerData.searchQuery;
 
@@ -98,9 +96,23 @@ async function checkPendingDrillDown() {
 document.addEventListener('DOMContentLoaded', function () {
     // Only init if tab exists
     if (document.getElementById('video_analysis')) {
-        loadViewerStudies();
         loadUserTags();
         loadUserVotes();
+
+        // Initial hydration: adopt the current global study once it's ready.
+        if (window.studyState && window.studyState.ready) {
+            window.studyState.ready.then(() => {
+                if (window.studyState.current) {
+                    applyViewerActiveStudy(window.studyState.current, { reload: true });
+                }
+            });
+        }
+
+        // Respond to global study changes.
+        document.addEventListener('study:changed', (e) => {
+            const next = e.detail && e.detail.study;
+            applyViewerActiveStudy(next, { reload: true });
+        });
 
         // Tagging Input Listener
         const tagInput = document.getElementById('tagging-input');
@@ -215,96 +227,33 @@ async function submitVote(itemId) {
     }
 }
 
-async function loadViewerStudies(refreshOnly = false) {
-    const selector = document.getElementById('viewer-study-select');
-    if (!selector) return;
+async function applyViewerActiveStudy(studyName, options = {}) {
+    const { reload = true } = options;
+    if (studyName === viewerData.activeStudy && !reload) return;
 
-    try {
-        const res = await fetch('/api/studies/defined?detail=true');
-        const studyDetails = await res.json();
-
-        // Cache stats for size checks and extract names
-        const studies = studyDetails.map(s => {
-            _studyStatsCache[s.name] = s.stats || {};
-            return s.name;
-        });
-
-        selector.innerHTML = '<option value="" disabled selected>Select a study...</option>';
-
-        if (studies.length === 0) {
-            const opt = document.createElement('option');
-            opt.disabled = true;
-            opt.text = "No studies found";
-            selector.appendChild(opt);
-            return;
-        }
-
-        studies.forEach(study => {
-            const opt = document.createElement('option');
-            opt.value = study;
-            opt.text = study;
-            selector.appendChild(opt);
-        });
-
-        // Preserve current selection if still available, otherwise auto-select first.
-        // In refreshOnly mode (called after a study save from another tab), we never
-        // trigger navigation — that would fire a hidden-tab load and may pop a
-        // large-study warning over the user's current view.
-        if (viewerData.activeStudy && studies.includes(viewerData.activeStudy)) {
-            selector.value = viewerData.activeStudy;
-        } else if (!refreshOnly && studies.length > 0) {
-            selector.value = studies[0];
-            changeViewerStudy(studies[0]);
-        }
-
-
-    } catch (e) {
-        console.error("Failed to load studies", e);
-        selector.innerHTML = '<option disabled>Error loading studies</option>';
-    }
-}
-
-async function changeViewerStudy(val) {
-    const selector = document.getElementById('viewer-study-select');
-    const studyName = val || selector.value;
-
-    if (!studyName) return;
-
-    // Check study size and warn if large
-    const stats = _studyStatsCache[studyName] || {};
-    const uniqueVids = stats.unique_videos || 0;
-    if (uniqueVids > _LARGE_LOAD_THRESHOLD) {
-        const proceed = await showLargeStudyLoadWarning(studyName, uniqueVids);
-        if (!proceed) {
-            if (viewerData.activeStudy) {
-                selector.value = viewerData.activeStudy;
-            } else {
-                selector.selectedIndex = 0;
-            }
-            return;
-        }
-    }
-
-    viewerData.activeStudy = studyName;
+    viewerData.activeStudy = studyName || null;
     viewerData.filters = {};
     viewerData.filteredIds = [];
     viewerData.currentIndex = -1;
     viewerData.searchQuery = "";
     clearMetadataCache();
 
-    // Reset Search UI
     const searchInput = document.getElementById('viewer-search-input');
     if (searchInput) searchInput.value = "";
 
-    // Clear player
-    document.getElementById('viewer-video').src = "";
-    document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "";
+    const videoEl = document.getElementById('viewer-video');
+    if (videoEl) videoEl.src = "";
+    const metaTbody = document.getElementById('viewer-metadata');
+    if (metaTbody && metaTbody.querySelector('tbody')) metaTbody.querySelector('tbody').innerHTML = "";
 
     const msgEl = document.getElementById('viewer-video-msg');
-    const funLoader = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading video...</div></div>';
-    msgEl.innerHTML = funLoader;
-    msgEl.style.display = "block";
-    updateNavUI();
+    if (msgEl) {
+        msgEl.innerHTML = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading video...</div></div>';
+        msgEl.style.display = "block";
+    }
+    if (typeof updateNavUI === 'function') updateNavUI();
+
+    if (!studyName) return;
 
     // Metadata schema must be ready before loading items, otherwise renderMetadata
     // skips all fields (schemaMap is empty). Load metadata first, then fetch IDs.

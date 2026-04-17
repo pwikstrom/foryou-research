@@ -219,7 +219,6 @@ async function deleteUserTag(tagName) {
 }
 
 const _LARGE_LOAD_THRESHOLD = 100000;
-let _studyStatsCache = {};
 
 function showLargeStudyLoadWarning(studyName, uniqueVideos) {
     return new Promise(resolve => {

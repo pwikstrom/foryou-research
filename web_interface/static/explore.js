@@ -40,7 +40,20 @@ window.exploreToggleSidebar = function () {
 document.addEventListener('DOMContentLoaded', function () {
     // Only init if tab exists
     if (document.getElementById('explore')) {
-        loadExplorerV2Studies(); // Start by loading studies
+        // Initial hydration: adopt the current global study once it's ready.
+        if (window.studyState && window.studyState.ready) {
+            window.studyState.ready.then(() => {
+                if (window.studyState.current) {
+                    applyExplorerActiveStudy(window.studyState.current, { reload: true });
+                }
+            });
+        }
+
+        // Respond to global study changes.
+        document.addEventListener('study:changed', (e) => {
+            const next = e.detail && e.detail.study;
+            applyExplorerActiveStudy(next, { reload: true });
+        });
 
         // Search Input Listeners
         const searchInput1 = document.getElementById('explorer-v2-search-input-1');
@@ -109,87 +122,21 @@ function setExplorerV2SliceMode(isDual) {
 }
 
 
-async function loadExplorerV2Studies(refreshOnly = false) {
-    const selector = document.getElementById('explorer-v2-study-select');
-    if (!selector) return;
+function applyExplorerActiveStudy(studyName, options = {}) {
+    const { reload = true } = options;
+    if (studyName === explorerDataV2.activeStudy && !reload) return;
 
-    try {
-        const res = await fetch('/api/studies/defined?detail=true');
-        const studyDetails = await res.json();
-
-        // Cache stats for size checks and extract names
-        const studies = studyDetails.map(s => {
-            _studyStatsCache[s.name] = s.stats || {};
-            return s.name;
-        });
-
-        selector.innerHTML = '<option value="" disabled selected>Select a study...</option>';
-
-        if (studies.length === 0) {
-            const opt = document.createElement('option');
-            opt.disabled = true;
-            opt.text = "No studies found";
-            selector.appendChild(opt);
-            return;
-        }
-
-        studies.forEach(study => {
-            const opt = document.createElement('option');
-            opt.value = study;
-            opt.text = study;
-            selector.appendChild(opt);
-        });
-
-        // Preserve current selection if still available, otherwise auto-select first.
-        // In refreshOnly mode (called after a study save from another tab), we never
-        // trigger navigation — that would fire a hidden-tab load and may pop a
-        // large-study warning over the user's current view.
-        if (explorerDataV2.activeStudy && studies.includes(explorerDataV2.activeStudy)) {
-            selector.value = explorerDataV2.activeStudy;
-        } else if (!refreshOnly && studies.length > 0) {
-            selector.value = studies[0];
-            changeExplorerV2Study(studies[0]);
-        }
-
-
-    } catch (e) {
-        console.error("Failed to load studies", e);
-        selector.innerHTML = '<option disabled>Error loading studies</option>';
-    }
-}
-
-async function changeExplorerV2Study(val) {
-    const selector = document.getElementById('explorer-v2-study-select');
-    const studyName = val || selector.value;
-
-    if (!studyName) return;
-
-    // Check study size and warn if large
-    const stats = _studyStatsCache[studyName] || {};
-    const uniqueVids = stats.unique_videos || 0;
-    if (uniqueVids > _LARGE_LOAD_THRESHOLD) {
-        const proceed = await showLargeStudyLoadWarning(studyName, uniqueVids);
-        if (!proceed) {
-            // Revert dropdown to previous selection
-            if (explorerDataV2.activeStudy) {
-                selector.value = explorerDataV2.activeStudy;
-            } else {
-                selector.selectedIndex = 0;
-            }
-            return;
-        }
-    }
-
-    explorerDataV2.activeStudy = studyName;
-    explorerDataV2.filters1 = {}; // Reset filters
+    explorerDataV2.activeStudy = studyName || null;
+    explorerDataV2.filters1 = {};
     explorerDataV2.filters2 = {};
-    // Reset Stats
     explorerDataV2.stats1 = null;
     explorerDataV2.count1 = 0;
     explorerDataV2.stats2 = null;
     explorerDataV2.count2 = 0;
 
-    loadExplorerV2Metadata();
+    if (studyName) {
+        loadExplorerV2Metadata();
+    }
 }
 
 async function loadExplorerV2Metadata() {
@@ -1184,7 +1131,6 @@ function drillDownToViewer(col, clickedFilter, sliceId) {
         sourceFilters[col] = clickedFilter;
 
         window._pendingDrillDown = {
-            study: explorerDataV2.activeStudy,
             filters: sourceFilters,
             searchQuery: (sliceId === 2) ? explorerDataV2.searchQuery2 : explorerDataV2.searchQuery1,
             timestamp: Date.now()

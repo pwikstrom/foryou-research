@@ -1170,9 +1170,9 @@ function populateEnrichmentStudySelect(studies) {
 // navigation. Used after a study is saved or finishes its background refresh.
 function refreshStudyDropdowns() {
     if (typeof loadDefinedStudies === 'function') loadDefinedStudies();
-    if (typeof loadExplorerV2Studies === 'function') loadExplorerV2Studies(true);
-    if (typeof loadPcaStudies === 'function') loadPcaStudies(true);
-    if (typeof loadViewerStudies === 'function') loadViewerStudies(true);
+    if (window.studyState && typeof window.studyState.reload === 'function') {
+        window.studyState.reload();
+    }
     if (Array.isArray(allStudies)) populateEnrichmentStudySelect(allStudies);
 }
 
