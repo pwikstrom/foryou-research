@@ -1317,11 +1317,14 @@ window.timelines = {
                 // Only overlay for selected categories
                 cats.forEach((catData, cIdx) => {
                     if (!selectedSet.has(catData.id)) return;
-                    const catColor = colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
+                    const catColor = catColorMap[catData.id] || colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
 
-                    // Trend line (dashed line from regression)
-                    // Note: trend was computed on the FULL series — adjust intercept for sliced view
-                    if (catData.trend && Math.abs(catData.trend.total_change) > 4) {
+                    // Trend line (dashed line from regression) — threshold mirrors
+                    // the Rising/Falling badge at line 1491 so every flagged
+                    // category actually gets a trend line on the chart.
+                    const meanShareForTrend = (catData.volatility && catData.volatility.mean) || (catData.trend && catData.trend.mean) || 0;
+                    const trendThreshForOverlay = 0.5 * Math.max(meanShareForTrend, 1.0);
+                    if (catData.trend && Math.abs(catData.trend.total_change) > trendThreshForOverlay) {
                         const n = xVals.length;
                         const adjIntercept = catData.trend.intercept + catData.trend.slope * startIdx;
                         const trendY0 = adjIntercept;
