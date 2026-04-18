@@ -41,6 +41,11 @@
 
         <!-- Right-aligned help button -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 20px;">
+            <label class="text-xs meta-tooltip tooltip-below tooltip-right-anchored" style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: var(--color-text-muted);"
+                   data-tooltip="Overlay raw daily values as low-opacity bars behind the smoothed line, so you can see which day drove any bump you notice.">
+                <input type="checkbox" id="timelines-show-raw" onchange="timelines.toggleShowRaw(this.checked)" style="margin: 0; cursor: pointer;">
+                Show daily values
+            </label>
             <button class="help-icon" onclick="showHelp('timelines')">?</button>
         </div>
     </div>
@@ -67,7 +72,7 @@
                             onclick="window.timelines.viewInVideoAnalysis()">
                             View videos
                         </button>
-                        <button id="timeline-vote-btn" class="btn-discreet" style="font-size: var(--text-xs);"
+                        <button id="timeline-vote-btn" class="btn-discreet" style="font-size: var(--text-xs); display: none;"
                             onclick="window.timelines.voteMachineAnnotation()">
                             Vote to annotate
                         </button>

@@ -1438,6 +1438,13 @@ button {
     top: 110%;
 }
 
+/* Modifier: anchor the tooltip to the trigger's right edge (extends leftward).
+   Pairs with .tooltip-below for elements at the top-right of a container. */
+.meta-tooltip.tooltip-right-anchored::after {
+    left: auto;
+    right: 0;
+}
+
 
 /* ============================================================
    Collections Tab Styles (moved from inline)

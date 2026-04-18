@@ -10,7 +10,8 @@ window.timelines = {
         categoricalSelections: {},
         analysisToggles: {},
         activeFilters: {},
-        smoothing: 7
+        smoothing: 7,
+        showRaw: false
     },
 
     init: async function () {
@@ -164,6 +165,13 @@ window.timelines = {
         }
     },
 
+    toggleShowRaw: function (checked) {
+        this.timelineState.showRaw = !!checked;
+        if (this.timelineData) {
+            this.renderTimelineCharts(this.timelineData);
+        }
+    },
+
     _movingAvg: function (arr, window) {
         const half = Math.floor(window / 2);
         return arr.map((_, i, a) => {
@@ -172,6 +180,16 @@ window.timelines = {
             const slice = a.slice(start, end);
             return slice.reduce((s, v) => s + v, 0) / slice.length;
         });
+    },
+
+    _formatDuration: function (secs) {
+        if (!secs || secs <= 0) return '0s';
+        const s = Math.round(secs);
+        if (s < 60) return `${s}s`;
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        if (h > 0) return `${h}h ${m}m`;
+        return `${m}m ${s % 60}s`;
     },
 
     selectDonation: async function (collectionId) {
@@ -362,11 +380,9 @@ window.timelines = {
             });
         }
 
-        // Ensure machine_state is always last
-        if (varKeys.includes('machine_state')) {
-            varKeys = varKeys.filter(k => k !== 'machine_state');
-            varKeys.push('machine_state');
-        }
+        // machine_state is always a flat "5: Scrape ok, MA ok" line because
+        // the timeline universe filter drops all other states — hide the chart.
+        varKeys = varKeys.filter(k => k !== 'machine_state');
 
         // Iterate over variables
         varKeys.forEach(varName => {
@@ -920,22 +936,72 @@ window.timelines = {
                 const lineWidth = overlaysActive ? 1.5 : 2;
                 const fillAlpha = overlaysActive ? '06' : '12';
                 const smoothW = this.timelineState.smoothing || 1;
+                const showRaw = !!this.timelineState.showRaw && smoothW > 1;
+                const halfW = Math.floor(smoothW / 2);
+                const denomSeries = isMultiLabel ? slicedWeightedVideoTotal : slicedWeightedValid;
+
+                // Hover on the smoothed line should describe the window it
+                // represents, not the single day under the cursor.  Pre-compute
+                // per-index window sums (O(n·W) but n is small).
+                const windowLabel = (i) => {
+                    const wstart = Math.max(0, i - halfW);
+                    const wend = Math.min(dates.length - 1, i + halfW);
+                    if (wstart === wend) return slicedDateLabels[i] || dates[i];
+                    const startLbl = slicedDateLabels[wstart] || String(dates[wstart]).slice(0, 10);
+                    const endLbl = slicedDateLabels[wend] || String(dates[wend]).slice(0, 10);
+                    return `${startLbl} – ${endLbl}`;
+                };
+                const windowSums = dates.map((d, i) => {
+                    const wstart = Math.max(0, i - halfW);
+                    const wend = Math.min(dates.length - 1, i + halfW);
+                    let plays = 0, time = 0, denom = 0, validSum = 0;
+                    for (let j = wstart; j <= wend; j++) {
+                        plays += slicedVideoCounts[j] || 0;
+                        time += slicedWeightedVideoTotal[j] || 0;
+                        denom += denomSeries[j] || 0;
+                        validSum += slicedWeightedValid[j] || 0;
+                    }
+                    return { plays, time, denom, validSum };
+                });
 
                 selectedCats.forEach((cat, idx) => {
                     if (cat === OTHER_BUCKET) return;
                     const yVals = [];
-                    const hoverTexts = [];
+                    const rawHoverTexts = [];
+                    const windowHoverTexts = [];
 
                     dates.forEach((d, i) => {
                         const shareDay = slicedShareSeries[i] || {};
                         const share = shareDay[cat] || 0;
-                        const val = (slicedCounts[i] || {})[cat] || 0;
-                        const wval = (slicedWeightedCounts[i] || {})[cat] || 0;
                         yVals.push(share);
-                        hoverTexts.push(
+
+                        // Per-day hover (used by the raw-values bar trace)
+                        const dayPlays = slicedVideoCounts[i] || 0;
+                        const dayTime = slicedWeightedVideoTotal[i] || 0;
+                        rawHoverTexts.push(
                             `<b>${cat}</b><br>` +
-                            `Period: ${slicedDateLabels[i] || d}<br>` +
-                            `Share: ${share.toFixed(1)}%`
+                            `Day: ${slicedDateLabels[i] || d}<br>` +
+                            `Share: ${share.toFixed(1)}%<br>` +
+                            `Plays: ${dayPlays}<br>` +
+                            `Time on platform: ${this._formatDuration(dayTime)}`
+                        );
+
+                        // Window-aggregated hover (used by the smoothed line)
+                        const wstart = Math.max(0, i - halfW);
+                        const wend = Math.min(dates.length - 1, i + halfW);
+                        let winWCat = 0;
+                        for (let j = wstart; j <= wend; j++) {
+                            winWCat += (slicedWeightedCounts[j] || {})[cat] || 0;
+                        }
+                        const winDenom = windowSums[i].denom;
+                        const winShare = winDenom > 0 ? (winWCat / winDenom) * 100 : 0;
+                        const periodLbl = smoothW > 1 ? 'Window' : 'Day';
+                        windowHoverTexts.push(
+                            `<b>${cat}</b><br>` +
+                            `${periodLbl}: ${windowLabel(i)}<br>` +
+                            `Share: ${winShare.toFixed(1)}%<br>` +
+                            `Plays: ${windowSums[i].plays}<br>` +
+                            `Time on platform: ${this._formatDuration(windowSums[i].time)}`
                         );
                     });
 
@@ -944,16 +1010,34 @@ window.timelines = {
                     const catColor = catColorMap[cat] || colors[idx % colors.length];
                     const lineColor = hexToRgba(catColor, lineAlpha);
 
+                    // Raw daily bars behind the smoothed line: push first so
+                    // Plotly renders them below.  Per-day hover here so the
+                    // user can inspect individual days when bars are visible.
+                    if (showRaw) {
+                        traces.push({
+                            x: xVals,
+                            y: yVals,
+                            type: 'bar',
+                            marker: { color: hexToRgba(catColor, 0.18) },
+                            name: cat,
+                            showlegend: false,
+                            text: rawHoverTexts,
+                            textposition: 'none',
+                            hoverinfo: 'text',
+                            hovertemplate: '%{text}<extra></extra>'
+                        });
+                    }
+
                     traces.push({
                         x: xVals,
                         y: displayY,
                         type: 'scatter',
                         mode: 'lines',
                         line: { width: lineWidth, shape: 'spline', color: lineColor },
-                        fill: 'tozeroy',
-                        fillcolor: catColor + fillAlpha,
+                        fill: showRaw ? 'none' : 'tozeroy',
+                        fillcolor: showRaw ? undefined : catColor + fillAlpha,
                         name: cat,
-                        text: hoverTexts,
+                        text: windowHoverTexts,
                         hoverinfo: 'text',
                         hovertemplate: '%{text}<extra></extra>'
                     });
@@ -970,8 +1054,6 @@ window.timelines = {
                     dates.forEach((d, i) => {
                         const shareDay = slicedShareSeries[i] || {};
                         let share = shareDay[OTHER_BUCKET] || 0;
-                        const val = (slicedCounts[i] || {})[OTHER_BUCKET] || 0;
-                        const wval = (slicedWeightedCounts[i] || {})[OTHER_BUCKET] || 0;
                         if (isMultiLabel) {
                             const denom = slicedWeightedVideoTotal[i] || 0;
                             const valid = slicedWeightedValid[i] || 0;
@@ -979,13 +1061,30 @@ window.timelines = {
                             if (share > ceiling) share = ceiling;
                         }
                         yVals.push(share);
+
+                        // Window-aggregated hover: mirror the smoothed line.
+                        const wstart = Math.max(0, i - halfW);
+                        const wend = Math.min(dates.length - 1, i + halfW);
+                        let winWOther = 0;
+                        for (let j = wstart; j <= wend; j++) {
+                            winWOther += (slicedWeightedCounts[j] || {})[OTHER_BUCKET] || 0;
+                        }
+                        const winDenom = windowSums[i].denom;
+                        let winShare = winDenom > 0 ? (winWOther / winDenom) * 100 : 0;
+                        if (isMultiLabel) {
+                            const winCeiling = winDenom > 0 ? (windowSums[i].validSum / winDenom) * 100 : 100;
+                            if (winShare > winCeiling) winShare = winCeiling;
+                        }
                         const extraNote = isMultiLabel
                             ? '<br><i>(aggregate of rare labels; may under-report days with many overlapping labels)</i>'
                             : '';
+                        const periodLbl = smoothW > 1 ? 'Window' : 'Day';
                         hoverTexts.push(
                             `<b>Other</b><br>` +
-                            `Period: ${slicedDateLabels[i] || d}<br>` +
-                            `Share: ${share.toFixed(1)}%${extraNote}`
+                            `${periodLbl}: ${windowLabel(i)}<br>` +
+                            `Share: ${winShare.toFixed(1)}%<br>` +
+                            `Plays: ${windowSums[i].plays}<br>` +
+                            `Time on platform: ${this._formatDuration(windowSums[i].time)}${extraNote}`
                         );
                     });
                     const displayY = smoothW > 1 ? this._movingAvg(yVals, smoothW) : yVals;
@@ -997,8 +1096,8 @@ window.timelines = {
                         type: 'scatter',
                         mode: 'lines',
                         line: { width: lineWidth, shape: 'spline', color: lineColor },
-                        fill: 'tozeroy',
-                        fillcolor: otherColor + fillAlpha,
+                        fill: showRaw ? 'none' : 'tozeroy',
+                        fillcolor: showRaw ? undefined : otherColor + fillAlpha,
                         name: OTHER_BUCKET,
                         text: hoverTexts,
                         hoverinfo: 'text',
@@ -1020,10 +1119,18 @@ window.timelines = {
                         const untaggedW = Math.max(0, dayDenom - dayValid);
                         const untagged = dayDenom > 0 ? (untaggedW / dayDenom) * 100 : 0;
                         untaggedY.push(untagged);
+
+                        const winDenom = windowSums[i].time;
+                        const winValid = windowSums[i].validSum;
+                        const winUntaggedW = Math.max(0, winDenom - winValid);
+                        const winUntagged = winDenom > 0 ? (winUntaggedW / winDenom) * 100 : 0;
+                        const periodLbl = smoothW > 1 ? 'Window' : 'Day';
                         untaggedHover.push(
                             `<b>${UNTAGGED_BUCKET}</b><br>` +
-                            `Period: ${slicedDateLabels[i] || d}<br>` +
-                            `Share: ${untagged.toFixed(1)}%`
+                            `${periodLbl}: ${windowLabel(i)}<br>` +
+                            `Share: ${winUntagged.toFixed(1)}%<br>` +
+                            `Plays: ${windowSums[i].plays}<br>` +
+                            `Time on platform: ${this._formatDuration(windowSums[i].time)}`
                         );
                     });
                     const displayUntagged = smoothW > 1 ? this._movingAvg(untaggedY, smoothW) : untaggedY;
@@ -1069,17 +1176,103 @@ window.timelines = {
                 }
 
                 const slicedValues = startIdx > 0 ? varData.values.slice(startIdx) : varData.values;
+                const slicedDateLabelsN = startIdx > 0 ? (data.date_labels || dates).slice(startIdx) : (data.date_labels || dates);
+                const slicedVideoCountsN = startIdx > 0 ? (varData.daily_video_counts || []).slice(startIdx) : (varData.daily_video_counts || []);
+                const slicedWeightedTotalN = startIdx > 0 ? (varData.daily_weighted_video_total || []).slice(startIdx) : (varData.daily_weighted_video_total || []);
+                const slicedWeightedValidN = startIdx > 0 ? (varData.daily_weighted_valid || []).slice(startIdx) : (varData.daily_weighted_valid || []);
 
                 // Apply smoothing if active
                 const smoothW = this.timelineState.smoothing || 1;
                 const displayValues = smoothW > 1 ? this._movingAvg(slicedValues, smoothW) : slicedValues;
+                const showRawNumeric = !!this.timelineState.showRaw && smoothW > 1;
+                const infoColor = getCSSVar('--color-info');
+                const halfWN = Math.floor(smoothW / 2);
+
+                // Window-aggregated hover for the smoothed line: weighted mean
+                // (Σ v_i · w_i / Σ w_i) mirrors the modal.  Plays and time are
+                // summed over the window.
+                const fmtNum = (v) => (v === null || v === undefined)
+                    ? '—'
+                    : (Number.isInteger(v) ? `${v}` : v.toFixed(3));
+                const windowLabelN = (i) => {
+                    const wstart = Math.max(0, i - halfWN);
+                    const wend = Math.min(dates.length - 1, i + halfWN);
+                    if (wstart === wend) return slicedDateLabelsN[i] || dates[i];
+                    const startLbl = slicedDateLabelsN[wstart] || String(dates[wstart]).slice(0, 10);
+                    const endLbl = slicedDateLabelsN[wend] || String(dates[wend]).slice(0, 10);
+                    return `${startLbl} – ${endLbl}`;
+                };
+                const numericWindowHover = dates.map((d, i) => {
+                    const wstart = Math.max(0, i - halfWN);
+                    const wend = Math.min(dates.length - 1, i + halfWN);
+                    let num = 0, den = 0, plays = 0, time = 0;
+                    for (let j = wstart; j <= wend; j++) {
+                        const v = slicedValues[j];
+                        if (v !== null && v !== undefined) {
+                            const w = slicedWeightedValidN[j] || 0;
+                            if (w > 0) { num += v * w; den += w; }
+                        }
+                        plays += slicedVideoCountsN[j] || 0;
+                        time += slicedWeightedTotalN[j] || 0;
+                    }
+                    const winMean = den > 0 ? num / den : null;
+                    const periodLbl = smoothW > 1 ? 'Window' : 'Day';
+                    return `<b>${varName}</b><br>` +
+                        `${periodLbl}: ${windowLabelN(i)}<br>` +
+                        `Mean: ${fmtNum(winMean)}<br>` +
+                        `Plays: ${plays}<br>` +
+                        `Time on platform: ${this._formatDuration(time)}`;
+                });
+
+                const numericRawHover = dates.map((d, i) => {
+                    const raw = slicedValues[i];
+                    const dayPlays = slicedVideoCountsN[i] || 0;
+                    const dayTime = slicedWeightedTotalN[i] || 0;
+                    return `<b>${varName}</b><br>` +
+                        `Day: ${slicedDateLabelsN[i] || d}<br>` +
+                        `Mean: ${fmtNum(raw)}<br>` +
+                        `Plays: ${dayPlays}<br>` +
+                        `Time on platform: ${this._formatDuration(dayTime)}`;
+                });
+
+                const hexToRgbaNum = (hex, alpha) => {
+                    const h = hex.trim().replace('#', '');
+                    if (h.length !== 6) return hex;
+                    const r = parseInt(h.slice(0, 2), 16);
+                    const g = parseInt(h.slice(2, 4), 16);
+                    const b = parseInt(h.slice(4, 6), 16);
+                    return `rgba(${r},${g},${b},${alpha})`;
+                };
+
+                if (showRawNumeric) {
+                    // Raw daily bars behind the smoothed line, with per-day
+                    // hover so the user can inspect individual days.
+                    traces.push({
+                        x: xVals,
+                        y: slicedValues,
+                        type: 'bar',
+                        marker: { color: hexToRgbaNum(infoColor, 0.25) },
+                        name: varName + ' (daily)',
+                        showlegend: false,
+                        text: numericRawHover,
+                        textposition: 'none',
+                        hoverinfo: 'text',
+                        hovertemplate: '%{text}<extra></extra>'
+                    });
+                }
 
                 traces.push({
                     x: xVals,
                     y: displayValues,
-                    type: 'bar',
-                    marker: { color: getCSSVar('--color-info') },
-                    name: varName
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { width: 2, shape: 'spline', color: infoColor },
+                    fill: showRawNumeric ? 'none' : 'tozeroy',
+                    fillcolor: showRawNumeric ? undefined : hexToRgbaNum(infoColor, 0.08),
+                    name: varName,
+                    text: numericWindowHover,
+                    hoverinfo: 'text',
+                    hovertemplate: '%{text}<extra></extra>'
                 });
 
                 // Close Numeric Logic
@@ -1131,7 +1324,7 @@ window.timelines = {
                     zeroline: false,
                     tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') }
                 },
-                barmode: isCategorical ? undefined : 'stack',
+                barmode: 'overlay',
                 showlegend: isCategorical
             };
 
@@ -1764,10 +1957,14 @@ window.timelines = {
             return;
         }
 
+        const dateValues = (this.currentStatsPeriodDates && this.currentStatsPeriodDates.length > 0)
+            ? this.currentStatsPeriodDates
+            : [String(this.currentStatsPeriod).slice(0, 10)];
+
         window._pendingDrillDown = {
             filters: {
                 'collection_id': { type: 'category', value: [this.currentDonationId] },
-                'local_date': { type: 'category', value: [this.currentStatsPeriod] }
+                'local_date': { type: 'category', value: dateValues }
             },
             searchQuery: '',
             timestamp: Date.now()
@@ -1799,9 +1996,23 @@ window.timelines = {
         const contentEl = document.getElementById('timeline-stats-content');
         if (!modal || !titleEl || !contentEl) return;
 
-        this.currentStatsPeriod = this.timelineData.dates[dateIndex];
+        // Aggregate across the same centred window the chart uses for smoothing.
+        // This makes the modal answer "what's in the bump I clicked on" instead
+        // of showing one noisy day that may not match the averaged line.
+        const smoothW = Math.max(1, this.timelineState.smoothing || 1);
+        const half = Math.floor(smoothW / 2);
+        const startIdx = Math.max(0, dateIndex - half);
+        const endIdx = Math.min(this.timelineData.dates.length - 1, dateIndex + half);
+        const windowDates = this.timelineData.dates.slice(startIdx, endIdx + 1);
 
-        titleEl.textContent = `Stats for ${formattedLabel}`;
+        this.currentStatsPeriod = this.timelineData.dates[dateIndex];
+        this.currentStatsPeriodDates = windowDates.map(d => String(d).slice(0, 10));
+
+        const startIso = String(windowDates[0]).slice(0, 10);
+        const endIso = String(windowDates[windowDates.length - 1]).slice(0, 10);
+        titleEl.textContent = startIso === endIso
+            ? `Stats for ${startIso}`
+            : `Stats for ${startIso} – ${endIso}`;
 
         // Reset vote button
         const voteBtn = document.getElementById('timeline-vote-btn');
@@ -1820,7 +2031,7 @@ window.timelines = {
 
         let html = '<table class="stats-table" style="margin-top: 4px;">';
         html += '<thead><tr><th style="padding: 4px; text-align: left; border-bottom: 2px solid var(--color-border-strong);">Variable</th>';
-        html += '<th style="padding: 4px; text-align: left; border-bottom: 2px solid var(--color-border-strong);">Value</th></tr></thead>';
+        html += '<th style="padding: 4px; text-align: right; border-bottom: 2px solid var(--color-border-strong); font-weight: var(--weight-semibold);">% of attention</th></tr></thead>';
         html += '<tbody>';
 
         let varKeys = Object.keys(this.timelineData.variables);
@@ -1834,54 +2045,128 @@ window.timelines = {
                 return idxA - idxB;
             });
         }
-        if (varKeys.includes('machine_state')) {
-            varKeys = varKeys.filter(k => k !== 'machine_state');
-            varKeys.push('machine_state');
-        }
+        // machine_state is a flat "5: Scrape ok, MA ok" post-filter — drop it.
+        varKeys = varKeys.filter(k => k !== 'machine_state');
 
+        // Numerics live under the "% of attention" header but aren't percentages
+        // (they're watch-time-weighted means of a score).  Push them to the
+        // bottom and render them under a sub-header that sets the right
+        // expectation.
+        const numericKeys = varKeys.filter(k => this.timelineData.variables[k].type === 'numeric');
+        const categoricalKeys = varKeys.filter(k => this.timelineData.variables[k].type !== 'numeric');
+        varKeys = categoricalKeys.concat(numericKeys);
+
+        let subHeaderInserted = false;
         varKeys.forEach(varName => {
             const varData = this.timelineData.variables[varName];
-            const displayTitle = varData.display_name || (varName === 'machine_state' ? 'Scrape/Annotation States' : varName);
+            const displayTitle = varData.display_name || varName;
+
+            if (varData.type === 'numeric' && !subHeaderInserted) {
+                html += '<tr><td colspan="2" style="padding: 14px 4px 4px; border-top: 1px solid var(--color-border); font-size: var(--text-xs); color: var(--color-text-muted); font-style: italic;">'
+                    + 'Play-time-weighted mean'
+                    + '</td></tr>';
+                subHeaderInserted = true;
+            }
 
             html += `<tr><td style="padding: 4px; vertical-align: top; font-weight: var(--weight-semibold);">${esc(displayTitle)}</td>`;
-            html += `<td style="padding: 4px; vertical-align: top;">`;
+            html += `<td style="padding: 4px; vertical-align: top; text-align: left; font-weight: var(--weight-normal);">`;
 
             if (varData.type === 'categorical') {
-                const dayShares = (varData.share_series && varData.share_series[dateIndex]) || {};
-                const dayCounts = (varData.counts && varData.counts[dateIndex]) || {};
+                // Aggregate over [startIdx, endIdx]: sum weighted_counts per
+                // category (numerator) and sum the matching denominator (either
+                // weighted video totals or weighted valid counts, depending on
+                // share_denominator) so shares come out correctly weighted by
+                // the true per-day totals rather than averaging percentages.
+                const denomSeries = varData.share_denominator === 'videos'
+                    ? (varData.daily_weighted_video_total || [])
+                    : (varData.daily_weighted_valid || []);
+                const wCountsSeries = varData.weighted_counts || [];
+                const rawCountsSeries = varData.counts || [];
 
-                // Sort by share descending (matches chart), fall back to raw count
-                const cats = Object.keys({...dayShares, ...dayCounts});
-                cats.sort((a, b) => (dayShares[b] || 0) - (dayShares[a] || 0) || (dayCounts[b] || 0) - (dayCounts[a] || 0));
+                const weightedTotals = {};
+                const rawTotals = {};
+                let denomSum = 0;
+                for (let i = startIdx; i <= endIdx; i++) {
+                    const wc = wCountsSeries[i] || {};
+                    for (const k in wc) {
+                        weightedTotals[k] = (weightedTotals[k] || 0) + (wc[k] || 0);
+                    }
+                    const rc = rawCountsSeries[i] || {};
+                    for (const k in rc) {
+                        rawTotals[k] = (rawTotals[k] || 0) + (rc[k] || 0);
+                    }
+                    denomSum += (denomSeries[i] || 0);
+                }
+
+                const aggShares = {};
+                if (denomSum > 0) {
+                    for (const k in weightedTotals) {
+                        aggShares[k] = (weightedTotals[k] / denomSum) * 100;
+                    }
+                }
+
+                // Fallback to single-day share_series if weighted_counts isn't
+                // present (older cached data): equivalent to prior behaviour.
+                const useFallback = Object.keys(weightedTotals).length === 0
+                    && Object.keys(rawTotals).length > 0
+                    && varData.share_series;
+                let sharesForDisplay = aggShares;
+                if (useFallback) {
+                    sharesForDisplay = (varData.share_series && varData.share_series[dateIndex]) || {};
+                }
+
+                const cats = Object.keys({...sharesForDisplay, ...rawTotals});
+                cats.sort((a, b) => (sharesForDisplay[b] || 0) - (sharesForDisplay[a] || 0) || (rawTotals[b] || 0) - (rawTotals[a] || 0));
 
                 if (cats.length === 0) {
                     html += `<span style="color: var(--color-text-muted);">No data</span>`;
                 } else {
-                    const MAX_SHOW = 20;
+                    const MAX_SHOW = 10;
                     const visible = cats.slice(0, MAX_SHOW);
-                    html += `<ul style="margin: 0; padding-left: 16px; line-height: var(--leading-normal);">`;
                     visible.forEach(cat => {
-                        const share = dayShares[cat];
-                        const count = dayCounts[cat] || 0;
-                        const shareStr = share != null ? `${share.toFixed(1)}%` : '';
-                        const countStr = `${count}`;
-                        if (shareStr) {
-                            html += `<li>${esc(cat)}: <b>${shareStr}</b> <span style="color: var(--color-text-muted);">(${countStr})</span></li>`;
-                        } else {
-                            html += `<li>${esc(cat)}: <b>${countStr}</b></li>`;
-                        }
+                        const share = sharesForDisplay[cat];
+                        const shareStr = share != null ? `${share.toFixed(1)}%` : '—';
+                        html += `<div style="display: flex; justify-content: space-between; gap: 12px; line-height: var(--leading-normal);">`
+                            + `<span>${esc(cat)}</span>`
+                            + `<span style="white-space: nowrap;">${shareStr}</span>`
+                            + `</div>`;
                     });
-                    html += `</ul>`;
                     if (cats.length > MAX_SHOW) {
-                        html += `<span class="text-xs" style="color: var(--color-text-muted);">and ${cats.length - MAX_SHOW} more\u2026</span>`;
+                        html += `<div class="text-xs" style="color: var(--color-text-muted); margin-top: 2px;">and ${cats.length - MAX_SHOW} more\u2026</div>`;
                     }
                 }
             } else if (varData.type === 'numeric' && varData.values) {
-                let val = varData.values[dateIndex];
+                // Weighted mean across the window: Σ(value_i · weight_i) / Σweight_i
+                // where weight is daily_weighted_valid (matches how the
+                // per-period value is already a watch-time-weighted mean).
+                const weights = varData.daily_weighted_valid || [];
+                let num = 0, den = 0;
+                for (let i = startIdx; i <= endIdx; i++) {
+                    const v = varData.values[i];
+                    if (v === null || v === undefined) continue;
+                    const w = weights[i] || 0;
+                    if (w > 0) {
+                        num += v * w;
+                        den += w;
+                    }
+                }
+                let val;
+                if (den > 0) {
+                    val = num / den;
+                } else {
+                    // Fallback: simple mean of non-null values if no weights available.
+                    let sum = 0, n = 0;
+                    for (let i = startIdx; i <= endIdx; i++) {
+                        const v = varData.values[i];
+                        if (v !== null && v !== undefined) { sum += v; n += 1; }
+                    }
+                    val = n > 0 ? (sum / n) : null;
+                }
                 if (val === null || val === undefined) {
                     html += `<span style="color: var(--color-text-muted);">No data</span>`;
                 } else {
-                    html += `<b>${Number.isInteger(val) ? val : val.toFixed(2)}</b>`;
+                    const valStr = Number.isInteger(val) ? `${val}` : val.toFixed(2);
+                    html += `<div style="text-align: right;">${valStr}</div>`;
                 }
             } else {
                 html += `<span style="color: var(--color-text-muted);">\u2014</span>`;
