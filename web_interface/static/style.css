@@ -1447,6 +1447,98 @@ button {
 
 
 /* ============================================================
+   Custom ribbon tooltip (Timelines)
+   Plotly's built-in tooltip can't render multi-line content inside
+   a 50px-tall ribbon, so we draw our own positioned to the cursor.
+   ============================================================ */
+
+/* Hide Plotly's built-in hover label inside ribbons — we render our own. */
+[id^="ribbon-"] .hoverlayer {
+    display: none !important;
+}
+
+.ribbon-tooltip {
+    position: fixed;
+    display: none;
+    z-index: 1000;
+    pointer-events: none;
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    border: 1px solid var(--tooltip-border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+    max-width: 260px;
+}
+
+.ribbon-tooltip-title {
+    font-weight: var(--weight-semibold);
+    margin-bottom: 3px;
+}
+
+.ribbon-tooltip-line {
+    color: var(--tooltip-text);
+}
+
+.ribbon-tooltip-badge {
+    color: var(--tooltip-text);
+    margin-top: 2px;
+}
+
+
+/* ============================================================
+   Plotly modebar — themed colors, fade in only on chart hover
+   ============================================================ */
+
+.timeline-chart-wrapper .modebar {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.timeline-chart-wrapper:hover .modebar {
+    opacity: 1;
+}
+
+.timeline-chart-wrapper .modebar-btn .icon path {
+    fill: var(--color-text-faint) !important;
+}
+
+.timeline-chart-wrapper .modebar-btn:hover .icon path,
+.timeline-chart-wrapper .modebar-btn.active .icon path {
+    fill: var(--color-text-secondary) !important;
+}
+
+
+/* ============================================================
+   Chart type badge (Timelines)
+   ============================================================ */
+
+.chart-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: var(--text-xxs);
+    font-weight: var(--weight-medium);
+    font-family: var(--font-sans);
+    letter-spacing: 0.02em;
+    background: var(--chip-bg);
+    border: 1px solid var(--chip-border);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    cursor: help;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.chart-type-badge.meta-tooltip {
+    text-decoration: none;
+}
+
+
+/* ============================================================
    Collections Tab Styles (moved from inline)
    ============================================================ */
 

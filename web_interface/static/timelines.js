@@ -6,6 +6,72 @@ window.timelines = {
     currentDonationId: null,
     collectionList: [],
     timelineData: null,
+    _ribbonTooltipEl: null,
+
+    _ensureRibbonTooltip: function () {
+        if (this._ribbonTooltipEl && document.body.contains(this._ribbonTooltipEl)) {
+            return this._ribbonTooltipEl;
+        }
+        const el = document.createElement('div');
+        el.className = 'ribbon-tooltip';
+        document.body.appendChild(el);
+        this._ribbonTooltipEl = el;
+        return el;
+    },
+
+    _showRibbonTooltip: function (data, evt) {
+        if (!data) return;
+        const el = this._ensureRibbonTooltip();
+        const escape = (s) => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+        const parts = [`<div class="ribbon-tooltip-title">${escape(data.cat)}</div>`];
+        (data.lines || []).forEach(l => parts.push(`<div class="ribbon-tooltip-line">${escape(l)}</div>`));
+        (data.badges || []).forEach(b => parts.push(`<div class="ribbon-tooltip-badge">${escape(b)}</div>`));
+        el.innerHTML = parts.join('');
+        el.style.display = 'block';
+        // Position near the cursor; flip to the left if it would overflow.
+        const x = (evt && evt.clientX) || 0;
+        const y = (evt && evt.clientY) || 0;
+        const rect = el.getBoundingClientRect();
+        const pad = 14;
+        let left = x + pad;
+        if (left + rect.width > window.innerWidth - 8) left = x - rect.width - pad;
+        let top = y + pad;
+        if (top + rect.height > window.innerHeight - 8) top = y - rect.height - pad;
+        el.style.left = Math.max(8, left) + 'px';
+        el.style.top = Math.max(8, top) + 'px';
+    },
+
+    _hideRibbonTooltip: function () {
+        if (this._ribbonTooltipEl) this._ribbonTooltipEl.style.display = 'none';
+    },
+
+    // Categories considered "wide enough" to be visually meaningful on the
+    // ribbon — must be at least 12% as wide as the widest segment.  Used to
+    // gate auto-selections (Interesting, Rising, Falling, Spikes) so they
+    // don't surface tiny slivers; user clicks bypass this filter.
+    _wideCatsFor: function (varName) {
+        const data = this.timelineData;
+        const varData = data && data.variables && data.variables[varName];
+        if (!varData || !Array.isArray(varData.weighted_counts)) return null;
+        const totals = {};
+        varData.weighted_counts.forEach(day => {
+            if (!day) return;
+            Object.keys(day).forEach(c => { totals[c] = (totals[c] || 0) + (day[c] || 0); });
+        });
+        let widest = 0;
+        Object.keys(totals).forEach(c => {
+            if (c === 'Other') return;
+            if (totals[c] > widest) widest = totals[c];
+        });
+        if (widest === 0) return null;
+        const minRelativeShare = 0.08;
+        const cutoff = widest * minRelativeShare;
+        const wide = new Set();
+        Object.keys(totals).forEach(c => {
+            if (totals[c] >= cutoff) wide.add(c);
+        });
+        return wide;
+    },
     timelineState: {
         categoricalSelections: {},
         analysisToggles: {},
@@ -397,6 +463,29 @@ window.timelines = {
             chartWrapper.style.background = 'var(--chart-bg)';
             chartWrapper.style.padding = '10px';
             chartWrapper.style.borderRadius = '5px';
+            chartWrapper.style.position = 'relative';
+
+            // Chart type badge (top-right corner) — clarifies how the chart should be read.
+            let badgeLabel, badgeTooltip;
+            if (varData.type === 'numeric') {
+                badgeLabel = 'Numeric';
+                badgeTooltip = 'Numeric variable — a continuous value per video (e.g. duration, like count). The line shows the daily mean across watched videos.';
+            } else if (varData.share_denominator === 'videos') {
+                badgeLabel = 'Multi-label';
+                badgeTooltip = 'Multi-label variable — a single video can carry several tags. Each line shows the share of videos tagged with that category, so totals can exceed 100%.';
+            } else {
+                badgeLabel = 'Single-label';
+                badgeTooltip = 'Single-label variable — each video has exactly one value (e.g. gender, content type). Category shares add up to 100%.';
+            }
+            const badge = document.createElement('span');
+            badge.className = 'chart-type-badge meta-tooltip tooltip-below tooltip-right-anchored';
+            badge.setAttribute('data-tooltip', badgeTooltip);
+            badge.textContent = badgeLabel;
+            badge.style.position = 'absolute';
+            badge.style.top = '10px';
+            badge.style.right = '12px';
+            badge.style.zIndex = '2';
+            chartWrapper.appendChild(badge);
 
             // Title Above Plot — row 1: variable name, row 2: "Select top..." + filter chips
             const titleDiv = document.createElement('div');
@@ -446,14 +535,20 @@ window.timelines = {
                     });
                 }
 
-                // Default selection: top 3 by interestingness, skipping the
-                // "Other" bucket (a heterogeneous residual, not a signal).
+                // Default selection: top 3 by interestingness that are also
+                // wide enough to be visually meaningful — narrow slivers don't
+                // belong in the "interesting by default" set.  "Other" is a
+                // heterogeneous residual, never a signal.
                 const OTHER_BUCKET = 'Other';
+                const wideSet = this._wideCatsFor(varName);
+                const passesFloor = (c) => !wideSet || wideSet.has(c);
                 const interestingnessOrderReal = interestingnessOrder.filter(c => c !== OTHER_BUCKET);
                 const topCatsReal = (varData.top_categories || []).filter(c => c !== OTHER_BUCKET);
+                const interestingWide = interestingnessOrderReal.filter(passesFloor);
+                const topWide = topCatsReal.filter(passesFloor);
                 const defaultCats = varData.default_all
                     ? (varData.top_categories || [])
-                    : (interestingnessOrderReal.length > 0 ? interestingnessOrderReal.slice(0, 3) : topCatsReal.slice(0, 3));
+                    : (interestingWide.length > 0 ? interestingWide.slice(0, 3) : topWide.slice(0, 3));
                 const selectedCats = this.timelineState.categoricalSelections[varName] || defaultCats;
 
                 // Store in state if not already
@@ -545,6 +640,17 @@ window.timelines = {
                 const maxCategories = 30;
                 const coverageTarget = 0.95;
                 const minObservations = 10;
+                // Share-based floor: a category must be at least this fraction
+                // as wide as the widest segment to survive on the ribbon.
+                // Single-label vars have a few dominant labels and a long tail
+                // of slivers; this threshold folds the slivers into "Other".
+                // Multi-label vars have a flatter distribution, so the same
+                // threshold barely changes them.  Mirror the value used by
+                // _wideCatsFor() so auto-selection and the keep loop agree.
+                const minRelativeShare = 0.08;
+                const widestWeighted = allCatsByAttention.reduce(
+                    (m, c) => c === OTHER_BUCKET ? m : Math.max(m, catWeightedTotals[c] || 0), 0
+                );
 
                 let cumulativeWeighted = 0;
                 const coveredSet = new Set();
@@ -558,8 +664,16 @@ window.timelines = {
                     const isMeaningful = catCount >= minObservations;
                     const isWithinMax = coveredSet.size < maxCategories;
                     const isWithinCoverage = cumulativeWeighted < (coverageTarget * grandWeighted);
+                    const isWideEnough = widestWeighted === 0
+                        || catAttention >= widestWeighted * minRelativeShare;
 
-                    if (isSelected || isWithinMin || (isWithinCoverage && isMeaningful && isWithinMax)) {
+                    // Selected cats (user-clicked or chip-filter picks) bypass
+                    // the floor — that's the explicit-choice escape hatch.
+                    // Everything else must clear the share-width floor; the
+                    // top-5 minimum applies only when the category itself is
+                    // wide enough to be visually meaningful.
+                    if (isSelected
+                        || (isWideEnough && (isWithinMin || (isWithinCoverage && isMeaningful && isWithinMax)))) {
                         coveredSet.add(cat);
                     }
                     cumulativeWeighted += catAttention;
@@ -662,29 +776,32 @@ window.timelines = {
                 // this variable are the only ones shown as faded/disabled.
                 const chipRow = document.createElement('div');
                 chipRow.className = 'text-sm';
-                chipRow.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:8px;';
+                chipRow.style.cssText = 'display:flex; align-items:center; gap:6px; margin-top:8px; margin-bottom:8px;';
 
                 const chipDefs = [
-                    { key: 'rising',   label: '↑ Rising',      bg: 'var(--trend-rising-bg)',   color: 'var(--color-accent)',      border: 'var(--trend-rising-border)' },
-                    { key: 'falling',  label: '↓ Falling',     bg: 'var(--trend-falling-bg)',  color: 'var(--color-danger-soft)', border: 'var(--trend-falling-border)' },
-                    { key: 'spikes',   label: '◎ Spikes',      bg: 'var(--trend-spikes-bg)',   color: 'var(--color-save)',        border: 'var(--trend-spikes-border)' },
+                    { key: 'all',      label: '★ Interesting', bg: 'var(--chip-bg)',           color: 'var(--color-text-primary)', border: 'var(--chip-border)',
+                      tooltip: 'Default view. Picks the 3 labels with the strongest combined signal — trends, spikes, and volatility — so you see what stands out without having to dig.' },
+                    { key: 'rising',   label: '↑ Rising',      bg: 'var(--trend-rising-bg)',   color: 'var(--color-accent)',      border: 'var(--trend-rising-border)',
+                      tooltip: 'Labels whose share climbed steadily over this window.' },
+                    { key: 'falling',  label: '↓ Falling',     bg: 'var(--trend-falling-bg)',  color: 'var(--color-danger-soft)', border: 'var(--trend-falling-border)',
+                      tooltip: 'Labels whose share declined steadily over this window.' },
+                    { key: 'spikes',   label: '◎ Spikes',      bg: 'var(--trend-spikes-bg)',   color: 'var(--color-save)',        border: 'var(--trend-spikes-border)',
+                      tooltip: 'Labels with one or more sharp single-day surges that stand out against their usual level.' },
                     // Hidden: users find these chips confusing — restore when needed
                     // { key: 'breaks',   label: '⋮ Breaks',      bg: 'var(--trend-breaks-bg)',   color: 'var(--color-info)',        border: 'var(--trend-breaks-border)' },
                     // { key: 'volatile', label: '~ Volatile',    bg: 'var(--trend-volatile-bg)', color: 'var(--color-purple)',      border: 'var(--trend-volatile-border)' },
                 ];
 
-                const selectTopSpan = document.createElement('span');
-                selectTopSpan.style.cssText = 'color: var(--color-text-tertiary); white-space: nowrap;';
-                selectTopSpan.textContent = 'Select top...';
-                chipRow.appendChild(selectTopSpan);
+                // 'Interesting' (key 'all') is the default state and is always available.
+                chipAvailable.all = true;
 
                 chipDefs.forEach(def => {
                     const chip = document.createElement('div');
-                    chip.className = 'filter-chip';
+                    chip.className = 'filter-chip meta-tooltip tooltip-below';
                     chip.id = `chip-${plotId}-${def.key}`;
                     const isActive = (activeFilter === def.key);
                     const isAvail = !!chipAvailable[def.key];
-                    const base = `padding: 2px 6px; border-radius: 10px; background: ${def.bg}; color: ${def.color}; border: 1px solid ${def.border};`;
+                    const base = `padding: 2px 6px; border-radius: 10px; background: ${def.bg}; color: ${def.color}; border: 1px solid ${def.border}; text-decoration: none;`;
                     if (isAvail) {
                         // Active: outline ring (offset by 2 px) + bold weight.
                         const ring = isActive
@@ -692,10 +809,11 @@ window.timelines = {
                             : '';
                         chip.style.cssText = base + ' cursor: pointer; opacity: 1;' + ring;
                         chip.addEventListener('click', () => this.setFilter(varName, def.key));
+                        chip.setAttribute('data-tooltip', def.tooltip || '');
                     } else {
                         chip.style.cssText = base + ' cursor: not-allowed; opacity: 0.35;';
                         chip.setAttribute('aria-disabled', 'true');
-                        chip.setAttribute('title', 'No matching labels for this variable');
+                        chip.setAttribute('data-tooltip', `${def.tooltip || ''}\n\nNo matching labels for this variable.`.trim());
                     }
                     chip.textContent = def.label;
                     chipRow.appendChild(chip);
@@ -717,8 +835,17 @@ window.timelines = {
                 //   left = (Σ catWeight before this cat) / totalKeptWeight * 100
                 //   width = max(this cat's segPct%, 6 px) via min-width
                 const _indicatorRibbonDenom = Math.max(1, keptCategories.reduce((s, c) => s + (catWeightedTotals[c] || 0), 0));
+
+                // Ribbon usage hint — sits just above the indicator markers so
+                // users know the ribbon below is interactive.
+                const ribbonHint = document.createElement('div');
+                ribbonHint.className = 'text-xxs';
+                ribbonHint.style.cssText = 'color: var(--color-text-tertiary); margin-top: 6px; text-align: center;';
+                ribbonHint.textContent = 'Click on labels to show/hide in the timeline:';
+                chartWrapper.appendChild(ribbonHint);
+
                 const indicatorWrapper = document.createElement('div');
-                indicatorWrapper.style.cssText = 'padding: 0 2px; margin-top: 3px; margin-bottom: 2px; box-sizing: border-box;';
+                indicatorWrapper.style.cssText = 'padding: 0 2px; margin-top: 3px; margin-bottom: -6px; box-sizing: border-box; position: relative; z-index: 2; pointer-events: none;';
                 const indicatorRow = document.createElement('div');
                 indicatorRow.style.cssText = 'position: relative; width: 100%; height: 3px;';
                 indicatorWrapper.appendChild(indicatorRow);
@@ -786,12 +913,9 @@ window.timelines = {
                     if (cd.anomalies && cd.anomalies.length > 0) badgeBits.push('◎ Spikes');
                     if (cd.break && Math.abs(breakDelta) > breakThresh) badgeBits.push('⋮ Step change');
                     if (cd.volatility && volStd > volThresh) badgeBits.push('~ Volatile');
-                    const trendLine = badgeBits.length ? `<br>${badgeBits.join(' · ')}` : '';
-                    const watchSec = Math.round(wTotal);
-                    const playCount = (catTotals[cat] || 0).toLocaleString();
-                    const primaryLine = isMultiLabel
-                        ? `${segPct.toFixed(1)}% of label mentions · ${watchPct.toFixed(1)}% of time spent`
-                        : `${watchPct.toFixed(1)}% of time spent`;
+                    const primaryLines = isMultiLabel
+                        ? [`${segPct.toFixed(1)}% of label mentions`, `${watchPct.toFixed(1)}% of time spent`]
+                        : [`${watchPct.toFixed(1)}% of time spent`];
                     return {
                         x: [segPct],
                         y: ['cats'],
@@ -806,8 +930,14 @@ window.timelines = {
                         text: [cat],
                         textposition: 'inside',
                         insidetextanchor: 'middle',
-                        customdata: [[cat, primaryLine, watchSec.toLocaleString(), playCount, trendLine]],
-                        hovertemplate: '<b>%{customdata[0]}</b><br>%{customdata[1]}%{customdata[4]}<extra></extra>'
+                        // Plotly's built-in tooltip can't render multi-line text
+                        // inside a 50px-tall ribbon, so we suppress it via CSS
+                        // and draw our own in the plotly_hover handler.  A
+                        // minimal single-line hovertemplate is required for
+                        // plotly_hover events to fire at all — `hoverinfo:'none'`
+                        // disables events too.
+                        hovertemplate: ' <extra></extra>',
+                        customdata: [{ cat, lines: primaryLines, badges: badgeBits.slice() }]
                     };
                 });
 
@@ -829,6 +959,15 @@ window.timelines = {
                     if (!eventData || !eventData.points || !eventData.points.length) return;
                     const cat = eventData.points[0].data.name;
                     window.timelines.toggleCategory(varName, cat);
+                });
+
+                ribbonDiv.on('plotly_hover', function (eventData) {
+                    const pt = eventData && eventData.points && eventData.points[0];
+                    if (!pt || !pt.customdata) return;
+                    window.timelines._showRibbonTooltip(pt.customdata, eventData.event);
+                });
+                ribbonDiv.on('plotly_unhover', function () {
+                    window.timelines._hideRibbonTooltip();
                 });
 
                 // Unified residual message: combines backend-folded and
@@ -1334,7 +1473,13 @@ window.timelines = {
                     tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') }
                 },
                 barmode: 'overlay',
-                showlegend: isCategorical
+                showlegend: isCategorical,
+                modebar: {
+                    bgcolor: 'rgba(0,0,0,0)',
+                    color: getCSSVar('--color-text-faint'),
+                    activecolor: getCSSVar('--color-text-secondary'),
+                    orientation: 'h'
+                }
             };
 
             if (varData.type === 'categorical') {
@@ -1415,7 +1560,7 @@ window.timelines = {
             }
 
             Plotly.newPlot(plotId, traces, layout, {
-                displayModeBar: true,
+                displayModeBar: 'hover',
                 responsive: true,
                 modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d', 'toggleSpikelines'],
                 displaylogo: false
@@ -1848,10 +1993,19 @@ window.timelines = {
         // analysis data, so slicing gives us the most interesting matches.
         const maxAutoSelect = 5;
 
+        // All auto-selections (Interesting / Rising / Falling / Spikes) skip
+        // categories below the share-width floor.  Trend signals on tiny
+        // labels are mostly noise and chart lines for them are hard to read;
+        // the user can still click a narrow segment on the ribbon to surface
+        // it manually.
+        const wideSet = this._wideCatsFor(varName);
+        const passesFloor = (id) => !wideSet || wideSet.has(id);
+
         if (activeFilter === 'all') {
             // Reset to top 3 by interestingness
             if (varAnalysis && Array.isArray(varAnalysis.categories)) {
-                this.timelineState.categoricalSelections[varName] = varAnalysis.categories.slice(0, 3).map(c => c.id);
+                const wide = varAnalysis.categories.filter(c => passesFloor(c.id));
+                this.timelineState.categoricalSelections[varName] = wide.slice(0, 3).map(c => c.id);
             }
         } else {
             // Collect all matching categories (in interestingness order).
@@ -1862,6 +2016,7 @@ window.timelines = {
             if (varAnalysis && Array.isArray(varAnalysis.categories)) {
                 varAnalysis.categories.forEach(cd => {
                     if (cd.is_other) return; // "Other" is a residual bucket
+                    if (!passesFloor(cd.id)) return;
                     const meanShare = (cd.volatility && cd.volatility.mean) || (cd.trend && cd.trend.mean) || 0;
                     const trendThresh = 0.5 * Math.max(meanShare, 1.0);
                     const breakThresh = 0.5 * Math.max(meanShare, 1.0);
