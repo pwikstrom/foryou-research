@@ -14,7 +14,14 @@ let viewerData = {
     userVotes: [],
     activeModal: { item_id: null, variable: null, currentTags: [] },
     displayIds: {}, // Map of raw_id -> display_id
-    expandedDetailSections: new Set(), // Track expanded sections in details panel (collapsed by default)
+    collapsedDetailSections: (() => {
+        // Track sections the user has explicitly collapsed. Persisted so the
+        // choice survives reloads. Everything not in this set is expanded by
+        // default — otherwise users don't see Collection ID, Activity timestamp,
+        // Popularity, etc. without clicking to expand.
+        try { return new Set(JSON.parse(localStorage.getItem('viewer_collapsed_detail_sections') || '[]')); }
+        catch (e) { return new Set(); }
+    })(),
     extraDataIndices: new Set(), // Global 0-based indices of items with extra_data (engagement activity)
     leftPanelVisible: true,
     rightPanelVisible: true,
@@ -1324,8 +1331,9 @@ function renderMetadata(item) {
         const headerRow = document.createElement('tr');
         headerRow.className = 'detail-section-header';
 
+        const isCollapsed = viewerData.collapsedDetailSections.has(sec);
         const headerCell = document.createElement('td');
-        headerCell.innerHTML = `&#9656; ${sec}`; // Right arrow = collapsed by default
+        headerCell.innerHTML = `${isCollapsed ? '&#9656;' : '&#9662;'} ${sec}`;
         headerRow.appendChild(headerCell);
 
         tbody.appendChild(headerRow);
@@ -1335,7 +1343,7 @@ function renderMetadata(item) {
         keys.forEach(key => {
             const tr = document.createElement('tr');
             tr.className = 'detail-row';
-            tr.style.display = 'none'; // Collapsed by default
+            tr.style.display = isCollapsed ? 'none' : 'flex';
             const tdKey = document.createElement('td');
             tdKey.className = 'detail-key';
             tdKey.style.cursor = 'pointer';
@@ -1552,22 +1560,23 @@ function renderMetadata(item) {
             rowGroups.push(tr);
         });
 
-        // Restore expanded state (sections are collapsed by default)
-        if (viewerData.expandedDetailSections.has(sec)) {
-            rowGroups.forEach(r => r.style.display = 'flex');
-            headerCell.innerHTML = `&#9662; ${sec}`;
-        }
-
-        // Click handler for toggle
+        // Click handler: toggle collapsed state (sections are expanded by
+        // default, so the set tracks user-collapsed sections).
         headerRow.onclick = () => {
-            const isHidden = rowGroups[0].style.display === 'none';
-            rowGroups.forEach(r => r.style.display = isHidden ? 'flex' : 'none');
-            headerCell.innerHTML = isHidden ? `&#9662; ${sec}` : `&#9656; ${sec}`;
-            if (isHidden) {
-                viewerData.expandedDetailSections.add(sec);
+            const nowCollapsed = rowGroups[0].style.display !== 'none';
+            rowGroups.forEach(r => r.style.display = nowCollapsed ? 'none' : 'flex');
+            headerCell.innerHTML = nowCollapsed ? `&#9656; ${sec}` : `&#9662; ${sec}`;
+            if (nowCollapsed) {
+                viewerData.collapsedDetailSections.add(sec);
             } else {
-                viewerData.expandedDetailSections.delete(sec);
+                viewerData.collapsedDetailSections.delete(sec);
             }
+            try {
+                localStorage.setItem(
+                    'viewer_collapsed_detail_sections',
+                    JSON.stringify([...viewerData.collapsedDetailSections])
+                );
+            } catch (e) { /* localStorage disabled — fine */ }
         };
     });
 }

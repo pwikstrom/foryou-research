@@ -7,7 +7,6 @@ Date:
 """
 
 
-import datetime as _dt
 import re
 from abc import ABC, abstractmethod
 from collections import deque
@@ -1139,44 +1138,36 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         # -----------------------------------------------------
         # tz_offset and utc_timestamp:
 
-
-        # Convert the zeeschuimer timestamp to a datetime object
-        df["timestamp_collected"] = df["timestamp_collected"].astype(np.int64)
-        df["timestamp_collected"] = df["timestamp_collected"].apply(lambda x: _dt.datetime.fromtimestamp(np.int64(x/1000)))
+        # timestamp_collected is a Unix epoch in milliseconds — parse directly
+        # as tz-aware UTC. The prior implementation used datetime.fromtimestamp()
+        # which returns a naive datetime in the *server's* local timezone, then
+        # relocalised it as if it were in source_url.tz_name. That only produced
+        # correct UTC when the ingestion server and the user happened to share a
+        # timezone — off by the local offset otherwise.
+        df["utc_timestamp"] = pd.to_datetime(
+            df["timestamp_collected"].astype(np.int64), unit='ms', utc=True
+        )
 
         unique_tz = df["source_url.tz_name"].dropna().unique()
 
-
-        # Derive UTC timestamp
+        # tz_offset is the user's offset from UTC at the time of the event,
+        # derived from source_url.tz_name so DST boundaries are respected.
         if len(unique_tz) == 1:
-            #if self.verbose: print("fast extraction of local time based features")
-            # Fast path: everything in same tz
             tz = ZoneInfo(unique_tz[0])
-            # Localize -> Convert to UTC
-            df["utc_timestamp"] = (
-                df["timestamp_collected"]
-                .dt.tz_localize(tz, ambiguous='NaT', nonexistent='NaT')
-                .dt.tz_convert("UTC")
+            df["tz_offset"] = (
+                df["utc_timestamp"].dt.tz_convert(tz).apply(
+                    lambda t: t.utcoffset().total_seconds() / 3600 if pd.notna(t) else np.nan
+                )
             )
-        else:
-            #if self.verbose: print("slow extraction of local time based features")
-            # Slower path: per-timezone blocks
-            utc_parts = []
+        elif len(unique_tz) > 1:
+            offset_parts = []
             for tz_name, block in df.groupby("source_url.tz_name", sort=False):
                 tz = ZoneInfo(tz_name)
-                # Localize -> Convert to UTC immediately
-                part = (
-                    block["timestamp_collected"]
-                    .dt.tz_localize(tz, ambiguous='NaT', nonexistent='NaT')
-                    .dt.tz_convert("UTC")
+                part = block["utc_timestamp"].dt.tz_convert(tz).apply(
+                    lambda t: t.utcoffset().total_seconds() / 3600 if pd.notna(t) else np.nan
                 )
-                utc_parts.append(part)
-            # Concatenate identical Dtypes (all UTC)
-            df["utc_timestamp"] = pd.concat(utc_parts).sort_index()
-
-        if len(unique_tz) > 0:
-            df["tz_offset"] = df["timestamp_collected"] - df["utc_timestamp"].dt.tz_localize(None)
-            df["tz_offset"] = df["tz_offset"].dt.total_seconds() / 3600
+                offset_parts.append(part)
+            df["tz_offset"] = pd.concat(offset_parts).sort_index()
         
         # I'm keeping this information in the extra_data column. It's a string so it works fine
         df.rename(columns={"source_url.tz_name": "extra_data"}, inplace=True)

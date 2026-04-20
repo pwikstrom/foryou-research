@@ -1221,6 +1221,7 @@ function _fetchDailyChart(row) {
             s.loading = false;
             if (data.status !== 'success') { _renderDailyChart(row); return; }
             s.totalPerDay = data.total_per_day || [];
+            _syncDateRangeToCollections(row, s.totalPerDay);
             _renderDailyChart(row);
             if (data.potentials) {
                 _renderStudyMetrics(row, { potentials: data.potentials });
@@ -1233,6 +1234,28 @@ function _fetchDailyChart(row) {
         });
 }
 
+// Snap START_DATE/END_DATE to cover the full span of the currently selected
+// collections. Runs each time the daily-activities fetch returns, so the
+// user's selection always starts with everything included; drag-to-select on
+// the chart overrides until the next collection change.
+function _syncDateRangeToCollections(row, totalPerDay) {
+    const startInput = row.querySelector('[data-field="START_DATE"]');
+    const endInput = row.querySelector('[data-field="END_DATE"]');
+    if (!startInput || !endInput) return;
+    if (!Array.isArray(totalPerDay) || !totalPerDay.length) {
+        startInput.value = '';
+        endInput.value = '';
+        startInput.dispatchEvent(new Event('input', { bubbles: true }));
+        endInput.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+    }
+    const dates = totalPerDay.map(d => d.date).filter(Boolean).sort();
+    startInput.value = dates[0];
+    endInput.value = dates[dates.length - 1];
+    startInput.dispatchEvent(new Event('input', { bubbles: true }));
+    endInput.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function _debouncedRefetchDailyChart(row) {
     const prev = _studyChartDebounce.get(row);
     if (prev) clearTimeout(prev);
@@ -1240,9 +1263,17 @@ function _debouncedRefetchDailyChart(row) {
 }
 
 function _toIsoDate(v) {
+    if (v == null) return null;
+    // Plotly date axes return strings like "2026-04-20 00:00:00.0000" without a
+    // timezone marker. `new Date()` parses these as local time, so round-tripping
+    // through `.toISOString()` shifts the date back a day in positive-UTC zones.
+    // Extract YYYY-MM-DD directly from the string whenever possible.
+    if (typeof v === 'string') {
+        const m = v.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (m) return m[1];
+    }
     const d = new Date(v);
     if (isNaN(d)) return null;
-    // Use UTC slice to avoid TZ drift pulling the date back a day.
     return d.toISOString().slice(0, 10);
 }
 
@@ -1286,6 +1317,12 @@ function _renderDailyChart(row) {
 
     const xs = total.map(d => d.date);
     const ys = total.map(d => d.count);
+    // Plotly places "2026-04-20" at UTC midnight, which straddles the boundary
+    // between the 2026-04-19 and 2026-04-20 tick labels. A narrow drag on the
+    // "left" half of the bar then yields start=end=2026-04-19 and excludes the
+    // data. Anchor each bar at noon UTC of its date instead so the bar sits
+    // cleanly inside a single day label.
+    const xsPlot = xs.map(d => d + 'T12:00:00Z');
 
     const mutedColor = getCSSVar('--color-text-tertiary') || 'rgba(150,150,150,0.4)';
     const baseColor = getCSSVar('--color-text-secondary') || 'rgba(100,100,100,0.8)';
@@ -1304,11 +1341,17 @@ function _renderDailyChart(row) {
     const inclMap = hasIncluded ? new Map(included.map(d => [d.date, d.count])) : null;
     const inclY = hasIncluded ? xs.map(d => inclMap.get(d) || 0) : null;
 
+    // With a single-day collection Plotly has no span to infer a default bar
+    // width from, so the bar collapses to a hairline. Pin the width to 80% of
+    // one day so the bar renders at a comparable size to multi-day charts.
+    const singleBarWidth = xs.length === 1 ? 86400000 * 0.8 : undefined;
+
     const traces = [{
         type: 'bar',
         name: '',
-        x: xs,
+        x: xsPlot,
         y: ys,
+        width: singleBarWidth,
         customdata: hasIncluded ? inclY : undefined,
         marker: { color: baseColors, opacity: baseOpacities },
         hovertemplate: hasIncluded
@@ -1320,8 +1363,9 @@ function _renderDailyChart(row) {
         traces.push({
             type: 'bar',
             name: '',
-            x: xs,
+            x: xsPlot,
             y: inclY,
+            width: singleBarWidth,
             marker: { color: accentColor },
             hoverinfo: 'skip',
         });
@@ -1330,15 +1374,7 @@ function _renderDailyChart(row) {
     // Date-range caption for the top-right — "Date range: yyyy-mm-dd – yyyy-mm-dd".
     const startInputVal = (startInput?.value || '').trim();
     const endInputVal = (endInput?.value || '').trim();
-    const fmtIsoDate = (iso) => {
-        if (!iso) return '';
-        const d = new Date(iso);
-        if (isNaN(d)) return iso;
-        const y = d.getUTCFullYear();
-        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(d.getUTCDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-    };
+    const fmtIsoDate = (iso) => _toIsoDate(iso) || '';
     const rangeFirst = fmtIsoDate(startInputVal || xs[0]);
     const rangeLast = fmtIsoDate(endInputVal || xs[xs.length - 1]);
     const dateRangeCaption = `Date range: ${rangeFirst} \u2013 ${rangeLast}`;
@@ -1377,6 +1413,33 @@ function _renderDailyChart(row) {
         hovermode: 'x',
     };
 
+    // Single-day collections have no natural span for Plotly to auto-range
+    // against, so it picks an arbitrary sub-day view that places the bar near
+    // an edge. Pad the range by half a day on each side of the noon anchor to
+    // center the bar with exactly one date label visible.
+    if (xs.length === 1) {
+        const dayMs = 86400000;
+        const noonMs = Date.UTC(
+            parseInt(xs[0].slice(0, 4), 10),
+            parseInt(xs[0].slice(5, 7), 10) - 1,
+            parseInt(xs[0].slice(8, 10), 10),
+            12, 0, 0,
+        );
+        layout.xaxis.range = [
+            new Date(noonMs - dayMs / 2).toISOString(),
+            new Date(noonMs + dayMs / 2).toISOString(),
+        ];
+    }
+
+    // For narrow spans Plotly's auto-ticks fall on sub-day intervals and the
+    // '%Y-%m-%d' tickformat then shows the same date repeatedly. Pin ticks to
+    // the noon bar anchor on a per-day cadence. Skip for longer spans — daily
+    // ticks across months/years stack into an unreadable band.
+    if (xs.length > 0 && xs.length <= 14) {
+        layout.xaxis.tick0 = xsPlot[0];
+        layout.xaxis.dtick = 86400000;
+    }
+
     // Turn off Plotly's own double-click reset so our handler runs instead.
     const config = { displayModeBar: false, responsive: true, doubleClick: false };
 
@@ -1397,14 +1460,21 @@ function _renderDailyChart(row) {
             endInput.dispatchEvent(new Event('input', { bubbles: true }));
             window.Plotly.relayout(chartDiv, { selections: [] });
         });
-        chartDiv.on('plotly_doubleclick', () => {
+        // Plotly's built-in plotly_doubleclick only fires in the plot interior
+        // when dragmode isn't swallowing the event — with 'select' active the
+        // selection overlay eats it everywhere except below the x-axis. Listen
+        // to the native dblclick on the container (capture phase, so it runs
+        // even if Plotly stops propagation) and reset the date range to the
+        // full span of the current selection.
+        chartDiv.addEventListener('dblclick', () => {
             const xs2 = (_getChartState(row).totalPerDay || []).map(d => d.date);
             if (!xs2.length) return;
             startInput.value = xs2[0];
             endInput.value = xs2[xs2.length - 1];
             startInput.dispatchEvent(new Event('input', { bubbles: true }));
             endInput.dispatchEvent(new Event('input', { bubbles: true }));
-        });
+            if (window.Plotly) window.Plotly.relayout(chartDiv, { selections: [] });
+        }, true);
     }
 }
 
@@ -1544,8 +1614,8 @@ function _renderStudyIssues(row, issues) {
 function createNewStudy() {
     const newStudy = {
         STUDY_NAME: '',
-        START_DATE: "2024-05-18",
-        END_DATE: "2024-05-25",
+        START_DATE: "",
+        END_DATE: "",
         USER_ACCESS: [],
         SAMPLE_FRAME: "activities",
         SELECTED_COLLECTIONS: []

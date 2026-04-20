@@ -526,7 +526,13 @@ def load_collection_data(
         except ValueError:
             END_DATE = _dt.datetime(2099,12,31).date()
 
-    sel = [(timestamp_column, ">=", START_DATE),(timestamp_column, "<=", END_DATE)]
+    # timestamp_column carries times-of-day; a date-only upper bound implicitly
+    # means midnight, which excludes same-day events after 00:00:00. Treat the
+    # user's END_DATE as "through the end of that day" by shifting the bound
+    # to the start of the following day (exclusive).
+    END_BOUND = _dt.datetime.combine(END_DATE + _dt.timedelta(days=1), _dt.time.min)
+
+    sel = [(timestamp_column, ">=", START_DATE),(timestamp_column, "<", END_BOUND)]
 
     the_selected_collections = fyp_cf["study_defs"][study_name].get("SELECTED_COLLECTIONS",[])
     if len(the_selected_collections) > 0:
@@ -542,7 +548,7 @@ def load_collection_data(
     else:
         if verbose:
             print("    [DDP] Selecting date range from cached collection data")
-        mask = (all_data[timestamp_column] >= START_DATE) & (all_data[timestamp_column] <= END_DATE)
+        mask = (all_data[timestamp_column] >= START_DATE) & (all_data[timestamp_column] < END_BOUND)
         if len(the_selected_collections) > 0:
             mask = mask & all_data[collection_id_column].isin(the_selected_collections)
         out_df = all_data[mask].copy()
