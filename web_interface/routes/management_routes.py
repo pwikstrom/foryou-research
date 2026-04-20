@@ -487,7 +487,7 @@ def save_study():
     # If updating an existing study, check for actual changes
     if study_name in studies:
         existing_config = studies[study_name]
-        
+
         # Compare incoming data with existing config
         changed_keys = []
         for key, value in data.copy().items(): # Use copy to safely iterate
@@ -498,10 +498,14 @@ def save_study():
             if key not in existing_config or existing_config[key] != value:
                 changed_keys.append(key)
                 #print(f"Change detected in {key}: {existing_config.get(key)} -> {value}") # Debug
-        
-        if not changed_keys:
-             # If exact same definition, return early
-             return jsonify({"status": "no_change", "message": "No changes to save."})
+
+        # Note: we deliberately do NOT short-circuit when changed_keys is empty.
+        # The study's cached artifacts depend on collection/scrape/annotation
+        # parquets that can change out-of-band (e.g. new activities ingested
+        # into an existing collection_id). run_study_refresh fingerprints those
+        # inputs via the sidecar and short-circuits itself when they really are
+        # unchanged, so an unnecessary save here becomes a cheap no-op — and a
+        # necessary one actually rebuilds.
 
         # If only USER_ACCESS changed, we don't need to recalculate anything
         if len(changed_keys) == 1 and changed_keys[0] == 'USER_ACCESS':
@@ -1090,12 +1094,55 @@ def delete_collection():
 
     invalidate_collection_tags_cache()
 
+    # 9. Dispatch a study_refresh for each affected study so the cache rebuilds
+    # without the deleted collection. Without this, the /api/studies/defined
+    # filter (which hides studies whose {study}_recoded.parquet is missing)
+    # would drop every affected study off the UI until someone manually
+    # reopened and saved it.
+    refresh_dispatched: list[str] = []
+    refresh_failed: list[dict] = []
+    for sname in affected_studies:
+        task_args = {
+            "study_name": sname,
+            "refresh_pca": True,
+            "refresh_metadata": True,
+        }
+        if is_cloud_run():
+            success, msg = start_process("study_refresh", None, task_args=task_args)
+            if success:
+                refresh_dispatched.append(sname)
+            else:
+                refresh_failed.append({"study": sname, "error": msg})
+        else:
+            import threading as _threading
+
+            from web_interface.run_study_refresh import run_study_refresh
+            from web_interface.task_status import LocalThreadStatusReporter
+
+            status_key = f"study_refresh__{sname}"
+            reporter = LocalThreadStatusReporter(status_key)
+
+            def _run_in_thread(_args=task_args, _reporter=reporter, _sname=sname):
+                try:
+                    run_study_refresh(reporter=_reporter, task_args=_args)
+                    _reporter.complete()
+                except Exception as e:
+                    print(f"Study refresh after delete_collection failed for {_sname}: {e}")
+                    _reporter.fail(str(e))
+
+            _threading.Thread(
+                target=_run_in_thread, daemon=True, name=status_key
+            ).start()
+            refresh_dispatched.append(sname)
+
     return jsonify({
         "status": "success",
         "collection_id": collection_id,
         "affected_studies": affected_studies,
         "archived_files": archived,
         "archive_failures": archive_failures,
+        "refresh_dispatched": refresh_dispatched,
+        "refresh_failed": refresh_failed,
     })
 
 

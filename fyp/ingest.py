@@ -641,14 +641,37 @@ class ForYouCollection(ForYouBaseCollection):
             return
 
 
-        # metadata (needs local_* columns present in self.data)
+        # metadata (needs local_* columns present in self.data).
+        # Load the existing metadata ourselves so we can (a) regenerate stats
+        # for *every* collection in self.data — generate_collection_metadata's
+        # "load_from_disk=True" path short-circuits when no collection_ids are
+        # new, which leaves counts stale whenever events are appended to an
+        # existing collection — and (b) restore columns set outside the
+        # generator (e.g. ('other','accepted') flipped during acceptance).
+        old_metadata = None
+        if data_io.exists(
+            storage_location=self.processed_storage_location,
+            filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
+            old_metadata = data_io.load_parquet(
+                storage_location=self.processed_storage_location,
+                filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
+                verbose=False)
+
         self.stats = generate_collection_metadata(
             self.data,
             update_col=None,
             sort_by=None,
             verbose=True,
             save_to_disk_ok=False,
-            load_from_disk=True)
+            load_from_disk=False)
+
+        if old_metadata is not None and not old_metadata.empty:
+            preserved_cols = [c for c in old_metadata.columns if c not in self.stats.columns]
+            if preserved_cols:
+                self.stats = pd.merge(
+                    self.stats, old_metadata[preserved_cols],
+                    left_index=True, right_index=True, how='left')
+
         self.stats[('other','accepted')] = True
         self.stats[('participants', 'date')] = self.stats[('other', 'ts_added_to_dataset')]
 
