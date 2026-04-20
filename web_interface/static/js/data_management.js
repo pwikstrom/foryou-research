@@ -3345,6 +3345,66 @@ function dm_closeEditModal() {
 }
 
 
+function dm_deleteCollection() {
+    if (!currentEditCollectionId || bulkEditMode) return;
+
+    const id = currentEditCollectionId;
+    const obj = availableCollections.find(c => c.id === id);
+    const displayId = (obj && obj.displayId) || id;
+    const deleteBtn = document.getElementById('delete-collection-btn');
+
+    if (deleteBtn) deleteBtn.disabled = true;
+
+    fetch(`/api/manage/collections/affected_studies?collection_id=${encodeURIComponent(id)}`)
+        .then(r => r.json())
+        .then(data => {
+            const studies = (data && data.studies) || [];
+            const studyClause = studies.length === 0
+                ? "No studies reference this collection."
+                : `${studies.length} study/studies will be refreshed: ${studies.join(", ")}.`;
+            const ok = confirm(
+                `Delete collection "${displayId}"?\n\n` +
+                `${studyClause}\n\n` +
+                `Raw upload files will be moved to the archive folder and can be restored. ` +
+                `Scraped video data and machine annotations will be kept.`
+            );
+            if (!ok) {
+                if (deleteBtn) deleteBtn.disabled = false;
+                return;
+            }
+            return fetch('/api/manage/collections/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({ collection_id: id })
+            })
+                .then(r => r.json())
+                .then(resp => {
+                    if (deleteBtn) deleteBtn.disabled = false;
+                    if (resp && resp.status === 'success') {
+                        const archived = (resp.archived_files || []).length;
+                        const failures = (resp.archive_failures || []).length;
+                        const affected = (resp.affected_studies || []).length;
+                        let msg = `Deleted collection "${displayId}". `;
+                        msg += `Archived ${archived} raw file(s)`;
+                        if (failures > 0) msg += ` (${failures} archive failure(s))`;
+                        msg += `. Affected ${affected} study/studies.`;
+                        alert(msg);
+                        closeEditCollectionModal();
+                        loadAvailableCollections();
+                    } else {
+                        alert('Failed to delete: ' + ((resp && resp.error) || 'Unknown error'));
+                    }
+                });
+        })
+        .catch(err => {
+            if (deleteBtn) deleteBtn.disabled = false;
+            console.error("Error deleting collection:", err);
+            alert("Error deleting collection.");
+        });
+}
+window.dm_deleteCollection = dm_deleteCollection;
+
+
 function toggleAllCollectionCheckboxes(masterCheckbox) {
     const checked = masterCheckbox.checked;
     document.querySelectorAll('#edit-activity-list-container .collection-row-checkbox').forEach(cb => {

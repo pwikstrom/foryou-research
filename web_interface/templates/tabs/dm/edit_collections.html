@@ -60,11 +60,19 @@
                 not shown in the primary study interface.</span>
         </div>
 
-        <div style="margin-top: 25px; text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
-            <button type="button" class="action-btn btn-secondary" style=""
-                onclick="closeEditCollectionModal()">Cancel</button>
-            <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save
-                Annotations</button>
+        <div style="margin-top: 25px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+            {% if current_user.is_admin() %}
+            <button type="button" class="action-btn btn-danger" id="delete-collection-btn"
+                onclick="dm_deleteCollection()">Delete Collection</button>
+            {% else %}
+            <span></span>
+            {% endif %}
+            <div style="display: flex; gap: 10px;">
+                <button type="button" class="action-btn btn-secondary" style=""
+                    onclick="closeEditCollectionModal()">Cancel</button>
+                <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save
+                    Annotations</button>
+            </div>
         </div>
     </div>
 </div>
