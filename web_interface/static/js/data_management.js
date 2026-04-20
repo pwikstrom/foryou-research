@@ -3119,6 +3119,10 @@ function openEditCollectionModal(collectionObj) {
         hiddenCheckbox.onchange = null;
     }
 
+    // Delete is a single-collection operation only — hide in bulk mode.
+    const deleteBtn = document.getElementById('delete-collection-btn');
+    if (deleteBtn) deleteBtn.style.display = '';
+
     dm_renderTags();
     document.getElementById('editCollectionModal').style.display = 'block';
 }
@@ -3513,6 +3517,11 @@ function openEditSelectedCollections() {
         }
         hiddenCheckbox.onchange = () => { hiddenUserTouched = true; };
     }
+
+    // Delete collection is a single-collection operation only; too risky to
+    // expose it while editing several collections as a batch.
+    const deleteBtn = document.getElementById('delete-collection-btn');
+    if (deleteBtn) deleteBtn.style.display = 'none';
 
     dm_renderTags();
     document.getElementById('editCollectionModal').style.display = 'block';

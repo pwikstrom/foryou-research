@@ -892,6 +892,20 @@ button {
     pointer-events: none;
 }
 
+/* Variant classes must win over the `.action-btn` primary background above,
+   which appears later in source order than the .btn-* block. Without these
+   explicit overrides, `class="action-btn btn-danger"` renders primary-blue. */
+.action-btn.btn-danger {
+    background: var(--btn-danger-bg);
+    color: var(--btn-danger-text);
+}
+.action-btn.btn-secondary,
+.action-btn.btn-save {
+    background: var(--btn-discreet-bg);
+    color: var(--btn-discreet-text);
+    border: 1px solid var(--btn-discreet-border);
+}
+
 /* Segmented toggle control (e.g. Scatter/Heatmap, Distribution/Compare) */
 .toggle-group {
     display: inline-flex;
