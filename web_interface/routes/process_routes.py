@@ -292,8 +292,12 @@ def _ensure_task_functions_loaded() -> None:
         return
     _task_functions_loaded = True
 
+    from web_interface.run_aio_fetch import run_aio_fetch
     from web_interface.run_benchmark_parquet_read import run_benchmark_parquet_read
+    from web_interface.run_collection_delete import run_collection_delete
+    from web_interface.run_collection_metadata_refresh import run_collection_metadata_refresh
     from web_interface.run_consolidate_enrichment import run_consolidate_enrichment
+    from web_interface.run_ingest_refresh import run_ingest_refresh
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
     from web_interface.run_pca_refresh import run_pca_refresh
     from web_interface.run_queue_annotator import run_queue_annotator
@@ -311,6 +315,10 @@ def _ensure_task_functions_loaded() -> None:
         "queue_annotator": run_queue_annotator,
         "queue_scraper": run_queue_scraper,
         "timelines_refresh": run_timelines_refresh,
+        "ingest_refresh": run_ingest_refresh,
+        "aio_fetch": run_aio_fetch,
+        "collection_metadata_refresh": run_collection_metadata_refresh,
+        "collection_delete": run_collection_delete,
         "benchmark_parquet_read": run_benchmark_parquet_read,
     })
 

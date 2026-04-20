@@ -10,11 +10,10 @@ Date:
 import datetime as _dt
 import json
 import os
-import shlex
 import shutil
-import subprocess
 from pathlib import Path
 
+import boto3
 import pandas as pd
 
 import fyp.data_io as data_io
@@ -47,38 +46,44 @@ def get_donation_metadata_from_aio_aws(
 
     """
     Save the raw DynamoDB JSON into the project's local temp and
-    the move to the ddp_participants' storage location (local or GCS depending on config).
-    Requires AWS CLI to be installed and configured. *duh*
+    then move to the ddp_participants' storage location (local or GCS depending on config).
+    Authenticates via the boto3 default credential chain (env vars on Cloud Run,
+    ~/.aws/credentials locally).
     """
 
     # Compute cut‑off time
     now = (_dt.datetime.now(_dt.UTC)
            if not use_local_time
            else _dt.datetime.now().astimezone())
-    file_stamp = now.strftime("%Y%m%d%H%M%S") 
+    file_stamp = now.strftime("%Y%m%d%H%M%S")
 
     # Prepare destination
     filename = f"ddp_metadata_{file_stamp}.json"
     temp_file = os.path.join(fyp_cf["paths"]["temp"], filename)
+    os.makedirs(fyp_cf["paths"]["temp"], exist_ok=True)
 
-    # Assemble the AWS CLI command
-    scan_cmd = (
-        "aws dynamodb scan "
-        f"--table-name {shlex.quote(table_name)} "
-        "--select ALL_ATTRIBUTES "
-        "--page-size 500 "
-        "--max-items 100000 "
-        "--output json"
-    )
-    scan_args = shlex.split(scan_cmd)
-
-    # Run it — write stdout directly to the temp file instead of using shell redirection
+    # Scan the metadata table. The previous AWS-CLI implementation produced
+    # a JSON object of the shape {"Items": [...], "Count": N, "ScannedCount": N};
+    # we mirror that here so downstream readers don't change.
     try:
-        with open(temp_file, 'w', encoding='utf-8') as outf:
-            subprocess.run(scan_args, check=True, stdout=outf)
-    except subprocess.CalledProcessError as e:
-        print(f"Error downloading participant metadata running AWS CLI command: {e}")
+        ddb = boto3.client("dynamodb")
+        paginator = ddb.get_paginator("scan")
+        items: list = []
+        scanned = 0
+        for page in paginator.paginate(
+            TableName=table_name,
+            Select="ALL_ATTRIBUTES",
+            PaginationConfig={"PageSize": 500, "MaxItems": 100000},
+        ):
+            items.extend(page.get("Items", []))
+            scanned += page.get("ScannedCount", 0)
+    except Exception as e:
+        print(f"Error scanning participant metadata table via boto3: {e}")
         return None
+
+    payload = {"Items": items, "Count": len(items), "ScannedCount": scanned}
+    with open(temp_file, 'w', encoding='utf-8') as outf:
+        json.dump(payload, outf)
 
     # move to permanent storage
     data_io.move(
@@ -148,42 +153,43 @@ def get_recent_data_donations_from_aio_aws(
     dest = Path(temp_dir_path).expanduser().resolve()
     dest.mkdir(parents=True, exist_ok=True)
 
+    ddb = boto3.client("dynamodb")
+    s3 = boto3.client("s3")
+
     # ------------------------------------------------------------------
-    # 3) Run DynamoDB scan to get donation IDs
+    # 3) Scan DynamoDB for donation IDs in the window
     # ------------------------------------------------------------------
-    scan_args = [
-        "aws", "dynamodb", "scan",
-        "--table-name", table_name,
-        "--filter-expression", "consentProvided = :consent and #d >= :shareDate",
-        "--expression-attribute-names", '{"#d": "date"}',
-        "--expression-attribute-values",
-        json.dumps({
+    paginator = ddb.get_paginator("scan")
+    donation_ids: list = []
+    for page in paginator.paginate(
+        TableName=table_name,
+        FilterExpression="consentProvided = :consent and #d >= :shareDate",
+        ExpressionAttributeNames={"#d": "date"},
+        ExpressionAttributeValues={
             ":consent": {"BOOL": True},
             ":shareDate": {"S": share_date},
-        }),
-        "--query", "Items[*].id.S",
-    ]
+        },
+    ):
+        for item in page.get("Items", []):
+            id_val = item.get("id", {}).get("S")
+            if id_val:
+                donation_ids.append(id_val)
 
-    print(f"Downloading recent donations to temporary storage: {dest}")
-    scan_result = subprocess.run(scan_args, check=True, capture_output=True, text=True)
-    donation_ids = json.loads(scan_result.stdout)
+    print(f"Downloading {len(donation_ids)} donations to temporary storage: {dest}")
 
     # ------------------------------------------------------------------
     # 4) Download each donation file from S3
     # ------------------------------------------------------------------
     for donation_id in donation_ids:
-        s3_uri = f"s3://{bucket}/donation/{donation_id}"
-        subprocess.run(
-            ["aws", "s3", "cp", s3_uri, str(dest) + os.sep],
-            check=True,
-        )
+        target_path = dest / donation_id
+        s3.download_file(bucket, f"donation/{donation_id}", str(target_path))
 
     # ------------------------------------------------------------------
     # 5) Move/Upload files to ddp_raw storage
     # ------------------------------------------------------------------
     downloaded_files = os.listdir(dest)
     print(f"Moving {len(downloaded_files)} files to {storage_location} storage...")
-    
+
     count = 0
     for filename in downloaded_files:
         val_path = dest / filename
@@ -193,7 +199,7 @@ def get_recent_data_donations_from_aio_aws(
                 # Assuming they are JSONs as per previous scripts?
                 # ingest script treats them as JSONs
                 data = json.load(f)
-                
+
                 # Use data_io to save (handles GCS upload + Local secondary)
                 data_io.save_json(data, storage_location, filename)
                 count += 1
@@ -209,6 +215,8 @@ def get_recent_data_donations_from_aio_aws(
         shutil.rmtree(dest)
     except Exception as e:
         print(f"Warning: Failed to clean up temp directory {dest}: {e}")
+
+    return {"donation_ids": donation_ids, "uploaded_count": count}
 
 
 

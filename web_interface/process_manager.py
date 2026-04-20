@@ -26,6 +26,10 @@ CLOUD_TASK_ELIGIBLE = {
     "queue_annotator",
     "queue_scraper",
     "timelines_refresh",
+    "ingest_refresh",
+    "aio_fetch",
+    "collection_metadata_refresh",
+    "collection_delete",
     "benchmark_parquet_read",
 }
 
@@ -40,7 +44,11 @@ processes = {
     "recode_refresh_studies": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "pca_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "consolidate_enrichment": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "study_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
+    "study_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "ingest_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "aio_fetch": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "collection_metadata_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "collection_delete": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
 }
 
 process_stats = {}
@@ -333,12 +341,33 @@ def _dispatch_cloud_task(name: str, task_args: dict,
                 seconds=dispatch_deadline_seconds,
             )
 
-        response = client.create_task(parent=parent, task=task)
-        print(f"[CloudTasks] Dispatched task for {name}: {response.name}")
-        return True, "Task dispatched"
+        # Cloud Tasks API can return transient 503/504. Retry a couple of
+        # times with short backoff before surfacing the failure to the UI.
+        import time as _time
+        import traceback as _tb
+        from google.api_core import exceptions as _gax_exc
+        last_err: Exception | None = None
+        for attempt in range(3):
+            try:
+                response = client.create_task(parent=parent, task=task)
+                print(f"[CloudTasks] Dispatched task for {name}: {response.name}")
+                return True, "Task dispatched"
+            except (_gax_exc.ServiceUnavailable,
+                    _gax_exc.DeadlineExceeded,
+                    _gax_exc.InternalServerError) as e:
+                last_err = e
+                details = getattr(e, "details", lambda: None)()
+                metadata = getattr(e, "trailing_metadata", lambda: None)()
+                print(f"[CloudTasks] {type(e).__name__} dispatching {name} "
+                      f"(attempt {attempt + 1}/3): {e} | details={details!r} "
+                      f"| metadata={metadata!r}")
+                if attempt == 0:
+                    _tb.print_exc()
+                _time.sleep(0.5 * (2 ** attempt))
+        raise last_err if last_err else RuntimeError("Cloud Tasks dispatch failed")
 
     except Exception as e:
-        print(f"[CloudTasks] Failed to dispatch {name}: {e}")
+        print(f"[CloudTasks] Failed to dispatch {name}: {type(e).__name__}: {e}")
         return False, f"Cloud Tasks dispatch failed: {e}"
 
 
@@ -521,6 +550,10 @@ def _task_args_to_cli(name: str, task_args: dict) -> list[str]:
         out += ["--auto-refresh"]
     if task_args.get("force_full_rebuild"):
         out += ["--force"]
+    if task_args.get("hours_back") is not None:
+        out += ["--hours-back", str(task_args["hours_back"])]
+    if task_args.get("collection_id"):
+        out += ["--collection-id", str(task_args["collection_id"])]
     # study_name is a positional in some scripts (recode/pca) — append last
     if task_args.get("study_name"):
         out += [str(task_args["study_name"])]

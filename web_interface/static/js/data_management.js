@@ -2489,6 +2489,7 @@ function loadIngestionSources() {
         .then(data => {
             if (data.status === 'success') {
                 renderIngestionSources(data.sources);
+                renderPendingUploads(data.sources, data.total_pending || 0);
                 updateProcessButton(data.total_pending || 0);
             } else {
                 console.error("Failed to load ingestion sources:", data.error);
@@ -2509,7 +2510,148 @@ function updateProcessButton(totalPending) {
         btn.classList.remove('btn-has-pending');
         btn.disabled = true;
     }
+    const cancelBtn = document.getElementById('clearPendingUploadsBtn');
+    if (cancelBtn) {
+        cancelBtn.style.display = totalPending > 0 ? '' : 'none';
+        cancelBtn.disabled = totalPending === 0;
+    }
 }
+
+function renderPendingUploads(sources, totalPending) {
+    const panel = document.getElementById('pending-uploads-panel');
+    const listEl = document.getElementById('pending-uploads-list');
+    const emptyEl = document.getElementById('pending-uploads-empty');
+    if (!panel || !listEl || !emptyEl) return;
+
+    if (totalPending === 0) {
+        panel.style.display = 'none';
+        emptyEl.style.display = '';
+        listEl.innerHTML = '';
+        return;
+    }
+
+    panel.style.display = '';
+    emptyEl.style.display = 'none';
+    listEl.innerHTML = '';
+
+    const sourcesWithFiles = sources.filter(s => (s.files || []).length > 0);
+    sourcesWithFiles.forEach(source => {
+        const block = document.createElement('div');
+        const fileItems = source.files.map(f => {
+            const tagSuffix = (f.tags && f.tags.length)
+                ? ` <span class="text-xxs" style="color: var(--color-text-tertiary);">[${f.tags.join(', ')}]</span>`
+                : '';
+            const cidSuffix = f.collection_id
+                ? ` <span class="text-xxs" style="color: var(--color-text-tertiary);">→ ${f.collection_id}</span>`
+                : '';
+            return `<li style="margin-left: 16px; word-break: break-all;">${f.filename}${cidSuffix}${tagSuffix}</li>`;
+        }).join('');
+        block.innerHTML = `
+            <div class="text-sm font-semibold" style="margin-bottom: 4px;">
+                ${source.class_name}
+                <span class="text-xs" style="color: var(--color-text-tertiary); font-weight: var(--weight-normal);">
+                    (${source.files.length})
+                </span>
+            </div>
+            <ul class="text-sm" style="margin: 0; padding: 0; list-style: disc inside;">
+                ${fileItems}
+            </ul>
+        `;
+        listEl.appendChild(block);
+    });
+}
+
+let _toastContainer = null;
+
+function showToast(message, level = 'success', duration = 5000) {
+    if (!_toastContainer) {
+        _toastContainer = document.createElement('div');
+        _toastContainer.id = 'dm-toast-container';
+        _toastContainer.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none;';
+        document.body.appendChild(_toastContainer);
+    }
+
+    const colorVar = level === 'error'
+        ? 'var(--color-danger)'
+        : level === 'warning'
+            ? 'var(--color-warning)'
+            : 'var(--color-success-light, var(--color-text-primary))';
+
+    const toast = document.createElement('div');
+    toast.className = 'text-sm';
+    toast.style.cssText = `
+        background: var(--color-bg-elevated, var(--color-bg-input));
+        color: var(--color-text-primary);
+        border-left: 4px solid ${colorVar};
+        padding: 12px 16px;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        max-width: 420px;
+        opacity: 0;
+        transform: translateX(20px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        pointer-events: auto;
+    `;
+    toast.textContent = message;
+    _toastContainer.appendChild(toast);
+
+    // Defer the target opacity/transform to a later tick so the browser has
+    // a chance to paint the initial (faded) state first. Setting them in the
+    // same tick — even after a reflow — gets collapsed into a single paint
+    // by Chrome and the transition is skipped.
+    setTimeout(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(0)';
+    }, 16);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(20px)';
+        setTimeout(() => toast.remove(), 250);
+    }, duration);
+}
+
+function clearPendingUploads(btn) {
+    const ok = confirm(
+        'Cancel all pending uploads?\n\n' +
+        'This deletes the staged raw files from storage and clears every ingestion manifest. ' +
+        'The action cannot be undone.'
+    );
+    if (!ok) return;
+
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Cancelling...';
+
+    fetch('/api/manage/ingestion/clear_pending', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const removed = data.total_removed || 0;
+                const failed = (data.failures || []).length;
+                if (failed > 0) {
+                    showToast(`Cancelled ${removed} pending upload(s); ${failed} failure(s) — check logs.`, 'warning', 7000);
+                } else {
+                    showToast(`Cancelled ${removed} pending upload(s).`, 'success');
+                }
+                loadIngestionSources();
+            } else {
+                showToast('Failed to cancel pending uploads: ' + (data.error || data.message || 'Unknown error'), 'error', 7000);
+            }
+        })
+        .catch(err => {
+            console.error('Error cancelling pending uploads:', err);
+            showToast('Error cancelling pending uploads.', 'error', 7000);
+        })
+        .finally(() => {
+            btn.textContent = originalText;
+            // updateProcessButton called by loadIngestionSources will set disabled
+        });
+}
+window.clearPendingUploads = clearPendingUploads;
 
 function renderIngestionSources(sources) {
     const container = document.getElementById('ingestion-sources-container');
@@ -2568,6 +2710,8 @@ function renderIngestionSources(sources) {
 }
 
 
+let _aioFetchPollActive = false;
+
 function fetchAIOData(btn) {
     const card = btn.closest('.ingest-card');
     const daysInput = card.querySelector('.aio-days-back');
@@ -2578,6 +2722,11 @@ function fetchAIOData(btn) {
     btn.textContent = 'Fetching...';
     btn.disabled = true;
 
+    const restoreButton = () => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    };
+
     fetch('/api/manage/ingestion/fetch_aio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
@@ -2585,17 +2734,69 @@ function fetchAIOData(btn) {
     })
     .then(res => res.json())
     .then(data => {
-        if (data.status === 'success') {
-            loadIngestionSources();
+        if (data.status === 'started') {
+            pollAioFetchStatus(btn, originalText);
         } else {
-            console.error('AIO fetch error:', data.error);
+            console.error('AIO fetch error:', data.message || data.error);
+            restoreButton();
         }
     })
-    .catch(err => console.error('Error fetching AIO data:', err))
-    .finally(() => {
-        btn.textContent = originalText;
-        btn.disabled = false;
+    .catch(err => {
+        console.error('Error fetching AIO data:', err);
+        restoreButton();
     });
+}
+
+function pollAioFetchStatus(btn, originalText) {
+    if (_aioFetchPollActive) return;
+    _aioFetchPollActive = true;
+    let done = false;
+
+    const interval = setInterval(() => {
+        if (done) return;
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(statusData => {
+                if (done) return;
+                const af = statusData.aio_fetch;
+                if (!af) return;
+
+                if (af.state === 'running') {
+                    const msg = af.progress && af.progress.message;
+                    const pct = af.progress && af.progress.percent;
+                    if (msg) {
+                        btn.textContent = pct != null
+                            ? `Fetching... ${pct}% — ${msg}`
+                            : `Fetching... ${msg}`;
+                    }
+                    return;
+                }
+
+                done = true;
+                clearInterval(interval);
+                _aioFetchPollActive = false;
+                btn.textContent = originalText;
+                btn.disabled = false;
+
+                const data = af.data || {};
+                if (af.last_run_outcome === 'Fail') {
+                    console.error('AIO fetch failed.');
+                    showToast('AWS fetch failed. Check the task logs.', 'error', 7000);
+                } else {
+                    const found = data.donations_found || 0;
+                    const uploaded = data.donations_uploaded || 0;
+                    if (found === 0) {
+                        showToast('AWS fetch: no new donations in the selected window.', 'success');
+                    } else {
+                        showToast(`AWS fetch: ${uploaded} donation(s) uploaded (${found} found).`, 'success');
+                    }
+                }
+                loadIngestionSources();
+            })
+            .catch(err => {
+                console.error('Error polling aio_fetch status:', err);
+            });
+    }, 2000);
 }
 
 
@@ -2625,12 +2826,17 @@ function openUploadModal(className, rawPath, mode) {
     // Reset radio to default
     document.querySelector('input[name="collectionIdMode"][value="per_file"]').checked = true;
 
-    // Fetch metadata then show modal
+    // Show modal immediately — the existing-collection dropdown is only
+    // needed when the user picks the 'existing' radio, so we can populate
+    // it asynchronously without blocking the modal paint.
+    const sel = document.getElementById('uploadExistingCollectionId');
+    sel.innerHTML = '<option value="">Loading collections...</option>';
+    sel.disabled = true;
+    document.getElementById('uploadModal').style.display = 'flex';
+
     loadIngestionMetadata().then(() => {
-        // Populate existing collection IDs dropdown. Show the display ID if the
-        // collection has one defined, falling back to the raw collection_id.
-        const sel = document.getElementById('uploadExistingCollectionId');
         sel.innerHTML = '';
+        sel.disabled = false;
         const displayIds = ingestionMetadata.display_ids || {};
         const entries = ingestionMetadata.collection_ids.map(id => {
             const disp = displayIds[id];
@@ -2646,9 +2852,6 @@ function openUploadModal(className, rawPath, mode) {
             opt.textContent = label;
             sel.appendChild(opt);
         });
-
-        // Show modal
-        document.getElementById('uploadModal').style.display = 'flex';
     });
 }
 
@@ -2822,23 +3025,34 @@ function submitUpload() {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
+                const files = data.files || [];
+                const preview = files.slice(0, 3).join(', ');
+                const more = files.length > 3 ? `, +${files.length - 3} more` : '';
+                showToast(
+                    `Added ${files.length} file(s)${files.length ? ': ' + preview + more : ''}.`,
+                    'success'
+                );
                 statusDiv.textContent = data.message;
                 statusDiv.style.color = 'var(--color-success-light)';
                 loadIngestionSources();
-                setTimeout(() => closeUploadModal(), 1500);
+                setTimeout(() => closeUploadModal(), 800);
             } else {
                 statusDiv.textContent = 'Error: ' + data.error;
                 statusDiv.style.color = 'var(--color-danger)';
                 submitBtn.disabled = false;
+                showToast('Upload failed: ' + (data.error || 'Unknown error'), 'error', 7000);
             }
         })
         .catch(err => {
             statusDiv.textContent = 'Upload failed.';
             statusDiv.style.color = 'var(--color-danger)';
             submitBtn.disabled = false;
+            showToast('Upload failed.', 'error', 7000);
         });
 }
 
+
+let _ingestRefreshPollActive = false;
 
 window.refreshIngestionCollection = function (btn) {
     const originalText = btn.textContent;
@@ -2847,25 +3061,73 @@ window.refreshIngestionCollection = function (btn) {
     btn.disabled = true;
     btn.className = 'btn-running';
 
+    const restoreButton = () => {
+        btn.className = originalClass;
+        btn.textContent = originalText;
+        btn.disabled = false;
+    };
+
     fetch('/api/manage/ingestion/refresh', {
         method: 'POST',
         headers: { 'X-CSRFToken': csrfToken }
     })
         .then(res => res.json())
         .then(data => {
-            if (data.status === 'success') {
-                loadAvailableCollections();
-                loadIngestionSources();
+            if (data.status === 'started') {
+                pollIngestRefreshStatus(btn, originalText, originalClass);
             } else {
-                console.error("Ingestion refresh error:", data.error);
+                console.error("Ingestion refresh error:", data.message || data.error);
+                restoreButton();
             }
         })
-        .catch(err => console.error("Error triggering refresh:", err))
-        .finally(() => {
-            btn.className = originalClass;
-            btn.textContent = originalText;
-            btn.disabled = false;
+        .catch(err => {
+            console.error("Error triggering refresh:", err);
+            restoreButton();
         });
+}
+
+function pollIngestRefreshStatus(btn, originalText, originalClass) {
+    if (_ingestRefreshPollActive) return;
+    _ingestRefreshPollActive = true;
+    let done = false;
+
+    const interval = setInterval(() => {
+        if (done) return;
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(statusData => {
+                if (done) return;
+                const ir = statusData.ingest_refresh;
+                if (!ir) return;
+
+                if (ir.state === 'running') {
+                    const msg = ir.progress && ir.progress.message;
+                    const pct = ir.progress && ir.progress.percent;
+                    if (msg) {
+                        btn.textContent = pct != null
+                            ? `Processing... ${pct}% — ${msg}`
+                            : `Processing... ${msg}`;
+                    }
+                    return;
+                }
+
+                done = true;
+                clearInterval(interval);
+                _ingestRefreshPollActive = false;
+                btn.className = originalClass;
+                btn.textContent = originalText;
+                btn.disabled = false;
+
+                if (ir.last_run_outcome === 'Fail') {
+                    console.error('Ingestion refresh failed.');
+                }
+                loadAvailableCollections();
+                loadIngestionSources();
+            })
+            .catch(err => {
+                console.error('Error polling ingest_refresh status:', err);
+            });
+    }, 2000);
 }
 
 // --- Edit Activity Data Modal Logic ---
@@ -3383,20 +3645,12 @@ function dm_deleteCollection() {
             })
                 .then(r => r.json())
                 .then(resp => {
-                    if (deleteBtn) deleteBtn.disabled = false;
-                    if (resp && resp.status === 'success') {
-                        const archived = (resp.archived_files || []).length;
-                        const failures = (resp.archive_failures || []).length;
-                        const affected = (resp.affected_studies || []).length;
-                        let msg = `Deleted collection "${displayId}". `;
-                        msg += `Archived ${archived} raw file(s)`;
-                        if (failures > 0) msg += ` (${failures} archive failure(s))`;
-                        msg += `. Affected ${affected} study/studies.`;
-                        alert(msg);
+                    if (resp && resp.status === 'started') {
                         closeEditCollectionModal();
-                        loadAvailableCollections();
+                        pollCollectionDeleteStatus(id, displayId, deleteBtn);
                     } else {
-                        alert('Failed to delete: ' + ((resp && resp.error) || 'Unknown error'));
+                        if (deleteBtn) deleteBtn.disabled = false;
+                        alert('Failed to start delete: ' + ((resp && resp.message) || (resp && resp.error) || 'Unknown error'));
                     }
                 });
         })
@@ -3407,6 +3661,53 @@ function dm_deleteCollection() {
         });
 }
 window.dm_deleteCollection = dm_deleteCollection;
+
+let _collectionDeletePollActive = false;
+
+function pollCollectionDeleteStatus(collectionId, displayId, deleteBtn) {
+    if (_collectionDeletePollActive) return;
+    _collectionDeletePollActive = true;
+    let done = false;
+
+    const interval = setInterval(() => {
+        if (done) return;
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(statusData => {
+                if (done) return;
+                const cd = statusData.collection_delete;
+                if (!cd) return;
+                if (cd.state === 'running') return;
+
+                done = true;
+                clearInterval(interval);
+                _collectionDeletePollActive = false;
+                if (deleteBtn) deleteBtn.disabled = false;
+
+                const data = cd.data || {};
+                if (cd.last_run_outcome === 'Success') {
+                    selectedCollectionIds.delete(collectionId);
+                    updateEditSelectedButton();
+                    const archived = (data.archived_files || []).length;
+                    const failures = (data.archive_failures || []).length;
+                    const affected = (data.affected_studies || []).length;
+                    const dropped = data.rows_dropped || 0;
+                    let msg = `Deleted collection "${displayId}". `;
+                    msg += `Dropped ${dropped.toLocaleString()} row(s), `;
+                    msg += `archived ${archived} raw file(s)`;
+                    if (failures > 0) msg += ` (${failures} archive failure(s))`;
+                    msg += `. Refreshing ${affected} study/studies in the background.`;
+                    alert(msg);
+                    loadAvailableCollections();
+                } else {
+                    alert(`Failed to delete "${displayId}". Check the task logs for details.`);
+                }
+            })
+            .catch(err => {
+                console.error('Error polling collection_delete status:', err);
+            });
+    }, 2000);
+}
 
 
 function toggleAllCollectionCheckboxes(masterCheckbox) {

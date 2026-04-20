@@ -7,8 +7,22 @@
 <div id="ingestion-sources-container" style="display: flex; gap: 20px; flex-wrap: wrap;">
     <div style="color: var(--color-text-secondary);">Loading registered subclasses...</div>
 </div>
-<div style="margin-top: 16px;">
+
+<div id="pending-uploads-panel" style="margin-top: 24px; display: none;">
+    <div class="text-sm font-semibold" style="margin-bottom: 8px; color: var(--color-text-secondary);">
+        Pending uploads
+    </div>
+    <div id="pending-uploads-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
+</div>
+<div id="pending-uploads-empty" class="text-sm" style="margin-top: 24px; color: var(--color-text-tertiary); display: none;">
+    No new collections to process.
+</div>
+
+<div style="margin-top: 16px; display: flex; gap: 8px; align-items: center;">
     <button type="button" class="action-btn" id="processRawFilesBtn"
         onclick="refreshIngestionCollection(this)"
         style="padding: 6px 12px;" disabled>Process New Collections</button>
+    <button type="button" class="action-btn" id="clearPendingUploadsBtn"
+        onclick="clearPendingUploads(this)"
+        style="padding: 6px 12px; display: none;">Cancel All Pending Uploads</button>
 </div>

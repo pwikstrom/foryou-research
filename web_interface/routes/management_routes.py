@@ -1,7 +1,6 @@
 import json
 import os
 import time as _time
-import traceback
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -22,7 +21,6 @@ from ..data_service import (
     calculate_inter_coder_reliability,
     invalidate_collection_tags_cache,
     load_display_id_map,
-    study_cache,
 )
 from ..process_manager import (
     load_process_stats,
@@ -928,14 +926,11 @@ def affected_studies_for_collection():
 @management_bp.route('/api/manage/collections/delete', methods=['POST'])
 @login_required
 def delete_collection():
-    """Delete a collection: drop its rows from the recoded/metadata parquets,
-    remove it from collections_tags.json and every study's SELECTED_COLLECTIONS,
-    archive its raw upload files, and invalidate study caches.
-
-    Item-keyed assets (scrapes, machine annotations, media, enrichment_status)
-    are kept untouched — the constraint is to lose only participant-level data.
+    """Dispatch a collection_delete Cloud Task. The actual delete (which loads
+    and rewrites the 1+ GB collections_recoded.parquet) runs on the task-runner
+    so the data-hub doesn't risk OOM or timeout. The UI polls /api/status for
+    completion and reads the final result from the task's emitted data payload.
     """
-    global fyp_cf
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized - Admin only"}), 403
 
@@ -944,206 +939,22 @@ def delete_collection():
     if not collection_id:
         return jsonify({"error": "Missing collection_id"}), 400
 
-    init_study_defs()
+    from fyp.fyp_config import COLLECTION_DELETE_SCRIPT
 
-    recoded_fn = f"{COLLECTIONS_LABEL}_recoded.parquet"
-    metadata_fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
-    tags_fn = f"{COLLECTIONS_LABEL}_tags.json"
+    success, msg = start_process(
+        "collection_delete",
+        COLLECTION_DELETE_SCRIPT,
+        task_args={"collection_id": collection_id},
+    )
+    if success:
+        return jsonify({
+            "status": "started",
+            "collection_id": collection_id,
+            "message": msg,
+        })
+    return jsonify({"status": "error", "message": msg}), 409
 
-    # 1. Discover raw files referenced by this collection's events. We do this
-    # before any rewrites so a load failure leaves all state intact.
-    raw_files: list[str] = []
-    if data_io.exists(storage_location="recoded", filename=recoded_fn):
-        events_df = data_io.load_parquet(storage_location="recoded", filename=recoded_fn)
-        if events_df is not None and 'collection_id' in events_df.columns:
-            mask = events_df['collection_id'].astype(str) == str(collection_id)
-            if mask.any() and 'raw_file' in events_df.columns:
-                raw_files = (
-                    events_df.loc[mask, 'raw_file']
-                    .dropna()
-                    .astype(str)
-                    .unique()
-                    .tolist()
-                )
-    else:
-        events_df = None
 
-    raw_locations = _find_raw_file_locations(raw_files)
-
-    # 2. Snapshot study_defs and tags so we can roll back JSON edits if a
-    # subsequent parquet rewrite raises.
-    study_defs_snapshot = json.loads(json.dumps(fyp_cf.get('study_defs') or {}))
-    tags_snapshot: dict | None = None
-    if data_io.exists(storage_location="recoded", filename=tags_fn):
-        tags_snapshot = data_io.load_json(storage_location="recoded", filename=tags_fn) or {}
-
-    affected_studies = _affected_studies_for_collection(collection_id)
-
-    try:
-        # 3. Update studies.json: drop collection_id from each affected study.
-        if affected_studies:
-            for sname in affected_studies:
-                sel = fyp_cf['study_defs'][sname].get('SELECTED_COLLECTIONS') or []
-                fyp_cf['study_defs'][sname]['SELECTED_COLLECTIONS'] = [
-                    c for c in sel if c != collection_id
-                ]
-            save_study_defs()
-
-        # 4. Update collections_tags.json: drop the key.
-        if tags_snapshot is not None and collection_id in tags_snapshot:
-            updated_tags = {k: v for k, v in tags_snapshot.items() if k != collection_id}
-            data_io.save_json(
-                data=updated_tags, storage_location="recoded", filename=tags_fn
-            )
-
-        # 5. Rewrite collections_metadata.parquet without the collection's row.
-        # Handles both layouts: collection_id as a column or as the index.
-        if data_io.exists(storage_location="recoded", filename=metadata_fn):
-            md = data_io.load_parquet(storage_location="recoded", filename=metadata_fn)
-            if md is not None and not md.empty:
-                if 'collection_id' in md.columns:
-                    md = md[md['collection_id'].astype(str) != str(collection_id)]
-                else:
-                    if md.index.name != 'collection_id':
-                        md.index.name = 'collection_id'
-                    md = md.drop(index=collection_id, errors='ignore')
-                data_io.save_parquet(
-                    df=md, storage_location="recoded", filename=metadata_fn
-                )
-
-        # 6. Rewrite collections_recoded.parquet without the collection's rows.
-        if events_df is not None and 'collection_id' in events_df.columns:
-            kept = events_df[events_df['collection_id'].astype(str) != str(collection_id)]
-            data_io.save_parquet(
-                df=kept, storage_location="recoded", filename=recoded_fn
-            )
-
-    except Exception as e:
-        # Best-effort rollback of the JSON edits. Parquet rewrites that
-        # succeeded before the exception are not rolled back — at this point
-        # the caller will re-run delete to converge.
-        try:
-            fyp_cf['study_defs'] = study_defs_snapshot
-            save_study_defs()
-        except Exception:
-            pass
-        try:
-            if tags_snapshot is not None:
-                data_io.save_json(
-                    data=tags_snapshot, storage_location="recoded", filename=tags_fn
-                )
-        except Exception:
-            pass
-        traceback.print_exc()
-        return jsonify({"error": f"Delete failed: {e}"}), 500
-
-    # 7. Move raw upload files to archive and prune them from each source
-    # manifest. Failures here are non-fatal — the collection is already gone
-    # from every reference; raw files remaining at source just become orphaned
-    # uploads the admin can clean up manually.
-    archived: list[str] = []
-    archive_failures: list[str] = []
-    manifests_to_save: dict[str, dict] = {}
-    for src_loc, fn in raw_locations:
-        try:
-            data_io.move(
-                src_storage_location=src_loc,
-                dst_storage_location="archive",
-                filename=fn,
-            )
-            archived.append(fn)
-            if src_loc not in manifests_to_save:
-                if data_io.exists(storage_location=src_loc, filename="ingestion_manifest.json"):
-                    manifests_to_save[src_loc] = data_io.load_json(
-                        storage_location=src_loc,
-                        filename="ingestion_manifest.json",
-                        verbose=False,
-                    ) or {}
-                else:
-                    manifests_to_save[src_loc] = {}
-            manifests_to_save[src_loc].pop(fn, None)
-        except Exception as e:
-            print(f"[delete_collection] failed to archive {src_loc}/{fn}: {e}")
-            archive_failures.append(fn)
-
-    for src_loc, manifest in manifests_to_save.items():
-        try:
-            data_io.save_json(
-                data=manifest,
-                storage_location=src_loc,
-                filename="ingestion_manifest.json",
-                verbose=False,
-            )
-        except Exception as e:
-            print(f"[delete_collection] failed to update manifest for {src_loc}: {e}")
-
-    # 8. Invalidate caches: drop the per-study cache files and the in-memory
-    # entries so the next access rebuilds without the deleted collection.
-    for sname in affected_studies:
-        for cached_file in [
-            f"{sname}_recoded.parquet",
-            f"{sname}_explorer_metadata.json",
-            f"{sname}_comp_interpretations.json",
-            f"{sname}_PCA.parquet",
-        ]:
-            try:
-                data_io.remove(storage_location="cache", filename=cached_file)
-            except Exception as e:
-                print(f"[delete_collection] failed to remove cache {cached_file}: {e}")
-        study_cache.invalidate(sname)
-
-    invalidate_collection_tags_cache()
-
-    # 9. Dispatch a study_refresh for each affected study so the cache rebuilds
-    # without the deleted collection. Without this, the /api/studies/defined
-    # filter (which hides studies whose {study}_recoded.parquet is missing)
-    # would drop every affected study off the UI until someone manually
-    # reopened and saved it.
-    refresh_dispatched: list[str] = []
-    refresh_failed: list[dict] = []
-    for sname in affected_studies:
-        task_args = {
-            "study_name": sname,
-            "refresh_pca": True,
-            "refresh_metadata": True,
-        }
-        if is_cloud_run():
-            success, msg = start_process("study_refresh", None, task_args=task_args)
-            if success:
-                refresh_dispatched.append(sname)
-            else:
-                refresh_failed.append({"study": sname, "error": msg})
-        else:
-            import threading as _threading
-
-            from web_interface.run_study_refresh import run_study_refresh
-            from web_interface.task_status import LocalThreadStatusReporter
-
-            status_key = f"study_refresh__{sname}"
-            reporter = LocalThreadStatusReporter(status_key)
-
-            def _run_in_thread(_args=task_args, _reporter=reporter, _sname=sname):
-                try:
-                    run_study_refresh(reporter=_reporter, task_args=_args)
-                    _reporter.complete()
-                except Exception as e:
-                    print(f"Study refresh after delete_collection failed for {_sname}: {e}")
-                    _reporter.fail(str(e))
-
-            _threading.Thread(
-                target=_run_in_thread, daemon=True, name=status_key
-            ).start()
-            refresh_dispatched.append(sname)
-
-    return jsonify({
-        "status": "success",
-        "collection_id": collection_id,
-        "affected_studies": affected_studies,
-        "archived_files": archived,
-        "archive_failures": archive_failures,
-        "refresh_dispatched": refresh_dispatched,
-        "refresh_failed": refresh_failed,
-    })
 
 
 
@@ -1947,13 +1758,20 @@ def get_ingestion_sources():
         sources = []
         total_pending = 0
         for col in main_collection.collections:
-            pending = 0
+            files: list[dict] = []
             manifest_fn = "ingestion_manifest.json"
             if col.raw_path and data_io.exists(storage_location=col.raw_path, filename=manifest_fn):
                 manifest = data_io.load_json(
                     storage_location=col.raw_path, filename=manifest_fn, verbose=False
                 ) or {}
-                pending = len(manifest)
+                for fn, meta in manifest.items():
+                    files.append({
+                        "filename": fn,
+                        "collection_id": (meta or {}).get("collection_id"),
+                        "tags": (meta or {}).get("tags") or [],
+                    })
+            files.sort(key=lambda f: f["filename"])
+            pending = len(files)
             total_pending += pending
             sources.append({
                 "source_platform": col.source_platform,
@@ -1961,6 +1779,7 @@ def get_ingestion_sources():
                 "raw_path": col.raw_path,
                 "class_name": col.__class__.__name__,
                 "pending_files": pending,
+                "files": files,
                 "ingestion_mode": getattr(col, "ingestion_mode", "upload"),
             })
         return jsonify({"status": "success", "sources": sources, "total_pending": total_pending})
@@ -1974,25 +1793,21 @@ def fetch_aio_data():
     """Trigger download of recent AIO donations and metadata from AWS."""
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
-    try:
-        from fyp.donations import (
-            get_donation_metadata_from_aio_aws,
-            get_recent_data_donations_from_aio_aws,
-        )
-        hours_back = 24
-        if request.is_json and request.json:
-            hours_back = request.json.get('hours_back', 24)
 
-        get_recent_data_donations_from_aio_aws(
-            hours_back=hours_back,
-            storage_location="aio_raw",
-        )
-        get_donation_metadata_from_aio_aws(verbose=True)
+    from fyp.fyp_config import AIO_FETCH_SCRIPT
 
-        return jsonify({"status": "success", "message": f"Fetched AIO donations from last {hours_back} hours."})
-    except Exception as e:
-        print(f"Error fetching AIO data: {e}")
-        return jsonify({"error": str(e)}), 500
+    hours_back = 24
+    if request.is_json and request.json:
+        hours_back = int(request.json.get('hours_back', 24))
+
+    success, msg = start_process(
+        "aio_fetch",
+        AIO_FETCH_SCRIPT,
+        task_args={"hours_back": hours_back},
+    )
+    if success:
+        return jsonify({"status": "started", "message": msg})
+    return jsonify({"status": "error", "message": msg}), 409
 
 @management_bp.route('/api/manage/ingestion/upload', methods=['POST'])
 @login_required
@@ -2020,13 +1835,13 @@ def upload_ingestion_file():
     if not raw_path_key:
         return jsonify({"error": "raw_path missing"}), 400
 
-    # Resolve storage location key to absolute path
-    resolved_path = fyp_cf['paths'].get(raw_path_key, raw_path_key)
-    if not os.path.exists(resolved_path):
-        try:
-            os.makedirs(resolved_path, exist_ok=True)
-        except Exception as e:
-            return jsonify({"error": f"Failed to create directory: {e}"}), 500
+    # Stage uploads in the local temp dir, then hand off to data_io.move()
+    # which routes to GCS (production) or the configured local data dir
+    # (dev). Writing directly to the resolved local path skipped GCS
+    # entirely on Cloud Run, so manifests pointed at files that only ever
+    # lived on the request-handling container's ephemeral filesystem.
+    temp_dir = fyp_cf['paths']['temp']
+    os.makedirs(temp_dir, exist_ok=True)
 
     collection_id = request.form.get('collection_id', '').strip()
     collection_id_mode = request.form.get('collection_id_mode', 'per_file')
@@ -2050,8 +1865,21 @@ def upload_ingestion_file():
             if file.filename == '':
                 continue
             filename = secure_filename(file.filename)
-            save_path = os.path.join(resolved_path, filename)
-            file.save(save_path)
+            temp_path = os.path.join(temp_dir, filename)
+            file.save(temp_path)
+
+            data_io.move(
+                src_storage_location="temp",
+                dst_storage_location=raw_path_key,
+                filename=filename,
+                verbose=False,
+            )
+            # data_io.move() swallows GCS upload failures silently, so confirm
+            # the file actually landed before we record it in the manifest.
+            if not data_io.exists(storage_location=raw_path_key, filename=filename):
+                return jsonify({
+                    "error": f"Upload of '{filename}' to '{raw_path_key}' did not persist.",
+                }), 500
 
             if collection_id_mode == "single" and collection_id:
                 file_collection_id = collection_id
@@ -2092,50 +1920,15 @@ def refresh_collection_metadata():
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
 
-    try:
-        from fyp.donations import generate_collection_metadata
-        from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.fyp_config import COLLECTION_METADATA_REFRESH_SCRIPT
 
-        # Preserve columns that are set outside generate_collection_metadata
-        # (e.g. ('other','accepted') is set during ingestion, not during metadata generation)
-        old_metadata = None
-        if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
-            old_metadata = data_io.load_parquet(
-                storage_location="recoded",
-                filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
-                verbose=False)
-
-        events_df = data_io.load_parquet(
-            storage_location="recoded",
-            filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
-            verbose=False)
-        if events_df is None or events_df.empty:
-            return jsonify({"error": "No events data found"}), 404
-
-        result = generate_collection_metadata(
-            collections_df=events_df,
-            load_from_disk=False,
-            verbose=True)
-
-        # Restore preserved columns from old metadata
-        if old_metadata is not None and not old_metadata.empty:
-            preserved_cols = [c for c in old_metadata.columns if c not in result.columns]
-            if preserved_cols:
-                result = pd.merge(result, old_metadata[preserved_cols],
-                                  left_index=True, right_index=True, how='left')
-                # Save the merged result
-                data_io.save_parquet(df=result, storage_location="recoded",
-                                    filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=True)
-
-        return jsonify({
-            "status": "success",
-            "message": f"Metadata regenerated for {len(result)} collections."
-        })
-    except Exception as e:
-        print(f"Error refreshing collection metadata: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+    success, msg = start_process(
+        "collection_metadata_refresh",
+        COLLECTION_METADATA_REFRESH_SCRIPT,
+    )
+    if success:
+        return jsonify({"status": "started", "message": msg})
+    return jsonify({"status": "error", "message": msg}), 409
 
 
 
@@ -2145,13 +1938,76 @@ def refresh_ingestion_collection():
     if not current_user.is_admin():
         return jsonify({"error": "Unauthorized"}), 403
 
-    try:
-        main_collection = get_main_collection(verbose=True)
-        main_collection.refresh_collection()
-        return jsonify({"status": "success", "message": "Collection refreshed successfully."})
-    except Exception as e:
-        print(f"Error refreshing collection: {e}")
-        return jsonify({"error": str(e)}), 500
+    from fyp.fyp_config import INGEST_REFRESH_SCRIPT
+
+    success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT)
+    if success:
+        return jsonify({"status": "started", "message": msg})
+    return jsonify({"status": "error", "message": msg}), 409
+
+
+@management_bp.route('/api/manage/ingestion/clear_pending', methods=['POST'])
+@login_required
+def clear_pending_uploads():
+    """Drop every pending upload across every registered ingester: delete each
+    file from its raw_path storage and reset its manifest to an empty dict.
+    Lightweight (no parquet I/O), so safe to run inline on the data-hub.
+    """
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    main_collection = get_main_collection(verbose=False)
+    manifest_fn = "ingestion_manifest.json"
+
+    cleared: list[dict] = []
+    failures: list[dict] = []
+    total_removed = 0
+
+    for col in main_collection.collections:
+        if not col.raw_path:
+            continue
+        if not data_io.exists(storage_location=col.raw_path, filename=manifest_fn):
+            continue
+        manifest = data_io.load_json(
+            storage_location=col.raw_path, filename=manifest_fn, verbose=False
+        ) or {}
+        if not manifest:
+            continue
+
+        removed_here: list[str] = []
+        for fn in list(manifest.keys()):
+            try:
+                if data_io.exists(storage_location=col.raw_path, filename=fn):
+                    data_io.remove(storage_location=col.raw_path, filename=fn)
+                removed_here.append(fn)
+            except Exception as e:
+                failures.append({"raw_path": col.raw_path, "filename": fn, "error": str(e)})
+                print(f"[clear_pending_uploads] failed to remove {col.raw_path}/{fn}: {e}")
+
+        try:
+            data_io.save_json(
+                data={},
+                storage_location=col.raw_path,
+                filename=manifest_fn,
+                verbose=False,
+            )
+        except Exception as e:
+            failures.append({"raw_path": col.raw_path, "filename": manifest_fn, "error": str(e)})
+            print(f"[clear_pending_uploads] failed to reset manifest for {col.raw_path}: {e}")
+
+        cleared.append({
+            "raw_path": col.raw_path,
+            "class_name": col.__class__.__name__,
+            "removed_files": removed_here,
+        })
+        total_removed += len(removed_here)
+
+    return jsonify({
+        "status": "success",
+        "total_removed": total_removed,
+        "cleared": cleared,
+        "failures": failures,
+    })
 
 
 
@@ -2206,15 +2062,21 @@ def get_ingestion_metadata():
     collection_ids: list[str] = []
     all_tags: set[str] = set()
 
-    # Get collection IDs from processed activity data
-    if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
-        df = data_io.load_parquet(
+    # Get collection IDs from the per-collection metadata parquet — small
+    # enough to read in milliseconds, vs. the multi-GB recoded parquet which
+    # would block the upload modal for ~5s while the user waits.
+    metadata_fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
+    if data_io.exists(storage_location="recoded", filename=metadata_fn):
+        md = data_io.load_parquet(
             storage_location="recoded",
-            filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
+            filename=metadata_fn,
             verbose=False,
         )
-        if df is not None and "collection_id" in df.columns:
-            collection_ids = sorted(df["collection_id"].dropna().unique().tolist())
+        if md is not None and not md.empty:
+            if "collection_id" in md.columns:
+                collection_ids = sorted(md["collection_id"].dropna().astype(str).unique().tolist())
+            else:
+                collection_ids = sorted(str(idx) for idx in md.index.dropna().unique().tolist())
 
     # Get tags from annotations
     if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
