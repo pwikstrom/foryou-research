@@ -590,7 +590,11 @@ function setStatus(name, data) {
             const startLabel = toggleBtn.getAttribute('data-start-label') || 'Start';
             toggleBtn.innerText = startLabel;
             toggleBtn.style.padding = '4px 12px';
-            toggleBtn.onclick = function () { startProcess(name); };
+            toggleBtn.onclick = function () {
+                const extraRaw = toggleBtn.getAttribute('data-start-extra');
+                const extra = extraRaw ? JSON.parse(extraRaw) : {};
+                startProcess(name, extra);
+            };
         }
     }
 
