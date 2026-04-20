@@ -888,28 +888,35 @@ window.timelines = {
                     const preview = combinedOtherMembers.slice(0, 8).join(', ');
                     const suffix = combinedOtherMembers.length > 8 ? `, +${combinedOtherMembers.length - 8} more` : '';
                     const tooltip = `${preview}${suffix}`;
-                    const noun = combinedOtherMembers.length === 1 ? 'label' : 'labels';
-                    const otherWeighted = catWeightedTotals[OTHER_BUCKET] || 0;
                     let otherPct;
+                    let text;
                     if (isMultiLabel) {
-                        // For multi-label, summing per-cat weighted totals
-                        // overcounts when plays carry multiple folded tags.
-                        // Cap at the tagged-share ceiling so the stated %
-                        // stays in [0, tagged%] — an honest upper bound.
-                        const taggedCeiling = slicedWeightedValid.reduce((s, v) => s + (v || 0), 0);
-                        const capped = Math.min(otherWeighted, taggedCeiling);
-                        otherPct = windowDenom > 0 ? ((capped / windowDenom) * 100).toFixed(1) : '0.0';
+                        // Multi-label: a single item can carry several labels,
+                        // so "share of items with a rare label" isn't
+                        // recoverable from per-(item,label) counts. Switch
+                        // the metric to "share of label mentions" — sum of
+                        // weighted Other-bucket counts over sum across all
+                        // labels — which partitions cleanly with the top
+                        // categories and is exact under the data we have.
+                        const totalLabelAttention = Object.values(catWeightedTotals)
+                            .reduce((s, v) => s + (v || 0), 0);
+                        const otherWeighted = catWeightedTotals[OTHER_BUCKET] || 0;
+                        otherPct = totalLabelAttention > 0
+                            ? ((otherWeighted / totalLabelAttention) * 100).toFixed(1)
+                            : '0.0';
+                        text = `Show "Other labels": low-occurrence labels account for ${otherPct}% of all label mentions in this window.`;
                     } else {
+                        const otherWeighted = catWeightedTotals[OTHER_BUCKET] || 0;
                         otherPct = windowDenom > 0 ? ((otherWeighted / windowDenom) * 100).toFixed(1) : '0.0';
+                        text = `Show "Other labels": ${otherPct}% of time spent on items with low-occurrence labels.`;
                     }
-                    const text = `"Other" bundles ${combinedOtherMembers.length} low-occurrence ${noun} (${otherPct}% of time spent).`;
                     chartWrapper.appendChild(makeFooterRow(
                         text, tooltip, this.toggleOther.bind(this), showOther
                     ));
                 }
 
                 if (isMultiLabel) {
-                    const text = `"No label" — ${untaggedWindowPct.toFixed(1)}% of time spent on items with no label for this variable.`;
+                    const text = `Show "No labels": ${untaggedWindowPct.toFixed(1)}% of time spent on items with no label for this variable.`;
                     chartWrapper.appendChild(makeFooterRow(
                         text, null, this.toggleUntagged.bind(this), showUntagged
                     ));
@@ -980,10 +987,11 @@ window.timelines = {
                         const dayTime = slicedWeightedVideoTotal[i] || 0;
                         rawHoverTexts.push(
                             `<b>${cat}</b><br>` +
-                            `Day: ${slicedDateLabels[i] || d}<br>` +
-                            `Share: ${share.toFixed(1)}%<br>` +
-                            `Plays: ${dayPlays}<br>` +
-                            `Time on platform: ${this._formatDuration(dayTime)}`
+                            `• Period: ${slicedDateLabels[i] || d}<br>` +
+                            `• Totals this period:<br>` +
+                            `\u00a0\u00a0\u00a0• Time: ${this._formatDuration(dayTime)}<br>` +
+                            `\u00a0\u00a0\u00a0• Plays: ${dayPlays}<br>` +
+                            `• Share of time spent on items with this label: ${share.toFixed(1)}%`
                         );
 
                         // Window-aggregated hover (used by the smoothed line)
@@ -995,13 +1003,13 @@ window.timelines = {
                         }
                         const winDenom = windowSums[i].denom;
                         const winShare = winDenom > 0 ? (winWCat / winDenom) * 100 : 0;
-                        const periodLbl = smoothW > 1 ? 'Window' : 'Day';
                         windowHoverTexts.push(
                             `<b>${cat}</b><br>` +
-                            `${periodLbl}: ${windowLabel(i)}<br>` +
-                            `Share: ${winShare.toFixed(1)}%<br>` +
-                            `Plays: ${windowSums[i].plays}<br>` +
-                            `Time on platform: ${this._formatDuration(windowSums[i].time)}`
+                            `• Period: ${windowLabel(i)}<br>` +
+                            `• Totals this period:<br>` +
+                            `\u00a0\u00a0\u00a0• Time: ${this._formatDuration(windowSums[i].time)}<br>` +
+                            `\u00a0\u00a0\u00a0• Plays: ${windowSums[i].plays}<br>` +
+                            `• Share of time spent on items with this label: ${winShare.toFixed(1)}%`
                         );
                     });
 
@@ -1078,13 +1086,13 @@ window.timelines = {
                         const extraNote = isMultiLabel
                             ? '<br><i>(aggregate of rare labels; may under-report days with many overlapping labels)</i>'
                             : '';
-                        const periodLbl = smoothW > 1 ? 'Window' : 'Day';
                         hoverTexts.push(
-                            `<b>Other</b><br>` +
-                            `${periodLbl}: ${windowLabel(i)}<br>` +
-                            `Share: ${winShare.toFixed(1)}%<br>` +
-                            `Plays: ${windowSums[i].plays}<br>` +
-                            `Time on platform: ${this._formatDuration(windowSums[i].time)}${extraNote}`
+                            `<b>Other labels</b><br>` +
+                            `• Period: ${windowLabel(i)}<br>` +
+                            `• Totals this period:<br>` +
+                            `\u00a0\u00a0\u00a0• Time: ${this._formatDuration(windowSums[i].time)}<br>` +
+                            `\u00a0\u00a0\u00a0• Plays: ${windowSums[i].plays}<br>` +
+                            `• Share of time spent on items with low-occurrence labels: ${winShare.toFixed(1)}%${extraNote}`
                         );
                     });
                     const displayY = smoothW > 1 ? this._movingAvg(yVals, smoothW) : yVals;
@@ -1124,13 +1132,13 @@ window.timelines = {
                         const winValid = windowSums[i].validSum;
                         const winUntaggedW = Math.max(0, winDenom - winValid);
                         const winUntagged = winDenom > 0 ? (winUntaggedW / winDenom) * 100 : 0;
-                        const periodLbl = smoothW > 1 ? 'Window' : 'Day';
                         untaggedHover.push(
-                            `<b>${UNTAGGED_BUCKET}</b><br>` +
-                            `${periodLbl}: ${windowLabel(i)}<br>` +
-                            `Share: ${winUntagged.toFixed(1)}%<br>` +
-                            `Plays: ${windowSums[i].plays}<br>` +
-                            `Time on platform: ${this._formatDuration(windowSums[i].time)}`
+                            `<b>No labels</b><br>` +
+                            `• Period: ${windowLabel(i)}<br>` +
+                            `• Totals this period:<br>` +
+                            `\u00a0\u00a0\u00a0• Time: ${this._formatDuration(windowSums[i].time)}<br>` +
+                            `\u00a0\u00a0\u00a0• Plays: ${windowSums[i].plays}<br>` +
+                            `• Share of time spent on items with no label for this variable: ${winUntagged.toFixed(1)}%`
                         );
                     });
                     const displayUntagged = smoothW > 1 ? this._movingAvg(untaggedY, smoothW) : untaggedY;
@@ -1216,12 +1224,12 @@ window.timelines = {
                         time += slicedWeightedTotalN[j] || 0;
                     }
                     const winMean = den > 0 ? num / den : null;
-                    const periodLbl = smoothW > 1 ? 'Window' : 'Day';
                     return `<b>${varName}</b><br>` +
-                        `${periodLbl}: ${windowLabelN(i)}<br>` +
-                        `Mean: ${fmtNum(winMean)}<br>` +
-                        `Plays: ${plays}<br>` +
-                        `Time on platform: ${this._formatDuration(time)}`;
+                        `• Period: ${windowLabelN(i)}<br>` +
+                        `• Totals this period:<br>` +
+                        `\u00a0\u00a0\u00a0• Time: ${this._formatDuration(time)}<br>` +
+                        `\u00a0\u00a0\u00a0• Plays: ${plays}<br>` +
+                        `• Watch-time-weighted mean: ${fmtNum(winMean)}`;
                 });
 
                 const numericRawHover = dates.map((d, i) => {
@@ -1229,10 +1237,11 @@ window.timelines = {
                     const dayPlays = slicedVideoCountsN[i] || 0;
                     const dayTime = slicedWeightedTotalN[i] || 0;
                     return `<b>${varName}</b><br>` +
-                        `Day: ${slicedDateLabelsN[i] || d}<br>` +
-                        `Mean: ${fmtNum(raw)}<br>` +
-                        `Plays: ${dayPlays}<br>` +
-                        `Time on platform: ${this._formatDuration(dayTime)}`;
+                        `• Period: ${slicedDateLabelsN[i] || d}<br>` +
+                        `• Totals this period:<br>` +
+                        `\u00a0\u00a0\u00a0• Time: ${this._formatDuration(dayTime)}<br>` +
+                        `\u00a0\u00a0\u00a0• Plays: ${dayPlays}<br>` +
+                        `• Watch-time-weighted mean: ${fmtNum(raw)}`;
                 });
 
                 const hexToRgbaNum = (hex, alpha) => {
@@ -1512,12 +1521,12 @@ window.timelines = {
                     if (!selectedSet.has(catData.id)) return;
                     const catColor = catColorMap[catData.id] || colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
 
-                    // Trend line (dashed line from regression) — threshold mirrors
-                    // the Rising/Falling badge at line 1491 so every flagged
-                    // category actually gets a trend line on the chart.
-                    const meanShareForTrend = (catData.volatility && catData.volatility.mean) || (catData.trend && catData.trend.mean) || 0;
-                    const trendThreshForOverlay = 0.5 * Math.max(meanShareForTrend, 1.0);
-                    if (catData.trend && Math.abs(catData.trend.total_change) > trendThreshForOverlay) {
+                    // Trend line (dashed line from regression). The backend
+                    // zeroes out sub-meaningful trends in
+                    // fyp/timeline_analysis.py, so a non-zero total_change
+                    // is the single source of truth for both this overlay
+                    // and the findings-panel chip.
+                    if (catData.trend && Math.abs(catData.trend.total_change) > 0) {
                         const n = xVals.length;
                         const adjIntercept = catData.trend.intercept + catData.trend.slope * startIdx;
                         const trendY0 = adjIntercept;
@@ -1536,17 +1545,29 @@ window.timelines = {
                         });
                     }
 
-                    // Anomaly markers (circles)
-                    // Adjust indices for sliced view
+                    // Anomaly markers (circles).
+                    // The cached analysis stores `a.value` as the smoothed
+                    // value computed against the unfiltered timeline, but the
+                    // visible chart line is the share series filtered to study
+                    // cells then re-smoothed by the frontend. Those produce
+                    // different y-values at the same date, so reading y from
+                    // the chart's own trace keeps the marker glued to the
+                    // line that the user sees.  Falls back to a.value when
+                    // the trace can't be located (defensive — shouldn't
+                    // happen for selected cats).
                     if (catData.anomalies && catData.anomalies.length > 0) {
                         const anomX = [];
                         const anomY = [];
                         const anomText = [];
+                        const lineTrace = traces.find(t => t && t.name === catData.id
+                            && t.type === 'scatter' && t.mode === 'lines');
+                        const lineY = (lineTrace && lineTrace.y) || null;
                         catData.anomalies.forEach(a => {
                             const adjIdx = a.index - startIdx;
                             if (adjIdx >= 0 && adjIdx < xVals.length) {
+                                const yOnLine = (lineY && typeof lineY[adjIdx] === 'number') ? lineY[adjIdx] : a.value;
                                 anomX.push(xVals[adjIdx]);
-                                anomY.push(a.value);
+                                anomY.push(yOnLine);
                                 anomText.push(
                                     `<b>Anomaly: ${catData.label}</b><br>` +
                                     `Value: ${a.value}%<br>` +
@@ -1645,23 +1666,22 @@ window.timelines = {
                         this.renderTimelineCharts();
                     });
 
-                    catsList.forEach((catData, index) => {
+                    catsList.forEach((catData) => {
                         if (!selectedSet.has(catData.id)) return;
 
-                        const globalRank = index + 1;
                         const catColor = catColorMap[catData.id] || colors[Array.from(selectedSet).indexOf(catData.id) % colors.length];
 
                         const card = document.createElement('div');
                         card.style.cssText = `background: var(--color-bg-elevated); padding: 15px; border-radius: 8px; border-left: 4px solid ${catColor};`;
 
-                        // Card Header: Rank + Dot + Label + Badges
+                        // Card Header: Dot + Label + Badges
                         const headerRow = document.createElement('div');
                         headerRow.style.cssText = 'display: flex; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;';
 
                         const titleWrap = document.createElement('div');
                         titleWrap.classList.add('font-semibold', 'text-body');
                         titleWrap.style.cssText = `color: var(--color-text-primary); margin-right: 15px;`;
-                        titleWrap.innerHTML = `<span class="text-sm" style="color:var(--color-text-muted); margin-right:5px;">#${globalRank}</span> <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${catColor}; margin-right:6px;"></span> ${catData.label}`;
+                        titleWrap.innerHTML = `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${catColor}; margin-right:6px;"></span> ${catData.label}`;
                         headerRow.appendChild(titleWrap);
 
                         const bullets = [];
@@ -1673,18 +1693,14 @@ window.timelines = {
 
                         let isStable = true;
 
-                        // Findings thresholds normalised by category mean
-                        // share — keeps badges meaningful for multi-label
-                        // vars where absolute shares are naturally smaller
-                        // (e.g. 0.5%-2% per category).  1 pp floor avoids
-                        // over-firing on near-zero categories.
-                        const meanShareCat = (catData.volatility && catData.volatility.mean) || (catData.trend && catData.trend.mean) || 0;
-                        const trendThreshCat = 0.5 * Math.max(meanShareCat, 1.0);
-                        const breakThreshCat = 0.5 * Math.max(meanShareCat, 1.0);
-                        const volThreshCat = 0.3 * Math.max(meanShareCat, 1.0);
+                        // Trend/spike meaningfulness gating lives in
+                        // fyp/timeline_analysis.py — the backend zeroes out
+                        // sub-threshold trends and drops sub-threshold
+                        // anomalies, so the frontend only has to render
+                        // whatever survived.
 
                         // 1. Trend
-                        if (catData.trend && Math.abs(catData.trend.total_change) > trendThreshCat) {
+                        if (catData.trend && Math.abs(catData.trend.total_change) > 0) {
                             isStable = false;
                             const isRising = catData.trend.total_change > 0;
                             if (isRising) {
@@ -1726,7 +1742,11 @@ window.timelines = {
                                 }
                                 const dir = a.value > a.mean ? "Peak" : "Trough";
                                 const sign = a.z > 0 ? "+" : "";
-                                bullets.push(`${dir} at ${aDate}: ${a.value}% vs. mean ${a.mean}% (${sign}${a.z} σ).`);
+                                const spanLen = (typeof a.span_days === 'number' && a.span_days > 0)
+                                    ? a.span_days
+                                    : (typeof a.n_days === 'number' ? a.n_days : 1);
+                                const span = spanLen > 1 ? ` (${spanLen} days)` : '';
+                                bullets.push(`${dir} at ${aDate}${span}: ${a.value}% vs. mean ${a.mean}% (${sign}${a.z} σ).`);
                             });
                         }
 

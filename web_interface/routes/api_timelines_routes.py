@@ -44,7 +44,7 @@ def api_save_annotation_vote():
 @login_required
 def api_timeline_data():
     data = request.json or {}
-    #study = data.get("study")
+    study = data.get("study")
     collection_id = data.get("collection_id")
     interval = data.get("interval", "day")
 
@@ -66,8 +66,8 @@ def api_timeline_data():
     # No, strict requirement "user should only see...". Backend must enforce.
     # Optimization: iterate studies, check if collection is in it. Stop at first match.
 
-    for study in studies:
-        study_collections = get_study_collections(study)
+    for accessible_study in studies:
+        study_collections = get_study_collections(accessible_study)
         # Convert to set of strings for fast lookup
         # (study_collections is cached if we used lru_cache, but we didn't add it yet.
         # explorer_backend.get_explorer_data IS cached.
@@ -85,8 +85,13 @@ def api_timeline_data():
         return jsonify({"error": "Access denied to this collection"}), 403
     # ----------------------
 
+    # Only honour the requested study filter when the caller is allowed to see
+    # it; otherwise treat as unscoped to avoid leaking study existence and to
+    # gracefully degrade to the unfiltered view.
+    study_for_filter = study if (study and study in studies) else None
+
     try:
-        result = get_timeline_data(collection_id, interval=interval)
+        result = get_timeline_data(collection_id, interval=interval, study=study_for_filter)
         if result is None:
              return jsonify({"error": "No data found"}), 404
         if "error" in result:

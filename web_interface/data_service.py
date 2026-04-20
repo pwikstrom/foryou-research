@@ -72,6 +72,58 @@ def _get_recoded_mtime(study):
 
 
 
+# In-process cache for study sidecars. Sidecars carry the (cid, day) cell map
+# the timeline endpoint uses to filter per-collection day series down to the
+# study view; on Cloud Run each fetch crosses GCS, so caching matters even
+# though parsing is cheap.
+_sidecar_cache = LRUCache(maxsize=8)
+_sidecar_cache_lock = threading.Lock()
+
+
+def _get_sidecar_mtime(study):
+    """Return the mtime of a study's sidecar JSON, or ``None`` if missing."""
+    try:
+        filename = f"{study}_recoded.meta.json"
+        if not data_io.exists(storage_location="cache", filename=filename):
+            return None
+        return data_io.getmtime(storage_location="cache", filename=filename)
+    except Exception:
+        return None
+
+
+def get_study_sidecar(study):
+    """Return the parsed sidecar dict for a study, or ``None`` if absent.
+
+    Cached in-process keyed by (study_name, sidecar mtime) so repeated timeline
+    requests within a session don't re-fetch / re-parse the JSON. Self-
+    invalidates when the sidecar is rewritten by a refresh worker.
+    """
+    if not study:
+        return None
+    mtime = _get_sidecar_mtime(study)
+    if mtime is None:
+        return None
+    cache_key = study
+    with _sidecar_cache_lock:
+        entry = _sidecar_cache.get(cache_key)
+        if entry is not None and entry[0] == mtime:
+            return entry[1]
+    try:
+        payload = data_io.load_json(
+            storage_location="cache",
+            filename=f"{study}_recoded.meta.json",
+        )
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    with _sidecar_cache_lock:
+        _sidecar_cache[cache_key] = (mtime, payload)
+    return payload
+
+
+
+
 def _enrichment_status(raw_df, require_annotated):
     """Describe whether the loaded recoded dataset has the column needed to
     satisfy the current ``require_annotated_items`` setting. Returned dict
@@ -731,8 +783,79 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
 
 
 
+def _remap_analysis_indices(
+    analysis: dict,
+    date_index_map: dict[int, int],
+    n_new: int,
+    new_date_labels: list[str],
+) -> None:
+    """Translate anomaly/break indices in ``analysis`` from the unfiltered
+    timeline coordinate space to the post-filter space.
+
+    Cached `timeline_analysis_<cid>_<interval>.json` is computed once against
+    the full per-collection day series; when the timeline endpoint applies a
+    study filter the returned `dates` list shrinks, so any anomaly whose
+    `index` pointed past the filtered length would render as "Unknown Date"
+    in the findings panel. Walks each variable's categories, drops anomalies/
+    breaks that referenced filtered-out days, and rewrites the surviving
+    indices to match `dates` after filtering. Also refreshes the per-variable
+    `time_labels`/`n_periods` so any future consumer sees a self-consistent
+    payload.
+    """
+    if not isinstance(analysis, dict):
+        return
+
+    for var_name, var_block in analysis.items():
+        if not isinstance(var_block, dict):
+            continue
+        var_block["time_labels"] = list(new_date_labels)
+        var_block["n_periods"] = n_new
+        var_block["start_offset"] = 0
+
+        cats = var_block.get("categories")
+        if not isinstance(cats, list):
+            continue
+
+        for cat in cats:
+            if not isinstance(cat, dict):
+                continue
+
+            anomalies = cat.get("anomalies")
+            if isinstance(anomalies, list) and anomalies:
+                kept = []
+                for a in anomalies:
+                    if not isinstance(a, dict):
+                        continue
+                    new_i = date_index_map.get(a.get("index"))
+                    if new_i is None:
+                        continue
+                    a["index"] = new_i
+                    # Span markers move along with the peak — drop ends
+                    # that fell outside the filter, clamp to the surviving
+                    # extreme so the cluster's reported span doesn't lie.
+                    if "span_start_index" in a:
+                        new_s = date_index_map.get(a["span_start_index"])
+                        a["span_start_index"] = new_s if new_s is not None else new_i
+                    if "span_end_index" in a:
+                        new_e = date_index_map.get(a["span_end_index"])
+                        a["span_end_index"] = new_e if new_e is not None else new_i
+                    kept.append(a)
+                cat["anomalies"] = kept
+
+            brk = cat.get("break")
+            if isinstance(brk, dict):
+                new_i = date_index_map.get(brk.get("index"))
+                if new_i is None:
+                    cat["break"] = None
+                else:
+                    brk["index"] = new_i
+
+
+
+
 def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = False,
-                      preloaded_agg_df: pd.DataFrame | None = None):
+                      preloaded_agg_df: pd.DataFrame | None = None,
+                      study: str | None = None):
     """Returns timeline data for plotting.
 
     - Numeric: Daily Mean (Raw values, invalid/missing ignored).
@@ -746,6 +869,11 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
             the caller has already ensured the cache is fresh (e.g. batch refresh).
         preloaded_agg_df: Pre-computed aggregated DataFrame for this interval.
             When provided, skips loading from cache (avoids write-then-read I/O).
+        study: When set and the study's sidecar advertises ``selected_cells``,
+            restrict the returned series to the (collection, day) cells the
+            study admitted post-sampling. Falls back to the unfiltered view
+            when the sidecar is missing, pre-v2, or doesn't list this
+            collection.
     """
 
     if 'var_schema' not in fyp_cf:
@@ -806,6 +934,36 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
     # Dates
     # Sort by period just in case
     df = df.sort_values(by='period')
+
+    # Study-aware filter: drop days outside the study's sampled (cid, day)
+    # cells. Sidecar absence / pre-v2 / missing collection entry => no filter
+    # (back-compat with timelines opened before the study has been refreshed).
+    # When the filter shrinks the date list, capture old->new index map so the
+    # cached analysis JSON (whose anomaly/break indices reference the
+    # unfiltered series) can be remapped before being returned to the client.
+    date_index_map: dict[int, int] | None = None
+    if study:
+        sidecar = get_study_sidecar(study)
+        if sidecar and sidecar.get("sampling_active"):
+            cells_map = sidecar.get("selected_cells")
+            if isinstance(cells_map, dict):
+                allowed_dates = cells_map.get(str(collection_id))
+                if allowed_dates is not None:
+                    original_periods = df['period'].astype(str).tolist()
+                    allowed_set = set(allowed_dates)
+                    df = df[df['period'].astype(str).isin(allowed_set)]
+                    new_periods = df['period'].astype(str).tolist()
+                    if len(new_periods) != len(original_periods):
+                        new_index = {p: i for i, p in enumerate(new_periods)}
+                        date_index_map = {
+                            old_i: new_index[p]
+                            for old_i, p in enumerate(original_periods)
+                            if p in new_index
+                        }
+
+    if df.empty:
+        return {"dates": [], "variables": {}, "counts": period_counts}
+
     dates = df['period'].tolist()
     
     # Formatted Labels
@@ -961,6 +1119,12 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
         if data_io.exists(storage_location="cache", filename=analysis_fname):
             analysis = data_io.load_json(storage_location="cache", filename=analysis_fname)
             if analysis:
+                # Cached analysis was built against the unfiltered timeline;
+                # remap its anomaly/break indices into the filtered series so
+                # the findings panel and chart overlays align with the dates
+                # we're actually returning.
+                if date_index_map is not None:
+                    _remap_analysis_indices(analysis, date_index_map, len(dates), date_labels)
                 result["analysis"] = analysis
         else:
             # Analysis is missing, generate it on the fly

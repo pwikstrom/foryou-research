@@ -34,6 +34,39 @@ ANOMALY_MIN_NONZERO = 10
 TREND_FLOOR_PP = 1.0
 TREND_FLOOR_FRACTION_OF_MEAN = 0.05
 
+# Meaningfulness thresholds for trends (Rising/Falling chips):
+#   - rate floor:   total_change must accumulate at least this many pp/month
+#   - magnitude:    total_change must clear this absolute floor over the window
+#   - relative:     OR the total_change must be at least this fraction of the
+#                   category's mean share (catches large proportional moves on
+#                   tiny categories that fail both numeric floors).
+# A trend qualifies when (rate AND magnitude) OR relative — keeping noisy
+# slow-drifts off long windows and small-magnitude blips off short windows,
+# while still surfacing genuine doublings of niche categories.
+TREND_RATE_PP_PER_MONTH = 1.0
+TREND_TOTAL_PP_FLOOR = 2.0
+TREND_RELATIVE_FLOOR = 0.5
+
+# Meaningfulness thresholds for spikes (in addition to the z-score gate):
+#   - absolute:  |value - mean| must be at least this many pp
+#   - relative:  upward spikes need value >= ratio * mean
+#                downward spikes (troughs) need value <= mean / ratio
+# Both conditions must pass; the z-score gate alone fires on tiny categories
+# whose noise floor is essentially zero.
+ANOMALY_ABS_PP_FLOOR = 1.0
+ANOMALY_RELATIVE_RATIO = 1.5
+
+# Spike clustering — collapse adjacent same-direction anomalies into a single
+# event so a sustained 3-day binge isn't reported as three separate spikes,
+# and so the 7-day smoothing window's natural broadening of a single huge day
+# doesn't double-count the same event.
+#   - gap days:  consecutive anomalies join when separated by <= this many
+#                periods.  7 matches the smoothing window.
+#   - max days:  a cluster wider than this is split — beyond two weeks the
+#                signal is a plateau, not a spike.
+ANOMALY_CLUSTER_GAP_DAYS = 7
+ANOMALY_CLUSTER_MAX_DAYS = 14
+
 # Break-on-edge rejection: candidate split indices must sit inside this
 # fraction of the window, so the start/end transitions (0 → data → 0) can't
 # masquerade as structural breaks.
@@ -58,6 +91,14 @@ OTHER_BUCKET_LABEL = "Other"
 # meaningful results.  Enforced at the dropdown (disabled option), at the
 # bulk timeline refresh worker (skipped), and at lazy analyse_timeline calls.
 MIN_ACTIVE_DAYS_FOR_TIMELINE = 14
+
+# Periods per month for each supported aggregation interval — used to convert
+# a per-period regression slope into a pp/month rate when gating trends.
+_PERIODS_PER_MONTH: dict[str, float] = {
+    "day": 30.0,
+    "week": 30.0 / 7.0,
+    "month": 1.0,
+}
 
 
 
@@ -130,6 +171,98 @@ def compute_anomalies(vals: list[float], threshold: float = ANOMALY_Z_THRESHOLD)
                 "mean": round(mean_val, 1),
             })
     return sorted(results, key=lambda r: abs(r["z"]), reverse=True)
+
+
+
+
+def cluster_anomalies(anomalies: list[dict],
+                      dates: list[str] | None = None,
+                      gap: int = ANOMALY_CLUSTER_GAP_DAYS,
+                      max_span: int = ANOMALY_CLUSTER_MAX_DAYS) -> list[dict]:
+    """Collapse same-direction anomalies on adjacent periods into single events.
+
+    Walks the input in date order; each anomaly joins the current cluster
+    when (a) it sits in the same direction as the cluster's representative
+    point (peak vs trough, decided by ``value`` against ``mean``) and
+    (b) its gap to the cluster's last point is within ``gap`` and extending
+    the cluster wouldn't push its span past ``max_span``.  Otherwise it
+    starts a new cluster.
+
+    Gap and span are measured in **calendar days** when ``dates`` is supplied;
+    falling back to period-index units otherwise. Calendar-day measurement
+    matters because timeline parquets only carry rows for days with activity,
+    so adjacent indices are typically 1–10 days apart, never a fixed cadence.
+
+    The cluster's representative anomaly is the one with the largest |z|;
+    its `index`, `value`, `z`, and `mean` flow through to the output.
+    Span markers (``span_start_index``, ``span_end_index``, ``n_days``)
+    are added so consumers can describe the duration of the event.
+    ``span_days`` records the calendar reach of the cluster.
+
+    Args:
+        anomalies: List of anomaly dicts as produced by ``compute_anomalies``
+            or the matrix-vectorised path. Need not be sorted.
+        dates: Period date strings (YYYY-MM-DD), aligned with anomaly
+            ``index`` values. When omitted, gaps are measured in periods.
+        gap: Maximum allowed gap (in days when ``dates`` given, else
+            periods) between consecutive anomalies in the same cluster.
+        max_span: Maximum cluster width (same units as ``gap``) before
+            forcing a split.
+
+    Returns:
+        List of cluster dicts sorted by absolute z-score descending.
+    """
+    if not anomalies:
+        return []
+
+    def _coord(idx: int) -> float:
+        """Return clustering-coord for a period index (days when dates known)."""
+        if not dates or idx >= len(dates):
+            return float(idx)
+        try:
+            return pd.Timestamp(dates[idx]).toordinal()
+        except (ValueError, TypeError):
+            return float(idx)
+
+    by_date = sorted(anomalies, key=lambda a: a.get("index", 0))
+
+    clusters: list[list[dict]] = []
+    for a in by_date:
+        if not isinstance(a, dict) or "index" not in a:
+            continue
+        idx = int(a["index"])
+        coord = _coord(idx)
+        direction_up = a.get("value", 0) >= a.get("mean", 0)
+
+        cur = clusters[-1] if clusters else None
+        cur_dir_up = (cur[0].get("value", 0) >= cur[0].get("mean", 0)) if cur else None
+        cur_start_coord = _coord(cur[0]["index"]) if cur else None
+        cur_last_coord = _coord(cur[-1]["index"]) if cur else None
+
+        joinable = (
+            cur is not None
+            and direction_up == cur_dir_up
+            and (coord - cur_last_coord) <= gap
+            and (coord - cur_start_coord) <= max_span
+        )
+        if joinable:
+            cur.append(a)
+        else:
+            clusters.append([a])
+
+    out: list[dict] = []
+    for cluster in clusters:
+        peak = max(cluster, key=lambda a: abs(a.get("z", 0)))
+        span_days = int(_coord(cluster[-1]["index"]) - _coord(cluster[0]["index"])) + 1
+        out.append({
+            **peak,
+            "span_start_index": cluster[0]["index"],
+            "span_end_index": cluster[-1]["index"],
+            "n_days": len(cluster),
+            "span_days": span_days,
+        })
+    out.sort(key=lambda a: abs(a.get("z", 0)), reverse=True)
+    return out
 
 
 
@@ -678,9 +811,21 @@ def _analyse_variable(var_data: dict,
         total_change = float(total_changes[cat_idx])
 
         # (#6) Suppress trends that are below the smoothing-noise floor —
-        # they're not trends, just the shape of the moving average.
+        # they're not trends, just the shape of the moving average.  Then
+        # apply meaningfulness gates: absolute rate per month combined with
+        # absolute magnitude over the window, OR a relative move large
+        # enough to matter on a small-share category.
         trend_floor = max(TREND_FLOOR_PP, TREND_FLOOR_FRACTION_OF_MEAN * mean_val)
-        if abs(total_change) < trend_floor:
+        rate_pp_per_month = abs(slope) * _PERIODS_PER_MONTH.get(interval, 30.0)
+        rate_ok = rate_pp_per_month >= TREND_RATE_PP_PER_MONTH
+        magnitude_ok = abs(total_change) >= TREND_TOTAL_PP_FLOOR
+        relative_ok = (mean_val > 0
+                       and abs(total_change) / mean_val >= TREND_RELATIVE_FLOOR)
+        is_meaningful_trend = (
+            abs(total_change) >= trend_floor
+            and ((rate_ok and magnitude_ok) or relative_ok)
+        )
+        if not is_meaningful_trend:
             trend = {
                 "slope": 0.0,
                 "intercept": round(mean_val, 2),
@@ -695,18 +840,32 @@ def _analyse_variable(var_data: dict,
                 "mean": round(mean_val, 1),
             }
 
-        # Anomalies — enforce the sparse-series guard.
+        # Anomalies — enforce the sparse-series guard, then layer on
+        # absolute and relative magnitude gates so that statistically large
+        # but practically tiny blips on near-zero categories don't reach
+        # the findings panel.  Adjacent same-direction anomalies are then
+        # collapsed into single events so a sustained 3-day binge isn't
+        # reported as three separate spikes.
         anomalies: list[dict] = []
         if nonzero_counts[cat_idx] >= ANOMALY_MIN_NONZERO:
             idxs = np.where(anomaly_mask[cat_idx])[0]
             for i in idxs:
+                value = float(smoothed_matrix[cat_idx, i])
+                if abs(value - mean_val) < ANOMALY_ABS_PP_FLOOR:
+                    continue
+                if value > mean_val:
+                    if mean_val > 0 and value < ANOMALY_RELATIVE_RATIO * mean_val:
+                        continue
+                else:
+                    if value > mean_val / ANOMALY_RELATIVE_RATIO:
+                        continue
                 anomalies.append({
                     "index": int(i),
-                    "value": round(float(smoothed_matrix[cat_idx, i]), 1),
+                    "value": round(value, 1),
                     "z": round(float(z_matrix[cat_idx, i]), 2),
                     "mean": round(mean_val, 1),
                 })
-            anomalies.sort(key=lambda r: abs(r["z"]), reverse=True)
+            anomalies = cluster_anomalies(anomalies, dates=sliced_dates)
 
         # (#5) Break: None when the window is too short for detection.
         if not has_breaks or brk_idx[cat_idx] < 0:
@@ -729,9 +888,14 @@ def _analyse_variable(var_data: dict,
                    "break": brk, "volatility": vol}
         score = compute_interestingness(metrics)
 
-        # Offset anomaly and break indices to full-timeline positions.
+        # Offset anomaly and break indices to full-timeline positions —
+        # span markers move along with the peak index.
         for a in anomalies:
             a["index"] = a["index"] + start_offset
+            if "span_start_index" in a:
+                a["span_start_index"] = a["span_start_index"] + start_offset
+            if "span_end_index" in a:
+                a["span_end_index"] = a["span_end_index"] + start_offset
         if brk is not None:
             brk["index"] = brk["index"] + start_offset
 

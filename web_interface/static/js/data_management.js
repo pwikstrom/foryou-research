@@ -507,8 +507,8 @@ function _showStudyModal(study, isNew = false) {
             : '';
     }
 
-    populateForm(formClone, study);
     body.appendChild(formClone);
+    populateForm(formClone, study);
 
     modal.classList.add('visible');
 

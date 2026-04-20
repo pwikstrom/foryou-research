@@ -131,6 +131,41 @@ def _hash_item_ids(df: pd.DataFrame) -> str:
 
 
 
+def _extract_selected_cells(recoded_df: pd.DataFrame) -> dict[str, list[str]]:
+    """Return {collection_id: [local_date, ...]} for play events in the recoded df.
+
+    The (collection_id, local_date) cells the recoded parquet contains are
+    exactly the cells the study admitted post-sampling; the timeline endpoint
+    uses this map to filter per-collection day series down to the study view.
+    """
+    if recoded_df is None or recoded_df.empty:
+        return {}
+    cols = {"collection_id", "local_date"}
+    if not cols.issubset(recoded_df.columns):
+        return {}
+
+    df = recoded_df
+    if event_type_column in df.columns:
+        df = df[df[event_type_column] == "play"]
+    if df.empty:
+        return {}
+
+    pairs = df[["collection_id", "local_date"]].dropna().drop_duplicates()
+    if pairs.empty:
+        return {}
+
+    pairs = pairs.assign(
+        collection_id=pairs["collection_id"].astype(str),
+        local_date=pd.to_datetime(pairs["local_date"]).dt.strftime("%Y-%m-%d"),
+    )
+    return {
+        cid: sorted(group["local_date"].tolist())
+        for cid, group in pairs.groupby("collection_id", sort=False)
+    }
+
+
+
+
 def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
     """Assemble the sidecar payload for a freshly (re)built recoded dataset."""
 
@@ -139,9 +174,9 @@ def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
 
     fps = compute_input_fingerprints()
 
-    return {
+    sidecar = {
         "created_at": _dt.datetime.now(_dt.UTC).isoformat(),
-        "sidecar_version": 1,
+        "sidecar_version": 2,
         "study_name": study_name,
         "study_config_hash": compute_study_config_hash(study_name),
         "var_schema_hash": compute_var_schema_hash(),
@@ -153,6 +188,11 @@ def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
         "item_ids_hash": _hash_item_ids(recoded_df),
         "row_count": len(recoded_df) if recoded_df is not None else 0,
     }
+
+    if sampling_active:
+        sidecar["selected_cells"] = _extract_selected_cells(recoded_df)
+
+    return sidecar
 
 
 
