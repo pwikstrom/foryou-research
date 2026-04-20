@@ -29,9 +29,57 @@ from ..process_manager import (
     save_process_stats,
     start_process,
 )
-from ..task_status import is_cloud_run
+from ..task_status import is_cloud_run, read_task_status
 
 management_bp = Blueprint('management_bp', __name__)
+
+
+# Downstream refresh steps considered by the auto-pipeline, in the order they
+# are dispatched. Ordering matters: recode produces the recoded datasets that
+# meta_refresh_groups / pca_refresh consume.
+PIPELINE_STEPS_ORDER = [
+    "recode_refresh_studies",
+    "meta_refresh_groups",
+    "pca_refresh",
+    "timelines_refresh",
+]
+
+
+def _is_worker_running(name: str) -> bool:
+    """True if a worker (subprocess or Cloud Task) is currently running.
+
+    Consults the in-memory subprocess state *and* the GCS status file, with
+    the same stale-heartbeat detection used by /api/status. Safe to call from
+    any endpoint that needs to gate behaviour on worker activity.
+    """
+    proc_state = processes.get(name, {})
+    proc = proc_state.get("proc")
+    if proc is not None and proc.poll() is None:
+        return True
+
+    if is_cloud_run():
+        gcs_status = read_task_status(name)
+        if gcs_status and gcs_status.get("state") == "running":
+            updated_str = gcs_status.get("updated_at") or ""
+            try:
+                updated_at = datetime.fromisoformat(updated_str)
+                age = (datetime.now(UTC) - updated_at).total_seconds()
+                if age <= 600:
+                    return True
+            except (ValueError, TypeError):
+                # No / malformed heartbeat — treat as running to be safe.
+                return True
+
+    return False
+
+
+def _workers_blocking_consolidate() -> list[str]:
+    """Return the names of scraper/annotator workers currently running."""
+    blocking = []
+    for name in ("queue_scraper", "queue_annotator"):
+        if _is_worker_running(name):
+            blocking.append(name)
+    return blocking
 
 
 
@@ -977,6 +1025,41 @@ def get_enrichment_stats():
         q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
         if isinstance(q, list): annotate_queue_len = len(q)
         
+    consolidate_entry = process_stats.get("consolidate_enrichment", {})
+
+    # Is any consolidate-pipeline step currently running? Used by the UI to
+    # pick up live stage progress after a page reload mid-pipeline. The
+    # pipeline_in_flight flag covers the brief gap between one step completing
+    # and the next step booting up (when no step is technically "running").
+    pipeline_step_names = ["consolidate_enrichment"] + PIPELINE_STEPS_ORDER
+    any_step_running = any(_is_worker_running(n) for n in pipeline_step_names)
+    flag_in_flight = bool(consolidate_entry.get("pipeline_in_flight"))
+
+    # Stale-flag cleanup: a server restart mid-pipeline leaves the flag set
+    # with no orchestrator thread to clear it. If the flag is on but nothing
+    # is running AND the consolidate step completed >60s ago (longer than
+    # any plausible inter-step gap), treat the pipeline as abandoned and
+    # clear the flag so the UI stops showing "in flight" forever.
+    if flag_in_flight and not any_step_running:
+        last_end = consolidate_entry.get("last_run_end_time")
+        stale = False
+        if last_end:
+            try:
+                end_dt = datetime.fromisoformat(last_end)
+                if (datetime.now(UTC) - end_dt).total_seconds() > 60:
+                    stale = True
+            except (ValueError, TypeError):
+                stale = True
+        else:
+            stale = True
+        if stale:
+            consolidate_entry.pop("pipeline_in_flight", None)
+            process_stats["consolidate_enrichment"] = consolidate_entry
+            save_process_stats()
+            flag_in_flight = False
+
+    pipeline_active = flag_in_flight or any_step_running
+
     return jsonify({
         "total_videos": total_videos,
         "scraped_videos": scraped_videos,
@@ -985,9 +1068,13 @@ def get_enrichment_stats():
         "scrape_queue_len": scrape_queue_len,
         "annotate_queue_len": annotate_queue_len,
         "consolidate_stats": {
-            **process_stats.get("consolidate_enrichment", {}),
+            **consolidate_entry,
             **processes.get("consolidate_enrichment", {}).get("data", {})
         } or None,
+        "consolidate_auto_armed": bool(consolidate_entry.get("auto_armed")),
+        "consolidate_auto_armed_auto_refresh": bool(consolidate_entry.get("auto_armed_auto_refresh")),
+        "consolidate_pipeline_active": pipeline_active,
+        "workers_blocking_consolidate": _workers_blocking_consolidate(),
         "scraper_last_success": process_stats.get("queue_scraper", {}).get("last_success"),
         "annotator_last_success": process_stats.get("queue_annotator", {}).get("last_success"),
     })
@@ -1359,14 +1446,52 @@ def api_consolidate_enrichment():
 
     from fyp.fyp_config import CONSOLIDATE_ENRICHMENT_SCRIPT
 
-    proc_state = processes.get("consolidate_enrichment", {})
-    if proc_state.get("proc") is not None and proc_state["proc"].poll() is None:
+    if _is_worker_running("consolidate_enrichment"):
         return jsonify({"status": "error", "message": "Consolidation already running"}), 409
 
     data = request.json or {}
-    task_args = {}
-    if data.get("force"):
+    force = bool(data.get("force"))
+    # auto_refresh defaults to True — the button means "consolidate + fix the
+    # consolidation impact automatically". Force Reconsolidate skips the
+    # downstream chain by default to keep it debuggable.
+    auto_refresh = bool(data.get("auto_refresh", not force))
+
+    blocking = _workers_blocking_consolidate()
+    if blocking:
+        if force:
+            return jsonify({
+                "status": "error",
+                "message": f"Cannot force reconsolidate while {', '.join(blocking)} running.",
+            }), 409
+
+        # Arm instead of firing — pipeline kicks off when workers go idle.
+        load_process_stats()
+        entry = process_stats.get("consolidate_enrichment", {})
+        entry["auto_armed"] = True
+        entry["auto_armed_force"] = False
+        entry["auto_armed_auto_refresh"] = auto_refresh
+        process_stats["consolidate_enrichment"] = entry
+        save_process_stats()
+        return jsonify({
+            "status": "armed",
+            "message": f"Waiting for {', '.join(blocking)} to finish.",
+            "blocking": blocking,
+        })
+
+    task_args: dict = {}
+    if force:
         task_args["force_consolidation"] = True
+    if auto_refresh:
+        task_args["auto_refresh"] = True
+
+    # Firing now — clear any stale armed flag.
+    load_process_stats()
+    entry = process_stats.get("consolidate_enrichment", {})
+    entry.pop("auto_armed", None)
+    entry.pop("auto_armed_force", None)
+    entry.pop("auto_armed_auto_refresh", None)
+    process_stats["consolidate_enrichment"] = entry
+    save_process_stats()
 
     success, msg = start_process("consolidate_enrichment", CONSOLIDATE_ENRICHMENT_SCRIPT,
                                  task_args=task_args if task_args else None)
@@ -1374,6 +1499,23 @@ def api_consolidate_enrichment():
         return jsonify({"status": "started", "message": msg})
     else:
         return jsonify({"status": "error", "message": msg}), 409
+
+
+@management_bp.route('/api/manage/enrichment/consolidate/disarm', methods=['POST'])
+@login_required
+def api_consolidate_disarm():
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    load_process_stats()
+    entry = process_stats.get("consolidate_enrichment", {})
+    was_armed = bool(entry.get("auto_armed"))
+    entry.pop("auto_armed", None)
+    entry.pop("auto_armed_force", None)
+    entry.pop("auto_armed_auto_refresh", None)
+    process_stats["consolidate_enrichment"] = entry
+    save_process_stats()
+    return jsonify({"status": "disarmed", "was_armed": was_armed})
 
 
 

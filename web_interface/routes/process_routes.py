@@ -1,5 +1,5 @@
 import traceback
-from datetime import UTC
+from datetime import UTC, datetime
 
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
@@ -327,9 +327,16 @@ def _get_status_key(name: str, task_args: dict) -> str:
 def _run_task_with_stats(name: str, task_args: dict) -> None:
     """Execute a task function and update process_stats on completion.
 
-    If the task function returns a dict with ``chain=True``, a follow-up
-    Cloud Task is dispatched and the reporter is kept in "running" state
-    (no complete/stats write) so the next link inherits the same status key.
+    Chain contract:
+    - If the task function returns ``{"chain": True, "next_task_args": ...}``,
+      a follow-up Cloud Task is dispatched. When ``next_task`` is present,
+      it dispatches a different task (cross-task chain, used by the
+      consolidate-→-downstream pipeline); otherwise it chains to the same task.
+    - When a task completes naturally and ``pipeline_remaining`` in task_args
+      is non-empty, the next pipeline step is dispatched. Each step sees its
+      own status key; stage metadata is forwarded in task_args and applied
+      via ``reporter.set_stage`` so subsequent update_progress calls carry
+      pipeline framing automatically.
     """
     from datetime import datetime
 
@@ -337,6 +344,18 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
 
     status_key = _get_status_key(name, task_args)
     reporter = GCSStatusReporter(status_key)
+
+    # Apply pipeline stage framing (forwarded from the consolidate dispatcher).
+    # This makes every subsequent update_progress call carry stage_* fields
+    # without each worker needing to know it's part of a pipeline.
+    pipeline_stage_index = task_args.get("pipeline_stage_index")
+    pipeline_stage_total = task_args.get("pipeline_stage_total")
+    if pipeline_stage_index is not None or name == "consolidate_enrichment":
+        reporter.set_stage(
+            stage_index=pipeline_stage_index,
+            stage_total=pipeline_stage_total,
+            stage_name=name,
+        )
 
     # Chain continuation: resume from existing GCS state so progress is preserved
     if task_args.get("chunk_index", 0) > 0:
@@ -354,26 +373,58 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
         chain_result = task_func(reporter=reporter, task_args=task_args)
 
         if isinstance(chain_result, dict) and chain_result.get("chain"):
-            # Dispatch next Cloud Task in the chain.
-            # Do NOT call reporter.complete() — the next task inherits the
-            # same GCS status key and keeps reporting as "running".
+            # Dispatch next Cloud Task in the chain. ``next_task`` (if
+            # provided) switches to a different task type — used by the
+            # consolidate → downstream-refresh pipeline. Same-task chains
+            # (scraper/annotator batching) inherit the current task name
+            # and status key.
+            next_task_name = chain_result.get("next_task") or name
             next_args = chain_result["next_task_args"]
             deadline = chain_result.get("dispatch_deadline_seconds")
-            success, msg = _dispatch_cloud_task(name, next_args,
-                                                dispatch_deadline_seconds=deadline)
-            if success:
-                reporter.log(f"Chained to next batch: {msg}")
-            else:
-                reporter.fail(f"Chain dispatch failed: {msg}")
-            # Stop the heartbeat so it doesn't race with the next chain
-            # link's reporter writing to the same GCS status file.
-            reporter._stop_heartbeat()
-            # Return without writing completion stats — the chain
-            # continues (on success) or the failure is recorded above.
-            return
+            cross_task = next_task_name != name
 
-        reporter.complete()
-        outcome = "Success"
+            if cross_task:
+                # Cross-task chain: complete the current status file so the
+                # step shows as Success, then dispatch a fresh task.
+                reporter.complete()
+                outcome = "Success"
+                success, msg = _dispatch_cloud_task(next_task_name, next_args,
+                                                    dispatch_deadline_seconds=deadline)
+                if success:
+                    print(f"[{name}] Pipeline: dispatched {next_task_name}: {msg}")
+                    # Mark the pipeline as in-flight so the UI keeps polling
+                    # through the gap between steps (step N completes before
+                    # step N+1 boots and writes its own "running" status).
+                    _set_pipeline_in_flight(True)
+                else:
+                    print(f"[{name}] Pipeline dispatch of {next_task_name} failed: {msg}")
+                    _set_pipeline_in_flight(False)
+                # Fall through to stats update (below) with outcome=Success.
+                chain_result = None
+            else:
+                # Same-task chain: keep the status file "running" so the
+                # next link inherits it. Forward any pipeline metadata from
+                # the incoming task_args so self-chains don't lose pipeline
+                # context (e.g. timelines_refresh batching across many
+                # collections while inside the consolidate pipeline).
+                for k in ("pipeline_remaining", "pipeline_stage_total", "pipeline_stage_index"):
+                    if k in task_args and k not in next_args:
+                        next_args[k] = task_args[k]
+                success, msg = _dispatch_cloud_task(name, next_args,
+                                                    dispatch_deadline_seconds=deadline)
+                if success:
+                    reporter.log(f"Chained to next batch: {msg}")
+                else:
+                    reporter.fail(f"Chain dispatch failed: {msg}")
+                # Stop the heartbeat so it doesn't race with the next chain
+                # link's reporter writing to the same GCS status file.
+                reporter._stop_heartbeat()
+                # Return without writing completion stats — the chain
+                # continues (on success) or the failure is recorded above.
+                return
+        else:
+            reporter.complete()
+            outcome = "Success"
     except Exception as e:
         reporter.fail(f"{e}\n{traceback.format_exc()}")
         outcome = "Fail"
@@ -393,6 +444,108 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
         "last_run_study": study_name,
     })
     process_stats[status_key] = merged
+    save_process_stats()
+
+    # ---- Pipeline advance: after a step completes successfully, dispatch the
+    # next step in the pipeline (if any). Failures abort the pipeline.
+    if outcome == "Success":
+        pipeline_remaining = task_args.get("pipeline_remaining") or []
+        if pipeline_remaining:
+            next_step = pipeline_remaining[0]
+            next_remaining = pipeline_remaining[1:]
+            next_name = next_step["task"]
+            next_args = dict(next_step.get("task_args") or {})
+            next_args["pipeline_remaining"] = next_remaining
+            next_args["pipeline_stage_total"] = pipeline_stage_total
+            next_args["pipeline_stage_index"] = (
+                int(pipeline_stage_index or 1) + 1 if pipeline_stage_index is not None else None
+            )
+
+            success, msg = _dispatch_cloud_task(next_name, next_args)
+            if success:
+                print(f"[{name}] Pipeline: advanced to {next_name}: {msg}")
+                _set_pipeline_in_flight(True)
+            else:
+                print(f"[{name}] Pipeline advance to {next_name} failed: {msg}")
+                _set_pipeline_in_flight(False)
+                _write_pipeline_summary_cloud(partial=True, failed_at=next_name)
+        elif pipeline_stage_index is not None:
+            # This was the final step of a pipeline and it succeeded.
+            _set_pipeline_in_flight(False)
+            _write_pipeline_summary_cloud(partial=False)
+    else:
+        # Step failed — pipeline (if any) is aborted. Log so the failure is
+        # visible in the task runner's console.
+        if task_args.get("pipeline_remaining") or pipeline_stage_index is not None:
+            print(f"[{name}] Step failed; aborting pipeline.")
+            _set_pipeline_in_flight(False)
+            _write_pipeline_summary_cloud(partial=True, failed_at=name)
+
+
+def _write_pipeline_summary_cloud(partial: bool = False, failed_at: str | None = None) -> None:
+    """Write a human-readable pipeline summary into consolidate_stats.
+
+    Called at the end of the Cloud Tasks pipeline chain. Inspects each
+    downstream step's last_run_end_time against the consolidate step's
+    last_run_end_time to determine which steps ran as part of this
+    pipeline; a step "ran" when its end_time is newer.
+    """
+    from web_interface.run_consolidate_enrichment import build_pipeline_summary
+
+    load_process_stats()
+    entry = process_stats.get("consolidate_enrichment", {})
+    impact = entry.get("consolidation_impact")
+    consol_end = entry.get("last_run_end_time")
+    consol_end_dt = None
+    if consol_end:
+        try:
+            consol_end_dt = datetime.fromisoformat(consol_end)
+        except (ValueError, TypeError):
+            pass
+
+    candidate_steps = [
+        "recode_refresh_studies",
+        "meta_refresh_groups",
+        "pca_refresh",
+        "timelines_refresh",
+    ]
+    steps_ran: list[str] = []
+    for step in candidate_steps:
+        step_end = process_stats.get(step, {}).get("last_run_end_time")
+        if not step_end or not consol_end_dt:
+            continue
+        try:
+            step_end_dt = datetime.fromisoformat(step_end)
+        except (ValueError, TypeError):
+            continue
+        if step_end_dt > consol_end_dt:
+            steps_ran.append(step)
+
+    summary = build_pipeline_summary(impact, steps_ran)
+    if partial:
+        suffix = f" (Pipeline aborted at '{failed_at}'.)" if failed_at else " (Pipeline aborted.)"
+        summary = summary + suffix
+    entry["last_pipeline_summary"] = summary
+    entry["last_pipeline_summary_ts"] = datetime.now(UTC).isoformat()
+    process_stats["consolidate_enrichment"] = entry
+    save_process_stats()
+
+
+def _set_pipeline_in_flight(value: bool) -> None:
+    """Record whether a consolidate→downstream pipeline is currently in flight.
+
+    Used by the UI to keep polling across the brief gap between one step
+    completing and the next step's Cloud Task booting up and writing a
+    'running' status file. Stored under the consolidate_enrichment stats
+    entry so the enrichment-stats endpoint can read it without extra state.
+    """
+    load_process_stats()
+    entry = process_stats.get("consolidate_enrichment", {})
+    if value:
+        entry["pipeline_in_flight"] = True
+    else:
+        entry.pop("pipeline_in_flight", None)
+    process_stats["consolidate_enrichment"] = entry
     save_process_stats()
 
 

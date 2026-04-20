@@ -1615,18 +1615,34 @@ def annotate_from_video_id_list(
 
         if dry_run:
             print("Since this is a dry run I'm skipping the refinement step.")
-            return None
+            return [], []
 
         if refine_after_annotation:
-            _ = refine_one_raw_annotation_batch(
+            refined_df = refine_one_raw_annotation_batch(
                 raw_outputs_from_machine = raw_outputs_from_machine,
                 raw_json_filename = raw_json_fn,
                 verbose = verbose, notebook_mode = notebook_mode)
-        
+
+            # Refinement can return None when flatten_and_fix_machine_outputs
+            # fails for the entire batch. In that case we cannot tell which
+            # items succeeded, so return empty lists — the caller will leave
+            # the queue untouched and the items will be retried next run.
+            if refined_df is None or refined_df.empty:
+                return [], []
+
+            if {"item_id", "annotated_ok", "annotated_fail"}.issubset(refined_df.columns):
+                ok_ids = refined_df.loc[refined_df["annotated_ok"].fillna(False).astype(bool), "item_id"].astype(str).tolist()
+                fail_ids = refined_df.loc[refined_df["annotated_fail"].fillna(False).astype(bool), "item_id"].astype(str).tolist()
+                return ok_ids, fail_ids
+
+            return [], []
+
+        return [], []
 
     else:
         if verbose:
             print("No videos to process")
+        return [], []
 
 
 
@@ -1716,12 +1732,14 @@ def annotate_videos_loop_from_list(
 
     print(f"  Starting loop... There are {total_items:,} videos to process in {batch_target:,} batches")
 
+    target_cache_file = "to_annotate.json"
+
     for batch in fyp_utils.chunk_list(video_list, batch_size):
 
         batch_label = f"{batch_number}/{batch_target}"
         print(f"  Batch {batch_label}")
 
-        _ = annotate_from_video_id_list(
+        ok_ids, fail_ids = annotate_from_video_id_list(
             fine_list = batch,
             verbose = verbose,
             dry_run = dry_run,
@@ -1733,8 +1751,20 @@ def annotate_videos_loop_from_list(
 
         cumulative_done += len(batch)
 
-        # Emit queue update after each batch
+        # Prune successful + failed items from the on-disk queue so it stays
+        # in sync with reality. Mirrors the scraper's prune in
+        # run_queue_scraper.py:133. Skipped for dry_run since nothing was
+        # actually annotated.
         queue_remaining = len(video_list) - cumulative_done
+        if not dry_run and data_io.exists(storage_location="cache", filename=target_cache_file):
+            fresh_queue = data_io.load_json(storage_location="cache", filename=target_cache_file)
+            if isinstance(fresh_queue, list):
+                items_to_remove = set(ok_ids) | set(fail_ids)
+                updated_queue = [v for v in fresh_queue if v not in items_to_remove]
+                if len(updated_queue) < len(fresh_queue):
+                    data_io.save_json(data=updated_queue, storage_location="cache", filename=target_cache_file)
+                queue_remaining = len(updated_queue)
+
         if reporter is not None:
             reporter.emit_data({"annotate_queue_len": max(0, queue_remaining)})
         elif "WEB_INTERFACE" in os.environ:

@@ -121,6 +121,20 @@
         </div>
     </div>
 
+    <!-- Arm-consolidate Prompt Modal -->
+    <div id="arm-prompt-overlay" class="stop-confirm-overlay">
+        <div class="stop-confirm-card" style="max-width: 420px;">
+            <p class="text-sm font-bold" style="margin: 0 0 8px 0;">Auto-run Consolidate &amp; Refresh?</p>
+            <p id="arm-prompt-text" class="text-sm" style="margin: 0 0 16px 0; color: var(--color-text-secondary);">
+                Would you like to automatically consolidate enrichment data and refresh all affected caches once this process completes?
+            </p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button class="btn-discreet" onclick="_resolveArmPrompt(false)">No, just start</button>
+                <button class="action-btn" onclick="_resolveArmPrompt(true)">Yes, arm it</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Log Modal -->
     <div id="log-modal-overlay" class="stop-confirm-overlay" style="align-items: flex-start; padding-top: 8vh;">
         <div class="log-modal-card">

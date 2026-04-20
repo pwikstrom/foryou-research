@@ -653,6 +653,17 @@ input[type="number"] {
     border-radius: 3px;
 }
 
+/* Hide native number-input spinners. The up/down arrows waste width and we
+   use number inputs for batch sizes / counts where freely typing is the norm. */
+input[type="number"] {
+    -moz-appearance: textfield;
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
 select,
 .dropdown {
     background: var(--select-bg);
@@ -835,6 +846,30 @@ button {
 .btn-has-pending {
     box-shadow: 0 0 6px var(--color-warning);
     border: 1px solid var(--color-warning);
+}
+
+/* Armed state for the Consolidate & Refresh button — gentle blue pulse
+   so it's clearly "waiting to fire" but not alarming. */
+@keyframes armed-pulse-glow {
+    0%, 100% {
+        box-shadow: 0 0 4px var(--color-primary, #4a9eff);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 14px var(--color-primary, #4a9eff);
+        transform: scale(1.02);
+    }
+}
+
+.btn-armed-pulse {
+    background: var(--color-primary, #4a9eff) !important;
+    color: var(--btn-primary-text, white) !important;
+    border: 1px solid var(--color-primary, #4a9eff) !important;
+    animation: armed-pulse-glow 1.6s ease-in-out infinite;
+}
+
+.btn-armed-pulse:hover {
+    opacity: 0.92;
 }
 
 .action-btn {
@@ -1409,6 +1444,15 @@ button {
     text-decoration: underline dotted var(--color-text-muted);
 }
 
+button.meta-tooltip {
+    cursor: pointer;
+    text-decoration: none;
+}
+
+button.meta-tooltip:disabled {
+    cursor: not-allowed;
+}
+
 .meta-tooltip::after {
     content: attr(data-tooltip);
     position: absolute;
@@ -1430,6 +1474,10 @@ button {
     z-index: 1000;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
     border: 1px solid var(--tooltip-border);
+}
+
+.meta-tooltip:hover {
+    z-index: 1000;
 }
 
 .meta-tooltip:hover::after {

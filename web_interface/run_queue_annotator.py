@@ -43,7 +43,7 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
     Args:
         reporter: Status reporter (GCS or local).
         task_args: Must contain 'batch_size'. Optional: 'max_batches',
-                   'chunk_index', 'videos_processed'.
+                   'chunk_index', 'initial_total'.
 
     Returns:
         dict with ``chain=True`` and ``next_task_args`` if another batch
@@ -60,7 +60,11 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
     if max_batches is not None:
         max_batches = int(max_batches)
     chunk_index: int = int(task_args.get("chunk_index", 0))
-    videos_processed: int = int(task_args.get("videos_processed", 0))
+    # Captured from the queue length on chain #1 and carried forward so that
+    # progress framing stays stable across chains even as the queue shrinks
+    # under pruning. Absent on the first chain or legacy in-flight tasks —
+    # defaulted below from the current queue length.
+    initial_total: int = int(task_args.get("initial_total", 0))
 
     # ---- Validate batch size ----
     if batch_size > MAX_BATCH_SIZE:
@@ -82,43 +86,63 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         return None
 
     total_queue = len(video_list)
-    reporter.log(f"Loaded {total_queue:,} videos from queue.")
+    if initial_total <= 0:
+        initial_total = total_queue
+    reporter.log(f"Loaded {total_queue:,} videos from queue (initial_total={initial_total:,}).")
 
-    # ---- Slice this batch ----
-    offset = videos_processed
-    batch = video_list[offset : offset + batch_size]
+    # ---- Slice this batch from the head of the pruned queue ----
+    batch = video_list[:batch_size]
     if not batch:
-        reporter.log("No more videos to process at this offset.")
+        reporter.log("Queue empty at start of batch. Nothing to do.")
         return None
 
-    # Compute overall totals for progress reporting
+    already_done = max(0, initial_total - total_queue)
+    overall_total = max(initial_total, already_done + len(batch))
+
     if max_batches is not None:
         total_batches = max_batches
     else:
-        total_batches = (total_queue + batch_size - 1) // batch_size
-    overall_total = min(total_queue, total_batches * batch_size)
-    batch_label = f"{chunk_index + 1}/{total_batches}"
+        total_batches = (initial_total + batch_size - 1) // batch_size
+    display_total_batches = max(total_batches, chunk_index + 1)
+    batch_label = f"{chunk_index + 1}/{display_total_batches}"
 
     reporter.log(
         f"Batch {batch_label}: processing {len(batch):,} videos "
-        f"(offset {offset:,}, overall {videos_processed:,}/{overall_total:,})"
+        f"(done {already_done:,}/{overall_total:,})"
     )
 
     # ---- Annotate ----
-    annotate_from_video_id_list(
+    ok_ids, fail_ids = annotate_from_video_id_list(
         fine_list=batch,
         verbose=False,
         dry_run=False,
         batch_label=batch_label,
-        cumulative_done=videos_processed,
+        cumulative_done=already_done,
         cumulative_total=overall_total,
         reporter=reporter,
     )
 
-    new_videos_processed = videos_processed + len(batch)
-    queue_remaining = total_queue - new_videos_processed
-    reporter.emit_data({"annotate_queue_len": max(0, queue_remaining)})
-    reporter.log(f"Batch {batch_label} complete. {new_videos_processed:,} processed, {max(0, queue_remaining):,} remaining.")
+    # ---- Update queue: remove successful + failed items ----
+    # Reload fresh to avoid clobbering concurrent writes. Mirrors the
+    # scraper's prune at run_queue_scraper.py.
+    fresh_queue = data_io.load_json(storage_location="cache", filename=target_cache_file)
+    items_to_remove: set[str] = set(ok_ids) | set(fail_ids)
+    pruned_this_batch = 0
+    if isinstance(fresh_queue, list):
+        updated_queue = [v for v in fresh_queue if v not in items_to_remove]
+        pruned_this_batch = len(fresh_queue) - len(updated_queue)
+        if pruned_this_batch > 0:
+            data_io.save_json(data=updated_queue, storage_location="cache", filename=target_cache_file)
+        queue_remaining = len(updated_queue)
+    else:
+        queue_remaining = max(0, total_queue - len(batch))
+
+    reporter.emit_data({"annotate_queue_len": queue_remaining})
+    reporter.log(
+        f"Batch {batch_label} complete. "
+        f"{len(ok_ids)} OK, {len(fail_ids)} fail. "
+        f"Queue: {queue_remaining:,} remaining."
+    )
 
     # ---- Check whether to chain ----
     if reporter.check_cancelled():
@@ -130,8 +154,18 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         reporter.log(f"Reached max_batches limit ({max_batches}).")
         return None
 
-    if new_videos_processed >= total_queue:
+    if queue_remaining == 0:
         reporter.log("Queue exhausted.")
+        return None
+
+    # Safety: if this batch pruned nothing (e.g. refinement failed for the
+    # whole batch), chaining would re-process the same head slice and loop.
+    # Stop so the user can investigate or the next run picks them up fresh.
+    if pruned_this_batch == 0:
+        reporter.log(
+            "No items pruned from this batch (refinement failure?). "
+            "Stopping chain to avoid an infinite retry loop."
+        )
         return None
 
     # More work remains — request a chain dispatch
@@ -139,7 +173,7 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         "batch_size": batch_size,
         "max_batches": max_batches,
         "chunk_index": next_chunk,
-        "videos_processed": new_videos_processed,
+        "initial_total": initial_total,
     }
     reporter.log(f"Chaining to next batch (chunk_index={next_chunk})...")
     return {

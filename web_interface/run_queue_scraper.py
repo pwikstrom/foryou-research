@@ -30,7 +30,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     Args:
         reporter: Status reporter (GCS or local).
         task_args: Optional dict with 'batch_size', 'max_batches',
-                   'chunk_index', 'videos_processed'.
+                   'chunk_index', 'initial_total'.
 
     Returns:
         dict with ``chain=True`` and ``next_task_args`` if another batch
@@ -47,7 +47,11 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     if max_batches is not None:
         max_batches = int(max_batches)
     chunk_index: int = int(task_args.get("chunk_index", 0))
-    videos_processed: int = int(task_args.get("videos_processed", 0))
+    # ``initial_total`` is captured on chain #1 from the queue length and
+    # carried forward unchanged, giving stable progress framing across chains.
+    # Absent on the first chain (or on old in-flight tasks that used the
+    # ``videos_processed`` scheme) — default from the current queue below.
+    initial_total: int = int(task_args.get("initial_total", 0))
 
     # ---- Load the scrape queue ----
     target_cache_file = "to_scrape.json"
@@ -61,28 +65,39 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         return None
 
     total_queue = len(video_list)
-    reporter.log(f"Loaded {total_queue:,} videos from queue.")
+    if initial_total <= 0:
+        initial_total = total_queue
+    reporter.log(f"Loaded {total_queue:,} videos from queue (initial_total={initial_total:,}).")
 
-    # ---- Slice this batch ----
-    offset = videos_processed
-    batch = video_list[offset : offset + batch_size]
+    # ---- Slice this batch from the head of the pruned queue ----
+    # Prior chains removed completed items, so the queue's head is always the
+    # next work to do. No offset arithmetic needed.
+    batch = video_list[:batch_size]
     if not batch:
-        reporter.log("No more videos to process at this offset.")
+        reporter.log("Queue empty at start of batch. Nothing to do.")
         return None
+
+    # Items completed in prior chains (for display and progress framing).
+    # Cap at initial_total so a queue that grew mid-chain (user re-queueing)
+    # doesn't report negative progress.
+    already_done = max(0, initial_total - total_queue)
+    overall_total = max(initial_total, already_done + len(batch))
 
     if max_batches is not None:
         total_batches = max_batches
     else:
-        total_batches = (total_queue + batch_size - 1) // batch_size
-    overall_total = min(total_queue, total_batches * batch_size)
-    batch_label = f"{chunk_index + 1}/{total_batches}"
+        total_batches = (initial_total + batch_size - 1) // batch_size
+    # Avoid "3/2"-style labels if chain_index drifts past total_batches
+    # (possible with transient-failure retries).
+    display_total_batches = max(total_batches, chunk_index + 1)
+    batch_label = f"{chunk_index + 1}/{display_total_batches}"
 
     reporter.log(
         f"Batch {batch_label}: scraping {len(batch):,} videos "
-        f"(offset {offset:,}, overall {videos_processed:,}/{overall_total:,})"
+        f"(done {already_done:,}/{overall_total:,})"
     )
 
-    pct_before = int(videos_processed / overall_total * 100) if overall_total else 0
+    pct_before = int(already_done / overall_total * 100) if overall_total else 0
     reporter.update_progress(pct_before,
         f"Batch {batch_label}: scraping {len(batch):,} videos")
     reporter.emit_data({"threads": 8})
@@ -101,7 +116,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
             ok_in_batch += 1
         else:
             fail_in_batch += 1
-        completed = videos_processed + done_in_batch
+        completed = already_done + done_in_batch
         pct = int(completed / overall_total * 100) if overall_total else 0
         pending = len(batch) - done_in_batch
         reporter.update_progress(pct,
@@ -114,7 +129,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         verbose=False,
         dry_run=False,
         batch_label=batch_label,
-        cumulative_done=videos_processed,
+        cumulative_done=already_done,
         cumulative_total=overall_total,
         on_concurrency_change=_on_threads_change,
         on_video_done=_on_video_done,
@@ -124,23 +139,24 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     if not results_df.empty and "item_id" in results_df.columns:
         good_ids = results_df["item_id"].to_list()
 
-    new_videos_processed = videos_processed + len(batch)
-    pct_after = int(new_videos_processed / overall_total * 100) if overall_total else 100
+    pct_after = int((already_done + len(batch)) / overall_total * 100) if overall_total else 100
     reporter.update_progress(pct_after,
         f"Batch {batch_label} done: {len(good_ids)} OK, "
         f"{len(permanent_failed)} permanent fail, {len(transient_failed)} transient")
 
     # ---- Update queue: remove successful + permanently failed items ----
-    # Reload fresh to avoid clobbering concurrent writes
+    # Reload fresh to avoid clobbering concurrent writes.
     fresh_queue = data_io.load_json(storage_location="cache", filename=target_cache_file)
+    items_to_remove: set[str] = set(good_ids) | set(permanent_failed)
+    pruned_this_batch = 0
     if isinstance(fresh_queue, list):
-        items_to_remove = set(good_ids + permanent_failed)
         updated_queue = [v for v in fresh_queue if v not in items_to_remove]
-        if len(updated_queue) < len(fresh_queue):
+        pruned_this_batch = len(fresh_queue) - len(updated_queue)
+        if pruned_this_batch > 0:
             data_io.save_json(data=updated_queue, storage_location="cache", filename=target_cache_file)
         queue_remaining = len(updated_queue)
     else:
-        queue_remaining = max(0, total_queue - new_videos_processed)
+        queue_remaining = max(0, total_queue - len(batch))
 
     reporter.emit_data({"scrape_queue_len": queue_remaining})
     reporter.log(
@@ -160,15 +176,26 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.log(f"Reached max_batches limit ({max_batches}).")
         return None
 
-    if new_videos_processed >= total_queue:
+    if queue_remaining == 0:
         reporter.log("Queue exhausted.")
+        return None
+
+    # Safety: if this batch pruned nothing (e.g. every item was a transient
+    # failure), chaining would re-process the exact same head slice and loop
+    # forever. Stop chaining so the user can intervene or the next run picks
+    # them up fresh.
+    if pruned_this_batch == 0:
+        reporter.log(
+            f"No items pruned from this batch ({len(transient_failed)} transient). "
+            f"Stopping chain to avoid an infinite retry loop."
+        )
         return None
 
     next_task_args = {
         "batch_size": batch_size,
         "max_batches": max_batches,
         "chunk_index": next_chunk,
-        "videos_processed": new_videos_processed,
+        "initial_total": initial_total,
     }
     reporter.log(f"Chaining to next batch (chunk_index={next_chunk})...")
     return {

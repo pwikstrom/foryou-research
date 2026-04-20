@@ -27,12 +27,51 @@ THROTTLE_INTERVAL = 5  # seconds between GCS writes
 class TaskStatusReporter(ABC):
     """Base interface for task status reporting."""
 
+    # Default stage info injected into every update_progress call when the
+    # caller doesn't pass stage_* explicitly. Set by the task runner so
+    # pipeline-aware display survives even when worker code was written
+    # without pipeline awareness.
+    _default_stage_index: int | None = None
+    _default_stage_total: int | None = None
+    _default_stage_name: str | None = None
+
+    def set_stage(
+        self,
+        stage_index: int | None,
+        stage_total: int | None,
+        stage_name: str | None,
+    ) -> None:
+        """Set pipeline stage defaults applied to subsequent update_progress calls."""
+        self._default_stage_index = stage_index
+        self._default_stage_total = stage_total
+        self._default_stage_name = stage_name
+
+    def _resolve_stage(
+        self,
+        stage_index: int | None,
+        stage_total: int | None,
+        stage_name: str | None,
+    ) -> tuple[int | None, int | None, str | None]:
+        """Merge explicit stage args with reporter defaults."""
+        return (
+            stage_index if stage_index is not None else self._default_stage_index,
+            stage_total if stage_total is not None else self._default_stage_total,
+            stage_name if stage_name is not None else self._default_stage_name,
+        )
+
     @abstractmethod
     def start(self) -> None:
         ...
 
     @abstractmethod
-    def update_progress(self, percent: int, message: str) -> None:
+    def update_progress(
+        self,
+        percent: int,
+        message: str,
+        stage_index: int | None = None,
+        stage_total: int | None = None,
+        stage_name: str | None = None,
+    ) -> None:
         ...
 
     @abstractmethod
@@ -67,9 +106,25 @@ class LocalStatusReporter(TaskStatusReporter):
     def start(self) -> None:
         print(f"[{self.name}] Starting...")
 
-    def update_progress(self, percent: int, message: str) -> None:
-        payload = json.dumps({"percent": percent, "message": message})
-        print(f"::PROGRESS::{payload}")
+    def update_progress(
+        self,
+        percent: int,
+        message: str,
+        stage_index: int | None = None,
+        stage_total: int | None = None,
+        stage_name: str | None = None,
+    ) -> None:
+        stage_index, stage_total, stage_name = self._resolve_stage(
+            stage_index, stage_total, stage_name
+        )
+        payload_dict = {"percent": percent, "message": message}
+        if stage_index is not None:
+            payload_dict["stage_index"] = stage_index
+        if stage_total is not None:
+            payload_dict["stage_total"] = stage_total
+        if stage_name is not None:
+            payload_dict["stage_name"] = stage_name
+        print(f"::PROGRESS::{json.dumps(payload_dict)}")
 
     def emit_data(self, payload: dict) -> None:
         print(f"::DATA::{json.dumps(payload)}")
@@ -130,9 +185,26 @@ class LocalThreadStatusReporter(TaskStatusReporter):
         self._update({"state": "running"})
         print(f"[{self.key}] Starting...")
 
-    def update_progress(self, percent: int, message: str) -> None:
-        self._update({"progress": {"percent": percent, "message": message}})
-        print(f"::PROGRESS::{json.dumps({'percent': percent, 'message': message})}")
+    def update_progress(
+        self,
+        percent: int,
+        message: str,
+        stage_index: int | None = None,
+        stage_total: int | None = None,
+        stage_name: str | None = None,
+    ) -> None:
+        stage_index, stage_total, stage_name = self._resolve_stage(
+            stage_index, stage_total, stage_name
+        )
+        payload_dict = {"percent": percent, "message": message}
+        if stage_index is not None:
+            payload_dict["stage_index"] = stage_index
+        if stage_total is not None:
+            payload_dict["stage_total"] = stage_total
+        if stage_name is not None:
+            payload_dict["stage_name"] = stage_name
+        self._update({"progress": payload_dict})
+        print(f"::PROGRESS::{json.dumps(payload_dict)}")
 
     def emit_data(self, payload: dict) -> None:
         with _local_thread_status_lock:
@@ -259,9 +331,29 @@ class GCSStatusReporter(TaskStatusReporter):
         self._write_status(force=True)
         self._start_heartbeat()
 
-    def update_progress(self, percent: int, message: str) -> None:
-        self._status["progress"] = {"percent": percent, "message": message}
-        print(f"[{self.name}] {percent}% - {message}")
+    def update_progress(
+        self,
+        percent: int,
+        message: str,
+        stage_index: int | None = None,
+        stage_total: int | None = None,
+        stage_name: str | None = None,
+    ) -> None:
+        stage_index, stage_total, stage_name = self._resolve_stage(
+            stage_index, stage_total, stage_name
+        )
+        payload_dict = {"percent": percent, "message": message}
+        if stage_index is not None:
+            payload_dict["stage_index"] = stage_index
+        if stage_total is not None:
+            payload_dict["stage_total"] = stage_total
+        if stage_name is not None:
+            payload_dict["stage_name"] = stage_name
+        self._status["progress"] = payload_dict
+        stage_prefix = ""
+        if stage_index is not None and stage_total is not None:
+            stage_prefix = f"[Stage {stage_index}/{stage_total}] "
+        print(f"[{self.name}] {stage_prefix}{percent}% - {message}")
         self._write_status()
 
     def emit_data(self, payload: dict) -> None:

@@ -342,6 +342,17 @@ async function startProcess(name, extraBody = {}) {
             ...extraBody
         };
     }
+    // Before starting queue_scraper / queue_annotator, offer to auto-arm
+    // Consolidate & Refresh so the pipeline fires on completion. Only when
+    // (a) not already armed, and (b) the queue has work to do.
+    if (name === 'queue_scraper' || name === 'queue_annotator') {
+        try {
+            await _maybePromptArmConsolidate(name);
+        } catch (e) {
+            console.error('Arm-prompt flow failed (continuing to start):', e);
+        }
+    }
+
     try {
         const res = await fetch(`/api/start/${name}`, {
             method: 'POST',
@@ -351,6 +362,10 @@ async function startProcess(name, extraBody = {}) {
         const data = await res.json();
         if (data.status !== 'success') {
             alert("Error: " + data.message);
+        } else if (window._pendingArmAfterStart) {
+            // Successful start — arm Consolidate & Refresh so it fires when
+            // the queue finishes. Non-blocking; fires in background.
+            _armAfterQueueStart();
         }
         updateStatus();
     } catch (e) {
@@ -365,6 +380,92 @@ async function startProcess(name, extraBody = {}) {
                 startProcess('monitor');
             }, 1000); // 1 second delay
         }
+    }
+}
+
+// Arm-prompt state (module-scoped). _armPromptResolver is set while the
+// overlay is visible so the Yes/No buttons can resolve the awaited promise.
+let _armPromptResolver = null;
+
+function _resolveArmPrompt(value) {
+    const overlay = document.getElementById('arm-prompt-overlay');
+    if (overlay) overlay.classList.remove('visible');
+    if (_armPromptResolver) {
+        const r = _armPromptResolver;
+        _armPromptResolver = null;
+        r(value);
+    }
+}
+
+async function _maybePromptArmConsolidate(name) {
+    // Bail out fast when the modal markup isn't on the page (e.g. a plugin
+    // starts a queue from a different screen).
+    const overlay = document.getElementById('arm-prompt-overlay');
+    if (!overlay) return;
+
+    // Fetch current enrichment stats to decide whether to show the prompt.
+    let stats;
+    try {
+        stats = await fetch('/api/manage/enrichment/stats').then(r => r.json());
+    } catch {
+        return; // Fail open — don't block the start.
+    }
+    if (!stats) return;
+
+    // Already armed → nothing to prompt.
+    if (stats.consolidate_auto_armed) return;
+
+    // Queue empty → nothing meaningful will happen, skip the prompt.
+    const qLen = name === 'queue_scraper' ? stats.scrape_queue_len : stats.annotate_queue_len;
+    if (!qLen || qLen <= 0) return;
+
+    // Show the modal and await user choice.
+    const textEl = document.getElementById('arm-prompt-text');
+    if (textEl) {
+        const action = name === 'queue_scraper' ? 'scraping' : 'annotation';
+        textEl.textContent = `Would you like to automatically consolidate enrichment data and refresh all affected caches once the ${action} finishes?`;
+    }
+    overlay.classList.add('visible');
+
+    const armed = await new Promise(resolve => { _armPromptResolver = resolve; });
+    if (!armed) return;
+
+    // User said yes — arm via the consolidate endpoint. When workers are
+    // idle (queue not yet started), the endpoint will actually fire
+    // consolidate right now, which we DON'T want. To force the "armed"
+    // branch server-side, we arm by briefly setting the flag directly via
+    // the existing consolidate POST when workers are running — but since
+    // workers aren't yet running at this point, we arm via a dedicated
+    // flow: send a POST and if the server returns 'started' we're out of
+    // luck (race). To avoid that, we arm AFTER kicking off the queue.
+    // Flag the intent here; actual arming happens in _armAfterQueueStart().
+    window._pendingArmAfterStart = name;
+}
+
+async function _armAfterQueueStart() {
+    // Called after a queue scraper/annotator has been successfully started;
+    // arms Consolidate & Refresh so it auto-fires when the queue finishes.
+    const intent = window._pendingArmAfterStart;
+    if (!intent) return;
+    window._pendingArmAfterStart = null;
+
+    // Give the server a moment to register the queue process as running —
+    // otherwise the arm POST would hit the "no workers → fire now" branch.
+    await new Promise(r => setTimeout(r, 1200));
+
+    try {
+        const res = await fetch('/api/manage/enrichment/consolidate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify({ auto_refresh: true }),
+        });
+        const resp = await res.json();
+        if (resp.status !== 'armed') {
+            console.warn('Arm POST did not arm (server response):', resp);
+        }
+        if (typeof fetchEnrichmentStats === 'function') fetchEnrichmentStats();
+    } catch (e) {
+        console.error('Failed to arm after queue start:', e);
     }
 }
 
@@ -598,7 +699,10 @@ function setStatus(name, data) {
         }
     }
 
-    // Show running process settings for scraper/annotator
+    // Show running process settings for scraper/annotator. Only *reset* on
+    // the running→stopped transition (disabled flips back off); on every
+    // other poll tick leave the inputs alone so the user can type freely
+    // without every 2s poll clobbering their value back to the default.
     if (name === 'queue_scraper' || name === 'queue_annotator') {
         const prefix = name === 'queue_scraper' ? 'scrapes' : 'annotations';
         const bsEl = document.getElementById(`${prefix}-batch-size`);
@@ -608,8 +712,9 @@ function setStatus(name, data) {
             if (mbEl && data.task_args.max_batches) { mbEl.value = data.task_args.max_batches; mbEl.disabled = true; }
             else if (mbEl) { mbEl.value = ''; mbEl.disabled = true; }
         } else if (status !== 'running') {
-            if (bsEl) { bsEl.value = 500; bsEl.disabled = false; }
-            if (mbEl) { mbEl.value = ''; mbEl.disabled = false; }
+            // Only re-enable + reset when transitioning *out* of running.
+            if (bsEl && bsEl.disabled) { bsEl.value = 500; bsEl.disabled = false; }
+            if (mbEl && mbEl.disabled) { mbEl.value = ''; mbEl.disabled = false; }
         }
     }
 
