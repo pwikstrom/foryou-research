@@ -564,6 +564,18 @@ a:hover {
     font-weight: var(--weight-bold);
 }
 
+.tab-button:disabled,
+.tab-button.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+    background: var(--tab-bg);
+}
+
+.tab-button:disabled:hover,
+.tab-button.is-disabled:hover {
+    background: var(--tab-bg);
+}
+
 
 /* ============================================================
    Layout: Container & Panels

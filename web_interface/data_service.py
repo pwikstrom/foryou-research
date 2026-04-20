@@ -1442,7 +1442,9 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
         role: Current user's role.
         is_admin: Whether the user is an admin.
         include_stats: When True, return ``[{"name": ..., "stats": {...}}]``
-            instead of a flat list of names.
+            instead of a flat list of names. The stats dict is augmented
+            with ``has_pca`` and ``has_timelines`` booleans so the UI can
+            gate the Correlations and Timelines tabs per study.
     """
     from fyp.studies import init_study_defs
 
@@ -1450,6 +1452,49 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
         init_study_defs()
 
     accessible_studies = []
+
+    # When stats are requested we also need to know which studies have
+    # PCA scores and which have timelines — both gate tab availability in
+    # the UI. List the cache once so we can answer via set membership
+    # instead of issuing one exists()/listdir() call per study/collection.
+    # Timeline availability mirrors what the Timelines dropdown surfaces:
+    # at least one collection in the study must have
+    # active_days >= MIN_ACTIVE_DAYS_FOR_TIMELINE. Checking file presence
+    # alone was insufficient — stray cache files from other studies can
+    # falsely mark a study as timeline-capable even when every collection
+    # in it falls below the analysable-length threshold.
+    cache_files: set[str] = set()
+    timeline_capable_cids: set[str] = set()
+    if include_stats:
+        try:
+            cache_files = set(data_io.listdir(storage_location="cache"))
+        except Exception:
+            cache_files = set()
+        try:
+            from fyp.organize_datasets import COLLECTIONS_LABEL
+            from fyp.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE
+            meta_df = data_io.load_parquet_selective(
+                storage_location="recoded",
+                filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
+                columns=["('personas', 'active_days')", "active_days"],
+                set_index='collection_id',
+            )
+            if meta_df is not None and not meta_df.empty:
+                active_days_col = None
+                if ('personas', 'active_days') in meta_df.columns:
+                    active_days_col = ('personas', 'active_days')
+                elif 'active_days' in meta_df.columns:
+                    active_days_col = 'active_days'
+                if active_days_col is not None:
+                    df_reset = meta_df.reset_index()
+                    ad_series = pd.to_numeric(df_reset[active_days_col], errors='coerce')
+                    capable_mask = ad_series >= MIN_ACTIVE_DAYS_FOR_TIMELINE
+                    timeline_capable_cids = set(
+                        df_reset.loc[capable_mask, 'collection_id']
+                        .dropna().astype(str).str.strip().tolist()
+                    )
+        except Exception:
+            timeline_capable_cids = set()
 
     if 'study_defs' in fyp_cf:
         for study_name, study_config in fyp_cf['study_defs'].items():
@@ -1480,6 +1525,22 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
                     continue
 
                 if include_stats:
+                    stats = dict(stats)
+                    stats['has_pca'] = f"{study_name}_PCA.parquet" in cache_files
+                    # A study "has timelines" only when at least one of its
+                    # collections is long enough to analyse (active_days >=
+                    # threshold) AND has an actual cached timeline parquet.
+                    # Both gates matter: without the length check, a stale
+                    # cache file would re-enable the tab for a study whose
+                    # collections are all too short; without the file check,
+                    # collections that qualify on paper but whose timelines
+                    # have never been generated would appear available.
+                    selected = study_config.get('SELECTED_COLLECTIONS', []) or []
+                    stats['has_timelines'] = any(
+                        (cid_clean := str(cid).strip()) in timeline_capable_cids
+                        and f"timeline_{cid_clean}_day.parquet" in cache_files
+                        for cid in selected
+                    )
                     accessible_studies.append({"name": study_name, "stats": stats})
                 else:
                     accessible_studies.append(study_name)

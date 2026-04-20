@@ -20,10 +20,10 @@
 
 <!-- Tab Navigation -->
 <div class="tab-nav">
-    <button class="tab-button" onclick="openTab(event, 'explore')">Explore</button>
-    <button class="tab-button" onclick="openTab(event, 'timelines')">Timelines</button>
-    <button class="tab-button" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
-    <button class="tab-button" onclick="openTab(event, 'correlations')">Correlations</button>
+    <button class="tab-button" data-tab="explore" onclick="openTab(event, 'explore')">Explore</button>
+    <button class="tab-button" data-tab="timelines" onclick="openTab(event, 'timelines')">Timelines</button>
+    <button class="tab-button" data-tab="video_analysis" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
+    <button class="tab-button" data-tab="correlations" onclick="openTab(event, 'correlations')">Correlations</button>
     {% if user.is_admin() %}
     <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
     {% else %}

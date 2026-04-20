@@ -59,6 +59,65 @@ async function _showLargeStudyConfirm(studyName, uniqueVideos) {
     return true;
 }
 
+// Tabs whose backend data isn't available for every study. The stats flags
+// (`has_pca`, `has_timelines`) are emitted by /api/studies/defined?detail=true
+// when the study's cached artefacts are missing. When a user selects such a
+// study we disable the tab button; if they're currently viewing a disabled
+// tab we bounce them to Explore (which always works).
+const _GATED_TABS = [
+    { tab: 'correlations', flag: 'has_pca' },
+    { tab: 'timelines', flag: 'has_timelines' },
+];
+
+function _findTabButton(tabName) {
+    return document.querySelector(`.tab-button[data-tab="${tabName}"]`);
+}
+
+function isTabDisabledForActiveStudy(tabName) {
+    const gate = _GATED_TABS.find(g => g.tab === tabName);
+    if (!gate) return false;
+    const current = window.studyState.current;
+    if (!current) return false;
+    const stats = window.studyState.stats[current];
+    if (!stats) return false;
+    return stats[gate.flag] === false;
+}
+window.isTabDisabledForActiveStudy = isTabDisabledForActiveStudy;
+
+function updateTabAvailability() {
+    const current = window.studyState.current;
+    const stats = current ? (window.studyState.stats[current] || {}) : {};
+
+    let activeDisabled = false;
+    _GATED_TABS.forEach(({ tab, flag }) => {
+        const btn = _findTabButton(tab);
+        if (!btn) return;
+        // Unknown/missing stats should not lock the user out — only disable
+        // when we explicitly know the data is absent.
+        const disabled = current ? (stats[flag] === false) : false;
+        btn.disabled = disabled;
+        btn.classList.toggle('is-disabled', disabled);
+        if (disabled) {
+            btn.setAttribute('aria-disabled', 'true');
+            btn.setAttribute('title', `Not available for '${current}' — this study has no ${tab === 'correlations' ? 'PCA scores' : 'timelines data'}.`);
+        } else {
+            btn.removeAttribute('aria-disabled');
+            btn.removeAttribute('title');
+        }
+        if (disabled && btn.classList.contains('active')) {
+            activeDisabled = true;
+        }
+    });
+
+    if (activeDisabled) {
+        const exploreBtn = _findTabButton('explore');
+        if (exploreBtn && typeof openTab === 'function') {
+            openTab({ currentTarget: exploreBtn }, 'explore');
+        }
+    }
+}
+window.updateTabAvailability = updateTabAvailability;
+
 async function setActiveStudy(name, options = {}) {
     const { silent = false } = options;
     const select = _getGlobalStudySelect();
@@ -68,6 +127,7 @@ async function setActiveStudy(name, options = {}) {
         window.studyState.previous = previous;
         window.studyState.current = null;
         try { localStorage.removeItem(_STUDY_STORAGE_KEY); } catch (e) { /* ignore */ }
+        updateTabAvailability();
         if (!silent) {
             document.dispatchEvent(new CustomEvent('study:changed', {
                 detail: { study: null, previous: previous }
@@ -102,6 +162,11 @@ async function setActiveStudy(name, options = {}) {
     try { localStorage.setItem(_STUDY_STORAGE_KEY, name); } catch (e) { /* ignore */ }
 
     if (select && select.value !== name) select.value = name;
+
+    // Gate Correlations/Timelines on the new study's data availability and
+    // bounce off any tab that just became unavailable. Run before dispatching
+    // study:changed so subscribers see the post-bounce active tab.
+    updateTabAvailability();
 
     if (!silent) {
         document.dispatchEvent(new CustomEvent('study:changed', {
