@@ -221,10 +221,13 @@ class ForYouBaseCollection(ABC):
                     one_df["ts_added_to_dataset"] = pd.to_datetime(mtime, unit="s")
                     one_df["raw_file"] = fn
 
-                    # Apply manifest-based collection_id if available
+                    # Apply manifest-based collection_id if available. Must be written
+                    # directly to `collection_id` (not a scratch column) because
+                    # `process()` filters columns down to REQUIRED_COLUMNS before
+                    # `_standardize()` runs — any scratch column would be dropped.
                     file_meta = manifest.get(fn, {})
                     if file_meta.get("collection_id"):
-                        one_df["__manifest_collection_id"] = file_meta["collection_id"]
+                        one_df["collection_id"] = file_meta["collection_id"]
 
                     if self.verbose: print(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
             if False:#except Exception as e:
@@ -426,20 +429,12 @@ class ForYouBaseCollection(ABC):
         df['data_source'] = self.data_source
 
         if "collection_id" not in df.columns:
-            if "__manifest_collection_id" in df.columns:
-                df["collection_id"] = df["__manifest_collection_id"]
-            elif self.collection_id is not None:
+            if self.collection_id is not None:
                 df['collection_id'] = self.collection_id
             elif "raw_file" in df.columns:
                 df["collection_id"] = df["raw_file"]
             else:
                 df["collection_id"] = pd.NA
-
-        # For rows that have a manifest override, apply it even if collection_id already existed
-        if "__manifest_collection_id" in df.columns:
-            mask = df["__manifest_collection_id"].notna()
-            df.loc[mask, "collection_id"] = df.loc[mask, "__manifest_collection_id"]
-            df.drop(columns=["__manifest_collection_id"], inplace=True)
 
 
         # 1. Ensure all required columns exist

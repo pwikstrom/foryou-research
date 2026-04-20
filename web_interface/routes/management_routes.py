@@ -20,6 +20,7 @@ from fyp.studies import init_study_defs, save_study_defs
 from ..data_service import (
     calculate_inter_coder_reliability,
     invalidate_collection_tags_cache,
+    load_display_id_map,
 )
 from ..process_manager import (
     load_process_stats,
@@ -1786,8 +1787,11 @@ def get_ingestion_metadata():
             for tag in ann.get("annotation_tags", []):
                 all_tags.add(tag)
 
+    display_ids = load_display_id_map()
+
     return jsonify({
         "status": "success",
         "collection_ids": collection_ids,
+        "display_ids": display_ids,
         "tags": sorted(list(all_tags)),
     })

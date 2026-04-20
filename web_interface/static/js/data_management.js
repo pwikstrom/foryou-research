@@ -2363,13 +2363,23 @@ function openUploadModal(className, rawPath, mode) {
 
     // Fetch metadata then show modal
     loadIngestionMetadata().then(() => {
-        // Populate existing collection IDs dropdown
+        // Populate existing collection IDs dropdown. Show the display ID if the
+        // collection has one defined, falling back to the raw collection_id.
         const sel = document.getElementById('uploadExistingCollectionId');
         sel.innerHTML = '';
-        ingestionMetadata.collection_ids.forEach(id => {
+        const displayIds = ingestionMetadata.display_ids || {};
+        const entries = ingestionMetadata.collection_ids.map(id => {
+            const disp = displayIds[id];
+            return {
+                id,
+                label: disp && disp !== id ? `${disp} (${id})` : id,
+            };
+        });
+        entries.sort((a, b) => a.label.localeCompare(b.label));
+        entries.forEach(({ id, label }) => {
             const opt = document.createElement('option');
             opt.value = id;
-            opt.textContent = id;
+            opt.textContent = label;
             sel.appendChild(opt);
         });
 
