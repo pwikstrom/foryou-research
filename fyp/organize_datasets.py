@@ -818,6 +818,15 @@ def load_study_datasets(
             else:
                 print("    [DD Sampling] 'enrichment_status.parquet' not present — no enrichment data available yet")
 
+        # Callers may pass enrichment_status with item_id as either the index or
+        # a column (run_recode_refresh_studies resets it to a column so the same
+        # df can be reused for downstream column-based matching). Normalise to
+        # item_id-as-index here so `.index.tolist()` below returns string ids, not
+        # integer row positions — which would surface as a PyArrow type mismatch
+        # when the resulting list is passed to `isin` on a string[pyarrow] column.
+        if enrichment_status is not None and "item_id" in enrichment_status.columns:
+            enrichment_status = enrichment_status.set_index("item_id")
+
         if sample_frame_setting == "scraped":
             if enrichment_status is None:
                 print("!!! [DD Sampling] Sample frame setting is 'scraped' but no enrichment_status is available. Returning None")

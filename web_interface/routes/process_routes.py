@@ -56,6 +56,8 @@ def api_start(name):
         args.extend(["--collections", str(data["collections"])])
     if name in ["recode_refresh_studies", "pca_refresh"] and data.get("studies"):
         args.extend(["--studies", str(data["studies"])])
+    if name == "recode_refresh_studies" and data.get("force_full_rebuild"):
+        args.append("--force")
 
     study_name = data.get("study_name") 
 

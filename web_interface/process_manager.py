@@ -335,6 +335,9 @@ def _cli_args_to_dict(name: str, args: list, study_name: str | None) -> dict:
         elif arg == "--collections" and i + 1 < len(args):
             task_args["collections"] = args[i + 1]
             i += 2
+        elif arg == "--force":
+            task_args["force_full_rebuild"] = True
+            i += 1
         elif not arg.startswith("--"):
             # Positional arg (study_name)
             if "study_name" not in task_args:

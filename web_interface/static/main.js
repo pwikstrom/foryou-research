@@ -289,7 +289,7 @@ async function loadDefinedStudies() {
     }
 }
 
-async function startProcess(name) {
+async function startProcess(name, extraBody = {}) {
     let body = {};
     // Determine context (tab) for study name input
     let studyNameInputId = 'global-study-name'; // default for scrape/annotate
@@ -332,12 +332,14 @@ async function startProcess(name) {
         body = {
             study_name: studyName,
             batch_size: batchSize,
-            max_batches: maxBatches
+            max_batches: maxBatches,
+            ...extraBody
         };
     } else {
         body = {
             batch_size: batchSize,
-            max_batches: maxBatches
+            max_batches: maxBatches,
+            ...extraBody
         };
     }
     try {

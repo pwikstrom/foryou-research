@@ -79,7 +79,7 @@
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
             <span id="recode_refresh_studies-status" class="status-indicator status-stopped"></span>
             <button id="recode_refresh_studies-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('recode_refresh_studies')" style="padding: 4px 12px;">Refresh</button>
+                onclick="startProcess('recode_refresh_studies', {force_full_rebuild: true})" style="padding: 4px 12px;">Refresh</button>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="recode_refresh_studies-bar"></div>
