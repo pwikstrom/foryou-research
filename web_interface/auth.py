@@ -155,16 +155,42 @@ class User(UserMixin):
 # --- User Manager ---
 
 class UserManager:
-    def __init__(self, storage_location="users"):
+    def __init__(self, storage_location="users", bulk_load=True):
+        """Initialize the user manager.
+
+        Args:
+            storage_location: Named storage bucket / local dir in data_io.
+            bulk_load: If True (default), eagerly migrate legacy data and
+                load every user JSON into memory at startup — needed on the
+                web service that authenticates browser traffic via
+                Flask-Login. If False, skip both the migration and the
+                initial fan-out; users are loaded on demand by
+                ``get_user()``. Services that don't authenticate (e.g.
+                task-runner serving only Cloud Tasks internal routes)
+                should pass ``bulk_load=False`` so their cold-start cost
+                stays O(1) in the number of users.
+        """
         self.storage_location = storage_location
         self.users = {}
-        
+        self.bulk_load = bulk_load
+
+        if not bulk_load:
+            # Lazy mode: no migration, no preload, no default admin. The
+            # service that owns user data (web) handles migration and
+            # bootstrap; task-runner just needs `get_user()` to work
+            # on-demand when something (unexpectedly) asks for one.
+            print(
+                f"[AUTH] UserManager initialized in lazy mode "
+                f"(storage={self.storage_location}) — users loaded on demand"
+            )
+            return
+
         # Migration from legacy monolithic files
         self.migrate_legacy_data()
 
         # Initial Load
         self.load_users()
-        
+
         # Create default admin if empty
         if not self.users:
             logger.info("No users found. Creating default admin.")
@@ -315,7 +341,48 @@ class UserManager:
             logger.error(f"Failed to save user {username}: {e}")
 
     def get_user(self, user_id):
-        return self.users.get(user_id)
+        """Return the User for ``user_id``, or None.
+
+        In bulk-load mode the lookup is a simple dict hit against the
+        in-memory cache populated at startup. In lazy mode we fall back
+        to reading ``{user_id}.json`` from the storage location on cache
+        miss, then cache the result — keeping cold-start cost O(1) while
+        still returning the right object if something unexpectedly asks.
+        """
+        user = self.users.get(user_id)
+        if user is not None:
+            return user
+
+        if not self.bulk_load and isinstance(user_id, str) and user_id:
+            filename = f"{user_id}.json"
+            try:
+                if not data_io.exists(
+                    storage_location=self.storage_location, filename=filename
+                ):
+                    return None
+                user_data = data_io.load_json(
+                    storage_location=self.storage_location, filename=filename
+                )
+            except Exception as e:
+                logger.error(f"Lazy load of user {user_id!r} failed: {e}")
+                return None
+
+            if not user_data or "username" not in user_data:
+                return None
+
+            user = User(
+                username=user_data["username"],
+                role=user_data.get("role", "viewer"),
+                password_hash=user_data.get("password_hash"),
+                approved=user_data.get("approved", True),
+                last_login=user_data.get("last_login"),
+                settings=user_data.get("settings", {}),
+                machine_annotation_votes=user_data.get("machine_annotation_votes", {}),
+            )
+            self.users[user_id] = user
+            return user
+
+        return None
 
     def add_user(self, username, password, role, approved=False):
         if not role_manager.role_exists(role):
