@@ -3,11 +3,14 @@ import datetime as _dt
 import hashlib
 import json
 import re
+import resource as _resource
+import sys as _sys
 import time as _time
 from copy import deepcopy
 
 import numpy as np
 import pandas as pd
+import psutil as _psutil
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
@@ -20,6 +23,39 @@ from fyp.studies import init_study_defs
 collection_id_column = "collection_id"
 timestamp_column = "local_timestamp"
 event_type_column = "activity_type"
+
+
+# ----------------------------------------------------------------------------
+# Memory-profiling helpers for the merge hot path.
+#
+# Cloud Run enforces container memory via cgroups; process RSS is a good proxy
+# for what the container reports against the 32 GB limit on fyp-task-runner.
+# We use psutil for current RSS (cross-platform, bytes) and `getrusage` for
+# the watermark since process start (KB on Linux, bytes on macOS).
+# ----------------------------------------------------------------------------
+_MEM_PROCESS = _psutil.Process()
+_RU_MAXRSS_DIVISOR_TO_MB = (
+    1024 * 1024 if _sys.platform == "darwin" else 1024
+)
+
+
+
+
+
+def _rss_mb() -> float:
+    """Current process resident-set size in MB."""
+    return _MEM_PROCESS.memory_info().rss / (1024 * 1024)
+
+
+
+
+
+def _peak_rss_mb() -> float:
+    """High-water-mark RSS of this process since startup, in MB."""
+    return (
+        _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
+        / _RU_MAXRSS_DIVISOR_TO_MB
+    )
 
 SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
 MACHINE_ANNOTATIONS_LABEL = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
@@ -1303,6 +1339,8 @@ def apply_enrichment_only_patch(
 
     cache_filename = f"{study_name}_recoded.parquet"
     _t0 = _time.perf_counter()
+    _rss_start = _rss_mb()
+    _peak_start = _peak_rss_mb()
     cached_df = data_io.load_parquet(
         storage_location="cache", filename=cache_filename, verbose=verbose
     )
@@ -1372,10 +1410,20 @@ def apply_enrichment_only_patch(
     result.attrs["study_name"] = study_name
 
     _t_total = _time.perf_counter() - _t0
+    _rss_end = _rss_mb()
+    _peak_end = _peak_rss_mb()
     print(
         f"[ENRICH PATCH][TIMING] study={study_name} "
         f"enrichment_load={_t_enrich:.2f}s merge={_t_merge:.2f}s "
         f"total={_t_total:.2f}s rows={len(result):,}"
+    )
+    print(
+        f"[ENRICH PATCH][MEM] study={study_name} "
+        f"rss_start={_rss_start:.0f}MB "
+        f"rss_end={_rss_end:.0f}MB "
+        f"peak_during={_peak_end:.0f}MB "
+        f"peak_delta=+{(_peak_end - _peak_start):.0f}MB "
+        f"df_size={_df_size_mb(result):.0f}MB"
     )
     return result
 
@@ -1453,6 +1501,13 @@ def create_study_recoded_dataset(
 
     print(f"Generating unified dataset for study '{study_name}'")
 
+    # Memory baseline before any heavy lifting. We sample RSS at each phase
+    # so the single [RECODE][MEM] log line gives enough resolution to tell
+    # whether the load, the merge, or something in between dominates peak
+    # memory — critical for sizing the Cloud Run task-runner container.
+    _rss_start = _rss_mb()
+    _peak_start = _peak_rss_mb()
+
     _t_phase = _time.perf_counter()
     all_datasets = load_study_datasets(
         study_name=study_name,
@@ -1461,6 +1516,7 @@ def create_study_recoded_dataset(
         enrichment_status=enrichment_status,
         verbose=verbose)
     _t_load = _time.perf_counter() - _t_phase
+    _rss_after_load = _rss_mb()
 
     if all_datasets is None:
         print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
@@ -1475,6 +1531,8 @@ def create_study_recoded_dataset(
         verbose=verbose
     )
     _t_merge = _time.perf_counter() - _t_phase
+    _rss_after_merge = _rss_mb()
+    _peak_end = _peak_rss_mb()
 
     # Preserve the sampling selection-effect report so pre-check UI can surface it.
     sampling_report = None
@@ -1507,6 +1565,19 @@ def create_study_recoded_dataset(
         f"[RECODE][TIMING] study={study_name} "
         f"load={_t_load:.2f}s merge={_t_merge:.2f}s "
         f"total={(_t_load + _t_merge):.2f}s"
+    )
+    # Peak-delta is the max additional RSS claimed by the process during
+    # this function relative to when we entered — the number that actually
+    # dictates whether the 32 GB task-runner container is enough headroom
+    # for this study.
+    print(
+        f"[RECODE][MEM] study={study_name} "
+        f"rss_start={_rss_start:.0f}MB "
+        f"rss_after_load={_rss_after_load:.0f}MB "
+        f"rss_after_merge={_rss_after_merge:.0f}MB "
+        f"peak_during={_peak_end:.0f}MB "
+        f"peak_delta=+{(_peak_end - _peak_start):.0f}MB "
+        f"df_size={_df_size_mb(study_recoded_dataset):.0f}MB"
     )
 
     return study_recoded_dataset
