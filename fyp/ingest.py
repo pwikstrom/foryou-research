@@ -19,6 +19,7 @@ import pandas as pd
 import fyp.data_io as data_io
 from fyp.donations import generate_collection_metadata
 from fyp.organize_datasets import COLLECTIONS_LABEL
+from fyp.polars_ops import fast_vertical_concat
 from fyp.recode_variables import infer_timezone_offset
 from fyp.types import convert_dtypes_to_pyarrow
 from fyp.utils import clean_url
@@ -118,7 +119,10 @@ class ForYouBaseCollection(ABC):
                 return
             if self.verbose:
                 print(f"Adding {len( new_processed_data):,} new processed activities to existing {len(self.data):,} activities.")
-            self.data = pd.concat([self.data, new_processed_data], ignore_index=True)
+            # Vertical concat via polars: parallel, avoids pandas' O(n) copy
+            # on accumulating appends. Matters at events-scale (tens of millions
+            # of rows). See fyp/polars_ops.py.
+            self.data = fast_vertical_concat([self.data, new_processed_data])
         else:
             if self.verbose:
                 print(f"Loading {len(new_processed_data):,} processed activities.")
@@ -242,7 +246,9 @@ class ForYouBaseCollection(ABC):
             
 
         if len(many_dfs) > 1:
-            self.data = pd.concat(many_dfs, ignore_index=True)
+            # Vertical concat via polars — fast multi-frame stack of per-file
+            # raw DataFrames. See fyp/polars_ops.py.
+            self.data = fast_vertical_concat(many_dfs)
             self.state = "raw"
 
         elif len(many_dfs) == 1:
@@ -607,10 +613,17 @@ class ForYouCollection(ForYouBaseCollection):
             print(f"Migrating {len(processed_collections):,} processed sub collections to the top...")
             print(f"There are {len(self.data):,} rows in the top collection already.")
 
+        # Vertical concat via polars — stacks all processed sub-collections
+        # into the top-level collection in a single parallel pass.
+        # See fyp/polars_ops.py.
         if len(self.data) > 0:
-            self.data = pd.concat([self.data]+[collection.data for collection in processed_collections], ignore_index=True)
+            self.data = fast_vertical_concat(
+                [self.data] + [collection.data for collection in processed_collections]
+            )
         else:
-            self.data = pd.concat([collection.data for collection in processed_collections], ignore_index=True)
+            self.data = fast_vertical_concat(
+                [collection.data for collection in processed_collections]
+            )
 
         self.state = "processed"
         self.identify_similar_file_content(drop_them=True)

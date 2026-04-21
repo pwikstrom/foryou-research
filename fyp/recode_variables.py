@@ -976,6 +976,17 @@ def recode_events_df(
 
 
     cool_columns = copy(cool_events.columns)
+    # Frames produced by dict-column unpacking (pd.json_normalize below) that
+    # can be safely deferred to a single concat after the loop. Deferring avoids
+    # the O(n_rows × n_cols) copy that `pd.concat(axis=1)` would incur inside
+    # the loop. We only defer a frame when none of its columns are scheduled
+    # to be iterated by the remaining passes of this outer loop — otherwise
+    # the original semantics (new columns visible to later iterations) must
+    # be preserved and we materialize the concat immediately.
+    deferred_unpacked_frames: list[pd.DataFrame] = []
+    remaining_columns_by_index = [
+        set(cool_columns[j+1:]) for j in range(len(cool_columns))
+    ]
     # iterate over the columns in the events df
     for i,c in enumerate(cool_columns):
         preamble = f"    {(i+1):02}/{len(cool_columns):02}. {c}{' '*(40-len(c))}"
@@ -1144,7 +1155,16 @@ def recode_events_df(
 
                     # drop the original column or not
                     if var_schema.loc[c,"role"] == "raw":
-                        cool_events = pd.concat([cool_events.drop(columns=[c]), new_thing], axis=1)
+                        # Lightweight column-level drop (no full-frame copy of
+                        # the remaining columns); heavy concat is deferred
+                        # below unless a later iteration needs the new cols.
+                        cool_events = cool_events.drop(columns=[c])
+
+                    # Defer the concat when no unpacked column collides with a
+                    # future iteration's `c`. When any collision exists, fall
+                    # back to in-place concat to keep original semantics.
+                    if set(new_thing.columns).isdisjoint(remaining_columns_by_index[i]):
+                        deferred_unpacked_frames.append(new_thing)
                     else:
                         cool_events = pd.concat([cool_events, new_thing], axis=1)
             else:
@@ -1155,6 +1175,12 @@ def recode_events_df(
             if verbose:
                 print(f"{preamble}Not found in the variable scheme, skipping")
             cool_events = cool_events.drop(columns=[c]).copy()
+
+    # Flush any deferred unpacked columns in a single concat — this collapses
+    # what used to be N in-loop concats into one, avoiding quadratic copies
+    # when many schema columns are dicts.
+    if deferred_unpacked_frames:
+        cool_events = pd.concat([cool_events, *deferred_unpacked_frames], axis=1)
 
     if ensure_pyarrow_compliance:
         cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)

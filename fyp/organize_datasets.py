@@ -12,6 +12,7 @@ import pandas as pd
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
+from fyp.polars_ops import fast_join, fast_vertical_concat
 from fyp.recode_variables import compute_var_schema_hash, get_grouping_factors_from_var_schema
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.studies import init_study_defs
@@ -694,7 +695,9 @@ def simple_sample_collection_events(
         pct = f"{nonplay_selected/nonplay_total:.0%}" if nonplay_total > 0 else "N/A"
         print(f"    [Sampling] Non-play events remaining in the selected aggregation groups: {nonplay_selected:,} ({pct} of original)")
 
-    combined = pd.concat([play_events_in_selected_groups, nonplay_events_in_selected_groups])
+    # Vertical concat via polars — play + non-play events stacked in one
+    # parallel pass. Matters at events-scale. See fyp/polars_ops.py.
+    combined = fast_vertical_concat([play_events_in_selected_groups, nonplay_events_in_selected_groups])
     if verbose:
         print(f"    [Sampling] Combining the (not sampled) non-play events with the sampled play events: {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     combined.drop("D_id", axis=1, inplace=True, errors='ignore')
@@ -1195,7 +1198,11 @@ def new_merge(
         print("No enriched data — caching activity-only dataset")
         shebang = activity_data.copy()
     else:
-        shebang = pd.merge(left=activity_data, right=enriched_data, on='item_id', how='left')
+        # Biggest join in the pipeline: events × item-metadata, keyed on
+        # item_id. Polars' parallel hash join is substantially faster and
+        # more memory-efficient than pandas at events-scale (tens of
+        # millions of rows). See fyp/polars_ops.py.
+        shebang = fast_join(activity_data, enriched_data, on='item_id', how='left')
 
         # --------------------------------------------------------------------------------------------------
         # adding some calculated columns to this merged dataset
