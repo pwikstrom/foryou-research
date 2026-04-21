@@ -307,6 +307,108 @@ def test_concat_real_conflict_falls_back_cleanly() -> None:
 
 
 
+def test_fast_join_downgrades_large_list_to_list() -> None:
+    """Regression for the ``dictionary_encode``/``explode`` failure chain.
+
+    Polars' native pandas bridge produces ``large_list<large_string>``,
+    but pandas 2.2.x has partial kernel coverage for the large variants:
+    notably ``DataFrame.explode()`` silently no-ops on ``large_list``
+    columns, which then makes the PCA counts crosstab call
+    ``dictionary_encode`` on a list-typed column and crash. We must
+    downgrade to the regular variants so the whole downstream pipeline
+    (explode → crosstab → PCA) keeps working."""
+    tags_type = pd.ArrowDtype(pa.large_list(pa.large_string()))
+    activity = pd.DataFrame({
+        "item_id": pd.array(["v1", "v2", "v3"], dtype="string[pyarrow]"),
+        "event":   pd.array([1, 2, 3], dtype="int64[pyarrow]"),
+    })
+    enriched = pd.DataFrame({
+        "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
+        "tags":    pd.Series([["news", "politics"], ["music"]], dtype=tags_type),
+    })
+
+    got = fast_join(activity, enriched, on="item_id", how="left")
+
+    # After fast_join, the list column must be `list<string>`, not
+    # `large_list<large_string>`.
+    tags_pa = got["tags"].dtype.pyarrow_dtype
+    assert pa.types.is_list(tags_pa), (
+        f"Expected list<..>, got {tags_pa!r}"
+    )
+    assert not pa.types.is_large_list(tags_pa)
+    assert pa.types.is_string(tags_pa.value_type), (
+        f"Expected inner string, got {tags_pa.value_type!r}"
+    )
+
+    # Full downstream path that was crashing in prod: explode + crosstab.
+    exploded = got.explode("tags")
+    # explode on a *list* (not large_list) must actually flatten.
+    assert exploded["tags"].dtype == pd.ArrowDtype(pa.string())
+    assert exploded["tags"].iloc[0] == "news"
+
+    counts = pd.crosstab(
+        index=[exploded["item_id"]], columns=[exploded["tags"]]
+    )
+    assert counts.loc["v1", "news"] == 1
+    assert counts.loc["v1", "politics"] == 1
+    assert counts.loc["v2", "music"] == 1
+
+
+
+
+
+def test_fast_join_downgrades_large_string_scalar_columns() -> None:
+    """Same downgrade principle applied to scalar string columns."""
+    large_str_t = pd.ArrowDtype(pa.large_string())
+    left = pd.DataFrame({
+        "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
+        "title":   pd.Series(["First", "Second"], dtype=large_str_t),
+    })
+    right = pd.DataFrame({
+        "item_id": pd.array(["a"], dtype="string[pyarrow]"),
+        "extra":   pd.Series(["X"], dtype=large_str_t),
+    })
+
+    got = fast_join(left, right, on="item_id", how="left")
+
+    # Both string columns come back as regular `string`, not `large_string`.
+    for col in ("title", "extra"):
+        assert isinstance(got[col].dtype, pd.ArrowDtype)
+        pa_t = got[col].dtype.pyarrow_dtype
+        assert pa.types.is_string(pa_t) and not pa.types.is_large_string(pa_t), (
+            f"Column {col!r} came back as {pa_t!r}, expected string"
+        )
+
+
+
+
+
+def test_fast_vertical_concat_downgrades_large_types() -> None:
+    """Downgrade also applies on the concat path, matching join."""
+    tags_type = pd.ArrowDtype(pa.large_list(pa.large_string()))
+    a = pd.DataFrame({
+        "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
+        "tags":    pd.Series([["a", "b"], ["c"]], dtype=tags_type),
+    })
+    b = pd.DataFrame({
+        "item_id": pd.array(["v3", "v4"], dtype="string[pyarrow]"),
+        "tags":    pd.Series([["d"], ["e", "f"]], dtype=tags_type),
+    })
+
+    got = fast_vertical_concat([a, b])
+
+    tags_pa = got["tags"].dtype.pyarrow_dtype
+    assert pa.types.is_list(tags_pa)
+    assert not pa.types.is_large_list(tags_pa)
+    assert pa.types.is_string(tags_pa.value_type)
+    # explode must flatten
+    exploded = got.explode("tags")
+    assert exploded["tags"].iloc[0] == "a"
+
+
+
+
+
 def test_concat_preserves_null_semantics() -> None:
     a = pd.DataFrame({
         "k": pd.array(["a", None, "c"], dtype="string[pyarrow]"),
@@ -767,6 +869,9 @@ TESTS = [
     test_concat_list_vs_object_null_falls_back,
     test_join_output_with_all_null_list_column_does_not_raise,
     test_concat_output_with_all_null_list_column_does_not_raise,
+    test_fast_join_downgrades_large_list_to_list,
+    test_fast_join_downgrades_large_string_scalar_columns,
+    test_fast_vertical_concat_downgrades_large_types,
     test_concat_real_conflict_falls_back_cleanly,
     test_concat_preserves_null_semantics,
     test_left_join_basic,

@@ -37,6 +37,8 @@ import pandas as pd
 import polars as pl
 import pyarrow as pa
 
+from fyp.types import downgrade_series_if_large
+
 
 
 
@@ -61,35 +63,45 @@ def _pandas_to_polars(df: pd.DataFrame) -> pl.DataFrame:
 
 
 def _safe_convert_dtypes_pyarrow(df: pd.DataFrame) -> pd.DataFrame:
-    """Like `df.convert_dtypes(dtype_backend='pyarrow')`, but column-wise and
-    tolerant of a pandas + pyarrow bug that kills the whole-frame version.
+    """Like `df.convert_dtypes(dtype_backend='pyarrow')`, but column-wise,
+    tolerant of a pandas + pyarrow bug that kills the whole-frame version,
+    and also downgrades pyarrow ``large_*`` types to their regular variants.
 
-    Specifically, when a column is entirely null with a nested arrow type
-    (e.g. `large_list<large_string>`, `struct<...>`), pandas internally
-    tries to cast the column to the pyarrow `null` type as part of dtype
-    normalization. pyarrow does not implement that cast and raises::
+    Two failure modes this works around:
 
-        ArrowNotImplementedError: Unsupported cast from
-        large_list<item: large_string> to null using function cast_null
+    1. When a column is entirely null with a nested arrow type (e.g.
+       ``large_list<large_string>``, ``struct<...>``), pandas internally
+       tries to cast the column to the pyarrow ``null`` type as part of
+       dtype normalization. pyarrow does not implement that cast and
+       raises::
 
-    Because the whole-frame `convert_dtypes` is all-or-nothing, a single
-    bad column takes out the entire call — including downstream consumers
-    like the pandas fallback in `fast_vertical_concat` / `fast_join`.
-    Converting per column lets us keep the normalization (needed to round
-    `large_string[pyarrow]` back to `string[pyarrow]`) for columns that
-    succeed, and leave offending columns in their as-is arrow-backed
-    dtype — still valid, just with a `large_*` variant.
+           ArrowNotImplementedError: Unsupported cast from
+           large_list<item: large_string> to null using function cast_null
+
+       Because the whole-frame ``convert_dtypes`` is all-or-nothing, a
+       single bad column takes out the entire call — including downstream
+       consumers like the pandas fallback in ``fast_vertical_concat`` /
+       ``fast_join``. Converting per column isolates the failure.
+
+    2. Polars produces ``large_string`` / ``large_list`` types when
+       converting back to pandas. Pandas 2.2.x has partial kernel coverage
+       for those: ``df.explode()`` is a silent no-op on ``large_list``
+       columns, and ``dictionary_encode`` (called by ``factorize``,
+       ``Categorical``, ``crosstab``, etc.) has no kernel for
+       ``large_list``. Downgrading each column to the non-large variants
+       restores all those paths while preserving the actual values.
     """
     out: dict[str, pd.Series] = {}
     for col in df.columns:
         series = df[col]
         try:
-            out[col] = series.convert_dtypes(dtype_backend="pyarrow")
+            converted = series.convert_dtypes(dtype_backend="pyarrow")
         except Exception:
             # Known-failure path: all-null nested-type columns. The
             # original series is already pyarrow-backed and functionally
-            # correct — we just can't normalize the dtype flavor.
-            out[col] = series
+            # correct.
+            converted = series
+        out[col] = downgrade_series_if_large(converted)
     result = pd.DataFrame(out, index=df.index)
     # Ensure column order matches input
     return result[list(df.columns)]

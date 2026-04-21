@@ -13,6 +13,95 @@ def fix_surrogates(text):
 
 
 
+
+def downgrade_arrow_type(pa_type: pa.DataType) -> pa.DataType:
+    """Rewrite a pyarrow type to use non-``large_*`` variants recursively.
+
+    Polars writes parquet with ``large_string`` / ``large_list`` types,
+    and its pandas bridge produces the same. Pandas 2.2.x has partial
+    kernel coverage for the large variants — most importantly
+    ``DataFrame.explode()`` is a silent no-op on ``large_list`` columns
+    (works correctly on plain ``list``), and ``dictionary_encode``
+    (called by ``factorize``, ``Categorical``, ``crosstab``, etc.) has
+    no kernel for ``large_list``. The two sizes are semantically
+    identical at the logical level; only the offset width differs
+    (int64 vs int32). Downgrading restores every pandas op that breaks
+    on the large variants, at no semantic cost when values fit.
+    """
+    if pa.types.is_large_string(pa_type):
+        return pa.string()
+    if pa.types.is_large_binary(pa_type):
+        return pa.binary()
+    if pa.types.is_large_list(pa_type):
+        return pa.list_(downgrade_arrow_type(pa_type.value_type))
+    if pa.types.is_list(pa_type):
+        inner = downgrade_arrow_type(pa_type.value_type)
+        return pa_type if inner == pa_type.value_type else pa.list_(inner)
+    if pa.types.is_struct(pa_type):
+        fields = []
+        changed = False
+        for f in pa_type:
+            new_t = downgrade_arrow_type(f.type)
+            if new_t != f.type:
+                changed = True
+            fields.append(pa.field(f.name, new_t, nullable=f.nullable))
+        return pa.struct(fields) if changed else pa_type
+    return pa_type
+
+
+
+
+
+def downgrade_series_if_large(series: pd.Series) -> pd.Series:
+    """Cast a pyarrow-backed Series from ``large_*`` variants to the
+    regular variants, preserving values and null mask.
+
+    Returns the original series when it is not ArrowDtype or when the
+    cast is a no-op. Also returns the original if the cast would
+    overflow (rare: > 2 GB of total string bytes / > 2 billion list
+    elements). See :func:`downgrade_arrow_type` for why this matters.
+    """
+    if not isinstance(series.dtype, pd.ArrowDtype):
+        return series
+    current = series.dtype.pyarrow_dtype
+    target = downgrade_arrow_type(current)
+    if target == current:
+        return series
+    try:
+        arr = series.array._pa_array.cast(target)
+        return pd.Series(
+            pd.arrays.ArrowExtensionArray(arr),
+            index=series.index,
+            name=series.name,
+        )
+    except Exception:
+        return series
+
+
+
+
+
+def downgrade_large_arrow_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply :func:`downgrade_series_if_large` to every column in ``df``.
+
+    Returns a new DataFrame only if any column actually changed — otherwise
+    the input is returned unchanged to avoid an unnecessary copy.
+    """
+    new_cols = None
+    for col in df.columns:
+        orig = df[col]
+        new = downgrade_series_if_large(orig)
+        if new is not orig:
+            if new_cols is None:
+                new_cols = {c: df[c] for c in df.columns}
+            new_cols[col] = new
+    if new_cols is None:
+        return df
+    return pd.DataFrame(new_cols, index=df.index)[list(df.columns)]
+
+
+
+
 def fix_complex_types(some_iterable, verbose=False):
 
     if not len(some_iterable.shape) == 1:
@@ -249,7 +338,13 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
     if all(isinstance(d, pd.ArrowDtype) for d in df_in.dtypes):
         if verbose:
             print("    [PYARROW dtypes] All columns already ArrowDtype - skipping conversion.")
-        return df_in.copy()
+        # Even on the fast path we must downgrade any `large_*` arrow types
+        # to their regular variants. Parquet files written by polars use
+        # `large_list<large_string>`, and pandas 2.2.x has partial kernel
+        # coverage there — notably `DataFrame.explode()` silently no-ops on
+        # large_list columns. Downgrade is logically a no-op (same values,
+        # int32 vs int64 offsets) so it's always safe.
+        return downgrade_large_arrow_columns(df_in.copy())
 
     df = df_in.copy()
 
