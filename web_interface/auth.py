@@ -181,7 +181,8 @@ class UserManager:
             # on-demand when something (unexpectedly) asks for one.
             print(
                 f"[AUTH] UserManager initialized in lazy mode "
-                f"(storage={self.storage_location}) — users loaded on demand"
+                f"(storage={self.storage_location}) — users loaded on demand",
+                flush=True,
             )
             return
 

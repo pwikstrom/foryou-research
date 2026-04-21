@@ -19,6 +19,16 @@ login_manager.anonymous_user = auth.AnonymousUser
 _K_SERVICE = os.environ.get("K_SERVICE", "")
 _IS_TASK_RUNNER = _K_SERVICE == "fyp-task-runner"
 
+# Always log the decision so "is lazy mode actually engaged on this
+# instance?" is provable from a single grep, independent of whether
+# downstream prints get buffered.
+print(
+    f"[AUTH] boot K_SERVICE={_K_SERVICE!r} "
+    f"is_task_runner={_IS_TASK_RUNNER} "
+    f"bulk_load={not _IS_TASK_RUNNER}",
+    flush=True,
+)
+
 # Initialize User Manager
 user_manager = auth.UserManager(
     storage_location="users",
