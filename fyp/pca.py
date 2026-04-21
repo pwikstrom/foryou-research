@@ -364,10 +364,19 @@ def transform_category_column_to_counts_df(
 
     # 3. Crosstab / Pivot
     # groupby factors + category column -> size -> unstack
-    # Using crosstab is generally cleaner for frequency counts
+    # Using crosstab is generally cleaner for frequency counts.
+    #
+    # Note: `columns` MUST be wrapped in a list, not passed as a bare Series.
+    # pandas 2.2.x's crosstab doesn't normalise a single-Series argument
+    # (it relies on the caller handing in list-likes). A bare Series here
+    # triggers `list + Series` inside crosstab's `pass_objs` filter, which
+    # dispatches to Series arithmetic; for pyarrow-backed string columns
+    # the arithmetic then fails in `_box_pa` with
+    # `ArrowInvalid: Could not convert ...`. Wrapping avoids the
+    # arithmetic path entirely regardless of dtype.
     counts_df = pd.crosstab(
         index=[df_exploded[c] for c in grouping_factors],
-        columns=df_exploded[the_column]
+        columns=[df_exploded[the_column]],
     )
     
     # Crosstab returns ints, convert to float as per original return type expectations
