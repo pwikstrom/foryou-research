@@ -1,0 +1,136 @@
+##########################################################################################
+# Machine annotations
+#########################################################################################
+[machine]
+
+# Your Gemini API Key (set via environment variable GEMINI_API_KEY; leave blank here)
+key = "" 
+
+# The model
+model = "gemini-2.5-flash"
+
+# the prompt
+prompt = "new_prompt_002.txt"
+
+# Vertex AI settings
+vertexai = true
+project = "<gcp-project>"
+location = "global"
+http_options_api_version = "v1"
+http_options_timeout = 180000
+temperature = 0.0
+max_output_tokens = 65536
+response_mime_type = "application/json"
+presence_penalty = 0.6
+frequency_penalty = 1.2
+thinking_budget = -1
+
+max_duration_for_annotation = 300
+
+
+
+##########################################################################################
+# paths
+##########################################################################################
+[paths]
+
+# Path for all project data except for media files (temp and backup dirs end up here as well)
+local_data = "/Users/<user>/fyp_local"
+
+# Absolute path for locally-stored media. Used only when data_io.use_gcs_for_media = false.
+# May live outside local_data — keep it on a disk with enough room for videos.
+local_media = "/Users/<user>/Desktop/fyp_mini/media"
+
+
+
+##########################################################################################
+# misc
+##########################################################################################
+[misc]
+
+# this label is added to zeeschuimer ndjson files in the zeeschuimer_raw folder
+TIME_ZONE = "Australia/Brisbane"
+local_mode = false
+max_duration_for_download = 300
+min_media_object_size = 8_000
+scraper_backend = "ytdlp"
+
+
+##########################################################################################
+# data io
+##########################################################################################
+[data_io]
+
+# The name of the GCS bucket - set by environment variable FYP_GCS_BUCKET_NAME.
+GCS_bucket_name = "" 
+
+use_gcs_for_data = false
+use_gcs_for_media = true
+use_gcs_for_cache = false
+
+# path/prefix for GCS bucket
+gcs_data_prefix = "data"
+gcs_media_prefix = "media"
+
+
+
+##########################################################################################
+# visualisation / analysis tabs
+##########################################################################################
+[viz]
+
+# When true (default) the Explore and Video Analysis tabs only show items where
+# annotated_ok == True. When false they also include items that have been scraped
+# but not yet annotated; annotation-derived columns will be empty for those rows.
+# The Correlations tab always requires annotation regardless of this flag, because
+# PCA features are themselves annotation-derived.
+require_annotated_items = false
+
+
+
+##########################################################################################
+##########################################################################################
+[labels]
+NOT_CODED = "not coded"
+UNABLE_TO_DETECT = "unable to detect"
+OTHER_THINGS = "other category"
+SPLITTER = "|"
+SCRAPES_LABEL = "scrapes"
+MACHINE_ANNOTATIONS_LABEL = "machine_annotations"
+COLLECTIONS_LABEL = "collections"
+FAILED_SCRAPES_LABEL = "scrape_failed_items"
+
+POSITIVE_WORDS = ["positive"]
+NEGATIVE_WORDS = ["negative"]
+HIGH_ENERGY_WORDS = ["highenergy","reflective","playful"]
+LOW_ENERGY_WORDS = ["lowenergy","calm","serene"]
+
+#CONTENT_CATEGORIES_FROM_CODEBOOK = ["comedy", "daily life", "film  and  tv", "performance", "drama",
+#       "art  and  creativity", "society", "news",
+#       "interpersonal relationships", "technology design  and  reviews",
+#       "education", "finance", "diy  and  life hacks",
+#       "mental health  and  wellbeing", "fashion  and  beauty", "food",
+#       "travel", "games", "sports", "animals", 
+#       "fitness  and  physical health",
+#       "anime  and  comics"]
+
+IRRELEVANT_WORDS = ["-year-old", "about", "actually", "ad", "add", "after", "all", "also", "always", "am", "an", "and", "any", "are", "as", "at", "back", "be", 
+"been", "before", "being", "best", "better", "bio", "blowthisup", "but", "by", "can", "cant", "come", "comment", "could", "day", "de", 
+"dear", "did", "didnt", "do", "doesnt", "dont", "during", "edit", "el", "end", "even", "ever", "every", "evryone", "everyone", "find", "first", "follow", 
+"for", "foryou", "foryoupage", "foryourpage", "free", "from", "full", "funny", "funnyvideos", "fy", "fyp", "fypage", "fyppppppppppppppppppppppp", "fypシ", "fypシ゚", 
+"fypシ゚viral", "get", "give", "go", "going", "good", "got", "goviral", "had", "has", "have", "having", "he", "her", "here", "him", "his", "how", 
+"ib", "if", "ill", "im", "in", "into", "is", "it", "its", "ive", "just", "keep", "know", "last", "left", "let", "lets", "life", "like", "link", 
+"look", "love", "made", "make", "many", "may", "me", "meme", "more", "most", "much", "my", "nan", "need", "never", "new", "next", "no", "not", 
+"now", "of", "off", "on", "one", "only", "or", "our", "out", "over", "part", "people", "please", "png", "post", "pov", "real", "replying", 
+"right", "room", "run", "say", "see", "she", "should", "so", "some", "someone", "something", "start", "stay", "still", "stop", "sure", "take", 
+"tbsp", "text", "than", "thank", "that", "thats", "the", "their", "them", "then", "there", "these", "they", "things", "think", "this", "tho", 
+"through", "tiktok", "time", "to", "today", "too", "trend", "trending", "try", "tsp", "two", "up", "ur", "us", "use", "various", "very", "vid", 
+"video", "viral", "viralvideo", "vs", "want", "wanted", "was", "way", "we", "were", "what", "whats", "when", "which", "while", "who", "why", 
+"will", "with", "without", "wont", "wontbeen", "would", "xyzbca", "xybza", "xybca", "you", "your", "foryoupage", "youre", "repost",
+"fypp", "fyppp", "foryouu", ]
+
+GENERIC_MAPPER = {"" = "unable to detect", "-" = "unable to detect", "/" = "or", "&" = "and", "none" = "unable to detect", "multiple" = "unable to detect", "mixed" = "unable to detect", "undefined" = "unable to detect", "mixed-race" = "unable to detect", "polynesian" = "pacific islander", "middle eastern or caucasian" = "middle eastern", "middle eastern or south asian" = "middle eastern", "polynesian or pacific islander" = "pacific islander", "southeast asian or pacific islander" = "pacific islander", "indigenous australian or pacific islander" = "indigenous australian", "hispanic or latina" = "latinx", "hispanic or latino" = "latinx", "hispanic" = "latinx", "latino" = "latinx", "latina" = "latinx", "indigenous" = "indigenous australian", "no clear positioning" = "unable to detect", "no clear position" = "unable to detect"}
+
+REQUIRED_KEYS = [
+    "transcript", "objects", "content_category", "symbols_and_brands",
+    "text_overlays", "scenes"]

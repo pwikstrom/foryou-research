@@ -149,7 +149,7 @@ cython_debug/
 _archive/
 .DS_Store
 patrik_secrets/
-config/config.toml
+# config/config.toml
 # sandbox/
 
 # Logs

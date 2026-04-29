@@ -78,7 +78,6 @@ README.md
 _archive/
 .DS_Store
 patrik_secrets/
-config/config.toml.template
 sandbox/
 tests/
 

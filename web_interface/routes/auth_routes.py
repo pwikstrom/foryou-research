@@ -10,6 +10,12 @@ import fyp.data_io as data_io
 import web_interface.auth as auth
 from fyp.fyp_config import fyp_cf
 
+from ..admin_settings import (
+    DEFAULTS as ADMIN_SETTINGS_DEFAULTS,
+    get_new_user_approval_required,
+    load_admin_settings,
+    save_admin_settings,
+)
 from ..mail_utils import send_welcome_email_async
 from ..security import user_manager
 
@@ -75,9 +81,9 @@ def signup():
             flash(f"Invalid email: {e!s}")
             return render_template('signup.html')
             
-        # Default to requiring approval if not specified, for safety
-        require_approval = fyp_cf.get('misc', {}).get('new_user_admin_approval_required', True)
-        
+        # Admin-controlled flag (UI-toggleable, persisted in admin_settings.json).
+        require_approval = get_new_user_approval_required()
+
         # If approval is required, approved=False. If not required, approved=True.
         is_approved = not require_approval
         
@@ -276,6 +282,35 @@ def api_admin_roles():
              return jsonify({"status": "success", "message": msg})
         else:
              return jsonify({"error": msg}), 400
+
+@auth_bp.route('/api/admin/settings', methods=['GET', 'PUT'])
+@auth.admin_required
+def api_admin_settings():
+    if request.method == 'GET':
+        merged = {**ADMIN_SETTINGS_DEFAULTS, **load_admin_settings()}
+        return jsonify({"settings": merged})
+
+    # PUT
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Body must be a JSON object"}), 400
+
+    allowed_keys = set(ADMIN_SETTINGS_DEFAULTS.keys())
+    unknown = [k for k in data if k not in allowed_keys]
+    if unknown:
+        return jsonify({"error": f"Unknown settings: {unknown}"}), 400
+
+    for k, v in data.items():
+        if not isinstance(v, bool):
+            return jsonify({"error": f"Setting '{k}' must be a boolean"}), 400
+
+    current = load_admin_settings()
+    current.update(data)
+    save_admin_settings(current)
+
+    merged = {**ADMIN_SETTINGS_DEFAULTS, **current}
+    return jsonify({"status": "success", "message": "Settings updated", "settings": merged})
+
 
 @auth_bp.route('/api/user/settings', methods=['GET', 'POST'])
 @login_required
