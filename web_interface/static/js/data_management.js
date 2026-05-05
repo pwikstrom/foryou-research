@@ -3086,6 +3086,97 @@ window.refreshIngestionCollection = function (btn) {
         });
 }
 
+const _ingestOutcomeLabels = {
+    added_as_new: { label: 'Added (new)', color: 'var(--color-text-primary)' },
+    merged_with_existing: { label: 'Merged with existing', color: 'var(--color-text-primary)' },
+    fully_deduped: { label: 'No new rows (all duplicates)', color: 'var(--color-text-tertiary)' },
+    discarded_at_load: { label: 'Discarded (too few rows)', color: 'var(--color-text-tertiary)' },
+};
+
+function _formatSiblings(siblings) {
+    if (!siblings || siblings.length === 0) return '';
+    if (siblings.length === 1) return siblings[0];
+    return `${siblings[0]} (+${siblings.length - 1} more)`;
+}
+
+function renderIngestResultsPanel(data) {
+    const panel = document.getElementById('ingest-results-panel');
+    const summaryEl = document.getElementById('ingest-results-summary');
+    const wrap = document.getElementById('ingest-results-table-wrap');
+    if (!panel || !summaryEl || !wrap) return;
+
+    const perFile = Array.isArray(data.per_file_summary) ? data.per_file_summary : [];
+    if (perFile.length === 0) {
+        panel.style.display = 'block';
+        summaryEl.textContent = '';
+        wrap.innerHTML = '<div class="text-sm" style="color: var(--color-text-tertiary); padding: 8px 0;">No new files were processed.</div>';
+        return;
+    }
+
+    const rowsBefore = data.rows_before;
+    const rowsAfter = data.rows_after;
+    const rowsAdded = data.rows_added;
+    const summaryBits = [];
+    if (typeof rowsBefore === 'number' && typeof rowsAfter === 'number') {
+        summaryBits.push(`${rowsBefore.toLocaleString()} → ${rowsAfter.toLocaleString()} rows (${(rowsAdded ?? 0) >= 0 ? '+' : ''}${(rowsAdded ?? 0).toLocaleString()})`);
+    }
+    summaryBits.push(`${perFile.length} file(s) processed`);
+    summaryEl.textContent = '— ' + summaryBits.join(' · ');
+
+    const thStyle = 'padding: 6px 8px; text-align: left; border-bottom: 2px solid var(--color-border-strong); font-weight: var(--weight-semibold);';
+    const tdStyle = 'padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;';
+    const numStyle = tdStyle + ' text-align: right; font-variant-numeric: tabular-nums;';
+
+    const rowsHtml = perFile.map(r => {
+        const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-secondary)' };
+        const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
+        const dedupedNote = r.deduped_rows > 0
+            ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${r.deduped_rows.toLocaleString()} deduped</div>`
+            : '';
+        const cidLine = r.canonical_collection_id
+            ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">cid: ${r.canonical_collection_id}</div>`
+            : '';
+        const siblingsLine = (r.outcome === 'merged_with_existing' && r.merged_with_siblings && r.merged_with_siblings.length)
+            ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">merged with: ${_formatSiblings(r.merged_with_siblings)}</div>`
+            : '';
+        return `
+            <tr>
+                <td style="${tdStyle}">
+                    <div class="text-sm" style="word-break: break-all;">${r.filename}</div>
+                    ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${provenance}</div>` : ''}
+                </td>
+                <td style="${tdStyle} color: ${meta.color};">
+                    <div class="text-sm">${meta.label}</div>
+                    ${siblingsLine}
+                    ${cidLine}
+                </td>
+                <td style="${numStyle}">${(r.raw_rows ?? 0).toLocaleString()}</td>
+                <td style="${numStyle}">${(r.processed_rows ?? 0).toLocaleString()}</td>
+                <td style="${numStyle}">
+                    ${(r.final_rows ?? 0).toLocaleString()}
+                    ${dedupedNote}
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    wrap.innerHTML = `
+        <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 720px;">
+            <thead>
+                <tr>
+                    <th style="${thStyle}">File</th>
+                    <th style="${thStyle}">Outcome</th>
+                    <th style="${thStyle} text-align: right;">Raw rows</th>
+                    <th style="${thStyle} text-align: right;">Processed</th>
+                    <th style="${thStyle} text-align: right;">Added to dataset</th>
+                </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+        </table>
+    `;
+    panel.style.display = 'block';
+}
+
 function pollIngestRefreshStatus(btn, originalText, originalClass) {
     if (_ingestRefreshPollActive) return;
     _ingestRefreshPollActive = true;
@@ -3121,6 +3212,7 @@ function pollIngestRefreshStatus(btn, originalText, originalClass) {
                 if (ir.last_run_outcome === 'Fail') {
                     console.error('Ingestion refresh failed.');
                 }
+                renderIngestResultsPanel(ir.data || {});
                 loadAvailableCollections();
                 loadIngestionSources();
             })
@@ -3308,16 +3400,15 @@ window.refreshCollectionMetadata = function (btn) {
     })
         .then(res => res.json())
         .then(data => {
-            if (data.status === 'success') {
-                btn.textContent = 'Done!';
+            if (data.status === 'started') {
+                btn.textContent = 'Refreshing in background...';
                 setTimeout(() => {
                     btn.textContent = origText;
                     btn.disabled = false;
-                }, 2000);
-                // Reload collections list to reflect updated metadata
-                loadAvailableCollections();
+                    loadAvailableCollections();
+                }, 5000);
             } else {
-                alert('Error: ' + (data.error || 'Unknown error'));
+                alert('Error: ' + (data.message || data.error || 'Unknown error'));
                 btn.textContent = origText;
                 btn.disabled = false;
             }
