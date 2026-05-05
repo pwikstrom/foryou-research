@@ -43,6 +43,138 @@ def _day_segment_from_hour(hour: int) -> str:
 
 
 
+COLLECTION_TAGS_FILENAME = "collections_tags.json"
+STUDIES_FILENAME = "studies.json"
+
+
+
+
+def apply_cid_remap_to_metadata(
+    cid_remap: dict[str, str],
+    storage_location: str = "recoded",
+    save: bool = True,
+    verbose: bool = False,
+) -> dict:
+    """Propagate a ``{old_collection_id: new_collection_id}`` remap to the
+    JSON artifacts that key on ``collection_id`` outside the main parquet:
+    ``collections_tags.json`` and ``studies.json``.
+
+    Tag-merging policy: when both old and new ids have an entry in
+    ``collections_tags.json``, ``annotation_tags`` are unioned;
+    ``display_collection_id`` and ``hidden`` prefer the *new* entry's value,
+    falling back to the *old* entry's value if the new one is missing or
+    empty. Single-entry cases just rename the key.
+
+    Studies: every study's ``SELECTED_COLLECTIONS`` list has each old id
+    replaced with the new id, then deduped while preserving order.
+
+    Args:
+        cid_remap: ``{old: new}`` mapping. Empty dict is a no-op.
+        storage_location: Where to read/write the JSON files (defaults to
+            ``"recoded"``, matching the rest of the ingest pipeline).
+        save: If True, persist the updates. If False, computes the changes
+            but does not write — useful for dry-runs.
+        verbose: Print summary of changes.
+
+    Returns:
+        A summary dict with keys:
+          - ``tag_keys_renamed``: list of (old, new) pairs renamed in tags.
+          - ``tag_keys_merged``: list of (old, new) pairs whose tags were
+            merged into an existing new entry.
+          - ``studies_updated``: list of study names whose
+            ``SELECTED_COLLECTIONS`` changed.
+          - ``unmapped_old_keys``: subset of cid_remap keys that didn't appear
+            in tags (informational, not an error).
+    """
+    summary = {
+        "tag_keys_renamed": [],
+        "tag_keys_merged": [],
+        "studies_updated": [],
+        "unmapped_old_keys": [],
+    }
+
+    if not cid_remap:
+        return summary
+
+    # --- collections_tags.json ---
+    tags = {}
+    if data_io.exists(storage_location=storage_location, filename=COLLECTION_TAGS_FILENAME):
+        tags = data_io.load_json(storage_location=storage_location, filename=COLLECTION_TAGS_FILENAME) or {}
+
+    tags_changed = False
+    for old_cid, new_cid in cid_remap.items():
+        if old_cid not in tags:
+            summary["unmapped_old_keys"].append(old_cid)
+            continue
+        old_entry = tags.pop(old_cid)
+        if new_cid in tags:
+            new_entry = tags[new_cid]
+            old_atags = list(old_entry.get("annotation_tags") or [])
+            new_atags = list(new_entry.get("annotation_tags") or [])
+            seen = set()
+            merged_atags = []
+            for t in new_atags + old_atags:
+                if t not in seen:
+                    seen.add(t)
+                    merged_atags.append(t)
+            new_entry["annotation_tags"] = merged_atags
+            new_display = new_entry.get("display_collection_id") or ""
+            old_display = old_entry.get("display_collection_id") or ""
+            if not new_display.strip() and old_display.strip():
+                new_entry["display_collection_id"] = old_display
+            if "hidden" not in new_entry and "hidden" in old_entry:
+                new_entry["hidden"] = old_entry["hidden"]
+            tags[new_cid] = new_entry
+            summary["tag_keys_merged"].append((old_cid, new_cid))
+        else:
+            tags[new_cid] = old_entry
+            summary["tag_keys_renamed"].append((old_cid, new_cid))
+        tags_changed = True
+
+    if tags_changed and save:
+        data_io.save_json(data=tags, storage_location=storage_location, filename=COLLECTION_TAGS_FILENAME)
+
+    # --- studies.json ---
+    studies = {}
+    if data_io.exists(storage_location=storage_location, filename=STUDIES_FILENAME):
+        studies = data_io.load_json(storage_location=storage_location, filename=STUDIES_FILENAME) or {}
+
+    studies_changed = False
+    for sname, sdata in studies.items():
+        sc = sdata.get("SELECTED_COLLECTIONS")
+        if not isinstance(sc, list):
+            continue
+        new_sc = []
+        seen = set()
+        changed = False
+        for cid in sc:
+            mapped = cid_remap.get(cid, cid)
+            if mapped != cid:
+                changed = True
+            if mapped not in seen:
+                seen.add(mapped)
+                new_sc.append(mapped)
+        if changed:
+            sdata["SELECTED_COLLECTIONS"] = new_sc
+            summary["studies_updated"].append(sname)
+            studies_changed = True
+
+    if studies_changed and save:
+        data_io.save_json(data=studies, storage_location=storage_location, filename=STUDIES_FILENAME)
+
+    if verbose:
+        print(
+            f"cid_remap propagated: tags renamed={len(summary['tag_keys_renamed'])}, "
+            f"merged={len(summary['tag_keys_merged'])}; studies updated="
+            f"{len(summary['studies_updated'])}; unmapped old keys="
+            f"{len(summary['unmapped_old_keys'])}"
+        )
+
+    return summary
+
+
+
+
 
 
 
@@ -133,7 +265,9 @@ class ForYouBaseCollection(ABC):
         if drop_similar_activity_sequences:
             if self.verbose:
                 print("Dropping activities from files with overlapping/similar activity sequences")
-            self.identify_similar_file_content(drop_them=True)
+            cid_remap = self.identify_similar_file_content(drop_them=True)
+            if cid_remap:
+                apply_cid_remap_to_metadata(cid_remap, verbose=self.verbose)
 
         if self.verbose:
             print(f"There are now {len(self.data):,} activities in the collection.")
@@ -270,17 +404,17 @@ class ForYouBaseCollection(ABC):
 
         if self.state == "empty":
             if self.verbose:
-                print(f"Collection '{self.source_platform}_{self.data_source}' is empty. Nothing for me to do.")
+                print(f"There is no data from platform/data_source '{self.source_platform}_{self.data_source}'. Nothing for me to do.")
             return
 
 
         if self.state != "raw":
             if self.verbose:
-                print(f"Collection '{self.source_platform}_{self.data_source}' is not in raw state. Cannot process. Please load raw data first.")
+                print(f"Platform/data_source '{self.source_platform}_{self.data_source}' is not in raw state. Cannot process. Please load raw data first.")
             return
 
         if self.verbose:
-            print(f"Processing {len(self.data):,} rows for collection '{self.source_platform}_{self.data_source}'...")
+            print(f"Processing {len(self.data):,} raw rows for platform/data_source '{self.source_platform}_{self.data_source}'...")
 
         self.data = self.data.groupby("raw_file", group_keys=False)[self.data.columns].apply(self.process_single)
 
@@ -291,7 +425,7 @@ class ForYouBaseCollection(ABC):
         self.state = "processed"
 
         if self.verbose:
-            print(f"Collection '{self.source_platform}_{self.data_source}' is now processed. Number of rows: {len(self.data):,}")        
+            print(f"Raw data from platform/data_source '{self.source_platform}_{self.data_source}' is now processed. Number of rows: {len(self.data):,}")        
 
 
     @abstractmethod
@@ -304,92 +438,156 @@ class ForYouBaseCollection(ABC):
 
 
     def identify_similar_file_content(
-        self, 
+        self,
         overlap_threshold: float = 0.2,
-        group_identifier: str = "raw_file",
-        timestamp_column: str = "utc_timestamp",
-        drop_them: bool = True
-        ) -> dict[str, set]:
+        drop_them: bool = True,
+    ) -> dict[str, str]:
+        """Cluster raw_files by timestamp-sequence similarity and dedupe within
+        clusters.
+
+        The platform receives multiple donations from the same source over
+        time, often with overlapping time windows. Two raw_files are inferred
+        to come from the same source if their per-second timestamp sets overlap
+        by more than ``overlap_threshold`` (relative to the smaller set) — the
+        assumption is that an activity-timestamp sequence is statistically
+        unique to a source. Such raw_files are merged into a single
+        ``collection_id`` cluster, the per-row union is taken, and overlapping
+        rows are deduped within the cluster.
+
+        Behaviour:
+          1. Build per-raw_file timestamp sets (utc_timestamp truncated to
+             whole seconds).
+          2. For every pair of raw_files with overlap > threshold, union them
+             via union-find. Connected components = inferred sources.
+          3. For each multi-file cluster, choose a canonical ``collection_id``
+             from the raw_file with the latest ``ts_added_to_dataset.max()``.
+             Restamp ``collection_id`` on every row in that cluster.
+          4. Sort the dataset by ``ts_added_to_dataset`` ascending and
+             ``drop_duplicates(subset=[collection_id, item_id, utc_timestamp,
+             activity_type, tz_offset], keep='last')`` so the newest donation's
+             row wins on overlapping events.
+
+        Notes:
+          - Single-file clusters are untouched: their ``collection_id`` stays,
+            and dedupe collapses any internal repeats.
+          - The dedupe key includes ``collection_id``, so unrelated sources
+            that happen to coincide on (item_id, timestamp, activity_type,
+            tz_offset) are never collapsed.
+          - This function does NOT add to ``self.discarded_raw_files``.
+            Re-donations are merged, not blacklisted, so re-running ingest is
+            idempotent.
+
+        Args:
+            overlap_threshold: Per-second timestamp-set overlap (relative to
+                the smaller set) above which two raw_files are clustered.
+            drop_them: Retained for caller compatibility. The function always
+                mutates ``self.data`` in place.
+
+        Returns:
+            ``{old_collection_id: new_collection_id}`` for every raw_file
+            whose ``collection_id`` was restamped by clustering. Callers can
+            use this to propagate the change to downstream artifacts that key
+            on ``collection_id`` (``collections_tags.json``, ``studies.json``).
+            Empty dict if no clusters were formed.
         """
-        Identify similar activity collections based on timestamp overlap.
-
-        check for similarities in the activity collections by looking for the same timestamps based on some kind of grouping variable. 
-        The assumption is that if two activity collections have a lot of the same timestamps, they are likely to be duplicates
-
-        Parameters
-        ----------
-        overlap_threshold : float, default 0.2
-            The threshold for timestamp overlap ratio to consider activity collections as similar.
-        group_identifier : str, default "raw_file"
-            The column to group the data by.
-        timestamp_column : str, default "utc_timestamp"
-            The column containing the timestamps.
-        drop_them : bool, default False
-            Whether to drop the activity collections that are similar.
-
-        Returns
-        -------
-        dict
-            A dictionary containing identifiers of activity collections:
-            - "drops": identifiers of activity collections to be dropped.
-            - "keepers": identifiers of activity collections to keep.
-        """
+        del drop_them  # always treated as True; kept for caller compatibility
 
         if self.state != "processed":
             print(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot identify similar file content. Please process data first.")
-            return {"drops": set(), "keepers": set()}
+            return {}
 
+        if len(self.data) == 0:
+            return {}
 
+        # 1. Per-raw_file timestamp sets at second resolution.
+        seconds = (self.data["utc_timestamp"].astype("int64[pyarrow]") // 1_000_000_000).astype("int64")
+        ts_sets: dict[str, set[int]] = (
+            self.data.assign(_sec=seconds)
+            .groupby("raw_file", observed=True)["_sec"]
+            .apply(lambda s: set(s.tolist()))
+            .to_dict()
+        )
+        raw_files = list(ts_sets.keys())
 
-        raw_files_1 = set(self.data["raw_file"].values)
+        # 2. Union-find over pairs with overlap > threshold.
+        parent = {f: f for f in raw_files}
 
-        # starting off with basic deduplication.
-        self.data = self.data.drop_duplicates(subset=["item_id","utc_timestamp","activity_type","tz_offset"]).copy()
+        def find(x: str) -> str:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
 
-        raw_files_2 = set(self.data["raw_file"].values)
+        def union(a: str, b: str) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
 
-        dropped_raw_files = raw_files_1 - raw_files_2
-        self.discarded_raw_files.extend(dropped_raw_files)
+        for i, a in enumerate(raw_files):
+            ts_a = ts_sets[a]
+            if len(ts_a) == 0:
+                continue
+            for b in raw_files[i + 1:]:
+                ts_b = ts_sets[b]
+                denom = min(len(ts_a), len(ts_b))
+                if denom == 0:
+                    continue
+                if len(ts_a & ts_b) / denom > overlap_threshold:
+                    union(a, b)
 
-        if self.verbose and len(dropped_raw_files) > 0:
-            print(f"Dropped {len(dropped_raw_files)} raw files from the dataset.")
+        clusters: dict[str, list[str]] = {}
+        for f in raw_files:
+            clusters.setdefault(find(f), []).append(f)
 
+        multi_clusters = [files for files in clusters.values() if len(files) > 1]
 
+        # 3. For each multi-file cluster, pick canonical collection_id from
+        # the raw_file with the latest ts_added_to_dataset.
+        canonical_map: dict[str, str] = {}  # raw_file -> canonical collection_id
+        cid_remap: dict[str, str] = {}      # old_collection_id -> new_collection_id
+        if multi_clusters:
+            latest_per_file = (
+                self.data.groupby("raw_file", observed=True)["ts_added_to_dataset"].max()
+            )
+            collection_id_per_file = (
+                self.data.groupby("raw_file", observed=True)["collection_id"].first()
+            )
+            for files in multi_clusters:
+                latest_file = max(files, key=lambda f: latest_per_file[f])
+                canonical_collection_id = collection_id_per_file[latest_file]
+                for f in files:
+                    canonical_map[f] = canonical_collection_id
+                    old_cid = collection_id_per_file[f]
+                    if pd.notna(old_cid) and old_cid != canonical_collection_id:
+                        cid_remap[str(old_cid)] = str(canonical_collection_id)
 
-        # dropping df cols and changing timestamp column to integers which makes set operations faster
-        fine_activities_df = self.data[[group_identifier,timestamp_column]].copy()
-        fine_activities_df[timestamp_column] = fine_activities_df[timestamp_column].astype('int64') / 1e9
+            # Restamp collection_id on rows in multi-file clusters.
+            mask = self.data["raw_file"].isin(canonical_map)
+            new_ids = self.data.loc[mask, "raw_file"].map(canonical_map)
+            self.data.loc[mask, "collection_id"] = new_ids.astype(self.data["collection_id"].dtype)
 
+            if self.verbose:
+                merged_files = sum(len(c) for c in multi_clusters)
+                print(
+                    f"Clustered {merged_files} raw_files into {len(multi_clusters)} "
+                    f"merged collection(s)."
+                )
 
-        # the logic is based on comparing sets of timestamps, assuming that it is unlikely that two activity collections have
-        # the same set of timestamps
-        ts_sets = fine_activities_df.groupby(group_identifier, observed=False)[timestamp_column].apply(set).to_dict()
-        unique_idenfifiers = list(ts_sets.keys())
-        unique_idenfifiers = sorted(unique_idenfifiers, key=lambda x: len(ts_sets[x]), reverse=False)
+        # 4. Dedupe within cluster (collection_id is now canonical for clusters).
+        # Sort ascending by ts_added_to_dataset so keep='last' picks the newest row.
+        rows_before = len(self.data)
+        self.data = (
+            self.data.sort_values("ts_added_to_dataset", kind="mergesort")
+            .drop_duplicates(
+                subset=["collection_id", "item_id", "utc_timestamp", "activity_type", "tz_offset"],
+                keep="last",
+            )
+            .copy()
+        )
+        if self.verbose and rows_before > len(self.data):
+            print(f"Deduped {rows_before - len(self.data):,} overlapping rows within clusters.")
 
-        drops = set()
-
-        for identifier_a in unique_idenfifiers:
-            if identifier_a not in drops:
-                for identifier_b in unique_idenfifiers:
-                    if (identifier_a != identifier_b) and (identifier_b not in drops):
-                        ts_overlap = len(ts_sets[identifier_a] & ts_sets[identifier_b]) / (min(len(ts_sets[identifier_b]), len(ts_sets[identifier_a])))   
-                        if (ts_overlap > overlap_threshold):
-                            if len(ts_sets[identifier_b]) > len(ts_sets[identifier_a]):
-                                drops.add(identifier_a)
-                            else:
-                                drops.add(identifier_b)
-                            break
-        keepers = set(unique_idenfifiers) - drops
-
-        self.discarded_raw_files += list(drops)
-
-        if drop_them:
-            if self.verbose and len(drops) > 0:
-                print(f"Dropping {len(drops)} activity collections from the dataset.")
-            self.data = self.data[self.data[group_identifier].isin(keepers)].copy()
-        else:
-            return {"drops": drops, "keepers": keepers}
+        return cid_remap
 
 
 
@@ -626,7 +824,9 @@ class ForYouCollection(ForYouBaseCollection):
             )
 
         self.state = "processed"
-        self.identify_similar_file_content(drop_them=True)
+        cid_remap = self.identify_similar_file_content(drop_them=True)
+        if cid_remap:
+            apply_cid_remap_to_metadata(cid_remap, verbose=self.verbose)
 
         for collection in processed_collections:
             self.discarded_raw_files.extend(collection.discarded_raw_files)
