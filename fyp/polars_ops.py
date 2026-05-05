@@ -29,7 +29,6 @@ still pending (all-null). These helpers mitigate that with:
 """
 
 
-import traceback
 import warnings
 from typing import Iterable, Literal
 
@@ -144,7 +143,6 @@ def _normalize_via_pandas(df: pd.DataFrame) -> pd.DataFrame:
 def _log_polars_fallback(
     helper_name: str,
     exc: BaseException,
-    include_traceback: bool = False,
 ) -> None:
     """Emit a RuntimeWarning and print a stderr-visible diagnostic when a
     polars helper falls back to pandas. Flask / Cloud Run pipe stderr to
@@ -158,8 +156,6 @@ def _log_polars_fallback(
     # Also write to stderr so the trigger is visible in server logs even if
     # the caller doesn't configure the warnings filter.
     print(f"[polars_ops] {message}", flush=True)
-    if include_traceback:
-        traceback.print_exc()
 
 
 
@@ -343,7 +339,7 @@ def fast_vertical_concat(
     except Exception as exc:
         # Defensive: anything else from pyarrow / pandas round-trips is
         # also non-fatal — correctness via pandas fallback.
-        _log_polars_fallback("fast_vertical_concat", exc, include_traceback=True)
+        _log_polars_fallback("fast_vertical_concat", exc)
         return _normalize_via_pandas(
             pd.concat(non_empty, ignore_index=True)
         )
@@ -393,7 +389,7 @@ def fast_join(
             pd.merge(left, right, on=on, how=how)
         )
     except Exception as exc:
-        _log_polars_fallback("fast_join", exc, include_traceback=True)
+        _log_polars_fallback("fast_join", exc)
         return _normalize_via_pandas(
             pd.merge(left, right, on=on, how=how)
         )
