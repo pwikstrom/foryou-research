@@ -665,7 +665,7 @@ def check_existing_media(video_ids: list[str], max_workers: int = 16) -> set[str
 
 def download_video_threads(
     interesting_videos:list[str] = None,
-    max_workers:int = 8,
+    max_workers:int = 4,
     verbose:bool = False,
     dry_run:bool = False,
     batch_label: str | None = None,
@@ -695,8 +695,12 @@ def download_video_threads(
             )
 
     results_by_index = {}
+    # Lower ceiling than before (was 12). With a single TikTok session
+    # behind cookies, >6 concurrent requests reliably triggers TikTok's
+    # behavioural flags — keep headroom but don't let the throttle grow
+    # back into the danger zone after a recovery period.
     throttle = tiktok_dl.ThrottleController(
-        initial=max_workers, minimum=2, maximum=max(max_workers, 12),
+        initial=max_workers, minimum=2, maximum=max(max_workers, 6),
         on_change=on_concurrency_change)
 
     def worker(idx_video):
@@ -974,7 +978,7 @@ def scraper_loop_from_list(
 
         results_from_scraper, perm_failed, trans_failed = download_video_threads(
             interesting_videos = batch,
-            max_workers=8,
+            max_workers=4,
             verbose = verbose,
             dry_run = dry_run,
             batch_label=batch_label,
