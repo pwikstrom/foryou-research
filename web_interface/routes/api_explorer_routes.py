@@ -11,6 +11,7 @@ from fyp.fyp_config import fyp_cf
 
 from .. import explorer_backend as explorer
 from ..data_service import (
+    _get_recoded_mtime,
     enrich_with_user_tags,
     get_accessible_studies,
     get_collection_tags,
@@ -385,15 +386,31 @@ def api_explorer_metadata_base():
 
     # Fast path
     if data_io.exists(storage_location="cache", filename=canonical_filename):
-        try:
-            metadata = data_io.load_json(storage_location="cache", filename=canonical_filename)
-            metadata = _finalize_base_metadata(metadata, study)
-            if metadata is not None:
-                return jsonify(make_serializable(metadata))
-            print(f"    [DATA_ROUTES] Cache invalidated for {study}, regenerating...")
-        except Exception as e:
-            print(f"    Warning: Error loading/processing cached base metadata: {e}")
-            traceback.print_exc()
+        # Staleness check: if the recoded parquet was rewritten after this
+        # JSON was saved, the cached filter counts no longer match the data.
+        # Fall through to the cold path so metadata is regenerated.
+        cache_is_fresh = True
+        parquet_mtime = _get_recoded_mtime(study)
+        if parquet_mtime is not None:
+            try:
+                json_mtime = data_io.getmtime(storage_location="cache", filename=canonical_filename)
+                if json_mtime < parquet_mtime:
+                    cache_is_fresh = False
+                    print(f"    [DATA_ROUTES] Base metadata for {study} is older than recoded parquet, regenerating...")
+            except Exception as e:
+                print(f"    Warning: Could not read base metadata mtime for {study}: {e}")
+                cache_is_fresh = False
+
+        if cache_is_fresh:
+            try:
+                metadata = data_io.load_json(storage_location="cache", filename=canonical_filename)
+                metadata = _finalize_base_metadata(metadata, study)
+                if metadata is not None:
+                    return jsonify(make_serializable(metadata))
+                print(f"    [DATA_ROUTES] Cache invalidated for {study}, regenerating...")
+            except Exception as e:
+                print(f"    Warning: Error loading/processing cached base metadata: {e}")
+                traceback.print_exc()
 
     # Cold path: need the DataFrame to compute metadata from scratch
     df, col_types = get_explorer_data(study, context='explorer')
