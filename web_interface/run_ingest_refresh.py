@@ -7,6 +7,14 @@ project_root = current_dir.parent
 sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
+from fyp.ingest import LEDGER_SKIP_OUTCOMES
+
+
+# Outcomes whose files we want to *show* as "previously skipped" in the UI.
+# Mirrors ingest.LEDGER_SKIP_OUTCOMES — kept as a local alias because the UI
+# might want to surface additional outcomes in future without changing the
+# core ingest skip behaviour.
+LEDGER_SKIP_OUTCOMES_FOR_UI = LEDGER_SKIP_OUTCOMES
 
 
 
@@ -41,9 +49,9 @@ def _build_per_file_summary(
     Outcomes:
       - ``discarded_at_load``: file failed the min-row check in load_raw.
       - ``fully_deduped``: every row collided with an existing collection.
-      - ``merged_with_existing``: clustered with one or more existing
-        raw_files; the cluster's canonical collection_id may now point at
-        this file.
+      - ``merged_with_existing``: this file's rows joined an existing
+        collection that also contains one or more prior raw_files; the
+        canonical collection_id may now point at this file.
       - ``added_as_new``: standalone collection, no overlap with anything.
     """
     final_df = main_collection.data
@@ -182,20 +190,70 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     _t_local = time.perf_counter() - _t_phase
     reporter.log(f"Added local time features ({_t_local:.1f}s)")
 
+    # Update the persistent ledger with the outcome of every file scanned this
+    # run before saving. Files with skip-eligible outcomes (fully_deduped,
+    # discarded_at_load, manually_excluded) will be skipped on future ingest
+    # runs without being reloaded.
+    main_collection.update_ledger(per_file_summary)
+
     reporter.update_progress(85, "Regenerating metadata and saving...")
     _t_phase = time.perf_counter()
     main_collection.save_processed()
     _t_save = time.perf_counter() - _t_phase
     reporter.log(f"Saved processed activities + metadata ({_t_save:.1f}s)")
 
+    # Build the list of ledger entries that were SKIPPED this run (i.e. files
+    # the ledger remembers from prior runs but didn't reload). Useful for the
+    # UI's "previously skipped" section.
+    summary_filenames = {entry["filename"] for entry in per_file_summary}
+    skipped_previously = []
+    for fn, meta in (main_collection.ledger.get("files") or {}).items():
+        if fn in summary_filenames:
+            continue
+        outcome = (meta or {}).get("outcome")
+        if outcome not in LEDGER_SKIP_OUTCOMES_FOR_UI:
+            continue
+        skipped_previously.append({
+            "filename": fn,
+            "outcome": outcome,
+            "platform": meta.get("platform"),
+            "source": meta.get("source"),
+            "raw_rows": meta.get("raw_rows") or 0,
+            "kept_rows": meta.get("kept_rows") or 0,
+            "collection_id": meta.get("collection_id"),
+            "merged_with_siblings": meta.get("merged_with_siblings") or [],
+            "ts_first_seen": meta.get("ts_first_seen"),
+            "ts_last_seen": meta.get("ts_last_seen"),
+            "notes": meta.get("notes"),
+        })
+    skipped_previously.sort(key=lambda r: r["filename"])
+
+    # Reconciliation: when newer rows from this run supersede older rows in
+    # the same collection (via identify_similar_file_content's dedupe), the
+    # net row delta is smaller than the sum of "Added"/"Merged" final_rows.
+    # Compute the difference so the UI can explain why.
+    contributed_rows = sum(
+        int(e.get("final_rows") or 0) for e in per_file_summary
+        if e.get("outcome") in ("added_as_new", "merged_with_existing")
+    )
+    rows_added_net = rows_after - rows_before
+    rows_superseded = max(contributed_rows - rows_added_net, 0)
+
     _t_total = time.perf_counter() - _t_start
     reporter.emit_data({
         "rows_before": rows_before,
         "rows_after": rows_after,
-        "rows_added": rows_after - rows_before,
-        "files_processed": len(raw_counts),
-        "files_discarded_at_load": len(discarded_at_load),
+        "rows_added": rows_added_net,
+        "rows_contributed_by_new_files": contributed_rows,
+        "rows_superseded_in_existing_collections": rows_superseded,
+        "files_scanned_this_run": len(per_file_summary),
+        "files_added": sum(1 for e in per_file_summary if e.get("outcome") == "added_as_new"),
+        "files_merged_with_existing": sum(1 for e in per_file_summary if e.get("outcome") == "merged_with_existing"),
+        "files_fully_deduped": sum(1 for e in per_file_summary if e.get("outcome") == "fully_deduped"),
+        "files_discarded_at_load": sum(1 for e in per_file_summary if e.get("outcome") == "discarded_at_load"),
+        "files_skipped_previously": len(skipped_previously),
         "per_file_summary": per_file_summary,
+        "skipped_previously": skipped_previously,
     })
     reporter.update_progress(100, f"Ingestion refresh complete ({_t_total:.0f}s).")
     reporter.log(

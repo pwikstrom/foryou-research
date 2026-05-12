@@ -3097,10 +3097,11 @@ window.refreshIngestionCollection = function (btn) {
 }
 
 const _ingestOutcomeLabels = {
-    added_as_new: { label: 'Added (new)', color: 'var(--color-text-primary)' },
-    merged_with_existing: { label: 'Merged with existing', color: 'var(--color-text-primary)' },
-    fully_deduped: { label: 'No new rows (all duplicates)', color: 'var(--color-text-tertiary)' },
-    discarded_at_load: { label: 'Discarded (too few rows)', color: 'var(--color-text-tertiary)' },
+    added_as_new: { label: 'Added to new collection', color: 'var(--color-text-primary)' },
+    merged_with_existing: { label: 'Added to existing collection', color: 'var(--color-text-primary)' },
+    fully_deduped: { label: 'Skipped — already in dataset', color: 'var(--color-text-tertiary)' },
+    discarded_at_load: { label: 'Skipped — too few rows', color: 'var(--color-text-tertiary)' },
+    manually_excluded: { label: 'Manually excluded', color: 'var(--color-text-tertiary)' },
 };
 
 function _formatSiblings(siblings) {
@@ -3109,81 +3110,232 @@ function _formatSiblings(siblings) {
     return `${siblings[0]} (+${siblings.length - 1} more)`;
 }
 
+function _escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function unskipIngestionFile(btn, filename) {
+    if (!filename) return;
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = 'Un-skipping...';
+    fetch('/api/manage/ingestion/ledger/unskip', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+        },
+        body: JSON.stringify({ filename: filename }),
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success' || data.status === 'noop') {
+                const row = btn.closest('tr');
+                if (row) row.style.opacity = '0.4';
+                btn.textContent = 'Un-skipped';
+            } else {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                console.error('Un-skip failed:', data);
+            }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.textContent = originalText;
+            console.error('Un-skip error:', err);
+        });
+}
+
 function renderIngestResultsPanel(data) {
     const panel = document.getElementById('ingest-results-panel');
     const summaryEl = document.getElementById('ingest-results-summary');
     const wrap = document.getElementById('ingest-results-table-wrap');
+    const reconcileEl = document.getElementById('ingest-results-reconciliation');
+    const skippedWrapEl = document.getElementById('ingest-results-skipped');
+    const skippedCountEl = document.getElementById('ingest-results-skipped-count');
+    const skippedTableEl = document.getElementById('ingest-results-skipped-wrap');
     if (!panel || !summaryEl || !wrap) return;
 
     const perFile = Array.isArray(data.per_file_summary) ? data.per_file_summary : [];
-    if (perFile.length === 0) {
+    const skippedPreviously = Array.isArray(data.skipped_previously) ? data.skipped_previously : [];
+
+    if (perFile.length === 0 && skippedPreviously.length === 0) {
         panel.style.display = 'block';
         summaryEl.textContent = '';
-        wrap.innerHTML = '<div class="text-sm" style="color: var(--color-text-tertiary); padding: 8px 0;">No new files were processed.</div>';
+        wrap.innerHTML = '<div class="text-sm" style="color: var(--color-text-tertiary); padding: 8px 0;">No new files were scanned.</div>';
+        if (reconcileEl) reconcileEl.style.display = 'none';
+        if (skippedWrapEl) skippedWrapEl.style.display = 'none';
         return;
     }
 
     const rowsBefore = data.rows_before;
     const rowsAfter = data.rows_after;
     const rowsAdded = data.rows_added;
+    const filesAdded = data.files_added ?? perFile.filter(r => r.outcome === 'added_as_new').length;
+    const filesMerged = data.files_merged_with_existing ?? perFile.filter(r => r.outcome === 'merged_with_existing').length;
+    const filesDeduped = data.files_fully_deduped ?? perFile.filter(r => r.outcome === 'fully_deduped').length;
+    const filesDiscarded = data.files_discarded_at_load ?? perFile.filter(r => r.outcome === 'discarded_at_load').length;
+    const filesSkippedPrev = data.files_skipped_previously ?? skippedPreviously.length;
+
     const summaryBits = [];
     if (typeof rowsBefore === 'number' && typeof rowsAfter === 'number') {
-        summaryBits.push(`${rowsBefore.toLocaleString()} → ${rowsAfter.toLocaleString()} rows (${(rowsAdded ?? 0) >= 0 ? '+' : ''}${(rowsAdded ?? 0).toLocaleString()})`);
+        const sign = (rowsAdded ?? 0) >= 0 ? '+' : '';
+        summaryBits.push(`${rowsBefore.toLocaleString()} → ${rowsAfter.toLocaleString()} rows (${sign}${(rowsAdded ?? 0).toLocaleString()})`);
     }
-    summaryBits.push(`${perFile.length} file(s) processed`);
+    const scanned = perFile.length;
+    const groupBits = [];
+    if (filesAdded > 0) groupBits.push(`${filesAdded} added`);
+    if (filesMerged > 0) groupBits.push(`${filesMerged} merged into existing collection`);
+    if (filesDeduped > 0) groupBits.push(`${filesDeduped} fully deduped`);
+    if (filesDiscarded > 0) groupBits.push(`${filesDiscarded} discarded (too few rows)`);
+    if (scanned > 0) {
+        summaryBits.push(`Scanned ${scanned} file${scanned === 1 ? '' : 's'}${groupBits.length ? ': ' + groupBits.join(', ') : ''}`);
+    }
+    if (filesSkippedPrev > 0) {
+        summaryBits.push(`${filesSkippedPrev} skipped (previously known)`);
+    }
     summaryEl.textContent = '— ' + summaryBits.join(' · ');
 
     const thStyle = 'padding: 6px 8px; text-align: left; border-bottom: 2px solid var(--color-border-strong); font-weight: var(--weight-semibold);';
     const tdStyle = 'padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;';
     const numStyle = tdStyle + ' text-align: right; font-variant-numeric: tabular-nums;';
 
-    const rowsHtml = perFile.map(r => {
-        const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-secondary)' };
-        const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
-        const dedupedNote = r.deduped_rows > 0
-            ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${r.deduped_rows.toLocaleString()} deduped</div>`
-            : '';
-        const cidLine = r.canonical_collection_id
-            ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">cid: ${r.canonical_collection_id}</div>`
-            : '';
-        const siblingsLine = (r.outcome === 'merged_with_existing' && r.merged_with_siblings && r.merged_with_siblings.length)
-            ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">merged with: ${_formatSiblings(r.merged_with_siblings)}</div>`
-            : '';
-        return `
-            <tr>
-                <td style="${tdStyle}">
-                    <div class="text-sm" style="word-break: break-all;">${r.filename}</div>
-                    ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${provenance}</div>` : ''}
-                </td>
-                <td style="${tdStyle} color: ${meta.color};">
-                    <div class="text-sm">${meta.label}</div>
-                    ${siblingsLine}
-                    ${cidLine}
-                </td>
-                <td style="${numStyle}">${(r.raw_rows ?? 0).toLocaleString()}</td>
-                <td style="${numStyle}">${(r.processed_rows ?? 0).toLocaleString()}</td>
-                <td style="${numStyle}">
-                    ${(r.final_rows ?? 0).toLocaleString()}
-                    ${dedupedNote}
-                </td>
-            </tr>
-        `;
-    }).join('');
-
-    wrap.innerHTML = `
-        <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 720px;">
-            <thead>
+    if (perFile.length === 0) {
+        wrap.innerHTML = '<div class="text-sm" style="color: var(--color-text-tertiary); padding: 8px 0;">No new files were scanned this run.</div>';
+    } else {
+        const rowsHtml = perFile.map(r => {
+            const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-secondary)' };
+            const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
+            const dedupedNote = r.deduped_rows > 0
+                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${r.deduped_rows.toLocaleString()} deduped</div>`
+                : '';
+            const cidLine = r.canonical_collection_id
+                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${_escapeHtml(r.canonical_collection_id)}</div>`
+                : '';
+            const siblingsLine = (r.outcome === 'merged_with_existing' && r.merged_with_siblings && r.merged_with_siblings.length)
+                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">joined with: ${_escapeHtml(_formatSiblings(r.merged_with_siblings))}</div>`
+                : '';
+            return `
                 <tr>
-                    <th style="${thStyle}">File</th>
-                    <th style="${thStyle}">Outcome</th>
-                    <th style="${thStyle} text-align: right;">Raw rows</th>
-                    <th style="${thStyle} text-align: right;">Processed</th>
-                    <th style="${thStyle} text-align: right;">Added to dataset</th>
+                    <td style="${tdStyle}">
+                        <div class="text-sm" style="word-break: break-all;">${_escapeHtml(r.filename)}</div>
+                        ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(provenance)}</div>` : ''}
+                    </td>
+                    <td style="${tdStyle} color: ${meta.color};">
+                        <div class="text-sm">${meta.label}</div>
+                        ${siblingsLine}
+                        ${cidLine}
+                    </td>
+                    <td style="${numStyle}">${(r.raw_rows ?? 0).toLocaleString()}</td>
+                    <td style="${numStyle}">${(r.processed_rows ?? 0).toLocaleString()}</td>
+                    <td style="${numStyle}">
+                        ${(r.final_rows ?? 0).toLocaleString()}
+                        ${dedupedNote}
+                    </td>
                 </tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-        </table>
-    `;
+            `;
+        }).join('');
+
+        wrap.innerHTML = `
+            <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 720px;">
+                <thead>
+                    <tr>
+                        <th style="${thStyle}">File</th>
+                        <th style="${thStyle}">Outcome</th>
+                        <th style="${thStyle} text-align: right;">Raw rows</th>
+                        <th style="${thStyle} text-align: right;">Processed</th>
+                        <th style="${thStyle} text-align: right;">Rows kept</th>
+                    </tr>
+                </thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+        `;
+    }
+
+    // Reconciliation block: explain when newer rows superseded older ones in
+    // the same collection (net dataset change differs from per-file contribution).
+    const contributed = data.rows_contributed_by_new_files ?? 0;
+    const superseded = data.rows_superseded_in_existing_collections ?? 0;
+    if (reconcileEl) {
+        if (superseded > 0) {
+            const supersedeLines = perFile
+                .filter(r => r.outcome === 'added_as_new' || r.outcome === 'merged_with_existing')
+                .filter(r => (r.deduped_rows ?? 0) > 0 || r.outcome === 'merged_with_existing')
+                .map(r => {
+                    const cid = r.canonical_collection_id ? ` in collection "${_escapeHtml(r.canonical_collection_id)}"` : '';
+                    if (r.outcome === 'merged_with_existing') {
+                        return `<li>${(r.final_rows ?? 0).toLocaleString()} new rows from <code>${_escapeHtml(r.filename)}</code> joined existing rows${cid}, replacing the older copies where they overlapped.</li>`;
+                    }
+                    return `<li><code>${_escapeHtml(r.filename)}</code> contributed ${(r.final_rows ?? 0).toLocaleString()} rows${cid}.</li>`;
+                })
+                .join('');
+            reconcileEl.innerHTML = `
+                <div class="text-sm font-semibold" style="margin-bottom: 6px;">Why the net change is smaller than the rows added</div>
+                <div class="text-sm" style="color: var(--color-text-secondary);">
+                    ${contributed.toLocaleString()} new rows were contributed by this run, but ${superseded.toLocaleString()} older rows in the same collection(s) were superseded (the newer donation's rows win on overlapping events). Net change: ${(rowsAdded ?? 0) >= 0 ? '+' : ''}${(rowsAdded ?? 0).toLocaleString()} rows.
+                </div>
+                ${supersedeLines ? `<ul class="text-xxs" style="color: var(--color-text-tertiary); margin: 8px 0 0 20px; padding: 0;">${supersedeLines}</ul>` : ''}
+            `;
+            reconcileEl.style.display = 'block';
+        } else {
+            reconcileEl.style.display = 'none';
+        }
+    }
+
+    // Previously-skipped section
+    if (skippedWrapEl && skippedCountEl && skippedTableEl) {
+        if (skippedPreviously.length === 0) {
+            skippedWrapEl.style.display = 'none';
+        } else {
+            skippedCountEl.textContent = `(${skippedPreviously.length})`;
+            const skippedRowsHtml = skippedPreviously.map(r => {
+                const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-tertiary)' };
+                const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
+                const lastSeen = r.ts_last_seen
+                    ? new Date(r.ts_last_seen).toISOString().split('T')[0]
+                    : '';
+                const cidLine = r.collection_id
+                    ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${_escapeHtml(r.collection_id)}</div>`
+                    : '';
+                return `
+                    <tr>
+                        <td style="${tdStyle}">
+                            <div class="text-sm" style="word-break: break-all;">${_escapeHtml(r.filename)}</div>
+                            ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(provenance)}</div>` : ''}
+                        </td>
+                        <td style="${tdStyle} color: ${meta.color};">
+                            <div class="text-sm">${meta.label}</div>
+                            ${cidLine}
+                        </td>
+                        <td style="${tdStyle} text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-tertiary);">${lastSeen}</td>
+                        <td style="${tdStyle} text-align: right;">
+                            <button type="button" class="action-btn" style="padding: 4px 10px;" onclick="unskipIngestionFile(this, '${_escapeHtml(r.filename).replace(/'/g, "\\'")}')">Un-skip</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            skippedTableEl.innerHTML = `
+                <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 620px;">
+                    <thead>
+                        <tr>
+                            <th style="${thStyle}">File</th>
+                            <th style="${thStyle}">Recorded outcome</th>
+                            <th style="${thStyle} text-align: right;">Last seen</th>
+                            <th style="${thStyle} text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>${skippedRowsHtml}</tbody>
+                </table>
+            `;
+            skippedWrapEl.style.display = 'block';
+        }
+    }
+
     panel.style.display = 'block';
 }
 

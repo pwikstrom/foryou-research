@@ -1976,6 +1976,38 @@ def refresh_ingestion_collection():
     return jsonify({"status": "error", "message": msg}), 409
 
 
+
+
+@management_bp.route('/api/manage/ingestion/ledger/unskip', methods=['POST'])
+@login_required
+def unskip_ingestion_ledger_entry():
+    """Drop a single filename from the ingestion ledger so it will be
+    re-scanned on the next ingestion run. The raw file on disk is left
+    untouched.
+    """
+    if not current_user.is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    filename = (payload.get("filename") or "").strip()
+    if not filename:
+        return jsonify({"error": "filename missing"}), 400
+
+    main_collection = get_main_collection(verbose=False)
+    removed = main_collection.remove_from_ledger(filename)
+    if not removed:
+        return jsonify({
+            "status": "noop",
+            "message": f"'{filename}' was not in the ledger.",
+        })
+
+    main_collection.save_ledger()
+    return jsonify({
+        "status": "success",
+        "message": f"'{filename}' removed from the ledger. It will be rescanned on the next ingestion run.",
+    })
+
+
 @management_bp.route('/api/manage/ingestion/clear_pending', methods=['POST'])
 @login_required
 def clear_pending_uploads():

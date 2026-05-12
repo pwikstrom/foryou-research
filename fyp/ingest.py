@@ -10,6 +10,7 @@ Date:
 import re
 from abc import ABC, abstractmethod
 from collections import deque
+from datetime import datetime, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -45,6 +46,25 @@ def _day_segment_from_hour(hour: int) -> str:
 
 COLLECTION_TAGS_FILENAME = "collections_tags.json"
 STUDIES_FILENAME = "studies.json"
+
+
+# Per-file ingestion ledger. Records the outcome of every raw_file ever scanned
+# so that the next ingest run can skip files that have a "do not re-include"
+# outcome without rescanning, loading, processing, and re-deduping them.
+INGESTION_LEDGER_FILENAME = "ingestion_ledger.json"
+
+# Legacy flat list of "discarded" filenames (too-few-rows only). Read once on
+# first load to seed the ledger, then ignored. Not deleted from disk.
+LEGACY_DISCARDED_FILENAME = "discarded_collection_files.json"
+
+# Outcomes whose files must NOT be reloaded on the next ingest. Stored on the
+# ledger entry. Membership in this set is the single source of truth for the
+# "skip next run" filter used by load_raw.
+LEDGER_SKIP_OUTCOMES: set[str] = {
+    "fully_deduped",
+    "discarded_at_load",
+    "manually_excluded",
+}
 
 
 
@@ -706,14 +726,142 @@ class ForYouCollection(ForYouBaseCollection):
         self.source_platform = "all"
         self.data_source = "foryou"
         self.collections = []
-        if data_io.exists(storage_location=self.processed_storage_location, filename=self.discarded_collections_filename):
-            self.discarded_raw_files = data_io.load_json(
+        self.ledger_filename = INGESTION_LEDGER_FILENAME
+        self.ledger: dict = {"schema_version": 1, "files": {}}
+        self._load_ledger()
+
+
+
+
+    def _load_ledger(self) -> None:
+        """Load the per-file ingestion ledger from disk. If absent, fall back
+        to seeding from the legacy flat ``discarded_collection_files.json``
+        (every entry becomes ``discarded_at_load``). The ``discarded_raw_files``
+        attribute is rebuilt as a derived view over the ledger so the rest of
+        the pipeline (which still reads the flat list) continues to work.
+        """
+        ledger = None
+        if data_io.exists(
+            storage_location=self.processed_storage_location,
+            filename=self.ledger_filename,
+        ):
+            ledger = data_io.load_json(
                 storage_location=self.processed_storage_location,
-                filename=self.discarded_collections_filename,
-                verbose=False
+                filename=self.ledger_filename,
+                verbose=False,
             )
-        else:
-            self.discarded_raw_files = []
+
+        if not isinstance(ledger, dict) or "files" not in ledger:
+            legacy_list: list = []
+            if data_io.exists(
+                storage_location=self.processed_storage_location,
+                filename=LEGACY_DISCARDED_FILENAME,
+            ):
+                loaded = data_io.load_json(
+                    storage_location=self.processed_storage_location,
+                    filename=LEGACY_DISCARDED_FILENAME,
+                    verbose=False,
+                )
+                if isinstance(loaded, list):
+                    legacy_list = loaded
+            files = {
+                fn: {
+                    "outcome": "discarded_at_load",
+                    "raw_rows": 0,
+                    "kept_rows": 0,
+                    "collection_id": None,
+                    "merged_with_siblings": [],
+                    "platform": None,
+                    "source": None,
+                    "ts_first_seen": None,
+                    "ts_last_seen": None,
+                    "notes": "migrated from legacy discarded_collection_files.json",
+                }
+                for fn in legacy_list
+            }
+            ledger = {"schema_version": 1, "files": files}
+
+        self.ledger = ledger
+        self._refresh_discarded_from_ledger()
+
+
+
+
+    def _refresh_discarded_from_ledger(self) -> None:
+        """Rebuild ``self.discarded_raw_files`` from the ledger, preserving any
+        filenames already in the list (e.g. too-few-rows entries a sub-collection
+        appended during this run that haven't been written into the ledger
+        yet). Mutates in place so sub-collections that share this list via
+        ``register_collection_class`` see the update.
+        """
+        files = self.ledger.get("files", {})
+        ledger_skips = [
+            fn for fn, meta in files.items()
+            if (meta or {}).get("outcome") in LEDGER_SKIP_OUTCOMES
+        ]
+        merged = list(dict.fromkeys(ledger_skips + list(self.discarded_raw_files)))
+        self.discarded_raw_files[:] = merged
+
+
+
+
+    def update_ledger(self, per_file_summary: list[dict]) -> None:
+        """Update the in-memory ledger with the outcomes from a freshly
+        completed ingestion. Preserves ``ts_first_seen`` for previously known
+        files and stamps ``ts_last_seen`` on every entry touched.
+
+        Args:
+            per_file_summary: list of dicts from
+                ``run_ingest_refresh._build_per_file_summary``.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        files = self.ledger.setdefault("files", {})
+        for entry in per_file_summary:
+            fn = entry.get("filename")
+            if not fn:
+                continue
+            existing = files.get(fn) or {}
+            files[fn] = {
+                "outcome": entry.get("outcome"),
+                "raw_rows": int(entry.get("raw_rows") or 0),
+                "kept_rows": int(entry.get("final_rows") or 0),
+                "collection_id": entry.get("canonical_collection_id"),
+                "merged_with_siblings": entry.get("merged_with_siblings") or [],
+                "platform": entry.get("platform"),
+                "source": entry.get("source"),
+                "ts_first_seen": existing.get("ts_first_seen") or now,
+                "ts_last_seen": now,
+                "notes": existing.get("notes"),
+            }
+        self._refresh_discarded_from_ledger()
+
+
+
+
+    def save_ledger(self) -> None:
+        """Persist the ledger to its JSON file."""
+        data_io.save_json(
+            data=self.ledger,
+            storage_location=self.processed_storage_location,
+            filename=self.ledger_filename,
+            verbose=False,
+        )
+
+
+
+
+    def remove_from_ledger(self, filename: str) -> bool:
+        """Drop a single filename from the ledger so it will be rescanned on
+        the next ingestion run. Returns True if the entry existed and was
+        removed, False otherwise. Caller is responsible for calling
+        ``save_ledger`` to persist the change.
+        """
+        files = self.ledger.setdefault("files", {})
+        if filename in files:
+            del files[filename]
+            self._refresh_discarded_from_ledger()
+            return True
+        return False
 
 
     def load_single_raw(self, fn: str) -> pd.DataFrame:
@@ -916,16 +1064,31 @@ class ForYouCollection(ForYouBaseCollection):
             asyncronous=False)
 
 
-        # discarded raw files
+        # Make sure every too-few-rows filename appended by a sub-collection
+        # during this run is reflected in the ledger as ``discarded_at_load``.
+        # update_ledger (called by the worker before save_processed with the
+        # full per-file summary) is the normal path; this loop is a safety net
+        # for any flat-list entries the summary missed.
+        ledger_files = self.ledger.setdefault("files", {})
+        now = datetime.now(timezone.utc).isoformat()
         for collection in self.collections:
-            self.discarded_raw_files.extend(collection.discarded_raw_files)
-        self.discarded_raw_files = list(set(self.discarded_raw_files))
-
-        data_io.save_json(
-            data=self.discarded_raw_files,
-            storage_location=self.processed_storage_location,
-            filename=self.discarded_collections_filename,
-            verbose=False)
+            for fn in collection.discarded_raw_files:
+                if fn in ledger_files:
+                    continue
+                ledger_files[fn] = {
+                    "outcome": "discarded_at_load",
+                    "raw_rows": 0,
+                    "kept_rows": 0,
+                    "collection_id": None,
+                    "merged_with_siblings": [],
+                    "platform": collection.source_platform,
+                    "source": collection.data_source,
+                    "ts_first_seen": now,
+                    "ts_last_seen": now,
+                    "notes": None,
+                }
+        self._refresh_discarded_from_ledger()
+        self.save_ledger()
 
         # Clean up ingestion manifests: remove entries for files now in the dataset
         processed_files = set(self.data['raw_file'].unique().tolist()) | set(self.discarded_raw_files)

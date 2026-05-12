@@ -32,4 +32,17 @@
         Last run results <span id="ingest-results-summary" style="font-weight: var(--weight-normal); color: var(--color-text-tertiary);"></span>
     </div>
     <div id="ingest-results-table-wrap" style="overflow-x: auto;"></div>
+    <div id="ingest-results-reconciliation" class="text-sm" style="margin-top: 12px; padding: 10px 12px; background: var(--color-bg-elevated); border-left: 3px solid var(--color-border-strong); display: none;"></div>
+    <div id="ingest-results-skipped" style="margin-top: 16px; display: none;">
+        <details>
+            <summary class="text-sm font-semibold" style="cursor: pointer; color: var(--color-text-secondary); user-select: none;">
+                Previously skipped — not rescanned this run
+                <span id="ingest-results-skipped-count" class="text-xxs" style="color: var(--color-text-tertiary); font-weight: var(--weight-normal); margin-left: 6px;"></span>
+            </summary>
+            <div class="text-xxs" style="color: var(--color-text-tertiary); margin: 8px 0 4px 0;">
+                These files are in the raw-uploads folder but the ledger remembers a previous outcome that says don't re-include them. Click "Un-skip" to make the next ingestion run rescan a file (the file on disk is not touched).
+            </div>
+            <div id="ingest-results-skipped-wrap" style="overflow-x: auto;"></div>
+        </details>
+    </div>
 </div>
