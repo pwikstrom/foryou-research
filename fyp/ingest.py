@@ -555,6 +555,19 @@ class ForYouBaseCollection(ABC):
             for files in multi_clusters:
                 latest_file = max(files, key=lambda f: latest_per_file[f])
                 canonical_collection_id = collection_id_per_file[latest_file]
+                # The latest raw_file in the cluster may itself have a NA
+                # collection_id (legacy rows that predate the manifest-based
+                # ingest). Fall back to any non-NA cid in the cluster.
+                if pd.isna(canonical_collection_id):
+                    for f in files:
+                        cid = collection_id_per_file[f]
+                        if pd.notna(cid):
+                            canonical_collection_id = cid
+                            break
+                if pd.isna(canonical_collection_id):
+                    # No usable collection_id anywhere in the cluster — skip
+                    # restamping so we don't overwrite real ids with NA.
+                    continue
                 for f in files:
                     canonical_map[f] = canonical_collection_id
                     old_cid = collection_id_per_file[f]

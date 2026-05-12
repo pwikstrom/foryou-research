@@ -364,12 +364,23 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
         data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
         return empty_stats, None
 
-    # 3. Count unique items
+    # 3. Count unique items. Filter to play/observe within each collection's
+    # event window so the displayed "included" counts use the same definition
+    # as the per-collection metadata (personas.total_events / active_days) and
+    # the "potential" column on the right of the modal. Without this filter the
+    # included Activities would include likes, shares, search, follow, and
+    # events outside the persona window — making "included" exceed "potential".
     _t_phase = _time.perf_counter()
-    total_activities = len(df_study)
-    unique_collections = df_study['collection_id'].nunique()
-    unique_videos = df_study['item_id'].nunique()
-    active_days = int(pd.to_datetime(df_study['local_timestamp'], errors='coerce').dropna().dt.date.nunique())
+    df_counts = df_study
+    if 'collection_id' in df_study.columns and 'local_timestamp' in df_study.columns:
+        windows = _load_collection_event_windows(selected)
+        df_counts = _filter_to_event_windows(df_counts, windows)
+        df_counts = _filter_to_play_observe(df_counts)
+
+    total_activities = len(df_counts)
+    unique_collections = df_counts['collection_id'].nunique() if 'collection_id' in df_counts.columns else 0
+    unique_videos = df_counts['item_id'].nunique() if 'item_id' in df_counts.columns else 0
+    active_days = int(pd.to_datetime(df_counts['local_timestamp'], errors='coerce').dropna().dt.date.nunique()) if 'local_timestamp' in df_counts.columns else 0
 
     # 4. Match against enrichment status for scrape/annotation counts
     scraped_videos = 0
@@ -383,14 +394,14 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
         if 'item_id' in df_status.columns:
             try:
                 status_ids = df_status['item_id'].astype("string[pyarrow]")
-                study_ids = df_study['item_id'].astype("string[pyarrow]")
+                study_ids = df_counts['item_id'].astype("string[pyarrow]")
                 matched_status = df_status.loc[status_ids.isin(study_ids)].copy()
             except Exception as e:
                 print(f"Error during robust index matching: {e}. Falling back to standard matching.")
-                study_item_ids = df_study['item_id'].unique()
+                study_item_ids = df_counts['item_id'].unique()
                 matched_status = df_status.loc[df_status.index.isin(study_item_ids)].copy()
         else:
-            study_item_ids = df_study['item_id'].unique()
+            study_item_ids = df_counts['item_id'].unique()
             matched_status = df_status.loc[df_status.index.isin(study_item_ids)].copy()
 
         if 'scraped_ok' in matched_status.columns:
