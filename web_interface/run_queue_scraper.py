@@ -18,9 +18,10 @@ sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
 
-# Each video ~10s with 4 threads → 500 videos ≈ 1250s.
-# 1800s dispatch deadline leaves comfortable margin.
-MAX_BATCH_SIZE = 500
+# Upper safety cap on a single Cloud Task batch. process_manager.py scales
+# the Cloud Tasks dispatch deadline to 3600s when batch_size > 1000, so
+# anything up to ~5000 fits comfortably even under TikTok throttling.
+MAX_BATCH_SIZE = 5000
 _DISPATCH_DEADLINE = 1800
 
 
@@ -38,6 +39,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     """
     import fyp.data_io as data_io
     from fyp.scrape import download_video_threads
+    from fyp.tiktok_dl import cookie_health
 
     if not task_args:
         task_args = {}
@@ -68,6 +70,20 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     if initial_total <= 0:
         initial_total = total_queue
     reporter.log(f"Loaded {total_queue:,} videos from queue (initial_total={initial_total:,}).")
+
+    # ---- Cookie health check ----
+    # Surface obvious problems with the TikTok cookies file before kicking
+    # off the batch — an expired sessionid or missing file means every
+    # scrape will get a 403 from TikTok's bot wall.
+    health = cookie_health()
+    status = health.get('status')
+    if status in ('expired', 'missing'):
+        reporter.log(f"WARNING: TikTok cookies {status} — {health.get('message')}")
+        reporter.log("Continuing without authentication. Expect elevated 403 rate.")
+    elif status in ('expiring_soon', 'stale'):
+        reporter.log(f"NOTE: TikTok cookies {status} — {health.get('message')}")
+    else:
+        reporter.log(f"TikTok cookies: {health.get('message')}")
 
     # ---- Slice this batch from the head of the pruned queue ----
     # Prior chains removed completed items, so the queue's head is always the
@@ -100,7 +116,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     pct_before = int(already_done / overall_total * 100) if overall_total else 0
     reporter.update_progress(pct_before,
         f"Batch {batch_label}: scraping {len(batch):,} videos")
-    reporter.emit_data({"threads": 8})
+    reporter.emit_data({"threads": 4})
 
     done_in_batch = 0
     ok_in_batch = 0

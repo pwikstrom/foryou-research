@@ -1381,6 +1381,7 @@ def calculate_to_scrape():
 
     data = request.json or {}
     study_name = data.get("study_name")
+    retry_failed = bool(data.get("retry_failed", False))
     if not study_name:
         return jsonify({"error": "No study name provided"}), 400
 
@@ -1388,16 +1389,16 @@ def calculate_to_scrape():
         # Check for cached recoded dataset first
         recoded_fn = f"{study_name}_recoded.parquet"
         df_study = None
-        
+
         if data_io.exists(storage_location="cache", filename=recoded_fn):
-            # Load only the required column if possible, but load_parquet loads all if columns not provided properly or we can just load the whole file. 
+            # Load only the required column if possible, but load_parquet loads all if columns not provided properly or we can just load the whole file.
             # Actually, calculate_to_scrape only really needs item_id. The full load is fine as the files are usually small enough, but let's just load it.
             df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
-            
+
         if df_study is None or df_study.empty:
             # If not cached or empty, generate from scratch
             df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
-            
+
         if df_study is None or df_study.empty:
             return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
 
@@ -1418,11 +1419,16 @@ def calculate_to_scrape():
             # Map enrichment_status to our study videos
             study_videos = df_study[['item_id']].copy()
             study_status = study_videos.merge(df_status, on='item_id', how='left')
-            
+
             # Find videos where scraped_ok is fundamentally False or NaN AND scrape_fail is fundamentally False or NaN
             not_scraped = pd.isna(study_status['scraped_ok']) | (study_status['scraped_ok'] == False)
-            
-            if 'scrape_fail' in study_status.columns:
+
+            # When retry_failed is set, include items that previously failed
+            # by dropping the scrape_fail filter — the user is asking us to
+            # re-attempt them regardless of past outcome.
+            if retry_failed:
+                unscraped_mask = not_scraped
+            elif 'scrape_fail' in study_status.columns:
                 not_failed = pd.isna(study_status['scrape_fail']) | (study_status['scrape_fail'] == False)
                 unscraped_mask = not_scraped & not_failed
             elif 'scraped_fail' in study_status.columns:
@@ -1430,7 +1436,7 @@ def calculate_to_scrape():
                 unscraped_mask = not_scraped & not_failed
             else:
                 unscraped_mask = not_scraped
-                
+
             unscraped_videos = study_status.loc[unscraped_mask, 'item_id'].dropna().tolist()
         else:
             unscraped_videos = df_study['item_id'].dropna().tolist()
@@ -1470,12 +1476,13 @@ def calculate_to_annotate():
 
     data = request.json or {}
     study_name = data.get("study_name")
+    retry_failed = bool(data.get("retry_failed", False))
     if not study_name:
         return jsonify({"error": "No study name provided"}), 400
 
     try:
         from fyp.fyp_config import fyp_cf
-        
+
         # Check for cached recoded dataset first
         recoded_fn = f"{study_name}_recoded.parquet"
         df_study = None
@@ -1514,12 +1521,16 @@ def calculate_to_annotate():
                 not_annotated_ok = pd.isna(study_status['annotated_ok']) | (study_status['annotated_ok'] == False)
             else:
                 not_annotated_ok = True
-                
-            if 'annotated_fail' in study_status.columns:
+
+            # When retry_failed is set, ignore the annotated_fail column so
+            # items that previously failed annotation are re-queued.
+            if retry_failed:
+                not_annotated_fail = True
+            elif 'annotated_fail' in study_status.columns:
                 not_annotated_fail = pd.isna(study_status['annotated_fail']) | (study_status['annotated_fail'] == False)
             else:
                 not_annotated_fail = True
-                
+
             unannotated_mask = is_scraped_ok & not_annotated_ok & not_annotated_fail
             
             if 'video_duration' in study_status.columns:

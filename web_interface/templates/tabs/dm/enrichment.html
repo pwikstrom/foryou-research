@@ -18,6 +18,10 @@
     </select>
     <button type="button" class="action-btn" id="btn-queue-study"
         onclick="queueVideosFromTargetStudy(this)">Queue videos from target study</button>
+    <label class="text-sm" style="display: flex; align-items: center; gap: 6px; color: var(--color-text-tertiary);">
+        <input type="checkbox" id="retry-failed-attempts">
+        Include previously failed attempts
+    </label>
     <button type="button" id="btn-queue-voted" class="action-btn" style="display: none;"
         onclick="queueVotedVideos(this)">Queue User Voted Videos</button>
 </div>

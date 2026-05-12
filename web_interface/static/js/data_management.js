@@ -2000,6 +2000,9 @@ function queueVideosFromTargetStudy(btnElement) {
         return;
     }
 
+    const retryEl = document.getElementById('retry-failed-attempts');
+    const retryFailed = !!(retryEl && retryEl.checked);
+
     // UI Loading state
     const originalText = btnElement.textContent;
     btnElement.textContent = "Queueing...";
@@ -2013,13 +2016,13 @@ function queueVideosFromTargetStudy(btnElement) {
     const fetchScrape = fetch('/api/manage/enrichment/calculate_to_scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ study_name: studyName })
+        body: JSON.stringify({ study_name: studyName, retry_failed: retryFailed })
     }).then(res => res.json());
 
     const fetchAnnotate = fetch('/api/manage/enrichment/calculate_to_annotate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ study_name: studyName })
+        body: JSON.stringify({ study_name: studyName, retry_failed: retryFailed })
     }).then(res => res.json());
 
     Promise.all([fetchScrape, fetchAnnotate])
