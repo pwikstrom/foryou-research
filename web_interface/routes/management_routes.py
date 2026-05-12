@@ -1694,7 +1694,15 @@ def _evaluate_consolidation_staleness() -> dict:
     all_fresh = True
     for proc_name, info in downstream.items():
         last_success = process_stats.get(proc_name, {}).get("last_success")
-        stale = not last_success or last_success < impact_ts
+        # A downstream process only blocks impact resolution when the impact
+        # actually affects something it owns. With no affected studies (or
+        # collections), the corresponding refresh is never dispatched by the
+        # auto-pipeline or the manual cascade — so requiring it to have run
+        # would pin the impact forever.
+        if not info["affected"]:
+            stale = False
+        else:
+            stale = not last_success or last_success < impact_ts
         result[proc_name] = {
             "stale": stale,
             "label": info["label"],

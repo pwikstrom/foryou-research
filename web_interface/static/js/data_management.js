@@ -1952,7 +1952,14 @@ function fetchEnrichmentStats() {
             // Consolidation status from process_stats (only when not actively polling a run)
             if (!_consolidatePollActive && data.consolidate_stats) {
                 renderConsolidateStatus(data.consolidate_stats);
-                renderConsolidationImpact(data.consolidate_stats.consolidation_impact);
+                // Suppress the impact panel while the consolidate pipeline is
+                // running (auto-pipeline or manual cascade) — those flows are
+                // already refreshing the same downstream caches the panel's
+                // button would invoke, so showing it is misleading.
+                const pipelineActive = !!data.consolidate_pipeline_active || !!_cascadeRefresh;
+                renderConsolidationImpact(
+                    pipelineActive ? null : data.consolidate_stats.consolidation_impact
+                );
             }
 
             // Button state (armed / workers-running / idle)

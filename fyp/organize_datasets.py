@@ -1136,12 +1136,17 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
     if changed_item_ids and collections is not None and not collections.empty:
         print(f"\n*** Computing consolidation impact for {len(changed_item_ids):,} changed items...")
 
-        affected_collection_ids = set(
-            collections.loc[
+        # Drop NA collection_ids — legacy raw_files predating the manifest-based
+        # ingest can leave orphan rows with no cid. They don't belong to any
+        # collection or study so they shouldn't contribute to impact; including
+        # them would also break the sorted() below (NA comparisons raise).
+        affected_collection_ids = {
+            cid for cid in collections.loc[
                 collections["item_id"].isin(changed_item_ids),
                 collection_id_column
             ].unique()
-        )
+            if pd.notna(cid)
+        }
 
         if "study_defs" not in fyp_cf:
             init_study_defs()
