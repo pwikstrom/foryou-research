@@ -62,7 +62,11 @@ function loadSystemRoles(callback) {
     fetch('/api/admin/roles')
         .then(res => res.json())
         .then(data => {
-            systemRoles = data;
+            // /api/admin/roles now returns [{name, permissions}]; downstream
+            // code (access dropdown etc.) expects a list of role-name strings.
+            systemRoles = Array.isArray(data)
+                ? data.map(r => (typeof r === 'string' ? r : r.name)).filter(Boolean)
+                : [];
             if (callback) callback();
         })
         .catch(err => console.error("Error loading roles:", err));
@@ -407,10 +411,12 @@ function selectAllCollections(btn, select) {
 
 
 function renderStudiesTable() {
-    const tbody = document.getElementById('studies_table_body');
-    tbody.innerHTML = '';
+    // The studies partial is included once per tab that wants to show it
+    // (Data Management's Studies sub-page + My Studies). Populate every copy.
+    const tbodies = document.querySelectorAll('.studies-table-body');
+    if (tbodies.length === 0) return;
 
-    allStudies.forEach((study, index) => {
+    const buildRow = (study, index) => {
         const tr = document.createElement('tr');
         tr.className = 'study-row';
         tr.style.borderBottom = '1px solid var(--chart-grid)';
@@ -430,7 +436,6 @@ function renderStudiesTable() {
         const stats = study.stats || {};
         const formatNum = (num) => num !== undefined ? num.toLocaleString() : '-';
 
-        // Build action cell content
         let actionHtml = '';
         if (isSaving) {
             actionHtml = '<span class="text-sm font-semibold" style="color: var(--color-warning);">Saving...</span>';
@@ -459,8 +464,14 @@ function renderStudiesTable() {
             <td style="text-align: right; padding: 5px;">${formatNum(stats.annotated_videos)}</td>
             <td style="padding: 5px;">${actionHtml}</td>
         `;
+        return tr;
+    };
 
-        tbody.appendChild(tr);
+    tbodies.forEach(tbody => {
+        tbody.innerHTML = '';
+        allStudies.forEach((study, index) => {
+            tbody.appendChild(buildRow(study, index));
+        });
     });
 }
 

@@ -85,6 +85,9 @@
     {% if user.can_access('tab.data_management') %}
     {% include 'tabs/data_management.html' %}
     {% endif %}
+    {% if user.can_access('tab.data_management') or user.can_access('tab.my_studies') %}
+    {% include 'tabs/dm/study_modal.html' %}
+    {% endif %}
     {% include 'tabs/settings.html' %}
 
     {% if user.can_access('tab.admin') %}
@@ -147,4 +150,7 @@
 <script src="{{ url_for('static', filename='correlations.js') }}"></script>
 <script src="{{ url_for('static', filename='timelines.js') }}"></script>
 <script src="{{ url_for('static', filename='collections.js') }}"></script>
+{% if user.can_access('tab.data_management') or user.can_access('tab.my_studies') %}
+<script src="{{ url_for('static', filename='js/data_management.js') }}"></script>
+{% endif %}
 {% endblock %}
