@@ -151,6 +151,6 @@
 <script src="{{ url_for('static', filename='timelines.js') }}"></script>
 <script src="{{ url_for('static', filename='collections.js') }}"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_studies') %}
-<script src="{{ url_for('static', filename='js/data_management.js') }}"></script>
+<script src="{{ url_for('static', filename='js/data_management.js') }}?v=2"></script>
 {% endif %}
 {% endblock %}

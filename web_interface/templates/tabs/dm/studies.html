@@ -1,7 +1,10 @@
-<!-- Study Datasets sub-page -->
+<!-- Study Datasets sub-page.
+     read_only is passed in by the parent template:
+       - my_studies.html sets it True  → list-only view, no "Define new" button
+       - data_management.html (default False) → editable view for admins -->
 <h2 style="margin: 0 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
-    {% if current_user.is_admin() %}Define Study Datasets{% else %}My Studies{% endif %}
-    {% if current_user.is_admin() %}
+    {% if read_only %}My Studies{% else %}Define Study Datasets{% endif %}
+    {% if current_user.is_admin() and not read_only %}
     <button type="button" class="action-btn" onclick="createNewStudy(); event.stopPropagation();">Define new study</button>
     {% endif %}
 </h2>

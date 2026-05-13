@@ -416,7 +416,7 @@ function renderStudiesTable() {
     const tbodies = document.querySelectorAll('.studies-table-body');
     if (tbodies.length === 0) return;
 
-    const buildRow = (study, index) => {
+    const buildRow = (study, index, allowEdit) => {
         const tr = document.createElement('tr');
         tr.className = 'study-row';
         tr.style.borderBottom = '1px solid var(--chart-grid)';
@@ -427,10 +427,14 @@ function renderStudiesTable() {
         if (isRefreshing || isSaving) {
             tr.style.cursor = 'default';
             tr.style.opacity = '0.45';
-        } else {
+        } else if (allowEdit) {
             tr.style.cursor = 'pointer';
             tr.style.opacity = '1';
             tr.onclick = () => openStudyModal(index);
+        } else {
+            // Read-only context (My Studies tab) — no modal, no pointer cue.
+            tr.style.cursor = 'default';
+            tr.style.opacity = '1';
         }
 
         const stats = study.stats || {};
@@ -468,9 +472,13 @@ function renderStudiesTable() {
     };
 
     tbodies.forEach(tbody => {
+        // Rows inside the My Studies tab are read-only — they list studies but
+        // do not open the edit modal. The DM "Define Studies" sub-page keeps
+        // the click-to-edit behaviour.
+        const allowEdit = !tbody.closest('#my_studies');
         tbody.innerHTML = '';
         allStudies.forEach((study, index) => {
-            tbody.appendChild(buildRow(study, index));
+            tbody.appendChild(buildRow(study, index, allowEdit));
         });
     });
 }

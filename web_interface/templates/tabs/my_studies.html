@@ -1,5 +1,7 @@
 <div id="my_studies" class="tab-pane" style="overflow-y: auto; padding: 20px;">
     <div style="max-width: 1200px;">
-        {% include 'tabs/dm/studies.html' %}
+        {% with read_only = True %}
+            {% include 'tabs/dm/studies.html' %}
+        {% endwith %}
     </div>
 </div>
