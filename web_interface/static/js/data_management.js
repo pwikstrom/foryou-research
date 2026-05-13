@@ -2435,8 +2435,21 @@ function fetchStalenessStatus() {
 // Call on load
 fetchEnrichmentStats();
 
+const DM_PAGE_PERM_MAP = {
+    'dm-page-ingestion':      'tab.data_management.ingestion',
+    'dm-page-edit-activity':  'tab.data_management.edit_collections',
+    'dm-page-studies':        'tab.data_management.studies',
+    'dm-page-enrichment':     'tab.data_management.enrichment',
+    'dm-page-refresh':        'tab.data_management.refresh',
+};
+
 function openDataManagementPage(pageId, clickedItem) {
-    // Hide all pages
+    // Defense in depth — refuse if the matching permission isn't granted.
+    const requiredPerm = DM_PAGE_PERM_MAP[pageId];
+    if (requiredPerm && Array.isArray(window.USER_PERMS) && !window.USER_PERMS.includes(requiredPerm)) {
+        return;
+    }
+
     document.querySelectorAll('#data_management .dm-page').forEach(page => {
         page.classList.remove('active');
     });

@@ -23,76 +23,140 @@ class AnonymousUser(AnonymousUserMixin):
     def is_admin(self):
         return False
 
+    def can_access(self, perm_key: str) -> bool:
+        return False
+
 
 # --- Role Manager ---
 
 class RoleManager:
+    """Manages roles and their permission sets, persisted in roles.json.
+
+    Storage format (current):
+        {"admin": {"permissions": ["*"]},
+         "viewer": {"permissions": ["tab.explore", ...]}}
+
+    Legacy format (auto-migrated on load):
+        ["admin", "viewer", "researcher"]
+    """
+
     def __init__(self, storage_location="users"):
         self.storage_location = storage_location
-        self.roles = []
+        self.roles: dict[str, dict] = {}
         self.filename = "roles.json"
-        
+
         self.load_roles()
-        
+
     def load_roles(self):
-        """Loads roles from roles.json."""
+        """Load roles from roles.json, migrating the legacy list format if needed."""
         if data_io.exists(storage_location=self.storage_location, filename=self.filename):
-            loaded_roles = data_io.load_json(storage_location=self.storage_location, filename=self.filename)
-            if isinstance(loaded_roles, list):
-                self.roles = loaded_roles
+            loaded = data_io.load_json(storage_location=self.storage_location, filename=self.filename)
+            if isinstance(loaded, list):
+                logger.info("Migrating legacy roles.json (list format) to dict-with-permissions format.")
+                self.roles = self._migrate_legacy(loaded)
+                self.save_roles()
+            elif isinstance(loaded, dict):
+                self.roles = {
+                    name: {"permissions": list(entry.get("permissions", []))}
+                    for name, entry in loaded.items()
+                    if isinstance(entry, dict)
+                }
             else:
-                logger.warning(f"Invalid format for {self.filename}, expected list. Resetting to defaults.")
-                self.roles = []
+                logger.warning(f"Invalid format for {self.filename}; resetting to defaults.")
+                self.roles = {}
         else:
-            self.roles = []
-            
-        # Ensure default roles exist
+            self.roles = {}
+
         self._ensure_defaults()
 
+    def _migrate_legacy(self, legacy_list: list) -> dict[str, dict]:
+        """Convert a flat list of role names into the dict-with-permissions format.
+
+        Admin gets ``"*"`` (full access). Every other role gets the same
+        default set the current viewer experience uses today, so existing
+        installations don't see behavioural drift after upgrade.
+        """
+        from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+        migrated: dict[str, dict] = {}
+        for name in legacy_list:
+            if not isinstance(name, str):
+                continue
+            if name == ROLE_ADMIN:
+                migrated[name] = {"permissions": ["*"]}
+            else:
+                migrated[name] = {"permissions": list(DEFAULT_NON_ADMIN_PERMISSIONS)}
+        return migrated
+
     def _ensure_defaults(self):
-        defaults = ["admin", "viewer"]
+        """Make sure the built-in admin and viewer roles exist with sensible defaults."""
+        from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
         changed = False
-        for r in defaults:
-            if r not in self.roles:
-                self.roles.append(r)
-                changed = True
-        
+        if ROLE_ADMIN not in self.roles:
+            self.roles[ROLE_ADMIN] = {"permissions": ["*"]}
+            changed = True
+        if ROLE_VIEWER not in self.roles:
+            self.roles[ROLE_VIEWER] = {"permissions": list(DEFAULT_NON_ADMIN_PERMISSIONS)}
+            changed = True
         if changed:
             self.save_roles()
 
     def save_roles(self):
-        """Saves roles to roles.json."""
+        """Persist the current roles dict to roles.json."""
         try:
             data_io.save_json(data=self.roles, storage_location=self.storage_location, filename=self.filename)
         except Exception as e:
             logger.error(f"Failed to save roles: {e}")
 
-    def get_roles(self):
-        return self.roles
+    def get_roles(self) -> list[str]:
+        """Return role names only (backward-compatible with the legacy API)."""
+        return list(self.roles.keys())
+
+    def get_roles_with_permissions(self) -> list[dict]:
+        """Return [{name, permissions}] for every role — used by the admin matrix UI."""
+        return [
+            {"name": name, "permissions": list(entry.get("permissions", []))}
+            for name, entry in self.roles.items()
+        ]
+
+    def get_role_permissions(self, role_name: str | None) -> list[str]:
+        """Return the permission list for ``role_name``, or [] if unknown."""
+        if not role_name:
+            return []
+        entry = self.roles.get(role_name)
+        if not entry:
+            return []
+        return list(entry.get("permissions", []))
+
+    def set_role_permissions(self, role_name: str, permissions: list[str]):
+        """Replace the permission list for ``role_name``."""
+        if role_name == ROLE_ADMIN:
+            return False, "Cannot modify admin role permissions"
+        if role_name not in self.roles:
+            return False, "Role not found"
+        self.roles[role_name]["permissions"] = list(permissions)
+        self.save_roles()
+        return True, "Permissions updated"
 
     def add_role(self, role_name):
+        from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
         if role_name in self.roles:
             return False, "Role already exists"
-        self.roles.append(role_name)
+        self.roles[role_name] = {"permissions": list(DEFAULT_NON_ADMIN_PERMISSIONS)}
         self.save_roles()
         return True, "Role added"
 
     def delete_role(self, role_name, user_manager_instance):
         if role_name == ROLE_ADMIN:
             return False, "Cannot delete admin role"
-            
+
         if role_name not in self.roles:
             return False, "Role not found"
-            
-        # Check if any users have this role
-        # We need the user_manager instance here. 
-        # Since RoleManager is initialized before UserManager, we pass it in or dependency inject.
-        # Here we pass it as argument.
+
         for u in user_manager_instance.users.values():
             if u.role == role_name:
                 return False, f"Cannot delete role '{role_name}' because it is assigned to user '{u.username}'"
 
-        self.roles.remove(role_name)
+        del self.roles[role_name]
         self.save_roles()
         return True, "Role deleted"
 
@@ -140,7 +204,20 @@ class User(UserMixin):
 
     def is_admin(self):
         return self.role == ROLE_ADMIN and self.approved
-        
+
+    def can_access(self, perm_key: str) -> bool:
+        """Return True if this user has access to ``perm_key``.
+
+        Admin role always passes. Other roles must have ``perm_key`` (or
+        ``"*"``) in their stored permission list.
+        """
+        if self.is_admin():
+            return True
+        perms = role_manager.get_role_permissions(self.role)
+        if "*" in perms:
+            return True
+        return perm_key in perms
+
     def to_dict(self):
         return {
             "username": self.username,

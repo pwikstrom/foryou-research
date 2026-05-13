@@ -29,6 +29,7 @@ from ..process_manager import (
     save_process_stats,
     start_process,
 )
+from ..permissions import permission_required
 from ..task_status import is_cloud_run, read_task_status
 
 management_bp = Blueprint('management_bp', __name__)
@@ -436,6 +437,7 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
 
 @management_bp.route('/api/manage/studies', methods=['GET'])
 @login_required
+@permission_required('tab.data_management.studies')
 def list_studies():
     # Always reload from disk/GCS to pick up changes made by the task-runner service
     init_study_defs()
@@ -474,11 +476,9 @@ def list_studies():
 
 @management_bp.route('/api/manage/studies/save', methods=['POST'])
 @login_required
+@permission_required('tab.data_management.studies')
 def save_study():
     global fyp_cf
-
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
 
     data = request.json
     if not data:
@@ -623,15 +623,13 @@ def save_study():
 
 @management_bp.route('/api/manage/studies/calculate_stats', methods=['POST'])
 @login_required
+@permission_required('tab.data_management.studies')
 def calculate_study_stats():
     """
     On-demand calculation of stats for a study definition (without saving).
     """
     global fyp_cf
     
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     data = request.json
     if not data:
         return jsonify({"error": "No data"}), 400
@@ -751,6 +749,7 @@ def _collections_hash(selected: list) -> str:
 
 @management_bp.route('/api/manage/studies/daily_activities', methods=['POST'])
 @login_required
+@permission_required('tab.data_management.studies')
 def daily_activities():
     """Return activities-per-day across a set of collections for the modal chart.
 
@@ -759,9 +758,6 @@ def daily_activities():
     No date-range filter — the chart shows the full span so the user can pick
     a window visually.
     """
-
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
 
     data = request.json or {}
     selected = data.get("SELECTED_COLLECTIONS") or []
@@ -832,11 +828,9 @@ def daily_activities():
 
 @management_bp.route('/api/manage/studies/delete', methods=['POST'])
 @login_required
+@permission_required('tab.data_management.studies')
 def delete_study():
     global fyp_cf
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized - Admin only"}), 403
-        
     data = request.json
     study_name = data.get("STUDY_NAME")
     if not study_name:
@@ -920,12 +914,11 @@ def _affected_studies_for_collection(collection_id: str) -> list[str]:
 
 
 @management_bp.route('/api/manage/collections/affected_studies', methods=['GET'])
+@permission_required('tab.data_management.edit_collections')
 @login_required
 def affected_studies_for_collection():
     """Return the studies that reference a given collection_id. Used by the
     delete-collection confirmation dialog to show what will be refreshed."""
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
     collection_id = (request.args.get('collection_id') or '').strip()
     if not collection_id:
         return jsonify({"error": "Missing collection_id"}), 400
@@ -935,6 +928,7 @@ def affected_studies_for_collection():
 
 
 @management_bp.route('/api/manage/collections/delete', methods=['POST'])
+@permission_required('tab.data_management.edit_collections')
 @login_required
 def delete_collection():
     """Dispatch a collection_delete Cloud Task. The actual delete (which loads
@@ -942,9 +936,6 @@ def delete_collection():
     so the data-hub doesn't risk OOM or timeout. The UI polls /api/status for
     completion and reads the final result from the task's emitted data payload.
     """
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized - Admin only"}), 403
-
     data = request.json or {}
     collection_id = (data.get("collection_id") or "").strip()
     if not collection_id:
@@ -972,11 +963,9 @@ def delete_collection():
 
 
 @management_bp.route('/api/manage/collections', methods=['GET'])
+@permission_required('tab.data_management.edit_collections')
 @login_required
 def list_collections():
-    
-    if not current_user.is_admin():
-         return jsonify([])
 
     if True:#try:
         # Load ddp_metadata from storage
@@ -1052,11 +1041,9 @@ def list_collections():
 
 
 @management_bp.route('/api/manage/collection/save_annotation', methods=['POST'])
+@permission_required('tab.data_management.edit_collections')
 @login_required
 def save_collection_annotation():
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     data = request.json
     if not data:
         return jsonify({"error": "No data provided"}), 400
@@ -1091,12 +1078,10 @@ def save_collection_annotation():
 
 
 @management_bp.route('/api/manage/enrichment/stats', methods=['GET'])
+@permission_required('tab.data_management.enrichment')
 @login_required
 def get_enrichment_stats():
     # Only admins can see enrichment stats
-    if not current_user.is_admin():
-         return jsonify({"error": "Unauthorized"}), 403
-
     # Reload process_stats from GCS so we pick up task-runner writes, and
     # drop any consolidation_impact that has already been fully resolved by
     # downstream refreshes — otherwise the impact panel lingers forever when
@@ -1205,11 +1190,9 @@ def get_enrichment_stats():
 
 
 @management_bp.route('/api/manage/enrichment/empty_queue/<queue_type>', methods=['POST'])
+@permission_required('tab.data_management.enrichment')
 @login_required
 def empty_enrichment_queue(queue_type):
-    if not (current_user.is_admin()):
-        return jsonify({"error": "Unauthorized"}), 403
-        
     try:
         if queue_type == "scrape":
             if data_io.exists(storage_location='cache', filename='to_scrape.json'):
@@ -1233,11 +1216,9 @@ def empty_enrichment_queue(queue_type):
         return jsonify({"error": str(e)}), 500
 
 @management_bp.route('/api/manage/enrichment/queue_voted', methods=['POST'])
+@permission_required('tab.data_management.enrichment')
 @login_required
 def queue_voted_videos():
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     try:
         from web_interface.security import user_manager
         
@@ -1374,11 +1355,9 @@ def queue_voted_videos():
 
 
 @management_bp.route('/api/manage/enrichment/calculate_to_scrape', methods=['POST'])
+@permission_required('tab.data_management.enrichment')
 @login_required
 def calculate_to_scrape():
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     data = request.json or {}
     study_name = data.get("study_name")
     retry_failed = bool(data.get("retry_failed", False))
@@ -1469,11 +1448,9 @@ def calculate_to_scrape():
         return jsonify({"error": str(e)}), 500
 
 @management_bp.route('/api/manage/enrichment/calculate_to_annotate', methods=['POST'])
+@permission_required('tab.data_management.enrichment')
 @login_required
 def calculate_to_annotate():
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     data = request.json or {}
     study_name = data.get("study_name")
     retry_failed = bool(data.get("retry_failed", False))
@@ -1570,11 +1547,9 @@ def calculate_to_annotate():
         return jsonify({"error": str(e)}), 500
 
 @management_bp.route('/api/manage/enrichment/consolidate', methods=['POST'])
+@permission_required('tab.data_management.enrichment')
 @login_required
 def api_consolidate_enrichment():
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     from fyp.fyp_config import CONSOLIDATE_ENRICHMENT_SCRIPT
 
     if _is_worker_running("consolidate_enrichment"):
@@ -1633,11 +1608,9 @@ def api_consolidate_enrichment():
 
 
 @management_bp.route('/api/manage/enrichment/consolidate/disarm', methods=['POST'])
+@permission_required('tab.data_management.enrichment')
 @login_required
 def api_consolidate_disarm():
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
     was_armed = bool(entry.get("auto_armed"))
@@ -1730,12 +1703,10 @@ def _evaluate_consolidation_staleness() -> dict:
 
 
 @management_bp.route('/api/manage/refresh/staleness', methods=['GET'])
+@permission_required('tab.data_management.refresh')
 @login_required
 def api_refresh_staleness():
     """Check which downstream processes are stale relative to the last consolidation impact."""
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     status = _evaluate_consolidation_staleness()
     if not status["has_impact"] and not status.get("impact"):
         return jsonify({"has_impact": False})
@@ -1748,11 +1719,9 @@ def api_refresh_staleness():
 
 
 @management_bp.route('/api/manage/schema/reload', methods=['POST'])
+@permission_required('tab.admin.general')
 @login_required
 def reload_schema():
-    if not (current_user.is_admin()):
-        return jsonify({"error": "Unauthorized"}), 403
-    
     try:
         global fyp_cf
         fyp_cf = load_var_schema(fyp_cf, verbose=False)
@@ -1762,11 +1731,9 @@ def reload_schema():
 
 
 @management_bp.route('/api/manage/inter_coder_reliability', methods=['GET'])
+@permission_required('tab.admin.reliability')
 @login_required
 def get_inter_coder_reliability():
-    if not (current_user.is_admin()):
-        return jsonify({"error": "Unauthorized"}), 403
-    
     try:
         results = calculate_inter_coder_reliability()
         if "error" in results:
@@ -1778,11 +1745,9 @@ def get_inter_coder_reliability():
 
 
 @management_bp.route('/api/manage/ingestion/sources', methods=['GET'])
+@permission_required('tab.data_management.ingestion')
 @login_required
 def get_ingestion_sources():
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     try:
         main_collection = get_main_collection(verbose=False)
         sources = []
@@ -1818,12 +1783,10 @@ def get_ingestion_sources():
         return jsonify({"error": str(e)}), 500
 
 @management_bp.route('/api/manage/ingestion/fetch_aio', methods=['POST'])
+@permission_required('tab.data_management.ingestion')
 @login_required
 def fetch_aio_data():
     """Trigger download of recent AIO donations and metadata from AWS."""
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     from fyp.fyp_config import AIO_FETCH_SCRIPT
 
     hours_back = 24
@@ -1840,6 +1803,7 @@ def fetch_aio_data():
     return jsonify({"status": "error", "message": msg}), 409
 
 @management_bp.route('/api/manage/ingestion/upload', methods=['POST'])
+@permission_required('tab.data_management.ingestion')
 @login_required
 def upload_ingestion_file():
     """Upload one or more raw files with optional collection_id and tags metadata.
@@ -1851,9 +1815,6 @@ def upload_ingestion_file():
         collection_id_mode: 'single' | 'per_file' (default 'per_file')
         tags: JSON-encoded list of tag strings
     """
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     # Accept both multi-file ('files') and legacy single-file ('file') keys
     files = request.files.getlist('files')
     if not files or all(f.filename == '' for f in files):
@@ -1944,12 +1905,10 @@ def upload_ingestion_file():
         return jsonify({"error": str(e)}), 500
 
 @management_bp.route('/api/manage/refresh-collection-metadata', methods=['POST'])
+@permission_required('tab.data_management.ingestion')
 @login_required
 def refresh_collection_metadata():
     """Regenerate _metadata.parquet from scratch using all events."""
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     from fyp.fyp_config import COLLECTION_METADATA_REFRESH_SCRIPT
 
     success, msg = start_process(
@@ -1963,11 +1922,9 @@ def refresh_collection_metadata():
 
 
 @management_bp.route('/api/manage/ingestion/refresh', methods=['POST'])
+@permission_required('tab.data_management.ingestion')
 @login_required
 def refresh_ingestion_collection():
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     from fyp.fyp_config import INGEST_REFRESH_SCRIPT
 
     success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT)
@@ -1979,15 +1936,13 @@ def refresh_ingestion_collection():
 
 
 @management_bp.route('/api/manage/ingestion/ledger/unskip', methods=['POST'])
+@permission_required('tab.data_management.ingestion')
 @login_required
 def unskip_ingestion_ledger_entry():
     """Drop a single filename from the ingestion ledger so it will be
     re-scanned on the next ingestion run. The raw file on disk is left
     untouched.
     """
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     payload = request.get_json(silent=True) or {}
     filename = (payload.get("filename") or "").strip()
     if not filename:
@@ -2009,15 +1964,13 @@ def unskip_ingestion_ledger_entry():
 
 
 @management_bp.route('/api/manage/ingestion/clear_pending', methods=['POST'])
+@permission_required('tab.data_management.ingestion')
 @login_required
 def clear_pending_uploads():
     """Drop every pending upload across every registered ingester: delete each
     file from its raw_path storage and reset its manifest to an empty dict.
     Lightweight (no parquet I/O), so safe to run inline on the data-hub.
     """
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-
     main_collection = get_main_collection(verbose=False)
     manifest_fn = "ingestion_manifest.json"
 
@@ -2112,14 +2065,12 @@ def _prepopulate_annotations(manifest: dict, tags: list[str]) -> None:
 
 
 @management_bp.route('/api/manage/ingestion/metadata', methods=['GET'])
+@permission_required('tab.data_management.ingestion')
 @login_required
 def get_ingestion_metadata():
     """Return existing collection IDs and all unique tags for the upload modal."""
 
     from fyp.organize_datasets import COLLECTIONS_LABEL
-
-    if not current_user.is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
 
     collection_ids: list[str] = []
     all_tags: set[str] = set()

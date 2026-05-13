@@ -2,81 +2,110 @@
 
     <!-- Sidebar Navigation -->
     <nav class="dm-sidebar">
+        {% if user.can_access('tab.admin.new_users') %}
         <div class="dm-sidebar-item active" onclick="openAdminPage('admin-page-new-users', this)">
             New Users
         </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.active_users') %}
         <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-active-users', this)">
             Active Users
         </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.roles') %}
         <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-roles', this)">
             User Roles
         </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.annotations') %}
         <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-annotations', this)">
             User Annotations
         </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.reliability') %}
         <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-reliability', this)">
             Inter-coder Reliability
         </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.general') %}
         <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-general', this)">
             General
         </div>
+        {% endif %}
     </nav>
 
     <!-- Content Area -->
     <div class="dm-content">
 
-        <!-- New Users (default) -->
+        {% if user.can_access('tab.admin.new_users') %}
         <div id="admin-page-new-users" class="dm-page active">
             {% include 'tabs/admin/new_users.html' %}
         </div>
+        {% endif %}
 
-        <!-- Active Users -->
+        {% if user.can_access('tab.admin.active_users') %}
         <div id="admin-page-active-users" class="dm-page">
             {% include 'tabs/admin/active_users.html' %}
         </div>
+        {% endif %}
 
-        <!-- Roles -->
+        {% if user.can_access('tab.admin.roles') %}
         <div id="admin-page-roles" class="dm-page">
             {% include 'tabs/admin/roles.html' %}
         </div>
+        {% endif %}
 
-        <!-- User Annotations -->
+        {% if user.can_access('tab.admin.annotations') %}
         <div id="admin-page-annotations" class="dm-page">
             {% include 'tabs/admin/annotations.html' %}
         </div>
+        {% endif %}
 
-        <!-- Inter-coder Reliability -->
+        {% if user.can_access('tab.admin.reliability') %}
         <div id="admin-page-reliability" class="dm-page">
             {% include 'tabs/admin/reliability.html' %}
         </div>
+        {% endif %}
 
-        <!-- General -->
+        {% if user.can_access('tab.admin.general') %}
         <div id="admin-page-general" class="dm-page">
             {% include 'tabs/admin/general.html' %}
         </div>
+        {% endif %}
 
     </div>
 </div>
 
 <script>
+    const ADMIN_PAGE_PERM_MAP = {
+        'admin-page-new-users':    'tab.admin.new_users',
+        'admin-page-active-users': 'tab.admin.active_users',
+        'admin-page-roles':        'tab.admin.roles',
+        'admin-page-annotations':  'tab.admin.annotations',
+        'admin-page-reliability':  'tab.admin.reliability',
+        'admin-page-general':      'tab.admin.general',
+    };
+
     function openAdminPage(pageId, clickedItem) {
-        // Hide all pages
+        // Defense in depth — if the matching permission isn't granted, refuse.
+        const requiredPerm = ADMIN_PAGE_PERM_MAP[pageId];
+        if (requiredPerm && Array.isArray(window.USER_PERMS) && !window.USER_PERMS.includes(requiredPerm)) {
+            return;
+        }
+
         document.querySelectorAll('#admin .dm-page').forEach(page => {
             page.classList.remove('active');
         });
 
-        // Deactivate all sidebar items
         document.querySelectorAll('#admin .dm-sidebar-item').forEach(item => {
             item.classList.remove('active');
         });
 
-        // Show selected page
         const page = document.getElementById(pageId);
         if (page) {
             page.classList.add('active');
         }
 
-        // Activate clicked sidebar item
         if (clickedItem) {
             clickedItem.classList.add('active');
         }
@@ -103,6 +132,10 @@
         }
     }
 
+    function _hasPerm(key) {
+        return Array.isArray(window.USER_PERMS) && window.USER_PERMS.includes(key);
+    }
+
     async function loadUsers() {
         try {
             const response = await fetch('/api/admin/users');
@@ -111,17 +144,23 @@
 
             renderUsers(users);
 
-            // Auto-load annotations if empty
-            const annBody = document.getElementById('annotationsTableBody');
-            if (annBody && annBody.rows.length <= 1 && annBody.innerHTML.includes('Click Refresh')) {
-                loadAnnotations();
+            // Only auto-load annotations if the user actually has that sub-page.
+            if (_hasPerm('tab.admin.annotations')) {
+                const annBody = document.getElementById('annotationsTableBody');
+                if (annBody && annBody.rows.length <= 1 && annBody.innerHTML.includes('Click Refresh')) {
+                    loadAnnotations();
+                }
             }
 
-            // Also load roles if we haven't already or to refresh
-            loadRoles();
+            // Roles + permission catalog only matter for users with the Roles sub-page.
+            if (_hasPerm('tab.admin.roles')) {
+                loadRoles();
+            }
 
-            // Load admin-controlled site settings
-            loadAdminSettings();
+            // General-tab setting is only fetchable for users with that sub-page.
+            if (_hasPerm('tab.admin.general')) {
+                loadAdminSettings();
+            }
 
         } catch (error) {
             console.error('Error:', error);
@@ -179,43 +218,57 @@
         const pendingContainer = document.getElementById('pendingUserList');
         const tableBody = document.getElementById('userTableBody');
 
-        if (!pendingContainer || !tableBody) {
-            return; // UI not ready
-        }
-
-        // Split users
-        const pending = users.filter(u => !u.approved);
-        const active = users.filter(u => u.approved);
-
-        // Render Pending
-        if (pending.length === 0) {
-            pendingContainer.innerHTML = '<p style="color: var(--color-success); margin: 0;">No pending approvals.</p>';
-            pendingContainer.style.background = 'var(--color-bg-elevated)';
-            pendingContainer.style.borderColor = 'var(--color-success)';
-        } else {
-            pendingContainer.style.background = 'var(--color-bg-elevated)';
-            pendingContainer.style.borderColor = 'var(--color-warning)';
-            let pendingHtml = '<ul style="list-style: none; padding: 0; margin: 0;">';
-            pending.forEach(u => {
-                pendingHtml += `
-             <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--color-warning);">
-                 <span><strong>${u.username}</strong> requested access as <em>${u.role}</em></span>
-                 <button onclick="approveUser('${u.username}')" class="action-btn" style="padding: 6px 12px;">Approve</button>
-             </li>`;
-            });
-            pendingHtml += '</ul>';
-            pendingContainer.innerHTML = pendingHtml;
-        }
-
-        // Render Active
-        if (active.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
+        // Either sub-page may be hidden by the permission system — render only
+        // what's actually on the page. Bail only if both targets are missing.
+        if (!pendingContainer && !tableBody) {
             return;
         }
 
-        tableBody.innerHTML = active.map(user => {
+        // Cache the full payload so column-sort clicks can re-render without
+        // re-fetching from the server.
+        window._lastUsersPayload = users;
+
+        const pending = users.filter(u => !u.approved);
+        const active = users.filter(u => u.approved);
+
+        if (pendingContainer) {
+            if (pending.length === 0) {
+                pendingContainer.innerHTML = '<p style="color: var(--color-success); margin: 0;">No pending approvals.</p>';
+                pendingContainer.style.background = 'var(--color-bg-elevated)';
+                pendingContainer.style.borderColor = 'var(--color-success)';
+            } else {
+                pendingContainer.style.background = 'var(--color-bg-elevated)';
+                pendingContainer.style.borderColor = 'var(--color-warning)';
+                let pendingHtml = '<ul style="list-style: none; padding: 0; margin: 0;">';
+                pending.forEach(u => {
+                    pendingHtml += `
+                 <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--color-warning);">
+                     <span><strong>${u.username}</strong> requested access as <em>${u.role}</em></span>
+                     <button onclick="approveUser('${u.username}')" class="action-btn" style="padding: 6px 12px;">Approve</button>
+                 </li>`;
+                });
+                pendingHtml += '</ul>';
+                pendingContainer.innerHTML = pendingHtml;
+            }
+        }
+
+        if (!tableBody) {
+            return; // No active-users sub-page on this page; nothing left to do.
+        }
+
+        if (active.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
+            window._activeUsersData = [];
+            return;
+        }
+
+        window._activeUsersData = active;
+        const sorted = _sortActiveUsersData(active);
+
+        tableBody.innerHTML = sorted.map(user => {
             const stats = user.stats || { notes: 0, closed_tags: 0, open_tags: 0, unique_videos: 0, used_tags: [], user_notes: [] };
             const hasAnnotations = stats.used_tags.length > 0 || (stats.user_notes && stats.user_notes.length > 0);
+            const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
 
             return `
         <tr style="border-bottom: 1px solid var(--color-border);">
@@ -226,7 +279,13 @@
                 </div>
             </td>
             <td style="padding: 12px 16px;">
-                <span class="text-xs" style="background: ${getRoleColor(user.role)}; color: var(--color-text-on-accent); padding: 2px 8px; border-radius: 12px;">${user.role}</span>
+                <select onchange="updateRole('${user.username}', this.value)" class="role-select text-xs" data-current-role="${user.role}"
+                   style="padding: 4px 8px; border: 1px solid var(--color-border-strong); background: var(--color-bg-input); color: var(--color-text-primary); border-radius: 4px;">
+                    <!-- Populated dynamically -->
+                </select>
+            </td>
+            <td style="padding: 12px 16px; color: var(--color-text-primary);">
+                <span class="text-xs" style="color: var(--color-text-muted);">${lastLogin}</span>
             </td>
             <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 <strong>${stats.unique_videos}</strong>
@@ -240,16 +299,9 @@
             <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 ${stats.open_tags}
             </td>
-            <td style="padding: 12px 16px; color: var(--color-text-primary);">
-                <span class="text-xs" style="color: var(--color-text-muted);">${user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</span>
-            </td>
             <td style="padding: 12px 16px; text-align: right;">
                  <button onclick="resetPassword('${user.username}')" class="action-btn text-xs" style="margin-right: 8px;">Reset Pwd</button>
-                 <select onchange="updateRole('${user.username}', this.value)" class="role-select text-xs" data-current-role="${user.role}"
-                    style="padding: 4px; border: 1px solid var(--color-border-strong); background: var(--color-bg-input); color: var(--color-text-primary); border-radius: 4px; margin-right: 8px;">
-                    <!-- Populated dynamically -->
-                </select>
-                <button onclick="deleteUser('${user.username}')" class="action-btn btn-danger text-xs">Delete</button>
+                 <button onclick="deleteUser('${user.username}')" class="action-btn btn-danger text-xs">Delete</button>
             </td>
         </tr>
         <tr id="tags-${user.username}" style="display: none; background: var(--color-bg-elevated); border-bottom: 2px solid var(--color-border);">
@@ -274,12 +326,71 @@
 
         // After rendering users, populate their role dropdowns
         if (window.availableRoles) {
-            users.forEach(u => {
+            const roleNames = window.availableRoles.map(r => r.name);
+            sorted.forEach(u => {
                 const select = document.querySelector(`select[onchange="updateRole('${u.username}', this.value)"]`);
                 if (select) {
-                    populateRoleSelect(select, window.availableRoles, u.role);
+                    populateRoleSelect(select, roleNames, u.role);
                 }
             });
+        }
+
+        _updateActiveUsersSortIndicators();
+    }
+
+    // --- Sorting for Active Users table ---
+
+    window._activeUsersSort = window._activeUsersSort || { key: 'username', dir: 'asc' };
+
+    function _activeUsersSortValue(user, key) {
+        const stats = user.stats || {};
+        switch (key) {
+            case 'username':   return (user.username || '').toLowerCase();
+            case 'role':       return (user.role || '').toLowerCase();
+            case 'last_login': return user.last_login ? Date.parse(user.last_login) : -Infinity;
+            case 'videos':     return Number(stats.unique_videos || 0);
+            case 'notes':      return Number(stats.notes || 0);
+            case 'closed':     return Number(stats.closed_tags || 0);
+            case 'open':       return Number(stats.open_tags || 0);
+            default:           return 0;
+        }
+    }
+
+    function _sortActiveUsersData(users) {
+        const { key, dir } = window._activeUsersSort;
+        const factor = dir === 'desc' ? -1 : 1;
+        return [...users].sort((a, b) => {
+            const va = _activeUsersSortValue(a, key);
+            const vb = _activeUsersSortValue(b, key);
+            if (va < vb) return -1 * factor;
+            if (va > vb) return  1 * factor;
+            return 0;
+        });
+    }
+
+    function _updateActiveUsersSortIndicators() {
+        const { key, dir } = window._activeUsersSort;
+        document.querySelectorAll('#activeUsersTable thead th[data-sort-key]').forEach(th => {
+            const indicator = th.querySelector('.sort-indicator');
+            if (!indicator) return;
+            if (th.getAttribute('data-sort-key') === key) {
+                indicator.textContent = dir === 'asc' ? ' ▲' : ' ▼';
+            } else {
+                indicator.textContent = '';
+            }
+        });
+    }
+
+    function sortActiveUsers(key) {
+        const cur = window._activeUsersSort;
+        if (cur.key === key) {
+            cur.dir = cur.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+            cur.key = key;
+            cur.dir = 'asc';
+        }
+        if (Array.isArray(window._lastUsersPayload)) {
+            renderUsers(window._lastUsersPayload);
         }
     }
 
@@ -591,11 +702,17 @@
 
     async function loadRoles() {
         try {
-            const response = await fetch('/api/admin/roles');
-            if (!response.ok) throw new Error("Failed to load roles");
-            const roles = await response.json();
-            window.availableRoles = roles; // Store globally regarding this scope
-            renderRoles(roles);
+            const [rolesResp, catalogResp] = await Promise.all([
+                fetch('/api/admin/roles'),
+                fetch('/api/admin/permissions/catalog'),
+            ]);
+            if (!rolesResp.ok) throw new Error("Failed to load roles");
+            if (!catalogResp.ok) throw new Error("Failed to load permission catalog");
+            const roles = await rolesResp.json();   // [{name, permissions: [...]}]
+            const catalog = await catalogResp.json(); // [{key, label}]
+            window.availableRoles = roles;
+            window.permissionCatalog = catalog;
+            renderRolePermissionMatrix(roles, catalog);
             updateRoleSelects(roles);
         } catch (e) {
             console.error(e);
@@ -603,37 +720,111 @@
         }
     }
 
-    function renderRoles(roles) {
+    function renderRolePermissionMatrix(roles, catalog) {
         const container = document.getElementById('roleList');
         if (!container) return;
 
-        container.innerHTML = roles.map(role => `
-            <div style="background: var(--color-border); padding: 6px 12px; border-radius: 20px; color: var(--color-text-primary); display: flex; align-items: center; gap: 8px; border: 1px solid var(--color-border-strong);">
-                <span>${role}</span>
-                ${role !== 'admin' ?
-                `<span onclick="deleteRole('${role}')" class="text-body font-bold" style="cursor: pointer; color: var(--color-danger);">&times;</span>`
-                : ''}
+        const header = `
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding: 8px 12px; border-bottom: 1px solid var(--color-border); position: sticky; left: 0; background: var(--color-bg-primary); z-index: 1;">Permission</th>
+                    ${roles.map(r => `
+                        <th style="padding: 8px 12px; border-bottom: 1px solid var(--color-border); text-align: center; min-width: 90px;">
+                            <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+                                <span class="font-medium" style="color: var(--color-text-primary);">${r.name}</span>
+                                ${r.name !== 'admin' ? `<span onclick="deleteRole('${r.name}')" class="text-xs" style="cursor:pointer; color: var(--color-danger);" title="Delete role">delete</span>` : '<span class="text-xxs" style="color: var(--color-text-muted);">(full access)</span>'}
+                            </div>
+                        </th>
+                    `).join('')}
+                </tr>
+            </thead>
+        `;
+
+        const rows = catalog.map(entry => {
+            const cells = roles.map(r => {
+                const isAdmin = (r.name === 'admin');
+                const hasPerm = isAdmin || r.permissions.includes('*') || r.permissions.includes(entry.key);
+                const disabled = isAdmin ? 'disabled' : '';
+                return `
+                    <td style="text-align:center; padding: 6px 12px; border-bottom: 1px solid var(--color-border);">
+                        <input type="checkbox"
+                               data-role="${r.name}"
+                               data-perm="${entry.key}"
+                               ${hasPerm ? 'checked' : ''}
+                               ${disabled}
+                               onchange="onPermissionToggle(this)">
+                    </td>
+                `;
+            }).join('');
+            return `
+                <tr>
+                    <td class="text-sm" style="padding: 6px 12px; border-bottom: 1px solid var(--color-border); white-space: pre; color: var(--color-text-primary); position: sticky; left: 0; background: var(--color-bg-primary);">${entry.label}</td>
+                    ${cells}
+                </tr>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <div style="overflow-x: auto; max-width: 100%;">
+                <table style="border-collapse: collapse; width: 100%;">
+                    ${header}
+                    <tbody>${rows}</tbody>
+                </table>
             </div>
-        `).join('');
+            <div id="rolePermStatus" class="text-xs" style="margin-top: 8px; min-height: 16px; color: var(--color-text-muted);"></div>
+        `;
+    }
+
+    async function onPermissionToggle(checkbox) {
+        const roleName = checkbox.getAttribute('data-role');
+        const status = document.getElementById('rolePermStatus');
+        const allBoxes = document.querySelectorAll(`input[data-role="${roleName}"]:not([disabled])`);
+        const perms = Array.from(allBoxes).filter(b => b.checked).map(b => b.getAttribute('data-perm'));
+
+        checkbox.disabled = true;
+        if (status) status.textContent = `Saving permissions for ${roleName}…`;
+
+        try {
+            const response = await fetch(`/api/admin/roles/${encodeURIComponent(roleName)}/permissions`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ permissions: perms })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Save failed');
+            }
+            if (status) {
+                status.textContent = `Saved (${roleName}).`;
+                setTimeout(() => { if (status.textContent.startsWith('Saved')) status.textContent = ''; }, 2000);
+            }
+        } catch (e) {
+            console.error('onPermissionToggle:', e);
+            checkbox.checked = !checkbox.checked; // revert
+            if (status) status.textContent = `Error: ${e.message}`;
+        } finally {
+            checkbox.disabled = false;
+        }
     }
 
     function updateRoleSelects(roles) {
-        // Update "New User" select
+        // Roles are now [{name, permissions}] — extract names for the dropdowns.
+        const roleNames = roles.map(r => r.name);
+
         const newRoleSelect = document.getElementById('newRole');
         if (newRoleSelect) {
-            populateRoleSelect(newRoleSelect, roles, 'viewer');
+            populateRoleSelect(newRoleSelect, roleNames, 'viewer');
         }
 
-        // Update existing users dropdowns if already rendered
         const userSelects = document.querySelectorAll('.role-select');
         userSelects.forEach(sel => {
             const currentRole = sel.getAttribute('data-current-role');
-            populateRoleSelect(sel, roles, currentRole);
+            populateRoleSelect(sel, roleNames, currentRole);
         });
     }
 
-    function populateRoleSelect(select, roles, current = null) {
-        select.innerHTML = roles.map(r =>
+    function populateRoleSelect(select, roleNames, current = null) {
+        select.innerHTML = roleNames.map(r =>
             `<option value="${r}" ${r === current ? 'selected' : ''}>${r.charAt(0).toUpperCase() + r.slice(1)}</option>`
         ).join('');
     }

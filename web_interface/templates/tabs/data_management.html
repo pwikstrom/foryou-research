@@ -2,50 +2,65 @@
 
     <!-- Sidebar Navigation -->
     <nav class="dm-sidebar">
+        {% if user.can_access('tab.data_management.ingestion') %}
         <div class="dm-sidebar-item active" onclick="openDataManagementPage('dm-page-ingestion', this)">
             Ingest Collections
         </div>
+        {% endif %}
+        {% if user.can_access('tab.data_management.edit_collections') %}
         <div class="dm-sidebar-item" onclick="openDataManagementPage('dm-page-edit-activity', this)">
             Edit Collections
         </div>
+        {% endif %}
+        {% if user.can_access('tab.data_management.studies') %}
         <div class="dm-sidebar-item" onclick="openDataManagementPage('dm-page-studies', this)">
             Define Studies
         </div>
+        {% endif %}
+        {% if user.can_access('tab.data_management.enrichment') %}
         <div class="dm-sidebar-item" onclick="openDataManagementPage('dm-page-enrichment', this)">
             Scrape & Annotate
         </div>
+        {% endif %}
+        {% if user.can_access('tab.data_management.refresh') %}
         <div class="dm-sidebar-item" onclick="openDataManagementPage('dm-page-refresh', this)">
             Refresh Caches
         </div>
+        {% endif %}
     </nav>
 
     <!-- Content Area -->
     <div class="dm-content">
 
-        <!-- Ingest Collections (default) -->
+        {% if user.can_access('tab.data_management.ingestion') %}
         <div id="dm-page-ingestion" class="dm-page active">
             {% include 'tabs/dm/ingestion.html' %}
         </div>
+        {% endif %}
 
-        <!-- Edit Collections -->
+        {% if user.can_access('tab.data_management.edit_collections') %}
         <div id="dm-page-edit-activity" class="dm-page">
             {% include 'tabs/dm/edit_collections.html' %}
         </div>
+        {% endif %}
 
-        <!-- Define Studies -->
+        {% if user.can_access('tab.data_management.studies') %}
         <div id="dm-page-studies" class="dm-page">
             {% include 'tabs/dm/studies.html' %}
         </div>
+        {% endif %}
 
-        <!-- Scrape & Annotate -->
+        {% if user.can_access('tab.data_management.enrichment') %}
         <div id="dm-page-enrichment" class="dm-page">
             {% include 'tabs/dm/enrichment.html' %}
         </div>
+        {% endif %}
 
-        <!-- Refresh Caches -->
+        {% if user.can_access('tab.data_management.refresh') %}
         <div id="dm-page-refresh" class="dm-page">
             {% include 'tabs/dm/refresh.html' %}
         </div>
+        {% endif %}
 
     </div>
 

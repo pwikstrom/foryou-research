@@ -18,18 +18,46 @@
     </span>
 </div>
 
+<script>
+    window.USER_PERMS = {{ user_perms|tojson }};
+
+    // If the hardcoded default sub-page is hidden by the permission system,
+    // activate the first sub-page the user actually has access to so the
+    // content area isn't blank when they open the tab.
+    document.addEventListener('DOMContentLoaded', function () {
+        ['admin', 'data_management'].forEach(function (tabId) {
+            const tab = document.getElementById(tabId);
+            if (!tab) return;
+            if (tab.querySelector('.dm-page.active')) return;
+            const firstPage = tab.querySelector('.dm-page');
+            const firstItem = tab.querySelector('.dm-sidebar-item');
+            if (firstPage) firstPage.classList.add('active');
+            if (firstItem) firstItem.classList.add('active');
+        });
+    });
+</script>
+
 <!-- Tab Navigation -->
 <div class="tab-nav">
+    {% if user.can_access('tab.explore') %}
     <button class="tab-button" data-tab="explore" onclick="openTab(event, 'explore')">Explore</button>
+    {% endif %}
+    {% if user.can_access('tab.timelines') %}
     <button class="tab-button" data-tab="timelines" onclick="openTab(event, 'timelines')">Timelines</button>
+    {% endif %}
+    {% if user.can_access('tab.video_analysis') %}
     <button class="tab-button" data-tab="video_analysis" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
+    {% endif %}
+    {% if user.can_access('tab.correlations') %}
     <button class="tab-button" data-tab="correlations" onclick="openTab(event, 'correlations')">Correlations</button>
-    {% if user.is_admin() %}
-    <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
-    {% else %}
+    {% endif %}
+    {% if user.can_access('tab.my_studies') %}
     <button class="tab-button" onclick="openTab(event, 'my_studies')">My Studies</button>
     {% endif %}
-    {% if user.is_admin() %}
+    {% if user.can_access('tab.data_management') %}
+    <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
+    {% endif %}
+    {% if user.can_access('tab.admin') %}
     <button class="tab-button"
         onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
     {% endif %}
@@ -39,18 +67,27 @@
 <div class="tab-content">
     {% include 'tabs/home.html' %}
 
+    {% if user.can_access('tab.explore') %}
     {% include 'tabs/explore.html' %}
+    {% endif %}
+    {% if user.can_access('tab.video_analysis') %}
     {% include 'tabs/video_analysis.html' %}
+    {% endif %}
+    {% if user.can_access('tab.correlations') %}
     {% include 'tabs/correlations.html' %}
+    {% endif %}
+    {% if user.can_access('tab.timelines') %}
     {% include 'tabs/timelines.html' %}
-    {% if user.is_admin() %}
-    {% include 'tabs/data_management.html' %}
-    {% else %}
+    {% endif %}
+    {% if user.can_access('tab.my_studies') %}
     {% include 'tabs/my_studies.html' %}
+    {% endif %}
+    {% if user.can_access('tab.data_management') %}
+    {% include 'tabs/data_management.html' %}
     {% endif %}
     {% include 'tabs/settings.html' %}
 
-    {% if user.is_admin() %}
+    {% if user.can_access('tab.admin') %}
     {% include 'tabs/admin.html' %}
     {% endif %}
 </div>

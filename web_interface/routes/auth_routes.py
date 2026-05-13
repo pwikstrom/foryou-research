@@ -17,6 +17,7 @@ from ..admin_settings import (
     save_admin_settings,
 )
 from ..mail_utils import send_welcome_email_async
+from ..permissions import permission_required
 from ..security import user_manager
 
 auth_bp = Blueprint('auth_bp', __name__)
@@ -106,7 +107,7 @@ def logout():
     return redirect(url_for('auth_bp.login'))
 
 @auth_bp.route('/api/admin/users', methods=['GET', 'POST', 'PUT', 'DELETE'])
-@auth.admin_required
+@permission_required('tab.admin.new_users', 'tab.admin.active_users')
 def api_admin_users():
     if request.method == 'GET':
         # Return list of users (excluding password hashes)
@@ -252,39 +253,65 @@ def api_admin_users():
              return jsonify({"error": msg}), 400
 
 @auth_bp.route('/api/admin/roles', methods=['GET', 'POST', 'DELETE'])
-@auth.admin_required
+@permission_required('tab.admin.roles')
 def api_admin_roles():
     if request.method == 'GET':
-        return jsonify(auth.role_manager.get_roles())
-        
+        return jsonify(auth.role_manager.get_roles_with_permissions())
+
     elif request.method == 'POST':
         data = request.json
         role_name = data.get('role_name')
         if not role_name:
              return jsonify({"error": "Missing role name"}), 400
-             
-        # sanitization?
+
         role_name = role_name.strip().lower()
-        
+
         success, msg = auth.role_manager.add_role(role_name)
         if success:
              return jsonify({"status": "success", "message": msg})
         else:
              return jsonify({"error": msg}), 400
-             
+
     elif request.method == 'DELETE':
         role_name = request.args.get('role_name')
         if not role_name:
              return jsonify({"error": "Missing role name"}), 400
-             
+
         success, msg = auth.role_manager.delete_role(role_name, user_manager)
         if success:
              return jsonify({"status": "success", "message": msg})
         else:
              return jsonify({"error": msg}), 400
 
+
+@auth_bp.route('/api/admin/permissions/catalog', methods=['GET'])
+@permission_required('tab.admin.roles')
+def api_admin_permissions_catalog():
+    from ..permissions import PERMISSION_CATALOG
+    return jsonify(PERMISSION_CATALOG)
+
+
+@auth_bp.route('/api/admin/roles/<role_name>/permissions', methods=['PUT'])
+@permission_required('tab.admin.roles')
+def api_admin_role_permissions(role_name):
+    from ..permissions import ALL_PERMISSION_KEYS
+
+    data = request.json or {}
+    perms = data.get('permissions')
+    if not isinstance(perms, list):
+        return jsonify({"error": "Body must contain a 'permissions' list"}), 400
+
+    invalid = [p for p in perms if p not in ALL_PERMISSION_KEYS]
+    if invalid:
+        return jsonify({"error": f"Unknown permission keys: {invalid}"}), 400
+
+    success, msg = auth.role_manager.set_role_permissions(role_name, perms)
+    if success:
+        return jsonify({"status": "success", "message": msg})
+    return jsonify({"error": msg}), 400
+
 @auth_bp.route('/api/admin/settings', methods=['GET', 'PUT'])
-@auth.admin_required
+@permission_required('tab.admin.general')
 def api_admin_settings():
     if request.method == 'GET':
         merged = {**ADMIN_SETTINGS_DEFAULTS, **load_admin_settings()}
@@ -330,7 +357,7 @@ def api_user_settings():
             return jsonify({"error": msg}), 400
 
 @auth_bp.route('/api/admin/annotations', methods=['GET'])
-@auth.admin_required
+@permission_required('tab.admin.annotations')
 def api_admin_annotations():
     # item_id -> { stats: {...}, details: { variable: { open: {tag: [users]}, notes: [{user, text}], closed: {val: [users]} } } }
     master_index = {}

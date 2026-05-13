@@ -1,6 +1,11 @@
 <!-- Role Management sub-page -->
 <h2 style="margin: 0 0 16px 0;">User Roles</h2>
 
+<p class="text-sm" style="margin: 0 0 16px 0; color: var(--color-text-muted);">
+    Configure what each role can see and do. The admin role always has full access and cannot be edited.
+    Changes save automatically when you toggle a checkbox.
+</p>
+
 <div style="margin-bottom: 16px;">
     <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
         <input type="text" id="newRoleName" placeholder="New Role Name"
@@ -11,7 +16,7 @@
         </button>
     </div>
 </div>
-<div id="roleList" style="display: flex; gap: 8px; flex-wrap: wrap;">
-    <!-- Populated dynamically -->
-    <div class="italic" style="color: var(--color-text-muted);">Loading roles...</div>
+
+<div id="roleList">
+    <div class="italic" style="color: var(--color-text-muted);">Loading roles…</div>
 </div>

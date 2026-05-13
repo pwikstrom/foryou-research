@@ -98,7 +98,9 @@ csrf.exempt(internal_bp)
 def index():
     slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
     slack_messages = get_recent_messages() if slack_configured else []
-    return render_template('index.html', user=current_user, slack_messages=slack_messages, slack_configured=slack_configured, content=HOME_CONTENT)
+    from .permissions import get_user_permissions
+    user_perms = get_user_permissions(current_user)
+    return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, content=HOME_CONTENT)
 
 
 if __name__ == '__main__':
