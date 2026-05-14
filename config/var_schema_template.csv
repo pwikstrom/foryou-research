@@ -1,6 +1,6 @@
 source,section,variable_name,display_name,role,scale,mapper,ignore_strings,unable_to_detect_policy,recode_func,sortable,searchable,web_filter_prio,web_timeline_prio,web_viz_prio,web_viz_log,web_viz_multi_label,web_viz_bins,web_display_prio,description,accepted_labels
 activity,Activity details,activity_type,Activity type,standard,string,{},[],,recode_long_strings,,,402,110,402,,no,,307,The type of the activity,
-activity,Activity details,extra_data,Extra data,standard,string,{},[],,recode_long_strings,,1,,,,,,,310,TBD,
+activity,Activity details,extra_data,Engagement activity,standard,string,{},[],,recode_long_strings,,1,405,,,,,,310,Engagement activities (fave/comment/share/follow/save) folded into the leading play row of a session run.,
 activity,Activity details,collection_id,Collection ID,group_factor,string,{},[],,,,,401,,,,,,301,Identifier for the collection,
 activity,Activity details,data_source,Data source,standard,string,{},[],,,,,409,,,,,,,TBD,
 activity,Activity details,play_duration,Play duration,standard,ratio,,,,,,,,,,,,,308,For how long did they play the video.,

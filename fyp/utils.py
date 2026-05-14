@@ -301,3 +301,37 @@ def start_monitor(
     t = threading.Thread(target=_run, daemon=True)
     t.start()
     return t
+
+
+
+
+
+# Engagement activity tokens carried inside the folded `extra_data` column.
+# A play row's `extra_data` is a comma-separated list of "<atype>[:context]"
+# tokens (e.g. "fave", "comment:hello", "fave,follow:somebody") recorded
+# when other activities share the same session run as the leading play.
+ENGAGEMENT_TYPES = ('fave', 'share', 'comment', 'follow', 'save')
+ACTIVITY_TYPE_MAP = {
+    'fave': 'fave',
+    'share': 'share',
+    'comment': 'comment',
+    'follow': 'follow',
+    'following': 'follow',
+    'save': 'save',
+}
+
+
+
+
+
+def parse_extra_data_tokens(s) -> set:
+    """Parse a folded extra_data cell into its normalised engagement-type tokens."""
+    if not isinstance(s, str) or not s:
+        return set()
+    out = set()
+    for part in s.split(','):
+        atype = part.split(':', 1)[0].strip().lower()
+        mapped = ACTIVITY_TYPE_MAP.get(atype)
+        if mapped:
+            out.add(mapped)
+    return out

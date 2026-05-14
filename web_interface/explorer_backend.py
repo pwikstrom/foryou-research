@@ -8,6 +8,7 @@ import pyarrow as pa
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 from fyp.organize_datasets import create_study_recoded_dataset
+from fyp.utils import ENGAGEMENT_TYPES, parse_extra_data_tokens
 
 
 def get_robust_bounds(series):
@@ -45,10 +46,30 @@ def get_metadata(df, column_types, verbose=False):
     for col, dtype in column_types.items():
         # Calculate Null Count
         null_count = int(df[col].isna().sum())
-        
+
         base_meta = {
             "null_count": null_count
         }
+
+        # Special case: `extra_data` is a folded comma-separated record of
+        # engagement activities (fave / comment / share / follow / save).
+        # Expose it as a list-typed filter whose values are the known
+        # engagement tokens with document-frequency counts.
+        if col == 'extra_data':
+            counts = {t: 0 for t in ENGAGEMENT_TYPES}
+            for cell in df[col].dropna():
+                for t in parse_extra_data_tokens(cell):
+                    if t in counts:
+                        counts[t] += 1
+            items_list = [{"value": t, "count": counts[t]}
+                          for t in ENGAGEMENT_TYPES if counts[t] > 0]
+            base_meta.update({
+                "type": "list",
+                "values": items_list,
+                "total_unique": len(items_list),
+            })
+            metadata[col] = base_meta
+            continue
 
         if dtype == "number":
             min_val, max_val = get_robust_bounds(df[col])
@@ -145,14 +166,28 @@ def filter_dataframe(df, column_types, filters, search_query=None):
 
         if col not in df.columns:
             continue
-        
+
         val = criteria.get("value")
         # If no value criteria, skip
         if val is None or val == "":
             continue
 
+        # Special case: token-overlap filter on the folded `extra_data`
+        # engagement record. `val` is a list of selected engagement types
+        # (e.g. ['fave', 'comment']); a row passes if any of those tokens
+        # appears in its parsed `extra_data` cell.
+        if col == 'extra_data':
+            if isinstance(val, (list, np.ndarray)) and len(val) > 0:
+                selected = set(str(v).lower() for v in val)
+                mask = filtered_df[col].astype('string').map(
+                    lambda s: bool(parse_extra_data_tokens(s) & selected)
+                    if pd.notna(s) else False
+                )
+                filtered_df = filtered_df[mask]
+            continue
+
         dtype = column_types.get(col)
-        
+
         value_mask = pd.Series(False, index=filtered_df.index)
         has_value_criteria = False
 

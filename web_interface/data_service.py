@@ -12,6 +12,7 @@ from fyp.fyp_config import fyp_cf
 from fyp.organize_datasets import COLLECTIONS_LABEL, create_collection_unified_dataset
 from fyp.pca import calculate_scaled_pca_scores
 from fyp.studies import init_study_defs
+from fyp.utils import ACTIVITY_TYPE_MAP, ENGAGEMENT_TYPES
 
 from . import explorer_backend as explorer
 
@@ -594,9 +595,6 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
     # lead-play's `extra_data` is the only signal we count — standalone
     # engagement rows that aren't adjacent to a counted play are ignored
     # on purpose to avoid the "more faves than plays" mismatch.
-    ENGAGEMENT_TYPES = ('fave', 'share', 'comment', 'follow', 'save')
-    ACTIVITY_TYPE_MAP = {'fave': 'fave', 'share': 'share', 'comment': 'comment',
-                         'follow': 'follow', 'following': 'follow', 'save': 'save'}
 
     # Construct 'machine_state' before the universe filter so the synthetic
     # state value is set on every play (the filter strips non-play rows next).
@@ -1156,7 +1154,6 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
 
     # Extra-data (engagement activity) counts per period, plus per-type breakdown
     extra_data_counts = df['extra_data_count'].tolist() if 'extra_data_count' in df.columns else None
-    ENGAGEMENT_TYPES = ('fave', 'share', 'comment', 'follow', 'save')
     extra_data_breakdown = {t: df[t].tolist() for t in ENGAGEMENT_TYPES if t in df.columns}
 
     result = {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts, "variables_order": viz_vars}
