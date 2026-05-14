@@ -1860,8 +1860,17 @@ def _var_schema_admin_enabled() -> bool:
 def get_schema():
     if not _var_schema_admin_enabled():
         return jsonify({"error": "schema admin disabled"}), 503
-    """Return the current schema for the admin editor."""
+    """Return the current schema for the admin editor.
+
+    ``?force_reload=1`` re-reads ``var_schema.csv`` from disk/GCS before
+    responding so the editor's Reload button picks up direct edits made
+    outside the UI (e.g. ``gsutil cp``).  The initial tab load and the
+    post-save refresh omit the flag — they only need in-memory state.
+    """
     try:
+        if request.args.get("force_reload") in ("1", "true", "yes"):
+            global fyp_cf
+            fyp_cf = load_var_schema(fyp_cf, verbose=False)
         df = fyp_cf["var_schema"]
         return jsonify({
             "rows": _df_to_records(df),

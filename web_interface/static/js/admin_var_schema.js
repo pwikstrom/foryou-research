@@ -242,11 +242,12 @@
 
     // ---------- network ----------
 
-    async function _load() {
+    async function _load(forceDiskReload) {
         const status = document.getElementById('vs-status');
-        if (status) status.textContent = 'Loading…';
+        if (status) status.textContent = forceDiskReload ? 'Re-reading from disk…' : 'Loading…';
         try {
-            const res = await fetch(SCHEMA_ENDPOINT);
+            const url = forceDiskReload ? `${SCHEMA_ENDPOINT}?force_reload=1` : SCHEMA_ENDPOINT;
+            const res = await fetch(url);
             if (!res.ok) {
                 throw new Error(`Server returned ${res.status}`);
             }
@@ -416,7 +417,7 @@
 
     // Public globals used by inline handlers in the template.
     window.vsOnEdit = _setEdit;
-    window.vsReload = _load;
+    window.vsReload = () => _load(true);
     window.vsValidate = _validate;
     window.vsSave = _save;
     window.vsCancel = _cancel;

@@ -190,27 +190,6 @@
         }
     }
 
-    async function reloadVarSchema() {
-        if (!confirm("Are you sure you want to reload the variable schema?")) return;
-
-        try {
-            const response = await fetch('/api/manage/schema/reload', {
-                method: 'POST'
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Failed to reload schema');
-            }
-
-            const data = await response.json();
-            alert(data.message || 'Schema reloaded successfully');
-
-        } catch (error) {
-            alert('Error: ' + error.message);
-        }
-    }
-
     function _hasPerm(key) {
         return Array.isArray(window.USER_PERMS) && window.USER_PERMS.includes(key);
     }
