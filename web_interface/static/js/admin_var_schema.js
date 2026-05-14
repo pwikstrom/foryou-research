@@ -333,10 +333,11 @@
                 }
                 throw new Error(body.error || `HTTP ${res.status}`);
             }
-            state.etag = body.etag;
-            state.edits = {};
-            _renderTable();
-            _renderSaveBar();
+            // Re-fetch from the server so state.rows reflects what was
+            // actually persisted — without this, the table re-renders from
+            // pre-save in-memory data and the edit appears to revert until
+            // the page is reloaded.
+            await _load();
             if (out) {
                 let msg = `<div style="color: var(--color-success);">Saved.</div>`;
                 if (body.hash_changed) {
