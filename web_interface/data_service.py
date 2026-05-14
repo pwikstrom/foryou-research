@@ -621,8 +621,12 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
     # (baseline-collection scrapes with no donor watch-time). For 'observe'
     # rows there's no play_duration; video_duration acts as the implied
     # attention proxy so they can still participate in weighted aggregates.
+    # Plays with play_duration == 0 are kept: zero watch time is still a real
+    # exposure (rapid scroll-past), and contributes weight 0 to weighted
+    # aggregates without distorting them. NA play_duration (run followers,
+    # cap-overflow, last-in-log) is still excluded.
     valid_activity = (df['activity_type'].isin(['play', 'observe'])) if 'activity_type' in df.columns else pd.Series(True, index=df.index)
-    play_dur_present = df['play_duration'].notna() & (df['play_duration'] > 0)
+    play_dur_present = df['play_duration'].notna()
     vid_dur_present = (df['video_duration'].notna() & (df['video_duration'] > 0)) if 'video_duration' in df.columns else pd.Series(False, index=df.index)
     is_observe = (df['activity_type'] == 'observe') if 'activity_type' in df.columns else pd.Series(False, index=df.index)
     duration_mask = play_dur_present | (is_observe & vid_dur_present)

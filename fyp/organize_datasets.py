@@ -15,7 +15,7 @@ import psutil as _psutil
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
-from fyp.polars_ops import fast_join, fast_vertical_concat
+from fyp.polars_ops import fast_join
 from fyp.recode_variables import compute_var_schema_hash, get_grouping_factors_from_var_schema
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.studies import init_study_defs
@@ -183,7 +183,7 @@ def _extract_selected_cells(recoded_df: pd.DataFrame) -> dict[str, list[str]]:
 
     df = recoded_df
     if event_type_column in df.columns:
-        df = df[df[event_type_column] == "play"]
+        df = df[df[event_type_column].isin(("play", "observe"))]
     if df.empty:
         return {}
 
@@ -666,27 +666,30 @@ def simple_sample_collection_events(
     MAX_GROUP_COUNT_SELECTED_PER_COLLECTION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_PER_COLLECTION", 200)
 
 
-    # Separate play and non-play events
-    all_play_events_df = the_df[the_df[event_type_column]=="play"].copy()
-    all_nonplay_events_df = the_df[the_df[event_type_column]!="play"].copy()
-    sample_frame_size = len(all_play_events_df)
+    # Filter to viewing events only (play + observe). Non-viewing activity types
+    # are dropped — relevant signal from them is folded into adjacent play rows
+    # during ingestion (see ingest.py:1335-1407).
+    VIEWING_ACTIVITY_TYPES = ("play", "observe")
+    all_viewing_events_df = the_df[the_df[event_type_column].isin(VIEWING_ACTIVITY_TYPES)].copy()
+    sample_frame_size = len(all_viewing_events_df)
 
     if verbose:
-        print(f"    [Sampling] Play events: {len(all_play_events_df):,}  |  Non-play events: {len(all_nonplay_events_df):,}")
+        n_dropped = len(the_df) - len(all_viewing_events_df)
+        print(f"    [Sampling] Viewing events (play+observe): {len(all_viewing_events_df):,}  |  Dropped non-viewing events: {n_dropped:,}")
 
 
     if verbose:
         print(f"    [Sampling] Dropping aggregation groups with less than {MIN_EVENTS_REQUIRED} events")
         print(f"    [Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment...")
     # select agg groups with the required number of events
-    play_events_within_agg_group_size_limits = _filter_and_sample(all_play_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED, rng)
+    viewing_events_within_agg_group_size_limits = _filter_and_sample(all_viewing_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED, rng)
     if verbose:
-        sample_size = len(play_events_within_agg_group_size_limits)
+        sample_size = len(viewing_events_within_agg_group_size_limits)
         if sample_frame_size > 0:
-            print(f"    [Sampling] Play events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            print(f"    [Sampling] Viewing events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     # build a df with unique pairs of the two group factors
-    unique_group_factor_pairs = play_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
+    unique_group_factor_pairs = viewing_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
 
     # Track Stage 2 selection effects for pre-check reporting:
     #   - excluded: collections with fewer than MIN post-Stage-1 cells
@@ -706,36 +709,21 @@ def simple_sample_collection_events(
     selected_pairs_index = collections_within_group_count_limits.set_index(grouping_factors).index
 
     # ----------------------------------------------------------------------
-    # find the play events in the selected groups
-    play_events_in_candidate_groups = play_events_within_agg_group_size_limits.set_index(grouping_factors)
+    # find the viewing events in the selected groups
+    viewing_events_in_candidate_groups = viewing_events_within_agg_group_size_limits.set_index(grouping_factors)
 
     # use isin() boolean mask instead of .loc[MultiIndex] to avoid potential reindexing
-    play_events_in_selected_groups = play_events_in_candidate_groups[
-        play_events_in_candidate_groups.index.isin(selected_pairs_index)
+    viewing_events_in_selected_groups = viewing_events_in_candidate_groups[
+        viewing_events_in_candidate_groups.index.isin(selected_pairs_index)
     ].reset_index()
     if verbose:
-        sample_size = len(play_events_in_selected_groups)
+        sample_size = len(viewing_events_in_selected_groups)
         if sample_frame_size > 0:
-            print(f"    [Sampling] Play events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            print(f"    [Sampling] Viewing events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
-    # ----------------------------------------------------------------------
-    # find the non-play events in the selected groups - note that since the non-play events are not
-    # sampled, there is a disproportional number of non-play events in the sampled dataset compared
-    # to the number of play events.
-    # only include non-play events from groups that also have play events in the sample
-    nonplay_mask = all_nonplay_events_df.set_index(grouping_factors).index.isin(selected_pairs_index)
-    nonplay_events_in_selected_groups = all_nonplay_events_df[nonplay_mask]
+    combined = viewing_events_in_selected_groups
     if verbose:
-        nonplay_total = len(all_nonplay_events_df)
-        nonplay_selected = len(nonplay_events_in_selected_groups)
-        pct = f"{nonplay_selected/nonplay_total:.0%}" if nonplay_total > 0 else "N/A"
-        print(f"    [Sampling] Non-play events remaining in the selected aggregation groups: {nonplay_selected:,} ({pct} of original)")
-
-    # Vertical concat via polars — play + non-play events stacked in one
-    # parallel pass. Matters at events-scale. See fyp/polars_ops.py.
-    combined = fast_vertical_concat([play_events_in_selected_groups, nonplay_events_in_selected_groups])
-    if verbose:
-        print(f"    [Sampling] Combining the (not sampled) non-play events with the sampled play events: {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+        print(f"    [Sampling] Sampled viewing events: {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     combined.drop("D_id", axis=1, inplace=True, errors='ignore')
 
     # Surface selection effects so callers (pre-check) can show them to the user.
