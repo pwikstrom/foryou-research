@@ -17,6 +17,7 @@ from fyp.organize_datasets import (
 )
 from fyp.studies import init_study_defs, save_study_defs
 
+from .. import activity_log
 from ..data_service import (
     calculate_inter_coder_reliability,
     invalidate_collection_tags_cache,
@@ -31,6 +32,14 @@ from ..process_manager import (
 )
 from ..permissions import permission_required
 from ..task_status import is_cloud_run, read_task_status
+
+
+def _actor() -> str:
+    """Return the username of the acting user, or empty string if unauthenticated."""
+    try:
+        return current_user.username if current_user.is_authenticated else ""
+    except Exception:
+        return ""
 
 management_bp = Blueprint('management_bp', __name__)
 
@@ -525,6 +534,13 @@ def save_study():
             studies[study_name]['USER_ACCESS'] = data['USER_ACCESS']
             fyp_cf['study_defs'] = studies
             save_study_defs()
+            activity_log.record(
+                actor=_actor(),
+                category=activity_log.CATEGORY_DATA_MANAGEMENT,
+                action="study.save",
+                target=study_name,
+                details={"changed": ["USER_ACCESS"]},
+            )
             return jsonify({"status": "success", "study": studies[study_name]})
 
     # Update config
@@ -561,6 +577,14 @@ def save_study():
     studies[study_name]['last_updated'] = datetime.now(UTC).isoformat()
     fyp_cf['study_defs'] = studies
     save_study_defs()
+
+    activity_log.record(
+        actor=_actor(),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="study.save",
+        target=study_name,
+        details={"definition_only": bool(data.get("definition_only"))},
+    )
 
     # Definition-only save: skip heavy refresh (used by "Check data counts" for new studies)
     if data.get("definition_only"):
@@ -855,6 +879,12 @@ def delete_study():
         ]:
             data_io.remove(storage_location="cache", filename=cached_file)
 
+        activity_log.record(
+            actor=_actor(),
+            category=activity_log.CATEGORY_DATA_MANAGEMENT,
+            action="study.delete",
+            target=study_name,
+        )
         return jsonify({"status": "success", "message": f"Deleted {study_name}"})
     else:
         return jsonify({"error": "Study not found"}), 404
@@ -952,6 +982,12 @@ def delete_collection():
         task_args={"collection_id": collection_id},
     )
     if success:
+        activity_log.record(
+            actor=_actor(),
+            category=activity_log.CATEGORY_DATA_MANAGEMENT,
+            action="collection.delete",
+            target=collection_id,
+        )
         return jsonify({
             "status": "started",
             "collection_id": collection_id,
@@ -1074,6 +1110,16 @@ def save_collection_annotation():
         )
         invalidate_collection_tags_cache()
 
+        activity_log.record(
+            actor=_actor(),
+            category=activity_log.CATEGORY_DATA_MANAGEMENT,
+            action="collection.annotation.save",
+            target=str(collection_id),
+            details={
+                "tags": data.get('tags', []),
+                "hidden": bool(data.get('hidden', False)),
+            },
+        )
         return jsonify({"status": "success"})
     except Exception as e:
         print(f"Error saving annotation: {e}")
@@ -1898,6 +1944,17 @@ def upload_ingestion_file():
         if tags:
             _prepopulate_annotations(manifest, tags)
 
+        activity_log.record(
+            actor=_actor(),
+            category=activity_log.CATEGORY_DATA_MANAGEMENT,
+            action="ingestion.upload",
+            target=raw_path_key,
+            details={
+                "files": uploaded,
+                "tags": tags,
+                "collection_id_mode": collection_id_mode,
+            },
+        )
         return jsonify({
             "status": "success",
             "message": f"{len(uploaded)} file(s) uploaded.",
@@ -1932,6 +1989,11 @@ def refresh_ingestion_collection():
 
     success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT)
     if success:
+        activity_log.record(
+            actor=_actor(),
+            category=activity_log.CATEGORY_DATA_MANAGEMENT,
+            action="ingestion.refresh",
+        )
         return jsonify({"status": "started", "message": msg})
     return jsonify({"status": "error", "message": msg}), 409
 

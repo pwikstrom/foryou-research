@@ -81,6 +81,68 @@
     </div>
 </div>
 
+<!-- User detail modal -->
+<div id="userDetailModal" class="modal" style="display: none; align-items: flex-start; justify-content: center; padding-top: 6vh;"
+    onclick="closeUserModal()">
+    <div class="modal-content" onclick="event.stopPropagation()"
+        style="width: 90%; max-width: 720px; max-height: 85vh; overflow-y: auto;">
+        <span class="close" onclick="closeUserModal()"
+            style="position: absolute; top: 12px; right: 16px; cursor: pointer; font-size: var(--text-h3);">&times;</span>
+
+        <h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">
+            <span id="userModalUsername"></span>
+        </h3>
+        <div class="text-sm" style="color: var(--color-text-muted); margin-bottom: 16px;">
+            <span id="userModalRole"></span> · Last login: <span id="userModalLastLogin"></span>
+        </div>
+
+        <!-- Stats grid -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;">
+            <div style="background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 6px; padding: 10px; text-align: center;">
+                <div class="text-xxs uppercase font-semibold" style="color: var(--color-text-muted);">Videos</div>
+                <div class="text-h3 font-bold" style="color: var(--color-text-primary);"><span id="userModalVideos">0</span></div>
+            </div>
+            <div style="background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 6px; padding: 10px; text-align: center;">
+                <div class="text-xxs uppercase font-semibold" style="color: var(--color-text-muted);">Notes</div>
+                <div class="text-h3 font-bold" style="color: var(--color-text-primary);"><span id="userModalNotes">0</span></div>
+            </div>
+            <div style="background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 6px; padding: 10px; text-align: center;">
+                <div class="text-xxs uppercase font-semibold" style="color: var(--color-text-muted);">Closed</div>
+                <div class="text-h3 font-bold" style="color: var(--color-text-primary);"><span id="userModalClosed">0</span></div>
+            </div>
+            <div style="background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 6px; padding: 10px; text-align: center;">
+                <div class="text-xxs uppercase font-semibold" style="color: var(--color-text-muted);">Open</div>
+                <div class="text-h3 font-bold" style="color: var(--color-text-primary);"><span id="userModalOpen">0</span></div>
+            </div>
+        </div>
+
+        <!-- Tags + notes -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+            <div>
+                <h4 class="text-xs uppercase font-semibold" style="margin: 0 0 8px 0; color: var(--color-text-muted);">Used Tags</h4>
+                <div id="userModalUsedTags" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+            </div>
+            <div>
+                <h4 class="text-xs uppercase font-semibold" style="margin: 0 0 8px 0; color: var(--color-text-muted);">Notes</h4>
+                <div id="userModalUserNotes" style="display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto;"></div>
+            </div>
+        </div>
+
+        <!-- Activity log -->
+        <div style="margin-bottom: 20px;">
+            <h4 class="text-xs uppercase font-semibold" style="margin: 0 0 8px 0; color: var(--color-text-muted);">Activity Log</h4>
+            <div id="userModalLogList"
+                style="max-height: 40vh; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; padding: 0 12px; background: var(--color-bg-elevated);"></div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--color-border);">
+            <button onclick="modalResetPassword()" class="action-btn text-xs">Reset Password</button>
+            <button onclick="modalDeleteUser()" class="action-btn btn-danger text-xs">Delete User</button>
+        </div>
+    </div>
+</div>
+
 <script>
     const ADMIN_PAGE_PERM_MAP = {
         'admin-page-new-users':    'tab.admin.new_users',
@@ -327,7 +389,7 @@
         }
 
         if (active.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="3" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
             window._activeUsersData = [];
             return;
         }
@@ -336,20 +398,15 @@
         const sorted = _sortActiveUsersData(active);
 
         tableBody.innerHTML = sorted.map(user => {
-            const stats = user.stats || { notes: 0, closed_tags: 0, open_tags: 0, unique_videos: 0, used_tags: [], user_notes: [] };
-            const hasAnnotations = stats.used_tags.length > 0 || (stats.user_notes && stats.user_notes.length > 0);
             const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
-
+            const safeUser = user.username.replace(/'/g, "\\'");
             return `
-        <tr style="border-bottom: 1px solid var(--color-border);">
+        <tr style="border-bottom: 1px solid var(--color-border); cursor: pointer;" onclick="openUserModal('${safeUser}')">
             <td style="padding: 12px 16px;">
-                <div style="display:flex; flex-direction:column;">
-                    <span class="font-medium" style="color: var(--color-text-primary);">${user.username}</span>
-                    ${hasAnnotations ? `<a href="#" onclick="toggleTags('${user.username}'); return false;" class="text-xxs" style="color: var(--color-info); text-decoration: none;">Show Annotations</a>` : ''}
-                </div>
+                <span class="font-medium" style="color: var(--color-text-primary);">${user.username}</span>
             </td>
-            <td style="padding: 12px 16px;">
-                <select onchange="updateRole('${user.username}', this.value)" class="role-select text-xs" data-current-role="${user.role}"
+            <td style="padding: 12px 16px;" onclick="event.stopPropagation();">
+                <select onchange="updateRole('${safeUser}', this.value)" onclick="event.stopPropagation();" class="role-select text-xs" data-current-role="${user.role}"
                    style="padding: 4px 8px; border: 1px solid var(--color-border-strong); background: var(--color-bg-input); color: var(--color-text-primary); border-radius: 4px;">
                     <!-- Populated dynamically -->
                 </select>
@@ -357,40 +414,6 @@
             <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 <span class="text-xs" style="color: var(--color-text-muted);">${lastLogin}</span>
             </td>
-            <td style="padding: 12px 16px; color: var(--color-text-primary);">
-                <strong>${stats.unique_videos}</strong>
-            </td>
-            <td style="padding: 12px 16px; color: var(--color-text-primary);">
-                ${stats.notes}
-            </td>
-            <td style="padding: 12px 16px; color: var(--color-text-primary);">
-                ${stats.closed_tags}
-            </td>
-            <td style="padding: 12px 16px; color: var(--color-text-primary);">
-                ${stats.open_tags}
-            </td>
-            <td style="padding: 12px 16px; text-align: right;">
-                 <button onclick="resetPassword('${user.username}')" class="action-btn text-xs" style="margin-right: 8px;">Reset Pwd</button>
-                 <button onclick="deleteUser('${user.username}')" class="action-btn btn-danger text-xs">Delete</button>
-            </td>
-        </tr>
-        <tr id="tags-${user.username}" style="display: none; background: var(--color-bg-elevated); border-bottom: 2px solid var(--color-border);">
-             <td colspan="8" style="padding: 12px 24px;">
-                 <div style="display: flex; gap: 24px;">
-                     <div style="flex: 1; min-width: 0;">
-                        <h4 class="text-xs" style="margin: 0 0 8px 0; color: var(--color-text-primary);">Used Tags</h4>
-                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                            ${stats.used_tags.length > 0 ? stats.used_tags.map(t => `<span class="text-xs" style="background: var(--color-border); padding: 2px 8px; border-radius: 12px; color: var(--color-text-primary);">${t}</span>`).join('') : '<span class="text-xs" style="color: var(--color-text-muted);">None</span>'}
-                        </div>
-                     </div>
-                     <div style="flex: 1; min-width: 0;">
-                        <h4 class="text-xs" style="margin: 0 0 8px 0; color: var(--color-text-primary);">Notes</h4>
-                        <div style="display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto;">
-                            ${stats.user_notes && stats.user_notes.length > 0 ? stats.user_notes.map(n => `<div class="text-xs" style="background: var(--color-border); padding: 6px 10px; border-radius: 4px; color: var(--color-text-primary);"><span class="font-mono" style="color:var(--color-text-muted); margin-right: 6px;">${n.item}:</span>${n.text}</div>`).join('') : '<span class="text-xs" style="color: var(--color-text-muted);">None</span>'}
-                        </div>
-                     </div>
-                 </div>
-             </td>
         </tr>
     `}).join('');
 
@@ -398,7 +421,7 @@
         if (window.availableRoles) {
             const roleNames = window.availableRoles.map(r => r.name);
             sorted.forEach(u => {
-                const select = document.querySelector(`select[onchange="updateRole('${u.username}', this.value)"]`);
+                const select = document.querySelector(`select[onchange="updateRole('${u.username.replace(/'/g, "\\'")}', this.value)"]`);
                 if (select) {
                     populateRoleSelect(select, roleNames, u.role);
                 }
@@ -464,10 +487,133 @@
         }
     }
 
-    function toggleTags(username) {
-        const row = document.getElementById(`tags-${username}`);
-        if (row) {
-            row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+    // --- User detail modal ---
+
+    function openUserModal(username) {
+        const overlay = document.getElementById('userDetailModal');
+        if (!overlay) return;
+
+        const user = (window._activeUsersData || []).find(u => u.username === username);
+        if (!user) return;
+
+        const stats = user.stats || { notes: 0, closed_tags: 0, open_tags: 0, unique_videos: 0, used_tags: [], user_notes: [] };
+        const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
+
+        overlay.dataset.username = username;
+
+        document.getElementById('userModalUsername').textContent = user.username;
+        document.getElementById('userModalRole').textContent = user.role;
+        document.getElementById('userModalLastLogin').textContent = lastLogin;
+        document.getElementById('userModalVideos').textContent = stats.unique_videos || 0;
+        document.getElementById('userModalNotes').textContent = stats.notes || 0;
+        document.getElementById('userModalClosed').textContent = stats.closed_tags || 0;
+        document.getElementById('userModalOpen').textContent = stats.open_tags || 0;
+
+        // Used tags
+        const tagsContainer = document.getElementById('userModalUsedTags');
+        if (stats.used_tags && stats.used_tags.length > 0) {
+            tagsContainer.innerHTML = stats.used_tags.map(t =>
+                `<span class="text-xs" style="background: var(--color-border); padding: 2px 8px; border-radius: 12px; color: var(--color-text-primary);">${t}</span>`
+            ).join('');
+        } else {
+            tagsContainer.innerHTML = '<span class="text-xs" style="color: var(--color-text-muted);">None</span>';
+        }
+
+        // User notes
+        const notesContainer = document.getElementById('userModalUserNotes');
+        if (stats.user_notes && stats.user_notes.length > 0) {
+            notesContainer.innerHTML = stats.user_notes.map(n =>
+                `<div class="text-xs" style="background: var(--color-border); padding: 6px 10px; border-radius: 4px; color: var(--color-text-primary);"><span class="font-mono" style="color:var(--color-text-muted); margin-right: 6px;">${n.item}:</span>${n.text}</div>`
+            ).join('');
+        } else {
+            notesContainer.innerHTML = '<span class="text-xs" style="color: var(--color-text-muted);">None</span>';
+        }
+
+        // Reset log to loading state
+        const logList = document.getElementById('userModalLogList');
+        logList.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted); padding: 8px 0;">Loading activity…</div>';
+
+        overlay.style.display = 'flex';
+
+        // Fetch the activity log
+        fetch(`/api/admin/users/${encodeURIComponent(username)}/log`)
+            .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load log')))
+            .then(data => renderUserLog(data.entries || []))
+            .catch(err => {
+                logList.innerHTML = `<div class="text-xs" style="color: var(--color-danger); padding: 8px 0;">Failed to load activity: ${err.message}</div>`;
+            });
+    }
+
+    function renderUserLog(entries) {
+        const logList = document.getElementById('userModalLogList');
+        if (!entries || entries.length === 0) {
+            logList.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted); padding: 8px 0;">No activity recorded yet.</div>';
+            return;
+        }
+        logList.innerHTML = entries.map(e => {
+            const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : '';
+            const target = e.target ? ` <span style="color: var(--color-text-muted);">→</span> <span class="font-mono">${e.target}</span>` : '';
+            let detailsStr = '';
+            if (e.details && Object.keys(e.details).length > 0) {
+                detailsStr = ` <span class="text-xxs" style="color: var(--color-text-muted);">(${Object.entries(e.details).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(', ')})</span>`;
+            }
+            const catColor = e.category === 'user_management' ? 'var(--color-info)' : 'var(--color-accent)';
+            return `
+            <div style="display: grid; grid-template-columns: 160px 1fr; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--color-border);">
+                <span class="text-xxs font-mono" style="color: var(--color-text-muted);">${ts}</span>
+                <div class="text-xs" style="color: var(--color-text-primary);">
+                    <span class="font-semibold" style="color: ${catColor};">${e.action}</span>${target}${detailsStr}
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function closeUserModal() {
+        const overlay = document.getElementById('userDetailModal');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    async function modalResetPassword() {
+        const overlay = document.getElementById('userDetailModal');
+        const username = overlay && overlay.dataset.username;
+        if (!username) return;
+        const newPassword = prompt(`Enter new password for ${username}:`);
+        if (!newPassword) return;
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reset_password', username, new_password: newPassword })
+            });
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to reset password');
+            }
+            alert('Password updated successfully');
+            closeUserModal();
+            loadUsers();
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
+    async function modalDeleteUser() {
+        const overlay = document.getElementById('userDetailModal');
+        const username = overlay && overlay.dataset.username;
+        if (!username) return;
+        if (!confirm(`Are you sure you want to delete user "${username}"?`)) return;
+        try {
+            const response = await fetch(`/api/admin/users?username=${encodeURIComponent(username)}`, {
+                method: 'DELETE'
+            });
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to delete user');
+            }
+            closeUserModal();
+            loadUsers();
+        } catch (error) {
+            alert('Error: ' + error.message);
         }
     }
 

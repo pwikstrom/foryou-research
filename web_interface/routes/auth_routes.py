@@ -18,6 +18,7 @@ from ..admin_settings import (
     load_admin_settings,
     save_admin_settings,
 )
+from .. import activity_log
 from ..mail_utils import send_welcome_email_async
 from ..permissions import permission_required
 from ..security import user_manager
@@ -209,6 +210,13 @@ def api_admin_users():
 
         success, msg = user_manager.add_user(username, password, role, approved=True)
         if success:
+            activity_log.record(
+                actor=current_user.username,
+                category=activity_log.CATEGORY_USER_MANAGEMENT,
+                action="user.create",
+                target=username,
+                details={"role": role},
+            )
             return jsonify({"status": "success", "message": msg})
         else:
             return jsonify({"error": msg}), 400
@@ -217,44 +225,83 @@ def api_admin_users():
         data = request.json
         action = data.get('action')
         username = data.get('username')
-        
+
         if not username:
              return jsonify({"error": "Missing username"}), 400
-             
+
         if action == 'approve':
              success, msg = user_manager.approve_user(username)
-             if success: 
+             if success:
                  send_welcome_email_async(username)
+                 activity_log.record(
+                     actor=current_user.username,
+                     category=activity_log.CATEGORY_USER_MANAGEMENT,
+                     action="user.approve",
+                     target=username,
+                 )
                  return jsonify({"status": "success", "message": msg})
              else: return jsonify({"error": msg}), 400
-             
+
         elif action == 'reset_password':
              new_password = data.get('new_password')
              if not new_password: return jsonify({"error": "Missing new password"}), 400
-             
+
              success, msg = user_manager.update_password(username, new_password)
-             if success: return jsonify({"status": "success", "message": msg})
+             if success:
+                 activity_log.record(
+                     actor=current_user.username,
+                     category=activity_log.CATEGORY_USER_MANAGEMENT,
+                     action="user.reset_password",
+                     target=username,
+                 )
+                 return jsonify({"status": "success", "message": msg})
              else: return jsonify({"error": msg}), 400
-             
+
         elif action == 'change_role':
              new_role = data.get('role')
+             # Capture the previous role before mutation so the log can show
+             # both old and new values.
+             prev_user = user_manager.users.get(username)
+             old_role = prev_user.role if prev_user else None
              success, msg = user_manager.update_user_role(username, new_role)
-             if success: return jsonify({"status": "success", "message": msg})
+             if success:
+                 activity_log.record(
+                     actor=current_user.username,
+                     category=activity_log.CATEGORY_USER_MANAGEMENT,
+                     action="user.change_role",
+                     target=username,
+                     details={"from": old_role, "to": new_role},
+                 )
+                 return jsonify({"status": "success", "message": msg})
              else: return jsonify({"error": msg}), 400
 
         return jsonify({"error": "Invalid action"}), 400
 
     elif request.method == 'DELETE':
         username = request.args.get('username')
-        
+
         if not username:
              return jsonify({"error": "Missing username"}), 400
 
         success, msg = user_manager.delete_user(username)
         if success:
+             activity_log.record(
+                 actor=current_user.username,
+                 category=activity_log.CATEGORY_USER_MANAGEMENT,
+                 action="user.delete",
+                 target=username,
+             )
              return jsonify({"status": "success", "message": msg})
         else:
              return jsonify({"error": msg}), 400
+
+
+@auth_bp.route('/api/admin/users/<path:username>/log', methods=['GET'])
+@permission_required('tab.admin.active_users')
+def api_admin_user_log(username):
+    """Return the activity log for the given user (newest first)."""
+    entries = activity_log.read(username)
+    return jsonify({"entries": entries})
 
 @auth_bp.route('/api/admin/roles', methods=['GET', 'POST', 'DELETE'])
 # GET is needed by any admin sub-page that lists or picks roles: New Users
