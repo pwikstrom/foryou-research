@@ -2,12 +2,14 @@
      read_only is passed in by the parent template:
        - my_studies.html sets it True  → list-only view, no "Define new" button
        - data_management.html (default False) → editable view for admins -->
+{% if not read_only %}
 <h2 style="margin: 0 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
-    {% if read_only %}My Studies{% else %}Define Study Datasets{% endif %}
-    {% if current_user.is_admin() and not read_only %}
+    Define Study Datasets
+    {% if current_user.is_admin() %}
     <button type="button" class="action-btn" onclick="createNewStudy(); event.stopPropagation();">Define new study</button>
     {% endif %}
 </h2>
+{% endif %}
 
 <div style="overflow-x: auto;">
 <table class="collection-table" style="font-variant-numeric: tabular-nums;">

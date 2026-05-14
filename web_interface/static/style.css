@@ -1808,6 +1808,7 @@ button.meta-tooltip:disabled {
 
 #timelines-sidebar-toggle,
 #explore-sidebar-toggle,
+#explore-sidebar-toggle-2,
 #correlations-sidebar-toggle,
 #va-left-toggle,
 #va-right-toggle {
@@ -1817,6 +1818,7 @@ button.meta-tooltip:disabled {
 
 #timelines-sidebar-toggle:hover,
 #explore-sidebar-toggle:hover,
+#explore-sidebar-toggle-2:hover,
 #correlations-sidebar-toggle:hover,
 #va-left-toggle:hover,
 #va-right-toggle:hover {
@@ -1825,6 +1827,7 @@ button.meta-tooltip:disabled {
 
 #timelines-sidebar-toggle:hover svg,
 #explore-sidebar-toggle:hover svg,
+#explore-sidebar-toggle-2:hover svg,
 #correlations-sidebar-toggle:hover svg,
 #va-left-toggle:hover svg,
 #va-right-toggle:hover svg {
@@ -2872,11 +2875,7 @@ button.meta-tooltip:disabled {
         min-height: calc(100vh - 200px);
     }
 
-    /* Hide secondary slice 2 panel on mobile; dual-slice mode is desktop-only */
-    #explorer-v2-slice2-panel[style*="display: flex"],
-    #explorer-v2-slice2-panel {
-        display: none !important;
-    }
+    /* Slice 2 mobile drawer visibility is controlled by JS (setExplorerV2SliceMode) */
 
     /* Data Management / Admin: sidebar becomes a left drawer */
     #data_management,
@@ -2929,6 +2928,51 @@ button.meta-tooltip:disabled {
         overflow-x: hidden;
     }
 
+    /* ----- Login page: stack sidebar (form) above content ----- */
+    .auth-container {
+        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+    }
+
+    .auth-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border-subtle);
+        overflow-y: visible;
+    }
+
+    .auth-content {
+        padding: 24px 18px;
+        overflow-y: visible;
+    }
+
+    .auth-form-container {
+        padding: 24px 18px;
+    }
+
+    /* ----- Home tab + auth content: smaller hero on small screens ----- */
+    .hero-title {
+        font-size: var(--text-h2);
+        margin-bottom: 14px;
+    }
+
+    .hero-subtitle {
+        font-size: var(--text-body);
+        margin-bottom: 24px;
+    }
+
+    #home > div {
+        padding: 18px 14px !important;
+    }
+
+    #home img,
+    .auth-content img {
+        max-width: 100% !important;
+        height: auto;
+    }
+
     /* Header brand can be tightened further on very narrow phones */
 }
 
@@ -2939,5 +2983,10 @@ button.meta-tooltip:disabled {
 
     .auth-header {
         padding: 8px 10px;
+    }
+
+    /* Signup page: relax fixed paddings on very narrow phones */
+    body > .container > div[style*="max-width: 400px"] {
+        padding: 24px 18px !important;
     }
 }

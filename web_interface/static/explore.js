@@ -14,22 +14,23 @@ let explorerDataV2 = {
     count2: 0,
     sortMode: 'total',
     dualSliceMode: false,
-    filterPanelsVisible: true
+    filterPanel1Visible: true,
+    filterPanel2Visible: true
 };
 
 
-window.exploreToggleSidebar = function () {
-    explorerDataV2.filterPanelsVisible = !explorerDataV2.filterPanelsVisible;
-    const visible = explorerDataV2.filterPanelsVisible;
+window.exploreToggleSidebar = function (which) {
+    // which: 1 = left (slice 1), 2 = right (slice 2). Defaults to 1 for back-compat.
+    const sliceIdx = (which === 2) ? 2 : 1;
+    const key = sliceIdx === 2 ? 'filterPanel2Visible' : 'filterPanel1Visible';
+    explorerDataV2[key] = !explorerDataV2[key];
+    const visible = explorerDataV2[key];
 
-    // Toggle Slice 1 panel
-    const slice1 = document.getElementById('explorer-v2-slice1-panel');
-    if (slice1) slice1.style.display = visible ? 'flex' : 'none';
-
-    // Toggle Slice 2 panel (only if dual mode is active)
-    if (explorerDataV2.dualSliceMode) {
-        const slice2 = document.getElementById('explorer-v2-slice2-panel');
-        if (slice2) slice2.style.display = visible ? 'flex' : 'none';
+    const panel = document.getElementById(sliceIdx === 2 ? 'explorer-v2-slice2-panel' : 'explorer-v2-slice1-panel');
+    if (panel) {
+        // Slice 2 panel is only ever visible when dual mode is on
+        const allowed = (sliceIdx === 2) ? explorerDataV2.dualSliceMode : true;
+        panel.style.display = (visible && allowed) ? 'flex' : 'none';
     }
 
     // Trigger Plotly resize so charts fill the new width
@@ -96,9 +97,19 @@ function setExplorerV2SliceMode(isDual) {
         dualBtn.classList.toggle('active', isDual);
     }
 
-    // Show/hide Slice 2 panel (respecting filter panel visibility)
+    // Show/hide Slice 2 panel (respecting independent slice 2 visibility flag)
     const slice2Panel = document.getElementById('explorer-v2-slice2-panel');
-    if (slice2Panel) slice2Panel.style.display = (isDual && explorerDataV2.filterPanelsVisible) ? 'flex' : 'none';
+    if (slice2Panel) slice2Panel.style.display = (isDual && explorerDataV2.filterPanel2Visible) ? 'flex' : 'none';
+
+    // Show/hide the dedicated right-panel toggle button (desktop)
+    const slice2ToggleBtn = document.getElementById('explore-sidebar-toggle-2');
+    if (slice2ToggleBtn) slice2ToggleBtn.style.display = isDual ? 'flex' : 'none';
+
+    // Show/hide the mobile "Filters 2" trigger; relabel the slice-1 trigger so the two are distinguishable in dual mode
+    const mobile1 = document.getElementById('explorer-v2-mobile-filters-1');
+    if (mobile1) mobile1.textContent = isDual ? 'Filters 1' : 'Filters';
+    const mobile2 = document.getElementById('explorer-v2-mobile-filters-2');
+    if (mobile2) mobile2.style.display = isDual ? '' : 'none';
 
     // Show/hide 'vs' label and Slice 2 count
     const vsLabel = document.getElementById('explorer-v2-vs-label');
