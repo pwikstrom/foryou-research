@@ -1302,6 +1302,14 @@ button {
     align-items: center;
 }
 
+/* Global help button — sits on the right side of the main tab navigation. */
+.global-help-btn {
+    margin-left: auto;
+    margin-right: 18px;
+    align-self: center;
+    flex-shrink: 0;
+}
+
 
 /* ============================================================
    Links in Content Sections
