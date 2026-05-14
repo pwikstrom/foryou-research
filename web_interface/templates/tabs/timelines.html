@@ -41,6 +41,14 @@
 
         <!-- Right-aligned controls -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 20px;">
+            <div id="timelines-engagement-dropdown" style="position: relative;">
+                <button type="button" id="timelines-engagement-toggle" class="btn-discreet text-xs"
+                    style="padding: 3px 8px; cursor: pointer;">Engagement (<span id="timelines-engagement-count">0</span>) &#9662;</button>
+                <div id="timelines-engagement-panel"
+                    style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; z-index: 1300; min-width: 160px; background: var(--color-bg-elevated); border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 6px 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+                    <div id="timelines-engagement-list" class="text-sm" style="text-align: left;"></div>
+                </div>
+            </div>
             <label class="text-xs meta-tooltip tooltip-below tooltip-right-anchored" style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: var(--color-text-muted);"
                    data-tooltip="Overlay raw daily values as low-opacity bars behind the smoothed line, so you can see which day drove any bump you notice.">
                 <input type="checkbox" id="timelines-show-raw" onchange="timelines.toggleShowRaw(this.checked)" style="margin: 0; cursor: pointer;">

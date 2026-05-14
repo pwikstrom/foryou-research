@@ -77,7 +77,8 @@ window.timelines = {
         analysisToggles: {},
         activeFilters: {},
         smoothing: 7,
-        showRaw: false
+        showRaw: false,
+        engagementTypes: new Set(['fave', 'share', 'comment', 'follow', 'save'])
     },
 
     init: async function () {
@@ -92,8 +93,27 @@ window.timelines = {
                 }
             }
         }
+        this._renderEngagementDropdown();
+        this._wireEngagementToggle();
         // No study selection anymore, load all valid collections directly
         this.loadDonations();
+    },
+
+    _wireEngagementToggle: function () {
+        if (this._engagementToggleWired) return;
+        this._engagementToggleWired = true;
+        document.addEventListener('click', (ev) => {
+            const dropdown = document.getElementById('timelines-engagement-dropdown');
+            if (!dropdown) return;
+            const panel = document.getElementById('timelines-engagement-panel');
+            const toggle = document.getElementById('timelines-engagement-toggle');
+            if (!panel || !toggle) return;
+            if (toggle.contains(ev.target)) {
+                panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            } else if (!panel.contains(ev.target)) {
+                panel.style.display = 'none';
+            }
+        });
     },
 
     loadStudies: function () {
@@ -236,6 +256,49 @@ window.timelines = {
         if (this.timelineData) {
             this.renderTimelineCharts(this.timelineData);
         }
+    },
+
+    _renderEngagementDropdown: function () {
+        const list = document.getElementById('timelines-engagement-list');
+        if (!list) return;
+        const labels = [
+            { key: 'fave',    label: 'Fave' },
+            { key: 'share',   label: 'Share' },
+            { key: 'comment', label: 'Comment' },
+            { key: 'follow',  label: 'Follow' },
+            { key: 'save',    label: 'Save' }
+        ];
+        list.innerHTML = '';
+        labels.forEach(t => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: center; padding: 1px 0;';
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = t.key;
+            cb.checked = this.timelineState.engagementTypes.has(t.key);
+            cb.style.marginRight = '5px';
+            cb.addEventListener('change', () => {
+                if (cb.checked) this.timelineState.engagementTypes.add(t.key);
+                else this.timelineState.engagementTypes.delete(t.key);
+                this._updateEngagementCount();
+                if (this.timelineData) this.renderTimelineCharts(this.timelineData);
+            });
+
+            const span = document.createElement('span');
+            span.classList.add('text-sm');
+            span.textContent = t.label;
+
+            row.appendChild(cb);
+            row.appendChild(span);
+            list.appendChild(row);
+        });
+        this._updateEngagementCount();
+    },
+
+    _updateEngagementCount: function () {
+        const el = document.getElementById('timelines-engagement-count');
+        if (el) el.textContent = String(this.timelineState.engagementTypes.size);
     },
 
     _movingAvg: function (arr, window) {
@@ -836,14 +899,6 @@ window.timelines = {
                 //   width = max(this cat's segPct%, 6 px) via min-width
                 const _indicatorRibbonDenom = Math.max(1, keptCategories.reduce((s, c) => s + (catWeightedTotals[c] || 0), 0));
 
-                // Ribbon usage hint — sits just above the indicator markers so
-                // users know the ribbon below is interactive.
-                const ribbonHint = document.createElement('div');
-                ribbonHint.className = 'text-xxs';
-                ribbonHint.style.cssText = 'color: var(--color-text-tertiary); margin-top: 6px; text-align: center;';
-                ribbonHint.textContent = 'Click on labels to show/hide in the timeline:';
-                chartWrapper.appendChild(ribbonHint);
-
                 const indicatorWrapper = document.createElement('div');
                 indicatorWrapper.style.cssText = 'padding: 0 2px; margin-top: 3px; margin-bottom: -6px; box-sizing: border-box; position: relative; z-index: 2; pointer-events: none;';
                 const indicatorRow = document.createElement('div');
@@ -862,9 +917,9 @@ window.timelines = {
                     }
                     cumWeighted += wTotal;
                 });
-                chartWrapper.appendChild(indicatorWrapper);
+                chartWrapper.insertBefore(indicatorWrapper, plotDiv);
 
-                // Ribbon: horizontal Plotly stacked bar shown under the plot.
+                // Ribbon: horizontal Plotly stacked bar shown above the plot.
                 // Clicking a segment toggles the category's line in the chart.
                 // Selection cue: unselected segments render at 40% opacity
                 // plus no indicator bar above them; selected segments render
@@ -875,7 +930,8 @@ window.timelines = {
                 ribbonDiv.style.width = '100%';
                 ribbonDiv.style.height = '50px';
                 ribbonDiv.style.cursor = 'pointer';
-                chartWrapper.appendChild(ribbonDiv);
+                ribbonDiv.style.marginBottom = '6px';
+                chartWrapper.insertBefore(ribbonDiv, plotDiv);
 
                 // Ribbon segment denominator: use Σ(kept-cat weighted) for
                 // BOTH single- and multi-label vars.  Segments then sum to
@@ -1000,14 +1056,30 @@ window.timelines = {
                 const showOther = !!this.timelineState.showOther[varName];
                 const showUntagged = !!this.timelineState.showUntagged[varName];
 
+                // Control row above the plot — Trends/anomalies trigger on
+                // the left, Other-labels / No-labels toggles on the right.
+                // Stored on chartWrapper so the findings panel block (which
+                // runs in a different scope) can append its trigger here.
+                const controlRow = document.createElement('div');
+                controlRow.style.cssText = 'display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 4px 0 6px 0; flex-wrap: wrap;';
+                const controlLeft = document.createElement('div');
+                controlLeft.style.cssText = 'display: flex; align-items: center;';
+                const controlRight = document.createElement('div');
+                controlRight.style.cssText = 'display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;';
+                controlRow.appendChild(controlLeft);
+                controlRow.appendChild(controlRight);
+                chartWrapper.insertBefore(controlRow, plotDiv);
+                chartWrapper._controlLeft = controlLeft;
+                chartWrapper._controlRight = controlRight;
+
                 // Helper to build a footer row: `[☐] <text>`.  Clicking the
                 // checkbox (or its wrapping label which includes the text)
                 // toggles the trace.  Uses addEventListener so varName with
                 // unusual chars is safe.
                 const makeFooterRow = (textContent, tooltip, toggleFn, toggleState) => {
                     const label = document.createElement('label');
-                    label.className = 'text-xs italic' + (tooltip ? ' meta-tooltip' : '');
-                    label.style.cssText = 'display: flex; align-items: baseline; gap: 6px; margin-top: 4px; color: var(--color-text-muted); cursor: pointer; user-select: none;';
+                    label.className = 'text-xs font-bold' + (tooltip ? ' meta-tooltip' : '');
+                    label.style.cssText = 'display: flex; align-items: center; gap: 6px; color: var(--color-text-muted); cursor: pointer; user-select: none;';
                     if (tooltip) label.setAttribute('data-tooltip', tooltip);
 
                     const cb = document.createElement('input');
@@ -1026,9 +1098,8 @@ window.timelines = {
                 if (combinedOtherMembers.length > 0) {
                     const preview = combinedOtherMembers.slice(0, 8).join(', ');
                     const suffix = combinedOtherMembers.length > 8 ? `, +${combinedOtherMembers.length - 8} more` : '';
-                    const tooltip = `${preview}${suffix}`;
                     let otherPct;
-                    let text;
+                    let tooltip;
                     if (isMultiLabel) {
                         // Multi-label: a single item can carry several labels,
                         // so "share of items with a rare label" isn't
@@ -1043,21 +1114,24 @@ window.timelines = {
                         otherPct = totalLabelAttention > 0
                             ? ((otherWeighted / totalLabelAttention) * 100).toFixed(1)
                             : '0.0';
-                        text = `Show "Other labels": low-occurrence labels account for ${otherPct}% of all label mentions in this window.`;
+                        tooltip = `Low-occurrence labels account for ${otherPct}% of all label mentions in this window. Includes: ${preview}${suffix}`;
                     } else {
                         const otherWeighted = catWeightedTotals[OTHER_BUCKET] || 0;
                         otherPct = windowDenom > 0 ? ((otherWeighted / windowDenom) * 100).toFixed(1) : '0.0';
-                        text = `Show "Other labels": ${otherPct}% of time spent on items with low-occurrence labels.`;
+                        tooltip = `${otherPct}% of time spent on items with low-occurrence labels. Includes: ${preview}${suffix}`;
                     }
-                    chartWrapper.appendChild(makeFooterRow(
+                    const text = `Show "Other labels" (${otherPct}%)`;
+                    controlRight.appendChild(makeFooterRow(
                         text, tooltip, this.toggleOther.bind(this), showOther
                     ));
                 }
 
                 if (isMultiLabel) {
-                    const text = `Show "No labels": ${untaggedWindowPct.toFixed(1)}% of time spent on items with no label for this variable.`;
-                    chartWrapper.appendChild(makeFooterRow(
-                        text, null, this.toggleUntagged.bind(this), showUntagged
+                    const pct = untaggedWindowPct.toFixed(1);
+                    const text = `Show "No labels" (${pct}%)`;
+                    const tooltip = `${pct}% of time spent on items with no label for this variable.`;
+                    controlRight.appendChild(makeFooterRow(
+                        text, tooltip, this.toggleUntagged.bind(this), showUntagged
                     ));
                 }
 
@@ -1448,8 +1522,79 @@ window.timelines = {
 
             const isCategorical = (varData.type === 'categorical');
 
+            // Detect engagement data up front so we can split the plot
+            // into a stacked timeline + engagement strip layout.
+            const selectedTypes = this.timelineState.engagementTypes;
+            const ENGAGEMENT_TYPES = [
+                { key: 'fave',    label: 'Fave',    color: getCSSVar('--color-danger') },
+                { key: 'share',   label: 'Share',   color: getCSSVar('--color-success') },
+                { key: 'comment', label: 'Comment', color: getCSSVar('--color-info') },
+                { key: 'follow',  label: 'Follow',  color: getCSSVar('--color-purple') },
+                { key: 'save',    label: 'Save',    color: getCSSVar('--color-warning') }
+            ].filter(t => selectedTypes.has(t.key));
+            const rawBreakdown = data.extra_data_breakdown || null;
+            const slicedBreakdown = {};
+            ENGAGEMENT_TYPES.forEach(t => {
+                const arr = (rawBreakdown && rawBreakdown[t.key]) || [];
+                slicedBreakdown[t.key] = startIdx > 0 ? arr.slice(startIdx) : arr.slice();
+            });
+
+            // Daily totals across all tracked types
+            const dayCount = xVals.length;
+            const dayTotals = new Array(dayCount).fill(0);
+            for (let i = 0; i < dayCount; i++) {
+                ENGAGEMENT_TYPES.forEach(t => {
+                    dayTotals[i] += slicedBreakdown[t.key][i] || 0;
+                });
+            }
+
+            // Restrict to days with at least one engagement event
+            const edXVals = [];
+            const edTotals = [];
+            const edDayIdx = [];
+            for (let i = 0; i < dayCount; i++) {
+                if (dayTotals[i] > 0) {
+                    edXVals.push(xVals[i]);
+                    edTotals.push(dayTotals[i]);
+                    edDayIdx.push(i);
+                }
+            }
+            const hasEngagement = edXVals.length > 0;
+            const maxEdCount = hasEngagement ? Math.max(...edTotals) : 0;
+
+            // Pixel-budgeted layout: the timeline plot itself is a fixed
+            // height; adding the engagement strip and/or the categorical
+            // legend grows the total figure rather than squeezing the
+            // timeline. Domain fractions are derived from these budgets.
+            const TOP_MARGIN_PX = 20;
+            const TIMELINE_PX = 300;
+            const DATE_LABELS_PX = 18;
+            const ENGAGEMENT_STRIP_PX = 60;
+            const LEGEND_GAP_PX = 6;
+            const LEGEND_ROW_PX = 22;
+            const FOOTER_PX = 10;
+
+            // Estimate legend rows from traces that will appear in the
+            // legend (named, non-suppressed). Each row fits ~5 entries at
+            // typical chart widths.
+            const legendTraceCount = isCategorical
+                ? traces.filter(t => t.showlegend !== false && t.name).length
+                : 0;
+            const legendRows = isCategorical ? Math.max(1, Math.ceil(legendTraceCount / 5)) : 0;
+            const legendAreaPx = isCategorical ? (LEGEND_GAP_PX + legendRows * LEGEND_ROW_PX) : 0;
+
+            const innerPlotPx = TIMELINE_PX + DATE_LABELS_PX + (hasEngagement ? ENGAGEMENT_STRIP_PX : 0);
+            const bottomMarginPx = legendAreaPx + FOOTER_PX;
+            const totalHeightPx = TOP_MARGIN_PX + innerPlotPx + bottomMarginPx;
+            plotDiv.style.height = `${totalHeightPx}px`;
+
+            // Domain fractions within the inner plot area (top → bottom).
+            const timelineDomainBottom = (DATE_LABELS_PX + (hasEngagement ? ENGAGEMENT_STRIP_PX : 0)) / innerPlotPx;
+            const TIMELINE_DOMAIN = [timelineDomainBottom, 1.0];
+            const ENGAGEMENT_DOMAIN = [0.0, ENGAGEMENT_STRIP_PX / innerPlotPx];
+
             const layout = {
-                margin: { t: 20, r: 20, b: (isCategorical ? 45 : 30), l: 40 },
+                margin: { t: TOP_MARGIN_PX, r: 20, b: bottomMarginPx, l: 40 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-muted'), size: 11 },
@@ -1462,7 +1607,8 @@ window.timelines = {
                     gridcolor: getCSSVar('--chart-grid-line'),
                     gridwidth: 1,
                     zeroline: false,
-                    tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') }
+                    tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') },
+                    anchor: 'y'
                 },
                 yaxis: {
                     title: { text: yAxisTitle, font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-muted'), size: 11 } },
@@ -1470,10 +1616,19 @@ window.timelines = {
                     gridcolor: getCSSVar('--chart-grid-line'),
                     gridwidth: 1,
                     zeroline: false,
-                    tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') }
+                    tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') },
+                    domain: TIMELINE_DOMAIN
                 },
                 barmode: 'overlay',
                 showlegend: isCategorical,
+                legend: isCategorical ? {
+                    orientation: 'h',
+                    x: 0.5,
+                    xanchor: 'center',
+                    y: -(LEGEND_GAP_PX / innerPlotPx),
+                    yanchor: 'top',
+                    font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-muted'), size: 11 }
+                } : undefined,
                 modebar: {
                     bgcolor: 'rgba(0,0,0,0)',
                     color: getCSSVar('--color-text-faint'),
@@ -1482,81 +1637,79 @@ window.timelines = {
                 }
             };
 
-            if (varData.type === 'categorical') {
-                layout.legend = {
-                    orientation: 'h',
-                    y: -0.08,
-                    x: 0.5,
-                    xanchor: 'center',
-                    yanchor: 'top'
-                };
-            }
-
             // Log Axis specific
             if (varData.type !== 'categorical' && varData.log) {
                 layout.yaxis.type = 'log';
             }
 
-            // Extra-data engagement spikes (vertical lines from baseline, height = count)
-            if (data.extra_data_counts) {
-                const SPIKE_MAX_FRAC = 0.15;
-                const edXVals = [];
-                const edCounts = [];
-                const edTexts = [];
-                const slicedEdCounts = startIdx > 0 ? data.extra_data_counts.slice(startIdx) : data.extra_data_counts;
-                slicedEdCounts.forEach((cnt, i) => {
-                    if (cnt > 0) {
-                        edXVals.push(xVals[i]);
-                        edCounts.push(cnt);
-                        edTexts.push(`${cnt} engagement activit${cnt === 1 ? 'y' : 'ies'}`);
-                    }
+            // Engagement spikes — render as a separate subplot below the
+            // timeline. The y-axis is reversed so 0 sits at the top
+            // (right under the shared date labels) and spikes hang
+            // downward like icicles. x-axis is matched to the timeline
+            // so panning/zooming stays in sync.
+            if (hasEngagement) {
+                layout.xaxis2 = {
+                    type: excludeNoData ? 'category' : 'date',
+                    matches: 'x',
+                    anchor: 'y2',
+                    showticklabels: false,
+                    showgrid: false,
+                    zeroline: false,
+                    showline: false,
+                    fixedrange: true
+                };
+
+                layout.yaxis2 = {
+                    domain: ENGAGEMENT_DOMAIN,
+                    anchor: 'x2',
+                    range: [maxEdCount * 1.1, 0],
+                    showticklabels: false,
+                    showgrid: false,
+                    zeroline: false,
+                    showline: false,
+                    fixedrange: true
+                };
+
+                // One bar trace per engagement type, with `base` offsets so
+                // the segments stack while keeping global barmode='overlay'
+                // (changing barmode would break categorical raw-day bars).
+                // Hover text is identical across all segments of the same
+                // day so the user sees the full breakdown regardless of
+                // which segment they hover.
+                const hoverByDay = edDayIdx.map(di => {
+                    const parts = ENGAGEMENT_TYPES.map(tt => {
+                        const c = slicedBreakdown[tt.key][di] || 0;
+                        return c > 0 ? `${tt.label}: ${c}` : null;
+                    }).filter(Boolean);
+                    return `${parts.join('<br>')}<br><b>Total: ${dayTotals[di]}</b>`;
                 });
-                if (edXVals.length > 0) {
-                    const maxCount = Math.max(...edCounts);
 
-                    layout.yaxis2 = {
-                        overlaying: 'y',
-                        side: 'right',
-                        range: [0, maxCount / SPIKE_MAX_FRAC],
-                        showticklabels: false,
-                        showgrid: false,
-                        zeroline: false,
-                        fixedrange: true,
-                        showline: false
-                    };
-
-                    const spikeX = [];
-                    const spikeY = [];
-                    edXVals.forEach((x, i) => {
-                        spikeX.push(x, x, null);
-                        spikeY.push(0, edCounts[i], null);
+                ENGAGEMENT_TYPES.forEach((t, tIdx) => {
+                    const yVals = edDayIdx.map(di => slicedBreakdown[t.key][di] || 0);
+                    const bases = edDayIdx.map(di => {
+                        let off = 0;
+                        for (let j = 0; j < tIdx; j++) {
+                            off += slicedBreakdown[ENGAGEMENT_TYPES[j].key][di] || 0;
+                        }
+                        return off;
                     });
-                    traces.push({
-                        x: spikeX,
-                        y: spikeY,
-                        type: 'scatter',
-                        mode: 'lines',
-                        line: { width: 2, color: getCSSVar('--color-warning') },
-                        opacity: 0.7,
-                        showlegend: false,
-                        hoverinfo: 'skip',
-                        yaxis: 'y2'
-                    });
-
                     traces.push({
                         x: edXVals,
-                        y: edCounts,
-                        type: 'scatter',
-                        mode: 'markers',
-                        marker: { symbol: 'diamond', size: 5, color: getCSSVar('--color-warning'), opacity: 0.9 },
-                        name: 'Engagement',
-                        text: edTexts,
+                        y: yVals,
+                        base: bases,
+                        type: 'bar',
+                        marker: { color: t.color },
+                        opacity: 0.9,
+                        name: t.label,
+                        text: hoverByDay,
+                        textposition: 'none',
                         hoverinfo: 'text',
                         hovertemplate: '%{text}<extra></extra>',
                         showlegend: false,
+                        xaxis: 'x2',
                         yaxis: 'y2'
                     });
-                }
+                });
             }
 
             Plotly.newPlot(plotId, traces, layout, {
@@ -1785,24 +1938,26 @@ window.timelines = {
                     const catsList = analysisData.categories || [];
                     const selectedSet = new Set(selectedCatsForPanel);
 
-                    // Toggle button
-                    const findingsToggleId = `findings-toggle-${varName}`;
-                    const toggleBtn = document.createElement('button');
-                    toggleBtn.id = findingsToggleId;
-                    toggleBtn.classList.add('text-sm');
-                    toggleBtn.style.cssText = `margin-top: 10px; padding: 6px 14px; background: var(--color-bg-elevated); color: var(--chart-text); border: 1px solid var(--chart-grid); border-radius: 6px; cursor: pointer;`;
+                    // Disclosure trigger — sits between the ribbon and the plot,
+                    // left-aligned. The triangle rotates to indicate state.
                     const isOpen = this.timelineState.findingsPanelOpen && this.timelineState.findingsPanelOpen[varName];
-                    toggleBtn.textContent = isOpen ? 'Hide Findings' : 'Show Findings';
-
-                    // Centre the button below the ribbon.
-                    const btnWrapper = document.createElement('div');
-                    btnWrapper.style.cssText = 'display:flex; justify-content:center; margin-top:4px;';
-                    btnWrapper.appendChild(toggleBtn);
-                    chartWrapper.appendChild(btnWrapper);
+                    const findingsToggleId = `findings-toggle-${varName}`;
+                    const toggleBtn = document.createElement('div');
+                    toggleBtn.id = findingsToggleId;
+                    toggleBtn.classList.add('text-xs', 'font-bold');
+                    toggleBtn.style.cssText = 'display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; padding: 4px 0; color: var(--color-text-muted);';
+                    toggleBtn.innerHTML = `<span class="findings-caret" style="display:inline-block; transition: transform 120ms ease; transform: rotate(${isOpen ? '90deg' : '0deg'}); font-size: 14px; color: var(--color-info); line-height: 1;">▶</span><span>Discover trends and anomalies</span>`;
 
                     const findingsContainer = document.createElement('div');
                     findingsContainer.id = `findings-panel-${varName}`;
-                    findingsContainer.style.cssText = `margin-top: 10px; border-top: 1px solid var(--color-border-subtle); padding-top: 15px; display: ${isOpen ? 'flex' : 'none'}; flex-direction: column; gap: 10px;`;
+                    findingsContainer.style.cssText = `margin-top: 6px; margin-bottom: 10px; border-top: 1px solid var(--color-border-subtle); padding-top: 12px; display: ${isOpen ? 'flex' : 'none'}; flex-direction: column; gap: 10px;`;
+
+                    if (chartWrapper._controlLeft) {
+                        chartWrapper._controlLeft.appendChild(toggleBtn);
+                    } else {
+                        chartWrapper.insertBefore(toggleBtn, plotDiv);
+                    }
+                    chartWrapper.insertBefore(findingsContainer, plotDiv);
 
                     toggleBtn.addEventListener('click', () => {
                         if (!this.timelineState.findingsPanelOpen) this.timelineState.findingsPanelOpen = {};
@@ -1925,8 +2080,6 @@ window.timelines = {
                         card.appendChild(ul);
                         findingsContainer.appendChild(card);
                     });
-
-                    chartWrapper.appendChild(findingsContainer);
                 }
             }
 

@@ -503,7 +503,7 @@ def get_viz_config():
 
 
 
-TIMELINE_SCHEMA_VERSION = 3
+TIMELINE_SCHEMA_VERSION = 6
 # Marker columns that prove a cached timeline parquet was written by the
 # current schema.  Any one missing → cache is stale and gets regenerated.
 # Bump TIMELINE_SCHEMA_VERSION and edit this set whenever the parquet
@@ -512,6 +512,8 @@ _TIMELINE_REQUIRED_COLUMNS: set[str] = {
     'machine_state_counts',         # original v1 marker
     'weighted_video_total',         # v2: per-period attention denominator
     'timeline_universe',            # v3: universe = scraped+annotated plays only
+    'fave',                         # v4: engagement type breakdown columns
+    'follow',                       # v5: engagement breakdown via activity_type
 }
 
 
@@ -584,6 +586,28 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
          
     df[date_col] = pd.to_datetime(df[date_col]).astype('datetime64[ns]')
 
+    # Compute engagement-activity breakdown from the *unfiltered* df before
+    # the play-only universe filter strips fave/comment/follow rows. Each
+    # standalone activity row contributes one event under its (normalised)
+    # type. "following" is normalised to "follow"; "share" and "save" are
+    # passed through if present.
+    ENGAGEMENT_TYPES = ('fave', 'share', 'comment', 'follow', 'save')
+    ACTIVITY_TYPE_MAP = {'fave': 'fave', 'share': 'share', 'comment': 'comment',
+                         'follow': 'follow', 'following': 'follow', 'save': 'save'}
+    engagement_breakdown_df: pd.DataFrame | None = None
+    if 'activity_type' in df.columns:
+        at_series = df['activity_type'].astype('string').str.lower().map(ACTIVITY_TYPE_MAP)
+        engage_mask = at_series.notna()
+        if engage_mask.any():
+            engage_df = pd.DataFrame({
+                'period': df.loc[engage_mask, date_col].dt.date.astype(str).values,
+                'atype': at_series[engage_mask].values
+            })
+            engagement_breakdown_df = (engage_df.groupby(['period', 'atype'])
+                                                 .size()
+                                                 .unstack(fill_value=0)
+                                                 .reset_index())
+
     # Construct 'machine_state' before the universe filter so the synthetic
     # state value is set on every play (the filter strips non-play rows next).
     if 'scraped_ok' in df.columns and 'scraped_fail' in df.columns and 'annotated_ok' in df.columns:
@@ -603,25 +627,34 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         print(f"ERROR: play_duration missing in unified dataset for {collection_id}")
         return None
 
-    play_mask = (df['activity_type'] == 'play') if 'activity_type' in df.columns else pd.Series(True, index=df.index)
-    duration_mask = df['play_duration'].notna() & (df['play_duration'] > 0)
+    # Universe filter — accept both 'play' (donor watched) and 'observe'
+    # (baseline-collection scrapes with no donor watch-time). For 'observe'
+    # rows there's no play_duration; video_duration acts as the implied
+    # attention proxy so they can still participate in weighted aggregates.
+    valid_activity = (df['activity_type'].isin(['play', 'observe'])) if 'activity_type' in df.columns else pd.Series(True, index=df.index)
+    play_dur_present = df['play_duration'].notna() & (df['play_duration'] > 0)
+    vid_dur_present = (df['video_duration'].notna() & (df['video_duration'] > 0)) if 'video_duration' in df.columns else pd.Series(False, index=df.index)
+    is_observe = (df['activity_type'] == 'observe') if 'activity_type' in df.columns else pd.Series(False, index=df.index)
+    duration_mask = play_dur_present | (is_observe & vid_dur_present)
     scrape_mask = (df['scraped_ok'] == True) if 'scraped_ok' in df.columns else pd.Series(True, index=df.index)
     annot_mask = (df['annotated_ok'] == True) if 'annotated_ok' in df.columns else pd.Series(True, index=df.index)
-    df = df[play_mask & duration_mask & scrape_mask & annot_mask].copy()
+    df = df[valid_activity & duration_mask & scrape_mask & annot_mask].copy()
 
     if df.empty:
         print(f"WARN: No annotated plays with recorded play_duration for {collection_id}; nothing to aggregate.")
         return None
 
-    # Per-play attention weight: w = min(play_duration, video_duration).
-    # video_duration is NaN for some slideshows (fyp/scrape.py:558,842); fall back
-    # to play_duration in that case so we don't drop those attention seconds.
+    # Per-row attention weight: play rows = min(play_duration, video_duration);
+    # observe rows = video_duration (full-video implied attention).
     play_dur = df['play_duration'].astype('float64')
     if 'video_duration' in df.columns:
         vid_dur = df['video_duration'].astype('float64')
         df['_w'] = np.minimum(play_dur, vid_dur.fillna(play_dur))
+        if 'activity_type' in df.columns:
+            observe_rows = df['activity_type'] == 'observe'
+            df.loc[observe_rows, '_w'] = vid_dur[observe_rows].fillna(0.0)
     else:
-        df['_w'] = play_dur
+        df['_w'] = play_dur.fillna(0.0)
 
     # ---------------------------------------------------------
     # 2. Iterate and Aggregate
@@ -682,13 +715,16 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         agg_df = agg_df.merge(weighted_total, on=group_col, how='left')
         agg_df['weighted_video_total'] = agg_df['weighted_video_total'].fillna(0.0).astype('float64')
 
-        # --- Extra data counts per period ---
-        has_extra_data_col = 'extra_data' in temp_df.columns
-        if has_extra_data_col:
-            ed_mask = temp_df['extra_data'].notna()
-            ed_counts = temp_df[ed_mask].groupby(group_col).size().reset_index(name='extra_data_count')
-            agg_df = agg_df.merge(ed_counts, on=group_col, how='left')
-            agg_df['extra_data_count'] = agg_df['extra_data_count'].fillna(0).astype(int)
+        # --- Engagement activity breakdown per period ---
+        # Merge in the pre-filter breakdown (computed above before the
+        # play-mask filter stripped non-play activity rows).
+        if engagement_breakdown_df is not None:
+            agg_df = agg_df.merge(engagement_breakdown_df, on=group_col, how='left')
+        for t in ENGAGEMENT_TYPES:
+            if t not in agg_df.columns:
+                agg_df[t] = 0
+            agg_df[t] = agg_df[t].fillna(0).astype(int)
+        agg_df['extra_data_count'] = agg_df[list(ENGAGEMENT_TYPES)].sum(axis=1).astype(int)
 
         # --- Accumulate all per-variable columns, single merge at end ---
         extra_cols: dict[str, pd.Series] = {}
@@ -1105,13 +1141,17 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
             "display_name": display_name,
         }
 
-    # Extra-data (engagement activity) counts per period
+    # Extra-data (engagement activity) counts per period, plus per-type breakdown
     extra_data_counts = df['extra_data_count'].tolist() if 'extra_data_count' in df.columns else None
+    ENGAGEMENT_TYPES = ('fave', 'share', 'comment', 'follow', 'save')
+    extra_data_breakdown = {t: df[t].tolist() for t in ENGAGEMENT_TYPES if t in df.columns}
 
     result = {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts, "variables_order": viz_vars}
 
     if extra_data_counts is not None:
         result["extra_data_counts"] = extra_data_counts
+    if extra_data_breakdown:
+        result["extra_data_breakdown"] = extra_data_breakdown
 
     # Attach pre-computed analysis data if available, or generate if missing
     analysis_fname = f"timeline_analysis_{collection_id}_{interval}.json"
