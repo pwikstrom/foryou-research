@@ -9,7 +9,22 @@ from flask_login import current_user, login_required
 from werkzeug.utils import secure_filename
 
 import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf, load_var_schema
+from fyp.fyp_config import (
+    VarSchemaConflict,
+    compute_var_schema_etag,
+    fyp_cf,
+    load_var_schema,
+    save_var_schema,
+)
+from fyp.recode_variables import (
+    SEMANTIC_COLUMNS,
+    VAR_SCHEMA_POLICIES,
+    VAR_SCHEMA_ROLES,
+    VAR_SCHEMA_SCALES,
+    compute_var_schema_hash,
+    get_recode_func_registry,
+    validate_var_schema,
+)
 from fyp.ingest import get_main_collection
 from fyp.organize_datasets import (
     COLLECTIONS_LABEL,
@@ -1775,6 +1790,183 @@ def reload_schema():
         global fyp_cf
         fyp_cf = load_var_schema(fyp_cf, verbose=False)
         return jsonify({"status": "success", "message": "Variable schema reloaded successfully."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+def _df_to_records(df: pd.DataFrame) -> list[dict]:
+    """Convert the schema DataFrame to a list of plain-dict records,
+    coercing nulls to empty strings so the JSON payload is stable shape.
+    """
+    out: list[dict] = []
+    for _, row in df.iterrows():
+        rec = {}
+        for col in df.columns:
+            val = row[col]
+            try:
+                if pd.isna(val):
+                    rec[col] = ""
+                    continue
+            except (TypeError, ValueError):
+                pass
+            rec[col] = "" if val is None else str(val)
+        out.append(rec)
+    return out
+
+
+
+def _affected_studies_for_hash(new_hash: str) -> list[str]:
+    """List study names whose sidecar ``var_schema_hash`` differs from ``new_hash``.
+
+    Used by the admin UI to surface "saving will trigger N study rebuilds"
+    before the admin clicks save.  Missing / unreadable sidecars are
+    silently skipped — the regular refresh path will rebuild them anyway.
+    """
+    try:
+        files = data_io.listdir(storage_location="recoded")
+    except Exception:
+        return []
+    affected: list[str] = []
+    for fname in files:
+        if not fname.endswith("_recoded.meta.json"):
+            continue
+        study_name = fname[: -len("_recoded.meta.json")]
+        try:
+            sidecar = data_io.load_json(storage_location="recoded", filename=fname)
+        except Exception:
+            continue
+        if str(sidecar.get("var_schema_hash") or "") != new_hash:
+            affected.append(study_name)
+    return sorted(affected)
+
+
+
+def _var_schema_admin_enabled() -> bool:
+    """Off-switch for the schema admin UI.
+
+    Defaults to True; set ``[features].var_schema_admin = false`` in
+    ``config.toml`` to disable without redeploying.  Permission gate
+    (``tab.admin.schema``) is still required on top of this.
+    """
+    features = fyp_cf.get("features") or {}
+    return bool(features.get("var_schema_admin", True))
+
+
+
+@management_bp.route('/api/manage/schema', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def get_schema():
+    if not _var_schema_admin_enabled():
+        return jsonify({"error": "schema admin disabled"}), 503
+    """Return the current schema for the admin editor."""
+    try:
+        df = fyp_cf["var_schema"]
+        return jsonify({
+            "rows": _df_to_records(df),
+            "columns": list(df.columns),
+            "semantic_columns": list(SEMANTIC_COLUMNS),
+            "enums": {
+                "role": sorted(VAR_SCHEMA_ROLES),
+                "scale": sorted(VAR_SCHEMA_SCALES),
+                "unable_to_detect_policy": sorted(VAR_SCHEMA_POLICIES),
+            },
+            "recode_funcs": sorted(get_recode_func_registry().keys()),
+            "etag": compute_var_schema_etag(fyp_cf),
+            "current_hash": compute_var_schema_hash(),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+def _payload_to_df(payload_rows: list[dict]) -> pd.DataFrame:
+    """Convert API rows into a DataFrame shaped like the current schema."""
+    current_columns = list(fyp_cf["var_schema"].columns)
+    # Ensure every incoming row has every column the live schema expects
+    rows = []
+    for r in payload_rows:
+        rows.append({col: r.get(col, "") for col in current_columns})
+    return pd.DataFrame(rows, columns=current_columns)
+
+
+
+@management_bp.route('/api/manage/schema/validate', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def validate_schema_endpoint():
+    """Validate proposed rows and report the hash impact, without writing."""
+    if not _var_schema_admin_enabled():
+        return jsonify({"error": "schema admin disabled"}), 503
+    try:
+        body = request.get_json(force=True, silent=False) or {}
+        rows = body.get("rows")
+        if not isinstance(rows, list):
+            return jsonify({"error": "rows must be a list"}), 400
+        df = _payload_to_df(rows)
+        errors = list(validate_var_schema(df))
+        # Compute new hash under a temporary cf swap so validation is pure
+        prev = fyp_cf.get("var_schema")
+        try:
+            fyp_cf["var_schema"] = df
+            new_hash = compute_var_schema_hash()
+        finally:
+            fyp_cf["var_schema"] = prev
+        hash_changed = (new_hash != compute_var_schema_hash())
+        affected = _affected_studies_for_hash(new_hash) if hash_changed else []
+        return jsonify({
+            "errors": errors,
+            "hash_changed": hash_changed,
+            "new_hash": new_hash,
+            "affected_studies": affected,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+@management_bp.route('/api/manage/schema', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def save_schema_endpoint():
+    """Persist edits.  Refuses on stale etag (409) or validation errors (400)."""
+    if not _var_schema_admin_enabled():
+        return jsonify({"error": "schema admin disabled"}), 503
+    try:
+        body = request.get_json(force=True, silent=False) or {}
+        rows = body.get("rows")
+        etag = body.get("etag")
+        if not isinstance(rows, list):
+            return jsonify({"error": "rows must be a list"}), 400
+        df = _payload_to_df(rows)
+        errors = list(validate_var_schema(df))
+        if errors:
+            return jsonify({"error": "validation failed", "errors": errors}), 400
+        old_hash = compute_var_schema_hash()
+        try:
+            result = save_var_schema(df, expected_etag=etag, verbose=False)
+        except VarSchemaConflict as e:
+            return jsonify({
+                "error": "conflict",
+                "message": str(e),
+                "etag": compute_var_schema_etag(fyp_cf),
+            }), 409
+        new_hash = compute_var_schema_hash()
+        hash_changed = new_hash != old_hash
+        affected = _affected_studies_for_hash(new_hash) if hash_changed else []
+        activity_log.record(
+            actor=_actor(),
+            category="admin",
+            action="var_schema.save",
+            details={"hash_changed": hash_changed, "affected_studies": len(affected)},
+        )
+        return jsonify({
+            "etag": result["etag"],
+            "hash_changed": hash_changed,
+            "new_hash": new_hash,
+            "affected_studies": affected,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

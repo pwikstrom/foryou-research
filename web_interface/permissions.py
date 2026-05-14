@@ -39,6 +39,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.admin.annotations",                "label": "Admin — User Annotations"},
     {"key": "tab.admin.reliability",                "label": "Admin — Inter-coder Reliability"},
     {"key": "tab.admin.general",                    "label": "Admin — General"},
+    {"key": "tab.admin.schema",                     "label": "Admin — Variable Schema"},
 ]
 
 

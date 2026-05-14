@@ -377,6 +377,16 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
 
     try:
         _ensure_task_functions_loaded()
+        # Refresh var_schema from disk/GCS if it changed since this task
+        # runner last loaded it.  Long-lived task-runner containers would
+        # otherwise stick to whichever schema they imported at startup,
+        # silently producing stale recodes and stale sidecar hashes after
+        # an admin edit on the web service.
+        try:
+            from fyp.fyp_config import reload_var_schema_if_changed
+            reload_var_schema_if_changed()
+        except Exception as e:
+            print(f"[task {name}] reload_var_schema_if_changed failed: {e}")
         task_func = TASK_FUNCTIONS[name]
         chain_result = task_func(reporter=reporter, task_args=task_args)
 
