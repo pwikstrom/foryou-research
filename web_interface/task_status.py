@@ -430,6 +430,32 @@ def write_cancel_request(name: str) -> None:
 
 
 
+def force_clear_status(name: str, reason: str = "cancelled") -> None:
+    """Overwrite a task's GCS status file with a terminal state.
+
+    Used when stop_process is called against a status record whose heartbeat
+    has clearly stopped — the task-runner pod is gone but the file still says
+    "running". Writing a terminal state lets the next start_process succeed
+    immediately instead of waiting for the 10-minute staleness window.
+    """
+    existing = read_task_status(name) or {}
+    existing["state"] = reason
+    existing["updated_at"] = datetime.now(UTC).isoformat()
+    if not existing.get("error"):
+        existing["error"] = "Cleared by stop_process (status was stuck)."
+    try:
+        data_io.save_json(
+            data=existing,
+            storage_location="cache",
+            filename=f"{STATUS_PREFIX}/{name}.json",
+            verbose=False,
+        )
+    except Exception as e:
+        print(f"[task_status] Failed to force-clear status for {name}: {e}")
+
+
+
+
 def is_cloud_run() -> bool:
     """Check if running on Cloud Run."""
     return bool(os.environ.get("K_SERVICE"))

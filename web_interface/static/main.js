@@ -353,6 +353,28 @@ async function startProcess(name, extraBody = {}) {
         }
     }
 
+    // Pre-flight check: the toggle button is updated on a 1-s poll, but the
+    // user can click between polls or right after navigating to the tab
+    // before the first poll has landed. Fetch fresh status so we never POST
+    // /api/start for a process the server already knows is running — that
+    // produces a 409 in the network panel even though we now handle it
+    // gracefully. Skip the POST and show the dialog directly instead.
+    try {
+        const statusRes = await fetch('/api/status');
+        const statusData = await statusRes.json();
+        const current = statusData && statusData[name];
+        if (current && current.state === 'running') {
+            updateStatus();
+            _showAlreadyRunningDialog(name, extraBody);
+            return;
+        }
+    } catch (e) {
+        // Fall through to the POST — the server is still the source of truth
+        // and will 409 if there's a real conflict; the catch keeps a network
+        // blip from blocking starts entirely.
+        console.warn('Pre-start status check failed; attempting start anyway.', e);
+    }
+
     try {
         const res = await fetch(`/api/start/${name}`, {
             method: 'POST',
@@ -360,7 +382,9 @@ async function startProcess(name, extraBody = {}) {
             body: JSON.stringify(body)
         });
         const data = await res.json();
-        if (data.status !== 'success') {
+        if (res.status === 409) {
+            _showAlreadyRunningDialog(name, extraBody);
+        } else if (data.status !== 'success') {
             alert("Error: " + data.message);
         } else if (window._pendingArmAfterStart) {
             // Successful start — arm Consolidate & Refresh so it fires when
@@ -479,9 +503,57 @@ async function stopProcess(name) {
             console.error("Stop process error:", data.message);
         }
         updateStatus();
+        return data;
     } catch (e) {
         console.error(e);
+        return null;
     }
+}
+
+
+
+function _processDisplayLabel(name) {
+    const btn = document.getElementById(`${name}-toggle`);
+    const raw = btn ? btn.getAttribute('data-start-label') : null;
+    if (raw) {
+        return raw.replace(/^(Start |Recalculate )/, '').replace(/\(.*\)/, '').trim();
+    }
+    return name.replace(/_/g, ' ');
+}
+
+
+function _showAlreadyRunningDialog(name, extraBody) {
+    const overlay = document.getElementById('already-running-overlay');
+    const textEl = document.getElementById('already-running-text');
+    const cancelBtn = document.getElementById('already-running-cancel-btn');
+    const stopRetryBtn = document.getElementById('already-running-stop-retry-btn');
+    if (!overlay || !textEl || !cancelBtn || !stopRetryBtn) {
+        alert(`${_processDisplayLabel(name)} is already running. Stop it before starting again.`);
+        return;
+    }
+    const label = _processDisplayLabel(name);
+    textEl.textContent = `${label} is already running. Stop it and try starting it again?`;
+
+    const close = () => {
+        overlay.classList.remove('visible');
+        cancelBtn.onclick = null;
+        stopRetryBtn.onclick = null;
+        stopRetryBtn.disabled = false;
+        stopRetryBtn.textContent = 'Stop and retry';
+    };
+    cancelBtn.onclick = close;
+    stopRetryBtn.onclick = async () => {
+        stopRetryBtn.disabled = true;
+        stopRetryBtn.textContent = 'Stopping…';
+        await stopProcess(name);
+        // Give the backend a moment to reflect the cancel sentinel before retrying.
+        await new Promise(r => setTimeout(r, 1500));
+        close();
+        // Retry once. If the server still 409s, startProcess will fall through to
+        // the original alert() because we re-enter with the same dialog path.
+        startProcess(name, extraBody || {});
+    };
+    overlay.classList.add('visible');
 }
 
 

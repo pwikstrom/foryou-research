@@ -160,6 +160,17 @@
     </div>
 </div>
 
+<!-- Already-Running Conflict Dialog (shown when /api/start returns 409) -->
+<div id="already-running-overlay" class="stop-confirm-overlay">
+    <div class="stop-confirm-card" style="max-width: 460px;">
+        <p id="already-running-text" class="text-sm" style="margin: 0 0 16px 0;"></p>
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn-discreet" id="already-running-cancel-btn">Cancel</button>
+            <button class="btn-stop" id="already-running-stop-retry-btn">Stop and retry</button>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}

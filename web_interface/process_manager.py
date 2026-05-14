@@ -8,10 +8,18 @@ from datetime import UTC, datetime
 import fyp.data_io as data_io
 from fyp.fyp_config import PROJECT_ROOT, PYTHON_EXEC
 from web_interface.task_status import (
+    force_clear_status,
     is_cloud_run,
     read_task_status,
     write_cancel_request,
 )
+
+
+# A status record whose `updated_at` is older than this is treated as stuck
+# in stop_process — the heartbeat (30 s interval) is clearly not running, so
+# we overwrite the file with a terminal state instead of just dropping a
+# cancel sentinel that no worker will ever consume.
+STUCK_STATUS_THRESHOLD_S = 90
 
 GRACEFUL_STOP_DIR = PROJECT_ROOT / "tmp" / "graceful_stop"
 
@@ -567,6 +575,21 @@ def stop_process(name: str) -> tuple[bool, str]:
         status = read_task_status(name)
         if status and status.get("state") == "running":
             write_cancel_request(name)
+            # If the heartbeat is clearly not ticking (task-runner pod dead or
+            # never started), the cancel sentinel will never be consumed and
+            # the next start_process would 409 until the 10-minute staleness
+            # window expires. Overwrite the status with a terminal state so
+            # the user can restart immediately.
+            updated_str = status.get("updated_at", "")
+            if updated_str:
+                try:
+                    updated_at = datetime.fromisoformat(updated_str)
+                    age = (datetime.now(UTC) - updated_at).total_seconds()
+                    if age > STUCK_STATUS_THRESHOLD_S:
+                        force_clear_status(name, reason="cancelled")
+                        return True, "Stuck status cleared"
+                except (ValueError, TypeError):
+                    pass
             return True, "Cancel requested"
         return False, "Not running"
 
