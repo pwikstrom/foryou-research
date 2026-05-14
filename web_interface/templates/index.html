@@ -38,31 +38,39 @@
 </script>
 
 <!-- Tab Navigation -->
-<div class="tab-nav">
-    {% if user.can_access('tab.explore') %}
-    <button class="tab-button" data-tab="explore" onclick="openTab(event, 'explore')">Explore</button>
-    {% endif %}
-    {% if user.can_access('tab.timelines') %}
-    <button class="tab-button" data-tab="timelines" onclick="openTab(event, 'timelines')">Timelines</button>
-    {% endif %}
-    {% if user.can_access('tab.video_analysis') %}
-    <button class="tab-button" data-tab="video_analysis" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
-    {% endif %}
-    {% if user.can_access('tab.correlations') %}
-    <button class="tab-button" data-tab="correlations" onclick="openTab(event, 'correlations')">Correlations</button>
-    {% endif %}
-    {% if user.can_access('tab.my_studies') %}
-    <button class="tab-button" onclick="openTab(event, 'my_studies')">My Studies</button>
-    {% endif %}
-    {% if user.can_access('tab.data_management') %}
-    <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
-    {% endif %}
-    {% if user.can_access('tab.admin') %}
-    <button class="tab-button"
-        onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
-    {% endif %}
-    <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
+<div class="tab-nav" id="main-tab-nav">
+    <button class="nav-toggle" id="nav-hamburger" aria-label="Menu" aria-expanded="false"
+        onclick="toggleNavDrawer()">☰</button>
+    <span id="current-tab-label" class="current-tab-label">Home</span>
+    <div class="tab-nav-drawer">
+        {% if user.can_access('tab.explore') %}
+        <button class="tab-button" data-tab="explore" onclick="openTab(event, 'explore')">Explore</button>
+        {% endif %}
+        {% if user.can_access('tab.timelines') %}
+        <button class="tab-button" data-tab="timelines" onclick="openTab(event, 'timelines')">Timelines</button>
+        {% endif %}
+        {% if user.can_access('tab.video_analysis') %}
+        <button class="tab-button" data-tab="video_analysis" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
+        {% endif %}
+        {% if user.can_access('tab.correlations') %}
+        <button class="tab-button" data-tab="correlations" onclick="openTab(event, 'correlations')">Correlations</button>
+        {% endif %}
+        {% if user.can_access('tab.my_studies') %}
+        <button class="tab-button" onclick="openTab(event, 'my_studies')">My Studies</button>
+        {% endif %}
+        {% if user.can_access('tab.data_management') %}
+        <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
+        {% endif %}
+        {% if user.can_access('tab.admin') %}
+        <button class="tab-button"
+            onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
+        {% endif %}
+        <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
+    </div>
 </div>
+
+<!-- Backdrop for mobile drawers (nav + side panels) -->
+<div id="responsive-backdrop" class="responsive-backdrop" onclick="closeAllResponsiveDrawers()"></div>
 
 <div class="tab-content">
     {% include 'tabs/home.html' %}

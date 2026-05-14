@@ -1080,7 +1080,158 @@ function openTab(evt, tabName) {
     setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
     }, 100);
+
+    // Update the mobile current-tab label next to the hamburger
+    _setCurrentTabLabel(tabName, evt);
+
+    // Close mobile nav drawer (if open) once a tab is selected
+    closeNavDrawer();
 }
+
+const _TAB_TITLE_MAP = {
+    home: 'Home',
+    explore: 'Explore',
+    timelines: 'Timelines',
+    video_analysis: 'Video Analysis',
+    correlations: 'Correlations',
+    my_studies: 'My Studies',
+    data_management: 'Data Management',
+    admin: 'Admin',
+    settings: 'Settings',
+    collections: 'Collections'
+};
+
+function _setCurrentTabLabel(tabName, evt) {
+    const label = document.getElementById('current-tab-label');
+    if (!label) return;
+    let text = '';
+    if (evt && evt.currentTarget && evt.currentTarget.textContent) {
+        text = evt.currentTarget.textContent.trim();
+    }
+    if (!text) text = _TAB_TITLE_MAP[tabName] || tabName;
+    label.textContent = text;
+}
+
+
+// ============================================================
+// Small-screen drawer helpers (header nav + side panels)
+// ============================================================
+
+function _responsiveBackdrop() {
+    return document.getElementById('responsive-backdrop');
+}
+
+function _isMobileViewport() {
+    return window.matchMedia('(max-width: 860px)').matches;
+}
+
+function _showBackdrop() {
+    const bd = _responsiveBackdrop();
+    if (bd) bd.classList.add('is-visible');
+}
+
+function _hideBackdropIfIdle() {
+    const bd = _responsiveBackdrop();
+    if (!bd) return;
+    const navOpen = document.getElementById('main-tab-nav')?.classList.contains('is-open');
+    const anyPanelOpen = !!document.querySelector('[data-mobile-drawer].is-open');
+    if (!navOpen && !anyPanelOpen) {
+        bd.classList.remove('is-visible');
+    }
+}
+
+function toggleNavDrawer() {
+    const nav = document.getElementById('main-tab-nav');
+    if (!nav) return;
+    const willOpen = !nav.classList.contains('is-open');
+
+    // Close any open panel drawers first
+    document.querySelectorAll('[data-mobile-drawer].is-open').forEach(p => p.classList.remove('is-open'));
+
+    nav.classList.toggle('is-open', willOpen);
+    const hamburger = document.getElementById('nav-hamburger');
+    if (hamburger) hamburger.setAttribute('aria-expanded', String(willOpen));
+
+    if (willOpen) {
+        _showBackdrop();
+    } else {
+        _hideBackdropIfIdle();
+    }
+}
+
+function closeNavDrawer() {
+    const nav = document.getElementById('main-tab-nav');
+    if (!nav || !nav.classList.contains('is-open')) return;
+    nav.classList.remove('is-open');
+    const hamburger = document.getElementById('nav-hamburger');
+    if (hamburger) hamburger.setAttribute('aria-expanded', 'false');
+    _hideBackdropIfIdle();
+}
+
+function toggleMobileDrawer(targetSelector) {
+    if (!targetSelector) return;
+    const target = document.querySelector(targetSelector);
+    if (!target) return;
+
+    const willOpen = !target.classList.contains('is-open');
+
+    // Close any other open drawers (panels + nav) — single-drawer-at-a-time policy
+    document.querySelectorAll('[data-mobile-drawer].is-open').forEach(p => {
+        if (p !== target) p.classList.remove('is-open');
+    });
+    closeNavDrawer();
+
+    target.classList.toggle('is-open', willOpen);
+    if (willOpen) {
+        _showBackdrop();
+    } else {
+        _hideBackdropIfIdle();
+    }
+}
+
+function closeAllResponsiveDrawers() {
+    document.querySelectorAll('[data-mobile-drawer].is-open').forEach(p => p.classList.remove('is-open'));
+    closeNavDrawer();
+    _hideBackdropIfIdle();
+}
+
+// Wire mobile-drawer-trigger buttons and auto-close drawers when a sidebar item is picked.
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.mobile-drawer-trigger').forEach(btn => {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            const target = this.getAttribute('data-drawer-target');
+            toggleMobileDrawer(target);
+        });
+    });
+
+    // When a sidebar item inside a mobile drawer is clicked, close the drawer
+    // so the user sees the page they just selected.
+    document.addEventListener('click', function (e) {
+        if (!_isMobileViewport()) return;
+        const item = e.target.closest('.dm-sidebar-item');
+        if (item) {
+            // small delay so the sidebar's own click handler runs first
+            setTimeout(closeAllResponsiveDrawers, 0);
+        }
+    });
+
+    // Close on Escape
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeAllResponsiveDrawers();
+    });
+
+    // If user resizes from mobile to desktop while a drawer is open, clean up
+    window.addEventListener('resize', function () {
+        if (!_isMobileViewport()) closeAllResponsiveDrawers();
+    });
+});
+
+// Expose for inline handlers
+window.toggleNavDrawer = toggleNavDrawer;
+window.toggleMobileDrawer = toggleMobileDrawer;
+window.closeAllResponsiveDrawers = closeAllResponsiveDrawers;
+
 
 async function fetchStudyFiles(studyName) {
     if (!studyName) return;

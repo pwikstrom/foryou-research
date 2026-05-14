@@ -1,7 +1,12 @@
 <div id="admin" class="tab-pane">
 
+    <!-- Mobile-only menu bar (shown below 860px) -->
+    <div class="dm-mobile-menu-bar">
+        <button class="mobile-drawer-trigger" data-drawer-target="#admin > .dm-sidebar">Menu</button>
+    </div>
+
     <!-- Sidebar Navigation -->
-    <nav class="dm-sidebar">
+    <nav class="dm-sidebar" data-mobile-drawer="left">
         {% if user.can_access('tab.admin.new_users') %}
         <div class="dm-sidebar-item active" onclick="openAdminPage('admin-page-new-users', this)">
             New Users
