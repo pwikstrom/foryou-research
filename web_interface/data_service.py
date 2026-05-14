@@ -503,7 +503,7 @@ def get_viz_config():
 
 
 
-TIMELINE_SCHEMA_VERSION = 6
+TIMELINE_SCHEMA_VERSION = 7
 # Marker columns that prove a cached timeline parquet was written by the
 # current schema.  Any one missing → cache is stale and gets regenerated.
 # Bump TIMELINE_SCHEMA_VERSION and edit this set whenever the parquet
@@ -586,27 +586,17 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
          
     df[date_col] = pd.to_datetime(df[date_col]).astype('datetime64[ns]')
 
-    # Compute engagement-activity breakdown from the *unfiltered* df before
-    # the play-only universe filter strips fave/comment/follow rows. Each
-    # standalone activity row contributes one event under its (normalised)
-    # type. "following" is normalised to "follow"; "share" and "save" are
-    # passed through if present.
+    # Engagement-activity breakdown is now computed AFTER the universe
+    # filter, from the folded `extra_data` on play/observe rows. This
+    # keeps numerator (engagement counts) and denominator (filtered
+    # plays) in the same universe, so per-play engagement rates are
+    # well-defined. Engagement linked to a play but folded onto the
+    # lead-play's `extra_data` is the only signal we count — standalone
+    # engagement rows that aren't adjacent to a counted play are ignored
+    # on purpose to avoid the "more faves than plays" mismatch.
     ENGAGEMENT_TYPES = ('fave', 'share', 'comment', 'follow', 'save')
     ACTIVITY_TYPE_MAP = {'fave': 'fave', 'share': 'share', 'comment': 'comment',
                          'follow': 'follow', 'following': 'follow', 'save': 'save'}
-    engagement_breakdown_df: pd.DataFrame | None = None
-    if 'activity_type' in df.columns:
-        at_series = df['activity_type'].astype('string').str.lower().map(ACTIVITY_TYPE_MAP)
-        engage_mask = at_series.notna()
-        if engage_mask.any():
-            engage_df = pd.DataFrame({
-                'period': df.loc[engage_mask, date_col].dt.date.astype(str).values,
-                'atype': at_series[engage_mask].values
-            })
-            engagement_breakdown_df = (engage_df.groupby(['period', 'atype'])
-                                                 .size()
-                                                 .unstack(fill_value=0)
-                                                 .reset_index())
 
     # Construct 'machine_state' before the universe filter so the synthetic
     # state value is set on every play (the filter strips non-play rows next).
@@ -716,10 +706,29 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         agg_df['weighted_video_total'] = agg_df['weighted_video_total'].fillna(0.0).astype('float64')
 
         # --- Engagement activity breakdown per period ---
-        # Merge in the pre-filter breakdown (computed above before the
-        # play-mask filter stripped non-play activity rows).
-        if engagement_breakdown_df is not None:
-            agg_df = agg_df.merge(engagement_breakdown_df, on=group_col, how='left')
+        # Parse the folded `extra_data` string on each play/observe row
+        # ("fave", "fave,comment:hello", "follow:account_name") into
+        # activity types and count occurrences per period. "following"
+        # is normalised to "follow"; unknown types are ignored.
+        if 'extra_data' in temp_df.columns:
+            ed_mask = temp_df['extra_data'].notna()
+            if ed_mask.any():
+                ed_sub = temp_df.loc[ed_mask, [group_col, 'extra_data']]
+                # Split each cell into the leading activity-type tokens.
+                token_lists = ed_sub['extra_data'].astype('string').map(
+                    lambda s: [p.split(':', 1)[0].strip().lower() for p in str(s).split(',')]
+                )
+                exploded = pd.DataFrame({
+                    group_col: ed_sub[group_col].values.repeat(token_lists.map(len).values),
+                    'atype': [ACTIVITY_TYPE_MAP.get(t) for lst in token_lists for t in lst]
+                })
+                exploded = exploded[exploded['atype'].notna()]
+                if len(exploded) > 0:
+                    breakdown = (exploded.groupby([group_col, 'atype'])
+                                          .size()
+                                          .unstack(fill_value=0)
+                                          .reset_index())
+                    agg_df = agg_df.merge(breakdown, on=group_col, how='left')
         for t in ENGAGEMENT_TYPES:
             if t not in agg_df.columns:
                 agg_df[t] = 0

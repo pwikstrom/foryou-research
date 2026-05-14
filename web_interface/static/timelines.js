@@ -1539,7 +1539,11 @@ window.timelines = {
                 slicedBreakdown[t.key] = startIdx > 0 ? arr.slice(startIdx) : arr.slice();
             });
 
-            // Daily totals across all tracked types
+            // Per-day total plays — denominator for engagement-share %.
+            const rawPlayCounts = varData.daily_video_counts || [];
+            const slicedPlayCounts = startIdx > 0 ? rawPlayCounts.slice(startIdx) : rawPlayCounts.slice();
+
+            // Daily totals across all tracked types (raw counts).
             const dayCount = xVals.length;
             const dayTotals = new Array(dayCount).fill(0);
             for (let i = 0; i < dayCount; i++) {
@@ -1548,19 +1552,31 @@ window.timelines = {
                 });
             }
 
-            // Restrict to days with at least one engagement event
+            // Per-type share-of-plays for each day (percentage).
+            const slicedPctBreakdown = {};
+            ENGAGEMENT_TYPES.forEach(t => {
+                slicedPctBreakdown[t.key] = slicedBreakdown[t.key].map((cnt, i) => {
+                    const plays = slicedPlayCounts[i] || 0;
+                    return plays > 0 ? (cnt / plays) * 100 : 0;
+                });
+            });
+
+            // Restrict to days with at least one engagement event AND at
+            // least one play (otherwise the share is undefined).
             const edXVals = [];
-            const edTotals = [];
+            const edTotalPcts = [];
             const edDayIdx = [];
             for (let i = 0; i < dayCount; i++) {
-                if (dayTotals[i] > 0) {
+                if (dayTotals[i] > 0 && (slicedPlayCounts[i] || 0) > 0) {
                     edXVals.push(xVals[i]);
-                    edTotals.push(dayTotals[i]);
+                    let pctSum = 0;
+                    ENGAGEMENT_TYPES.forEach(t => { pctSum += slicedPctBreakdown[t.key][i] || 0; });
+                    edTotalPcts.push(pctSum);
                     edDayIdx.push(i);
                 }
             }
             const hasEngagement = edXVals.length > 0;
-            const maxEdCount = hasEngagement ? Math.max(...edTotals) : 0;
+            const maxEdCount = hasEngagement ? Math.max(...edTotalPcts) : 0;
 
             // Pixel-budgeted layout: the timeline plot itself is a fixed
             // height; adding the engagement strip and/or the categorical
@@ -1620,6 +1636,7 @@ window.timelines = {
                     domain: TIMELINE_DOMAIN
                 },
                 barmode: 'overlay',
+                hoverlabel: { align: 'left' },
                 showlegend: isCategorical,
                 legend: isCategorical ? {
                     orientation: 'h',
@@ -1677,19 +1694,21 @@ window.timelines = {
                 // day so the user sees the full breakdown regardless of
                 // which segment they hover.
                 const hoverByDay = edDayIdx.map(di => {
+                    const plays = slicedPlayCounts[di] || 0;
                     const parts = ENGAGEMENT_TYPES.map(tt => {
                         const c = slicedBreakdown[tt.key][di] || 0;
-                        return c > 0 ? `${tt.label}: ${c}` : null;
+                        const pct = slicedPctBreakdown[tt.key][di] || 0;
+                        return c > 0 ? `${tt.label}: ${c} (${pct.toFixed(1)}%)` : null;
                     }).filter(Boolean);
-                    return `${parts.join('<br>')}<br><b>Total: ${dayTotals[di]}</b>`;
+                    return `${parts.join('<br>')}<br><b>${dayTotals[di]} of ${plays} plays</b>`;
                 });
 
                 ENGAGEMENT_TYPES.forEach((t, tIdx) => {
-                    const yVals = edDayIdx.map(di => slicedBreakdown[t.key][di] || 0);
+                    const yVals = edDayIdx.map(di => slicedPctBreakdown[t.key][di] || 0);
                     const bases = edDayIdx.map(di => {
                         let off = 0;
                         for (let j = 0; j < tIdx; j++) {
-                            off += slicedBreakdown[ENGAGEMENT_TYPES[j].key][di] || 0;
+                            off += slicedPctBreakdown[ENGAGEMENT_TYPES[j].key][di] || 0;
                         }
                         return off;
                     });
