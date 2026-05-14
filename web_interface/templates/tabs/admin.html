@@ -37,6 +37,11 @@
             General
         </div>
         {% endif %}
+        {% if user.can_access('tab.admin.schema') %}
+        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-schema', this)">
+            Variable Schema
+        </div>
+        {% endif %}
     </nav>
 
     <!-- Content Area -->
@@ -75,6 +80,12 @@
         {% if user.can_access('tab.admin.general') %}
         <div id="admin-page-general" class="dm-page">
             {% include 'tabs/admin/general.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.schema') %}
+        <div id="admin-page-schema" class="dm-page">
+            {% include 'tabs/admin/var_schema.html' %}
         </div>
         {% endif %}
 
@@ -151,6 +162,7 @@
         'admin-page-annotations':  'tab.admin.annotations',
         'admin-page-reliability':  'tab.admin.reliability',
         'admin-page-general':      'tab.admin.general',
+        'admin-page-schema':       'tab.admin.schema',
     };
 
     function openAdminPage(pageId, clickedItem) {
@@ -175,27 +187,6 @@
 
         if (clickedItem) {
             clickedItem.classList.add('active');
-        }
-    }
-
-    async function reloadVarSchema() {
-        if (!confirm("Are you sure you want to reload the variable schema?")) return;
-
-        try {
-            const response = await fetch('/api/manage/schema/reload', {
-                method: 'POST'
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Failed to reload schema');
-            }
-
-            const data = await response.json();
-            alert(data.message || 'Schema reloaded successfully');
-
-        } catch (error) {
-            alert('Error: ' + error.message);
         }
     }
 

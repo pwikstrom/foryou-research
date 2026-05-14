@@ -57,6 +57,18 @@ scraper_backend = "ytdlp"
 
 
 ##########################################################################################
+# Feature flags
+##########################################################################################
+[features]
+
+# Admin "Variable Schema" tab + /api/manage/schema endpoints.
+# Off-switch only — the routes are also gated by the
+# `tab.admin.schema` permission.  Set false in an incident to disable
+# without redeploying.
+var_schema_admin = true
+
+
+##########################################################################################
 # data io
 ##########################################################################################
 [data_io]

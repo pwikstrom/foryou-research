@@ -1,8 +1,11 @@
 
 
 
+import ast
 import difflib
 import hashlib
+import json
+import logging
 import re
 import traceback
 from copy import copy
@@ -13,6 +16,8 @@ import pandas as pd
 
 from fyp.fyp_config import fyp_cf
 from fyp.types import convert_dtypes_to_pyarrow
+
+logger = logging.getLogger(__name__)
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 GENERIC_MAPPER = fyp_cf["labels"]["GENERIC_MAPPER"]
@@ -145,25 +150,485 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
 
 
 
+SEMANTIC_COLUMNS = (
+    "role",
+    "scale",
+    "mapper",
+    "ignore_strings",
+    "unable_to_detect_policy",
+    "recode_func",
+    "accepted_labels",
+    "allow_scalar_fallback",
+)
+
+VAR_SCHEMA_HASH_VERSION = "v2"
+
+
+VAR_SCHEMA_ROLES = ("factor", "group_factor", "feature", "standard", "skip", "raw")
+VAR_SCHEMA_SCALES = (
+    "categorical",
+    "collection",
+    "datetime",
+    "dichotomous",
+    "factor",
+    "interval",
+    "ordinal",
+    "ratio",
+    "raw",
+    "string",
+)
+VAR_SCHEMA_POLICIES = ("drop", "empty", "keep", "median", "zero")
+
+
+
+_RECODE_FUNC_REGISTRY: dict | None = None
+
+
+def get_recode_func_registry() -> dict:
+    """Return the allow-list of callables that ``recode_func`` may name.
+
+    Hard-coded rather than introspected so an audit of this dict is the
+    only place a reviewer needs to look to know what code can be invoked
+    from a CSV cell.  Lazily resolved after module body is fully loaded.
+    """
+    global _RECODE_FUNC_REGISTRY
+    if _RECODE_FUNC_REGISTRY is not None:
+        return _RECODE_FUNC_REGISTRY
+    allowed = (
+        "recode_call_to_action",
+        "recode_descriptions",
+        "recode_faces_age_estimate",
+        "recode_long_strings",
+        "recode_main_activity",
+        "recode_scene_sentiments",
+        "recode_scores",
+        "recode_speech_vs_music",
+        "recode_stringified_list",
+    )
+    import sys
+    this_module = sys.modules[__name__]
+    registry: dict = {}
+    for name in allowed:
+        func = getattr(this_module, name, None)
+        if callable(func):
+            registry[name] = func
+        else:
+            logger.warning("recode_func registry: %r is in the allow-list but not defined.", name)
+    _RECODE_FUNC_REGISTRY = registry
+    return registry
+
+
+
+_IGNORE_STRINGS_REF_RE = re.compile(
+    r"^\s*IRRELEVANT_WORDS\s*\+\s*(\[.*\])\s*$",
+    re.DOTALL,
+)
+
+
+
+def parse_recode_func(value):
+    """Resolve a ``recode_func`` cell to a callable, or None.
+
+    Strict registry lookup — never runs ``eval`` and never executes
+    arbitrary names.  Unknown / unparseable values become None and are
+    logged so the runtime keeps going (no recode applied) rather than
+    raising during pipeline import.
+    """
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(value).strip()
+    if not s:
+        return None
+    registry = get_recode_func_registry()
+    func = registry.get(s)
+    if func is None:
+        logger.warning(
+            "var_schema: unknown recode_func %r — treating as no-op. "
+            "Add the function to fyp.recode_variables and to the allow-list "
+            "in get_recode_func_registry().",
+            s,
+        )
+        return None
+    return func
+
+
+
+def parse_mapper(value):
+    """Resolve a ``mapper`` cell to a dict.
+
+    Allowed forms: empty / ``"{}"`` / NaN → ``{}``;
+    the literal token ``"GENERIC_MAPPER"`` → the configured generic mapper;
+    any other value must be a JSON object string (parsed with ``json.loads``).
+    No Python eval.
+    """
+    if value is None:
+        return {}
+    try:
+        if pd.isna(value):
+            return {}
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, dict):
+        return value
+    s = str(value).strip()
+    if not s or s == "{}":
+        return {}
+    if s == "GENERIC_MAPPER":
+        return GENERIC_MAPPER
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError as e:
+        logger.warning("var_schema: mapper value %r is not valid JSON (%s); using {}", s, e)
+        return {}
+    if not isinstance(parsed, dict):
+        logger.warning("var_schema: mapper value %r is not a JSON object; using {}", s)
+        return {}
+    return parsed
+
+
+
+def parse_ignore_strings(value):
+    """Resolve an ``ignore_strings`` cell to a list of strings.
+
+    Allowed forms (tried in order):
+      1. empty / ``"[]"`` / NaN → ``[]``
+      2. JSON array  →  parsed list
+      3. ``IRRELEVANT_WORDS + [<python_list_literal>]`` (legacy shape used
+         in five rows of the existing CSV) → ``IRRELEVANT_WORDS`` + the
+         literal list parsed with ``ast.literal_eval``
+      4. plain Python list literal (no names) → ``ast.literal_eval``
+
+    No general ``eval``: only ``ast.literal_eval`` and ``json.loads``,
+    plus a single hard-coded name binding (``IRRELEVANT_WORDS``).
+    """
+    if value is None:
+        return []
+    try:
+        if pd.isna(value):
+            return []
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, list):
+        return value
+    s = str(value).strip()
+    if not s or s == "[]":
+        return []
+    # 2. JSON array
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, list):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    # 3. Legacy IRRELEVANT_WORDS + [literal]
+    m = _IGNORE_STRINGS_REF_RE.match(s)
+    if m:
+        try:
+            extra = ast.literal_eval(m.group(1))
+            if isinstance(extra, list):
+                return list(IRRELEVANT_WORDS) + extra
+        except (ValueError, SyntaxError) as e:
+            logger.warning(
+                "var_schema: ignore_strings legacy form failed to parse for %r: %s",
+                s,
+                e,
+            )
+            return []
+    # 4. Plain Python list literal
+    try:
+        parsed = ast.literal_eval(s)
+        if isinstance(parsed, list):
+            return parsed
+    except (ValueError, SyntaxError):
+        pass
+    logger.warning("var_schema: ignore_strings value %r could not be parsed; using []", s)
+    return []
+
+
+
+def parse_accepted_labels(value):
+    """Resolve an ``accepted_labels`` cell to a list of strings.
+
+    Allowed forms:
+      1. empty / NaN → ``[]``
+      2. JSON array
+      3. legacy bareword form ``[a, b, c]`` — comma-split, stripped
+
+    No eval.  Used only by Gemini annotation pre-flight checks
+    (see :func:`fyp.machine_annotation`); never feeds the recode pipeline.
+    """
+    if value is None:
+        return []
+    try:
+        if pd.isna(value):
+            return []
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, list):
+        return value
+    s = str(value).strip()
+    if not s:
+        return []
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, list):
+            return [str(x) for x in parsed]
+    except json.JSONDecodeError:
+        pass
+    # Legacy bareword form: [item, item, item]
+    if s.startswith("[") and s.endswith("]"):
+        inner = s[1:-1]
+        if not inner.strip():
+            return []
+        return [tok.strip() for tok in inner.split(",") if tok.strip()]
+    logger.warning("var_schema: accepted_labels value %r could not be parsed; using []", s)
+    return []
+
+
+
+class VarSchemaError(dict):
+    """A single validation error.
+
+    Dict-like so the API layer can ``jsonify`` it directly; the fields
+    are stable: ``row``, ``variable_name``, ``column``, ``value``, ``message``.
+    """
+
+    def __init__(self, row: int, variable_name, column: str, value, message: str):
+        super().__init__(
+            row=int(row) if row is not None else None,
+            variable_name=None if variable_name is None else str(variable_name),
+            column=column,
+            value=None if value is None else str(value),
+            message=message,
+        )
+
+
+
+def _is_blank(value) -> bool:
+    if value is None:
+        return True
+    try:
+        if pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip() == ""
+
+
+
+def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
+    """Return a list of structured errors describing schema rows that
+    would misbehave at runtime.  Empty list ⇒ schema is safe to save.
+
+    Checks (in row order):
+      * ``variable_name`` present and unique
+      * ``role`` ∈ ``VAR_SCHEMA_ROLES`` (blank allowed)
+      * ``scale`` ∈ ``VAR_SCHEMA_SCALES`` (blank allowed)
+      * ``unable_to_detect_policy`` ∈ ``VAR_SCHEMA_POLICIES`` (blank allowed)
+      * ``recode_func`` is empty or names a callable in
+        :func:`get_recode_func_registry`
+      * ``mapper`` is empty / ``"{}"`` / ``"GENERIC_MAPPER"`` / JSON object
+      * ``ignore_strings`` is parseable by :func:`parse_ignore_strings`
+        (JSON array, ``IRRELEVANT_WORDS + [...]`` legacy form, or plain list literal)
+      * ``accepted_labels`` is empty / JSON array / legacy bareword list
+      * ``sortable``, ``web_filter_prio``, ``web_timeline_prio``,
+        ``web_viz_prio``, ``web_display_prio`` parse as integers when set
+      * ``web_viz_bins`` is empty, a positive integer, or a pipe-separated
+        list of numeric edges (matches :func:`get_viz_config`)
+      * ``searchable`` ∈ ``{"", "1"}``
+      * ``web_viz_log`` ∈ ``{"", "yes"}``
+      * ``web_viz_multi_label`` ∈ ``{"", "yes", "no"}``
+    """
+    errors: list[VarSchemaError] = []
+    if df is None or df.empty:
+        return errors
+
+    if "variable_name" not in df.columns:
+        errors.append(VarSchemaError(0, None, "variable_name", None,
+                                     "variable_name column is missing"))
+        return errors
+
+    seen_names: dict[str, int] = {}
+    for idx, row in df.iterrows():
+        row_idx = int(idx) if isinstance(idx, (int, np.integer)) else 0
+        name_raw = row.get("variable_name")
+        if _is_blank(name_raw):
+            errors.append(VarSchemaError(row_idx, None, "variable_name", name_raw,
+                                         "variable_name is required"))
+            continue
+        name = str(name_raw).strip()
+        if name in seen_names:
+            errors.append(VarSchemaError(row_idx, name, "variable_name", name,
+                                         f"duplicate variable_name (first seen on row {seen_names[name]})"))
+        else:
+            seen_names[name] = row_idx
+
+        # role
+        role = row.get("role")
+        if not _is_blank(role) and str(role).strip() not in VAR_SCHEMA_ROLES:
+            errors.append(VarSchemaError(row_idx, name, "role", role,
+                                         f"unknown role; expected one of {sorted(VAR_SCHEMA_ROLES)} or blank"))
+
+        # scale
+        scale = row.get("scale")
+        if not _is_blank(scale) and str(scale).strip() not in VAR_SCHEMA_SCALES:
+            errors.append(VarSchemaError(row_idx, name, "scale", scale,
+                                         f"unknown scale; expected one of {sorted(VAR_SCHEMA_SCALES)} or blank"))
+
+        # unable_to_detect_policy
+        policy = row.get("unable_to_detect_policy")
+        if not _is_blank(policy) and str(policy).strip() not in VAR_SCHEMA_POLICIES:
+            errors.append(VarSchemaError(row_idx, name, "unable_to_detect_policy", policy,
+                                         f"unknown policy; expected one of {sorted(VAR_SCHEMA_POLICIES)} or blank"))
+
+        # recode_func
+        rf = row.get("recode_func")
+        if not _is_blank(rf):
+            if str(rf).strip() not in get_recode_func_registry():
+                errors.append(VarSchemaError(row_idx, name, "recode_func", rf,
+                                             "recode_func is not in the allow-list; "
+                                             "add it to get_recode_func_registry() in fyp.recode_variables"))
+
+        # mapper
+        mp = row.get("mapper")
+        if not _is_blank(mp):
+            s = str(mp).strip()
+            if s not in ("{}", "GENERIC_MAPPER"):
+                try:
+                    parsed = json.loads(s)
+                    if not isinstance(parsed, dict):
+                        errors.append(VarSchemaError(row_idx, name, "mapper", mp,
+                                                     "mapper must be a JSON object, {}, or the literal 'GENERIC_MAPPER'"))
+                except json.JSONDecodeError as e:
+                    errors.append(VarSchemaError(row_idx, name, "mapper", mp,
+                                                 f"mapper is not valid JSON: {e}"))
+
+        # ignore_strings
+        ig = row.get("ignore_strings")
+        if not _is_blank(ig):
+            s = str(ig).strip()
+            if s != "[]":
+                ok = False
+                try:
+                    parsed = json.loads(s)
+                    ok = isinstance(parsed, list)
+                except json.JSONDecodeError:
+                    pass
+                if not ok and _IGNORE_STRINGS_REF_RE.match(s):
+                    try:
+                        extra = ast.literal_eval(_IGNORE_STRINGS_REF_RE.match(s).group(1))
+                        ok = isinstance(extra, list)
+                    except (ValueError, SyntaxError):
+                        ok = False
+                if not ok:
+                    try:
+                        parsed = ast.literal_eval(s)
+                        ok = isinstance(parsed, list)
+                    except (ValueError, SyntaxError):
+                        ok = False
+                if not ok:
+                    errors.append(VarSchemaError(row_idx, name, "ignore_strings", ig,
+                                                 "ignore_strings must be a JSON array, [], or "
+                                                 "'IRRELEVANT_WORDS + [<list literal>]'"))
+
+        # accepted_labels
+        al = row.get("accepted_labels")
+        if not _is_blank(al):
+            s = str(al).strip()
+            ok = False
+            try:
+                parsed = json.loads(s)
+                ok = isinstance(parsed, list)
+            except json.JSONDecodeError:
+                pass
+            if not ok and s.startswith("[") and s.endswith("]"):
+                ok = True  # legacy bareword form
+            if not ok:
+                errors.append(VarSchemaError(row_idx, name, "accepted_labels", al,
+                                             "accepted_labels must be a JSON array or a legacy bareword list"))
+
+        # integer-priority columns
+        for col in ("sortable", "web_filter_prio", "web_timeline_prio",
+                    "web_viz_prio", "web_display_prio"):
+            val = row.get(col)
+            if _is_blank(val):
+                continue
+            try:
+                int(str(val).strip())
+            except ValueError:
+                errors.append(VarSchemaError(row_idx, name, col, val,
+                                             f"{col} must be an integer when set"))
+
+        # web_viz_bins (int or pipe-separated numeric edges)
+        bins = row.get("web_viz_bins")
+        if not _is_blank(bins):
+            s = str(bins).strip()
+            if "|" in s:
+                for tok in s.split("|"):
+                    try:
+                        float(tok)
+                    except ValueError:
+                        errors.append(VarSchemaError(row_idx, name, "web_viz_bins", bins,
+                                                     "web_viz_bins pipe-list must contain only numbers"))
+                        break
+            else:
+                try:
+                    n = int(s)
+                    if n <= 0:
+                        errors.append(VarSchemaError(row_idx, name, "web_viz_bins", bins,
+                                                     "web_viz_bins must be a positive integer"))
+                except ValueError:
+                    errors.append(VarSchemaError(row_idx, name, "web_viz_bins", bins,
+                                                 "web_viz_bins must be an integer or 'a|b|c' edges"))
+
+        # boolean-shaped columns
+        for col, allowed in (
+            ("searchable", {"", "1"}),
+            ("web_viz_log", {"", "yes"}),
+            ("web_viz_multi_label", {"", "yes", "no"}),
+        ):
+            val = row.get(col)
+            if _is_blank(val):
+                continue
+            if str(val).strip() not in allowed:
+                errors.append(VarSchemaError(row_idx, name, col, val,
+                                             f"{col} must be one of {sorted(allowed)} or blank"))
+
+    return errors
+
+
+
 def compute_var_schema_hash() -> str:
     """Return a deterministic SHA-256 hash of the active variable schema.
 
-    Used by the study-refresh fingerprint machinery to detect when the
-    recoding rules have changed and a full rebuild of `{study}_recoded.parquet`
-    is required. The schema is hashed by serialising the sorted-by-index CSV
-    form of `fyp_cf['var_schema']` so the digest is stable across pandas
-    dtype-backend variations and irrespective of row order in the source CSV.
+    Only the columns that actually drive recoding (``SEMANTIC_COLUMNS``) plus
+    ``variable_name`` are hashed.  Cosmetic / web-UI columns
+    (``web_*``, ``sortable``, ``searchable``, ``display_name``, ``section``,
+    ``description``) are excluded so admin tweaks to presentation never
+    invalidate cached study parquets.
+
+    Output is prefixed with ``VAR_SCHEMA_HASH_VERSION`` so digests from
+    different hash generations cannot collide.  Row order, column order, and
+    pandas dtype-backend variations do not affect the result.
     """
 
     if "var_schema" not in fyp_cf or fyp_cf["var_schema"] is None or fyp_cf["var_schema"].empty:
-        return "empty"
+        return f"{VAR_SCHEMA_HASH_VERSION}:empty"
 
     schema = fyp_cf["var_schema"].copy()
+    keep = ["variable_name"] + [c for c in SEMANTIC_COLUMNS if c in schema.columns]
+    schema = schema[[c for c in keep if c in schema.columns]]
     if "variable_name" in schema.columns:
         schema = schema.sort_values("variable_name").reset_index(drop=True)
     schema = schema.reindex(sorted(schema.columns), axis=1)
     payload = schema.to_csv(index=False).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"{VAR_SCHEMA_HASH_VERSION}:{digest}"
 
 
 
@@ -911,14 +1376,6 @@ def recode_events_df(
             return s.astype(str).nunique()
 
 
-    def _try_eval(s):
-
-        try:
-            return eval(s)
-        except Exception:
-            return s
-
-
     print("Recoding variables, implementing missing data policy and a whole range of other things...")
 
     # This thing now only works with a study dataset as input
@@ -938,8 +1395,15 @@ def recode_events_df(
     var_schema.set_index("variable_name", inplace=True)
 
 
-    # this is where evaluation of the test based variables in the csv takes place
-    var_schema[['mapper','ignore_strings','recode_func']] = var_schema[['mapper','ignore_strings','recode_func']].map(_try_eval)
+    # Strict parsers — never eval.  See parse_* helpers above for the
+    # grammar each column accepts.  Unknown values become safe defaults
+    # (None / {} / []) with a logged warning.
+    if "mapper" in var_schema.columns:
+        var_schema["mapper"] = var_schema["mapper"].map(parse_mapper)
+    if "ignore_strings" in var_schema.columns:
+        var_schema["ignore_strings"] = var_schema["ignore_strings"].map(parse_ignore_strings)
+    if "recode_func" in var_schema.columns:
+        var_schema["recode_func"] = var_schema["recode_func"].map(parse_recode_func)
 
     fyp_factors, _ = get_factors_and_features_from_var_schema(some_events_df = cool_events, verbose = verbose)
 

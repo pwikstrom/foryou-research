@@ -287,18 +287,52 @@ def _connect_to_google(cf, verbose=False):
 
 
 
+def _var_schema_path(cf) -> str:
+    """Return the canonical path (local or ``gs://``) for ``var_schema.csv``.
+
+    Single source of truth used by every read/write/freshness call so the
+    web server, task runner, and migration scripts can never disagree.
+    """
+    if cf['data_io']['use_gcs_for_data']:
+        return f"gs://{cf['data_io']['GCS_bucket_name']}/data/var_schema.csv"
+    return os.path.join(cf['paths']['local_data'], "var_schema.csv")
+
+
+
+def _var_schema_source_fingerprint(cf) -> str | None:
+    """Cheap O(1) fingerprint of the on-disk schema source.
+
+    Local: ``"{mtime_ns}:{size}"``.
+    GCS: the blob's ``generation`` number (changes on every overwrite).
+    Returns None if the source can't be reached (logged elsewhere).
+    """
+    path = _var_schema_path(cf)
+    try:
+        if path.startswith("gs://"):
+            bucket = cf['data_io'].get('bucket')
+            if bucket is None:
+                return None
+            blob = bucket.get_blob(path[len(f"gs://{bucket.name}/"):])
+            return None if blob is None else str(blob.generation)
+        st = os.stat(path)
+        return f"{st.st_mtime_ns}:{st.st_size}"
+    except Exception:
+        return None
+
+
+
 def load_var_schema(cf, verbose=False):
     # Load variable schema
+    var_schema_path = _var_schema_path(cf)
     if cf['data_io']['use_gcs_for_data']:
         if verbose:
             print("Loading variable schema from GCS", end="", flush=True)
-        var_schema_path = f"gs://{cf['data_io']['GCS_bucket_name']}/data/var_schema.csv"
     else:
         if verbose:
             print("Loading variable schema from local disk", end="", flush=True)
-        var_schema_path = os.path.join(cf['paths']['local_data'], "var_schema.csv")
     try:
         cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow", encoding="utf-8")
+        cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
         if verbose:
             print(f" - OK. Shape: {cf['var_schema'].shape}")
     except Exception:
@@ -329,7 +363,137 @@ def load_var_schema(cf, verbose=False):
                 "web_viz_prio", "web_viz_log", "web_viz_bins", "web_display_prio",
                 "description", "accepted_labels"
             ])
+        cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
     return cf
+
+
+
+class VarSchemaConflict(Exception):
+    """Raised when a save is attempted with a stale etag."""
+
+
+
+def _read_var_schema_bytes(cf) -> bytes:
+    """Return the raw bytes of ``var_schema.csv`` from its canonical source."""
+    path = _var_schema_path(cf)
+    if path.startswith("gs://"):
+        bucket = cf['data_io'].get('bucket')
+        if bucket is None:
+            raise FileNotFoundError(f"GCS bucket not configured; cannot read {path}")
+        blob_path = path[len(f"gs://{bucket.name}/"):]
+        blob = bucket.blob(blob_path)
+        return blob.download_as_bytes()
+    with open(path, "rb") as f:
+        return f.read()
+
+
+
+def compute_var_schema_etag(cf=None) -> str:
+    """SHA-256 of the on-disk schema bytes — opaque concurrency token."""
+    import hashlib
+    if cf is None:
+        cf = fyp_cf
+    try:
+        data = _read_var_schema_bytes(cf)
+    except Exception:
+        return "missing"
+    return hashlib.sha256(data).hexdigest()
+
+
+
+def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
+                    cf=None, verbose: bool = False) -> dict:
+    """Persist ``df`` to the canonical ``var_schema.csv`` location.
+
+    1. If ``expected_etag`` is given, verify it matches the current on-disk
+       etag.  Mismatch raises :class:`VarSchemaConflict` and the file is
+       left untouched — caller is expected to surface a 409 to the admin.
+    2. Write a timestamped backup ``var_schema_YYYYMMDDTHHMMSSZ.csv``
+       alongside the live file (best-effort; failure does not abort save).
+    3. Write the new CSV in place.
+    4. Reload into ``cf['var_schema']`` so subsequent reads see the update.
+
+    Returns ``{"etag": new_etag, "fingerprint": new_fingerprint}``.
+    """
+    from datetime import datetime, timezone
+    if cf is None:
+        cf = fyp_cf
+
+    if expected_etag is not None:
+        current = compute_var_schema_etag(cf)
+        if current != expected_etag:
+            raise VarSchemaConflict(
+                f"var_schema etag mismatch: expected {expected_etag!r}, "
+                f"on-disk is {current!r}. Reload the editor and re-apply."
+            )
+
+    path = _var_schema_path(cf)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    # Best-effort timestamped backup of the *current* live file (not the
+    # incoming df) so we always have an "undo" target.
+    try:
+        existing = _read_var_schema_bytes(cf)
+        if path.startswith("gs://"):
+            bucket = cf['data_io'].get('bucket')
+            blob_path = path[len(f"gs://{bucket.name}/"):]
+            backup_path = blob_path.replace("var_schema.csv",
+                                            f"var_schema_{timestamp}.csv")
+            bucket.blob(backup_path).upload_from_string(existing,
+                                                       content_type="text/csv")
+        else:
+            backup_path = path.replace("var_schema.csv",
+                                       f"var_schema_{timestamp}.csv")
+            with open(backup_path, "wb") as f:
+                f.write(existing)
+        if verbose:
+            print(f"Wrote backup to {backup_path}")
+    except Exception as e:
+        if verbose:
+            print(f"Backup write failed (continuing): {e}")
+
+    # Atomic-ish write: local goes through a temp file + os.replace;
+    # GCS overwrites are atomic at the blob level.
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    if path.startswith("gs://"):
+        bucket = cf['data_io'].get('bucket')
+        blob_path = path[len(f"gs://{bucket.name}/"):]
+        bucket.blob(blob_path).upload_from_string(csv_bytes, content_type="text/csv")
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "wb") as f:
+            f.write(csv_bytes)
+        os.replace(tmp_path, path)
+
+    load_var_schema(cf, verbose=False)
+    return {
+        "etag": compute_var_schema_etag(cf),
+        "fingerprint": cf.get("_var_schema_fingerprint"),
+    }
+
+
+
+def reload_var_schema_if_changed(cf=None, verbose: bool = False) -> bool:
+    """Re-read ``var_schema.csv`` only if its source has changed on disk.
+
+    Designed to be called at the entry point of every Cloud Task worker so
+    long-lived task-runner containers don't keep using a stale in-memory
+    schema after an admin edit on the web service.  Cheap (one stat / one
+    GCS metadata call) so it's safe to call on every task.
+
+    Returns True if the schema was reloaded, False otherwise.
+    """
+    if cf is None:
+        cf = fyp_cf
+    current = _var_schema_source_fingerprint(cf)
+    cached = cf.get("_var_schema_fingerprint")
+    if current is not None and current == cached:
+        return False
+    if verbose:
+        print(f"var_schema fingerprint changed ({cached!r} → {current!r}); reloading.")
+    load_var_schema(cf, verbose=verbose)
+    return True
 
 
 
