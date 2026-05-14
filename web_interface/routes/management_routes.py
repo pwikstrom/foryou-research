@@ -437,35 +437,38 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
 
 @management_bp.route('/api/manage/studies', methods=['GET'])
 @login_required
-@permission_required('tab.data_management.studies')
+@permission_required('tab.data_management.studies', 'tab.my_studies')
 def list_studies():
     # Always reload from disk/GCS to pick up changes made by the task-runner service
     init_study_defs()
 
     studies = fyp_cf['study_defs']
 
-    # Convert to list with name included
     studies_list = []
-    
-    # User Access Logic
-    # Admin sees everything.
-    # Others (Researcher/Viewer) see only studies where they are listed in USER_ACCESS
-    is_admin = current_user.is_admin()
-    username = current_user.username
-    
+
+    # Visibility:
+    #   - Admin / users with the Define Studies sub-page permission are "study
+    #     managers" — they see every study regardless of per-study USER_ACCESS.
+    #   - Users who only have the My Studies tab see the curated subset: studies
+    #     where their role appears in USER_ACCESS (or USER_ACCESS contains "all").
+    from web_interface.permissions import user_has_permission
+    is_manager = (
+        current_user.is_admin()
+        or user_has_permission(current_user, 'tab.data_management.studies')
+    )
+
     for name, config in studies.items():
-        # Ensure name is in config
         config['STUDY_NAME'] = name
-        
-        if is_admin:
+
+        if is_manager:
             studies_list.append(config)
         else:
-            # Check USER_ACCESS for this study
             user_access = config.get("USER_ACCESS", [])
-            # user_access should be a list of ROLES (e.g. ['viewer', 'researcher', 'student']) or ['all']
-            if isinstance(user_access, list) and (current_user.role in user_access or 'all' in user_access):
+            if isinstance(user_access, list) and (
+                current_user.role in user_access or 'all' in user_access
+            ):
                 studies_list.append(config)
-        
+
     return jsonify(studies_list)
 
 
