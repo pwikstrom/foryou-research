@@ -61,14 +61,14 @@ def migrate(dry_run: bool = True, verbose: bool = True) -> dict:
         print(f"Target hash: {new_hash}")
         print(f"Mode: {'DRY RUN' if dry_run else 'APPLY'}")
 
-    files = data_io.listdir(storage_location="recoded")
+    files = data_io.listdir(storage_location="cache")
     sidecars = [f for f in files if f.endswith("_recoded.meta.json")]
     if verbose:
         print(f"Found {len(sidecars)} sidecar files.")
 
     for fname in sidecars:
         try:
-            sidecar = data_io.load_json(storage_location="recoded", filename=fname)
+            sidecar = data_io.load_json(storage_location="cache", filename=fname)
         except Exception as e:
             counts["errors"] += 1
             print(f"  ! {fname}: load failed: {e}")
@@ -94,7 +94,7 @@ def migrate(dry_run: bool = True, verbose: bool = True) -> dict:
         print(f"  → {fname}: {action} {current[:8]}... → {new_hash}")
         if not dry_run:
             sidecar["var_schema_hash"] = new_hash
-            data_io.save_json(data=sidecar, storage_location="recoded", filename=fname)
+            data_io.save_json(data=sidecar, storage_location="cache", filename=fname)
 
     print()
     print("Summary:")

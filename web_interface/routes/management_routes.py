@@ -1824,7 +1824,7 @@ def _affected_studies_for_hash(new_hash: str) -> list[str]:
     silently skipped — the regular refresh path will rebuild them anyway.
     """
     try:
-        files = data_io.listdir(storage_location="recoded")
+        files = data_io.listdir(storage_location="cache")
     except Exception:
         return []
     affected: list[str] = []
@@ -1833,7 +1833,7 @@ def _affected_studies_for_hash(new_hash: str) -> list[str]:
             continue
         study_name = fname[: -len("_recoded.meta.json")]
         try:
-            sidecar = data_io.load_json(storage_location="recoded", filename=fname)
+            sidecar = data_io.load_json(storage_location="cache", filename=fname)
         except Exception:
             continue
         if str(sidecar.get("var_schema_hash") or "") != new_hash:
