@@ -28,23 +28,28 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.video_analysis",                   "label": "Video Analysis"},
     {"key": "tab.correlations",                     "label": "Correlations"},
     {"key": "tab.my_studies",                       "label": "My Studies"},
-    {"key": "tab.data_management",                  "label": "Data Management"},
-    {"key": "tab.data_management.ingestion",        "label": "  • Ingest Collections"},
-    {"key": "tab.data_management.edit_collections", "label": "  • Edit Collections"},
-    {"key": "tab.data_management.studies",          "label": "  • Define Studies"},
-    {"key": "tab.data_management.enrichment",       "label": "  • Scrape & Annotate"},
-    {"key": "tab.data_management.refresh",          "label": "  • Refresh Caches"},
-    {"key": "tab.admin",                            "label": "Admin"},
-    {"key": "tab.admin.new_users",                  "label": "  • New Users"},
-    {"key": "tab.admin.active_users",               "label": "  • Active Users"},
-    {"key": "tab.admin.roles",                      "label": "  • User Roles"},
-    {"key": "tab.admin.annotations",                "label": "  • User Annotations"},
-    {"key": "tab.admin.reliability",                "label": "  • Inter-coder Reliability"},
-    {"key": "tab.admin.general",                    "label": "  • General"},
+    {"key": "tab.data_management.ingestion",        "label": "Data Management — Ingest Collections"},
+    {"key": "tab.data_management.edit_collections", "label": "Data Management — Edit Collections"},
+    {"key": "tab.data_management.studies",          "label": "Data Management — Define Studies"},
+    {"key": "tab.data_management.enrichment",       "label": "Data Management — Scrape & Annotate"},
+    {"key": "tab.data_management.refresh",          "label": "Data Management — Refresh Caches"},
+    {"key": "tab.admin.new_users",                  "label": "Admin — New Users"},
+    {"key": "tab.admin.active_users",               "label": "Admin — Active Users"},
+    {"key": "tab.admin.roles",                      "label": "Admin — User Roles"},
+    {"key": "tab.admin.annotations",                "label": "Admin — User Annotations"},
+    {"key": "tab.admin.reliability",                "label": "Admin — Inter-coder Reliability"},
+    {"key": "tab.admin.general",                    "label": "Admin — General"},
 ]
 
 
 ALL_PERMISSION_KEYS: set[str] = {entry["key"] for entry in PERMISSION_CATALOG}
+
+
+# Parent-tab keys are implicitly granted when any of their sub-pages is granted —
+# the matrix UI hides them and only stores sub-page permissions, but server-side
+# checks (Jinja, decorators) still ask about the parent. Keep this list in sync
+# with the sub-page prefixes in PERMISSION_CATALOG above.
+PARENT_TAB_KEYS: set[str] = {"tab.data_management", "tab.admin"}
 
 
 # Default permission set assigned to any non-admin role created in legacy
@@ -65,11 +70,13 @@ def user_has_permission(user, perm_key: str) -> bool:
     """Return True if ``user`` is allowed to access ``perm_key``.
 
     Admin role bypasses all checks. A role whose stored permissions include
-    ``"*"`` also has implicit full access.
+    ``"*"`` also has implicit full access. Parent-tab keys (``tab.admin`` and
+    ``tab.data_management``) are implicitly granted whenever any of their
+    sub-pages is granted, so the matrix UI only needs to expose sub-page rows.
 
     Args:
         user: A ``User`` instance (or anything with ``is_admin()`` and ``role``).
-        perm_key: A key from ``ALL_PERMISSION_KEYS``.
+        perm_key: A key from ``ALL_PERMISSION_KEYS`` (or a parent-tab key).
 
     Returns:
         True if the user can access the permission, False otherwise.
@@ -85,7 +92,12 @@ def user_has_permission(user, perm_key: str) -> bool:
     perms = role_manager.get_role_permissions(getattr(user, "role", None))
     if "*" in perms:
         return True
-    return perm_key in perms
+    if perm_key in perms:
+        return True
+    if perm_key in PARENT_TAB_KEYS:
+        prefix = perm_key + "."
+        return any(p.startswith(prefix) for p in perms)
+    return False
 
 
 
@@ -93,20 +105,29 @@ def user_has_permission(user, perm_key: str) -> bool:
 def get_user_permissions(user) -> list[str]:
     """Return the effective permission list for ``user``.
 
-    Admin and ``"*"`` roles expand to the full catalog. Used by the template
-    to inject ``window.USER_PERMS`` for client-side defensive checks.
+    Admin and ``"*"`` roles expand to the full catalog plus the parent-tab
+    keys. For regular roles, returns each sub-page they hold plus the parent
+    tab key for every parent that has at least one sub-page granted — so JS
+    checks against ``window.USER_PERMS`` work without needing to know the
+    implicit-grant rule.
     """
     if user is None or not getattr(user, "is_authenticated", False):
         return []
     if hasattr(user, "is_admin") and user.is_admin():
-        return sorted(ALL_PERMISSION_KEYS)
+        return sorted(ALL_PERMISSION_KEYS | PARENT_TAB_KEYS)
 
     from web_interface.auth import role_manager
 
     perms = role_manager.get_role_permissions(getattr(user, "role", None))
     if "*" in perms:
-        return sorted(ALL_PERMISSION_KEYS)
-    return [p for p in perms if p in ALL_PERMISSION_KEYS]
+        return sorted(ALL_PERMISSION_KEYS | PARENT_TAB_KEYS)
+
+    effective = {p for p in perms if p in ALL_PERMISSION_KEYS}
+    for parent in PARENT_TAB_KEYS:
+        prefix = parent + "."
+        if any(p.startswith(prefix) for p in effective):
+            effective.add(parent)
+    return sorted(effective)
 
 
 

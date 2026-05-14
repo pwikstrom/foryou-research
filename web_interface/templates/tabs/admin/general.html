@@ -1,9 +1,41 @@
 <!-- General sub-page -->
 <h2 style="margin: 0 0 16px 0;">General</h2>
 
-<div style="margin: 16px 0;">
+<!-- Signup defaults -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 12px 0; color: var(--color-text-primary);">New user signups</h3>
+
+    <div style="margin-bottom: 12px;">
+        <label class="meta-tooltip"
+            data-tooltip="When on, new signups are inactive until an authorised user approves them on the New Users page."
+            style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="setting-new-user-approval"
+                onchange="saveNewUserApprovalSetting(this)" disabled />
+            <span class="text-sm">Require approval for new user signups</span>
+            <span id="setting-new-user-approval-status" class="text-xs"
+                style="color: var(--color-text-muted); margin-left: 8px;"></span>
+        </label>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px;">
+        <label for="setting-default-new-user-role" class="text-sm" style="color: var(--color-text-primary);">
+            Default role for new users
+        </label>
+        <select id="setting-default-new-user-role"
+            onchange="saveDefaultNewUserRoleSetting(this)" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); min-width: 160px;">
+            <!-- Populated dynamically -->
+        </select>
+        <span id="setting-default-new-user-role-status" class="text-xs"
+            style="color: var(--color-text-muted); margin-left: 4px;"></span>
+    </div>
+</section>
+
+<!-- System -->
+<section>
+    <h3 class="text-body" style="margin: 0 0 12px 0; color: var(--color-text-primary);">System</h3>
     <button onclick="reloadVarSchema()" class="btn-discreet"
         style="padding: 6px 12px;">
         Reload variable schema
     </button>
-</div>
+</section>

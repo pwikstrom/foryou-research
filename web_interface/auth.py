@@ -209,14 +209,13 @@ class User(UserMixin):
         """Return True if this user has access to ``perm_key``.
 
         Admin role always passes. Other roles must have ``perm_key`` (or
-        ``"*"``) in their stored permission list.
+        ``"*"``) in their stored permission list. Parent-tab keys (``tab.admin``,
+        ``tab.data_management``) are implicitly granted whenever any of their
+        sub-pages is granted — delegates to ``permissions.user_has_permission``.
         """
-        if self.is_admin():
-            return True
-        perms = role_manager.get_role_permissions(self.role)
-        if "*" in perms:
-            return True
-        return perm_key in perms
+        # Imported here to avoid a circular import at module load.
+        from web_interface.permissions import user_has_permission
+        return user_has_permission(self, perm_key)
 
     def to_dict(self):
         return {

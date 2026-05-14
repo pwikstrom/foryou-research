@@ -12,6 +12,8 @@ from fyp.fyp_config import fyp_cf
 
 from ..admin_settings import (
     DEFAULTS as ADMIN_SETTINGS_DEFAULTS,
+    SETTING_TYPES as ADMIN_SETTING_TYPES,
+    get_default_new_user_role,
     get_new_user_approval_required,
     load_admin_settings,
     save_admin_settings,
@@ -88,7 +90,7 @@ def signup():
         # If approval is required, approved=False. If not required, approved=True.
         is_approved = not require_approval
         
-        success, msg = user_manager.add_user(username, password, auth.ROLE_VIEWER, approved=is_approved)
+        success, msg = user_manager.add_user(username, password, get_default_new_user_role(), approved=is_approved)
         if success:
             if is_approved:
                 flash("Account created! You can now login.")
@@ -193,11 +195,13 @@ def api_admin_users():
         data = request.json
         username = data.get('username')
         password = data.get('password')
-        role = data.get('role', auth.ROLE_VIEWER)
-        
+        # Role is no longer admin-selectable per user; the configured default
+        # role applies to everyone (signups and admin-created users alike).
+        role = get_default_new_user_role()
+
         if not username or not password:
             return jsonify({"error": "Missing username or password"}), 400
-            
+
         try:
             validate_email(username, check_deliverability=False)
         except EmailNotValidError as e:
@@ -253,12 +257,22 @@ def api_admin_users():
              return jsonify({"error": msg}), 400
 
 @auth_bp.route('/api/admin/roles', methods=['GET', 'POST', 'DELETE'])
-@permission_required('tab.admin.roles')
+# GET is needed by any admin sub-page that lists or picks roles: New Users
+# (default-role label), Active Users (per-user role dropdown), General
+# (default-role setting dropdown), and Roles itself (the matrix UI).
+# Write methods (POST/DELETE) are still restricted to tab.admin.roles below.
+@permission_required('tab.admin.roles', 'tab.admin.active_users', 'tab.admin.new_users', 'tab.admin.general')
 def api_admin_roles():
+    from ..permissions import user_has_permission
+
     if request.method == 'GET':
         return jsonify(auth.role_manager.get_roles_with_permissions())
 
-    elif request.method == 'POST':
+    # POST / DELETE manage the role catalog itself — only the Roles sub-page.
+    if not user_has_permission(current_user, 'tab.admin.roles'):
+        return jsonify({"error": "Forbidden"}), 403
+
+    if request.method == 'POST':
         data = request.json
         role_name = data.get('role_name')
         if not role_name:
@@ -311,13 +325,20 @@ def api_admin_role_permissions(role_name):
     return jsonify({"error": msg}), 400
 
 @auth_bp.route('/api/admin/settings', methods=['GET', 'PUT'])
-@permission_required('tab.admin.general')
+# GET is also useful to the New Users sub-page (it needs to display the
+# configured default role for new signups). PUT stays restricted to General
+# via the method-specific check below.
+@permission_required('tab.admin.general', 'tab.admin.new_users')
 def api_admin_settings():
     if request.method == 'GET':
         merged = {**ADMIN_SETTINGS_DEFAULTS, **load_admin_settings()}
         return jsonify({"settings": merged})
 
-    # PUT
+    # PUT — only the General sub-page can write settings.
+    from ..permissions import user_has_permission
+    if not user_has_permission(current_user, 'tab.admin.general'):
+        return jsonify({"error": "Forbidden"}), 403
+
     data = request.json or {}
     if not isinstance(data, dict):
         return jsonify({"error": "Body must be a JSON object"}), 400
@@ -327,9 +348,15 @@ def api_admin_settings():
     if unknown:
         return jsonify({"error": f"Unknown settings: {unknown}"}), 400
 
+    # Per-key type validation. Unknown-type keys default to bool to preserve
+    # the historical contract for any legacy boolean flag.
     for k, v in data.items():
-        if not isinstance(v, bool):
-            return jsonify({"error": f"Setting '{k}' must be a boolean"}), 400
+        expected = ADMIN_SETTING_TYPES.get(k, bool)
+        if not isinstance(v, expected):
+            return jsonify({"error": f"Setting '{k}' must be a {expected.__name__}"}), 400
+        # Extra check: the default-role setting must reference an existing role.
+        if k == "default_new_user_role" and not auth.role_manager.role_exists(v):
+            return jsonify({"error": f"Unknown role: {v!r}"}), 400
 
     current = load_admin_settings()
     current.update(data)

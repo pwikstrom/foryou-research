@@ -12,6 +12,16 @@ SETTINGS_FILENAME = "admin_settings.json"
 
 DEFAULTS: dict = {
     "new_user_admin_approval_required": False,
+    "default_new_user_role": "viewer",
+}
+
+
+# Per-key type for /api/admin/settings PUT validation. Keys not listed here
+# default to bool (legacy behaviour). Add an entry whenever a non-bool setting
+# is introduced so the route can validate it without growing a switch statement.
+SETTING_TYPES: dict = {
+    "new_user_admin_approval_required": bool,
+    "default_new_user_role": str,
 }
 
 
@@ -58,3 +68,24 @@ def get_setting(key: str):
 def get_new_user_approval_required() -> bool:
     """Whether new signups must be approved by an admin before activation."""
     return bool(get_setting("new_user_admin_approval_required"))
+
+
+
+
+def get_default_new_user_role() -> str:
+    """Role assigned to newly-signed-up users.
+
+    Falls back to ``"viewer"`` if the configured role no longer exists in
+    ``roles.json`` (e.g. it was deleted via the admin UI). Importing the
+    ``role_manager`` lazily so this module stays free of auth-side imports.
+    """
+    name = get_setting("default_new_user_role") or "viewer"
+    try:
+        from web_interface.auth import role_manager
+        if not role_manager.role_exists(name):
+            return "viewer"
+    except Exception:
+        # If role_manager isn't initialised yet (very early boot), trust the
+        # stored value — the caller already wraps add_user which validates.
+        pass
+    return name

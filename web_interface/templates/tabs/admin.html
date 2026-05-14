@@ -152,15 +152,20 @@
                 }
             }
 
-            // Roles + permission catalog only matter for users with the Roles sub-page.
-            if (_hasPerm('tab.admin.roles')) {
-                loadRoles();
-            }
+            // Roles list is needed by Active Users, New Users, the Roles
+            // matrix, and the General default-role dropdown. Settings are
+            // needed by General (edit) and New Users (display). loadAdminSettings
+            // reads window.availableRoles to render the default-role dropdown,
+            // so we await loadRoles first to avoid a race.
+            const needsRoles = _hasPerm('tab.admin.roles')
+                || _hasPerm('tab.admin.active_users')
+                || _hasPerm('tab.admin.new_users')
+                || _hasPerm('tab.admin.general');
+            const needsSettings = _hasPerm('tab.admin.general')
+                || _hasPerm('tab.admin.new_users');
 
-            // General-tab setting is only fetchable for users with that sub-page.
-            if (_hasPerm('tab.admin.general')) {
-                loadAdminSettings();
-            }
+            if (needsRoles) await loadRoles();
+            if (needsSettings) loadAdminSettings();
 
         } catch (error) {
             console.error('Error:', error);
@@ -169,19 +174,79 @@
     }
 
     async function loadAdminSettings() {
-        const cb = document.getElementById('setting-new-user-approval');
-        if (!cb) return;
+        // Widgets are spread across two sub-pages — fetch once, populate
+        // whichever elements happen to be in the DOM for this user.
         try {
             const response = await fetch('/api/admin/settings');
             if (!response.ok) throw new Error('Failed to load settings');
             const data = await response.json();
             const settings = data.settings || {};
-            cb.checked = !!settings.new_user_admin_approval_required;
-            cb.disabled = false;
+            window._adminSettings = settings;
+
+            // General → "Require approval" checkbox
+            const cb = document.getElementById('setting-new-user-approval');
+            if (cb) {
+                cb.checked = !!settings.new_user_admin_approval_required;
+                cb.disabled = false;
+            }
+
+            // General → "Default role for new users" dropdown
+            const roleSelect = document.getElementById('setting-default-new-user-role');
+            if (roleSelect && Array.isArray(window.availableRoles)) {
+                const roleNames = window.availableRoles.map(r => r.name);
+                const current = settings.default_new_user_role || 'viewer';
+                roleSelect.innerHTML = roleNames.map(r =>
+                    `<option value="${r}" ${r === current ? 'selected' : ''}>${r}</option>`
+                ).join('');
+                roleSelect.disabled = false;
+            }
+
+            // New Users → "default role: X" label
+            const defaultRoleLabel = document.getElementById('addUserDefaultRoleLabel');
+            if (defaultRoleLabel) {
+                defaultRoleLabel.textContent = settings.default_new_user_role || 'viewer';
+            }
         } catch (e) {
             console.error('loadAdminSettings:', e);
             const status = document.getElementById('setting-new-user-approval-status');
             if (status) status.textContent = 'Failed to load';
+        }
+    }
+
+    async function saveDefaultNewUserRoleSetting(select) {
+        const status = document.getElementById('setting-default-new-user-role-status');
+        const desired = select.value;
+        // Snapshot the previously-saved value so we can revert on failure.
+        const previous = (window._adminSettings || {}).default_new_user_role || 'viewer';
+
+        select.disabled = true;
+        if (status) status.textContent = 'Saving…';
+
+        try {
+            const response = await fetch('/api/admin/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ default_new_user_role: desired })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Save failed');
+            }
+            (window._adminSettings || (window._adminSettings = {})).default_new_user_role = desired;
+            // Keep the New Users label in sync if it happens to be in the DOM.
+            const defaultRoleLabel = document.getElementById('addUserDefaultRoleLabel');
+            if (defaultRoleLabel) defaultRoleLabel.textContent = desired;
+
+            if (status) {
+                status.textContent = 'Saved';
+                setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+            }
+        } catch (e) {
+            console.error('saveDefaultNewUserRoleSetting:', e);
+            select.value = previous; // revert
+            if (status) status.textContent = `Failed — reverted (${e.message})`;
+        } finally {
+            select.disabled = false;
         }
     }
 
@@ -243,7 +308,7 @@
                 pending.forEach(u => {
                     pendingHtml += `
                  <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--color-warning);">
-                     <span><strong>${u.username}</strong> requested access as <em>${u.role}</em></span>
+                     <span><strong>${u.username}</strong> &mdash; will be assigned the <em>${u.role}</em> role on approval</span>
                      <button onclick="approveUser('${u.username}')" class="action-btn" style="padding: 6px 12px;">Approve</button>
                  </li>`;
                 });
@@ -454,7 +519,6 @@
     async function addUser() {
         const username = document.getElementById('newUsername').value;
         const password = document.getElementById('newPassword').value;
-        const role = document.getElementById('newRole').value;
 
         if (!username || !password) {
             alert('Please enter both username and password');
@@ -462,10 +526,12 @@
         }
 
         try {
+            // Role is no longer a per-user choice — the backend applies the
+            // configured default role (shown alongside this form).
             const response = await fetch('/api/admin/users', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password, role })
+                body: JSON.stringify({ username, password })
             });
 
             if (!response.ok) {
@@ -702,18 +768,23 @@
 
     async function loadRoles() {
         try {
-            const [rolesResp, catalogResp] = await Promise.all([
-                fetch('/api/admin/roles'),
-                fetch('/api/admin/permissions/catalog'),
-            ]);
+            const rolesResp = await fetch('/api/admin/roles');
             if (!rolesResp.ok) throw new Error("Failed to load roles");
-            if (!catalogResp.ok) throw new Error("Failed to load permission catalog");
             const roles = await rolesResp.json();   // [{name, permissions: [...]}]
-            const catalog = await catalogResp.json(); // [{key, label}]
             window.availableRoles = roles;
-            window.permissionCatalog = catalog;
-            renderRolePermissionMatrix(roles, catalog);
             updateRoleSelects(roles);
+
+            // The permission-matrix UI lives on the Roles sub-page and is only
+            // useful to users who have it. For other admin sub-pages we just
+            // need the role-name list above; skip the catalog fetch (it 403s
+            // anyway for non-roles users).
+            if (_hasPerm('tab.admin.roles')) {
+                const catalogResp = await fetch('/api/admin/permissions/catalog');
+                if (!catalogResp.ok) throw new Error("Failed to load permission catalog");
+                const catalog = await catalogResp.json();
+                window.permissionCatalog = catalog;
+                renderRolePermissionMatrix(roles, catalog);
+            }
         } catch (e) {
             console.error(e);
             alert("Error loading roles: " + e.message);
@@ -724,15 +795,18 @@
         const container = document.getElementById('roleList');
         if (!container) return;
 
+        // Admin always has full access; rendering it as a column wastes space.
+        const editableRoles = roles.filter(r => r.name !== 'admin');
+
         const header = `
             <thead>
                 <tr>
                     <th style="text-align:left; padding: 8px 12px; border-bottom: 1px solid var(--color-border); position: sticky; left: 0; background: var(--color-bg-primary); z-index: 1;">Permission</th>
-                    ${roles.map(r => `
+                    ${editableRoles.map(r => `
                         <th style="padding: 8px 12px; border-bottom: 1px solid var(--color-border); text-align: center; min-width: 90px;">
                             <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
                                 <span class="font-medium" style="color: var(--color-text-primary);">${r.name}</span>
-                                ${r.name !== 'admin' ? `<span onclick="deleteRole('${r.name}')" class="text-xs" style="cursor:pointer; color: var(--color-danger);" title="Delete role">delete</span>` : '<span class="text-xxs" style="color: var(--color-text-muted);">(full access)</span>'}
+                                <span onclick="deleteRole('${r.name}')" class="text-xs" style="cursor:pointer; color: var(--color-danger);" title="Delete role">delete</span>
                             </div>
                         </th>
                     `).join('')}
@@ -741,17 +815,14 @@
         `;
 
         const rows = catalog.map(entry => {
-            const cells = roles.map(r => {
-                const isAdmin = (r.name === 'admin');
-                const hasPerm = isAdmin || r.permissions.includes('*') || r.permissions.includes(entry.key);
-                const disabled = isAdmin ? 'disabled' : '';
+            const cells = editableRoles.map(r => {
+                const hasPerm = r.permissions.includes('*') || r.permissions.includes(entry.key);
                 return `
                     <td style="text-align:center; padding: 6px 12px; border-bottom: 1px solid var(--color-border);">
                         <input type="checkbox"
                                data-role="${r.name}"
                                data-perm="${entry.key}"
                                ${hasPerm ? 'checked' : ''}
-                               ${disabled}
                                onchange="onPermissionToggle(this)">
                     </td>
                 `;
