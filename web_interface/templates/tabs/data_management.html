@@ -1,34 +1,29 @@
 <div id="data_management" class="tab-pane">
 
-    <!-- Mobile-only menu bar (shown below 860px) -->
-    <div class="dm-mobile-menu-bar">
-        <button class="mobile-drawer-trigger" data-drawer-target="#data_management > .dm-sidebar">Menu</button>
-    </div>
-
     <!-- Sidebar Navigation -->
-    <nav class="dm-sidebar" data-mobile-drawer="left">
+    <nav class="dm-sidebar">
         {% if user.can_access('tab.data_management.ingestion') %}
-        <div class="dm-sidebar-item active" onclick="openDataManagementPage('dm-page-ingestion', this)">
+        <div class="dm-sidebar-item active" data-page="dm-page-ingestion" onclick="openDataManagementPage('dm-page-ingestion', this)">
             Ingest Collections
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.edit_collections') %}
-        <div class="dm-sidebar-item" onclick="openDataManagementPage('dm-page-edit-activity', this)">
+        <div class="dm-sidebar-item" data-page="dm-page-edit-activity" onclick="openDataManagementPage('dm-page-edit-activity', this)">
             Edit Collections
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.studies') %}
-        <div class="dm-sidebar-item" onclick="openDataManagementPage('dm-page-studies', this)">
+        <div class="dm-sidebar-item" data-page="dm-page-studies" onclick="openDataManagementPage('dm-page-studies', this)">
             Define Studies
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.enrichment') %}
-        <div class="dm-sidebar-item" onclick="openDataManagementPage('dm-page-enrichment', this)">
+        <div class="dm-sidebar-item" data-page="dm-page-enrichment" onclick="openDataManagementPage('dm-page-enrichment', this)">
             Scrape & Annotate
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.refresh') %}
-        <div class="dm-sidebar-item" onclick="openDataManagementPage('dm-page-refresh', this)">
+        <div class="dm-sidebar-item" data-page="dm-page-refresh" onclick="openDataManagementPage('dm-page-refresh', this)">
             Refresh Caches
         </div>
         {% endif %}

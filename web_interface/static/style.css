@@ -2748,11 +2748,10 @@ button.meta-tooltip:disabled {
     background: var(--tab-hover-bg);
 }
 
-.dm-mobile-menu-bar {
+/* Two-level mobile nav: sub-page list under a top-level tab.
+   Hidden at all widths by default; revealed inside the mobile breakpoint. */
+.tab-subnav {
     display: none;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--color-border-subtle);
-    background: var(--color-bg-surface);
 }
 
 @media (max-width: 860px) {
@@ -2891,18 +2890,76 @@ button.meta-tooltip:disabled {
         flex-direction: column !important;
     }
 
-    .dm-mobile-menu-bar {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
+    /* The desktop sub-page sidebar is replaced by the two-level main drawer
+       on small screens. Keep the markup (for desktop) but hide it. */
     .dm-sidebar {
-        width: min(85vw, 320px) !important;
+        display: none !important;
     }
 
     .dm-content {
         padding: 14px;
+    }
+
+    /* ----- Two-level main nav: chevron + nested sub-pages ----- */
+    .tab-nav-drawer .tab-button.has-subpages {
+        position: relative;
+        padding-right: 40px;
+    }
+
+    .tab-nav-drawer .tab-button.has-subpages::after {
+        content: '\203A';
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        font-size: 1.4em;
+        line-height: 1;
+        color: var(--color-text-secondary);
+        transform: translateY(-50%) rotate(0deg);
+        transform-origin: center center;
+        transition: transform 0.15s ease, color 0.15s ease;
+        pointer-events: none;
+    }
+
+    .tab-nav-drawer .tab-button.has-subpages.is-expanded::after {
+        transform: translateY(-50%) rotate(90deg);
+        color: var(--color-text-primary);
+    }
+
+    .tab-subnav {
+        display: flex;
+        flex-direction: column;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        background: var(--color-bg-primary);
+        border-bottom: 1px solid var(--color-border-subtle);
+    }
+
+    .tab-subnav[hidden] {
+        display: none;
+    }
+
+    .tab-subnav-item {
+        padding: 12px 18px 12px 36px;
+        font-size: var(--text-sm);
+        font-weight: var(--weight-medium);
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        border-left: 3px solid transparent;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+        user-select: none;
+    }
+
+    .tab-subnav-item:hover {
+        background: var(--tab-hover-bg);
+        color: var(--color-text-primary);
+    }
+
+    .tab-subnav-item.active {
+        background: var(--tab-active-bg);
+        color: var(--tab-active-text);
+        border-left-color: var(--tab-active-border);
+        font-weight: var(--weight-bold);
     }
 
     /* ----- Modals: shrink to fit viewport ----- */

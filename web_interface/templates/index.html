@@ -59,11 +59,13 @@
         <button class="tab-button" onclick="openTab(event, 'my_studies')">My Studies</button>
         {% endif %}
         {% if user.can_access('tab.data_management') %}
-        <button class="tab-button" onclick="openTab(event, 'data_management')">Data Management</button>
+        <button class="tab-button has-subpages" data-subpages-for="data_management" onclick="openTab(event, 'data_management')">Data Management</button>
+        <ul class="tab-subnav" data-subpages-of="data_management" hidden></ul>
         {% endif %}
         {% if user.can_access('tab.admin') %}
-        <button class="tab-button"
+        <button class="tab-button has-subpages" data-subpages-for="admin"
             onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
+        <ul class="tab-subnav" data-subpages-of="admin" hidden></ul>
         {% endif %}
         <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
     </div>

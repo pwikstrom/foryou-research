@@ -1,44 +1,39 @@
 <div id="admin" class="tab-pane">
 
-    <!-- Mobile-only menu bar (shown below 860px) -->
-    <div class="dm-mobile-menu-bar">
-        <button class="mobile-drawer-trigger" data-drawer-target="#admin > .dm-sidebar">Menu</button>
-    </div>
-
     <!-- Sidebar Navigation -->
-    <nav class="dm-sidebar" data-mobile-drawer="left">
+    <nav class="dm-sidebar">
         {% if user.can_access('tab.admin.new_users') %}
-        <div class="dm-sidebar-item active" onclick="openAdminPage('admin-page-new-users', this)">
+        <div class="dm-sidebar-item active" data-page="admin-page-new-users" onclick="openAdminPage('admin-page-new-users', this)">
             New Users
         </div>
         {% endif %}
         {% if user.can_access('tab.admin.active_users') %}
-        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-active-users', this)">
+        <div class="dm-sidebar-item" data-page="admin-page-active-users" onclick="openAdminPage('admin-page-active-users', this)">
             Active Users
         </div>
         {% endif %}
         {% if user.can_access('tab.admin.roles') %}
-        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-roles', this)">
+        <div class="dm-sidebar-item" data-page="admin-page-roles" onclick="openAdminPage('admin-page-roles', this)">
             User Roles
         </div>
         {% endif %}
         {% if user.can_access('tab.admin.annotations') %}
-        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-annotations', this)">
+        <div class="dm-sidebar-item" data-page="admin-page-annotations" onclick="openAdminPage('admin-page-annotations', this)">
             User Annotations
         </div>
         {% endif %}
         {% if user.can_access('tab.admin.reliability') %}
-        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-reliability', this)">
+        <div class="dm-sidebar-item" data-page="admin-page-reliability" onclick="openAdminPage('admin-page-reliability', this)">
             Inter-coder Reliability
         </div>
         {% endif %}
         {% if user.can_access('tab.admin.general') %}
-        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-general', this)">
+        <div class="dm-sidebar-item" data-page="admin-page-general" onclick="openAdminPage('admin-page-general', this)">
             General
         </div>
         {% endif %}
         {% if user.can_access('tab.admin.schema') %}
-        <div class="dm-sidebar-item" onclick="openAdminPage('admin-page-schema', this)">
+        <div class="dm-sidebar-item" data-page="admin-page-schema" onclick="openAdminPage('admin-page-schema', this)">
             Variable Schema
         </div>
         {% endif %}

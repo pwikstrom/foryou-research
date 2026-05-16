@@ -1226,8 +1226,83 @@ function toggleNavDrawer() {
 
     if (willOpen) {
         _showBackdrop();
+        _syncTabSubnavExpansion();
     } else {
         _hideBackdropIfIdle();
+    }
+}
+
+// ----- Two-level mobile menu (chevron + nested sub-pages) -----
+
+function _buildTabSubnavs() {
+    document.querySelectorAll('.tab-subnav[data-subpages-of]').forEach(ul => {
+        const tabId = ul.getAttribute('data-subpages-of');
+        const pane = document.getElementById(tabId);
+        if (!pane) return;
+        // Fresh build — clear any prior content (idempotent).
+        ul.innerHTML = '';
+        pane.querySelectorAll('.dm-sidebar .dm-sidebar-item').forEach(src => {
+            const pageId = src.getAttribute('data-page');
+            if (!pageId) return;
+            const li = document.createElement('li');
+            li.className = 'tab-subnav-item';
+            li.setAttribute('data-target-tab', tabId);
+            li.setAttribute('data-target-page', pageId);
+            if (src.classList.contains('active')) {
+                li.classList.add('active');
+            }
+            li.textContent = src.textContent.trim();
+            ul.appendChild(li);
+        });
+    });
+}
+
+function _collapseAllTabSubnavs(exceptTabId) {
+    document.querySelectorAll('.tab-button.has-subpages').forEach(btn => {
+        const tabId = btn.getAttribute('data-subpages-for');
+        if (tabId === exceptTabId) return;
+        btn.classList.remove('is-expanded');
+        const ul = document.querySelector(`.tab-subnav[data-subpages-of="${tabId}"]`);
+        if (ul) ul.hidden = true;
+    });
+}
+
+function _toggleTabSubnav(button) {
+    const tabId = button.getAttribute('data-subpages-for');
+    if (!tabId) return;
+    const ul = document.querySelector(`.tab-subnav[data-subpages-of="${tabId}"]`);
+    if (!ul) return;
+    const willExpand = !button.classList.contains('is-expanded');
+    _collapseAllTabSubnavs(tabId);
+    button.classList.toggle('is-expanded', willExpand);
+    ul.hidden = !willExpand;
+}
+
+function _syncTabSubnavExpansion() {
+    // When the drawer opens, expand the sub-nav for the currently-active tab
+    // (if it has sub-pages) so the user sees where they are.
+    const activePane = document.querySelector('.tab-pane.active');
+    if (!activePane) {
+        _collapseAllTabSubnavs(null);
+        return;
+    }
+    const activeTabId = activePane.id;
+    const expandBtn = document.querySelector(`.tab-button.has-subpages[data-subpages-for="${activeTabId}"]`);
+    if (!expandBtn) {
+        _collapseAllTabSubnavs(null);
+        return;
+    }
+    _collapseAllTabSubnavs(activeTabId);
+    expandBtn.classList.add('is-expanded');
+    const ul = document.querySelector(`.tab-subnav[data-subpages-of="${activeTabId}"]`);
+    if (ul) {
+        ul.hidden = false;
+        // Mirror the .active state from the original sidebar onto the sub-rows.
+        const activeSidebarItem = activePane.querySelector('.dm-sidebar .dm-sidebar-item.active');
+        const activePage = activeSidebarItem ? activeSidebarItem.getAttribute('data-page') : null;
+        ul.querySelectorAll('.tab-subnav-item').forEach(li => {
+            li.classList.toggle('active', li.getAttribute('data-target-page') === activePage);
+        });
     }
 }
 
@@ -1267,14 +1342,66 @@ function closeAllResponsiveDrawers() {
     _hideBackdropIfIdle();
 }
 
-// Wire mobile-drawer-trigger buttons and auto-close drawers when a sidebar item is picked.
+// Wire two-level mobile menu and auto-close behaviour.
 document.addEventListener('DOMContentLoaded', function () {
+    // Backwards-compat: any remaining .mobile-drawer-trigger buttons still work.
     document.querySelectorAll('.mobile-drawer-trigger').forEach(btn => {
         btn.addEventListener('click', function (e) {
             e.stopPropagation();
             const target = this.getAttribute('data-drawer-target');
             toggleMobileDrawer(target);
         });
+    });
+
+    // Build the nested sub-page lists once on load.
+    _buildTabSubnavs();
+
+    // Intercept clicks on top-level tab buttons that have sub-pages: on mobile
+    // they expand the nested list instead of navigating. Capture phase +
+    // stopImmediatePropagation blocks the inline onclick on the same element.
+    document.querySelectorAll('.tab-button.has-subpages').forEach(btn => {
+        btn.addEventListener('click', function (e) {
+            if (!_isMobileViewport()) return;
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            _toggleTabSubnav(this);
+        }, true);
+    });
+
+    // Sub-nav item click → switch tab (if needed) and open the sub-page.
+    document.addEventListener('click', function (e) {
+        const sub = e.target.closest('.tab-subnav-item');
+        if (!sub) return;
+        e.stopPropagation();
+        e.preventDefault();
+        const tabId = sub.getAttribute('data-target-tab');
+        const pageId = sub.getAttribute('data-target-page');
+        const pane = document.getElementById(tabId);
+        if (!pane) return;
+        const activePane = document.querySelector('.tab-pane.active');
+        const needsTabSwitch = !activePane || activePane.id !== tabId;
+        if (needsTabSwitch && typeof openTab === 'function') {
+            // Call openTab directly (no event) to avoid re-triggering the
+            // capture-phase expand handler on the tab button.
+            openTab(null, tabId);
+            // openTab clears all .tab-button.active and only re-applies from
+            // evt.currentTarget; manually set the active state and label.
+            const tabBtn = document.querySelector(`.tab-button[data-subpages-for="${tabId}"]`);
+            if (tabBtn) {
+                tabBtn.classList.add('active');
+                const label = document.getElementById('current-tab-label');
+                if (label) label.textContent = tabBtn.textContent.trim();
+            }
+            if (tabId === 'admin' && typeof loadUsers === 'function') {
+                loadUsers();
+            }
+        }
+        const sidebarItem = pane.querySelector(`.dm-sidebar .dm-sidebar-item[data-page="${pageId}"]`);
+        if (sidebarItem) sidebarItem.click();
+        // Mirror active state onto the sub-rows.
+        sub.parentElement.querySelectorAll('.tab-subnav-item').forEach(li => li.classList.remove('active'));
+        sub.classList.add('active');
+        closeNavDrawer();
     });
 
     // When a sidebar item inside a mobile drawer is clicked, close the drawer
