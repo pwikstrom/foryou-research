@@ -638,7 +638,22 @@ function closeLogModal() {
 
 
 
+function _statusPollNeededWhileHidden() {
+    // Keep polling /api/status even when the tab is backgrounded if anything
+    // is in flight, so completion detection and cascade-refresh chaining never
+    // miss a running → done transition. Otherwise an idle backgrounded tab
+    // need not poll at all.
+    if (typeof _cascadeRefresh !== 'undefined' && _cascadeRefresh) return true;
+    if (_activeLogModal) return true;
+    return Object.values(previousProcessStates).some(
+        s => s === 'running' || s === 'stopping');
+}
+
 async function updateStatus() {
+    // Skip the 1/s poll while the tab is hidden and nothing is in flight —
+    // saves idle Cloud Run requests. The interval keeps ticking and we only
+    // no-op the fetch, so polling resumes within 1s of the tab regaining focus.
+    if (document.hidden && !_statusPollNeededWhileHidden()) return;
     try {
         const res = await fetch('/api/status');
         const data = await res.json();

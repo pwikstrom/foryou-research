@@ -69,7 +69,15 @@ function loadSystemRoles(callback) {
                 : [];
             if (callback) callback();
         })
-        .catch(err => console.error("Error loading roles:", err));
+        .catch(err => {
+            // Non-admins can't read /api/admin/roles (it returns an HTML
+            // login/403 page, not JSON). Roles only drive the admin-only
+            // access dropdown, so fall back to an empty list and still run
+            // the callback — otherwise the study modal never opens for them.
+            console.error("Error loading roles:", err);
+            systemRoles = [];
+            if (callback) callback();
+        });
 }
 
 // --------------------------------------------------------------------------
@@ -1950,6 +1958,10 @@ function startTargetedRefresh(processName, params) {
 }
 
 function fetchEnrichmentStats() {
+    // The enrichment sub-page only renders for users with
+    // 'tab.data_management.enrichment'. Without it the endpoint aborts 403
+    // (an HTML page that breaks res.json()), so skip the call entirely.
+    if (!document.getElementById('dm-page-enrichment')) return;
     fetch('/api/manage/enrichment/stats')
         .then(res => res.json())
         .then(data => {
@@ -2526,6 +2538,10 @@ function loadIngestionMetadata() {
 }
 
 function loadIngestionSources() {
+    // The ingestion sub-page only renders for users with
+    // 'tab.data_management.ingestion'. Without it the endpoint aborts 403
+    // (an HTML page that breaks res.json()), so skip the call entirely.
+    if (!document.getElementById('dm-page-ingestion')) return;
     fetch('/api/manage/ingestion/sources')
         .then(res => res.json())
         .then(data => {

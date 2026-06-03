@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from flask import Flask, render_template
+from flask import Flask, jsonify, render_template, request
 from flask_login import current_user, login_required
 
 if __name__ == "__main__" and __package__ is None:
@@ -91,6 +91,27 @@ app.register_blueprint(management_bp)
 
 # Exempt the Cloud Tasks internal blueprint from CSRF (authenticated via OIDC token)
 csrf.exempt(internal_bp)
+
+
+@app.errorhandler(403)
+def handle_forbidden(error):
+    """Return JSON for API routes so client-side ``res.json()`` doesn't choke.
+
+    ``permission_required`` and ``role_required`` raise ``abort(403)``, which
+    by default renders an HTML error page. A ``fetch().then(res => res.json())``
+    on that page throws "Unexpected token '<'". Mirror the 401 handler in
+    ``security.py``: send JSON for ``/api/`` paths, keep the default HTML page
+    for regular page navigation.
+
+    Args:
+        error: The 403 ``HTTPException`` raised by the aborted request.
+
+    Returns:
+        A JSON 403 response for API paths, otherwise the original error.
+    """
+    if request.path.startswith('/api/'):
+        return jsonify({"error": "forbidden"}), 403
+    return error
 
 
 @app.route('/')

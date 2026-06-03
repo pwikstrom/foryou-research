@@ -42,7 +42,6 @@
         <div class="study-edit-form" data-study-name="">
             <input type="hidden" data-field="START_DATE">
             <input type="hidden" data-field="END_DATE">
-            {% if current_user.is_admin() %}
             <div style="margin-top: 16px; display: flex; gap: 8px; align-items: center;">
                 <button type="button" class="text-xs meta-tooltip tooltip-below" onclick="updateStudyEstimates(this, event)"
                     data-tooltip="Runs the sampling pipeline on the current settings, reports the realised counts, and flags oversized studies, sparse day×collection cells, and excluded/downsampled collections."
@@ -155,6 +154,7 @@
             <!-- Hidden input to maintain compatibility if needed, or we just handle in JS -->
             <input type="hidden" data-field="SELECTED_COLLECTIONS" value="[]">
 
+            {% if current_user.is_admin() %}
             <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                 <button type="button" class="btn-danger text-xs" onclick="deleteStudy(this, event)"
                     style="padding: 2px 8px;">Delete Study</button>
