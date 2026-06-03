@@ -303,6 +303,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_queue_annotator import run_queue_annotator
     from web_interface.run_queue_scraper import run_queue_scraper
     from web_interface.run_recode_refresh_studies import run_recode_refresh_studies
+    from web_interface.run_sequence_refresh import run_sequence_refresh
     from web_interface.run_study_refresh import run_study_refresh
     from web_interface.run_timelines_refresh import run_timelines_refresh
 
@@ -320,6 +321,7 @@ def _ensure_task_functions_loaded() -> None:
         "collection_metadata_refresh": run_collection_metadata_refresh,
         "collection_delete": run_collection_delete,
         "benchmark_parquet_read": run_benchmark_parquet_read,
+        "sequence_refresh": run_sequence_refresh,
     })
 
 
