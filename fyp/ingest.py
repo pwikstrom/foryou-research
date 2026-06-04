@@ -201,6 +201,47 @@ def apply_cid_remap_to_metadata(
 
 
 
+def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int = 900) -> pd.DataFrame:
+    """Assign a persistent, globally-unique ``session_id`` to every activity.
+
+    A *session* (a "phone sitting") is a maximal run of one collection's
+    activities separated by gaps no larger than ``gap_threshold_s``. Every
+    activity row gets the id of the sitting it belongs to, formatted as
+    ``"{collection_id}__{n}"`` so ids are unique across collections.
+
+    This is deliberately distinct from the transient, per-raw-file 180s grouping
+    used inside ``TikTokDDPCollection.process_single`` for comment item_id
+    backfill — that one is dropped immediately and never persisted. This
+    session_id is computed on the full per-collection sequence (after migration,
+    before any study sampling) and is meant to be used anywhere downstream.
+
+    Args:
+        df: Activity dataframe with ``collection_id`` and ``utc_timestamp``.
+        gap_threshold_s: Maximum within-sitting gap in seconds (default 900 = 15 min).
+
+    Returns:
+        The same dataframe with a ``session_id`` column added; original row
+        order is preserved.
+    """
+    if df.empty:
+        df["session_id"] = pd.Series(dtype="string[pyarrow]")
+        return df
+
+    order = df.sort_values(["collection_id", "utc_timestamp"], kind="mergesort").index
+    ordered = df.loc[order]
+    gap = ordered.groupby("collection_id")["utc_timestamp"].diff().dt.total_seconds()
+    session_break = gap.isna() | (gap > gap_threshold_s)
+    session_num = session_break.groupby(ordered["collection_id"]).cumsum().astype("int64")
+    session_id = ordered["collection_id"].astype(str) + "__" + session_num.astype(str)
+
+    df["session_id"] = session_id.reindex(df.index)
+    df["session_id"] = df["session_id"].convert_dtypes(dtype_backend="pyarrow")
+    return df
+
+
+
+
+
 class ForYouBaseCollection(ABC):
 
     platform_url_template: str | None = None
@@ -650,6 +691,19 @@ class ForYouBaseCollection(ABC):
         df["local_day_segment"] = local_hour.map(_day_segment_from_hour).convert_dtypes(dtype_backend="pyarrow")
 
         df["local_date"] = ts.dt.date.astype("date32[pyarrow]")
+
+
+
+
+    def add_session_ids(self, gap_threshold_s: int = 900) -> None:
+        """Assign a persistent sitting-level ``session_id`` to every activity.
+
+        Thin wrapper around :func:`assign_session_ids`. Call this *after*
+        sub-collections are migrated, so the full per-collection sequence is in
+        ``self.data`` (a sitting may span multiple raw files). Persisted by
+        ``save_processed`` alongside the local-time features.
+        """
+        self.data = assign_session_ids(self.data, gap_threshold_s=gap_threshold_s)
 
 
 
@@ -1309,27 +1363,32 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
         # ----------------------------------------------------------------------------------------------
         # Associate comments without an item_id to the item_id of the preceding activity within
-        # the same session. Only comments are backfilled — other activity types retain their
+        # the same short burst. Only comments are backfilled — other activity types retain their
         # original item_id (or null).
+        #
+        # NOTE: this is a TRANSIENT, per-raw-file grouping used ONLY for comment item_id
+        # backfill — hence the deliberately short 180s gap. It is dropped at the end of this
+        # block and is NOT the persistent "sitting" session_id assigned to every activity later
+        # (see assign_session_ids / add_session_ids: 900s gap, computed on the full
+        # per-collection sequence after migration, and persisted for downstream analysis).
 
         # 1. calculate time between activities (in seconds)
         df['delta'] = df['utc_timestamp'] - df['utc_timestamp'].shift(1)
         df['delta'] = df['delta'].dt.total_seconds()
 
-        # 2. use the time delta to establish groups of activities that are very close to each other
-        # and which I can assume were part of the same TikTok session. I set the limit to 180
-        # seconds - this is arbitrary, but it is a reasonable amount of max time to
-        # spend on a video and potentially engage with it, making a comment for instance
-        df['session_break'] = (df['delta'].isna()) | (df['delta'] > 180)
-        df['session_id'] = df['session_break'].astype(bool).cumsum()
+        # 2. use the time delta to establish bursts of activities very close together, which I
+        # assume belong to the same brief engagement (e.g. watching a video and commenting on
+        # it). The 180s limit is a reasonable max time to spend on one video and engage with it.
+        df['_assoc_break'] = (df['delta'].isna()) | (df['delta'] > 180)
+        df['_assoc_session'] = df['_assoc_break'].astype(bool).cumsum()
 
-        # 3. Forward-fill item_id within each session, then apply only to comment rows that
+        # 3. Forward-fill item_id within each burst, then apply only to comment rows that
         # are missing an item_id. All other activity types keep their original value.
-        ffilled_item_id = df.groupby('session_id')['item_id'].ffill()
+        ffilled_item_id = df.groupby('_assoc_session')['item_id'].ffill()
         comment_missing = (df['activity_type'] == 'comment') & df['item_id'].isna()
         df.loc[comment_missing, 'item_id'] = ffilled_item_id[comment_missing]
 
-        df.drop(columns=['session_break', 'session_id'], inplace=True)
+        df.drop(columns=['_assoc_break', '_assoc_session'], inplace=True)
 
 
         # -----------------------------------------------------

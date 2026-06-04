@@ -190,6 +190,12 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     _t_local = time.perf_counter() - _t_phase
     reporter.log(f"Added local time features ({_t_local:.1f}s)")
 
+    reporter.update_progress(78, "Assigning session ids...")
+    _t_phase = time.perf_counter()
+    main_collection.add_session_ids(gap_threshold_s=900)
+    _t_sess = time.perf_counter() - _t_phase
+    reporter.log(f"Assigned session ids ({_t_sess:.1f}s)")
+
     # Update the persistent ledger with the outcome of every file scanned this
     # run before saving. Files with skip-eligible outcomes (fully_deduped,
     # discarded_at_load, manually_excluded) will be skipped on future ingest
