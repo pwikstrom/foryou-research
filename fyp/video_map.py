@@ -40,6 +40,18 @@ _NAMING_MODEL = "gemini-2.5-flash"
 _EXEMPLARS_PER_NICHE = 10
 _TERMS_PER_NICHE = 8
 
+# Annotation scalar fields denormalised into the map file so the dashboard can
+# colour the scatter by them. Numeric fields drive a continuous colourscale;
+# categorical fields drive a discrete legend. (Sparse fields like
+# scene_sentiments_* are excluded — they are non-null on <1% of videos.)
+OVERLAY_NUMERIC = [
+    "political_score", "sensitivity_score", "speech_vs_music", "faces_age_estimate",
+]
+OVERLAY_CATEGORICAL = [
+    "australian_relevance", "tiktok_native", "trend", "advertising", "aigc",
+    "main_gender", "main_ethnicity",
+]
+
 
 
 
@@ -192,7 +204,7 @@ def build_niche_map(
     anno = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION,
         filename=embeddings.ANNOTATIONS_FILE,
-        columns=["item_id", "video_story", "content_category"],
+        columns=["item_id", "video_story", "content_category"] + OVERLAY_NUMERIC + OVERLAY_CATEGORICAL,
     )
     anno["item_id"] = anno["item_id"].astype("string")
     anno = anno.set_index("item_id")
@@ -244,6 +256,21 @@ def build_niche_map(
     plays = pd.to_numeric(plays.reindex(pd.Index(item_ids, dtype="string")), errors="coerce")
     log_plays = np.log10(plays.fillna(0).clip(lower=0).to_numpy() + 1.0)
 
+    # Denormalise the annotation overlay scalars (aligned to item_ids order).
+    overlay_cols: dict = {}
+    for col in OVERLAY_NUMERIC:
+        if col in aligned.columns:
+            overlay_cols[col] = pd.array(
+                pd.to_numeric(aligned[col].reset_index(drop=True), errors="coerce"),
+                dtype="double[pyarrow]",
+            )
+    for col in OVERLAY_CATEGORICAL:
+        if col in aligned.columns:
+            overlay_cols[col] = pd.array(
+                aligned[col].reset_index(drop=True).astype("string").fillna("unknown"),
+                dtype="string[pyarrow]",
+            )
+
     if reporter is not None:
         reporter.update_progress(90, "Persisting map...")
     map_df = pd.DataFrame({
@@ -255,6 +282,7 @@ def build_niche_map(
         "story": pd.array(story.tolist(), dtype="string[pyarrow]"),
         "category": pd.array(categories.tolist(), dtype="string[pyarrow]"),
         "log_plays": pd.array(np.round(log_plays, 3), dtype="double[pyarrow]"),
+        **overlay_cols,
     })
     data_io.save_parquet(df=map_df, storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE)
 

@@ -20,6 +20,26 @@ semantic_space_bp = Blueprint('semantic_space_bp', __name__)
 # In-process cache: rebuilt only when the map file's mtime changes.
 _MAP_CACHE: dict = {"fingerprint": None, "payload": None}
 
+# "Colour by" overlays advertised to the frontend. ``field`` is the column in
+# video_map.parquet; ``kind`` is "numeric" (continuous colourscale) or
+# "categorical" (discrete legend). Only overlays whose column is actually
+# present in the map file are returned, so older maps degrade gracefully.
+_OVERLAYS = [
+    {"key": "category", "label": "Content category", "kind": "categorical", "field": "category"},
+    {"key": "popularity", "label": "Popularity (plays)", "kind": "numeric", "field": "log_plays"},
+    {"key": "sensitivity_score", "label": "Sensitivity", "kind": "numeric", "field": "sensitivity_score"},
+    {"key": "political_score", "label": "Political content", "kind": "numeric", "field": "political_score"},
+    {"key": "speech_vs_music", "label": "Speech vs music", "kind": "numeric", "field": "speech_vs_music"},
+    {"key": "faces_age_estimate", "label": "Face age estimate", "kind": "numeric", "field": "faces_age_estimate"},
+    {"key": "australian_relevance", "label": "Australian relevance", "kind": "categorical", "field": "australian_relevance"},
+    {"key": "tiktok_native", "label": "TikTok-native", "kind": "categorical", "field": "tiktok_native"},
+    {"key": "trend", "label": "Trend", "kind": "categorical", "field": "trend"},
+    {"key": "advertising", "label": "Advertising", "kind": "categorical", "field": "advertising"},
+    {"key": "aigc", "label": "AI-generated", "kind": "categorical", "field": "aigc"},
+    {"key": "main_gender", "label": "Main gender", "kind": "categorical", "field": "main_gender"},
+    {"key": "main_ethnicity", "label": "Main ethnicity", "kind": "categorical", "field": "main_ethnicity"},
+]
+
 
 
 
@@ -29,8 +49,9 @@ def _build_payload() -> dict:
     """Assemble the columnar map payload from the enriched map file + niches.
 
     Returns:
-        Dict with columnar ``points`` arrays, the ``niches`` lookup, the sorted
-        ``categories`` list, and corpus counts.
+        Dict with columnar ``points`` arrays (always item_id/x/y/niche/
+        niche_name/story, plus a column per available overlay), the ``niches``
+        lookup, the ``overlays`` manifest, and corpus counts.
     """
     df = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE,
@@ -45,20 +66,26 @@ def _build_payload() -> dict:
         storage_location=embeddings.STORE_LOCATION, filename=video_map.NICHES_FILE,
     ) or {}
 
-    categories = sorted(
-        c for c in mapped["category"].astype("string").fillna("none").unique() if c
-    )
-
     points = {
         "item_id": mapped["item_id"].tolist(),
         "x": [round(float(v), 3) for v in mapped["x"].tolist()],
         "y": [round(float(v), 3) for v in mapped["y"].tolist()],
         "niche": [int(v) for v in mapped["niche"].tolist()],
         "niche_name": mapped["niche_name"].astype("string").fillna("").tolist(),
-        "category": mapped["category"].astype("string").fillna("none").tolist(),
-        "log_plays": [round(float(v), 3) if pd.notna(v) else 0.0 for v in mapped["log_plays"].tolist()],
         "story": mapped["story"].astype("string").fillna("").tolist(),
     }
+
+    overlays = []
+    for ov in _OVERLAYS:
+        field = ov["field"]
+        if field not in mapped.columns:
+            continue
+        col = mapped[field]
+        if ov["kind"] == "numeric":
+            points[field] = [round(float(v), 4) if pd.notna(v) else None for v in col.tolist()]
+        else:
+            points[field] = col.astype("string").fillna("unknown").tolist()
+        overlays.append({"key": ov["key"], "label": ov["label"], "kind": ov["kind"], "field": field})
 
     niches = {
         str(k): {"name": v.get("name", str(k)), "size": int(v.get("size", 0))}
@@ -68,7 +95,7 @@ def _build_payload() -> dict:
     return {
         "points": points,
         "niches": niches,
-        "categories": categories,
+        "overlays": overlays,
         "total_mapped": int(len(mapped)),
         "total_videos": total_videos,
         "n_niches": len(niches_meta),
@@ -82,7 +109,7 @@ def _build_payload() -> dict:
 @semantic_space_bp.route('/api/semantic_space/map', methods=['GET'])
 @permission_required('tab.semantic_space')
 def api_semantic_space_map():
-    """Return the global video map (mapped points + niche metadata).
+    """Return the global video map (mapped points + niche metadata + overlays).
 
     Served from an in-process cache keyed on the map file's mtime/size, so the
     heavy parquet read happens only after a ``video_map_refresh``.

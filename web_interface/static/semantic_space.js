@@ -46,6 +46,7 @@ async function loadSemanticSpace() {
         _ssData = data;
         _ssComputeCentroids();
         _ssPopulateNicheFocus();
+        _ssPopulateColorModes();
         if (status) {
             status.innerText =
                 `${data.total_mapped.toLocaleString()} videos shown · `
@@ -104,9 +105,33 @@ function _ssWireControls() {
 }
 
 
-function _ssCategoryColorMap() {
+// Build the "Colour by" dropdown: Niche (always) + every overlay the backend
+// advertised for this map.
+function _ssPopulateColorModes() {
+    const sel = document.getElementById('ss-color-mode');
+    if (!sel) { return; }
+    const opts = ['<option value="niche">Niche</option>'];
+    (_ssData.overlays || []).forEach(o => {
+        opts.push(`<option value="${o.key}">${o.label}</option>`);
+    });
+    sel.innerHTML = opts.join('');
+}
+
+
+function _ssOverlay(key) {
+    return (_ssData.overlays || []).find(o => o.key === key) || null;
+}
+
+
+function _ssDistinct(field) {
+    return Array.from(new Set(_ssData.points[field] || [])).sort();
+}
+
+
+// Stable category → colour map for a categorical overlay field.
+function _ssCatColorMap(field) {
     const map = {};
-    _ssData.categories.forEach((c, i) => { map[c] = _SS_PALETTE[i % _SS_PALETTE.length]; });
+    _ssDistinct(field).forEach((v, i) => { map[v] = _SS_PALETTE[i % _SS_PALETTE.length]; });
     return map;
 }
 
@@ -123,42 +148,49 @@ function renderSemanticSpace() {
     const n = P.x.length;
     const focusNiche = focus === '' ? null : +focus;
 
-    // Per-point colour by mode.
-    const catColors = _ssCategoryColorMap();
+    // Per-point colour by the selected mode. Niche + categorical overlays use
+    // the discrete palette; numeric overlays use a continuous Viridis scale.
+    const overlay = mode === 'niche' ? null : _ssOverlay(mode);
     let colorArr;
     let markerExtra = {};
-    if (mode === 'popularity') {
-        colorArr = P.log_plays;
+    let catColorMap = null;
+    if (overlay && overlay.kind === 'numeric') {
+        colorArr = (P[overlay.field] || []).map(v => (v == null ? 0 : v));
         markerExtra = {
             colorscale: 'Viridis', showscale: true,
             colorbar: {
-                title: 'log₁₀ plays', thickness: 12, len: 0.5,
+                title: overlay.label, thickness: 12, len: 0.5,
                 tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') },
                 titlefont: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') }
             }
         };
-    } else if (mode === 'category') {
-        colorArr = P.category.map(c => catColors[c] || '#888');
+    } else if (overlay && overlay.kind === 'categorical') {
+        catColorMap = _ssCatColorMap(overlay.field);
+        colorArr = (P[overlay.field] || []).map(v => catColorMap[v] || '#888');
     } else {
         colorArr = P.niche.map(nn => _SS_PALETTE[nn % _SS_PALETTE.length]);
     }
 
-    // Focus dimming: grey out everything outside the focused niche.
+    // Focus: isolate one niche — highlight it, grey out the rest (uniform
+    // across modes; the colourbar is suppressed while focusing).
     let sizeArr = 4;
     if (focusNiche !== null) {
+        const fc = _SS_PALETTE[focusNiche % _SS_PALETTE.length];
+        colorArr = new Array(n);
         sizeArr = new Array(n);
-        colorArr = (mode === 'popularity' ? P.log_plays.slice() : colorArr.slice());
         for (let i = 0; i < n; i++) {
             const inFocus = P.niche[i] === focusNiche;
+            colorArr[i] = inFocus ? fc : _SS_DIM;
             sizeArr[i] = inFocus ? 7 : 3;
-            if (!inFocus) { colorArr[i] = _SS_DIM; }
         }
-        if (mode === 'popularity') { markerExtra.showscale = false; }
+        markerExtra = {};
     }
 
+    const ovField = overlay ? overlay.field : null;
     const hover = new Array(n);
     for (let i = 0; i < n; i++) {
-        hover[i] = `<b>${P.niche_name[i]}</b><br>${P.category[i]}<br>${P.story[i]}`;
+        const extra = ovField ? `<br>${overlay.label}: ${P[ovField][i]}` : '';
+        hover[i] = `<b>${P.niche_name[i]}</b>${extra}<br>${P.story[i]}`;
     }
 
     const trace = {
@@ -170,16 +202,16 @@ function renderSemanticSpace() {
             line: { width: 0 } }, markerExtra)
     };
 
-    // Centroid labels (niche or focus modes).
+    // Centroid niche labels — only in niche mode or when a niche is focused.
     const annotations = [];
-    if (showLabels && mode !== 'category') {
+    if (showLabels && (mode === 'niche' || focusNiche !== null)) {
         let labelSet = _ssData._centroids.slice().sort((a, b) => b.size - a.size);
         labelSet = focusNiche !== null
             ? labelSet.filter(c => c.niche === focusNiche)
             : labelSet.slice(0, _SS_MAX_LABELS);
         labelSet.forEach(c => annotations.push({
             x: c.x, y: c.y, text: c.name, showarrow: false,
-            font: { family: getCSSVar('--font-sans'), size: 10, color: getCSSVar('--chart-text') },
+            font: { family: getCSSVar('--font-sans'), size: 10, color: getCSSVar('--white') },
             bgcolor: getCSSVar('--chart-badge-bg'), borderpad: 2, opacity: 0.92
         }));
     }
@@ -196,7 +228,7 @@ function renderSemanticSpace() {
     };
 
     Plotly.react(div, [trace], layout, { responsive: true, displayModeBar: true, scrollZoom: true });
-    _ssRenderLegend(mode, catColors);
+    _ssRenderLegend(mode, overlay, catColorMap);
 
     if (!div._ssClickWired) {
         div._ssClickWired = true;
@@ -210,16 +242,16 @@ function renderSemanticSpace() {
 }
 
 
-function _ssRenderLegend(mode, catColors) {
+function _ssRenderLegend(mode, overlay, catColorMap) {
     const info = document.getElementById('ss-info');
     if (!info) { return; }
-    if (mode === 'category') {
-        info.innerHTML = _ssData.categories.map(c =>
+    if (overlay && overlay.kind === 'categorical' && catColorMap) {
+        info.innerHTML = _ssDistinct(overlay.field).map(c =>
             `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;white-space:nowrap;">`
-            + `<span style="width:9px;height:9px;border-radius:2px;background:${catColors[c]};display:inline-block;"></span>`
+            + `<span style="width:9px;height:9px;border-radius:2px;background:${catColorMap[c]};display:inline-block;"></span>`
             + `${c}</span>`).join('');
-    } else if (mode === 'popularity') {
-        info.innerText = 'Brighter = more plays · click a point to open on TikTok';
+    } else if (overlay && overlay.kind === 'numeric') {
+        info.innerText = `${overlay.label}: brighter = higher · click a point to open on TikTok`;
     } else {
         info.innerText = 'Coloured by niche · click a point to open on TikTok';
     }
