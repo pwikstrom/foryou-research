@@ -1,0 +1,58 @@
+{
+  "n_raw_responses": 150,
+  "n_refined_rows": 150,
+  "n_refined_columns": 39,
+  "refined_columns": [
+    "CRA_complexity_vs_stereotypes",
+    "CRA_inclusion_and_exclusion",
+    "CRA_key_groups",
+    "CRA_symbolism_and_imagery",
+    "FA_attribution_of_responsibility",
+    "FA_moral_evaluation",
+    "FA_problem_definition",
+    "FA_treatment_recommendation",
+    "IA_critique_or_reinforcement",
+    "IA_cultural_or_historical_context",
+    "IA_dominant_ideologies",
+    "IA_power_dynamics",
+    "advertising",
+    "aigc",
+    "annotated_fail",
+    "annotated_ok",
+    "australian_relevance",
+    "background_music",
+    "call_to_action_words",
+    "content_category",
+    "faces_age_estimate",
+    "item_id",
+    "main_activity",
+    "main_ethnicity",
+    "main_gender",
+    "notable_sounds",
+    "objects",
+    "political_score",
+    "scene_sentiments_energy",
+    "scene_sentiments_valence",
+    "sensitivity_score",
+    "speech_vs_music",
+    "symbols_and_brands",
+    "text_overlays",
+    "tiktok_native",
+    "transcript_no_repetitions",
+    "trend",
+    "type_of_story",
+    "video_story"
+  ],
+  "var_schema_hash": "v2:ac45ca8c48d7dc32c297119602de16a1679016798edaed4b1c9ea468f1ef46b3",
+  "var_schema_shape": [
+    104,
+    21
+  ],
+  "models": [
+    "gemini-2.5-flash"
+  ],
+  "prompt_files": [
+    "new_prompt_002.txt"
+  ],
+  "note": "Golden snapshot of the current refinement pipeline. Rebuild with tests/golden/build_golden.py ONLY when a pipeline change is intended."
+}

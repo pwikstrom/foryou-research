@@ -1,0 +1,57 @@
+{
+  "prompt_fields_not_in_schema": [
+    "audio_summary",
+    "cultural_representation_analysis_complexity_vs_stereotypes",
+    "cultural_representation_analysis_inclusion_and_exclusion",
+    "cultural_representation_analysis_key_groups",
+    "cultural_representation_analysis_symbolism_and_imagery",
+    "faces",
+    "framing_analysis_attribution_of_responsibility",
+    "framing_analysis_moral_evaluation",
+    "framing_analysis_problem_definition",
+    "framing_analysis_treatment_recommendation",
+    "ideological_analysis_critique_or_reinforcement",
+    "ideological_analysis_cultural_or_historical_context",
+    "ideological_analysis_dominant_ideologies",
+    "ideological_analysis_power_dynamics",
+    "scenes",
+    "transcript"
+  ],
+  "flatten_keys_not_in_prompt": [],
+  "flatten_keys_not_in_schema": [
+    "audio_summary",
+    "faces",
+    "scenes",
+    "transcript"
+  ],
+  "required_keys_not_in_prompt": [],
+  "required_keys_not_in_schema": [
+    "scenes",
+    "transcript"
+  ],
+  "gemini_schema_vars_not_in_prompt": [
+    "CRA_complexity_vs_stereotypes",
+    "CRA_inclusion_and_exclusion",
+    "CRA_key_groups",
+    "CRA_symbolism_and_imagery",
+    "FA_attribution_of_responsibility",
+    "FA_moral_evaluation",
+    "FA_problem_definition",
+    "FA_treatment_recommendation",
+    "IA_critique_or_reinforcement",
+    "IA_cultural_or_historical_context",
+    "IA_dominant_ideologies",
+    "IA_power_dynamics",
+    "background_music",
+    "call_to_action_words",
+    "faces_age_estimate",
+    "faces_ethnicity",
+    "faces_gender",
+    "notable_sounds",
+    "scene_sentiments",
+    "scene_sentiments_energy",
+    "scene_sentiments_valence",
+    "speech_vs_music",
+    "transcript_no_repetitions"
+  ]
+}

@@ -66,6 +66,12 @@ db.sqlite3-journal
 *.pkl
 data/
 
+# FYP annotation safety net: keep the frozen golden reference parquet (the
+# regression test depends on it) despite the *.parquet rule above; never version
+# the A/B evaluation run outputs (regenerable, run-specific).
+!tests/golden/fixtures/golden_refined.parquet
+tests/ab_eval/results/
+
 # Flask stuff:
 instance/
 .webassets-cache
