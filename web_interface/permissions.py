@@ -27,6 +27,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.timelines",                        "label": "Timelines"},
     {"key": "tab.video_analysis",                   "label": "Video Analysis"},
     {"key": "tab.correlations",                     "label": "Correlations"},
+    {"key": "tab.semantic_space",                   "label": "Semantic Space"},
     {"key": "tab.my_studies",                       "label": "My Studies"},
     {"key": "tab.data_management.ingestion",        "label": "Data Management — Ingest Collections"},
     {"key": "tab.data_management.edit_collections", "label": "Data Management — Edit Collections"},
@@ -61,6 +62,7 @@ DEFAULT_NON_ADMIN_PERMISSIONS: list[str] = [
     "tab.timelines",
     "tab.video_analysis",
     "tab.correlations",
+    "tab.semantic_space",
     "tab.my_studies",
 ]
 

@@ -30,6 +30,7 @@ csrf = CSRFProtect()
 from .routes.api_collections_routes import collections_bp
 from .routes.api_correlations_routes import correlations_bp
 from .routes.api_explorer_routes import explorer_bp
+from .routes.api_semantic_space_routes import semantic_space_bp
 from .routes.api_timelines_routes import timelines_bp
 from .routes.api_viewer_routes import viewer_bp
 from .routes.auth_routes import auth_bp
@@ -86,6 +87,7 @@ app.register_blueprint(explorer_bp)
 app.register_blueprint(viewer_bp)
 app.register_blueprint(timelines_bp)
 app.register_blueprint(correlations_bp)
+app.register_blueprint(semantic_space_bp)
 app.register_blueprint(collections_bp)
 app.register_blueprint(management_bp)
 

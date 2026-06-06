@@ -55,6 +55,9 @@
         {% if user.can_access('tab.correlations') %}
         <button class="tab-button" data-tab="correlations" onclick="openTab(event, 'correlations')">Correlations</button>
         {% endif %}
+        {% if user.can_access('tab.semantic_space') %}
+        <button class="tab-button" data-tab="semantic_space" onclick="openTab(event, 'semantic_space')">Semantic Space</button>
+        {% endif %}
         {% if user.can_access('tab.my_studies') %}
         <button class="tab-button" onclick="openTab(event, 'my_studies')">My Studies</button>
         {% endif %}
@@ -86,6 +89,9 @@
     {% endif %}
     {% if user.can_access('tab.correlations') %}
     {% include 'tabs/correlations.html' %}
+    {% endif %}
+    {% if user.can_access('tab.semantic_space') %}
+    {% include 'tabs/semantic_space.html' %}
     {% endif %}
     {% if user.can_access('tab.timelines') %}
     {% include 'tabs/timelines.html' %}
@@ -121,6 +127,7 @@
         'timelines': "Visualise how a single participant's activity evolves over time. Pick a collection from the dropdown — the participant's tags and basic profile (age, country, timezone, active days, peak day segment, totals) appear in the info tooltip next to it. Each variable becomes a smoothed timeline; tick 'Show daily values' to overlay the raw daily values as faint bars so you can see which day drove a bump. For categorical variables, use the filter chips (Rising, Falling, Spikes, Breaks, Volatile, Stable) to keep only the categories whose pattern matches the chip. Click 'Show Findings' for analysis cards listing detected trends, anomalies and structural breaks. Click any point on a chart for that day's stats. Charts stay synchronised when you zoom or pan. Empty dates and pre-first-play activity can be toggled on in Settings.",
         'video_analysis': "Browse, watch and tag individual videos in the active study. The left panel filters videos on any metadata variable; the slider and the Previous / Next buttons step through the result set. The right sidebar shows the full metadata for the current video — click any field label to open the tagging modal, where you can apply open-vocabulary tags, choose from closed-tag schemes, and add notes. Other researchers' annotations appear in blue with a team badge when they have opted into sharing in Settings. Use the Sort By dropdown to order the result set and the arrow toggle to flip direction; the 'Hide Duplicate Videos' switch suppresses repeated views. Drill-downs from Explore and Correlations land here with the relevant filter pre-applied.",
         'correlations': "Explore relationships between numeric variables in two views. The scatter plot places one dot per collection-day on the axes you pick from the dropdowns, coloured by a categorical grouping. Toggle 'ellipses' to overlay 95% group spread, or 'stats' to show a regression line with R². Each axis carries an annotation describing what high and low values mean. Click any dot to drill into the matching videos in the Video Analysis tab. Switch to the heatmap view to see the Pearson correlation matrix across all numeric variables. Use the filter panel on the left to restrict the data to a subset of categorical factors before either view is computed. Dot size can be increased in Settings.",
+        'semantic_space': "A map of every annotated video positioned by meaning. Each dot is a video; videos that are semantically similar (same topic, style and content) sit close together, so the map reveals how the corpus relates to itself. Positions come from dense AI embeddings of each video's story, transcript, on-screen text, objects, sounds and hashtags — reduced to 2D — and the videos are grouped into ~150 auto-named 'niches' (micro-genres). Use 'Colour by' to shade dots by niche, by human content category, or by popularity (play count). 'Focus niche' isolates one micro-genre and greys out the rest; 'Niche labels' toggles the niche names on the map. Hover a dot to see its niche, category and a one-line summary; click a dot to open that video on TikTok. This map covers the whole corpus and is independent of the active study.",
         'my_studies': "Read-only list of the study datasets you have access to. Each row shows the study's date range, sampling parameters, and the build counts: collections, activities, videos, scraped videos and annotated videos. Selecting a row sets the active study in the header — every other tab (Explore, Video Analysis, Correlations, Timelines) then operates on that study's data. To define a new study or edit an existing one, an admin or data manager uses the 'Define Studies' page inside Data Management.",
         'data_management': "Pipeline for getting raw collections from upload through to fully enriched analysis data. Use the sidebar to step through the stages. Ingest Collections uploads raw files or whole folders, assigns collection IDs and tags, and parses them into the dataset. Edit Collections lets you rename, retag, hide or delete already-ingested collections. Define Studies builds named study datasets by combining sampling parameters with date ranges. Scrape & Annotate runs the yt-dlp scraper to pull TikTok metadata and the Gemini machine-annotation pass over the videos. Refresh Caches rebuilds per-study statistics, PCA and metadata caches once new data has landed. Long-running jobs run as Cloud Tasks in production; their progress bars, stop buttons and log viewers all live on the relevant sub-page, and a global task badge in the header shows how many are active.",
         'admin': "Manage users, roles and platform-wide settings. New Users approves pending signups; the default role applied on approval is configurable in General. Active Users lists everyone in the system with their annotation stats (videos tagged, notes, closed and open tags) — click a row for a per-user detail modal that includes the full activity log plus password reset and account deletion. User Roles edits the permission matrix that decides which tabs and sub-pages each role can see; you can also add or delete custom roles from this page. User Annotations aggregates every tag and note recorded across the platform, item by item. Inter-coder Reliability runs Cohen's κ across raters on items they have both annotated. General holds platform-wide settings such as whether new signups require admin approval and which role they receive by default.",
@@ -181,6 +188,7 @@
 <script src="{{ url_for('static', filename='explore.js') }}?v=3"></script>
 <script src="{{ url_for('static', filename='video_analysis.js') }}?v=3"></script>
 <script src="{{ url_for('static', filename='correlations.js') }}"></script>
+<script src="{{ url_for('static', filename='semantic_space.js') }}"></script>
 <script src="{{ url_for('static', filename='timelines.js') }}"></script>
 <script src="{{ url_for('static', filename='collections.js') }}"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_studies') %}

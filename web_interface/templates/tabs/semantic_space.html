@@ -1,0 +1,36 @@
+<div id="semantic_space" class="tab-pane">
+    <div class="control-bar">
+        <span id="ss-status" class="text-sm" style="color: var(--control-bar-info);">Loading map…</span>
+    </div>
+
+    <div class="panel" style="display: flex; flex-direction: column; height: calc(100vh - 150px); padding: 0;">
+        <!-- Controls -->
+        <div style="padding: 10px 14px; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated); display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                <span class="font-medium" style="color: var(--color-text-secondary);">Colour by</span>
+                <select id="ss-color-mode" class="dropdown">
+                    <option value="niche">Niche</option>
+                    <option value="category">Content category</option>
+                    <option value="popularity">Popularity (plays)</option>
+                </select>
+            </label>
+
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                <span class="font-medium" style="color: var(--color-text-secondary);">Focus niche</span>
+                <select id="ss-niche-focus" class="dropdown">
+                    <option value="">— all niches —</option>
+                </select>
+            </label>
+
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="ss-show-labels" checked>
+                <span style="color: var(--color-text-secondary);">Niche labels</span>
+            </label>
+
+            <span id="ss-info" class="text-xs" style="color: var(--control-bar-info); margin-left: auto;"></span>
+        </div>
+
+        <!-- Plot -->
+        <div id="semantic-space-plot" style="flex: 1; min-height: 0;"></div>
+    </div>
+</div>

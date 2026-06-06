@@ -1,0 +1,265 @@
+"""Cluster the video embedding store into niches and build a 2D semantic map.
+
+Consumes the dense embeddings written by :mod:`fyp.embeddings` and produces:
+
+    * ``recoded/video_map.parquet`` — one row per embedded video with its niche
+      id and (for a sampled subset) 2D map coordinates. The map is sampled
+      because a browser scatter cannot usefully render 256k points; clustering,
+      however, covers every video.
+    * ``recoded/video_niches.json`` — per-niche metadata (Gemini-generated name,
+      size, distinctive terms, dominant content categories).
+
+Pipeline: load raw vectors → mean-centre → L2-normalise → PCA(50) →
+MiniBatchKMeans (every video gets a niche) → t-SNE on a sample (the visual
+map) → Gemini niche naming from centroid-nearest exemplars.
+"""
+
+import numpy as np
+import pandas as pd
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.decomposition import PCA
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import normalize
+
+import fyp.data_io as data_io
+import fyp.embeddings as embeddings
+
+# Output artifacts in the "recoded" store.
+MAP_FILE = "video_map.parquet"
+NICHES_FILE = "video_niches.json"
+
+# Defaults. n_niches mirrors niche_detection's micro-genre granularity; the
+# map sample keeps the dashboard scatter renderable while clustering stays
+# full-corpus.
+DEFAULT_N_NICHES = 150
+DEFAULT_MAP_SAMPLE = 30000
+DEFAULT_PCA_DIM = 50
+
+_NAMING_MODEL = "gemini-2.5-flash"
+_EXEMPLARS_PER_NICHE = 10
+_TERMS_PER_NICHE = 8
+
+
+
+
+
+
+def _reduce(matrix: np.ndarray, pca_dim: int) -> np.ndarray:
+    """Mean-centre, L2-normalise, then PCA-reduce the raw embedding matrix.
+
+    Centring removes the gemini-embedding-001 anisotropy (high baseline
+    cosine); randomised SVD keeps PCA tractable at 256k×1536.
+
+    Args:
+        matrix: Raw ``(n, dim)`` embedding matrix.
+        pca_dim: Target PCA dimensionality.
+
+    Returns:
+        The reduced ``(n, pca_dim)`` float32 matrix.
+    """
+    centred = normalize(matrix - matrix.mean(axis=0))
+    pca_dim = min(pca_dim, centred.shape[1], centred.shape[0])
+    pca = PCA(n_components=pca_dim, svd_solver="randomized", random_state=0)
+    return pca.fit_transform(centred).astype(np.float32)
+
+
+
+
+
+
+def _name_niches(
+    item_ids: list[str],
+    labels: np.ndarray,
+    reduced: np.ndarray,
+    stories: pd.Series,
+    categories: pd.Series,
+    reporter=None,
+) -> dict[int, dict]:
+    """Build per-niche metadata: Gemini name, size, top terms, top categories.
+
+    Args:
+        item_ids: Item ids aligned to ``labels``/``reduced`` rows.
+        labels: Niche id per video.
+        reduced: PCA-reduced matrix (for centroid-nearest exemplar selection).
+        stories: ``video_story`` Series aligned to ``item_ids``.
+        categories: First ``content_category`` Series aligned to ``item_ids``.
+        reporter: Optional status reporter.
+
+    Returns:
+        Dict niche_id → metadata dict.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    story_list = stories.tolist()
+    vectorizer = TfidfVectorizer(
+        max_features=8000, min_df=3, max_df=0.4,
+        stop_words="english", ngram_range=(1, 2),
+    )
+    tfidf = vectorizer.fit_transform([s if isinstance(s, str) else "" for s in story_list])
+    vocab = np.array(vectorizer.get_feature_names_out())
+
+    niches = sorted(int(c) for c in set(labels))
+    meta: dict[int, dict] = {}
+    for niche in niches:
+        rows = np.where(labels == niche)[0]
+        mean_tfidf = np.asarray(tfidf[rows].mean(axis=0)).ravel()
+        terms = vocab[mean_tfidf.argsort()[::-1][:_TERMS_PER_NICHE]].tolist()
+        cat_counts = categories.iloc[rows].value_counts().head(3)
+        meta[niche] = {
+            "size": int(len(rows)),
+            "terms": terms,
+            "top_categories": [str(c) for c in cat_counts.index.tolist()],
+            "name": f"Niche {niche}",
+        }
+
+    client = embeddings._get_client()
+
+    def _name(niche: int) -> tuple[int, str]:
+        rows = np.where(labels == niche)[0]
+        centroid = reduced[rows].mean(axis=0)
+        order = np.argsort(np.linalg.norm(reduced[rows] - centroid, axis=1))
+        picks = rows[order[:_EXEMPLARS_PER_NICHE]]
+        exemplars = "\n".join(f"- {str(story_list[i])[:160]}" for i in picks)
+        prompt = (
+            f"These are summaries of TikTok videos in one cluster:\n{exemplars}\n\n"
+            "Give a SHORT 2-4 word label naming this micro-genre. "
+            "Reply with only the label."
+        )
+        try:
+            resp = client.models.generate_content(model=_NAMING_MODEL, contents=prompt)
+            return niche, resp.text.strip().replace("\n", " ")[:48]
+        except Exception:
+            return niche, f"Niche {niche}"
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        for fut in as_completed([ex.submit(_name, n) for n in niches]):
+            niche, name = fut.result()
+            meta[niche]["name"] = name
+    if reporter is not None:
+        reporter.log(f"Named {len(niches)} niches via {_NAMING_MODEL}.")
+    return meta
+
+
+
+
+
+
+def build_niche_map(
+    n_niches: int = DEFAULT_N_NICHES,
+    map_sample: int = DEFAULT_MAP_SAMPLE,
+    pca_dim: int = DEFAULT_PCA_DIM,
+    reporter=None,
+) -> dict:
+    """Cluster the embedding store and persist the niche map + metadata.
+
+    Args:
+        n_niches: Number of MiniBatchKMeans micro-genres.
+        map_sample: Max videos projected to 2D for the visual map.
+        pca_dim: PCA dimensionality used for clustering and projection.
+        reporter: Optional status reporter.
+
+    Returns:
+        Dict summary with ``videos``, ``niches``, ``mapped`` counts.
+    """
+    def _log(msg: str) -> None:
+        if reporter is not None:
+            reporter.log(msg)
+        else:
+            print(msg)
+
+    _log("Loading embedding store...")
+    item_ids, matrix = embeddings.load_embeddings(reporter=reporter)
+    if len(item_ids) == 0:
+        _log("Embedding store is empty; nothing to map.")
+        return {"videos": 0, "niches": 0, "mapped": 0}
+    _log(f"Loaded {len(item_ids):,} embeddings ({matrix.shape[1]}d).")
+
+    if reporter is not None:
+        reporter.update_progress(20, "Reducing (PCA)...")
+    reduced = _reduce(matrix, pca_dim)
+
+    if reporter is not None:
+        reporter.update_progress(35, f"Clustering into {n_niches} niches...")
+    n_niches = min(n_niches, len(item_ids))
+    kmeans = MiniBatchKMeans(n_clusters=n_niches, random_state=0, n_init=5, batch_size=4096)
+    labels = kmeans.fit_predict(reduced)
+    _log(f"Assigned {len(item_ids):,} videos to {n_niches} niches.")
+
+    # Pull video_story + first content_category aligned to item_ids for naming.
+    if reporter is not None:
+        reporter.update_progress(50, "Loading stories for niche naming...")
+    anno = data_io.load_parquet_selective(
+        storage_location=embeddings.STORE_LOCATION,
+        filename=embeddings.ANNOTATIONS_FILE,
+        columns=["item_id", "video_story", "content_category"],
+    )
+    anno["item_id"] = anno["item_id"].astype("string")
+    anno = anno.set_index("item_id")
+    aligned = anno.reindex(pd.Index(item_ids, dtype="string"))
+    stories = aligned["video_story"].astype("string").fillna("").reset_index(drop=True)
+    categories = aligned["content_category"].apply(
+        lambda x: str(x[0]) if x is not None and hasattr(x, "__len__") and len(x) > 0 else "none"
+    ).reset_index(drop=True)
+
+    if reporter is not None:
+        reporter.update_progress(60, "Naming niches (Gemini)...")
+    niche_meta = _name_niches(item_ids, labels, reduced, stories, categories, reporter=reporter)
+
+    # 2D map on a sample (the full corpus is too large to scatter in a browser).
+    if reporter is not None:
+        reporter.update_progress(75, "Projecting 2D map (t-SNE)...")
+    rng = np.random.RandomState(0)
+    n = len(item_ids)
+    if n > map_sample:
+        sample_idx = np.sort(rng.choice(n, map_sample, replace=False))
+    else:
+        sample_idx = np.arange(n)
+    _log(f"Projecting {len(sample_idx):,} sampled videos to 2D...")
+    tsne = TSNE(n_components=2, perplexity=30, init="pca", random_state=0, max_iter=1000)
+    xy_sample = tsne.fit_transform(reduced[sample_idx])
+
+    x = np.full(n, np.nan, dtype=np.float64)
+    y = np.full(n, np.nan, dtype=np.float64)
+    x[sample_idx] = xy_sample[:, 0]
+    y[sample_idx] = xy_sample[:, 1]
+
+    # Denormalise the dashboard hover/overlay fields into the map file so the
+    # web route stays light (no 256k-row annotation load per request). The
+    # story snippet is only kept for mapped points to keep the file small.
+    if reporter is not None:
+        reporter.update_progress(88, "Denormalising hover fields...")
+    mapped_mask = np.zeros(n, dtype=bool)
+    mapped_mask[sample_idx] = True
+    story = stories.str.slice(0, 140).to_numpy().astype(object)
+    story[~mapped_mask] = ""
+    niche_names = [niche_meta[int(lab)]["name"] for lab in labels]
+
+    scr = data_io.load_parquet_selective(
+        storage_location=embeddings.STORE_LOCATION,
+        filename=embeddings.SCRAPES_FILE, columns=["item_id", "stats_playCount"],
+    )
+    scr["item_id"] = scr["item_id"].astype("string")
+    plays = scr.drop_duplicates("item_id").set_index("item_id")["stats_playCount"]
+    plays = pd.to_numeric(plays.reindex(pd.Index(item_ids, dtype="string")), errors="coerce")
+    log_plays = np.log10(plays.fillna(0).clip(lower=0).to_numpy() + 1.0)
+
+    if reporter is not None:
+        reporter.update_progress(90, "Persisting map...")
+    map_df = pd.DataFrame({
+        "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
+        "niche": pd.array(labels.astype(np.int32), dtype="int32[pyarrow]"),
+        "niche_name": pd.array(niche_names, dtype="string[pyarrow]"),
+        "x": pd.array(x, dtype="double[pyarrow]"),
+        "y": pd.array(y, dtype="double[pyarrow]"),
+        "story": pd.array(story.tolist(), dtype="string[pyarrow]"),
+        "category": pd.array(categories.tolist(), dtype="string[pyarrow]"),
+        "log_plays": pd.array(np.round(log_plays, 3), dtype="double[pyarrow]"),
+    })
+    data_io.save_parquet(df=map_df, storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE)
+
+    niches_payload = {str(k): v for k, v in niche_meta.items()}
+    data_io.save_json(data=niches_payload, storage_location=embeddings.STORE_LOCATION, filename=NICHES_FILE)
+
+    _log(f"Saved {MAP_FILE} ({len(map_df):,} rows) and {NICHES_FILE} ({len(niche_meta)} niches).")
+    return {"videos": n, "niches": len(niche_meta), "mapped": int(len(sample_idx))}

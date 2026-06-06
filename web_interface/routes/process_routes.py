@@ -8,12 +8,14 @@ import fyp.data_io as data_io
 import web_interface.auth as auth
 from fyp.fyp_config import (
     CONSOLIDATE_ENRICHMENT_SCRIPT,
+    EMBEDDINGS_REFRESH_SCRIPT,
     META_REFRESH_GROUPS_SCRIPT,
     PCA_REFRESH_SCRIPT,
     QUEUE_ANNOTATOR_SCRIPT,
     QUEUE_SCRAPER_SCRIPT,
     RECODE_REFRESH_STUDIES_SCRIPT,
     TIMELINES_REFRESH_SCRIPT,
+    VIDEO_MAP_REFRESH_SCRIPT,
 )
 
 from ..process_manager import (
@@ -46,7 +48,7 @@ def api_start(name):
     if "study_name" in data:
         args.append(data["study_name"])
 
-    if name in ["downloader", "annotator", "queue_scraper", "queue_annotator"]:
+    if name in ["downloader", "annotator", "queue_scraper", "queue_annotator", "embeddings_refresh"]:
         if data.get("batch_size") and str(data["batch_size"]).strip():
              args.extend(["--batch-size", str(data["batch_size"])])
         if data.get("max_batches") and str(data["max_batches"]).strip():
@@ -68,7 +70,9 @@ def api_start(name):
         "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
         "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,
         "pca_refresh": PCA_REFRESH_SCRIPT,
-        "consolidate_enrichment": CONSOLIDATE_ENRICHMENT_SCRIPT
+        "consolidate_enrichment": CONSOLIDATE_ENRICHMENT_SCRIPT,
+        "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
+        "video_map_refresh": VIDEO_MAP_REFRESH_SCRIPT
     }
     
     success, msg = start_process(name, script_map[name], args, study_name=study_name)
@@ -297,6 +301,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_collection_delete import run_collection_delete
     from web_interface.run_collection_metadata_refresh import run_collection_metadata_refresh
     from web_interface.run_consolidate_enrichment import run_consolidate_enrichment
+    from web_interface.run_embeddings_refresh import run_embeddings_refresh
     from web_interface.run_ingest_refresh import run_ingest_refresh
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
     from web_interface.run_pca_refresh import run_pca_refresh
@@ -306,6 +311,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_sequence_refresh import run_sequence_refresh
     from web_interface.run_study_refresh import run_study_refresh
     from web_interface.run_timelines_refresh import run_timelines_refresh
+    from web_interface.run_video_map_refresh import run_video_map_refresh
 
     TASK_FUNCTIONS.update({
         "consolidate_enrichment": run_consolidate_enrichment,
@@ -322,6 +328,8 @@ def _ensure_task_functions_loaded() -> None:
         "collection_delete": run_collection_delete,
         "benchmark_parquet_read": run_benchmark_parquet_read,
         "sequence_refresh": run_sequence_refresh,
+        "embeddings_refresh": run_embeddings_refresh,
+        "video_map_refresh": run_video_map_refresh,
     })
 
 
