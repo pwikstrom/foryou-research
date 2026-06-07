@@ -87,7 +87,12 @@ def get_metadata(df, column_types, verbose=False):
                 col_data = df[col].astype(str).str[:10]
 
             vc_full = col_data.value_counts()
-            total_unique = len(vc_full)
+            # Drop single-occurrence labels — filtering to one yields a 1-video
+            # slice (noise in small studies). The frontend hides a column once
+            # ≤1 selectable value remains. total_unique counts only selectable
+            # (count>1) values so the "showing top X of Y" notice stays honest.
+            vc_full = vc_full[vc_full > 1]
+            total_unique = int(len(vc_full))
             vc = vc_full.head(200)
 
             # Sort by frequency (default from value_counts)
@@ -114,10 +119,12 @@ def get_metadata(df, column_types, verbose=False):
                     except:
                         pass
 
-            # Use Counter to find top 200 tags
+            # Use Counter to find top tags, dropping single-occurrence tags
+            # (see the category note above).
             c = Counter(all_items)
-            total_unique = len(c)
-            top_items = c.most_common(200)
+            multi = [(k, v) for k, v in c.most_common() if v > 1]
+            total_unique = len(multi)
+            top_items = multi[:200]
 
             items_list = [{"value": str(k), "count": v} for k, v in top_items]
 
@@ -541,8 +548,13 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
                  continue
              
              count_val = len(series)
+             # std() of a single-value series is undefined and returns NA on a
+             # PyArrow-backed column, so float(NA) raises TypeError — guard it
+             # (and the other reducers) so filtering down to one video doesn't
+             # 500 the Explore tab.
+             _std = series.std()
              mean_val = float(series.mean())
-             std_val = float(series.std())
+             std_val = float(_std) if pd.notna(_std) else 0.0
              min_val = float(series.min())
              max_val = float(series.max())
              
@@ -601,14 +613,16 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
                      if min_val <= 0 and max_val >= 0:
                         tick_vals.append(np.log10(1))
                         tick_text.append("0")
-                     p = 0
-                     while True:
-                        v = 10**p
-                        if v > max_val: break
-                        if v >= min_val:
-                            tick_vals.append(np.log10(v + 1))
-                            tick_text.append(f"{v:,}")
-                        p += 1
+                     # Build decade ticks only for a finite range, so a non-finite
+                     # max_val can never spin this loop forever.
+                     if np.isfinite(max_val):
+                         p = 0
+                         while 10**p <= max_val:
+                            v = 10**p
+                            if v >= min_val:
+                                tick_vals.append(np.log10(v + 1))
+                                tick_text.append(f"{v:,}")
+                            p += 1
                      
                      stats[col] = {
                         "type": "density",
