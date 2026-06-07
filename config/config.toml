@@ -12,6 +12,12 @@ model = "gemini-2.5-flash"
 # the prompt
 prompt = "new_prompt_002.txt"
 
+# When true, annotation uses Gemini structured output (response_schema from
+# fyp/annotation_schema.py) instead of free-text JSON. Default false keeps the
+# original free-text path. The output column shape is identical either way;
+# structured output guarantees valid JSON and enforces the variable schema.
+use_structured_output = false
+
 # Vertex AI settings
 vertexai = true
 project = "<gcp-project>"

@@ -28,6 +28,11 @@ import fyp.utils as fyp_utils
 from fyp.fyp_config import fyp_cf
 
 #from fyp.organize_datasets import select_videos_from_study_dataset
+from fyp.annotation_schema import (
+    apply_conditional_rules,
+    build_response_schema,
+    flatten_structured,
+)
 from fyp.recode_variables import recode_events_df, recode_fuzzy_match, rename_columns
 from fyp.types import convert_dtypes_to_pyarrow
 from fyp.utils import start_monitor
@@ -105,6 +110,41 @@ def initialize_machine():
 
 
 
+def build_structured_generation_config():
+    """Build and cache the structured-output generation config.
+
+    Reuses the existing prompt as the system instruction and attaches the
+    response schema from :mod:`fyp.annotation_schema`, so decoding is constrained
+    to valid, conforming JSON. Repetition penalties are intentionally omitted —
+    constrained decoding plus a thinking model does not loop the way free-text
+    generation can (validated by the Phase 2 A/B evaluation).
+
+    Returns:
+        The cached ``GenerateContentConfig`` for structured annotation.
+    """
+    if fyp_cf["machine"].get("structured_generation_config") is not None:
+        return fyp_cf["machine"]["structured_generation_config"]
+
+    with open(fyp_cf["machine"]["prompt"]) as file:
+        machine_prompt = file.read()
+
+    fyp_cf["machine"]["structured_generation_config"] = google.genai.types.GenerateContentConfig(
+        system_instruction=machine_prompt,
+        temperature=fyp_cf["machine"]["temperature"],
+        max_output_tokens=fyp_cf["machine"]["max_output_tokens"],
+        response_mime_type="application/json",
+        response_schema=build_response_schema(),
+        thinking_config=google.genai.types.ThinkingConfig(
+            thinking_budget=fyp_cf["machine"]["thinking_budget"]
+        ),
+    )
+    return fyp_cf["machine"]["structured_generation_config"]
+
+
+
+
+
+
 def call_machine(
         video_id: str = None,
         use_local_video_file = False,
@@ -130,6 +170,8 @@ def call_machine(
 
 
 
+    use_structured = bool(fyp_cf["machine"].get("use_structured_output", False))
+
     times = [_dt.datetime.now()]
     output = {
         "item_id" : video_id,
@@ -137,6 +179,8 @@ def call_machine(
         "inference_duration" : -1,
         "model" : fyp_cf['machine']['model'],
         "prompt_fn" : os.path.basename(fyp_cf['machine']['prompt']),
+        "structured" : use_structured,
+        "usage" : {},
         "error" : "unknown error",
         "finish_reason": "did not even start",
         "response" : "",
@@ -182,9 +226,14 @@ def call_machine(
     # run the model
     try:
         start_ts = _dt.datetime.now()
+        gen_config = (
+            build_structured_generation_config()
+            if use_structured
+            else fyp_cf["machine"]["global_generation_config"]
+        )
         resp = fyp_cf["machine"]["client"].models.generate_content(
             model = fyp_cf['machine']['model'],
-            config = fyp_cf["machine"]["global_generation_config"],
+            config = gen_config,
             contents=contents,
         )
     except Exception as e:
@@ -230,6 +279,15 @@ def call_machine(
     output["inference_duration"] = (times[-1] - times[-2]).total_seconds()
     output["finish_reason"] = the_finish_reason
     output["response"] = machine_annotations
+
+    usage = getattr(resp, "usage_metadata", None)
+    if usage is not None:
+        output["usage"] = {
+            "prompt_tokens": getattr(usage, "prompt_token_count", None),
+            "candidates_tokens": getattr(usage, "candidates_token_count", None),
+            "thoughts_tokens": getattr(usage, "thoughts_token_count", None),
+            "total_tokens": getattr(usage, "total_token_count", None),
+        }
 
     # save the json just in case everything crashes
     with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
@@ -851,8 +909,25 @@ def flatten_and_fix_machine_outputs(
             bad_count += 1
             print("!", end="", flush=True)
         else:
-            json_response = fuzzy_load_of_json_from_string(raw_outputs_from_machine[h]['response'], notebook_mode = notebook_mode)
-            flattened_response = flatten_one_machine_response(json_response, verbose = False, notebook_mode = notebook_mode)
+            entry = raw_outputs_from_machine[h]
+            if entry.get("structured"):
+                # Structured responses are schema-constrained valid JSON: parse
+                # directly and use the deterministic structured flattener +
+                # conditional rules. Falls back to the fuzzy loader only if the
+                # strict parse somehow fails.
+                try:
+                    json_response = json.loads(entry["response"])
+                except (json.JSONDecodeError, TypeError):
+                    json_response = fuzzy_load_of_json_from_string(entry["response"], notebook_mode=notebook_mode)
+                if isinstance(json_response, dict):
+                    flattened_response = apply_conditional_rules(
+                        flatten_structured(json_response), json_response
+                    )
+                else:
+                    flattened_response = None
+            else:
+                json_response = fuzzy_load_of_json_from_string(entry['response'], notebook_mode = notebook_mode)
+                flattened_response = flatten_one_machine_response(json_response, verbose = False, notebook_mode = notebook_mode)
             if type(flattened_response)==dict:
                 good_count += 1
                 print(".", end="", flush=True)
@@ -1175,10 +1250,13 @@ def clean_up_machine_annotations(some_events, verbose = False):
 
 
         # Check mean length
-        # Vectorized string length based on a sample of 500 items
+        # Vectorized string length based on a sample of 500 items.
+        # A fixed random_state keeps the length estimate — and the rare-label
+        # consolidation decision that branches on it — reproducible run-to-run.
+        # Without it the whole refinement pipeline is non-deterministic.
 
         sample_size = min(500, len(valid_items))
-        avg_len = valid_items.sample(sample_size, replace = False).astype(str).str.len().mean()
+        avg_len = valid_items.sample(sample_size, replace=False, random_state=0).astype(str).str.len().mean()
         
         if avg_len < 60:
             # Step 2: Cutoff logic
