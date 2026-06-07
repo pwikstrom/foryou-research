@@ -8,17 +8,33 @@ let _ssLoaded = false;
 let _ssHandlersWired = false;
 let _ssStatusTimer = null;
 let _ssLoadedMapBuiltAt = null;   // mtime of the map currently rendered
+let _ssLabelTimer = null;         // debounce for zoom-driven label refresh
+let _ssHidden = new Set();        // categories toggled off via the legend swatches
+let _ssLastColorMode = null;      // detect colour-variable switches to reset _ssHidden
+let _ssLegendCats = null;         // distinct categories backing the current swatches
 
 // Categorical data palette (tab20-style). Niche colour = palette[niche % 20];
-// category colours are assigned by index. Continuous "popularity" uses Viridis.
+// category colours are assigned by index. Numeric overlays use _SS_NUMERIC_SCALE.
 const _SS_PALETTE = [
     '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
     '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
     '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
     '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5'
 ];
-const _SS_DIM = 'rgba(130,130,130,0.10)';
 const _SS_MAX_LABELS = 30;
+
+// Numeric colour scale (low → high). Deliberately bounded to saturated,
+// mid-luminance hues (blue → teal → green → orange → red) — it avoids the
+// near-black and near-white ends of perceptual ramps like Viridis, so points
+// stay visible on both the dark and light chart backgrounds. Used for the
+// point colours (as a Plotly colorscale) and the HTML gradient legend, so the
+// two always match.
+const _SS_NUMERIC_SCALE = [
+    '#2c6fd6', '#159ca8', '#1faa6d', '#5fb53b', '#e08a2b', '#cf3a3a'
+];
+const _SS_NUMERIC_COLORSCALE = _SS_NUMERIC_SCALE.map(
+    (c, i, a) => [a.length === 1 ? 0 : i / (a.length - 1), c]
+);
 
 
 // Called by openTab() the first time the Semantic Space tab is shown.
@@ -107,6 +123,8 @@ function _ssWireControls() {
         const el = document.getElementById(id);
         if (el) { el.addEventListener('change', renderSemanticSpace); }
     });
+    const legend = document.getElementById('ss-legend');
+    if (legend) { legend.addEventListener('click', _ssOnLegendClick); }
 }
 
 
@@ -141,6 +159,77 @@ function _ssCatColorMap(field) {
 }
 
 
+// Current zoom window in data coordinates, or null when the map is fully zoomed
+// out (autoranged) — in which case every centroid stays eligible for a label.
+function _ssCurrentRanges(div) {
+    const fl = div && div._fullLayout;
+    if (!fl || !fl.xaxis || !fl.yaxis) { return null; }
+    if (fl.xaxis.autorange || fl.yaxis.autorange) { return null; }
+    if (!fl.xaxis.range || !fl.yaxis.range) { return null; }
+    return { x: fl.xaxis.range.slice(), y: fl.yaxis.range.slice() };
+}
+
+
+// Centroids whose median position falls inside the current view. With no zoom
+// window every centroid qualifies; zooming in shrinks the set so smaller niches
+// (previously crowded out) become eligible for a label.
+function _ssVisibleCentroids(ranges) {
+    const cents = _ssData._centroids || [];
+    if (!ranges) { return cents; }
+    const xlo = Math.min(ranges.x[0], ranges.x[1]);
+    const xhi = Math.max(ranges.x[0], ranges.x[1]);
+    const ylo = Math.min(ranges.y[0], ranges.y[1]);
+    const yhi = Math.max(ranges.y[0], ranges.y[1]);
+    return cents.filter(c => c.x >= xlo && c.x <= xhi && c.y >= ylo && c.y <= yhi);
+}
+
+
+function _ssLabelAnnotation(c) {
+    return {
+        x: c.x, y: c.y, text: c.name, showarrow: false,
+        font: { family: getCSSVar('--font-sans'), size: 10, color: getCSSVar('--white') },
+        bgcolor: getCSSVar('--chart-badge-bg'), borderpad: 2, opacity: 0.92
+    };
+}
+
+
+// Centroid label annotations for the current view. Labels are niche markers, so
+// they show whenever the checkbox is on regardless of which variable colours the
+// points. While focusing, only the focused niche is labelled; otherwise the
+// largest in-view niches are kept (capped at _SS_MAX_LABELS), so zooming in
+// reveals more of them.
+function _ssBuildLabels(focusNiche, showLabels, ranges) {
+    if (!showLabels) { return []; }
+    if (focusNiche !== null) {
+        const c = (_ssData._centroids || []).find(cc => cc.niche === focusNiche);
+        return c ? [_ssLabelAnnotation(c)] : [];
+    }
+    return _ssVisibleCentroids(ranges)
+        .slice().sort((a, b) => b.size - a.size)
+        .slice(0, _SS_MAX_LABELS)
+        .map(_ssLabelAnnotation);
+}
+
+
+// Re-label as the user zooms/pans: recompute which centroids are in view and
+// update just the annotation layer (no scatter redraw). Debounced so scroll-zoom
+// bursts coalesce. Ignores the annotation-only relayouts this handler triggers.
+function _ssOnZoomRelayout(ev) {
+    const div = document.getElementById('semantic-space-plot');
+    if (!div || !_ssData) { return; }
+    const axisChange = Object.keys(ev).some(k => k.indexOf('xaxis') === 0 || k.indexOf('yaxis') === 0);
+    if (!axisChange) { return; }
+    clearTimeout(_ssLabelTimer);
+    _ssLabelTimer = setTimeout(() => {
+        const focus = (document.getElementById('ss-niche-focus') || {}).value || '';
+        const showLabels = (document.getElementById('ss-show-labels') || {}).checked;
+        Plotly.relayout(div, {
+            annotations: _ssBuildLabels(focus === '' ? null : +focus, showLabels, _ssCurrentRanges(div))
+        });
+    }, 100);
+}
+
+
 function renderSemanticSpace() {
     if (!_ssData) { return; }
     const div = document.getElementById('semantic-space-plot');
@@ -153,22 +242,24 @@ function renderSemanticSpace() {
     const n = P.x.length;
     const focusNiche = focus === '' ? null : +focus;
 
+    // Switching the colour variable clears any per-category hide toggles (the
+    // hidden set only makes sense for the categories currently on screen).
+    if (mode !== _ssLastColorMode) { _ssHidden.clear(); _ssLastColorMode = mode; }
+
     // Per-point colour by the selected mode. Niche + categorical overlays use
-    // the discrete palette; numeric overlays use a continuous Viridis scale.
+    // the discrete palette; numeric overlays use the continuous _SS_NUMERIC_SCALE.
     const overlay = mode === 'niche' ? null : _ssOverlay(mode);
     let colorArr;
     let markerExtra = {};
     let catColorMap = null;
     if (overlay && overlay.kind === 'numeric') {
         colorArr = (P[overlay.field] || []).map(v => (v == null ? 0 : v));
-        markerExtra = {
-            colorscale: 'Viridis', showscale: true,
-            colorbar: {
-                title: overlay.label, thickness: 12, len: 0.5,
-                tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') },
-                titlefont: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') }
-            }
-        };
+        // Colour the points by the numeric scale, but DON'T draw Plotly's
+        // in-figure colourbar — it resizes the plot box and (via the 1:1 aspect
+        // lock) shifts the scatter when the scale changes. The scale is shown as
+        // an HTML gradient legend below the plot instead (see _ssRenderLegend),
+        // so the plot box never changes between colour modes.
+        markerExtra = { colorscale: _SS_NUMERIC_COLORSCALE, showscale: false };
     } else if (overlay && overlay.kind === 'categorical') {
         catColorMap = _ssCatColorMap(overlay.field);
         colorArr = (P[overlay.field] || []).map(v => catColorMap[v] || '#888');
@@ -176,19 +267,29 @@ function renderSemanticSpace() {
         colorArr = P.niche.map(nn => _SS_PALETTE[nn % _SS_PALETTE.length]);
     }
 
-    // Focus: isolate one niche — highlight it, grey out the rest (uniform
-    // across modes; the colourbar is suppressed while focusing).
+    // Per-point size/opacity. Focus enlarges one niche and fades the rest;
+    // legend toggles hide whole categories (size + opacity 0 so they vanish and
+    // stop catching hovers). Hiding wins over focus. None of this changes the
+    // plot box, so the scatter stays put.
     let sizeArr = 4;
-    if (focusNiche !== null) {
-        const fc = _SS_PALETTE[focusNiche % _SS_PALETTE.length];
-        colorArr = new Array(n);
+    let opacityArr = 0.75;
+    const hideField = (overlay && overlay.kind === 'categorical' && _ssHidden.size) ? overlay.field : null;
+    if (focusNiche !== null || hideField) {
         sizeArr = new Array(n);
+        opacityArr = new Array(n);
         for (let i = 0; i < n; i++) {
-            const inFocus = P.niche[i] === focusNiche;
-            colorArr[i] = inFocus ? fc : _SS_DIM;
-            sizeArr[i] = inFocus ? 7 : 3;
+            if (hideField && _ssHidden.has(P[hideField][i])) {
+                sizeArr[i] = 0;
+                opacityArr[i] = 0;
+            } else if (focusNiche !== null) {
+                const inFocus = P.niche[i] === focusNiche;
+                sizeArr[i] = inFocus ? 7 : 3;
+                opacityArr[i] = inFocus ? 0.9 : 0.08;
+            } else {
+                sizeArr[i] = 4;
+                opacityArr[i] = 0.75;
+            }
         }
-        markerExtra = {};
     }
 
     const ovField = overlay ? overlay.field : null;
@@ -203,29 +304,26 @@ function renderSemanticSpace() {
         x: P.x, y: P.y,
         customdata: P.item_id,
         text: hover, hoverinfo: 'text',
-        marker: Object.assign({ size: sizeArr, color: colorArr, opacity: 0.75,
+        marker: Object.assign({ size: sizeArr, color: colorArr, opacity: opacityArr,
             line: { width: 0 } }, markerExtra)
     };
 
-    // Centroid niche labels — only in niche mode or when a niche is focused.
-    const annotations = [];
-    if (showLabels && (mode === 'niche' || focusNiche !== null)) {
-        let labelSet = _ssData._centroids.slice().sort((a, b) => b.size - a.size);
-        labelSet = focusNiche !== null
-            ? labelSet.filter(c => c.niche === focusNiche)
-            : labelSet.slice(0, _SS_MAX_LABELS);
-        labelSet.forEach(c => annotations.push({
-            x: c.x, y: c.y, text: c.name, showarrow: false,
-            font: { family: getCSSVar('--font-sans'), size: 10, color: getCSSVar('--white') },
-            bgcolor: getCSSVar('--chart-badge-bg'), borderpad: 2, opacity: 0.92
-        }));
-    }
+    // Centroid niche labels, scoped to the current zoom window so more (smaller)
+    // niches get labelled as the user zooms in. Carry that window into the layout
+    // too, so recolouring keeps the user's zoom instead of snapping to overview.
+    const ranges = _ssCurrentRanges(div);
+    const annotations = _ssBuildLabels(focusNiche, showLabels, ranges);
 
     const layout = {
         hovermode: 'closest', showlegend: false,
+        // Symmetric margins: with no in-figure colourbar (the scale lives in the
+        // HTML legend below the plot), the plot box is identical in every colour
+        // mode, so the scatter never shifts when the colour variable changes.
         margin: { l: 10, r: 10, t: 10, b: 10 },
-        xaxis: { visible: false, fixedrange: false },
-        yaxis: { visible: false, scaleanchor: 'x', scaleratio: 1 },
+        xaxis: Object.assign({ visible: false, fixedrange: false },
+            ranges ? { range: ranges.x, autorange: false } : {}),
+        yaxis: Object.assign({ visible: false, scaleanchor: 'x', scaleratio: 1 },
+            ranges ? { range: ranges.y, autorange: false } : {}),
         paper_bgcolor: getCSSVar('--chart-bg'),
         plot_bgcolor: getCSSVar('--chart-bg'),
         font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') },
@@ -243,22 +341,73 @@ function renderSemanticSpace() {
                 window.open(`https://www.tiktok.com/@/video/${pt.customdata}/`, '_blank', 'noopener');
             }
         });
+        div.on('plotly_relayout', _ssOnZoomRelayout);
     }
 }
 
 
+// Min/max of a numeric overlay, treating nulls as 0 to match the point colours
+// (renderSemanticSpace maps null → 0), so the gradient endpoints line up.
+function _ssNumericRange(field) {
+    const arr = _ssData.points[field] || [];
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < arr.length; i++) {
+        const v = arr[i] == null ? 0 : arr[i];
+        if (v < lo) { lo = v; }
+        if (v > hi) { hi = v; }
+    }
+    return lo === Infinity ? [0, 0] : [lo, hi];
+}
+
+
+function _ssFmtNum(v) {
+    return Number.isInteger(v) ? String(v) : String(+v.toFixed(1));
+}
+
+
+// Click a categorical swatch to hide/show that category's points (delegated
+// from #ss-legend; swatches are recreated on every render).
+function _ssOnLegendClick(ev) {
+    const sw = ev.target.closest('[data-cat-idx]');
+    if (!sw || !_ssLegendCats) { return; }
+    const cat = _ssLegendCats[+sw.dataset.catIdx];
+    if (cat === undefined) { return; }
+    if (_ssHidden.has(cat)) { _ssHidden.delete(cat); } else { _ssHidden.add(cat); }
+    renderSemanticSpace();
+}
+
+
+// Colour legend, rendered as HTML below the plot (never inside the Plotly
+// figure — see the template note). Category swatches (clickable to hide/show)
+// or a numeric gradient bar.
 function _ssRenderLegend(mode, overlay, catColorMap) {
-    const info = document.getElementById('ss-info');
-    if (!info) { return; }
+    const legend = document.getElementById('ss-legend');
+    if (!legend) { return; }
+    const openHint = '<span style="margin-left:auto;white-space:nowrap;">click a point to open on TikTok</span>';
     if (overlay && overlay.kind === 'categorical' && catColorMap) {
-        info.innerHTML = _ssDistinct(overlay.field).map(c =>
-            `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;white-space:nowrap;">`
-            + `<span style="width:9px;height:9px;border-radius:2px;background:${catColorMap[c]};display:inline-block;"></span>`
-            + `${c}</span>`).join('');
+        _ssLegendCats = _ssDistinct(overlay.field);
+        const swatches = _ssLegendCats.map((c, i) => {
+            const off = _ssHidden.has(c);
+            return `<span data-cat-idx="${i}" style="display:inline-flex;align-items:center;gap:4px;`
+                + `white-space:nowrap;cursor:pointer;opacity:${off ? 0.45 : 1};`
+                + `text-decoration:${off ? 'line-through' : 'none'};">`
+                + `<span style="width:9px;height:9px;border-radius:2px;background:${catColorMap[c]};`
+                + `display:inline-block;${off ? 'filter:grayscale(1);' : ''}"></span>${c}</span>`;
+        }).join('');
+        const hint = '<span style="margin-left:auto;white-space:nowrap;">click a swatch to show/hide · click a point to open</span>';
+        legend.innerHTML = swatches + hint;
     } else if (overlay && overlay.kind === 'numeric') {
-        info.innerText = `${overlay.label}: brighter = higher · click a point to open on TikTok`;
+        _ssLegendCats = null;
+        const [lo, hi] = _ssNumericRange(overlay.field);
+        const grad = `linear-gradient(to right, ${_SS_NUMERIC_SCALE.join(', ')})`;
+        legend.innerHTML =
+            `<span class="font-medium" style="white-space:nowrap;">${overlay.label}</span>`
+            + `<span>${_ssFmtNum(lo)}</span>`
+            + `<span style="width:140px;height:10px;border-radius:2px;background:${grad};display:inline-block;"></span>`
+            + `<span>${_ssFmtNum(hi)}</span>` + openHint;
     } else {
-        info.innerText = 'Coloured by niche · click a point to open on TikTok';
+        _ssLegendCats = null;
+        legend.innerHTML = `<span>Coloured by niche</span>${openHint}`;
     }
 }
 
