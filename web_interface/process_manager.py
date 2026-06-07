@@ -183,14 +183,78 @@ def monitor_process_completion(name, proc):
             )
             t.start()
 
+    # After a local video-map rebuild requested with auto_refresh, refresh all
+    # study caches so the new niches reach the analysis tabs (Cloud Run does
+    # this via the Cloud Tasks chain returned by run_video_map_refresh).
+    if (
+        name == "video_map_refresh"
+        and outcome == "Success"
+        and not is_cloud_run()
+        and bool(completed_task_args.get("auto_refresh"))
+    ):
+        t = threading.Thread(
+            target=_run_local_video_map_downstream,
+            daemon=True,
+        )
+        t.start()
+
 
 def _run_local_downstream_pipeline(impact: dict) -> None:
-    """Sequentially dispatch stale downstream refreshes as subprocesses.
+    """Sequentially dispatch stale downstream refreshes after a consolidate.
 
     Used only in local dev mode — Cloud Run chains via Cloud Tasks in
-    _run_task_with_stats. Sets process_stats['consolidate_enrichment']
-    ['pipeline_in_flight'] so the UI poll keeps showing stage progress
-    between steps, and clears it when done (or on failure).
+    _run_task_with_stats.
+    """
+    from web_interface.run_consolidate_enrichment import (
+        _build_downstream_pipeline,
+        build_pipeline_summary,
+    )
+
+    pipeline = _build_downstream_pipeline(impact)
+    if not pipeline:
+        return
+
+    def _summary(steps_ran: list[str], aborted_at: str | None) -> str:
+        if aborted_at:
+            return (
+                f"Pipeline aborted at '{aborted_at}'. "
+                + (build_pipeline_summary(impact, steps_ran) if steps_ran else "No steps completed.")
+            )
+        return build_pipeline_summary(impact, steps_ran)
+
+    _run_local_pipeline(pipeline, summary_owner="consolidate_enrichment", summary_fn=_summary)
+
+
+def _run_local_video_map_downstream() -> None:
+    """Refresh all study caches after a local video-map rebuild.
+
+    A rebuild remaps every video's niche, so every study/collection is refreshed
+    (no filter). Used only in local dev mode — Cloud Run chains via Cloud Tasks.
+    """
+    from web_interface.run_video_map_refresh import _DOWNSTREAM_PIPELINE
+
+    def _summary(steps_ran: list[str], aborted_at: str | None) -> str:
+        if aborted_at:
+            return f"Niche refresh aborted at '{aborted_at}' ({len(steps_ran)} step(s) completed)."
+        return f"Refreshed all study caches with the rebuilt niches ({len(steps_ran)} step(s))."
+
+    _run_local_pipeline(
+        list(_DOWNSTREAM_PIPELINE), summary_owner="video_map_refresh", summary_fn=_summary
+    )
+
+
+def _run_local_pipeline(pipeline: list, summary_owner: str, summary_fn) -> None:
+    """Run a downstream refresh pipeline as sequential subprocesses (local dev).
+
+    Sets process_stats['consolidate_enrichment']['pipeline_in_flight'] so the UI
+    poll keeps showing stage progress between steps (the semantic-space banner
+    and consolidate panel both read that flag), and clears it when done. Writes
+    the final summary into ``summary_owner``'s stats entry.
+
+    Args:
+        pipeline: Ordered list of ``{"task", "task_args"}`` steps.
+        summary_owner: process_stats key to receive the final summary.
+        summary_fn: ``(steps_ran, aborted_at) -> str`` summary builder.
     """
     from fyp.fyp_config import (
         EMBEDDINGS_REFRESH_SCRIPT,
@@ -199,11 +263,6 @@ def _run_local_downstream_pipeline(impact: dict) -> None:
         RECODE_REFRESH_STUDIES_SCRIPT,
         TIMELINES_REFRESH_SCRIPT,
     )
-    from web_interface.run_consolidate_enrichment import _build_downstream_pipeline
-
-    pipeline = _build_downstream_pipeline(impact)
-    if not pipeline:
-        return
 
     script_map = {
         "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,
@@ -213,7 +272,7 @@ def _run_local_downstream_pipeline(impact: dict) -> None:
         "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
     }
 
-    total_stages = 1 + len(pipeline)  # consolidate itself was stage 1
+    total_stages = 1 + len(pipeline)  # the trigger task itself was stage 1
     _set_pipeline_in_flight(True)
     steps_ran: list[str] = []
     aborted_at: str | None = None
@@ -234,7 +293,7 @@ def _run_local_downstream_pipeline(impact: dict) -> None:
             if step_args.get("collections"):
                 cli_args += ["--collections", str(step_args["collections"])]
 
-            stage_index = i + 2  # stage 1 was consolidate
+            stage_index = i + 2  # stage 1 was the trigger task
 
             success, msg = start_process(step_name, script_path, args=cli_args)
             if not success:
@@ -265,21 +324,14 @@ def _run_local_downstream_pipeline(impact: dict) -> None:
                 break
             steps_ran.append(step_name)
     finally:
-        # Write the final pipeline summary into consolidate_stats so the UI
-        # has a persistent statement of what the pipeline actually did.
-        from web_interface.run_consolidate_enrichment import build_pipeline_summary
+        # Write the final pipeline summary so the UI has a persistent statement
+        # of what the pipeline actually did.
         from datetime import datetime as _dt
         load_process_stats()
-        entry = process_stats.get("consolidate_enrichment", {})
-        if aborted_at:
-            entry["last_pipeline_summary"] = (
-                f"Pipeline aborted at '{aborted_at}'. "
-                + (build_pipeline_summary(impact, steps_ran) if steps_ran else "No steps completed.")
-            )
-        else:
-            entry["last_pipeline_summary"] = build_pipeline_summary(impact, steps_ran)
+        entry = process_stats.get(summary_owner, {})
+        entry["last_pipeline_summary"] = summary_fn(steps_ran, aborted_at)
         entry["last_pipeline_summary_ts"] = _dt.now(UTC).isoformat()
-        process_stats["consolidate_enrichment"] = entry
+        process_stats[summary_owner] = entry
         save_process_stats()
         _set_pipeline_in_flight(False)
 
@@ -528,6 +580,12 @@ def _cli_args_to_dict(name: str, args: list, study_name: str | None) -> dict:
             i += 2
         elif arg == "--collections" and i + 1 < len(args):
             task_args["collections"] = args[i + 1]
+            i += 2
+        elif arg == "--auto-refresh":
+            task_args["auto_refresh"] = True
+            i += 1
+        elif arg in ("--n-niches", "--map-sample", "--pca-dim") and i + 1 < len(args):
+            task_args[arg.lstrip("-").replace("-", "_")] = args[i + 1]
             i += 2
         elif arg == "--force":
             task_args["force_full_rebuild"] = True

@@ -364,6 +364,8 @@ async function _ssReloadMap() {
 
 // Admin-only: kick off a video_map_refresh. Embeddings are kept current by the
 // consolidation cascade, so this rebuilds the 2D map/niches from the store.
+// The backend defaults to auto_refresh, so a rebuild also re-recodes every
+// study cache to propagate the new niche assignments into the analysis tabs.
 async function _ssRebuildMap() {
     const actionEl = document.getElementById('ss-banner-action');
     if (actionEl) { actionEl.disabled = true; actionEl.textContent = 'Starting…'; }

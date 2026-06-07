@@ -16,6 +16,7 @@ map) → Gemini niche naming from centroid-nearest exemplars.
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import linear_sum_assignment
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -32,10 +33,16 @@ NICHES_FILE = "video_niches.json"
 
 # Defaults. n_niches mirrors niche_detection's micro-genre granularity; the
 # map sample keeps the dashboard scatter renderable while clustering stays
-# full-corpus.
+# full-corpus. The analysis tabs surface the fine niche directly and rely on
+# their existing top-K + "Other"/rare-pruning logic to tame the cardinality.
 DEFAULT_N_NICHES = 150
 DEFAULT_MAP_SAMPLE = 30000
 DEFAULT_PCA_DIM = 50
+
+# Minimum share of a fresh cluster's members that must overlap a previous
+# cluster for that cluster to inherit the previous id/name (see
+# _align_labels_to_previous).
+_ALIGN_MIN_OVERLAP = 0.5
 
 _EXEMPLARS_PER_NICHE = 10
 _TERMS_PER_NICHE = 8
@@ -80,12 +87,104 @@ def _reduce(matrix: np.ndarray, pca_dim: int) -> np.ndarray:
 
 
 
+def _align_labels_to_previous(
+    item_ids: list[str],
+    labels: np.ndarray,
+    prev_id_col: str,
+    prev_name_col: str,
+) -> tuple[np.ndarray, dict[int, str]]:
+    """Relabel fresh cluster ids to match the previous build's ids.
+
+    Cluster ids from a fresh KMeans/agglomeration run are arbitrary, so a saved
+    analysis filtered on a niche id/name could silently point at a different
+    cluster after a rebuild. This aligns the new labels to the previous build by
+    maximising membership overlap — a Hungarian assignment on the new×old
+    contingency table over shared item_ids — and carries the previous id and
+    name forward for each strongly matched cluster. Clusters that split, merge,
+    or are genuinely new get fresh ids above the previous maximum.
+
+    Args:
+        item_ids: Item ids aligned to ``labels`` rows.
+        labels: Fresh integer cluster id per video.
+        prev_id_col: Column in the previous map holding the integer cluster id.
+        prev_name_col: Column in the previous map holding the cluster name.
+
+    Returns:
+        ``(aligned_labels, carried_names)`` where ``carried_names`` maps each
+        carried-forward (previous) id to the previous name to reuse.
+    """
+    if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE):
+        return labels.astype(np.int32), {}
+    try:
+        prev = data_io.load_parquet_selective(
+            storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE,
+            columns=["item_id", prev_id_col, prev_name_col],
+        )
+    except Exception:
+        return labels.astype(np.int32), {}
+    if prev is None or prev.empty or prev_id_col not in prev.columns:
+        return labels.astype(np.int32), {}
+
+    prev["item_id"] = prev["item_id"].astype("string")
+    prev = prev.dropna(subset=[prev_id_col])
+    old_name_by_id = {
+        int(i): str(n)
+        for i, n in prev.groupby(prev_id_col)[prev_name_col].first().items()
+    }
+    old_per_item = pd.to_numeric(
+        prev.drop_duplicates("item_id").set_index("item_id")[prev_id_col],
+        errors="coerce",
+    ).reindex(pd.Index(item_ids, dtype="string")).to_numpy()
+
+    new_ids = np.unique(labels)
+    old_ids = np.array(sorted(old_name_by_id.keys()))
+    if old_ids.size == 0:
+        return labels.astype(np.int32), {}
+
+    new_pos = {int(c): i for i, c in enumerate(new_ids)}
+    old_pos = {int(c): j for j, c in enumerate(old_ids)}
+    contingency = np.zeros((new_ids.size, old_ids.size), dtype=np.int64)
+    shared = ~np.isnan(old_per_item)
+    for new_lab, old_lab in zip(labels[shared], old_per_item[shared].astype(int)):
+        if old_lab in old_pos:
+            contingency[new_pos[int(new_lab)], old_pos[old_lab]] += 1
+
+    row_ind, col_ind = linear_sum_assignment(-contingency)
+    new_sizes = {int(c): int((labels == c).sum()) for c in new_ids}
+    mapping: dict[int, int] = {}
+    carried: dict[int, str] = {}
+    for r, c in zip(row_ind, col_ind):
+        overlap = contingency[r, c]
+        new_id = int(new_ids[r])
+        if overlap <= 0 or new_sizes[new_id] == 0:
+            continue
+        if overlap / new_sizes[new_id] < _ALIGN_MIN_OVERLAP:
+            continue
+        old_id = int(old_ids[c])
+        mapping[new_id] = old_id
+        carried[old_id] = old_name_by_id[old_id]
+
+    next_id = int(old_ids.max()) + 1
+    for new_id in new_ids:
+        if int(new_id) not in mapping:
+            mapping[int(new_id)] = next_id
+            next_id += 1
+
+    aligned = np.array([mapping[int(l)] for l in labels], dtype=np.int32)
+    return aligned, carried
+
+
+
+
+
+
 def _name_niches(
     item_ids: list[str],
     labels: np.ndarray,
     reduced: np.ndarray,
     stories: pd.Series,
     categories: pd.Series,
+    carried_names: dict[int, str] | None = None,
     reporter=None,
 ) -> dict[int, dict]:
     """Build per-niche metadata: Gemini name, size, top terms, top categories.
@@ -96,6 +195,8 @@ def _name_niches(
         reduced: PCA-reduced matrix (for centroid-nearest exemplar selection).
         stories: ``video_story`` Series aligned to ``item_ids``.
         categories: First ``content_category`` Series aligned to ``item_ids``.
+        carried_names: Optional map of niche id → name carried over from the
+            previous build; these niches keep their name and skip Gemini naming.
         reporter: Optional status reporter.
 
     Returns:
@@ -103,6 +204,7 @@ def _name_niches(
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    carried_names = carried_names or {}
     story_list = stories.tolist()
     vectorizer = TfidfVectorizer(
         max_features=8000, min_df=3, max_df=0.4,
@@ -122,7 +224,7 @@ def _name_niches(
             "size": int(len(rows)),
             "terms": terms,
             "top_categories": [str(c) for c in cat_counts.index.tolist()],
-            "name": f"Niche {niche}",
+            "name": carried_names.get(niche, f"Niche {niche}"),
         }
 
     client = embeddings._get_client()
@@ -145,12 +247,16 @@ def _name_niches(
         except Exception:
             return niche, f"Niche {niche}"
 
+    to_name = [n for n in niches if n not in carried_names]
     with ThreadPoolExecutor(max_workers=10) as ex:
-        for fut in as_completed([ex.submit(_name, n) for n in niches]):
+        for fut in as_completed([ex.submit(_name, n) for n in to_name]):
             niche, name = fut.result()
             meta[niche]["name"] = name
     if reporter is not None:
-        reporter.log(f"Named {len(niches)} niches via {naming_model}.")
+        reporter.log(
+            f"Named {len(to_name)} niches via {naming_model} "
+            f"({len(carried_names)} carried over from previous build)."
+        )
     return meta
 
 
@@ -199,6 +305,12 @@ def build_niche_map(
     labels = kmeans.fit_predict(reduced)
     _log(f"Assigned {len(item_ids):,} videos to {n_niches} niches.")
 
+    # Stabilise niche ids/names against the previous build so saved
+    # niche-filtered analyses survive a rebuild (see _align_labels_to_previous).
+    if reporter is not None:
+        reporter.update_progress(45, "Aligning niche ids to previous build...")
+    labels, niche_carry = _align_labels_to_previous(item_ids, labels, "niche", "niche_name")
+
     # Pull video_story + first content_category aligned to item_ids for naming.
     if reporter is not None:
         reporter.update_progress(50, "Loading stories for niche naming...")
@@ -217,7 +329,10 @@ def build_niche_map(
 
     if reporter is not None:
         reporter.update_progress(60, "Naming niches (Gemini)...")
-    niche_meta = _name_niches(item_ids, labels, reduced, stories, categories, reporter=reporter)
+    niche_meta = _name_niches(
+        item_ids, labels, reduced, stories, categories,
+        carried_names=niche_carry, reporter=reporter,
+    )
 
     # 2D map on a sample (the full corpus is too large to scatter in a browser).
     if reporter is not None:

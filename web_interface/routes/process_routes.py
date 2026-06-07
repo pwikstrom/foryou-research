@@ -61,6 +61,20 @@ def api_start(name):
     if name == "recode_refresh_studies" and data.get("force_full_rebuild"):
         args.append("--force")
 
+    if name == "video_map_refresh":
+        # A map rebuild remaps every video's niche, so default to refreshing all
+        # study caches afterwards (the new niches must reach the analysis tabs).
+        # Callers can opt out with {"auto_refresh": false}.
+        if data.get("auto_refresh", True):
+            args.append("--auto-refresh")
+        for flag, key in (
+            ("--n-niches", "n_niches"),
+            ("--map-sample", "map_sample"),
+            ("--pca-dim", "pca_dim"),
+        ):
+            if data.get(key) and str(data[key]).strip():
+                args.extend([flag, str(data[key])])
+
     study_name = data.get("study_name") 
 
     script_map = {

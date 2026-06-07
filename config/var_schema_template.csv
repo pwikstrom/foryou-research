@@ -103,3 +103,5 @@ scrape,Popularity,stats_playCount,Play count,feature,ratio,{},[],,,2,,304,,304,y
 scrape,Popularity,stats_shareCount,Share count,feature,ratio,{},[],,,4,,305,,305,yes,,50,406,Total shares of the video.,
 scrape,Fundamentals,music_duration,Music duration,standard,ratio,,,,,,,,,,,,,,,
 scrape,Fundamentals,music_original,Is this music original?,standard,,,,,,,,,,,,,,,,
+derived: embeddings,Semantic,niche_name,Niche,feature,categorical,{},[],,,20,1,210,102,210,,no,,210,"Embeddings-derived micro-genre (KMeans cluster of video embeddings, Gemini-named). High-cardinality: tabs surface the top niches by frequency and fold the long tail into 'Other'. Best-effort-stable across map rebuilds.",
+derived: embeddings,Semantic,niche,Niche ID,skip,raw,{},[],,,,,,,,,,,,"Integer niche cluster id (join key to video_niches.json); hidden from tabs.",

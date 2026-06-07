@@ -61,6 +61,15 @@ SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
 MACHINE_ANNOTATIONS_LABEL = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
 COLLECTIONS_LABEL = fyp_cf["labels"]["COLLECTIONS_LABEL"]
 
+# Embeddings-derived niche map (see fyp.video_map). The niche columns are
+# joined into each study's recoded dataset on item_id so they surface as
+# ordinary analysis variables; the map is rebuilt out-of-band, so its
+# fingerprint guards study-cache freshness.
+_VIDEO_MAP_LOCATION = "recoded"
+_VIDEO_MAP_FILE = "video_map.parquet"
+_NICHE_COLUMNS = ("niche", "niche_name")
+_NICHE_UNMAPPED = "unmapped"
+
 
 # ============================================================================
 # Refresh fingerprinting — sidecar metadata for incremental refresh
@@ -77,6 +86,7 @@ _FINGERPRINT_INPUT_FILES = {
     "collections_fp":  ("recoded", f"{COLLECTIONS_LABEL}_recoded.parquet"),
     "scrapes_fp":      ("recoded", f"{SCRAPES_LABEL}_recoded.parquet"),
     "annotations_fp":  ("recoded", f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"),
+    "video_map_fp":    (_VIDEO_MAP_LOCATION, _VIDEO_MAP_FILE),
 }
 
 
@@ -213,7 +223,7 @@ def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
 
     sidecar = {
         "created_at": _dt.datetime.now(_dt.UTC).isoformat(),
-        "sidecar_version": 2,
+        "sidecar_version": 3,
         "study_name": study_name,
         "study_config_hash": compute_study_config_hash(study_name),
         "var_schema_hash": compute_var_schema_hash(),
@@ -221,6 +231,7 @@ def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
         "collections_fp": fps.get("collections_fp"),
         "scrapes_fp": fps.get("scrapes_fp"),
         "annotations_fp": fps.get("annotations_fp"),
+        "video_map_fp": fps.get("video_map_fp"),
         "failed_scrapes_fp": compute_failed_scrapes_fingerprint(),
         "item_ids_hash": _hash_item_ids(recoded_df),
         "row_count": len(recoded_df) if recoded_df is not None else 0,
@@ -305,6 +316,7 @@ def plan_refresh(study_name: str, verbose: bool = False) -> dict:
         "scrapes": False,
         "annotations": False,
         "failed_scrapes": False,
+        "video_map": False,
     }
 
     cache_filename = f"{study_name}_recoded.parquet"
@@ -358,6 +370,10 @@ def plan_refresh(study_name: str, verbose: bool = False) -> dict:
         reasons.append("annotations parquet changed")
         changed["annotations"] = True
 
+    if not _fp_equal(sidecar.get("video_map_fp"), current_fps.get("video_map_fp")):
+        reasons.append("video_map parquet changed")
+        changed["video_map"] = True
+
     if not _fp_equal(sidecar.get("failed_scrapes_fp"), current_failed_fp):
         reasons.append("failed_scrapes list changed")
         changed["failed_scrapes"] = True
@@ -382,8 +398,15 @@ def plan_refresh(study_name: str, verbose: bool = False) -> dict:
         changed["var_schema"] or changed["study_config"] or changed["collections"]
     )
 
-    if enrichment_bits_changed and not activity_bits_changed:
-        if enrichment_driven_sampling:
+    # The enrichment-only patch re-merges scrapes/annotations AND re-joins the
+    # niche columns onto the cached activity rows, so it also refreshes a
+    # video-map rebuild. A niche remap never shifts which activity rows are
+    # sampled, so it stays patch-eligible even under enrichment-driven sampling;
+    # only scrape/annotation changes can invalidate that sampling.
+    patch_eligible = enrichment_bits_changed or changed["video_map"]
+
+    if patch_eligible and not activity_bits_changed:
+        if enrichment_bits_changed and enrichment_driven_sampling:
             reasons.append(
                 f"sampling='{sample_frame}' depends on enrichment — forcing full rebuild"
             )
@@ -1172,6 +1195,69 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
 # ============================================================================
 
 
+def _join_niche_columns(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
+    """Left-join the embeddings-derived niche columns onto a study dataframe.
+
+    Adds ``niche_name`` (readable categorical) and its integer ``niche`` id from
+    ``video_map.parquet``, keyed on ``item_id``, so the niche surfaces as an
+    ordinary analysis variable. Videos absent from the map (not yet
+    embedded/clustered) get ``"unmapped"`` and a null id. Idempotent: existing
+    niche columns are dropped first so a re-merge after a map rebuild refreshes
+    them cleanly, and any niche column the map does not provide is backfilled as
+    unmapped.
+
+    Args:
+        df: Merged study dataframe; a no-op when it lacks ``item_id``.
+        verbose: Print join diagnostics.
+
+    Returns:
+        The dataframe with the niche columns present.
+    """
+    if "item_id" not in df.columns:
+        return df
+
+    df = df.drop(columns=[c for c in _NICHE_COLUMNS if c in df.columns], errors="ignore")
+
+    available: set[str] = set()
+    if data_io.exists(storage_location=_VIDEO_MAP_LOCATION, filename=_VIDEO_MAP_FILE):
+        available = set(
+            data_io.get_parquet_columns(
+                storage_location=_VIDEO_MAP_LOCATION, filename=_VIDEO_MAP_FILE
+            ) or []
+        )
+
+    join_cols = [c for c in _NICHE_COLUMNS if c in available]
+    if "item_id" in available and join_cols:
+        niche_map = data_io.load_parquet_selective(
+            storage_location=_VIDEO_MAP_LOCATION,
+            filename=_VIDEO_MAP_FILE,
+            columns=["item_id", *join_cols],
+        )
+        niche_map["item_id"] = niche_map["item_id"].astype("string[pyarrow]")
+        df["item_id"] = df["item_id"].astype("string[pyarrow]")
+        df = fast_join(df, niche_map, on="item_id", how="left")
+
+    n = len(df)
+    for col in _NICHE_COLUMNS:
+        is_name = col.endswith("name")
+        if col not in df.columns:
+            df[col] = pd.array(
+                [_NICHE_UNMAPPED if is_name else pd.NA] * n,
+                dtype="string[pyarrow]" if is_name else "int32[pyarrow]",
+            )
+        elif is_name:
+            df[col] = df[col].astype("string[pyarrow]").fillna(_NICHE_UNMAPPED)
+
+    if verbose:
+        mapped = int((df["niche_name"] != _NICHE_UNMAPPED).sum())
+        print(f"  Joined niche columns: {mapped:,}/{n:,} rows mapped to a niche")
+    return df
+
+
+
+
+
+
 def new_merge(
     study_name: str = None,
     all_datasets: dict = {},
@@ -1272,6 +1358,10 @@ def new_merge(
             print(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
     # --------------------------------------------------------------------------------------------------
 
+    # Join the embeddings-derived niche columns (item_id-keyed) so they surface
+    # as ordinary analysis variables in the explore / timeline / correlation
+    # tabs. Runs for both the merge and activity-only branches.
+    shebang = _join_niche_columns(shebang, verbose=verbose)
 
     if save_to_cache:
         t1 = _dt.datetime.now()
@@ -1307,6 +1397,9 @@ _CALCULATED_ENRICHMENT_COLUMNS = {
     "plays_per_day",
     "scraped_fail",
     "completion_rate",
+    # Niche columns are re-joined by new_merge() via _join_niche_columns(), so
+    # drop the cached copies before re-merging to avoid _x/_y suffixing.
+    *_NICHE_COLUMNS,
 }
 
 
