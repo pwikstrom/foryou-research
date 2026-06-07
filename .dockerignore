@@ -147,3 +147,13 @@ celerybeat.pid
 # data files
 *.parquet
 *.pkl
+
+
+# Temp & research artifacts
+# AGENT.md: tmp/ is for temporary test/debug data — it (and stray research
+# notes / manuscript drafts at the repo root) must never ship in the prod image.
+tmp/
+*.docx
+DEVELOPMENT_ROADMAP.md
+POST_HOLIDAY_NOTES.md
+SESSION_PROFILE_ENTROPY_DISCREPANCY.md
