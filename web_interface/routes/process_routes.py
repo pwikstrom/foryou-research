@@ -536,6 +536,7 @@ def _write_pipeline_summary_cloud(partial: bool = False, failed_at: str | None =
         "meta_refresh_groups",
         "pca_refresh",
         "timelines_refresh",
+        "embeddings_refresh",
     ]
     steps_ran: list[str] = []
     for step in candidate_steps:

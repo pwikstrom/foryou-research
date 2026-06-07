@@ -67,6 +67,7 @@ PIPELINE_STEPS_ORDER = [
     "meta_refresh_groups",
     "pca_refresh",
     "timelines_refresh",
+    "embeddings_refresh",
 ]
 
 

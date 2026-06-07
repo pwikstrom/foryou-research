@@ -193,6 +193,7 @@ def _run_local_downstream_pipeline(impact: dict) -> None:
     between steps, and clears it when done (or on failure).
     """
     from fyp.fyp_config import (
+        EMBEDDINGS_REFRESH_SCRIPT,
         META_REFRESH_GROUPS_SCRIPT,
         PCA_REFRESH_SCRIPT,
         RECODE_REFRESH_STUDIES_SCRIPT,
@@ -209,6 +210,7 @@ def _run_local_downstream_pipeline(impact: dict) -> None:
         "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
         "pca_refresh": PCA_REFRESH_SCRIPT,
         "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
+        "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
     }
 
     total_stages = 1 + len(pipeline)  # consolidate itself was stage 1

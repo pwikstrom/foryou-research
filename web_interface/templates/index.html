@@ -20,6 +20,7 @@
 
 <script>
     window.USER_PERMS = {{ user_perms|tojson }};
+    window.USER_IS_ADMIN = {{ user.is_admin()|tojson }};
 
     // If the hardcoded default sub-page is hidden by the permission system,
     // activate the first sub-page the user actually has access to so the

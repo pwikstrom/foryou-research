@@ -92,4 +92,50 @@
         </div>
     </div>
 
+    <!-- 6. Semantic Embeddings -->
+    <div
+        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
+        <div class="font-bold" style="margin-bottom: 10px;">Semantic Embeddings</div>
+        <div class="text-xs" style="color: var(--color-text-tertiary); margin-bottom: 10px;">
+            Embeds newly annotated videos into the semantic space. Runs automatically as part of Consolidate &amp; Refresh; refresh here to top up on demand.
+        </div>
+        <div class="controls"
+            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <span id="embeddings_refresh-status" class="status-indicator status-stopped"></span>
+            <button id="embeddings_refresh-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('embeddings_refresh')" style="padding: 4px 12px;">Refresh</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="embeddings_refresh-bar"></div>
+            <div class="progress-text" id="embeddings_refresh-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="embeddings_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <a class="text-xs view-log-link" onclick="openLogModal('embeddings_refresh', 'Semantic Embeddings')">View Log</a>
+        </div>
+    </div>
+
+    <!-- 7. Semantic Map -->
+    <div
+        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
+        <div class="font-bold" style="margin-bottom: 10px;">Semantic Map</div>
+        <div class="text-xs" style="color: var(--color-text-tertiary); margin-bottom: 10px;">
+            Rebuilds the Semantic Space map (niches + 2D layout) from the embedding store. Not automatic — a rebuild reshuffles the layout and niche labels, so run it deliberately.
+        </div>
+        <div class="controls"
+            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <span id="video_map_refresh-status" class="status-indicator status-stopped"></span>
+            <button id="video_map_refresh-toggle" class="btn-primary" data-start-label="Rebuild"
+                onclick="startProcess('video_map_refresh')" style="padding: 4px 12px;">Rebuild</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="video_map_refresh-bar"></div>
+            <div class="progress-text" id="video_map_refresh-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="video_map_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <a class="text-xs view-log-link" onclick="openLogModal('video_map_refresh', 'Semantic Map')">View Log</a>
+        </div>
+    </div>
+
 </div>

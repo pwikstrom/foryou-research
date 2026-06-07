@@ -3,6 +3,14 @@
         <span id="ss-status" class="text-sm" style="color: var(--control-bar-info);">Loading map…</span>
     </div>
 
+    <!-- Freshness banner: shown when the embedding store is being topped up, the
+         visible map is behind the corpus, a rebuild is running, or a fresher map
+         is ready. The map below keeps rendering throughout. -->
+    <div id="ss-banner" class="text-sm" style="display: none; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 4px; margin-bottom: 10px; background: var(--color-bg-elevated); border: 1px solid var(--color-border);">
+        <span id="ss-banner-text" style="color: var(--color-text-secondary);"></span>
+        <button id="ss-banner-action" class="action-btn text-xs" style="display: none; margin-left: auto;"></button>
+    </div>
+
     <div class="panel" style="display: flex; flex-direction: column; height: calc(100vh - 150px); padding: 0;">
         <!-- Controls -->
         <div style="padding: 10px 14px; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated); display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">

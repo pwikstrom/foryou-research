@@ -668,6 +668,8 @@ async function updateStatus() {
         setStatus('timelines_refresh', data.timelines_refresh);
         setStatus('recode_refresh_studies', data.recode_refresh_studies);
         setStatus('pca_refresh', data.pca_refresh);
+        setStatus('embeddings_refresh', data.embeddings_refresh);
+        setStatus('video_map_refresh', data.video_map_refresh);
 
         // Update global running-tasks badge
         const runningNames = Object.entries(data)

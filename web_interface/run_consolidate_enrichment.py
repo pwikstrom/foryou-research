@@ -13,11 +13,14 @@ from web_interface.task_status import TaskStatusReporter
 
 # Downstream refresh steps dispatched by the auto-pipeline, in dependency
 # order. Keep this in sync with PIPELINE_STEPS_ORDER in management_routes.py.
+# embeddings_refresh is last: it is corpus-global and only depends on new
+# annotations, so it runs after the study/collection refreshes.
 _PIPELINE_STEPS_ORDER = [
     "recode_refresh_studies",
     "meta_refresh_groups",
     "pca_refresh",
     "timelines_refresh",
+    "embeddings_refresh",
 ]
 
 _PIPELINE_STAGE_LABELS = {
@@ -26,6 +29,7 @@ _PIPELINE_STAGE_LABELS = {
     "meta_refresh_groups": "Refreshing explore metadata",
     "pca_refresh": "Refreshing correlations",
     "timelines_refresh": "Refreshing timelines",
+    "embeddings_refresh": "Refreshing semantic embeddings",
 }
 
 
@@ -53,6 +57,8 @@ def build_pipeline_summary(impact: dict | None, steps_ran: list[str]) -> str:
     if "timelines_refresh" in steps_set and collections:
         n = len(collections)
         parts.append(f"{n} timeline{'s' if n != 1 else ''}")
+    if "embeddings_refresh" in steps_set:
+        parts.append("semantic embeddings")
 
     if parts:
         return f"Refreshed {', '.join(parts)}."
@@ -71,9 +77,7 @@ def _build_downstream_pipeline(impact: dict | None) -> list[dict]:
 
     affected_studies = impact.get("affected_study_names") or []
     affected_collections = impact.get("affected_collection_ids") or []
-
-    if not affected_studies and not affected_collections:
-        return []
+    new_annotation_count = int(impact.get("new_annotation_item_count") or 0)
 
     study_csv = ",".join(affected_studies) if affected_studies else None
     collection_csv = ",".join(affected_collections) if affected_collections else None
@@ -97,8 +101,19 @@ def _build_downstream_pipeline(impact: dict | None) -> list[dict]:
             "task": "timelines_refresh",
             "task_args": {"collections": collection_csv} if collection_csv else {},
         })
+    # Semantic embeddings are corpus-global and depend only on new annotations
+    # (not on which studies are affected), so they top up whenever new
+    # annotation data was consolidated. The video map is deliberately NOT
+    # rebuilt here — it stays a manual action so its 2D layout/niche IDs do not
+    # churn on every annotation batch; the Semantic Space tab flags staleness.
+    if new_annotation_count > 0:
+        candidates.append({"task": "embeddings_refresh", "task_args": {}})
 
-    # Sort into canonical dependency order (recode → meta → pca → timelines).
+    if not candidates:
+        return []
+
+    # Sort into canonical dependency order (recode → meta → pca → timelines →
+    # embeddings).
     by_name = {c["task"]: c for c in candidates}
     return [by_name[name] for name in _PIPELINE_STEPS_ORDER if name in by_name]
 

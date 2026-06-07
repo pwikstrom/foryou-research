@@ -6,6 +6,8 @@
 let _ssData = null;
 let _ssLoaded = false;
 let _ssHandlersWired = false;
+let _ssStatusTimer = null;
+let _ssLoadedMapBuiltAt = null;   // mtime of the map currently rendered
 
 // Categorical data palette (tab20-style). Niche colour = palette[niche % 20];
 // category colours are assigned by index. Continuous "popularity" uses Viridis.
@@ -21,6 +23,7 @@ const _SS_MAX_LABELS = 30;
 
 // Called by openTab() the first time the Semantic Space tab is shown.
 function initSemanticSpace() {
+    _ssStartStatusPoll();
     if (_ssLoaded) {
         // Container width may have changed while hidden — nudge a resize.
         const div = document.getElementById('semantic-space-plot');
@@ -44,6 +47,7 @@ async function loadSemanticSpace() {
             return;
         }
         _ssData = data;
+        _ssLoadedMapBuiltAt = (data.map_built_at !== undefined) ? data.map_built_at : null;
         _ssComputeCentroids();
         _ssPopulateNicheFocus();
         _ssPopulateColorModes();
@@ -54,6 +58,7 @@ async function loadSemanticSpace() {
         }
         _ssWireControls();
         renderSemanticSpace();
+        _ssPollStatus();   // surface the freshness banner without a poll delay
     } catch (e) {
         console.error(e);
         if (status) { status.innerText = 'Failed to load map.'; }
@@ -254,5 +259,132 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
         info.innerText = `${overlay.label}: brighter = higher · click a point to open on TikTok`;
     } else {
         info.innerText = 'Coloured by niche · click a point to open on TikTok';
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// Freshness banner — the map is global and rebuilt deliberately (not on every
+// annotation), so it can lag the embedding store. We poll a light status
+// endpoint while the tab is visible and surface one of four states without
+// ever blocking the rendered map.
+// ---------------------------------------------------------------------------
+
+function _ssStartStatusPoll() {
+    if (_ssStatusTimer) { return; }
+    _ssPollStatus();
+    _ssStatusTimer = setInterval(_ssPollStatus, 20000);
+}
+
+
+async function _ssPollStatus() {
+    // Only poll while the tab is actually on screen (offsetParent is null when
+    // the pane is display:none) and after the map has loaded.
+    const pane = document.getElementById('semantic_space');
+    if (!pane || pane.offsetParent === null || !_ssData) { return; }
+    try {
+        const res = await fetch('/api/semantic_space/status');
+        if (!res.ok) { return; }
+        _ssRenderBanner(await res.json());
+    } catch (e) {
+        // Transient (e.g. navigating away mid-fetch) — leave the banner as is.
+    }
+}
+
+
+function _ssRenderBanner(s) {
+    const banner = document.getElementById('ss-banner');
+    const textEl = document.getElementById('ss-banner-text');
+    const actionEl = document.getElementById('ss-banner-action');
+    if (!banner || !textEl || !actionEl) { return; }
+
+    const fresher = s.map_built_at != null && _ssLoadedMapBuiltAt != null
+        && s.map_built_at > _ssLoadedMapBuiltAt;
+
+    let text = '';
+    let action = null;   // { label, fn }
+    let warn = false;
+
+    if (fresher && !s.map_rebuilding) {
+        text = 'A new map has been calculated.';
+        action = { label: 'Reload map', fn: _ssReloadMap };
+    } else if (s.map_rebuilding) {
+        text = '⟳ A new map is being calculated — showing the previous version…';
+    } else if (s.map_stale) {
+        const n = (s.behind || 0).toLocaleString();
+        text = `This map is out of date — ${n} newer video${s.behind === 1 ? '' : 's'} embedded since it was built.`;
+        warn = true;
+        if (window.USER_IS_ADMIN) {
+            action = { label: 'Rebuild map', fn: _ssRebuildMap };
+        }
+    } else if (s.embeddings_updating) {
+        text = 'New videos are being added to the semantic data…';
+    }
+
+    if (!text) {
+        banner.style.display = 'none';
+        return;
+    }
+    textEl.textContent = text;
+    textEl.style.color = warn ? 'var(--color-warning)' : 'var(--color-text-secondary)';
+    if (action) {
+        actionEl.style.display = '';
+        actionEl.disabled = false;
+        actionEl.textContent = action.label;
+        actionEl.onclick = action.fn;
+    } else {
+        actionEl.style.display = 'none';
+        actionEl.onclick = null;
+    }
+    banner.style.display = 'flex';
+}
+
+
+// Re-fetch the map after a rebuild, preserving the user's colour/focus
+// selections where the rebuilt map still offers them (niche IDs can change).
+async function _ssReloadMap() {
+    const prevMode = (document.getElementById('ss-color-mode') || {}).value;
+    const prevFocus = (document.getElementById('ss-niche-focus') || {}).value;
+    const banner = document.getElementById('ss-banner');
+    if (banner) { banner.style.display = 'none'; }
+
+    await loadSemanticSpace();
+
+    const cm = document.getElementById('ss-color-mode');
+    if (cm && prevMode && Array.from(cm.options).some(o => o.value === prevMode)) {
+        cm.value = prevMode;
+    }
+    const nf = document.getElementById('ss-niche-focus');
+    if (nf && prevFocus && Array.from(nf.options).some(o => o.value === prevFocus)) {
+        nf.value = prevFocus;
+    }
+    renderSemanticSpace();
+}
+
+
+// Admin-only: kick off a video_map_refresh. Embeddings are kept current by the
+// consolidation cascade, so this rebuilds the 2D map/niches from the store.
+async function _ssRebuildMap() {
+    const actionEl = document.getElementById('ss-banner-action');
+    if (actionEl) { actionEl.disabled = true; actionEl.textContent = 'Starting…'; }
+    try {
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        const res = await fetch('/api/start/video_map_refresh', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': meta ? meta.content : ''
+            },
+            body: '{}'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || (data.status && data.status !== 'success')) {
+            console.error('Rebuild map failed:', data.message || res.status);
+        }
+    } catch (e) {
+        console.error('Rebuild map error:', e);
+    } finally {
+        if (actionEl) { actionEl.disabled = false; }
+        _ssPollStatus();   // flip the banner to "being calculated…" promptly
     }
 }
