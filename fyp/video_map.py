@@ -24,6 +24,7 @@ from sklearn.preprocessing import normalize
 
 import fyp.data_io as data_io
 import fyp.embeddings as embeddings
+from fyp.fyp_config import fyp_cf
 
 # Output artifacts in the "recoded" store.
 MAP_FILE = "video_map.parquet"
@@ -36,7 +37,6 @@ DEFAULT_N_NICHES = 150
 DEFAULT_MAP_SAMPLE = 30000
 DEFAULT_PCA_DIM = 50
 
-_NAMING_MODEL = "gemini-2.5-flash"
 _EXEMPLARS_PER_NICHE = 10
 _TERMS_PER_NICHE = 8
 
@@ -126,6 +126,7 @@ def _name_niches(
         }
 
     client = embeddings._get_client()
+    naming_model = fyp_cf["machine"]["model"]
 
     def _name(niche: int) -> tuple[int, str]:
         rows = np.where(labels == niche)[0]
@@ -139,7 +140,7 @@ def _name_niches(
             "Reply with only the label."
         )
         try:
-            resp = client.models.generate_content(model=_NAMING_MODEL, contents=prompt)
+            resp = client.models.generate_content(model=naming_model, contents=prompt)
             return niche, resp.text.strip().replace("\n", " ")[:48]
         except Exception:
             return niche, f"Niche {niche}"
@@ -149,7 +150,7 @@ def _name_niches(
             niche, name = fut.result()
             meta[niche]["name"] = name
     if reporter is not None:
-        reporter.log(f"Named {len(niches)} niches via {_NAMING_MODEL}.")
+        reporter.log(f"Named {len(niches)} niches via {naming_model}.")
     return meta
 
 

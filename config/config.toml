@@ -7,7 +7,7 @@
 key = "" 
 
 # The model
-model = "gemini-2.5-flash"
+model = "gemini-3-flash-preview"
 
 # the prompt
 prompt = "new_prompt_002.txt"
@@ -16,7 +16,7 @@ prompt = "new_prompt_002.txt"
 # fyp/annotation_schema.py) instead of free-text JSON. Default false keeps the
 # original free-text path. The output column shape is identical either way;
 # structured output guarantees valid JSON and enforces the variable schema.
-use_structured_output = false
+use_structured_output = true
 
 # Vertex AI settings
 vertexai = true
@@ -24,7 +24,9 @@ project = "<gcp-project>"
 location = "global"
 http_options_api_version = "v1"
 http_options_timeout = 180000
-temperature = 0.0
+# Gemini 3 strongly recommends temperature 1.0; values below 1.0 risk looping /
+# degraded reasoning. Pinned here for the gemini-3-flash-preview structured path.
+temperature = 1.0
 max_output_tokens = 65536
 response_mime_type = "application/json"
 presence_penalty = 0.6
