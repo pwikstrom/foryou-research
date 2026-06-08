@@ -12,6 +12,9 @@ let _ssLabelTimer = null;         // debounce for zoom-driven label refresh
 let _ssHidden = new Set();        // categories toggled off via the legend swatches
 let _ssLastColorMode = null;      // detect colour-variable switches to reset _ssHidden
 let _ssLegendCats = null;         // distinct categories backing the current swatches
+let _ssTrajectory = null;         // last-fetched collection trajectory payload
+let _ssTrajOn = false;            // whether the trajectory overlay is shown
+let _ssCollectionsLoaded = false; // collection selector populated once per load
 
 // Categorical data palette (tab20-style). Niche colour = palette[niche % 20];
 // category colours are assigned by index. Numeric overlays use _SS_NUMERIC_SCALE.
@@ -35,6 +38,16 @@ const _SS_NUMERIC_SCALE = [
 const _SS_NUMERIC_COLORSCALE = _SS_NUMERIC_SCALE.map(
     (c, i, a) => [a.length === 1 ? 0 : i / (a.length - 1), c]
 );
+
+// Trajectory overlay colours (chart-data literals, like _SS_PALETTE above —
+// these encode an overlay, not UI chrome). The all-time centre of gravity uses
+// a warm accent that reads on both themes; per-period centroids and their
+// dispersion-ellipse clouds use a time gradient (early → late): cool blue →
+// warm orange (see _ssTimeColorRGB).
+const _SS_TRAJ_ACCENT = '#e08a2b';
+const _SS_TRAJ_T0 = [44, 111, 214];
+const _SS_TRAJ_T1 = [224, 138, 43];
+const _SS_TRAJ_MAX_ELLIPSES = 52;   // above this many periods, skip clouds (path only)
 
 
 // Called by openTab() the first time the Semantic Space tab is shown.
@@ -73,6 +86,7 @@ async function loadSemanticSpace() {
                 + `${data.n_niches} niches · ${data.total_videos.toLocaleString()} embedded`;
         }
         _ssWireControls();
+        _ssLoadCollections();
         renderSemanticSpace();
         _ssPollStatus();   // surface the freshness banner without a poll delay
     } catch (e) {
@@ -125,6 +139,24 @@ function _ssWireControls() {
     });
     const legend = document.getElementById('ss-legend');
     if (legend) { legend.addEventListener('click', _ssOnLegendClick); }
+
+    // Trajectory overlay controls. Selecting a collection (or changing the date
+    // window / interval) refetches; the toggle just flips overlay visibility on
+    // the already-loaded payload, so it never hits the network.
+    const coll = document.getElementById('ss-collection');
+    if (coll) { coll.addEventListener('change', _ssLoadTrajectory); }
+    ['ss-traj-start', 'ss-traj-end', 'ss-traj-interval'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', () => {
+                if ((document.getElementById('ss-collection') || {}).value) { _ssLoadTrajectory(); }
+            });
+        }
+    });
+    const tog = document.getElementById('ss-show-trajectory');
+    if (tog) {
+        tog.addEventListener('change', () => { _ssTrajOn = tog.checked; renderSemanticSpace(); });
+    }
 }
 
 
@@ -271,8 +303,12 @@ function renderSemanticSpace() {
     // legend toggles hide whole categories (size + opacity 0 so they vanish and
     // stop catching hovers). Hiding wins over focus. None of this changes the
     // plot box, so the scatter stays put.
+    // While the trajectory overlay is on, fade the base dots so the clouds and
+    // path (which now draw above them) clearly dominate; niche colour stays for
+    // context.
+    const baseOpacity = _ssTrajOn ? 0.18 : 0.75;
     let sizeArr = 4;
-    let opacityArr = 0.75;
+    let opacityArr = baseOpacity;
     const hideField = (overlay && overlay.kind === 'categorical' && _ssHidden.size) ? overlay.field : null;
     if (focusNiche !== null || hideField) {
         sizeArr = new Array(n);
@@ -287,7 +323,7 @@ function renderSemanticSpace() {
                 opacityArr[i] = inFocus ? 0.9 : 0.08;
             } else {
                 sizeArr[i] = 4;
-                opacityArr[i] = 0.75;
+                opacityArr[i] = baseOpacity;
             }
         }
     }
@@ -327,17 +363,24 @@ function renderSemanticSpace() {
         paper_bgcolor: getCSSVar('--chart-bg'),
         plot_bgcolor: getCSSVar('--chart-bg'),
         font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') },
-        annotations: annotations
+        annotations: annotations,
+        // Per-period dispersion ellipses (layer:'above' → on top of the dots).
+        // Empty when the overlay is off, so toggling clears them.
+        shapes: _ssTrajectoryShapes()
     };
 
-    Plotly.react(div, [trace], layout, { responsive: true, displayModeBar: true, scrollZoom: true });
+    // Base scatter stays trace 0; trajectory overlays (if any) are appended
+    // after it, so the click/zoom/focus/legend logic above is untouched.
+    Plotly.react(div, [trace].concat(_ssTrajectoryTraces()), layout,
+        { responsive: true, displayModeBar: true, scrollZoom: true });
     _ssRenderLegend(mode, overlay, catColorMap);
 
     if (!div._ssClickWired) {
         div._ssClickWired = true;
         div.on('plotly_click', function (ev) {
             const pt = ev.points && ev.points[0];
-            if (pt && pt.customdata) {
+            // Only the base scatter (curve 0) opens a video; overlay traces ignore clicks.
+            if (pt && pt.curveNumber === 0 && pt.customdata) {
                 window.open(`https://www.tiktok.com/@/video/${pt.customdata}/`, '_blank', 'noopener');
             }
         });
@@ -409,6 +452,212 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
         _ssLegendCats = null;
         legend.innerHTML = `<span>Coloured by niche</span>${openHint}`;
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// Collection trajectory overlay — projects one collection's play activity onto
+// the map as a centre of gravity, a dispersion "entropy halo", and a daily
+// path through semantic space. The geometry comes from the backend
+// (/api/semantic_space/trajectory); see web_interface/semantic_trajectory.py.
+// ---------------------------------------------------------------------------
+
+// Populate the collection selector once per map load (independent of the map
+// payload — the list is access-scoped server-side).
+async function _ssLoadCollections() {
+    const sel = document.getElementById('ss-collection');
+    if (!sel || _ssCollectionsLoaded) { return; }
+    try {
+        const res = await fetch('/api/semantic_space/collections');
+        const data = await res.json();
+        const ids = (data && data.collections) || [];
+        sel.innerHTML = '<option value="">— select collection —</option>'
+            + ids.map(id => `<option value="${id}">${id}</option>`).join('');
+        _ssCollectionsLoaded = true;
+    } catch (e) {
+        console.error('Failed to load collections', e);
+    }
+}
+
+
+// Fetch the selected collection's trajectory for the current date window /
+// interval, then re-render. Deselecting clears the overlay.
+async function _ssLoadTrajectory() {
+    const sel = document.getElementById('ss-collection');
+    const cid = sel ? sel.value : '';
+    const statusEl = document.getElementById('ss-traj-status');
+    if (!cid) {
+        _ssTrajectory = null;
+        if (statusEl) { statusEl.textContent = ''; }
+        renderSemanticSpace();
+        return;
+    }
+    const start = (document.getElementById('ss-traj-start') || {}).value || '';
+    const end = (document.getElementById('ss-traj-end') || {}).value || '';
+    const interval = (document.getElementById('ss-traj-interval') || {}).value || 'day';
+    if (statusEl) { statusEl.textContent = 'Loading trajectory…'; }
+    try {
+        const qs = new URLSearchParams({ collection_id: cid, interval });
+        if (start) { qs.set('start', start); }
+        if (end) { qs.set('end', end); }
+        const res = await fetch('/api/semantic_space/trajectory?' + qs.toString());
+        const data = await res.json();
+        if (!res.ok || data.error) {
+            if (statusEl) { statusEl.textContent = data.error || `Error ${res.status}`; }
+            return;
+        }
+        _ssTrajectory = data;
+        // Selecting a collection turns the overlay on (the toggle stays the
+        // master switch thereafter).
+        const tog = document.getElementById('ss-show-trajectory');
+        if (tog) { tog.checked = true; }
+        _ssTrajOn = true;
+        if (statusEl) { statusEl.textContent = _ssTrajSummary(data); }
+        renderSemanticSpace();
+    } catch (e) {
+        console.error(e);
+        if (statusEl) { statusEl.textContent = 'Failed to load trajectory.'; }
+    }
+}
+
+
+// One-line summary for the status span (plays · days · all-time entropy).
+function _ssTrajSummary(data) {
+    const at = data.all_time;
+    if (!at || at.x == null) { return 'No mapped plays for this collection in range.'; }
+    const n = (data.points || []).length;
+    const unit = data.interval === 'month' ? 'month' : (data.interval === 'week' ? 'week' : 'day');
+    const wt = data.weight_mode === 'count' ? ' · unweighted (no watch time)' : '';
+    const cov = data.n_unmapped
+        ? ` · ${data.n_unmapped.toLocaleString()} unmapped`
+        : '';
+    return `${data.n_plays_total.toLocaleString()} plays`
+        + (n ? ` · ${n} ${unit}${n === 1 ? '' : 's'}` : '')
+        + ` · entropy H=${at.niche_entropy} (Ĥ=${at.niche_entropy_norm})${cov}${wt}`;
+}
+
+
+// Time gradient (t in [0,1], early→late): cool blue → warm orange.
+function _ssLerp(a, b, t) { return Math.round(a + (b - a) * t); }
+
+
+function _ssTimeColorRGB(t) {
+    return [
+        _ssLerp(_SS_TRAJ_T0[0], _SS_TRAJ_T1[0], t),
+        _ssLerp(_SS_TRAJ_T0[1], _SS_TRAJ_T1[1], t),
+        _ssLerp(_SS_TRAJ_T0[2], _SS_TRAJ_T1[2], t)
+    ];
+}
+
+
+function _ssTimeColor(t) { const c = _ssTimeColorRGB(t); return `rgb(${c[0]},${c[1]},${c[2]})`; }
+
+
+function _ssTopNichesStr(top) {
+    return (top || []).map(t => `${t.name} ${Math.round(t.share * 100)}%`).join(' · ');
+}
+
+
+function _ssTrajHover(p) {
+    const lo = p.low_volume ? ' (low volume)' : '';
+    return `<b>${p.date}</b><br>${p.n_plays} plays · H=${p.niche_entropy}${lo}`
+        + `<br>${_ssTopNichesStr(p.top_niches)}`;
+}
+
+
+// A rotated dispersion ellipse as a Plotly LAYOUT SHAPE (type:path). Shapes with
+// layer:'above' draw above the WebGL scatter, so the cloud sits ON TOP of the
+// dots (an SVG scatter trace would be hidden beneath the gl canvas). t in [0,1]
+// drives the time gradient; the fill is translucent so overlapping clouds read.
+function _ssEllipseShape(ell, t) {
+    const steps = 40;
+    const th = ell.theta * Math.PI / 180;
+    const ct = Math.cos(th), st = Math.sin(th);
+    let d = '';
+    for (let i = 0; i <= steps; i++) {
+        const a = (i / steps) * 2 * Math.PI;
+        const ex = ell.rx * Math.cos(a), ey = ell.ry * Math.sin(a);
+        const x = ell.cx + ex * ct - ey * st;
+        const y = ell.cy + ex * st + ey * ct;
+        d += (i === 0 ? 'M' : 'L') + x.toFixed(3) + ',' + y.toFixed(3) + ' ';
+    }
+    d += 'Z';
+    const c = _ssTimeColorRGB(t);
+    return {
+        type: 'path', path: d, layer: 'above',
+        fillcolor: `rgba(${c[0]},${c[1]},${c[2]},0.13)`,
+        line: { color: `rgba(${c[0]},${c[1]},${c[2]},0.9)`, width: 1.5 }
+    };
+}
+
+
+// Per-period dispersion ellipses as layout shapes (above the dots). For day/
+// week/month each period is a time-graded cloud; for "all-time only" it's the
+// single all-time halo. Skipped above _SS_TRAJ_MAX_ELLIPSES periods (e.g. daily
+// over a long span) to avoid clutter — the path+markers still convey the drift.
+function _ssTrajectoryShapes() {
+    if (!_ssTrajOn || !_ssTrajectory) { return []; }
+    const T = _ssTrajectory;
+    const pts = (T.points || []).filter(p => p.ellipse);
+    if (pts.length) {
+        if (pts.length > _SS_TRAJ_MAX_ELLIPSES) { return []; }
+        const n = pts.length;
+        return pts.map((p, i) => _ssEllipseShape(p.ellipse, n === 1 ? 1 : i / (n - 1)));
+    }
+    if (T.all_time && T.all_time.ellipse) { return [_ssEllipseShape(T.all_time.ellipse, 1)]; }
+    return [];
+}
+
+
+// Trajectory point/line traces appended after the base scatter. These are
+// scattergl (same WebGL layer as the base, drawn after it → on top of the
+// dots), so the path and markers are never hidden. The ellipse clouds live in
+// layout.shapes (see _ssTrajectoryShapes). Empty unless the overlay is loaded.
+function _ssTrajectoryTraces() {
+    if (!_ssTrajOn || !_ssTrajectory) { return []; }
+    const traces = [];
+    const T = _ssTrajectory;
+    const at = T.all_time;
+    const pts = (T.points || []).filter(p => p.x != null && p.y != null);
+
+    if (pts.length) {
+        const n = pts.length;
+        // Connecting path (drawn first so the markers sit on top of it).
+        traces.push({
+            type: 'scattergl', mode: 'lines',
+            x: pts.map(p => p.x), y: pts.map(p => p.y),
+            line: { color: getCSSVar('--chart-text'), width: 1.5 },
+            opacity: 0.7, hoverinfo: 'skip', showlegend: false
+        });
+        // Period centroids, time-graded, with hover.
+        traces.push({
+            type: 'scattergl', mode: 'markers',
+            x: pts.map(p => p.x), y: pts.map(p => p.y),
+            marker: {
+                size: 12,
+                color: pts.map((p, i) => _ssTimeColor(n === 1 ? 1 : i / (n - 1))),
+                line: { width: 1.5, color: getCSSVar('--chart-bg') }
+            },
+            text: pts.map(_ssTrajHover), hoverinfo: 'text', showlegend: false
+        });
+    }
+
+    // All-time centre of gravity as a labelled diamond (always on top).
+    if (at && at.x != null && at.y != null) {
+        traces.push({
+            type: 'scattergl', mode: 'markers',
+            x: [at.x], y: [at.y],
+            marker: {
+                size: 18, symbol: 'diamond', color: _SS_TRAJ_ACCENT,
+                line: { width: 2, color: getCSSVar('--chart-bg') }
+            },
+            text: [`<b>All-time centre</b><br>${at.n_plays} plays · `
+                + `H=${at.niche_entropy} (Ĥ=${at.niche_entropy_norm})`
+                + `<br>${_ssTopNichesStr(at.top_niches)}`],
+            hoverinfo: 'text', showlegend: false
+        });
+    }
+    return traces;
 }
 
 

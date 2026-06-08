@@ -8,11 +8,14 @@ file changes on disk, so repeated tab opens are instant.
 """
 
 import pandas as pd
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
+from flask_login import current_user
 
 import fyp.data_io as data_io
 import fyp.embeddings as embeddings
 import fyp.video_map as video_map
+import web_interface.semantic_trajectory as semantic_trajectory
+from web_interface.data_service import get_accessible_studies, get_study_collections
 from web_interface.permissions import permission_required
 from web_interface.task_status import is_cloud_run
 
@@ -203,3 +206,75 @@ def api_semantic_space_status():
         "embedded": int(embedded) if isinstance(embedded, (int, float)) else None,
         "map_built_from": int(map_built_from) if isinstance(map_built_from, (int, float)) else None,
     })
+
+
+
+
+def _accessible_collection_ids() -> set:
+    """Collection ids the current user may project onto the map.
+
+    Mirrors the study-access gate used by the Collections tab: admins see every
+    collection in every study, others only those in studies they can access.
+    """
+    username = getattr(current_user, "username", current_user.id)
+    role = getattr(current_user, "role", None) or getattr(current_user, "user_role", "viewer")
+    attr = getattr(current_user, "is_admin", False)
+    is_admin = attr() if callable(attr) else bool(attr)
+    if role == "admin":
+        is_admin = True
+
+    ids: set = set()
+    for study in get_accessible_studies(username, role, is_admin):
+        for d in get_study_collections(study):
+            cid = d.get("collection_id")
+            if cid:
+                ids.add(str(cid))
+    return ids
+
+
+
+
+@semantic_space_bp.route('/api/semantic_space/collections', methods=['GET'])
+@permission_required('tab.semantic_space')
+def api_semantic_space_collections():
+    """List the collection ids the user can overlay on the Semantic Space map."""
+    return jsonify({"collections": sorted(_accessible_collection_ids())})
+
+
+
+
+@semantic_space_bp.route('/api/semantic_space/trajectory', methods=['GET'])
+@permission_required('tab.semantic_space')
+def api_semantic_space_trajectory():
+    """Centre-of-gravity / entropy / daily trajectory for one collection.
+
+    Projects the collection's play activity onto the global map via its
+    embedding-derived niche labels (see :mod:`web_interface.semantic_trajectory`)
+    and returns the per-day + all-time metrics the overlay renders.
+    """
+    collection_id = (request.args.get('collection_id') or '').strip()
+    if not collection_id:
+        return jsonify({"error": "collection_id is required"}), 400
+    if collection_id not in _accessible_collection_ids():
+        return jsonify({"error": "Collection not found or not accessible"}), 403
+
+    if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE):
+        return jsonify({
+            "error": "The video map has not been built yet. Run the "
+                     "'video_map_refresh' task to generate it."
+        }), 404
+
+    interval = request.args.get('interval', 'month')
+    if interval not in ('day', 'week', 'month', 'all'):
+        interval = 'month'
+    start = (request.args.get('start') or '').strip() or None
+    end = (request.args.get('end') or '').strip() or None
+
+    try:
+        payload = semantic_trajectory.build_trajectory(
+            collection_id, interval=interval, start=start, end=end,
+        )
+    except Exception as exc:
+        return jsonify({"error": f"Failed to build trajectory: {exc}"}), 500
+
+    return jsonify(payload)

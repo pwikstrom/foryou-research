@@ -34,6 +34,43 @@
                 <input type="checkbox" id="ss-show-labels" checked>
                 <span style="color: var(--color-text-secondary);">Niche labels</span>
             </label>
+
+            <!-- Divider between map controls and the collection-trajectory overlay. -->
+            <span style="align-self: stretch; width: 1px; background: var(--color-border-subtle);"></span>
+
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                <span class="font-medium" style="color: var(--color-text-secondary);">Collection</span>
+                <select id="ss-collection" class="dropdown">
+                    <option value="">— select collection —</option>
+                </select>
+            </label>
+
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                <span class="font-medium" style="color: var(--color-text-secondary);">From</span>
+                <input type="date" id="ss-traj-start" class="dropdown" style="padding: 2px 6px;">
+            </label>
+
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                <span class="font-medium" style="color: var(--color-text-secondary);">To</span>
+                <input type="date" id="ss-traj-end" class="dropdown" style="padding: 2px 6px;">
+            </label>
+
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                <span class="font-medium" style="color: var(--color-text-secondary);">Interval</span>
+                <select id="ss-traj-interval" class="dropdown">
+                    <option value="month">Monthly</option>
+                    <option value="week">Weekly</option>
+                    <option value="day">Daily</option>
+                    <option value="all">All-time only</option>
+                </select>
+            </label>
+
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="ss-show-trajectory">
+                <span style="color: var(--color-text-secondary);">Show trajectory</span>
+            </label>
+
+            <span id="ss-traj-status" class="text-sm" style="color: var(--control-bar-info);"></span>
         </div>
 
         <!-- Plot -->
