@@ -34,6 +34,13 @@ import fyp.data_io as data_io
 import fyp.embeddings as embeddings
 import fyp.video_map as video_map
 from fyp.organize_datasets import COLLECTIONS_LABEL
+from fyp.timeline_analysis import compute_linreg
+
+# Annotation scalars (denormalised into the map file) whose per-period
+# watch-time-weighted mean is tracked over time — e.g. is the donor drifting
+# toward more political / more sensitive content. Only those present in the map
+# are used, so older maps degrade gracefully.
+_OVERLAY_SCALARS = ["political_score", "sensitivity_score"]
 
 # Cached map geometry, rebuilt only when the map file's fingerprint changes.
 _GEO_CACHE: dict = {
@@ -100,17 +107,26 @@ def _load_niche_geometry() -> tuple[pd.DataFrame, dict, dict]:
     if _GEO_CACHE["item_geo"] is not None and _GEO_CACHE["fingerprint"] == fingerprint:
         return _GEO_CACHE["item_geo"], _GEO_CACHE["niche_centroids"], _GEO_CACHE["niche_names"]
 
-    map_df = data_io.load_parquet_selective(
-        storage_location=embeddings.STORE_LOCATION,
-        filename=video_map.MAP_FILE,
-        columns=["item_id", "niche", "x", "y"],
-    )
+    cols = ["item_id", "niche", "x", "y"]
+    try:
+        map_df = data_io.load_parquet_selective(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=video_map.MAP_FILE, columns=cols + _OVERLAY_SCALARS,
+        )
+    except Exception:
+        map_df = data_io.load_parquet_selective(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=video_map.MAP_FILE, columns=cols,
+        )
 
     item_geo = map_df.copy()
     item_geo["item_id"] = item_geo["item_id"].astype("string")
     item_geo["niche"] = pd.to_numeric(item_geo["niche"], errors="coerce")
     item_geo["x"] = pd.to_numeric(item_geo["x"], errors="coerce")
     item_geo["y"] = pd.to_numeric(item_geo["y"], errors="coerce")
+    for sc in _OVERLAY_SCALARS:
+        if sc in item_geo.columns:
+            item_geo[sc] = pd.to_numeric(item_geo[sc], errors="coerce")
     item_geo = item_geo.dropna(subset=["niche"])
     item_geo["niche"] = item_geo["niche"].astype("int64")
     item_geo = item_geo.set_index("item_id")
@@ -207,11 +223,18 @@ def _load_collection_plays(
 
 
 
-def _ellipse(mapped: pd.DataFrame) -> dict | None:
-    """Weighted covariance ellipse of a bucket's mapped plays.
+def _ellipse(mapped: pd.DataFrame, center: tuple | None = None) -> dict | None:
+    """Weighted dispersion ellipse of a bucket's mapped plays.
 
     Args:
         mapped: Rows with ``x``/``y``/``_w`` for plays that carry 2D coords.
+        center: Optional ``(x, y)`` to centre the ellipse on (the period's
+            centre of gravity). When given, the spread is measured *about that
+            point* so the COG dot is always the ellipse centre — otherwise the
+            two diverge (the COG is a niche-centroid weighting over all plays,
+            while the spread is fit to only the t-SNE-sampled subset, so for
+            small/daily buckets the sampled mean drifts off the COG). Defaults
+            to the weighted mean of the sampled points.
 
     Returns:
         ``{cx, cy, rx, ry, theta}`` (theta in degrees) or None when too few
@@ -227,7 +250,10 @@ def _ellipse(mapped: pd.DataFrame) -> dict | None:
         w = np.ones(len(pts), dtype="float64")
     wsum = float(w.sum())
 
-    mean = (xy * w[:, None]).sum(axis=0) / wsum
+    if center is not None and center[0] is not None and center[1] is not None:
+        mean = np.array([float(center[0]), float(center[1])], dtype="float64")
+    else:
+        mean = (xy * w[:, None]).sum(axis=0) / wsum
     d = xy - mean
     cov = (d.T * w) @ d / wsum
     if not np.all(np.isfinite(cov)):
@@ -263,16 +289,28 @@ def _bucket_metrics(sub: pd.DataFrame, niche_centroids: dict, niche_names: dict)
     Returns:
         A metrics dict (see module docstring / API payload shape).
     """
-    n_plays = int(len(sub))
+    n_plays = int(len(sub))            # all plays in the bucket (incl. uncorpus'd)
     watch_time = round(float(sub["_w"].sum()), 1)
     has_niche = sub.dropna(subset=["niche"])
-    n_mapped = int(has_niche["x"].notna().sum()) if not has_niche.empty else 0
+    n_mapped = int(len(has_niche))      # plays WITH a niche — the set every metric uses
 
     base = {
         "x": None, "y": None, "niche_entropy": None, "niche_entropy_norm": None,
         "n_plays": n_plays, "n_mapped": n_mapped, "watch_time": watch_time,
         "top_niches": [], "ellipse": None, "low_volume": n_plays < _MIN_PLAYS_FLAG,
+        "_probs": {},
     }
+
+    # Watch-time-weighted mean of each available annotation scalar (drift in
+    # content character over time — e.g. political/sensitive).
+    for sc in _OVERLAY_SCALARS:
+        if sc not in sub.columns:
+            continue
+        vals = pd.to_numeric(sub[sc], errors="coerce")
+        m = vals.notna()
+        wsc = float(sub["_w"][m].sum())
+        base[f"mean_{sc}"] = round(float((vals[m] * sub["_w"][m]).sum() / wsc), 4) if wsc > 0 else None
+
     if has_niche.empty:
         return base
 
@@ -281,6 +319,7 @@ def _bucket_metrics(sub: pd.DataFrame, niche_centroids: dict, niche_names: dict)
     if float(w.sum()) <= 0:
         w = has_niche.groupby("niche").size().astype("float64")
     p = w / w.sum()
+    base["_probs"] = {int(k): float(v) for k, v in p.items()}
     pv = p.to_numpy(dtype="float64")
 
     entropy = float(-(pv * np.log2(np.clip(pv, 1e-12, 1.0))).sum())
@@ -310,8 +349,97 @@ def _bucket_metrics(sub: pd.DataFrame, niche_centroids: dict, niche_names: dict)
     ]
     base["niche_entropy"] = round(entropy, 4)
     base["niche_entropy_norm"] = round(entropy_norm, 4)
-    base["ellipse"] = _ellipse(has_niche)
+    # Centre the ellipse on the COG so the dot is always its centre (see _ellipse).
+    base["ellipse"] = _ellipse(has_niche, center=(base["x"], base["y"]))
     return base
+
+
+
+
+
+
+def _js_divergence(p: np.ndarray, q: np.ndarray) -> float:
+    """Jensen-Shannon divergence (base 2, range [0, 1]) of two aligned pmfs."""
+    m = 0.5 * (p + q)
+
+    def _kl(a: np.ndarray, b: np.ndarray) -> float:
+        mask = a > 0
+        return float(np.sum(a[mask] * np.log2(a[mask] / b[mask])))
+
+    return 0.5 * _kl(p, m) + 0.5 * _kl(q, m)
+
+
+
+
+
+
+def _js_divergence_dicts(a: dict, b: dict) -> float:
+    """JS divergence between two ``niche -> probability`` distributions."""
+    keys = set(a) | set(b)
+    p = np.array([a.get(k, 0.0) for k in keys], dtype="float64")
+    q = np.array([b.get(k, 0.0) for k in keys], dtype="float64")
+    s, t = p.sum(), q.sum()
+    if s <= 0 or t <= 0:
+        return 0.0
+    return _js_divergence(p / s, q / t)
+
+
+
+
+
+
+def _enrich_change_metrics(payload: dict) -> None:
+    """Add per-period change metrics + trajectory-level summaries in place.
+
+    Per period: ``js_from_prev`` (distributional velocity — JS divergence from
+    the previous period's niche mix), ``novelty`` (share of the period's
+    attention on niches never watched before), ``cum_niches`` (cumulative
+    distinct niches — the discovery curve). Trajectory-level: ``tortuosity``
+    (net distributional displacement ÷ total path = directional vs churny),
+    ``total_js_path``, ``velocity_mean``, and ``trends`` (slope + total change
+    of entropy/novelty/velocity/scalars via the timeline linreg). Strips the
+    internal ``_probs`` from every bucket.
+
+    Args:
+        payload: The trajectory payload to mutate.
+    """
+    points = payload.get("points") or []
+    seen: set = set()
+    prev = None
+    prob_seq = []
+    for p in points:
+        probs = p.pop("_probs", {}) or {}
+        if probs:
+            p["novelty"] = round(float(sum(v for k, v in probs.items() if k not in seen)), 4)
+            seen.update(probs.keys())
+            prob_seq.append(probs)
+        else:
+            p["novelty"] = None
+        p["cum_niches"] = len(seen)
+        p["js_from_prev"] = (round(_js_divergence_dicts(prev, probs), 4)
+                             if (prev and probs) else None)
+        if probs:
+            prev = probs
+
+    if payload.get("all_time"):
+        payload["all_time"].pop("_probs", None)
+
+    js_steps = [p["js_from_prev"] for p in points if p.get("js_from_prev") is not None]
+    total_js = float(sum(js_steps))
+    payload["total_js_path"] = round(total_js, 4)
+    payload["velocity_mean"] = round(float(np.mean(js_steps)), 4) if js_steps else None
+    payload["tortuosity"] = (
+        round(_js_divergence_dicts(prob_seq[0], prob_seq[-1]) / total_js, 4)
+        if len(prob_seq) >= 2 and total_js > 0 else None
+    )
+
+    trends = {}
+    for key in ["niche_entropy", "novelty", "js_from_prev"] + [f"mean_{s}" for s in _OVERLAY_SCALARS]:
+        vals = [p[key] for p in points if p.get(key) is not None]
+        if len(vals) >= 2:
+            lr = compute_linreg(vals)
+            trends[key] = {"slope": lr["slope"], "total_change": lr["total_change"]}
+    payload["trends"] = trends
 
 
 
@@ -378,6 +506,7 @@ def build_trajectory(
         payload["points"] = points
 
     payload["all_time"] = _bucket_metrics(joined, niche_centroids, niche_names)
+    _enrich_change_metrics(payload)
 
     _TRAJ_CACHE[cache_key] = payload
     if len(_TRAJ_CACHE) > _TRAJ_CACHE_MAX:

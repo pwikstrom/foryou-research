@@ -15,7 +15,11 @@ import fyp.data_io as data_io
 import fyp.embeddings as embeddings
 import fyp.video_map as video_map
 import web_interface.semantic_trajectory as semantic_trajectory
-from web_interface.data_service import get_accessible_studies, get_study_collections
+from web_interface.data_service import (
+    get_accessible_studies,
+    get_study_collections,
+    load_display_id_map,
+)
 from web_interface.permissions import permission_required
 from web_interface.task_status import is_cloud_run
 
@@ -210,19 +214,26 @@ def api_semantic_space_status():
 
 
 
-def _accessible_collection_ids() -> set:
-    """Collection ids the current user may project onto the map.
-
-    Mirrors the study-access gate used by the Collections tab: admins see every
-    collection in every study, others only those in studies they can access.
-    """
+def _user_ctx() -> tuple:
+    """Return ``(username, role, is_admin)`` for the current user."""
     username = getattr(current_user, "username", current_user.id)
     role = getattr(current_user, "role", None) or getattr(current_user, "user_role", "viewer")
     attr = getattr(current_user, "is_admin", False)
     is_admin = attr() if callable(attr) else bool(attr)
     if role == "admin":
         is_admin = True
+    return username, role, is_admin
 
+
+
+
+def _accessible_collection_ids() -> set:
+    """Collection ids the current user may project onto the map.
+
+    Mirrors the study-access gate used by the Collections tab: admins see every
+    collection in every study, others only those in studies they can access.
+    """
+    username, role, is_admin = _user_ctx()
     ids: set = set()
     for study in get_accessible_studies(username, role, is_admin):
         for d in get_study_collections(study):
@@ -237,8 +248,37 @@ def _accessible_collection_ids() -> set:
 @semantic_space_bp.route('/api/semantic_space/collections', methods=['GET'])
 @permission_required('tab.semantic_space')
 def api_semantic_space_collections():
-    """List the collection ids the user can overlay on the Semantic Space map."""
-    return jsonify({"collections": sorted(_accessible_collection_ids())})
+    """List the collections the user can overlay, scoped to the selected study.
+
+    Each entry is ``{"id": <collection_id>, "label": <display id>}`` (the label
+    falls back to the raw id when no display id is set). With a ``study`` query
+    param the list is restricted to that study's collections (and the user must
+    have access to it); without one it falls back to every accessible collection.
+    """
+    study = (request.args.get('study') or '').strip()
+    username, role, is_admin = _user_ctx()
+    accessible_studies = get_accessible_studies(username, role, is_admin)
+
+    if study:
+        if study not in accessible_studies:
+            return jsonify({"collections": []})
+        cids = [str(d.get("collection_id")) for d in get_study_collections(study)
+                if d.get("collection_id")]
+    else:
+        cids = sorted({str(d.get("collection_id"))
+                       for s in accessible_studies for d in get_study_collections(s)
+                       if d.get("collection_id")})
+
+    display = load_display_id_map()
+    seen: set = set()
+    collections = []
+    for cid in cids:
+        if cid in seen:
+            continue
+        seen.add(cid)
+        collections.append({"id": cid, "label": display.get(cid, cid)})
+    collections.sort(key=lambda c: (c["label"] or "").lower())
+    return jsonify({"collections": collections})
 
 
 

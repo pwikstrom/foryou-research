@@ -14,7 +14,12 @@ let _ssLastColorMode = null;      // detect colour-variable switches to reset _s
 let _ssLegendCats = null;         // distinct categories backing the current swatches
 let _ssTrajectory = null;         // last-fetched collection trajectory payload
 let _ssTrajOn = false;            // whether the trajectory overlay is shown
-let _ssCollectionsLoaded = false; // collection selector populated once per load
+let _ssCollectionsStudy;          // study the collection list was loaded for (undefined = not loaded)
+let _ssAnimPos = null;            // continuous playback position (float over points); null = static
+let _ssAnimRAF = null;            // requestAnimationFrame handle while playing
+let _ssAnimLastTime = null;       // last rAF timestamp, for dt-based advance
+let _ssAnimStepMs = 800;          // ms to morph across one period (set per run)
+let _ssAnimPlaying = false;       // whether playback is running
 
 // Categorical data palette (tab20-style). Niche colour = palette[niche % 20];
 // category colours are assigned by index. Numeric overlays use _SS_NUMERIC_SCALE.
@@ -39,15 +44,28 @@ const _SS_NUMERIC_COLORSCALE = _SS_NUMERIC_SCALE.map(
     (c, i, a) => [a.length === 1 ? 0 : i / (a.length - 1), c]
 );
 
-// Trajectory overlay colours (chart-data literals, like _SS_PALETTE above —
-// these encode an overlay, not UI chrome). The all-time centre of gravity uses
-// a warm accent that reads on both themes; per-period centroids and their
-// dispersion-ellipse clouds use a time gradient (early → late): cool blue →
-// warm orange (see _ssTimeColorRGB).
-const _SS_TRAJ_ACCENT = '#e08a2b';
-const _SS_TRAJ_T0 = [44, 111, 214];
-const _SS_TRAJ_T1 = [224, 138, 43];
+// Trajectory overlay colours, deliberately chosen from hues the tab20 niche/
+// category background palette never uses, so the overlay never reads as a
+// background dot. The all-time centre of gravity is a neutral WHITE anchor;
+// per-period centroids + dispersion clouds use a magenta recency ramp (early →
+// late): deep magenta → bright pink (see _ssTimeColorRGB). Staying within the
+// magenta family means the ramp never passes through a background hue.
+const _SS_TRAJ_ACCENT = '#ffffff';
+const _SS_TRAJ_T0 = [150, 45, 140];    // earliest period — deep magenta
+const _SS_TRAJ_T1 = [255, 120, 225];   // latest period — bright pink
 const _SS_TRAJ_MAX_ELLIPSES = 52;   // above this many periods, skip clouds (path only)
+
+// Visual scale for the dispersion ellipses. Absolute size is arbitrary (the
+// ellipse semi-axes are k·sigma of the period's 2D spread); this shrinks them
+// uniformly so the RELATIVE sizes — how diversity changes over time and across
+// collections — stay legible without the clouds swamping the map. Fixed at 0.30.
+const _SS_ELLIPSE_SCALE = 0.30;
+
+// Playback: older periods decay by _SS_ANIM_FADE per step back (comet trail);
+// a period is dropped once its fade falls below _SS_ANIM_MIN_ALPHA. Slow decay
+// + a higher floor → a long, clearly-visible trail.
+const _SS_ANIM_FADE = 0.78;
+const _SS_ANIM_MIN_ALPHA = 0.12;
 
 
 // Called by openTab() the first time the Semantic Space tab is shown.
@@ -86,7 +104,12 @@ async function loadSemanticSpace() {
                 + `${data.n_niches} niches · ${data.total_videos.toLocaleString()} embedded`;
         }
         _ssWireControls();
-        _ssLoadCollections();
+        // Load the study-scoped collection list once the active study is known.
+        if (window.studyState && window.studyState.ready) {
+            window.studyState.ready.then(() => _ssLoadCollections());
+        } else {
+            _ssLoadCollections();
+        }
         renderSemanticSpace();
         _ssPollStatus();   // surface the freshness banner without a poll delay
     } catch (e) {
@@ -140,23 +163,38 @@ function _ssWireControls() {
     const legend = document.getElementById('ss-legend');
     if (legend) { legend.addEventListener('click', _ssOnLegendClick); }
 
-    // Trajectory overlay controls. Selecting a collection (or changing the date
-    // window / interval) refetches; the toggle just flips overlay visibility on
-    // the already-loaded payload, so it never hits the network.
+    // Trajectory overlay controls. Selecting a collection (or changing the
+    // interval) refetches; the toggle just flips overlay visibility on the
+    // already-loaded payload, so it never hits the network.
     const coll = document.getElementById('ss-collection');
     if (coll) { coll.addEventListener('change', _ssLoadTrajectory); }
-    ['ss-traj-start', 'ss-traj-end', 'ss-traj-interval'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener('change', () => {
-                if ((document.getElementById('ss-collection') || {}).value) { _ssLoadTrajectory(); }
-            });
-        }
-    });
+    const ivSel = document.getElementById('ss-traj-interval');
+    if (ivSel) {
+        ivSel.addEventListener('change', () => {
+            if ((document.getElementById('ss-collection') || {}).value) { _ssLoadTrajectory(); }
+        });
+    }
     const tog = document.getElementById('ss-show-trajectory');
     if (tog) {
-        tog.addEventListener('change', () => { _ssTrajOn = tog.checked; renderSemanticSpace(); });
+        tog.addEventListener('change', () => {
+            _ssTrajOn = tog.checked;
+            if (!_ssTrajOn) { _ssAnimReset(); } else { renderSemanticSpace(); }
+        });
     }
+    // Play/Stop: step through the periods, fading older clouds into a trail.
+    const play = document.getElementById('ss-anim-play');
+    if (play) { play.addEventListener('click', _ssAnimToggle); }
+    // Scrub slider: jump straight to any period frame (no smooth tween needed).
+    const scrub = document.getElementById('ss-scrub');
+    if (scrub) { scrub.addEventListener('input', _ssOnScrub); }
+    // Reload the (study-scoped) collection list when the active study changes,
+    // dropping any trajectory whose collection isn't in the new study.
+    document.addEventListener('study:changed', async () => {
+        const coll = document.getElementById('ss-collection');
+        const before = coll ? coll.value : '';
+        await _ssLoadCollections();
+        if (before && coll && coll.value !== before) { _ssLoadTrajectory(); }
+    });
 }
 
 
@@ -462,44 +500,67 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
 // (/api/semantic_space/trajectory); see web_interface/semantic_trajectory.py.
 // ---------------------------------------------------------------------------
 
-// Populate the collection selector once per map load (independent of the map
-// payload — the list is access-scoped server-side).
-async function _ssLoadCollections() {
+// Populate the collection selector for the currently-selected study. Each
+// option shows the collection's display id (falling back to the raw id) as its
+// label, with the raw collection_id as the value. Reloads when the active study
+// changes; cheap to re-call (no-ops if already loaded for this study).
+async function _ssLoadCollections(attempt) {
     const sel = document.getElementById('ss-collection');
-    if (!sel || _ssCollectionsLoaded) { return; }
+    if (!sel) { return; }
+    const study = (window.studyState && window.studyState.current) || '';
+    if (_ssCollectionsStudy === study && sel.options.length > 1) { return; }
+    attempt = attempt || 0;
     try {
-        const res = await fetch('/api/semantic_space/collections');
+        const qs = study ? ('?study=' + encodeURIComponent(study)) : '';
+        const res = await fetch('/api/semantic_space/collections' + qs);
+        if (!res.ok) { throw new Error(`status ${res.status}`); }
         const data = await res.json();
-        const ids = (data && data.collections) || [];
-        sel.innerHTML = '<option value="">— select collection —</option>'
-            + ids.map(id => `<option value="${id}">${id}</option>`).join('');
-        _ssCollectionsLoaded = true;
+        const cols = (data && data.collections) || [];
+        const prev = sel.value;   // preserve the user's choice if still in-study
+        sel.innerHTML = '';
+        const ph = document.createElement('option');
+        ph.value = ''; ph.textContent = '— select collection —';
+        sel.appendChild(ph);
+        cols.forEach(c => {
+            const o = document.createElement('option');
+            o.value = c.id; o.textContent = c.label || c.id;
+            sel.appendChild(o);
+        });
+        if (prev && cols.some(c => c.id === prev)) { sel.value = prev; }
+        _ssCollectionsStudy = study;
     } catch (e) {
-        console.error('Failed to load collections', e);
+        // Network / cold-start failure — retry a few times before giving up. An
+        // OK-but-empty response is a valid "no collections in this study" answer,
+        // not an error, so it is accepted (placeholder only).
+        if (attempt < 5) {
+            setTimeout(() => _ssLoadCollections(attempt + 1), 1000);
+        } else {
+            console.error('Failed to load collections', e);
+        }
     }
 }
 
 
-// Fetch the selected collection's trajectory for the current date window /
-// interval, then re-render. Deselecting clears the overlay.
+// Fetch the selected collection's trajectory for the current interval, then
+// re-render. Deselecting clears the overlay.
 async function _ssLoadTrajectory() {
     const sel = document.getElementById('ss-collection');
     const cid = sel ? sel.value : '';
     const statusEl = document.getElementById('ss-traj-status');
+    // A new collection / interval invalidates any running playback or scrub.
+    _ssAnimStop();
+    _ssAnimPos = null;
     if (!cid) {
         _ssTrajectory = null;
+        _ssSetupScrub(0);
         if (statusEl) { statusEl.textContent = ''; }
         renderSemanticSpace();
         return;
     }
-    const start = (document.getElementById('ss-traj-start') || {}).value || '';
-    const end = (document.getElementById('ss-traj-end') || {}).value || '';
-    const interval = (document.getElementById('ss-traj-interval') || {}).value || 'day';
+    const interval = (document.getElementById('ss-traj-interval') || {}).value || 'month';
     if (statusEl) { statusEl.textContent = 'Loading trajectory…'; }
     try {
         const qs = new URLSearchParams({ collection_id: cid, interval });
-        if (start) { qs.set('start', start); }
-        if (end) { qs.set('end', end); }
         const res = await fetch('/api/semantic_space/trajectory?' + qs.toString());
         const data = await res.json();
         if (!res.ok || data.error) {
@@ -507,6 +568,7 @@ async function _ssLoadTrajectory() {
             return;
         }
         _ssTrajectory = data;
+        _ssSetupScrub((data.points || []).length);
         // Selecting a collection turns the overlay on (the toggle stays the
         // master switch thereafter).
         const tog = document.getElementById('ss-show-trajectory');
@@ -521,19 +583,67 @@ async function _ssLoadTrajectory() {
 }
 
 
+// Configure the scrub slider for a trajectory of n periods (disabled when
+// there's nothing to scrub through, e.g. "All-time only" or a single period).
+function _ssSetupScrub(n) {
+    const scrub = document.getElementById('ss-scrub');
+    if (!scrub) { return; }
+    scrub.max = Math.max(0, n - 1);
+    scrub.value = 0;
+    scrub.disabled = n < 2;
+}
+
+
+// Scrub handler: jump to the dragged period (frame mode). Stops any running
+// playback; no smooth tween — each input just renders that frame.
+function _ssOnScrub() {
+    if (!_ssTrajOn || !_ssTrajectory) { return; }
+    const n = (_ssTrajectory.points || []).length;
+    if (n < 2) { return; }
+    _ssAnimStop();
+    const scrub = document.getElementById('ss-scrub');
+    _ssAnimPos = Math.max(0, Math.min(n - 1, parseFloat(scrub.value) || 0));
+    _ssAnimFrame();
+    _ssAnimRefreshCaption();
+}
+
+
 // One-line summary for the status span (plays · days · all-time entropy).
+// ↗/↘/→ for a {slope} trend object (from the payload's `trends`).
+function _ssTrendArrow(t) {
+    if (!t || t.slope === 0) { return '→'; }
+    return t.slope > 0 ? '↗' : '↘';
+}
+
+
 function _ssTrajSummary(data) {
     const at = data.all_time;
     if (!at || at.x == null) { return 'No mapped plays for this collection in range.'; }
     const n = (data.points || []).length;
     const unit = data.interval === 'month' ? 'month' : (data.interval === 'week' ? 'week' : 'day');
     const wt = data.weight_mode === 'count' ? ' · unweighted (no watch time)' : '';
-    const cov = data.n_unmapped
-        ? ` · ${data.n_unmapped.toLocaleString()} unmapped`
-        : '';
-    return `${data.n_plays_total.toLocaleString()} plays`
+    // Headline = plays the metrics actually use (those with a niche). Unmapped
+    // plays (video not in the corpus) become a coverage caveat, so the count
+    // always matches the H / centroid / trend denominators.
+    const total = data.n_plays_total || 0;
+    const mapped = total - (data.n_unmapped || 0);
+    const pct = total > 0 ? Math.round(100 * mapped / total) : 0;
+    const head = data.n_unmapped
+        ? `${pct}% of ${total.toLocaleString()} plays are mapped`
+        : `${total.toLocaleString()} plays`;
+    let summary = head
         + (n ? ` · ${n} ${unit}${n === 1 ? '' : 's'}` : '')
-        + ` · entropy H=${at.niche_entropy} (Ĥ=${at.niche_entropy_norm})${cov}${wt}`;
+        + ` · H=${at.niche_entropy} (Ĥ=${at.niche_entropy_norm})${wt}`;
+    // Per-series trend arrows + path directness (tortuosity), when computed.
+    const tr = data.trends || {};
+    const bits = [];
+    if (tr.niche_entropy) { bits.push(`entropy ${_ssTrendArrow(tr.niche_entropy)}`); }
+    if (tr.novelty) { bits.push(`novelty ${_ssTrendArrow(tr.novelty)}`); }
+    if (tr.mean_political_score) { bits.push(`political ${_ssTrendArrow(tr.mean_political_score)}`); }
+    if (tr.mean_sensitivity_score) { bits.push(`sensitivity ${_ssTrendArrow(tr.mean_sensitivity_score)}`); }
+    if (bits.length) { summary += ` · trend: ${bits.join(' ')}`; }
+    if (data.tortuosity != null) { summary += ` · directness ${data.tortuosity}`; }
+    return summary;
 }
 
 
@@ -558,9 +668,22 @@ function _ssTopNichesStr(top) {
 }
 
 
+// Per-period change metrics for the hover/caption: shift (distributional
+// velocity vs the previous period) and novelty (% of attention on niches never
+// watched before). Both are null on the first period / when unavailable.
+function _ssChangeBits(p) {
+    const bits = [];
+    if (p.js_from_prev != null) { bits.push(`shift ${p.js_from_prev}`); }
+    if (p.novelty != null) { bits.push(`${Math.round(p.novelty * 100)}% new`); }
+    return bits.join(' · ');
+}
+
+
 function _ssTrajHover(p) {
     const lo = p.low_volume ? ' (low volume)' : '';
-    return `<b>${p.date}</b><br>${p.n_plays} plays · H=${p.niche_entropy}${lo}`
+    const ch = _ssChangeBits(p);
+    return `<b>${p.date}</b><br>${p.n_mapped} plays · H=${p.niche_entropy}${lo}`
+        + (ch ? `<br>${ch}` : '')
         + `<br>${_ssTopNichesStr(p.top_niches)}`;
 }
 
@@ -569,76 +692,149 @@ function _ssTrajHover(p) {
 // layer:'above' draw above the WebGL scatter, so the cloud sits ON TOP of the
 // dots (an SVG scatter trace would be hidden beneath the gl canvas). t in [0,1]
 // drives the time gradient; the fill is translucent so overlapping clouds read.
-function _ssEllipseShape(ell, t) {
+function _ssEllipseShape(ell, t, alphaMul, emphasize) {
+    alphaMul = (alphaMul == null) ? 1 : alphaMul;
     const steps = 40;
     const th = ell.theta * Math.PI / 180;
     const ct = Math.cos(th), st = Math.sin(th);
+    const rx = ell.rx * _SS_ELLIPSE_SCALE, ry = ell.ry * _SS_ELLIPSE_SCALE;
     let d = '';
     for (let i = 0; i <= steps; i++) {
         const a = (i / steps) * 2 * Math.PI;
-        const ex = ell.rx * Math.cos(a), ey = ell.ry * Math.sin(a);
+        const ex = rx * Math.cos(a), ey = ry * Math.sin(a);
         const x = ell.cx + ex * ct - ey * st;
         const y = ell.cy + ex * st + ey * ct;
         d += (i === 0 ? 'M' : 'L') + x.toFixed(3) + ',' + y.toFixed(3) + ' ';
     }
     d += 'Z';
     const c = _ssTimeColorRGB(t);
+    const fillA = (emphasize ? 0.36 : 0.16) * alphaMul;
+    const lineA = (emphasize ? 1.0 : 0.9) * alphaMul;
     return {
         type: 'path', path: d, layer: 'above',
-        fillcolor: `rgba(${c[0]},${c[1]},${c[2]},0.13)`,
-        line: { color: `rgba(${c[0]},${c[1]},${c[2]},0.9)`, width: 1.5 }
+        fillcolor: `rgba(${c[0]},${c[1]},${c[2]},${fillA.toFixed(3)})`,
+        line: { color: `rgba(${c[0]},${c[1]},${c[2]},${lineA.toFixed(3)})`, width: emphasize ? 2.5 : 1.5 }
     };
 }
 
 
-// Per-period dispersion ellipses as layout shapes (above the dots). For day/
-// week/month each period is a time-graded cloud; for "all-time only" it's the
-// single all-time halo. Skipped above _SS_TRAJ_MAX_ELLIPSES periods (e.g. daily
-// over a long span) to avoid clutter — the path+markers still convey the drift.
+// Fade factor for the period at index i given the continuous playback position
+// t (a float). Static (t == null) → 1 (every period at full strength). During
+// playback, future periods (i > t) are hidden and older ones decay
+// geometrically by their *fractional* age (t - i), so the trail fades smoothly
+// as the head glides between periods.
+function _ssAnimFactor(i, t) {
+    if (t == null) { return 1; }
+    if (i > t) { return 0; }
+    return Math.pow(_SS_ANIM_FADE, t - i);
+}
+
+
+// Linearly interpolate two dispersion ellipses (centre/axes lerp; theta along
+// the shortest angular path, mod 180° since the ellipse is symmetric). Returns
+// the non-null one if only one exists, or null if neither does.
+function _ssLerpEllipse(a, b, frac) {
+    if (!a && !b) { return null; }
+    if (!a) { return b; }
+    if (!b) { return a; }
+    const lerp = (u, v) => u + (v - u) * frac;
+    let dth = (((b.theta - a.theta + 90) % 180) + 180) % 180 - 90;
+    return {
+        cx: lerp(a.cx, b.cx), cy: lerp(a.cy, b.cy),
+        rx: lerp(a.rx, b.rx), ry: lerp(a.ry, b.ry), theta: a.theta + dth * frac
+    };
+}
+
+
+// Per-period dispersion ellipses as layout shapes (drawn above the WebGL dots).
+// Static: one time-graded cloud per period. Playback: a fading trail of ghost
+// clouds (faded by fractional age) plus one bright "head" ellipse interpolated
+// between the current and next period — so it glides rather than jumps. The
+// >_SS_TRAJ_MAX_ELLIPSES skip applies only to the static view (playback shows
+// just a short trailing window, so it stays cheap even at daily granularity).
 function _ssTrajectoryShapes() {
     if (!_ssTrajOn || !_ssTrajectory) { return []; }
     const T = _ssTrajectory;
-    const pts = (T.points || []).filter(p => p.ellipse);
-    if (pts.length) {
-        if (pts.length > _SS_TRAJ_MAX_ELLIPSES) { return []; }
-        const n = pts.length;
-        return pts.map((p, i) => _ssEllipseShape(p.ellipse, n === 1 ? 1 : i / (n - 1)));
+    const all = T.points || [];
+    if (all.length) {
+        if (_ssAnimPos == null && all.length > _SS_TRAJ_MAX_ELLIPSES) { return []; }
+        const n = all.length, t = _ssAnimPos;
+        const shapes = [];
+        all.forEach((p, i) => {
+            if (!p.ellipse) { return; }
+            const f = _ssAnimFactor(i, t);
+            if (f < _SS_ANIM_MIN_ALPHA) { return; }
+            shapes.push(_ssEllipseShape(p.ellipse, n === 1 ? 1 : i / (n - 1), f, false));
+        });
+        // Gliding head ellipse (interpolated between current & next period;
+        // clamped so scrubbing to the final period lands the head on it).
+        if (t != null && n >= 2) {
+            const k = Math.min(Math.floor(t), n - 2), frac = t - k;
+            const eh = _ssLerpEllipse(all[k].ellipse, all[k + 1].ellipse, frac);
+            if (eh) { shapes.push(_ssEllipseShape(eh, n === 1 ? 1 : t / (n - 1), 1, true)); }
+        }
+        return shapes;
     }
-    if (T.all_time && T.all_time.ellipse) { return [_ssEllipseShape(T.all_time.ellipse, 1)]; }
+    if (T.all_time && T.all_time.ellipse) { return [_ssEllipseShape(T.all_time.ellipse, 1, 1, false)]; }
     return [];
 }
 
 
-// Trajectory point/line traces appended after the base scatter. These are
-// scattergl (same WebGL layer as the base, drawn after it → on top of the
-// dots), so the path and markers are never hidden. The ellipse clouds live in
-// layout.shapes (see _ssTrajectoryShapes). Empty unless the overlay is loaded.
+// Trajectory point/line traces appended after the base scatter (scattergl, same
+// WebGL layer as the base, drawn after it → on top of the dots). Static: a dot
+// per period + the full path. Playback: ghost dots fade by fractional age, and
+// a bright head dot is interpolated between the current and next period; the
+// path connects the ghosts up to that gliding head. Ellipses live in
+// layout.shapes (see _ssTrajectoryShapes).
 function _ssTrajectoryTraces() {
     if (!_ssTrajOn || !_ssTrajectory) { return []; }
     const traces = [];
     const T = _ssTrajectory;
     const at = T.all_time;
-    const pts = (T.points || []).filter(p => p.x != null && p.y != null);
+    const all = T.points || [];
+    const t = _ssAnimPos, n = all.length;
 
-    if (pts.length) {
-        const n = pts.length;
-        // Connecting path (drawn first so the markers sit on top of it).
+    const mx = [], my = [], mcolor = [], msize = [], mtext = [];
+    const lx = [], ly = [];
+    all.forEach((p, i) => {
+        if (p.x == null || p.y == null) { return; }
+        const f = _ssAnimFactor(i, t);
+        if (f < _SS_ANIM_MIN_ALPHA) { return; }
+        const c = _ssTimeColorRGB(n === 1 ? 1 : i / (n - 1));
+        const alpha = (t == null) ? 1 : f;
+        mx.push(p.x); my.push(p.y);
+        mcolor.push(`rgba(${c[0]},${c[1]},${c[2]},${alpha.toFixed(3)})`);
+        msize.push(12);
+        mtext.push(_ssTrajHover(p));
+        lx.push(p.x); ly.push(p.y);
+    });
+
+    // Gliding head dot (interpolated position) during playback/scrub.
+    if (t != null && n >= 2) {
+        const k = Math.min(Math.floor(t), n - 2), frac = t - k, a = all[k], b = all[k + 1];
+        if (a && b && a.x != null && b.x != null) {
+            const hx = a.x + (b.x - a.x) * frac, hy = a.y + (b.y - a.y) * frac;
+            const c = _ssTimeColorRGB(n === 1 ? 1 : t / (n - 1));
+            mx.push(hx); my.push(hy);
+            mcolor.push(`rgb(${c[0]},${c[1]},${c[2]})`);
+            msize.push(20);
+            mtext.push('');
+            lx.push(hx); ly.push(hy);
+        }
+    }
+
+    if (lx.length > 1) {
         traces.push({
-            type: 'scattergl', mode: 'lines',
-            x: pts.map(p => p.x), y: pts.map(p => p.y),
+            type: 'scattergl', mode: 'lines', x: lx, y: ly,
             line: { color: getCSSVar('--chart-text'), width: 1.5 },
-            opacity: 0.7, hoverinfo: 'skip', showlegend: false
+            opacity: 0.5, hoverinfo: 'skip', showlegend: false
         });
-        // Period centroids, time-graded, with hover.
+    }
+    if (mx.length) {
         traces.push({
-            type: 'scattergl', mode: 'markers',
-            x: pts.map(p => p.x), y: pts.map(p => p.y),
-            marker: {
-                size: 12,
-                color: pts.map((p, i) => _ssTimeColor(n === 1 ? 1 : i / (n - 1))),
-                line: { width: 1.5, color: getCSSVar('--chart-bg') }
-            },
-            text: pts.map(_ssTrajHover), hoverinfo: 'text', showlegend: false
+            type: 'scattergl', mode: 'markers', x: mx, y: my,
+            marker: { size: msize, color: mcolor, line: { width: 1.5, color: getCSSVar('--chart-bg') } },
+            text: mtext, hoverinfo: 'text', showlegend: false
         });
     }
 
@@ -651,13 +847,125 @@ function _ssTrajectoryTraces() {
                 size: 18, symbol: 'diamond', color: _SS_TRAJ_ACCENT,
                 line: { width: 2, color: getCSSVar('--chart-bg') }
             },
-            text: [`<b>All-time centre</b><br>${at.n_plays} plays · `
+            text: [`<b>All-time centre</b><br>${at.n_mapped} mapped plays · `
                 + `H=${at.niche_entropy} (Ĥ=${at.niche_entropy_norm})`
                 + `<br>${_ssTopNichesStr(at.top_niches)}`],
             hoverinfo: 'text', showlegend: false
         });
     }
     return traces;
+}
+
+
+// ---- Trajectory playback: step through periods, fading the trail ------------
+
+function _ssAnimCaption(p) {
+    const top = _ssTopNichesStr(p.top_niches);
+    const ch = _ssChangeBits(p);
+    return `▶ ${p.date} · ${p.n_mapped} plays · H=${p.niche_entropy}`
+        + (ch ? ` · ${ch}` : '')
+        + (p.low_volume ? ' (low)' : '') + (top ? ` · ${top}` : '');
+}
+
+
+function _ssAnimSetButton(playing) {
+    const btn = document.getElementById('ss-anim-play');
+    if (btn) { btn.textContent = playing ? '■ Stop' : '▶ Play'; }
+}
+
+
+// Update the caption to the period nearest the gliding head.
+function _ssAnimRefreshCaption() {
+    const pts = (_ssTrajectory && _ssTrajectory.points) || [];
+    if (!pts.length || _ssAnimPos == null) { return; }
+    const idx = Math.max(0, Math.min(pts.length - 1, Math.round(_ssAnimPos)));
+    const el = document.getElementById('ss-traj-status');
+    if (el && pts[idx]) { el.textContent = _ssAnimCaption(pts[idx]); }
+}
+
+
+// One animation frame: redraw the overlay (interpolated head + fading trail) at
+// the current position. Reuses the already-rendered base scatter (div.data[0])
+// so the 30k-point gl layer is not rebuilt — only the lightweight overlay
+// changes, keeping each frame ~12 ms (smooth at ~60 fps).
+function _ssAnimFrame() {
+    const div = document.getElementById('semantic-space-plot');
+    if (!div || !div.data || !div.data.length) { renderSemanticSpace(); return; }
+    const base = div.data[0];
+    const layout = Object.assign({}, div.layout, { shapes: _ssTrajectoryShapes() });
+    Plotly.react(div, [base].concat(_ssTrajectoryTraces()), layout,
+        { responsive: true, displayModeBar: true, scrollZoom: true });
+}
+
+
+// rAF tick: advance the continuous position by elapsed time, redraw, and pop
+// back to the static all-periods view once the final period is reached.
+function _ssAnimTick(now) {
+    if (!_ssAnimPlaying) { return; }
+    const N = ((_ssTrajectory && _ssTrajectory.points) || []).length;
+    if (N < 2) { _ssAnimReset(); return; }
+    if (_ssAnimLastTime == null) { _ssAnimLastTime = now; }
+    _ssAnimPos += (now - _ssAnimLastTime) / _ssAnimStepMs;
+    _ssAnimLastTime = now;
+    if (_ssAnimPos >= N - 1) {
+        _ssAnimPos = N - 1;
+        _ssAnimFrame();
+        _ssAnimRefreshCaption();
+        _ssAnimReset();   // settle on the full static view
+        return;
+    }
+    _ssAnimFrame();
+    _ssAnimRefreshCaption();
+    _ssAnimSyncScrub();
+    _ssAnimRAF = requestAnimationFrame(_ssAnimTick);
+}
+
+
+// Keep the scrub slider thumb in step with the playback position.
+function _ssAnimSyncScrub() {
+    const scrub = document.getElementById('ss-scrub');
+    if (scrub && !scrub.disabled && _ssAnimPos != null) { scrub.value = _ssAnimPos; }
+}
+
+
+function _ssAnimPlay() {
+    if (!_ssTrajOn || !_ssTrajectory) { return; }
+    const pts = _ssTrajectory.points || [];
+    if (pts.length < 2) { return; }   // need at least two periods to morph between
+    if (_ssAnimPos == null || _ssAnimPos >= pts.length - 1) { _ssAnimPos = 0; }   // (re)start
+    _ssAnimPlaying = true;
+    _ssAnimSetButton(true);
+    // Per-period morph duration: slower with few periods, faster with many,
+    // clamped to stay watchable.
+    _ssAnimStepMs = Math.max(450, Math.min(1100, Math.round(9000 / pts.length)));
+    _ssAnimLastTime = null;
+    _ssAnimRAF = requestAnimationFrame(_ssAnimTick);
+}
+
+
+function _ssAnimStop() {
+    if (_ssAnimRAF) { cancelAnimationFrame(_ssAnimRAF); _ssAnimRAF = null; }
+    _ssAnimLastTime = null;
+    _ssAnimPlaying = false;
+    _ssAnimSetButton(false);
+}
+
+
+function _ssAnimToggle() {
+    if (_ssAnimPlaying) { _ssAnimStop(); } else { _ssAnimPlay(); }
+}
+
+
+// Leave playback mode: stop, drop the frame index, redraw the static all-periods
+// view, and restore the summary caption.
+function _ssAnimReset() {
+    _ssAnimStop();
+    _ssAnimPos = null;
+    const scrub = document.getElementById('ss-scrub');
+    if (scrub) { scrub.value = 0; }
+    renderSemanticSpace();
+    const el = document.getElementById('ss-traj-status');
+    if (el && _ssTrajectory) { el.textContent = _ssTrajSummary(_ssTrajectory); }
 }
 
 

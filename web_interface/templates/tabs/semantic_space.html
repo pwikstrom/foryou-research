@@ -46,16 +46,6 @@
             </label>
 
             <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                <span class="font-medium" style="color: var(--color-text-secondary);">From</span>
-                <input type="date" id="ss-traj-start" class="dropdown" style="padding: 2px 6px;">
-            </label>
-
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                <span class="font-medium" style="color: var(--color-text-secondary);">To</span>
-                <input type="date" id="ss-traj-end" class="dropdown" style="padding: 2px 6px;">
-            </label>
-
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
                 <span class="font-medium" style="color: var(--color-text-secondary);">Interval</span>
                 <select id="ss-traj-interval" class="dropdown">
                     <option value="month">Monthly</option>
@@ -69,6 +59,12 @@
                 <input type="checkbox" id="ss-show-trajectory">
                 <span style="color: var(--color-text-secondary);">Show trajectory</span>
             </label>
+
+            <button id="ss-anim-play" class="action-btn text-xs" type="button" style="min-width: 64px;">▶ Play</button>
+
+            <input type="range" id="ss-scrub" min="0" max="0" step="any" value="0" disabled
+                   title="Scrub through the collection's periods"
+                   style="width: 160px; vertical-align: middle;">
 
             <span id="ss-traj-status" class="text-sm" style="color: var(--control-bar-info);"></span>
         </div>
