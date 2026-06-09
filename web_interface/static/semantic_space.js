@@ -44,6 +44,13 @@ const _SS_NUMERIC_COLORSCALE = _SS_NUMERIC_SCALE.map(
     (c, i, a) => [a.length === 1 ? 0 : i / (a.length - 1), c]
 );
 
+// Numeric overlays are coloured over a ROBUST range — the 2nd/98th percentile of
+// the field, not its raw min/max — so a few outliers can't compress the bulk of
+// the distribution into a single hue (e.g. "Face age estimate", whose spread is
+// concentrated but has young/old outliers). Values past the range saturate at
+// the ends, and the legend marks this with ≤/≥.
+const _SS_ROBUST_PCT = 0.02;
+
 // Trajectory overlay colours, deliberately chosen from hues the tab20 niche/
 // category background palette never uses, so the overlay never reads as a
 // background dot. The all-time centre of gravity is a neutral WHITE anchor;
@@ -323,13 +330,17 @@ function renderSemanticSpace() {
     let markerExtra = {};
     let catColorMap = null;
     if (overlay && overlay.kind === 'numeric') {
-        colorArr = (P[overlay.field] || []).map(v => (v == null ? 0 : v));
+        // Clamp the colour range to the field's robust [p2, p98] so outliers
+        // saturate at the ends instead of washing the bulk into one hue. Nulls
+        // map to the low end.
+        const [clo, chi] = _ssRobustRange(overlay.field);
+        colorArr = (P[overlay.field] || []).map(v => (v == null ? clo : v));
         // Colour the points by the numeric scale, but DON'T draw Plotly's
         // in-figure colourbar — it resizes the plot box and (via the 1:1 aspect
         // lock) shifts the scatter when the scale changes. The scale is shown as
         // an HTML gradient legend below the plot instead (see _ssRenderLegend),
         // so the plot box never changes between colour modes.
-        markerExtra = { colorscale: _SS_NUMERIC_COLORSCALE, showscale: false };
+        markerExtra = { colorscale: _SS_NUMERIC_COLORSCALE, showscale: false, cmin: clo, cmax: chi };
     } else if (overlay && overlay.kind === 'categorical') {
         catColorMap = _ssCatColorMap(overlay.field);
         colorArr = (P[overlay.field] || []).map(v => catColorMap[v] || '#888');
@@ -427,17 +438,32 @@ function renderSemanticSpace() {
 }
 
 
-// Min/max of a numeric overlay, treating nulls as 0 to match the point colours
-// (renderSemanticSpace maps null → 0), so the gradient endpoints line up.
-function _ssNumericRange(field) {
-    const arr = _ssData.points[field] || [];
-    let lo = Infinity, hi = -Infinity;
-    for (let i = 0; i < arr.length; i++) {
-        const v = arr[i] == null ? 0 : arr[i];
-        if (v < lo) { lo = v; }
-        if (v > hi) { hi = v; }
+// Robust [low, high] colour range for a numeric overlay: the field's
+// _SS_ROBUST_PCT / (1 - _SS_ROBUST_PCT) percentiles over its non-null values
+// (cached per field on _ssData). Used as Plotly's cmin/cmax and for the legend
+// endpoints, so the same robust range drives both the dots and the scale.
+function _ssRobustRange(field) {
+    if (!_ssData) { return [0, 1]; }
+    _ssData._robust = _ssData._robust || {};
+    if (_ssData._robust[field]) { return _ssData._robust[field]; }
+    const src = _ssData.points[field] || [];
+    const arr = [];
+    for (let i = 0; i < src.length; i++) {
+        const v = src[i];
+        if (v != null && isFinite(v)) { arr.push(v); }
     }
-    return lo === Infinity ? [0, 0] : [lo, hi];
+    let range;
+    if (!arr.length) {
+        range = [0, 1];
+    } else {
+        arr.sort((a, b) => a - b);
+        const at = q => arr[Math.min(arr.length - 1, Math.max(0, Math.round(q * (arr.length - 1))))];
+        let lo = at(_SS_ROBUST_PCT), hi = at(1 - _SS_ROBUST_PCT);
+        if (!(hi > lo)) { hi = lo + (Math.abs(lo) || 1) * 1e-3 + 1e-6; }
+        range = [lo, hi];
+    }
+    _ssData._robust[field] = range;
+    return range;
 }
 
 
@@ -479,13 +505,15 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
         legend.innerHTML = swatches + hint;
     } else if (overlay && overlay.kind === 'numeric') {
         _ssLegendCats = null;
-        const [lo, hi] = _ssNumericRange(overlay.field);
+        // Endpoints are the robust [p2, p98] range used to colour the dots; the
+        // ≤/≥ marks that values beyond it saturate at the ends.
+        const [lo, hi] = _ssRobustRange(overlay.field);
         const grad = `linear-gradient(to right, ${_SS_NUMERIC_SCALE.join(', ')})`;
         legend.innerHTML =
             `<span class="font-medium" style="white-space:nowrap;">${overlay.label}</span>`
-            + `<span>${_ssFmtNum(lo)}</span>`
+            + `<span>≤${_ssFmtNum(lo)}</span>`
             + `<span style="width:140px;height:10px;border-radius:2px;background:${grad};display:inline-block;"></span>`
-            + `<span>${_ssFmtNum(hi)}</span>` + openHint;
+            + `<span>≥${_ssFmtNum(hi)}</span>` + openHint;
     } else {
         _ssLegendCats = null;
         legend.innerHTML = `<span>Coloured by niche</span>${openHint}`;
