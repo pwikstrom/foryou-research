@@ -58,6 +58,11 @@ OVERLAY_CATEGORICAL = [
     "australian_relevance", "tiktok_native", "trend", "advertising", "aigc",
     "main_gender", "main_ethnicity",
 ]
+# Scrape-derived per-play engagement rates (computed at scrape consolidation)
+# denormalised into the map file as numeric colour overlays.
+SCRAPE_OVERLAY_NUMERIC = [
+    "comments_per_play", "faves_per_play", "shares_per_play", "saves_per_play",
+]
 
 
 
@@ -363,13 +368,19 @@ def build_niche_map(
     story[~mapped_mask] = ""
     niche_names = [niche_meta[int(lab)]["name"] for lab in labels]
 
+    scr_available = data_io.get_parquet_columns(
+        storage_location=embeddings.STORE_LOCATION, filename=embeddings.SCRAPES_FILE,
+    ) or []
+    scrape_numeric = [c for c in SCRAPE_OVERLAY_NUMERIC if c in scr_available]
     scr = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION,
-        filename=embeddings.SCRAPES_FILE, columns=["item_id", "stats_playCount"],
+        filename=embeddings.SCRAPES_FILE,
+        columns=["item_id", "stats_playCount"] + scrape_numeric,
     )
     scr["item_id"] = scr["item_id"].astype("string")
-    plays = scr.drop_duplicates("item_id").set_index("item_id")["stats_playCount"]
-    plays = pd.to_numeric(plays.reindex(pd.Index(item_ids, dtype="string")), errors="coerce")
+    scr_by_item = scr.drop_duplicates("item_id").set_index("item_id")
+    item_index = pd.Index(item_ids, dtype="string")
+    plays = pd.to_numeric(scr_by_item["stats_playCount"].reindex(item_index), errors="coerce")
     log_plays = np.log10(plays.fillna(0).clip(lower=0).to_numpy() + 1.0)
 
     # Denormalise the annotation overlay scalars (aligned to item_ids order).
@@ -386,6 +397,12 @@ def build_niche_map(
                 aligned[col].reset_index(drop=True).astype("string").fillna("unknown"),
                 dtype="string[pyarrow]",
             )
+    # Per-play engagement rates joined from the consolidated scrapes.
+    for col in scrape_numeric:
+        overlay_cols[col] = pd.array(
+            pd.to_numeric(scr_by_item[col].reindex(item_index), errors="coerce").reset_index(drop=True),
+            dtype="double[pyarrow]",
+        )
 
     if reporter is not None:
         reporter.update_progress(90, "Persisting map...")

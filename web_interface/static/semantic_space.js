@@ -468,7 +468,7 @@ function _ssRobustRange(field) {
 
 
 function _ssFmtNum(v) {
-    return Number.isInteger(v) ? String(v) : String(+v.toFixed(1));
+    return formatMetricNumber(v);
 }
 
 

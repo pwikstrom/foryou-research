@@ -32,9 +32,15 @@ _MAP_CACHE: dict = {"fingerprint": None, "payload": None}
 # video_map.parquet; ``kind`` is "numeric" (continuous colourscale) or
 # "categorical" (discrete legend). Only overlays whose column is actually
 # present in the map file are returned, so older maps degrade gracefully.
+# ``decimals`` overrides the payload rounding (default 4) for fields whose
+# values live well below 1, e.g. per-play engagement rates.
 _OVERLAYS = [
     {"key": "category", "label": "Content category", "kind": "categorical", "field": "category"},
     {"key": "popularity", "label": "Popularity (plays)", "kind": "numeric", "field": "log_plays"},
+    {"key": "faves_per_play", "label": "Faves per play", "kind": "numeric", "field": "faves_per_play", "decimals": 6},
+    {"key": "comments_per_play", "label": "Comments per play", "kind": "numeric", "field": "comments_per_play", "decimals": 6},
+    {"key": "shares_per_play", "label": "Shares per play", "kind": "numeric", "field": "shares_per_play", "decimals": 6},
+    {"key": "saves_per_play", "label": "Saves per play", "kind": "numeric", "field": "saves_per_play", "decimals": 6},
     {"key": "sensitivity_score", "label": "Sensitivity", "kind": "numeric", "field": "sensitivity_score"},
     {"key": "political_score", "label": "Political content", "kind": "numeric", "field": "political_score"},
     {"key": "speech_vs_music", "label": "Speech vs music", "kind": "numeric", "field": "speech_vs_music"},
@@ -90,7 +96,8 @@ def _build_payload() -> dict:
             continue
         col = mapped[field]
         if ov["kind"] == "numeric":
-            points[field] = [round(float(v), 4) if pd.notna(v) else None for v in col.tolist()]
+            decimals = ov.get("decimals", 4)
+            points[field] = [round(float(v), decimals) if pd.notna(v) else None for v in col.tolist()]
         else:
             points[field] = col.astype("string").fillna("unknown").tolist()
         overlays.append({"key": ov["key"], "label": ov["label"], "kind": ov["kind"], "field": field})
