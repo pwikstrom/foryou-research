@@ -468,10 +468,16 @@ function renderFilterColumnV2(col, metadata, sliceId) {
                 labelRow.appendChild(maxLabel);
                 wrapper.appendChild(labelRow);
 
-                // Log scale helpers
-                const useLog = info.log === true && info.min >= 0;
-                const toLog = (v) => Math.log10(v + 1);
-                const fromLog = (v) => Math.pow(10, v) - 1;
+                // Frequency-scaled slider: backend-supplied percentile pivots
+                // become non-linear noUiSlider range stops, so equal slider
+                // travel covers equal data mass and all values stay in original
+                // units. Falls back to log/linear scaling without quantiles.
+                const qRange = buildQuantileSliderRange(info);
+                const useLog = !qRange && info.log === true && info.min >= 0;
+                const logOff = (info.log_offset > 0) ? info.log_offset : 1;
+                const toLog = (v) => Math.log10(v + logOff);
+                const fromLog = (v) => Math.max(0, Math.pow(10, v) - logOff);
+                const sliderToValue = (raw) => qRange ? raw : (useLog ? fromLog(raw) : raw);
 
                 // Current Values (linear space)
                 let currentMin = info.min;
@@ -484,13 +490,15 @@ function renderFilterColumnV2(col, metadata, sliceId) {
                     if (filters[col].value.max !== undefined) currentMax = filters[col].value.max;
                 }
 
-                // Formatting Helper
-                const fmt = (n) => Math.round(n).toLocaleString();
+                // Formatting Helper. A capped top bound (extreme outliers above
+                // the 99th percentile) renders open-ended: "0.056+".
+                const fmt = (n) => formatMetricNumber(n);
+                const fmtMax = (n) => (info.max_capped && n >= info.max) ? fmt(n) + '+' : fmt(n);
 
                 minLabel.innerText = fmt(currentMin);
-                maxLabel.innerText = fmt(currentMax);
+                maxLabel.innerText = fmtMax(currentMax);
 
-                // Slider range and start values (log or linear)
+                // Slider range and start values
                 const sliderMin = useLog ? toLog(info.min) : info.min;
                 const sliderMax = useLog ? toLog(info.max) : info.max;
                 const sliderStartMin = useLog ? toLog(currentMin) : currentMin;
@@ -504,38 +512,43 @@ function renderFilterColumnV2(col, metadata, sliceId) {
                         noUiSlider.create(sliderDiv, {
                             start: [sliderStartMin, sliderStartMax],
                             connect: true,
-                            range: {
+                            range: qRange || {
                                 'min': sliderMin,
                                 'max': sliderMax
                             },
                             step: useLog ? (sliderMax - sliderMin) / 200 : undefined,
+                            // Full float precision: the default format rounds to
+                            // 2 decimals, which destroys per-play ratio values.
+                            format: { to: (v) => String(v), from: (v) => Number(v) },
                         });
 
                         sliderDiv.noUiSlider.on('update', function (values, handle) {
-                            const raw = parseFloat(values[handle]);
-                            const display = useLog ? fromLog(raw) : raw;
+                            const display = sliderToValue(parseFloat(values[handle]));
                             if (handle === 0) {
                                 minLabel.innerText = fmt(display);
                             } else {
-                                maxLabel.innerText = fmt(display);
+                                maxLabel.innerText = fmtMax(display);
                             }
                         });
 
                         sliderDiv.noUiSlider.on('change', function (values, handle) {
-                            const rawMin = parseFloat(values[0]);
-                            const rawMax = parseFloat(values[1]);
-                            const vMin = useLog ? fromLog(rawMin) : rawMin;
-                            const vMax = useLog ? fromLog(rawMax) : rawMax;
+                            const vMin = sliderToValue(parseFloat(values[0]));
+                            const vMax = sliderToValue(parseFloat(values[1]));
 
                             const f = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
 
-                            // If slider is back at full range, remove the filter
-                            if (rawMin <= sliderMin && rawMax >= sliderMax) {
+                            // Only apply bounds that actually bind. A handle at
+                            // the (possibly capped) top applies no upper bound,
+                            // so outliers above the cap stay included.
+                            const atMin = vMin <= info.min;
+                            const atMax = vMax >= info.max;
+                            if (atMin && atMax) {
                                 delete f[col];
                             } else {
                                 if (!f[col]) f[col] = { type: 'number', value: {} };
-                                f[col].value.min = vMin;
-                                f[col].value.max = vMax;
+                                f[col].value = {};
+                                if (!atMin) f[col].value.min = vMin;
+                                if (!atMax) f[col].value.max = vMax;
                             }
 
                             updateExplorerV2Stats(sliceId);
@@ -855,13 +868,13 @@ function renderStatsV2(stats1, stats2) {
         // Means
         let meanHtml = '';
         if (s1.mean !== undefined) {
-            const m1 = parseFloat(s1.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
+            const m1 = formatMetricNumber(parseFloat(s1.mean));
             meanHtml += isDual
                 ? `<span class="text-xs" style="margin-left:10px; color:var(--color-success);">S1: ${m1}</span>`
                 : `<span class="text-xs" style="margin-left:10px; color:var(--color-text-tertiary);">Mean: ${m1}</span>`;
         }
         if (isDual && s2 && s2.mean !== undefined) {
-            const m2 = parseFloat(s2.mean).toLocaleString(undefined, { maximumFractionDigits: 2 });
+            const m2 = formatMetricNumber(parseFloat(s2.mean));
 
             // Significance Test (Welch's t-test: Slice 1 vs Slice 2)
             let sigMarker = '';
@@ -925,7 +938,8 @@ function renderStatsV2(stats1, stats2) {
         if (s1.type === 'density') {
             // For log-transformed variables, compute original-scale hover labels
             const isLog = s1.transform === 'log10';
-            const toOriginal = (logVals) => logVals.map(v => Math.round(Math.pow(10, v) - 1).toLocaleString());
+            const histLogOff = (s1.log_offset > 0) ? s1.log_offset : 1;
+            const toOriginal = (logVals) => logVals.map(v => formatMetricNumber(Math.max(0, Math.pow(10, v) - histLogOff)));
 
             const trace1 = {
                 x: s1.x,
@@ -978,7 +992,8 @@ function renderStatsV2(stats1, stats2) {
                 layout.xaxis.tickmode = 'array';
                 layout.xaxis.tickvals = s1.tick_vals;
                 layout.xaxis.ticktext = s1.tick_text;
-                layout.xaxis.title = 'Log';
+                layout.xaxis.title = { text: 'log scale', standoff: 5, font: { size: 10 } };
+                layout.margin.b = 40;
             }
 
             Plotly.newPlot(plotDiv, traces, layout, { displayModeBar: false, responsive: true });
@@ -992,8 +1007,8 @@ function renderStatsV2(stats1, stats2) {
                 let binMin = clickedX - binWidth / 2;
                 let binMax = clickedX + binWidth / 2;
                 if (s1.transform === 'log10') {
-                    binMin = Math.pow(10, binMin);
-                    binMax = Math.pow(10, binMax);
+                    binMin = Math.max(0, Math.pow(10, binMin) - histLogOff);
+                    binMax = Math.max(0, Math.pow(10, binMax) - histLogOff);
                 }
                 const sliceId = point.curveNumber === 0 ? 1 : 2;
                 drillDownToViewer(col, { type: 'number', value: { min: binMin, max: binMax } }, sliceId);
@@ -1130,8 +1145,8 @@ function drillDownToViewer(col, clickedFilter, sliceId) {
     if (clickedFilter.type === 'category') {
         valueLabel = `"${clickedFilter.value[0]}"`;
     } else {
-        const min = Math.round(clickedFilter.value.min * 100) / 100;
-        const max = Math.round(clickedFilter.value.max * 100) / 100;
+        const min = clickedFilter.value.min !== undefined ? formatMetricNumber(clickedFilter.value.min) : '0';
+        const max = clickedFilter.value.max !== undefined ? formatMetricNumber(clickedFilter.value.max) : '∞';
         valueLabel = `${min} – ${max}`;
     }
 

@@ -12,22 +12,93 @@ from fyp.utils import ENGAGEMENT_TYPES, parse_extra_data_tokens
 
 
 def get_robust_bounds(series):
-    """
-    Calculates 1st and 99th percentiles to exclude extreme outliers.
+    """Return slider bounds as ``(low, high, top_capped)``.
+
+    The lower bound is the true minimum. The upper bound is the true maximum
+    unless extreme outliers stretch it: when the max exceeds 3x the 99th
+    percentile, the bound is capped at the 99th percentile and flagged. The
+    frontend renders a capped top as an open-ended segment ("value+") and
+    applies no upper filter when the handle sits there, so outliers above the
+    cap are never excluded.
     """
     if series.empty:
-        return 0, 0
-    
+        return 0, 0, False
+
     # Drop NaNs
     s = series.dropna()
     if s.empty:
-        return 0, 0
+        return 0, 0, False
 
-    # Calculate min/max (No outlier clipping)
-    low = s.min()
-    high = s.max()
-    
-    return float(low), float(high)
+    low = float(s.min())
+    high = float(s.max())
+
+    p99 = float(s.quantile(0.99))
+    if p99 > low and high > 3 * p99:
+        return low, p99, True
+
+    return low, high, False
+
+
+
+
+
+def log_axis_offset(series: pd.Series) -> float:
+    """Return the offset ``o`` used by the log display transform ``log10(x + o)``.
+
+    Integer-like data (smallest positive value >= 1, e.g. play counts) keeps the
+    classic ``+1`` offset. Fractional data (e.g. per-play ratios) gets a
+    data-driven offset so a sub-1 heavy tail spreads across decades instead of
+    collapsing into a near-linear axis: half the 1st percentile of positive
+    values, floored at one millionth of the maximum. Zeros map to ``log10(o)``,
+    just left of the smallest positive decade.
+
+    Args:
+        series: Numeric values (NaNs allowed; negatives ignored).
+
+    Returns:
+        The offset as a positive float.
+    """
+    positive = series.dropna()
+    positive = positive[positive > 0]
+    if len(positive) == 0:
+        return 1.0
+    min_pos = float(positive.min())
+    if min_pos >= 1.0:
+        return 1.0
+    p01 = float(positive.quantile(0.01))
+    max_pos = float(positive.max())
+    return float(max(p01 / 2.0, max_pos * 1e-6, 1e-12))
+
+
+
+
+
+
+# Interior percentiles shipped to the frontend so numeric filter sliders can be
+# frequency-scaled (equal data mass per slider segment).
+SLIDER_QUANTILE_PCTS = (5, 10, 25, 50, 75, 90, 95, 99)
+
+
+
+
+
+
+def slider_quantiles(series: pd.Series) -> dict:
+    """Return interior percentile values for frequency-scaled filter sliders.
+
+    Args:
+        series: Numeric column values (NaNs allowed).
+
+    Returns:
+        Mapping of percentile (as string, e.g. ``"25"``) to value. Empty when
+        the column has too few values to estimate quantiles meaningfully.
+    """
+    s = series.dropna()
+    if len(s) < 20:
+        return {}
+    qs = s.quantile([p / 100 for p in SLIDER_QUANTILE_PCTS])
+    return {str(p): float(v) for p, v in zip(SLIDER_QUANTILE_PCTS, qs) if pd.notna(v)}
+
 
 
 
@@ -72,11 +143,14 @@ def get_metadata(df, column_types, verbose=False):
             continue
 
         if dtype == "number":
-            min_val, max_val = get_robust_bounds(df[col])
+            min_val, max_val, max_capped = get_robust_bounds(df[col])
             base_meta.update({
                 "type": "number",
                 "min": min_val,
-                "max": max_val
+                "max": max_val,
+                "max_capped": max_capped,
+                "log_offset": log_axis_offset(df[col]),
+                "quantiles": slider_quantiles(df[col])
             })
             metadata[col] = base_meta
         elif dtype == "category":
@@ -565,15 +639,17 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
              if use_log: transform = "log10"
              
              clamped_series = series
+             log_offset = log_axis_offset(clamped_series) if use_log else 1.0
 
              try:
                  if min_val == max_val:
-                     x_val = np.log10(min_val + 1) if transform == "log10" else min_val
+                     x_val = np.log10(min_val + log_offset) if transform == "log10" else min_val
                      stats[col] = {
                         "type": "density",
                         "x": [float(x_val)],
                         "y": [float(count_val)],
                         "transform": transform,
+                        "log_offset": float(log_offset),
                         "min": min_val,
                         "max": max_val,
                         "mean": mean_val,
@@ -589,46 +665,53 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
                       adaptive = False
                  
                  if transform == "log10":
-                     # Log Transform
+                     # Log Transform: log10(x + offset). The offset is 1 for
+                     # count-like data and data-driven for fractional data
+                     # (see log_axis_offset).
                      if isinstance(clamped_series.dtype, pd.ArrowDtype):
-                         log_data = np.log10(clamped_series.to_numpy() + 1)
+                         log_data = np.log10(clamped_series.to_numpy() + log_offset)
                      else:
-                         log_data = np.log10(clamped_series + 1)
-                         
-                     log_min = np.log10(min_val + 1)
-                     log_max = np.log10(max_val + 1)
-                     
+                         log_data = np.log10(clamped_series + log_offset)
+
+                     log_min = np.log10(min_val + log_offset)
+                     log_max = np.log10(max_val + log_offset)
+
                      if adaptive and isinstance(bins_arg, int):
                           counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max, bins=bins_arg)
                      else:
                           chosen_bins = bins_arg
                           if isinstance(chosen_bins, (list, np.ndarray)):
-                              chosen_bins = [np.log10(b + 1) for b in chosen_bins]
-                          
+                              chosen_bins = [np.log10(b + log_offset) for b in chosen_bins]
+
                           counts, bin_edges = np.histogram(log_data, bins=chosen_bins, range=(log_min, log_max) if isinstance(chosen_bins, int) else None, density=True)
                           bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-                     
+
+                     # Decade ticks labelled in ORIGINAL units. Zeros sit at
+                     # log10(offset), so the "0" tick marks that position.
                      tick_vals = []
                      tick_text = []
                      if min_val <= 0 and max_val >= 0:
-                        tick_vals.append(np.log10(1))
+                        tick_vals.append(np.log10(log_offset))
                         tick_text.append("0")
                      # Build decade ticks only for a finite range, so a non-finite
-                     # max_val can never spin this loop forever.
-                     if np.isfinite(max_val):
-                         p = 0
+                     # max_val can never spin this loop forever. Start at the
+                     # offset's decade so sub-1 ranges (e.g. per-play ratios)
+                     # still get labelled ticks.
+                     if np.isfinite(max_val) and max_val > 0:
+                         p = int(np.ceil(np.log10(log_offset)))
                          while 10**p <= max_val:
                             v = 10**p
                             if v >= min_val:
-                                tick_vals.append(np.log10(v + 1))
-                                tick_text.append(f"{v:,}")
+                                tick_vals.append(np.log10(v + log_offset))
+                                tick_text.append(f"{v:,}" if v >= 1 else f"{v:.{-p}f}")
                             p += 1
-                     
+
                      stats[col] = {
                         "type": "density",
                         "x": bin_centers.tolist(),
                         "y": counts.tolist(),
                         "transform": transform,
+                        "log_offset": float(log_offset),
                         "min": min_val,
                         "max": max_val,
                         "tick_vals": tick_vals,

@@ -595,10 +595,16 @@ function renderViewerFilterColumn(col, metadata, schemaMap) {
         labelRow.appendChild(maxLabel);
         wrapper.appendChild(labelRow);
 
-        // Log scale helpers
-        const useLog = info.log === true && info.min >= 0;
-        const toLog = (v) => Math.log10(v + 1);
-        const fromLog = (v) => Math.pow(10, v) - 1;
+        // Frequency-scaled slider: backend-supplied percentile pivots become
+        // non-linear noUiSlider range stops, so equal slider travel covers
+        // equal data mass and all values stay in original units. Falls back
+        // to log/linear scaling when quantiles are unavailable.
+        const qRange = buildQuantileSliderRange(info);
+        const useLog = !qRange && info.log === true && info.min >= 0;
+        const logOff = (info.log_offset > 0) ? info.log_offset : 1;
+        const toLog = (v) => Math.log10(v + logOff);
+        const fromLog = (v) => Math.max(0, Math.pow(10, v) - logOff);
+        const sliderToValue = (raw) => qRange ? raw : (useLog ? fromLog(raw) : raw);
 
         // Current Values (linear space)
         let currentMin = info.min;
@@ -609,13 +615,15 @@ function renderViewerFilterColumn(col, metadata, schemaMap) {
             if (viewerData.filters[col].value.max !== undefined) currentMax = viewerData.filters[col].value.max;
         }
 
-        // Helper format
-        const fmt = (n) => Math.round(n).toLocaleString();
+        // Helper format. A capped top bound (extreme outliers above the 99th
+        // percentile) renders open-ended: "0.056+".
+        const fmt = (n) => formatMetricNumber(n);
+        const fmtMax = (n) => (info.max_capped && n >= info.max) ? fmt(n) + '+' : fmt(n);
 
         minLabel.innerText = fmt(currentMin);
-        maxLabel.innerText = fmt(currentMax);
+        maxLabel.innerText = fmtMax(currentMax);
 
-        // Slider range and start values (log or linear)
+        // Slider range and start values
         const sliderMin = useLog ? toLog(info.min) : info.min;
         const sliderMax = useLog ? toLog(info.max) : info.max;
         const sliderStartMin = useLog ? toLog(currentMin) : currentMin;
@@ -629,36 +637,41 @@ function renderViewerFilterColumn(col, metadata, schemaMap) {
                 noUiSlider.create(sliderDiv, {
                     start: [sliderStartMin, sliderStartMax],
                     connect: true,
-                    range: {
+                    range: qRange || {
                         'min': sliderMin,
                         'max': sliderMax
                     },
-                    step: useLog ? (sliderMax - sliderMin) / 200 : ((info.max - info.min) > 100 ? 1 : ((info.max - info.min) / 100))
+                    step: qRange ? undefined : (useLog ? (sliderMax - sliderMin) / 200 : ((info.max - info.min) > 100 ? 1 : ((info.max - info.min) / 100))),
+                    // Full float precision: the default format rounds to
+                    // 2 decimals, which destroys per-play ratio values.
+                    format: { to: (v) => String(v), from: (v) => Number(v) },
                 });
 
                 sliderDiv.noUiSlider.on('update', function (values, handle) {
-                    const raw = parseFloat(values[handle]);
-                    const display = useLog ? fromLog(raw) : raw;
+                    const display = sliderToValue(parseFloat(values[handle]));
                     if (handle === 0) {
                         minLabel.innerText = fmt(display);
                     } else {
-                        maxLabel.innerText = fmt(display);
+                        maxLabel.innerText = fmtMax(display);
                     }
                 });
 
                 sliderDiv.noUiSlider.on('change', function (values, handle) {
-                    const rawMin = parseFloat(values[0]);
-                    const rawMax = parseFloat(values[1]);
-                    const vMin = useLog ? fromLog(rawMin) : rawMin;
-                    const vMax = useLog ? fromLog(rawMax) : rawMax;
+                    const vMin = sliderToValue(parseFloat(values[0]));
+                    const vMax = sliderToValue(parseFloat(values[1]));
 
-                    // If slider is back at full range, remove the filter
-                    if (rawMin <= sliderMin && rawMax >= sliderMax) {
+                    // Only apply bounds that actually bind. A handle at the
+                    // (possibly capped) top applies no upper bound, so outliers
+                    // above the cap stay included.
+                    const atMin = vMin <= info.min;
+                    const atMax = vMax >= info.max;
+                    if (atMin && atMax) {
                         delete viewerData.filters[col];
                     } else {
                         if (!viewerData.filters[col]) viewerData.filters[col] = { type: 'number', value: {} };
-                        viewerData.filters[col].value.min = vMin;
-                        viewerData.filters[col].value.max = vMax;
+                        viewerData.filters[col].value = {};
+                        if (!atMin) viewerData.filters[col].value.min = vMin;
+                        if (!atMax) viewerData.filters[col].value.max = vMax;
                     }
 
                     updateViewerStats();

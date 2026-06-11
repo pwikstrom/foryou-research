@@ -8,6 +8,41 @@ function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Format a numeric metric for display: large values as rounded integers with
+// thousands separators, small values (e.g. per-play ratios) with 3 significant
+// digits so they don't collapse to 0.
+function formatMetricNumber(n) {
+    if (n === null || n === undefined || !isFinite(n)) return String(n);
+    const abs = Math.abs(n);
+    if (abs >= 100 || Number.isInteger(n)) return Math.round(n).toLocaleString();
+    if (abs === 0) return '0';
+    return Number(n.toPrecision(3)).toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
+// Build a frequency-scaled noUiSlider range from backend percentile pivots
+// (info.quantiles: {"25": value, ...}). Each segment between pivots holds an
+// equal share of the data, so slider travel matches data density. Returns
+// null when no usable interior pivots exist (caller falls back to log/linear).
+function buildQuantileSliderRange(info) {
+    const q = info.quantiles;
+    if (!q || info.min === undefined || info.max === undefined || info.min >= info.max) return null;
+    const pivots = Object.entries(q)
+        .map(([p, v]) => [parseFloat(p), Math.min(Math.max(v, info.min), info.max)])
+        .filter(([p]) => isFinite(p) && p > 0 && p < 100)
+        .sort((a, b) => a[0] - b[0]);
+    const range = { 'min': info.min, 'max': info.max };
+    let last = info.min;
+    let added = 0;
+    for (const [p, v] of pivots) {
+        if (v > last && v < info.max) {
+            range[p + '%'] = v;
+            last = v;
+            added++;
+        }
+    }
+    return added > 0 ? range : null;
+}
+
 // Poll intervals
 // The updateStatus interval is now handled within window.onload
 
