@@ -1187,6 +1187,42 @@ def queue_scraper_loop(
 
 
 
+def _engagement_per_play(numerator: pd.Series, plays: pd.Series) -> pd.Series:
+    """Divide an engagement count by play count, returning a proportion.
+
+    The yt-dlp sentinel ``-1`` (and any value < 0) in the numerator, and any
+    play count <= 0, are treated as missing and yield ``pd.NA``.
+
+    Args:
+        numerator: Engagement counts (e.g. comments, faves, shares, saves).
+        plays: Play (view) counts used as the denominator.
+
+    Returns:
+        A ``double[pyarrow]`` Series of ``numerator / plays`` proportions with
+        ``pd.NA`` wherever either side is missing or the denominator is non-positive.
+    """
+    num = numerator.astype("double[pyarrow]").mask(numerator < 0, pd.NA)
+    den = plays.astype("double[pyarrow]").mask(plays <= 0, pd.NA)
+    return (num / den).astype("double[pyarrow]")
+
+
+
+
+
+
+# Engagement-rate columns derived at consolidation: new per-play column → source count.
+ENGAGEMENT_PER_PLAY_COLUMNS: dict[str, str] = {
+    "comments_per_play": "stats_commentCount",
+    "faves_per_play": "stats_diggCount",
+    "shares_per_play": "stats_shareCount",
+    "saves_per_play": "stats_collectCount",
+}
+
+
+
+
+
+
 def consolidate_and_save_scrape_data(
     force_consolidation: bool = False,
     return_saved_data: bool = True,
@@ -1278,11 +1314,22 @@ def consolidate_and_save_scrape_data(
         scrape_df = pd.concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
 
 
-    memory_per_column = scrape_df.memory_usage(deep=True) 
+    memory_per_column = scrape_df.memory_usage(deep=True)
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
     if top_verbose:
         print(f"Shape: {scrape_df.shape} | Memory usage: {total_memory_mb:.2f} MB")
+
+
+    # Derive per-play engagement rates so comparisons are not dominated by the
+    # mechanical correlation between absolute counts and play count. Plays stays
+    # absolute; the raw counts are retained for provenance.
+    has_plays = "stats_playCount" in scrape_df.columns
+    for new_col, src_col in ENGAGEMENT_PER_PLAY_COLUMNS.items():
+        if has_plays and src_col in scrape_df.columns:
+            scrape_df[new_col] = _engagement_per_play(scrape_df[src_col], scrape_df["stats_playCount"])
+        else:
+            scrape_df[new_col] = pd.Series(pd.NA, index=scrape_df.index, dtype="double[pyarrow]")
 
 
     # Compute new item_ids by comparing against existing consolidated data
