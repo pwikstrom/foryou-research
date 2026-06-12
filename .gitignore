@@ -182,3 +182,7 @@ dist-ssr
 *.sln
 *.sw?
 
+
+
+# Temporary research/debug data — never commit (may contain donor-derived data)
+tmp/
