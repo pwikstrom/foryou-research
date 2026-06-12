@@ -75,17 +75,26 @@ fyp_main_v02/
 │   ├── fyp_config.py            # Config loader; uses __proj__.py to find root
 │   ├── data_io.py               # Unified I/O (local + GCS, parquet, JSON, ndjson)
 │   ├── types.py                 # PyArrow dtype helpers and conversion
+│   ├── polars_ops.py            # Polars helpers for expensive pandas ops at scale
 │   ├── utils.py                 # Shared utility functions
 │   ├── ingest.py                # Data ingestion pipeline
-│   ├──  # Donation-level data handling
+│   ├── donations.py             # Donation-level data handling (AIO/AWS fetch, collection metadata)
 │   ├── scrape.py                # Scrape orchestration (queue, batching, threads)
 │   ├── tiktok_dl.py             # yt-dlp wrapper (download, retry, error classification)
 │   ├── mypyktok.py              # Legacy PykTok fork (deprecated, kept for reference)
 │   ├── machine_annotation.py    # Gemini-based annotation
+│   ├── annotation_schema.py     # Declarative field spec + Gemini response-schema builder + structured flattener
 │   ├── recode_variables.py      # Variable recoding, feature engineering
 │   ├── organize_datasets.py     # Dataset filtering & organisation
 │   ├── calc_collection_stats.py   # Donation-level statistics
 │   ├── activity_analysis.py     # Activity-based analysis
+│   ├── embeddings.py            # Dense semantic embeddings for annotated videos (gemini-embedding)
+│   ├── niche_detection.py       # Data-driven micro-genre ("niche") detection from annotation text
+│   ├── video_map.py             # Cluster video embeddings into niches + 2D semantic map
+│   ├── session_profile.py       # Within-session begin→end profiling
+│   ├── sequence_analysis.py     # Sequence-windowing analysis (dwell→next-window lift)
+│   ├── sequence_model.py        # Stage-B predictive modelling for sequence analysis
+│   ├── timeline_analysis.py     # Timeline metrics (linreg, anomalies, breaks, volatility)
 │   ├── pca.py                   # Distance metrics, PCA helpers
 │   ├── stats.py                 # ANOVA, PERMANOVA helpers
 │   └── studies.py               # Study definitions
@@ -94,6 +103,9 @@ fyp_main_v02/
 │   ├── data_service.py          # Study cache, PCA computation
 │   ├── auth.py                  # Authentication, @admin_required decorator
 │   ├── security.py              # Login manager, user manager
+│   ├── permissions.py           # Tab + sub-page permission catalog and Flask decorator
+│   ├── admin_settings.py        # Persisted admin-controlled site settings (e.g. signup gating)
+│   ├── activity_log.py          # Per-user activity log for Data/User Management mutations
 │   ├── process_manager.py       # Background job management (subprocess + Cloud Tasks)
 │   ├── task_status.py           # GCS/local status reporters, heartbeat, cancellation
 │   ├── explorer_backend.py      # Data explorer backend logic
@@ -108,6 +120,14 @@ fyp_main_v02/
 │   ├── run_recode_refresh_studies.py  # Study recoding (Cloud Task)
 │   ├── run_consolidate_enrichment.py  # Consolidation (Cloud Task)
 │   ├── run_study_refresh.py     # Single-study refresh (Cloud Task)
+│   ├── run_ingest_refresh.py    # Per-file row-count + provenance snapshot (Cloud Task)
+│   ├── run_collection_metadata_refresh.py  # Regenerate collections_metadata.parquet (Cloud Task)
+│   ├── run_collection_delete.py # Delete a collection from recoded/metadata parquets (Cloud Task)
+│   ├── run_aio_fetch.py         # Fetch recent AIO donations + participant metadata from AWS (Cloud Task)
+│   ├── run_embeddings_refresh.py   # Embed not-yet-embedded annotated videos (Cloud Task)
+│   ├── run_video_map_refresh.py    # Cluster embedding store into niches + 2D map (Cloud Task)
+│   ├── run_sequence_refresh.py  # Refresh sequence-analysis artifacts (Cloud Task)
+│   ├── run_benchmark_parquet_read.py  # Benchmark parquet read paths (Cloud Task)
 │   ├── routes/                  # Flask Blueprints
 │   │   ├── auth_routes.py       #   Login, signup, settings
 │   │   ├── api_explorer_routes.py       #   Studies + Explore API + system-info
@@ -115,6 +135,7 @@ fyp_main_v02/
 │   │   ├── api_timelines_routes.py      #   Timelines API
 │   │   ├── api_correlations_routes.py   #   Correlations API
 │   │   ├── api_collections_routes.py    #   Collection stats + annotation API
+│   │   ├── api_semantic_space_routes.py #   Semantic Space tab API (video embedding map)
 │   │   ├── management_routes.py #   Admin/management endpoints
 │   │   └── process_routes.py    #   Background process endpoints
 │   ├── templates/
@@ -125,6 +146,8 @@ fyp_main_v02/
 │   │       ├── home.html
 │   │       ├── video_analysis.html
 │   │       ├── explore.html
+│   │       ├── my_studies.html
+│   │       ├── semantic_space.html
 │   │       ├── data_management.html
 │   │       ├── correlations.html
 │   │       ├── timelines.html
@@ -138,9 +161,12 @@ fyp_main_v02/
 │       ├── correlations.js      # Correlations tab
 │       ├── timelines.js         # Timelines tab
 │       ├── collections.js       # Collections tab
+│       ├── semantic_space.js    # Semantic Space tab
+│       ├── study_state.js       # Shared study-state helper
 │       ├── style.css            # Main stylesheet
 │       ├── js/
-│       │   └── data_management.js
+│       │   ├── data_management.js
+│       │   └── admin_var_schema.js   # Var-schema admin editor
 │       └── css/                 # (empty — styles in style.css)
 ├── tests/                       # Ad-hoc test/debug scripts
 ├── prompts/                     # Gemini prompt templates (*.txt)
@@ -286,13 +312,16 @@ On Cloud Run, eligible background processes run as **Google Cloud Tasks** dispat
 
 ## Tests
 
-No formal test framework. Tests are ad-hoc scripts in the `tests/` folder:
+No formal test framework. The closest thing to a regression suite is the cost-free
+annotation safety net; everything else is ad-hoc scripts in the `tests/` folder:
 
 ```bash
-cd tests
-python test_env.py
-python test_metadata_filtering.py
-python test_calc.py
+# Cost-free regression + consistency suite over saved raw annotation responses
+python tests/golden/run_safety_net.py
+
+# Ad-hoc scripts (examples)
+python tests/test_sequence_analysis.py
+python tests/test_model_availability.py
 ```
 
 Save test/debug data in the `tmp/` folder. Save test scripts in the `tests/` folder.
