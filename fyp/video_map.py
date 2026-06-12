@@ -11,8 +11,11 @@ Consumes the dense embeddings written by :mod:`fyp.embeddings` and produces:
 
 Pipeline: load raw vectors → mean-centre → L2-normalise → PCA(50) →
 MiniBatchKMeans (every video gets a niche) → t-SNE on a sample (the visual
-map) → Gemini niche naming from centroid-nearest exemplars.
+map) → Gemini niche naming from centroid-nearest exemplars, with a dedupe
+pass so every niche label is unique.
 """
+
+from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
@@ -235,34 +238,118 @@ def _name_niches(
     client = embeddings._get_client()
     naming_model = fyp_cf["machine"]["model"]
 
-    def _name(niche: int) -> tuple[int, str]:
+    def _exemplars(niche: int) -> str:
         rows = np.where(labels == niche)[0]
         centroid = reduced[rows].mean(axis=0)
         order = np.argsort(np.linalg.norm(reduced[rows] - centroid, axis=1))
         picks = rows[order[:_EXEMPLARS_PER_NICHE]]
-        exemplars = "\n".join(f"- {str(story_list[i])[:160]}" for i in picks)
-        prompt = (
-            f"These are summaries of TikTok videos in one cluster:\n{exemplars}\n\n"
-            "Give a SHORT 2-4 word label naming this micro-genre. "
-            "Reply with only the label."
-        )
+        return "\n".join(f"- {str(story_list[i])[:160]}" for i in picks)
+
+    def _ask(prompt: str) -> str | None:
         try:
             resp = client.models.generate_content(model=naming_model, contents=prompt)
-            return niche, resp.text.strip().replace("\n", " ")[:48]
+            return resp.text.strip().replace("\n", " ")[:48]
         except Exception:
-            return niche, f"Niche {niche}"
+            return None
+
+    # Labels already fixed by carry-over; fresh names should steer clear of
+    # them so the dedupe pass below has less to repair.
+    taken_at_start = sorted(set(carried_names.values()))
+
+    def _name(niche: int) -> tuple[int, str]:
+        avoid = (
+            "\nThese labels are taken by other clusters — do not reuse any of them:\n"
+            f"{', '.join(taken_at_start)}\n"
+        ) if taken_at_start else ""
+        prompt = (
+            f"These are summaries of TikTok videos in one cluster:\n{_exemplars(niche)}\n\n"
+            "Give a SHORT 2-4 word label naming this micro-genre. "
+            "Be specific enough to set it apart from similar micro-genres "
+            "(e.g. prefer 'Cat Mischief Clips' over a generic 'Pet Antics').\n"
+            f"{avoid}"
+            "Reply with only the label."
+        )
+        return niche, _ask(prompt) or f"Niche {niche}"
 
     to_name = [n for n in niches if n not in carried_names]
     with ThreadPoolExecutor(max_workers=10) as ex:
         for fut in as_completed([ex.submit(_name, n) for n in to_name]):
             niche, name = fut.result()
             meta[niche]["name"] = name
+
+    renamed = _dedupe_niche_names(meta, _exemplars, _ask)
     if reporter is not None:
         reporter.log(
             f"Named {len(to_name)} niches via {naming_model} "
-            f"({len(carried_names)} carried over from previous build)."
+            f"({len(carried_names)} carried over from previous build, "
+            f"{renamed} duplicate labels renamed)."
         )
     return meta
+
+
+
+
+
+
+def _dedupe_niche_names(
+    meta: dict[int, dict],
+    exemplars_fn: Callable[[int], str],
+    ask_fn: Callable[[str], str | None],
+) -> int:
+    """Rename niches whose labels collide so every niche label is unique.
+
+    Naming happens per-cluster in parallel (and carried-over names from
+    previous builds are never re-generated), so distinct clusters can end up
+    with the same Gemini label — which renders as confusing duplicate labels
+    on the map. Collisions are resolved largest-first: the biggest niche in
+    each group keeps the label, the rest are re-prompted with the full list
+    of taken labels. If Gemini still collides or errors, the label gets a
+    deterministic suffix from the niche's most distinctive term.
+
+    Args:
+        meta: Niche id → metadata dict (mutated in place: ``name`` updated).
+        exemplars_fn: Returns the exemplar-summaries block for a niche id.
+        ask_fn: Sends a prompt to the naming model, returns the reply or None.
+
+    Returns:
+        Number of niches that were renamed.
+    """
+    def _key(name: str) -> str:
+        return " ".join(name.lower().split())
+
+    groups: dict[str, list[int]] = {}
+    for niche, m in meta.items():
+        groups.setdefault(_key(m["name"]), []).append(niche)
+
+    renamed = 0
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        for niche in sorted(group, key=lambda n: -meta[n]["size"])[1:]:
+            old = meta[niche]["name"]
+            taken_names = sorted({m["name"] for n, m in meta.items() if n != niche})
+            taken_keys = {_key(n) for n in taken_names}
+            prompt = (
+                f"These are summaries of TikTok videos in one cluster:\n{exemplars_fn(niche)}\n\n"
+                f'The label "{old}" already belongs to a different cluster, and so do '
+                f"all of these:\n{', '.join(taken_names)}\n\n"
+                "Give a SHORT 2-4 word label for THIS cluster that captures what makes "
+                "it distinct and is not in the list above. Reply with only the label."
+            )
+            new = None
+            for _ in range(2):
+                cand = ask_fn(prompt)
+                if cand and _key(cand) not in taken_keys:
+                    new = cand
+                    break
+            if new is None:
+                term = (meta[niche].get("terms") or ["misc"])[0]
+                new = f"{old} ({term})"[:48]
+                if _key(new) in taken_keys:
+                    new = f"{old[:40]} ({niche})"
+            meta[niche]["name"] = new
+            renamed += 1
+    return renamed
 
 
 
