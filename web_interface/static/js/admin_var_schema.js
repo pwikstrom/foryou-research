@@ -26,8 +26,13 @@
         etag: null,
         currentHash: null,
         filters: { group: 'all', source: 'all', role: 'all', search: '' },
+        hiddenColumns: new Set(),   // user-hidden via the Columns dropdown
+        sort: { col: null, dir: 1 },  // dir: 1 = asc, -1 = desc
         loaded: false,
     };
+
+    // localStorage key for the user's hidden-column choices.
+    const HIDDEN_COLS_KEY = 'vsHiddenColumns';
 
     // Columns whose role is more bookkeeping than user-facing.  Hidden by
     // default to keep the table readable; toggled via the "All columns"
@@ -58,15 +63,67 @@
 
     function _visibleColumns() {
         const f = state.filters;
+        let cols = state.columns;
         if (f.group === 'semantic') {
-            return state.columns.filter(c =>
+            cols = cols.filter(c =>
                 ALWAYS_VISIBLE.has(c) || state.semanticColumns.has(c));
-        }
-        if (f.group === 'presentation') {
-            return state.columns.filter(c =>
+        } else if (f.group === 'presentation') {
+            cols = cols.filter(c =>
                 ALWAYS_VISIBLE.has(c) || _columnGroup(c) === 'presentation');
         }
-        return state.columns;
+        // variable_name is the row key and can never be hidden.
+        return cols.filter(c => c === 'variable_name' || !state.hiddenColumns.has(c));
+    }
+
+
+
+
+    function _loadHiddenColumns() {
+        try {
+            const stored = JSON.parse(localStorage.getItem(HIDDEN_COLS_KEY) || '[]');
+            state.hiddenColumns = new Set(
+                stored.filter(c => state.columns.includes(c) && c !== 'variable_name'));
+        } catch (e) {
+            state.hiddenColumns = new Set();
+        }
+    }
+
+
+
+
+    function _saveHiddenColumns() {
+        try {
+            localStorage.setItem(HIDDEN_COLS_KEY,
+                JSON.stringify(Array.from(state.hiddenColumns)));
+        } catch (e) { /* storage unavailable — selection just won't persist */ }
+    }
+
+
+
+
+    function _sortedRowIndices() {
+        const indices = [];
+        state.rows.forEach((row, i) => {
+            if (_rowMatchesFilters(row)) indices.push(i);
+        });
+        const col = state.sort.col;
+        if (!col) return indices;
+        const dir = state.sort.dir;
+        indices.sort((a, b) => {
+            const va = String(_effectiveValue(a, col) ?? '').trim();
+            const vb = String(_effectiveValue(b, col) ?? '').trim();
+            // Empty values always sort last, regardless of direction.
+            if (va === '' && vb === '') return 0;
+            if (va === '') return 1;
+            if (vb === '') return -1;
+            const na = Number(va);
+            const nb = Number(vb);
+            if (!Number.isNaN(na) && !Number.isNaN(nb)) {
+                return (na - nb) * dir;
+            }
+            return va.localeCompare(vb, undefined, { sensitivity: 'base' }) * dir;
+        });
+        return indices;
     }
 
     function _isSemanticDirty() {
@@ -149,12 +206,18 @@
             const marker = group === 'semantic'
                 ? '<span class="meta-tooltip" data-tooltip="Semantic column — editing this rebuilds study caches." style="color: var(--color-warning); margin-left: 4px;">⚠</span>'
                 : '';
-            return `<th style="text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; color: var(--color-text-muted); font-weight: var(--weight-semibold);">${_esc(col)}${marker}</th>`;
+            const isSorted = state.sort.col === col;
+            const arrow = isSorted
+                ? `<span style="margin-left: 4px;">${state.sort.dir === 1 ? '▲' : '▼'}</span>`
+                : '';
+            const sortColor = isSorted ? 'var(--color-text-primary)' : 'var(--color-text-muted)';
+            return `<th onclick="vsSort('${_esc(col)}')"
+                class="meta-tooltip" data-tooltip="Click to sort"
+                style="text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; color: ${sortColor}; font-weight: var(--weight-semibold); cursor: pointer; user-select: none;">${_esc(col)}${marker}${arrow}</th>`;
         }).join('') + '</tr>';
 
         const fragments = [];
-        state.rows.forEach((row, rowIdx) => {
-            if (!_rowMatchesFilters(row)) return;
+        _sortedRowIndices().forEach(rowIdx => {
             const cells = cols.map(col => _renderCell(rowIdx, col)).join('');
             fragments.push(`<tr data-row-index="${rowIdx}" style="border-bottom: 1px solid var(--color-border);">${cells}</tr>`);
         });
@@ -220,6 +283,90 @@
         </td>`;
     }
 
+    function _renderColumnsMenu() {
+        const menu = document.getElementById('vs-columns-menu');
+        if (!menu) return;
+        const items = state.columns.map(col => {
+            const locked = col === 'variable_name';
+            const checked = !state.hiddenColumns.has(col);
+            return `<label class="text-xs" style="display: flex; align-items: center; gap: 6px;
+                    padding: 3px 4px; cursor: ${locked ? 'default' : 'pointer'};
+                    color: ${locked ? 'var(--color-text-muted)' : 'var(--color-text-primary)'};">
+                <input type="checkbox" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''}
+                    onchange="vsToggleColumn('${_esc(col)}', this.checked)">
+                <span class="font-mono">${_esc(col)}</span>
+            </label>`;
+        });
+        const actions = `<div style="display: flex; gap: 8px; padding: 4px 4px 6px 4px;
+                margin-bottom: 4px; border-bottom: 1px solid var(--color-border);">
+            <button onclick="vsShowAllColumns()" class="btn-discreet text-xs"
+                style="padding: 2px 8px;">Show all</button>
+        </div>`;
+        menu.innerHTML = actions + items.join('');
+        const btn = document.getElementById('vs-columns-btn');
+        if (btn) {
+            const hidden = state.hiddenColumns.size;
+            btn.textContent = hidden > 0 ? `Columns (${hidden} hidden) ▾` : 'Columns ▾';
+        }
+    }
+
+
+
+
+    function _toggleColumnsMenu(forceClose) {
+        const menu = document.getElementById('vs-columns-menu');
+        if (!menu) return;
+        const open = menu.style.display !== 'none';
+        menu.style.display = (open || forceClose) ? 'none' : 'block';
+    }
+
+
+
+
+    function _toggleColumn(col, visible) {
+        if (col === 'variable_name') return;
+        if (visible) {
+            state.hiddenColumns.delete(col);
+        } else {
+            state.hiddenColumns.add(col);
+        }
+        _saveHiddenColumns();
+        _renderColumnsMenu();
+        _renderTable();
+    }
+
+
+
+
+    function _showAllColumns() {
+        state.hiddenColumns.clear();
+        _saveHiddenColumns();
+        _renderColumnsMenu();
+        _renderTable();
+    }
+
+
+
+
+    function _onSort(col) {
+        if (state.sort.col === col) {
+            // Cycle asc → desc → off.
+            if (state.sort.dir === 1) {
+                state.sort.dir = -1;
+            } else {
+                state.sort.col = null;
+                state.sort.dir = 1;
+            }
+        } else {
+            state.sort.col = col;
+            state.sort.dir = 1;
+        }
+        _renderTable();
+    }
+
+
+
+
     function _renderSaveBar() {
         const bar = document.getElementById('vs-save-bar');
         const count = _dirtyCount();
@@ -260,7 +407,9 @@
             state.etag = body.etag;
             state.currentHash = body.current_hash;
             state.edits = {};
+            _loadHiddenColumns();
             _renderFilters();
+            _renderColumnsMenu();
             _renderTable();
             _renderSaveBar();
             state.loaded = true;
@@ -389,6 +538,13 @@
                 }, 150);
             });
         }
+        // Close the columns dropdown when clicking anywhere outside it.
+        document.addEventListener('click', (ev) => {
+            const wrap = document.getElementById('vs-columns-wrap');
+            if (wrap && !wrap.contains(ev.target)) {
+                _toggleColumnsMenu(true);
+            }
+        });
     }
 
     // Defer until the schema page becomes active.  Avoids loading the
@@ -417,6 +573,10 @@
 
     // Public globals used by inline handlers in the template.
     window.vsOnEdit = _setEdit;
+    window.vsSort = _onSort;
+    window.vsToggleColumn = _toggleColumn;
+    window.vsToggleColumnsMenu = () => _toggleColumnsMenu(false);
+    window.vsShowAllColumns = _showAllColumns;
     window.vsReload = () => _load(true);
     window.vsValidate = _validate;
     window.vsSave = _save;
