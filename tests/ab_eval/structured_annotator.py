@@ -50,6 +50,7 @@ def build_structured_config(
     use_penalties: bool = False,
     thinking_budget: int | None = None,
     media_resolution: str | None = None,
+    temperature: float | None = None,
 ) -> gt.GenerateContentConfig:
     """Build the structured-output generation config.
 
@@ -70,7 +71,10 @@ def build_structured_config(
         A configured ``GenerateContentConfig`` with a response schema.
     """
     global _STRUCTURED_CONFIG
-    is_default = not use_penalties and thinking_budget is None and media_resolution is None
+    is_default = (
+        not use_penalties and thinking_budget is None
+        and media_resolution is None and temperature is None
+    )
     if _STRUCTURED_CONFIG is not None and is_default:
         return _STRUCTURED_CONFIG
 
@@ -78,9 +82,10 @@ def build_structured_config(
         machine_prompt = file.read()
 
     budget = thinking_budget if thinking_budget is not None else fyp_cf["machine"]["thinking_budget"]
+    temp = temperature if temperature is not None else fyp_cf["machine"]["temperature"]
     config = gt.GenerateContentConfig(
         system_instruction=machine_prompt,
-        temperature=fyp_cf["machine"]["temperature"],
+        temperature=temp,
         max_output_tokens=fyp_cf["machine"]["max_output_tokens"],
         response_mime_type="application/json",
         response_schema=build_response_schema(),
@@ -124,6 +129,7 @@ def annotate_structured(
     use_penalties: bool = False,
     thinking_budget: int | None = None,
     media_resolution: str | None = None,
+    temperature: float | None = None,
     verbose: bool = False,
 ) -> dict:
     """Annotate one video with constrained structured output.
@@ -145,6 +151,7 @@ def annotate_structured(
         use_penalties=use_penalties,
         thinking_budget=thinking_budget,
         media_resolution=media_resolution,
+        temperature=temperature,
     )
 
     out: dict = {
