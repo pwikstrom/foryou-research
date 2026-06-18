@@ -1,18 +1,24 @@
-"""HIGH vs LOW media_resolution CONTENT A/B (Workstream C quality gate).
+"""media_resolution CONTENT A/B (Workstream C quality gate).
 
-Annotates the same local videos twice with structured output — once at
-``media_resolution=HIGH``, once at ``LOW`` — holding model / prompt / schema /
-all other params fixed, so resolution is the ONLY variable. Both arms are
-flattened + refined through the identical recode downstream and compared
-field-by-field with the shared field-type-aware metrics (enum agreement, list
-Jaccard, numeric correlation, free-text coverage).
+Annotates the same local videos twice with structured output, holding model /
+prompt / schema / all other params fixed so the per-arm ``media_resolution`` is
+the ONLY variable. Both arms are flattened + refined through the identical
+recode downstream and compared field-by-field with the shared field-type-aware
+metrics (enum agreement, list Jaccard, numeric correlation, free-text coverage),
+highlighting resolution-sensitive fields and dumping side-by-side distributions.
 
-Arm A = HIGH (reference), Arm B = LOW. So in the report ``coverage_a`` is HIGH
-and ``coverage_b`` is LOW; a LOW < HIGH coverage gap on text/face fields is the
-signal that LOW is dropping fine detail.
+Arms are parameterised:
+  * ``--arm-a HIGH --arm-b LOW``  -> the real HIGH-vs-LOW quality test (default).
+  * ``--arm-a HIGH --arm-b HIGH`` -> the HIGH-vs-HIGH CONTROL: with both arms at
+    the same resolution, any disagreement is pure temperature=1.0 stochasticity.
+    That is the "noise floor": a HIGH-vs-LOW gap only counts as real resolution
+    loss where it falls BELOW this floor.
+
+Arm A is the reference (``coverage_a``); arm B is the variant (``coverage_b``).
 
 BILLABLE: 2 live Gemini calls per video. Usage:
-    python tests/ab_eval/media_resolution_ab.py --n 80 --seed 17 --workers 20
+    python tests/ab_eval/media_resolution_ab.py --n 80 --seed 17 --arm-a HIGH --arm-b LOW
+    python tests/ab_eval/media_resolution_ab.py --n 80 --seed 17 --arm-a HIGH --arm-b HIGH
 """
 
 from __future__ import annotations
@@ -42,35 +48,34 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # Columns most likely to degrade at LOW resolution (matched as name substrings,
 # robust to recode renaming).
 SENSITIVE_PATTERNS = ("text_overlay", "symbol", "brand", "object", "face", "ethnic", "scene")
-# Columns to dump side-by-side value distributions for.
 DIST_COLS = ("text_overlays", "symbols_and_brands", "objects", "main_ethnicity", "faces_ethnicity")
 
-# Approximate gemini-3-flash-preview rates ($/1M tokens) — for a rough cost line only.
+# Approximate gemini-3-flash-preview rates ($/1M tokens) — rough cost line only.
 _RATE_IN, _RATE_OUT = 0.50, 3.00
 
 
-def _annotate_one(vid: str) -> dict:
-    """Annotate one video at HIGH and LOW; return both flattened records + diag."""
-    hi = annotate_structured(vid, use_local_video_file=True, media_resolution="HIGH")
-    lo = annotate_structured(vid, use_local_video_file=True, media_resolution="LOW")
-    hi_ok = isinstance(hi.get("parsed"), dict)
-    lo_ok = isinstance(lo.get("parsed"), dict)
-    flat_hi = apply_conditional_rules(flatten_structured(hi["parsed"]), hi["parsed"]) if hi_ok else {}
-    flat_lo = apply_conditional_rules(flatten_structured(lo["parsed"]), lo["parsed"]) if lo_ok else {}
+def _annotate_one(vid: str, res_a: str, res_b: str) -> dict:
+    """Annotate one video under arm A and arm B resolutions; flatten both."""
+    a = annotate_structured(vid, use_local_video_file=True, media_resolution=res_a)
+    b = annotate_structured(vid, use_local_video_file=True, media_resolution=res_b)
+    a_ok = isinstance(a.get("parsed"), dict)
+    b_ok = isinstance(b.get("parsed"), dict)
+    flat_a = apply_conditional_rules(flatten_structured(a["parsed"]), a["parsed"]) if a_ok else {}
+    flat_b = apply_conditional_rules(flatten_structured(b["parsed"]), b["parsed"]) if b_ok else {}
 
     def _u(d, k):
         return (d.get("usage", {}) or {}).get(k)
 
     return {
-        "rec_hi": {"item_id": vid, **flat_hi},
-        "rec_lo": {"item_id": vid, **flat_lo},
+        "rec_a": {"item_id": vid, **flat_a},
+        "rec_b": {"item_id": vid, **flat_b},
         "diag": {
             "item_id": vid,
-            "hi_finish": str(hi.get("finish_reason")), "lo_finish": str(lo.get("finish_reason")),
-            "hi_ok": hi_ok, "lo_ok": lo_ok,
-            "hi_prompt_tokens": _u(hi, "prompt_tokens"), "lo_prompt_tokens": _u(lo, "prompt_tokens"),
-            "hi_total_tokens": _u(hi, "total_tokens"), "lo_total_tokens": _u(lo, "total_tokens"),
-            "hi_error": hi.get("error", ""), "lo_error": lo.get("error", ""),
+            "a_finish": str(a.get("finish_reason")), "b_finish": str(b.get("finish_reason")),
+            "a_ok": a_ok, "b_ok": b_ok,
+            "a_prompt_tokens": _u(a, "prompt_tokens"), "b_prompt_tokens": _u(b, "prompt_tokens"),
+            "a_total_tokens": _u(a, "total_tokens"), "b_total_tokens": _u(b, "total_tokens"),
+            "a_error": a.get("error", ""), "b_error": b.get("error", ""),
         },
     }
 
@@ -87,25 +92,29 @@ def _fmt(v, nd=3):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="HIGH vs LOW media_resolution content A/B")
+    ap = argparse.ArgumentParser(description="media_resolution content A/B")
     ap.add_argument("--n", type=int, default=80)
     ap.add_argument("--seed", type=int, default=17)
     ap.add_argument("--workers", type=int, default=20)
+    ap.add_argument("--arm-a", default="HIGH")
+    ap.add_argument("--arm-b", default="LOW")
     args = ap.parse_args()
+    res_a, res_b = args.arm_a.upper(), args.arm_b.upper()
+    tag = f"{res_a}_{res_b}"
 
     media_dir = fyp_cf["paths"]["media"]
     mp4s = sorted(glob.glob(os.path.join(media_dir, "*.mp4")))
     rng = random.Random(args.seed)
     rng.shuffle(mp4s)
     video_ids = [Path(p).stem for p in mp4s[: args.n]]
-    print(f"[media-res A/B] {len(video_ids)} videos from {media_dir} (seed={args.seed})")
+    print(f"[media-res A/B] arm A={res_a}  arm B={res_b}  |  {len(video_ids)} videos (seed={args.seed})")
 
     ma.initialize_machine()
-    build_structured_config(media_resolution="HIGH")  # warm the schema build
+    build_structured_config(media_resolution=res_a)  # warm the schema build
 
-    recs_hi, recs_lo, diags = [], [], []
+    recs_a, recs_b, diags = [], [], []
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futures = {ex.submit(_annotate_one, vid): vid for vid in video_ids}
+        futures = {ex.submit(_annotate_one, vid, res_a, res_b): vid for vid in video_ids}
         for done, fut in enumerate(as_completed(futures), start=1):
             try:
                 res = fut.result()
@@ -113,85 +122,81 @@ def main() -> int:
                 print(f"  [{done}/{len(video_ids)}] ERROR: {exc}", flush=True)
                 continue
             d = res["diag"]
-            flag = "" if (d["hi_ok"] and d["lo_ok"]) else f"  <-- PARSE FAIL hi={d['hi_ok']} lo={d['lo_ok']}"
+            flag = "" if (d["a_ok"] and d["b_ok"]) else f"  <-- PARSE FAIL a={d['a_ok']} b={d['b_ok']}"
             print(f"  [{done}/{len(video_ids)}] {d['item_id']} "
-                  f"HI={d['hi_finish']} LO={d['lo_finish']}{flag}", flush=True)
-            recs_hi.append(res["rec_hi"])
-            recs_lo.append(res["rec_lo"])
+                  f"A={d['a_finish']} B={d['b_finish']}{flag}", flush=True)
+            recs_a.append(res["rec_a"])
+            recs_b.append(res["rec_b"])
             diags.append(d)
 
     print("\n[media-res A/B] refining both arms through the shared recode downstream...")
-    df_hi = refine_from_flat_dicts(recs_hi)
-    df_lo = refine_from_flat_dicts(recs_lo)
-    report = compare_arms(df_hi, df_lo)               # A = HIGH, B = LOW
-    dists = {c: distribution_table(df_hi, df_lo, c) for c in DIST_COLS}
+    df_a = refine_from_flat_dicts(recs_a)
+    df_b = refine_from_flat_dicts(recs_b)
+    report = compare_arms(df_a, df_b)
+    dists = {c: distribution_table(df_a, df_b, c) for c in DIST_COLS}
 
-    # ---- token / cost + parse reliability ----
-    hi_fail = sum(1 for d in diags if not d["hi_ok"])
-    lo_fail = sum(1 for d in diags if not d["lo_ok"])
-    hi_prompt = sum(d["hi_prompt_tokens"] or 0 for d in diags)
-    lo_prompt = sum(d["lo_prompt_tokens"] or 0 for d in diags)
-    hi_total = sum(d["hi_total_tokens"] or 0 for d in diags)
-    lo_total = sum(d["lo_total_tokens"] or 0 for d in diags)
+    a_fail = sum(1 for d in diags if not d["a_ok"])
+    b_fail = sum(1 for d in diags if not d["b_ok"])
+    a_prompt = sum(d["a_prompt_tokens"] or 0 for d in diags)
+    b_prompt = sum(d["b_prompt_tokens"] or 0 for d in diags)
+    a_total = sum(d["a_total_tokens"] or 0 for d in diags)
+    b_total = sum(d["b_total_tokens"] or 0 for d in diags)
     n = max(1, len(diags))
     token_summary = {
-        "n": len(diags),
-        "hi_parse_fail": hi_fail, "lo_parse_fail": lo_fail,
-        "hi_mean_prompt_tokens": hi_prompt / n, "lo_mean_prompt_tokens": lo_prompt / n,
-        "hi_mean_total_tokens": hi_total / n, "lo_mean_total_tokens": lo_total / n,
-        "prompt_token_reduction_pct": (100 * (hi_prompt - lo_prompt) / hi_prompt) if hi_prompt else None,
-        "est_cost_high_usd": round(_cost(hi_prompt, hi_total), 4),
-        "est_cost_low_usd": round(_cost(lo_prompt, lo_total), 4),
+        "n": len(diags), "arm_a": res_a, "arm_b": res_b,
+        "a_parse_fail": a_fail, "b_parse_fail": b_fail,
+        "a_mean_prompt_tokens": a_prompt / n, "b_mean_prompt_tokens": b_prompt / n,
+        "prompt_token_reduction_pct": (100 * (a_prompt - b_prompt) / a_prompt) if a_prompt else None,
+        "est_cost_a_usd": round(_cost(a_prompt, a_total), 4),
+        "est_cost_b_usd": round(_cost(b_prompt, b_total), 4),
     }
 
     cols = report["columns"]
-    sensitive = {c: m for c, m in cols.items()
-                 if any(p in c.lower() for p in SENSITIVE_PATTERNS)}
+    sensitive = {c: m for c, m in cols.items() if any(p in c.lower() for p in SENSITIVE_PATTERNS)}
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = RESULTS_DIR / f"media_res_ab_n{len(diags)}.json"
+    out_path = RESULTS_DIR / f"media_res_ab_{tag}_n{len(diags)}.json"
     with open(out_path, "w") as f:
         json.dump({"report": report, "sensitive": sensitive, "distributions": dists,
-                   "token_summary": token_summary, "diagnostics": diags,
-                   "args": vars(args)}, f, indent=2, default=str)
-    df_hi.to_parquet(RESULTS_DIR / f"media_res_ab_HIGH_n{len(diags)}.parquet", index=False)
-    df_lo.to_parquet(RESULTS_DIR / f"media_res_ab_LOW_n{len(diags)}.parquet", index=False)
+                   "token_summary": token_summary, "diagnostics": diags, "args": vars(args)},
+                  f, indent=2, default=str)
+    df_a.to_parquet(RESULTS_DIR / f"media_res_ab_{tag}_A_n{len(diags)}.parquet", index=False)
+    df_b.to_parquet(RESULTS_DIR / f"media_res_ab_{tag}_B_n{len(diags)}.parquet", index=False)
 
-    # ---- readable summary ----
     s = report["summary"]
     print("\n" + "=" * 78)
-    print(f"MEDIA RESOLUTION A/B  (A=HIGH, B=LOW)   n={report['n_items']} items compared")
+    print(f"MEDIA RESOLUTION A/B  (A={res_a}, B={res_b})   n={report['n_items']} items compared")
     print("=" * 78)
-    print(f"  parse failures:        HIGH={hi_fail}  LOW={lo_fail}")
-    print(f"  annotated_ok rate:     HIGH={_fmt(s['annotated_ok_rate_a'])}  LOW={_fmt(s['annotated_ok_rate_b'])}")
-    print(f"  mean prompt tokens:    HIGH={token_summary['hi_mean_prompt_tokens']:.0f}  "
-          f"LOW={token_summary['lo_mean_prompt_tokens']:.0f}  "
+    print(f"  parse failures:        A={a_fail}  B={b_fail}")
+    print(f"  annotated_ok rate:     A={_fmt(s['annotated_ok_rate_a'])}  B={_fmt(s['annotated_ok_rate_b'])}")
+    print(f"  mean prompt tokens:    A={token_summary['a_mean_prompt_tokens']:.0f}  "
+          f"B={token_summary['b_mean_prompt_tokens']:.0f}  "
           f"(reduction {_fmt(token_summary['prompt_token_reduction_pct'],1)}%)")
-    print(f"  est cost this run:     HIGH=${token_summary['est_cost_high_usd']}  LOW=${token_summary['est_cost_low_usd']}")
-    print("  --- overall agreement (HIGH vs LOW) ---")
+    print(f"  est cost this run:     A=${token_summary['est_cost_a_usd']}  B=${token_summary['est_cost_b_usd']}")
+    print("  --- overall agreement (A vs B) ---")
     print(f"  enum agreement (mean):       {_fmt(s['mean_enum_agreement'])}")
     print(f"  list Jaccard (mean):         {_fmt(s['mean_list_jaccard'])}")
     print(f"  numeric correlation (mean):  {_fmt(s['mean_numeric_correlation'])}")
-    print(f"  freetext coverage Δ (LOW-HIGH): {_fmt(s['mean_freetext_coverage_delta_b_minus_a'])}")
+    print(f"  freetext coverage Δ (B-A):   {_fmt(s['mean_freetext_coverage_delta_b_minus_a'])}")
 
     print("\n  --- RESOLUTION-SENSITIVE FIELDS (text / symbols / objects / faces / scenes) ---")
-    print(f"  {'field':42} {'kind':8} {'metric':>9}  covHIGH covLOW")
+    print(f"  {'field':42} {'kind':8} {'metric':>9}  covA   covB")
     for c in sorted(sensitive):
         m = sensitive[c]
         kind = m["kind"]
         metric = {"enum": m.get("agreement"), "list": m.get("mean_jaccard"),
                   "numeric": m.get("correlation"), "freetext": None}.get(kind)
         print(f"  {c:42} {kind:8} {_fmt(metric):>9}  "
-              f"{_fmt(m.get('coverage_a'),2):>6} {_fmt(m.get('coverage_b'),2):>6}")
+              f"{_fmt(m.get('coverage_a'),2):>5}  {_fmt(m.get('coverage_b'),2):>5}")
 
-    print("\n  --- value distributions (top, HIGH | LOW) ---")
+    print("\n  --- value distributions (top, A | B) ---")
     for c in DIST_COLS:
         d = dists.get(c, {})
         a = d.get("arm_a", {}); b = d.get("arm_b", {})
         if a or b:
             print(f"  [{c}]")
-            print(f"      HIGH: {dict(list(a.items())[:6])}")
-            print(f"      LOW : {dict(list(b.items())[:6])}")
+            print(f"      A: {dict(list(a.items())[:6])}")
+            print(f"      B: {dict(list(b.items())[:6])}")
 
     print(f"\n  full report saved: {out_path}")
     print("=" * 78)
