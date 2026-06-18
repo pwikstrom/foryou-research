@@ -14,6 +14,7 @@ import psutil as _psutil
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+import fyp.annotation_versioning as annotation_versioning
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
 from fyp.polars_ops import fast_join
 from fyp.recode_variables import compute_var_schema_hash, get_grouping_factors_from_var_schema
@@ -1258,6 +1259,41 @@ def _join_niche_columns(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame
 
 
 
+def _annotations_for_study(study_name, annotations_df):
+    """Return the annotations a study should merge against.
+
+    If the study pins a specific ``annotation_version`` in its definition, the
+    pinned version's rows are read from the version archive (strict, for
+    reproducibility). Otherwise the supplied active annotations are used
+    unchanged.
+
+    Args:
+        study_name: The study being merged, or ``None``.
+        annotations_df: The active annotations frame loaded for the merge.
+
+    Returns:
+        The annotations frame to merge against.
+    """
+    if not study_name:
+        return annotations_df
+    study_def = fyp_cf.get("study_defs", {}).get(study_name, {}) or {}
+    pin = study_def.get("annotation_version")
+    if not pin:
+        return annotations_df
+    archive_fn = f"{MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"
+    if not data_io.exists(storage_location="recoded", filename=archive_fn):
+        print(f"    [new_merge] study '{study_name}' pinned to {pin} but archive missing; using active annotations.")
+        return annotations_df
+    archive = data_io.load_parquet(storage_location="recoded", filename=archive_fn)
+    if archive is None or archive.empty:
+        return annotations_df
+    pinned = annotation_versioning.select_version_view(archive, pin)
+    print(f"    [new_merge] study '{study_name}' pinned to annotation_version={pin}: {len(pinned):,} annotations.")
+    return pinned
+
+
+
+
 def new_merge(
     study_name: str = None,
     all_datasets: dict = {},
@@ -1287,7 +1323,7 @@ def new_merge(
 
     # merge scrape + annotations into enrichment data
     scrapes_df = all_datasets.get(SCRAPES_LABEL)
-    annotations_df = all_datasets.get(MACHINE_ANNOTATIONS_LABEL)
+    annotations_df = _annotations_for_study(study_name, all_datasets.get(MACHINE_ANNOTATIONS_LABEL))
     has_scrapes = scrapes_df is not None and not scrapes_df.empty
     has_annotations = annotations_df is not None and not annotations_df.empty
 

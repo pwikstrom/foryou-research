@@ -40,6 +40,11 @@
             <button type="button" class="btn-stop text-xs" onclick="emptyQueue('scrape')"
                 style="padding: 4px 8px;">Empty Queue</button>
         </div>
+        <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
+            Downloads each queued video's media and metadata with yt-dlp, working through the Scrape Queue
+            above in batches of the size below. Runs synchronously across many workers; successful and failed
+            items are pruned from the queue as it goes.
+        </p>
 
         <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; flex-direction: column; gap: 2px;">
@@ -85,6 +90,11 @@
             <button type="button" class="btn-stop text-xs" onclick="emptyQueue('annotate')"
                 style="padding: 4px 8px;">Empty Queue</button>
         </div>
+        <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
+            Annotates the Annotation Queue above with Gemini in real time (many concurrent workers, ~minutes
+            per batch). This is the urgent / default path &mdash; use the Batch Annotator below for large,
+            non-urgent runs at ~half the cost.
+        </p>
 
         <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; flex-direction: column; gap: 2px;">
@@ -114,6 +124,49 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
             <span id="queue_annotator-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
             <a class="text-xs view-log-link" onclick="openLogModal('queue_annotator', 'Annotator')">View Log</a>
+        </div>
+    </div>
+
+    <!-- Batch Annotator Block (async, ~50% cheaper) -->
+    <div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border);">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+            <span class="text-body font-bold">Batch Annotator</span>
+            <span class="text-xs" style="color: var(--color-text-tertiary);">async &middot; ~50% cheaper</span>
+        </div>
+        <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
+            Annotates the same Annotation Queue above via the Gemini Batch API: submits one job and polls it
+            (minutes&ndash;24h turnaround), then feeds the results through the same refine &amp; consolidate
+            path. Submitted items are reserved from the queue until the job finishes. Requires GCS-stored media.
+        </p>
+
+        <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+                <label class="text-xs" style="color: var(--color-text-tertiary);">BATCH SIZE</label>
+                <input type="number" id="batch-annotations-batch-size" value="2000"
+                    style="width: 70px; background: var(--color-bg-input); border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); padding: 3px;">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+                <label class="text-xs" style="color: var(--color-text-tertiary);">MAX BATCHES</label>
+                <input type="number" id="batch-annotations-max-batches" placeholder="Inf"
+                    style="width: 70px; background: var(--color-bg-input); border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); padding: 3px;">
+            </div>
+
+            <div style="width: 1px; height: 30px; background: var(--color-border);"></div>
+
+            <div class="controls" style="display: flex; gap: 5px; align-items: center;">
+                <span id="queue_annotator_batch-status" class="status-indicator status-stopped"></span>
+                <button id="queue_annotator_batch-toggle" class="btn-primary" data-start-label="Start Batch Annotator"
+                    onclick="startProcess('queue_annotator_batch')" style="padding: 4px 12px;">Start Batch Annotator</button>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="queue_annotator_batch-bar"></div>
+            <div class="progress-text" id="queue_annotator_batch-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="queue_annotator_batch-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <a class="text-xs view-log-link" onclick="openLogModal('queue_annotator_batch', 'Batch Annotator')">View Log</a>
         </div>
     </div>
 

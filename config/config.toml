@@ -24,14 +24,46 @@ project = "<gcp-project>"
 location = "global"
 http_options_api_version = "v1"
 http_options_timeout = 180000
-# Gemini 3 strongly recommends temperature 1.0; values below 1.0 risk looping /
-# degraded reasoning. Pinned here for the gemini-3-flash-preview structured path.
-temperature = 1.0
+# Temperature 0.0 for reproducibility. Google's general guidance recommends 1.0
+# for Gemini 3 thinking models (sub-1.0 risks looping on UNCONSTRAINED free-text),
+# but an n=80 A/B (tests/ab_eval/temperature_ab.py; see tests/ab_eval/FINDINGS.md)
+# showed that with schema-constrained structured output there is NO looping at
+# temp=0 (0 MAX_TOKENS; free-text repeat-ratio identical to temp=1.0), the content
+# is unchanged (temp0-vs-temp1 agreement == the temp1 run-to-run floor, ~0.89),
+# and temp=0 is markedly more reproducible (enum 0.887->0.928, list Jaccard
+# 0.52->0.74, numeric corr 0.77->0.87). Reproducibility matters for this research
+# instrument, so 0.0 is pinned. NOTE: still not perfectly deterministic (~0.93,
+# not 1.0) — distributed inference adds irreducible non-determinism.
+temperature = 0.0
 max_output_tokens = 65536
 response_mime_type = "application/json"
+# presence/frequency penalties apply ONLY to the free-text path
+# (global_generation_config). The active structured path (use_structured_output =
+# true) does NOT use them: the A/B confirmed they are a no-op under constrained
+# decoding (penalties-on vs -off agreement == the run-to-run floor, ~0.93) and
+# would only discourage legitimate cross-field repetition. Kept for the legacy path.
 presence_penalty = 0.6
 frequency_penalty = 1.2
 thinking_budget = -1
+
+# Transient-failure retry policy for the Gemini call (see machine_annotation.
+# _generate_with_retry). Retries only transient errors (429 / 5xx / deadline /
+# timeout / dropped connection); fails fast on everything else. max_retries is
+# the number of retries AFTER the first attempt; base delay grows exponentially.
+max_retries = 2
+retry_base_delay = 2.0
+
+# Video frame resolution sent to Gemini. Empty = API default = HIGH for video.
+# For Gemini-3 VIDEO, LOW and MEDIUM are equivalent (~70 tok/frame; verified by
+# token count) and HIGH is ~280, so for video this is effectively binary
+# (LOW==MEDIUM vs HIGH). An n=80 HIGH-vs-LOW content A/B with a HIGH-vs-HIGH
+# noise-floor control (tests/ab_eval/FINDINGS.md) found LOW saves ~41% input
+# tokens but genuinely degrades symbols_and_brands (brand/logo) + sensitivity_
+# score; most other fields (text_overlays, faces, ethnicity, categories, story
+# type) were within the temp=1.0 noise floor. Decision: KEEP HIGH (empty default).
+# Set "LOW" only if those two fields are not research-critical. Changing this
+# creates a new annotation_version automatically.
+media_resolution = ""
 
 max_duration_for_annotation = 300
 

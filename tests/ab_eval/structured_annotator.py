@@ -36,9 +36,21 @@ from fyp.machine_annotation import initialize_machine
 _STRUCTURED_CONFIG: gt.GenerateContentConfig | None = None
 
 
+def _resolve_media_resolution(level: str | None):
+    """Map a level name ('LOW' / 'MEDIA_RESOLUTION_LOW') to a genai enum, or None."""
+    if not level:
+        return None
+    name = str(level).strip().upper()
+    if not name.startswith("MEDIA_RESOLUTION_"):
+        name = f"MEDIA_RESOLUTION_{name}"
+    return getattr(gt.MediaResolution, name, None)
+
+
 def build_structured_config(
     use_penalties: bool = False,
     thinking_budget: int | None = None,
+    media_resolution: str | None = None,
+    temperature: float | None = None,
 ) -> gt.GenerateContentConfig:
     """Build the structured-output generation config.
 
@@ -51,12 +63,18 @@ def build_structured_config(
         thinking_budget: override the config thinking budget (e.g. cap it to
             leave room for the structured output so it cannot truncate
             mid-JSON). ``None`` uses the config value (``-1`` = dynamic).
+        media_resolution: override the video frame resolution ('LOW' / 'MEDIUM'
+            / 'HIGH'). ``None`` leaves it at the API default. Used by the
+            media_resolution A/B harness.
 
     Returns:
         A configured ``GenerateContentConfig`` with a response schema.
     """
     global _STRUCTURED_CONFIG
-    is_default = not use_penalties and thinking_budget is None
+    is_default = (
+        not use_penalties and thinking_budget is None
+        and media_resolution is None and temperature is None
+    )
     if _STRUCTURED_CONFIG is not None and is_default:
         return _STRUCTURED_CONFIG
 
@@ -64,14 +82,16 @@ def build_structured_config(
         machine_prompt = file.read()
 
     budget = thinking_budget if thinking_budget is not None else fyp_cf["machine"]["thinking_budget"]
+    temp = temperature if temperature is not None else fyp_cf["machine"]["temperature"]
     config = gt.GenerateContentConfig(
         system_instruction=machine_prompt,
-        temperature=fyp_cf["machine"]["temperature"],
+        temperature=temp,
         max_output_tokens=fyp_cf["machine"]["max_output_tokens"],
         response_mime_type="application/json",
         response_schema=build_response_schema(),
         presence_penalty=fyp_cf["machine"]["presence_penalty"] if use_penalties else None,
         frequency_penalty=fyp_cf["machine"]["frequency_penalty"] if use_penalties else None,
+        media_resolution=_resolve_media_resolution(media_resolution),
         thinking_config=gt.ThinkingConfig(thinking_budget=budget),
     )
     if is_default:
@@ -108,6 +128,8 @@ def annotate_structured(
     local_path: str | None = None,
     use_penalties: bool = False,
     thinking_budget: int | None = None,
+    media_resolution: str | None = None,
+    temperature: float | None = None,
     verbose: bool = False,
 ) -> dict:
     """Annotate one video with constrained structured output.
@@ -125,7 +147,12 @@ def annotate_structured(
         duration``, ``model`` and ``error``.
     """
     initialize_machine()
-    config = build_structured_config(use_penalties=use_penalties, thinking_budget=thinking_budget)
+    config = build_structured_config(
+        use_penalties=use_penalties,
+        thinking_budget=thinking_budget,
+        media_resolution=media_resolution,
+        temperature=temperature,
+    )
 
     out: dict = {
         "item_id": video_id,

@@ -25,6 +25,7 @@ import pandas as pd
 
 import fyp.data_io as data_io
 import fyp.utils as fyp_utils
+import fyp.annotation_versioning as annotation_versioning
 from fyp.fyp_config import fyp_cf
 
 #from fyp.organize_datasets import select_videos_from_study_dataset
@@ -93,6 +94,7 @@ def initialize_machine():
                 response_mime_type=fyp_cf["machine"]["response_mime_type"],
                 presence_penalty=fyp_cf["machine"]["presence_penalty"],
                 frequency_penalty=fyp_cf["machine"]["frequency_penalty"],
+                media_resolution=_resolve_media_resolution(),
                 thinking_config=google.genai.types.ThinkingConfig(thinking_budget=fyp_cf["machine"]["thinking_budget"]),
             )
 
@@ -106,6 +108,27 @@ def initialize_machine():
         print("I'm offline. Can't initialize Google Gemini.")
         
 
+
+
+
+
+def _resolve_media_resolution():
+    """Map the configured ``media_resolution`` to a genai enum, or ``None``.
+
+    Empty / unset returns ``None`` (use the API default — unchanged behaviour).
+    For Gemini-3 video, LOW and MEDIUM are equivalent (~70 tokens/frame) and HIGH
+    is ~280 tokens/frame, so LOW is the cost lever. Accepts a bare level
+    ("LOW") or the full enum name ("MEDIA_RESOLUTION_LOW").
+
+    Returns:
+        A ``google.genai.types.MediaResolution`` value, or ``None``.
+    """
+    value = str(fyp_cf["machine"].get("media_resolution", "") or "").strip().upper()
+    if not value:
+        return None
+    if not value.startswith("MEDIA_RESOLUTION_"):
+        value = f"MEDIA_RESOLUTION_{value}"
+    return getattr(google.genai.types.MediaResolution, value, None)
 
 
 
@@ -134,11 +157,102 @@ def build_structured_generation_config():
         max_output_tokens=fyp_cf["machine"]["max_output_tokens"],
         response_mime_type="application/json",
         response_schema=build_response_schema(),
+        media_resolution=_resolve_media_resolution(),
         thinking_config=google.genai.types.ThinkingConfig(
             thinking_budget=fyp_cf["machine"]["thinking_budget"]
         ),
     )
     return fyp_cf["machine"]["structured_generation_config"]
+
+
+
+
+# Transient failures (rate limits, 5xx, deadline/timeout, dropped connections)
+# can plausibly succeed on a retry; client errors (bad request, missing media,
+# auth, safety block) cannot and must fail fast.
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_RETRYABLE_MARKERS = (
+    "deadline_exceeded",
+    "deadline exceeded",
+    "unavailable",
+    "resource_exhausted",
+    "resource exhausted",
+    "rate limit",
+    "internal error",
+    "internal server error",
+    "timed out",
+    "timeout",
+    "connection reset",
+    "connection aborted",
+    "temporarily unavailable",
+    "too many requests",
+)
+
+
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """Decide whether a Gemini call failure is worth retrying.
+
+    Transient failures (rate limits, 5xx server errors, deadline/timeout,
+    dropped connections) can plausibly succeed on a retry; client-side errors
+    (malformed request, missing media, auth failure, safety block) cannot.
+
+    Args:
+        exc: The exception raised by the Gemini call.
+
+    Returns:
+        True if a retry could plausibly succeed, False otherwise.
+    """
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+    code = getattr(exc, "code", None)
+    if not isinstance(code, int):
+        code = getattr(exc, "status_code", None)
+    if isinstance(code, int) and code in _RETRYABLE_STATUS_CODES:
+        return True
+    message = str(exc).lower()
+    return any(marker in message for marker in _RETRYABLE_MARKERS)
+
+
+
+
+def _generate_with_retry(contents, gen_config):
+    """Call the Gemini model with bounded exponential-backoff retries.
+
+    Only transient errors (see :func:`_is_transient_error`) are retried; every
+    other error propagates immediately so the caller records it as a DNF. The
+    retry count and base backoff are read from config (``max_retries``,
+    ``retry_base_delay``) with conservative defaults, so the policy is tunable
+    without code changes.
+
+    Args:
+        contents: The request contents (video part + instruction).
+        gen_config: The resolved ``GenerateContentConfig``.
+
+    Returns:
+        The model response object from ``generate_content``.
+
+    Raises:
+        Exception: The last exception if every attempt fails, or any
+            non-transient error on its first occurrence.
+    """
+    max_retries = int(fyp_cf["machine"].get("max_retries", 2))
+    base_delay = float(fyp_cf["machine"].get("retry_base_delay", 2.0))
+
+    attempt = 0
+    while True:
+        try:
+            return fyp_cf["machine"]["client"].models.generate_content(
+                model=fyp_cf["machine"]["model"],
+                config=gen_config,
+                contents=contents,
+            )
+        except Exception as exc:
+            if attempt >= max_retries or not _is_transient_error(exc):
+                raise
+            time.sleep(base_delay * (2 ** attempt) + random())
+            attempt += 1
 
 
 
@@ -179,6 +293,7 @@ def call_machine(
         "inference_duration" : -1,
         "model" : fyp_cf['machine']['model'],
         "prompt_fn" : os.path.basename(fyp_cf['machine']['prompt']),
+        "annotation_version" : annotation_versioning.current_annotation_version(),
         "structured" : use_structured,
         "usage" : {},
         "error" : "unknown error",
@@ -231,11 +346,7 @@ def call_machine(
             if use_structured
             else fyp_cf["machine"]["global_generation_config"]
         )
-        resp = fyp_cf["machine"]["client"].models.generate_content(
-            model = fyp_cf['machine']['model'],
-            config = gen_config,
-            contents=contents,
-        )
+        resp = _generate_with_retry(contents, gen_config)
     except Exception as e:
         times += [_dt.datetime.now()]
 
@@ -327,6 +438,8 @@ def call_machine_threads(
 
     initialize_machine()
 
+    annotation_versioning.ensure_current_version_registered()
+
     results_by_index = {}
 
     def worker(idx_video):
@@ -368,7 +481,14 @@ def call_machine_threads(
     _safety_margin = 1.5
     _startup_sleep = 3 + max_workers / 2  # upper bound of worker() sleep
     _waves = max(1, (len(interesting_videos) + max_workers - 1) // max_workers)
-    batch_deadline = int(_waves * _per_call_seconds * _safety_margin + _startup_sleep + 60)
+    # Extra headroom for retry backoff sleeps a worker may incur on transient
+    # failures (sum of base*2^k for k < max_retries).
+    _max_retries = int(fyp_cf["machine"].get("max_retries", 2))
+    _retry_base_delay = float(fyp_cf["machine"].get("retry_base_delay", 2.0))
+    _retry_backoff = _retry_base_delay * (2 ** _max_retries - 1)
+    batch_deadline = int(
+        _waves * _per_call_seconds * _safety_margin + _startup_sleep + 60 + _retry_backoff
+    )
     print(
         f"[machine] batch_deadline={batch_deadline}s for {len(interesting_videos)} items, "
         f"{max_workers} workers, {_waves} waves"
@@ -1446,6 +1566,24 @@ def refine_one_raw_annotation_batch(
 
 
     # ---------------------------------------------------------------
+    # Stamp each row with its annotation_version. recode_events_df drops this
+    # (it is not a var_schema column), so re-attach it from the raw outputs.
+    # Legacy raw files predating versioning have no such field and default to
+    # the legacy version.
+    # ---------------------------------------------------------------
+    version_by_item = {}
+    for entry in raw_outputs_from_machine.values():
+        if isinstance(entry, dict) and entry.get("item_id") is not None:
+            version_by_item[str(entry["item_id"])] = entry.get(
+                "annotation_version", annotation_versioning.LEGACY_VERSION
+            )
+    outputs_from_machine_df["annotation_version"] = (
+        outputs_from_machine_df["item_id"].astype(str).map(version_by_item)
+        .fillna(annotation_versioning.LEGACY_VERSION)
+    )
+
+
+    # ---------------------------------------------------------------
     # Convert dtypes to pyarrow and reset index
     # ---------------------------------------------------------------
     outputs_from_machine_df.reset_index(drop=True, inplace=True)
@@ -1592,8 +1730,39 @@ def consolidate_and_save_refined_annotations(
     consolidated_annotations = pd.concat(refined_annotation_dfs, ignore_index=True)
 
     # ---------------------------------------------------------------
-    # dropping duplicates, only keeping the most recent annotation for each item_id
-    consolidated_annotations = consolidated_annotations.drop_duplicates(subset=["item_id"], keep="last").reset_index(drop=True)
+    # Version-aware consolidation. Every row carries an annotation_version; rows
+    # from legacy refined files predating versioning default to the legacy
+    # version. The full multi-version history is archived (queryable, never
+    # overwritten); the active dataset that downstream consumers read is then
+    # derived from the promoted version, or — when nothing is promoted yet —
+    # the latest annotation per item (identical to the historical behaviour).
+    if "annotation_version" not in consolidated_annotations.columns:
+        consolidated_annotations["annotation_version"] = annotation_versioning.LEGACY_VERSION
+    consolidated_annotations["annotation_version"] = (
+        consolidated_annotations["annotation_version"].fillna(annotation_versioning.LEGACY_VERSION)
+    )
+
+    annotation_archive = consolidated_annotations.drop_duplicates(
+        subset=["item_id", "annotation_version"], keep="last"
+    ).reset_index(drop=True)
+    data_io.save_parquet(
+        df=annotation_archive,
+        storage_location="recoded",
+        filename=f"{MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet",
+        verbose=verbose,
+    )
+
+    active_version = annotation_versioning.get_active_version()
+    if active_version is None:
+        # No version promoted yet: keep the most recent annotation per item_id
+        # (the historical, version-agnostic behaviour — zero migration change).
+        consolidated_annotations = consolidated_annotations.drop_duplicates(
+            subset=["item_id"], keep="last"
+        ).reset_index(drop=True)
+    else:
+        consolidated_annotations = annotation_versioning.select_active_view(
+            consolidated_annotations, active_version
+        )
 
     memory_per_column = consolidated_annotations.memory_usage(deep=True) 
     total_memory_bytes = memory_per_column.sum()
@@ -1638,6 +1807,46 @@ def consolidate_and_save_refined_annotations(
     _ = data_io.save_json(data = dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
 
     return True, consolidated_annotations, new_item_ids
+
+
+
+
+
+def rebuild_active_annotations_from_archive(verbose: bool = False):
+    """Rebuild the active recoded annotations from the version archive.
+
+    Fast path used after promoting a version: re-derives
+    ``machine_annotations_recoded.parquet`` from the already-built
+    ``machine_annotations_all_versions.parquet`` using the current active
+    version (or latest-per-item when nothing is promoted) — no re-refinement of
+    raw files. Per-study cached datasets still need a study refresh to pick up
+    the change; this only updates the global active dataset.
+
+    Args:
+        verbose: Whether to print I/O progress.
+
+    Returns:
+        The number of rows in the rebuilt active dataset, or ``None`` if the
+        archive is missing/empty.
+    """
+    archive_fn = f"{MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"
+    recoded_fn = f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"
+    if not data_io.exists(storage_location="recoded", filename=archive_fn):
+        return None
+    archive = data_io.load_parquet(storage_location="recoded", filename=archive_fn)
+    if archive is None or archive.empty:
+        return None
+
+    active_version = annotation_versioning.get_active_version()
+    if active_version is None:
+        active_df = archive.drop_duplicates(subset=["item_id"], keep="last").reset_index(drop=True)
+    else:
+        active_df = annotation_versioning.select_active_view(archive, active_version)
+
+    data_io.save_parquet(
+        df=active_df, storage_location="recoded", filename=recoded_fn, verbose=verbose
+    )
+    return len(active_df)
 
 
 

@@ -11,6 +11,7 @@ from fyp.fyp_config import (
     EMBEDDINGS_REFRESH_SCRIPT,
     META_REFRESH_GROUPS_SCRIPT,
     PCA_REFRESH_SCRIPT,
+    QUEUE_ANNOTATOR_BATCH_SCRIPT,
     QUEUE_ANNOTATOR_SCRIPT,
     QUEUE_SCRAPER_SCRIPT,
     RECODE_REFRESH_STUDIES_SCRIPT,
@@ -48,7 +49,7 @@ def api_start(name):
     if "study_name" in data:
         args.append(data["study_name"])
 
-    if name in ["downloader", "annotator", "queue_scraper", "queue_annotator", "embeddings_refresh"]:
+    if name in ["downloader", "annotator", "queue_scraper", "queue_annotator", "queue_annotator_batch", "embeddings_refresh"]:
         if data.get("batch_size") and str(data["batch_size"]).strip():
              args.extend(["--batch-size", str(data["batch_size"])])
         if data.get("max_batches") and str(data["max_batches"]).strip():
@@ -80,6 +81,7 @@ def api_start(name):
     script_map = {
         "queue_scraper": QUEUE_SCRAPER_SCRIPT,
         "queue_annotator": QUEUE_ANNOTATOR_SCRIPT,
+        "queue_annotator_batch": QUEUE_ANNOTATOR_BATCH_SCRIPT,
         "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
         "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
         "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,
@@ -320,6 +322,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
     from web_interface.run_pca_refresh import run_pca_refresh
     from web_interface.run_queue_annotator import run_queue_annotator
+    from web_interface.run_queue_annotator_batch import run_queue_annotator_batch
     from web_interface.run_queue_scraper import run_queue_scraper
     from web_interface.run_recode_refresh_studies import run_recode_refresh_studies
     from web_interface.run_sequence_refresh import run_sequence_refresh
@@ -334,6 +337,7 @@ def _ensure_task_functions_loaded() -> None:
         "pca_refresh": run_pca_refresh,
         "study_refresh": run_study_refresh,
         "queue_annotator": run_queue_annotator,
+        "queue_annotator_batch": run_queue_annotator_batch,
         "queue_scraper": run_queue_scraper,
         "timelines_refresh": run_timelines_refresh,
         "ingest_refresh": run_ingest_refresh,
@@ -452,8 +456,11 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
                 for k in ("pipeline_remaining", "pipeline_stage_total", "pipeline_stage_index"):
                     if k in task_args and k not in next_args:
                         next_args[k] = task_args[k]
-                success, msg = _dispatch_cloud_task(name, next_args,
-                                                    dispatch_deadline_seconds=deadline)
+                success, msg = _dispatch_cloud_task(
+                    name, next_args,
+                    dispatch_deadline_seconds=deadline,
+                    schedule_delay_seconds=chain_result.get("next_dispatch_delay_seconds"),
+                )
                 if success:
                     reporter.log(f"Chained to next batch: {msg}")
                 else:
