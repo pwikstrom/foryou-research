@@ -40,6 +40,11 @@
             <button type="button" class="btn-stop text-xs" onclick="emptyQueue('scrape')"
                 style="padding: 4px 8px;">Empty Queue</button>
         </div>
+        <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
+            Downloads each queued video's media and metadata with yt-dlp, working through the Scrape Queue
+            above in batches of the size below. Runs synchronously across many workers; successful and failed
+            items are pruned from the queue as it goes.
+        </p>
 
         <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; flex-direction: column; gap: 2px;">
@@ -85,6 +90,11 @@
             <button type="button" class="btn-stop text-xs" onclick="emptyQueue('annotate')"
                 style="padding: 4px 8px;">Empty Queue</button>
         </div>
+        <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
+            Annotates the Annotation Queue above with Gemini in real time (many concurrent workers, ~minutes
+            per batch). This is the urgent / default path &mdash; use the Batch Annotator below for large,
+            non-urgent runs at ~half the cost.
+        </p>
 
         <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; flex-direction: column; gap: 2px;">
