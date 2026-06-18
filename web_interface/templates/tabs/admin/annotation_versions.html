@@ -1,0 +1,47 @@
+<!-- Annotation Versions sub-page -->
+<h2 style="margin: 0 0 8px 0;">Annotation Versions</h2>
+<p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
+    Every annotation is stamped with a content-derived version (model + prompt +
+    response schema + generation parameters). Old versions are never overwritten —
+    the full history is archived and queryable. The <strong>active</strong>
+    version is what studies read by default; it stays pinned until you promote a
+    new one. Promoting rebuilds the global active dataset; refresh studies
+    afterwards to apply it to per-study datasets.
+</p>
+
+<section style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
+    <button id="avRefreshBtn" class="btn-primary">Refresh</button>
+    <span id="avActiveLabel" class="text-sm" style="color: var(--color-text-muted);"></span>
+</section>
+
+<div id="avStatus" class="text-sm" style="min-height: 18px; margin-bottom: 8px; color: var(--color-text-muted);"></div>
+
+<table style="width: 100%; border-collapse: collapse;">
+    <thead>
+        <tr class="text-sm" style="text-align: left; color: var(--color-text-muted);">
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Active</th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Version</th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Label</th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Model</th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Schema</th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Created</th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Actions</th>
+        </tr>
+    </thead>
+    <tbody id="avTableBody">
+        <tr><td colspan="7" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">
+            Click Refresh to load versions.
+        </td></tr>
+    </tbody>
+</table>
+
+<!-- Version snapshot viewer -->
+<div id="avSnapshot" style="display: none; margin-top: 16px;">
+    <h3 class="text-h3" style="margin: 0 0 8px 0;">Snapshot: <span id="avSnapVersion" style="font-family: var(--font-mono);"></span></h3>
+    <div class="text-sm" style="color: var(--color-text-muted); margin-bottom: 6px;">Prompt text</div>
+    <pre id="avSnapPrompt" class="text-xs" style="max-height: 240px; overflow: auto; background: var(--color-bg-elevated); padding: 12px; border-radius: 6px; white-space: pre-wrap;"></pre>
+    <div class="text-sm" style="color: var(--color-text-muted); margin: 10px 0 6px 0;">Response schema</div>
+    <pre id="avSnapSchema" class="text-xs" style="max-height: 240px; overflow: auto; background: var(--color-bg-elevated); padding: 12px; border-radius: 6px;"></pre>
+</div>
+
+<script src="{{ url_for('static', filename='js/admin_annotation_versions.js') }}" defer></script>

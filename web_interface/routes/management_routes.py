@@ -1936,6 +1936,49 @@ def promote_annotation_version():
 
 
 
+@management_bp.route('/api/manage/studies/<study>/annotation-version', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def set_study_annotation_version(study):
+    """Pin (or clear) a study's annotation_version for reproducibility.
+
+    A pinned study merges against that version's annotations (read strictly from
+    the archive) instead of the active dataset. Pass a falsy ``version`` to clear
+    the pin. The study must be refreshed to rebuild its dataset.
+    """
+    try:
+        body = request.get_json(force=True, silent=True) or {}
+        version = body.get("version")  # falsy clears the pin
+        if "study_defs" not in fyp_cf:
+            init_study_defs()
+        if study not in fyp_cf["study_defs"]:
+            return jsonify({"error": f"unknown study: {study}"}), 404
+        if version:
+            registry = annotation_versioning.load_registry()
+            if version not in registry.get("versions", {}):
+                return jsonify({"error": f"unknown version: {version}"}), 404
+            fyp_cf["study_defs"][study]["annotation_version"] = version
+        else:
+            fyp_cf["study_defs"][study].pop("annotation_version", None)
+        save_study_defs()
+        study_cache.invalidate(study)
+        activity_log.record(
+            actor=_actor(),
+            category="admin",
+            action="study.pin_annotation_version",
+            details={"study": study, "version": version or None},
+        )
+        return jsonify({
+            "ok": True,
+            "study": study,
+            "annotation_version": version or None,
+            "note": "Refresh the study to rebuild its dataset against this version.",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
 @management_bp.route('/api/manage/schema', methods=['GET'])
 @permission_required('tab.admin.schema')
 @login_required

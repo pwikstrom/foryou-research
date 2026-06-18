@@ -37,6 +37,11 @@
             Variable Schema
         </div>
         {% endif %}
+        {% if user.can_access('tab.admin.schema') %}
+        <div class="dm-sidebar-item" data-page="admin-page-versions" onclick="openAdminPage('admin-page-versions', this)">
+            Annotation Versions
+        </div>
+        {% endif %}
     </nav>
 
     <!-- Content Area -->
@@ -81,6 +86,12 @@
         {% if user.can_access('tab.admin.schema') %}
         <div id="admin-page-schema" class="dm-page">
             {% include 'tabs/admin/var_schema.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.schema') %}
+        <div id="admin-page-versions" class="dm-page">
+            {% include 'tabs/admin/annotation_versions.html' %}
         </div>
         {% endif %}
 
@@ -158,6 +169,7 @@
         'admin-page-reliability':  'tab.admin.reliability',
         'admin-page-general':      'tab.admin.general',
         'admin-page-schema':       'tab.admin.schema',
+        'admin-page-versions':     'tab.admin.schema',
     };
 
     function openAdminPage(pageId, clickedItem) {
