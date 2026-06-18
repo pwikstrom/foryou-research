@@ -1,18 +1,28 @@
 """Batch queue annotator: annotate via the Gemini Batch API (async, ~50% cheaper).
 
 A submit -> poll state machine that becomes the default path for non-urgent /
-bulk annotation. Unlike the synchronous ``run_queue_annotator`` (50 live workers
-per Cloud Task), this submits a batch job, polls it to completion, ingests the
-output into ``machine_annotations_raw`` (in the exact synchronous raw shape, so
-the marker-driven refinement is reused unchanged), refines + prunes the queue,
-then chains to the next slice. The synchronous path remains the urgent fallback.
+bulk annotation. The actual annotation runs on Google's batch infrastructure
+(off task-runner); this worker only does short bookkeeping tasks around it and
+the result flows back through the SAME raw -> refine -> (separate) consolidate ->
+study-refresh path as the synchronous annotator. The synchronous path remains
+the urgent fallback.
 
 Phases (carried in ``task_args['phase']``, self-chained like queue_annotator):
   * ``submit`` — slice the queue, build + upload the JSONL, submit the batch job,
-    persist job state, chain to ``poll``.
-  * ``poll``   — poll the job; while running, poll-loop within a wall-clock
-    budget then re-chain ``poll``; on success ingest -> refine -> prune queue,
-    then chain back to ``submit`` for the next slice; on failure, stop.
+    then CLAIM the slice out of ``to_annotate.json`` (so neither a sync run nor
+    another batch run re-annotates the same items while the async job runs),
+    persist job state, and chain to ``poll`` after a short delay.
+  * ``poll``   — check the job ONCE; if still running, re-dispatch another poll
+    task after ``_POLL_DELAY_S`` via Cloud Tasks ``schedule_time`` (no instance
+    held asleep in between); on success ingest -> refine, re-queue any
+    unprocessed items, then chain back to ``submit``; on failure restore the
+    claimed items to the queue and stop.
+
+Claim/restore safety: claimed items are removed from the queue only after a
+successful submit, and restored if the job fails or an item comes back
+unprocessed. If a poll chain is orphaned (e.g. a task dies under the queue's
+max-attempts=1), the claimed-but-unannotated items are re-discovered by the next
+``calculate_to_annotate`` (they remain scraped-but-not-annotated).
 
 LIVE SPIKE (run before any bulk use — needs GCS media + batch access; cannot run
 in a local/no-GCS environment):
@@ -46,10 +56,12 @@ DEFAULT_BATCH_SIZE = 2000
 _RUNNING_STATES = {
     "JOB_STATE_PENDING", "JOB_STATE_QUEUED", "JOB_STATE_RUNNING", "JOB_STATE_PAUSED",
 }
-# Per-poll-task wall-clock budget before re-chaining another poll task, and the
-# interval between polls within a task.
-_POLL_TASK_BUDGET_S = 1500
-_POLL_INTERVAL_S = 60
+
+# Delay between poll checks. The job runs on Google's infra; we re-dispatch a
+# short poll task after this delay (Cloud Tasks schedule_time on Cloud Run; a
+# plain sleep in the local __main__ loop) rather than holding a task-runner
+# instance asleep.
+_POLL_DELAY_S = 120
 
 
 def _ts_label() -> str:
@@ -57,8 +69,32 @@ def _ts_label() -> str:
     return "".join(c for c in str(_dt.datetime.now()) if c in "0123456789")
 
 
+def _claim_from_queue(data_io, ids) -> int:
+    """Remove ``ids`` from the annotation queue. Returns the count removed."""
+    claimed = {str(i) for i in ids}
+    fresh = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
+    remaining = [v for v in fresh if str(v) not in claimed]
+    removed = len(fresh) - len(remaining)
+    if removed:
+        data_io.save_json(data=remaining, storage_location="cache", filename=QUEUE_FILE)
+    return removed
+
+
+def _restore_to_queue(data_io, ids) -> int:
+    """Append ``ids`` back to the queue (skipping ones already present)."""
+    ids = [str(i) for i in ids]
+    if not ids:
+        return 0
+    fresh = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
+    present = {str(v) for v in fresh}
+    additions = [i for i in ids if i not in present]
+    if additions:
+        data_io.save_json(data=fresh + additions, storage_location="cache", filename=QUEUE_FILE)
+    return len(additions)
+
+
 def _submit_phase(reporter, task_args, batch, data_io):
-    """Slice the queue, submit a batch job, persist state, chain to poll."""
+    """Slice the queue, submit a batch job, claim the slice, chain to poll."""
     batch_size = int(task_args.get("batch_size", DEFAULT_BATCH_SIZE))
     chunk_index = int(task_args.get("chunk_index", 0))
     max_batches = task_args.get("max_batches")
@@ -74,16 +110,21 @@ def _submit_phase(reporter, task_args, batch, data_io):
     if initial_total <= 0:
         initial_total = len(queue)
 
-    slice_ids = queue[:batch_size]
+    slice_ids = [str(v) for v in queue[:batch_size]]
     if not slice_ids:
         reporter.log("Queue empty at start of batch.")
         return None
 
     ts_label = _ts_label()
     reporter.log(f"Submit: building + uploading JSONL for {len(slice_ids):,} videos...")
+    # Build + upload + submit FIRST. If any of this throws, the queue is left
+    # untouched (the items will be retried), so we only claim after success.
     jsonl_uri, submitted_ids = batch.build_and_upload_jsonl(slice_ids, ts_label)
     job_name, output_uri = batch.submit_batch_job(jsonl_uri, ts_label)
     reporter.log(f"Submitted batch job {job_name} ({len(submitted_ids):,} items).")
+
+    claimed = _claim_from_queue(data_io, submitted_ids)
+    reporter.log(f"Claimed {claimed} item(s) out of the annotation queue (reserved for this job).")
 
     job_state = {
         "phase": "poll",
@@ -97,11 +138,16 @@ def _submit_phase(reporter, task_args, batch, data_io):
         "max_batches": max_batches,
     }
     data_io.save_json(data=job_state, storage_location="cache", filename=JOB_STATE_FILE)
-    return {"chain": True, "next_task_args": job_state, "dispatch_deadline_seconds": 1800}
+    return {
+        "chain": True,
+        "next_task_args": job_state,
+        "dispatch_deadline_seconds": 600,
+        "next_dispatch_delay_seconds": _POLL_DELAY_S,
+    }
 
 
 def _poll_phase(reporter, task_args, batch, data_io):
-    """Poll the batch job; ingest + refine + prune + chain to next slice on success."""
+    """Check the job once; reschedule, or ingest + refine + re-queue + chain."""
     from fyp.machine_annotation import refine_one_raw_annotation_batch
 
     job_name = task_args.get("job_name")
@@ -111,52 +157,59 @@ def _poll_phase(reporter, task_args, batch, data_io):
         reporter.log("Poll phase missing job_name; nothing to do.")
         return None
 
-    deadline = time.time() + _POLL_TASK_BUDGET_S
+    if reporter.check_cancelled():
+        reporter.log("Cancellation requested; leaving the job and claimed items as-is.")
+        return None
+
     state = batch.poll_batch_job(job_name)
-    while state in _RUNNING_STATES and time.time() < deadline:
-        if reporter.check_cancelled():
-            reporter.log("Cancellation requested while polling batch job.")
-            return None
-        time.sleep(_POLL_INTERVAL_S)
-        state = batch.poll_batch_job(job_name)
     reporter.log(f"Batch job {job_name} state: {state}")
 
     if state in _RUNNING_STATES:
-        # Still running after this task's budget — re-chain another poll task.
-        return {"chain": True, "next_task_args": dict(task_args, phase="poll"),
-                "dispatch_deadline_seconds": 1800}
+        # Not done — re-poll later WITHOUT holding this instance asleep.
+        return {
+            "chain": True,
+            "next_task_args": dict(task_args, phase="poll"),
+            "dispatch_deadline_seconds": 600,
+            "next_dispatch_delay_seconds": _POLL_DELAY_S,
+        }
 
     if state in batch._TERMINAL_FAIL:
-        reporter.log(f"Batch job {job_name} ended in {state}; stopping (no chain).")
+        restored = _restore_to_queue(data_io, submitted_ids)
+        reporter.log(f"Batch job {job_name} ended in {state}; restored {restored} claimed item(s) to the queue. Stopping.")
         return None
 
-    # SUCCEEDED / PARTIALLY_SUCCEEDED: ingest -> refine -> prune.
+    # SUCCEEDED / PARTIALLY_SUCCEEDED: ingest -> refine.
     reporter.log("Batch succeeded. Ingesting output...")
     raw_filename = batch.download_and_ingest(output_uri, submitted_ids)
     refined = refine_one_raw_annotation_batch(raw_json_filename=raw_filename, verbose=False)
     if refined is None or refined.empty:
-        reporter.log("Refinement produced nothing; stopping to avoid a loop.")
+        restored = _restore_to_queue(data_io, submitted_ids)
+        reporter.log(f"Refinement produced nothing; restored {restored} item(s). Stopping to avoid a loop.")
         return None
 
     ok_ids = refined.loc[refined["annotated_ok"].fillna(False).astype(bool), "item_id"].astype(str).tolist()
     fail_ids = refined.loc[refined.get("annotated_fail", False).fillna(False).astype(bool), "item_id"].astype(str).tolist() \
         if "annotated_fail" in refined.columns else []
-    remove = set(ok_ids) | set(fail_ids) | set(map(str, submitted_ids))
+    # ok + fail stay claimed (definitively processed). Items that were submitted
+    # but never came back (DNF / missing from output) are re-queued for retry —
+    # matching the synchronous worker, which leaves un-refined items in the queue.
+    accounted = set(ok_ids) | set(fail_ids)
+    unprocessed = [str(i) for i in submitted_ids if str(i) not in accounted]
+    requeued = _restore_to_queue(data_io, unprocessed)
 
-    fresh = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
-    updated = [v for v in fresh if str(v) not in remove]
-    pruned = len(fresh) - len(updated)
-    if pruned > 0:
-        data_io.save_json(data=updated, storage_location="cache", filename=QUEUE_FILE)
-    reporter.emit_data({"annotate_queue_len": len(updated)})
-    reporter.log(f"Ingested batch: {len(ok_ids)} OK, {len(fail_ids)} fail. Queue: {len(updated):,} remaining.")
+    remaining = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
+    reporter.emit_data({"annotate_queue_len": len(remaining)})
+    reporter.log(
+        f"Ingested batch: {len(ok_ids)} OK, {len(fail_ids)} fail, {requeued} re-queued. "
+        f"Queue: {len(remaining):,} remaining."
+    )
 
     next_chunk = int(task_args.get("chunk_index", 0)) + 1
     max_batches = task_args.get("max_batches")
     if max_batches is not None and next_chunk >= int(max_batches):
         reporter.log(f"Reached max_batches limit ({max_batches}).")
         return None
-    if not updated:
+    if not remaining:
         reporter.log("Queue exhausted.")
         return None
 
@@ -209,6 +262,11 @@ if __name__ == "__main__":
             result = run_queue_annotator_batch(reporter, next_args)
             if not result or not result.get("chain"):
                 break
+            # No Cloud Tasks locally: honour the poll delay with a plain sleep so
+            # the local loop polls the job to completion.
+            delay = result.get("next_dispatch_delay_seconds")
+            if delay:
+                time.sleep(delay)
             next_args = result["next_task_args"]
         reporter.complete()
         print("Batch queue annotation completed.")

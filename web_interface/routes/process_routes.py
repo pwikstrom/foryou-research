@@ -454,8 +454,11 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
                 for k in ("pipeline_remaining", "pipeline_stage_total", "pipeline_stage_index"):
                     if k in task_args and k not in next_args:
                         next_args[k] = task_args[k]
-                success, msg = _dispatch_cloud_task(name, next_args,
-                                                    dispatch_deadline_seconds=deadline)
+                success, msg = _dispatch_cloud_task(
+                    name, next_args,
+                    dispatch_deadline_seconds=deadline,
+                    schedule_delay_seconds=chain_result.get("next_dispatch_delay_seconds"),
+                )
                 if success:
                     reporter.log(f"Chained to next batch: {msg}")
                 else:

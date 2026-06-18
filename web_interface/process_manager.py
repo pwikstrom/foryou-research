@@ -355,7 +355,8 @@ def _set_pipeline_in_flight(value: bool) -> None:
     save_process_stats()
 
 def _dispatch_cloud_task(name: str, task_args: dict,
-                         dispatch_deadline_seconds: int | None = None) -> tuple[bool, str]:
+                         dispatch_deadline_seconds: int | None = None,
+                         schedule_delay_seconds: int | None = None) -> tuple[bool, str]:
     """Dispatch a background task via Google Cloud Tasks.
 
     Args:
@@ -367,6 +368,10 @@ def _dispatch_cloud_task(name: str, task_args: dict,
             task failed.  Max 1800s for HTTP targets on the default queue
             config, but can go up to 1800s (30 min) or 3600s with
             appropriate queue settings.
+        schedule_delay_seconds: Optional delay before the task is eligible to
+            run (Cloud Tasks ``schedule_time``). Used by the batch annotator's
+            poll phase to re-check a running job after a delay WITHOUT holding a
+            task-runner instance asleep in the meantime.
     """
     try:
         from google.cloud import tasks_v2
@@ -410,6 +415,14 @@ def _dispatch_cloud_task(name: str, task_args: dict,
             task.dispatch_deadline = duration_pb2.Duration(
                 seconds=dispatch_deadline_seconds,
             )
+
+        if schedule_delay_seconds and schedule_delay_seconds > 0:
+            from datetime import timedelta as _timedelta
+
+            from google.protobuf import timestamp_pb2
+            schedule_ts = timestamp_pb2.Timestamp()
+            schedule_ts.FromDatetime(datetime.now(UTC) + _timedelta(seconds=schedule_delay_seconds))
+            task.schedule_time = schedule_ts
 
         # Cloud Tasks API can return transient 503/504. Retry a couple of
         # times with short backoff before surfacing the failure to the UI.
