@@ -31,6 +31,7 @@ MODULES = [
     GOLDEN_DIR / "test_structured_flatten_equivalence.py",
     GOLDEN_DIR / "test_structured_refinement_path.py",
     GOLDEN_DIR / "test_versioning_consolidation.py",
+    GOLDEN_DIR / "test_batch_annotation.py",
     PROJECT_ROOT / "tests" / "unit" / "test_recode_series_branches.py",
     PROJECT_ROOT / "tests" / "unit" / "test_annotation_repair.py",
     PROJECT_ROOT / "tests" / "unit" / "test_schema_cell_parsers.py",

@@ -32,6 +32,7 @@ CLOUD_TASK_ELIGIBLE = {
     "pca_refresh",
     "study_refresh",
     "queue_annotator",
+    "queue_annotator_batch",
     "queue_scraper",
     "timelines_refresh",
     "ingest_refresh",
@@ -50,6 +51,7 @@ CLOUD_TASK_ELIGIBLE = {
 processes = {
     "queue_scraper": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "queue_annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "queue_annotator_batch": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "meta_refresh_groups": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "timelines_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "recode_refresh_studies": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
@@ -479,6 +481,10 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         if name == "queue_annotator" and task_args:
             batch_size = int(task_args.get("batch_size", 500))
             deadline = 3600 if batch_size > 1000 else 1800
+        elif name == "queue_annotator_batch":
+            # Submit + poll phases are short relative to the (async) job itself;
+            # poll re-chains on its own wall-clock budget.
+            deadline = 1800
         elif name == "queue_scraper":
             deadline = 1800
 

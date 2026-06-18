@@ -320,6 +320,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
     from web_interface.run_pca_refresh import run_pca_refresh
     from web_interface.run_queue_annotator import run_queue_annotator
+    from web_interface.run_queue_annotator_batch import run_queue_annotator_batch
     from web_interface.run_queue_scraper import run_queue_scraper
     from web_interface.run_recode_refresh_studies import run_recode_refresh_studies
     from web_interface.run_sequence_refresh import run_sequence_refresh
@@ -334,6 +335,7 @@ def _ensure_task_functions_loaded() -> None:
         "pca_refresh": run_pca_refresh,
         "study_refresh": run_study_refresh,
         "queue_annotator": run_queue_annotator,
+        "queue_annotator_batch": run_queue_annotator_batch,
         "queue_scraper": run_queue_scraper,
         "timelines_refresh": run_timelines_refresh,
         "ingest_refresh": run_ingest_refresh,
