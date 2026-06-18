@@ -11,6 +11,7 @@ from fyp.fyp_config import (
     EMBEDDINGS_REFRESH_SCRIPT,
     META_REFRESH_GROUPS_SCRIPT,
     PCA_REFRESH_SCRIPT,
+    QUEUE_ANNOTATOR_BATCH_SCRIPT,
     QUEUE_ANNOTATOR_SCRIPT,
     QUEUE_SCRAPER_SCRIPT,
     RECODE_REFRESH_STUDIES_SCRIPT,
@@ -48,7 +49,7 @@ def api_start(name):
     if "study_name" in data:
         args.append(data["study_name"])
 
-    if name in ["downloader", "annotator", "queue_scraper", "queue_annotator", "embeddings_refresh"]:
+    if name in ["downloader", "annotator", "queue_scraper", "queue_annotator", "queue_annotator_batch", "embeddings_refresh"]:
         if data.get("batch_size") and str(data["batch_size"]).strip():
              args.extend(["--batch-size", str(data["batch_size"])])
         if data.get("max_batches") and str(data["max_batches"]).strip():
@@ -80,6 +81,7 @@ def api_start(name):
     script_map = {
         "queue_scraper": QUEUE_SCRAPER_SCRIPT,
         "queue_annotator": QUEUE_ANNOTATOR_SCRIPT,
+        "queue_annotator_batch": QUEUE_ANNOTATOR_BATCH_SCRIPT,
         "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
         "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
         "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,

@@ -352,6 +352,11 @@ async function startProcess(name, extraBody = {}) {
         const mbEl = document.getElementById('annotations-max-batches');
         batchSize = bsEl ? bsEl.value : null;
         maxBatches = mbEl ? mbEl.value : null;
+    } else if (name === 'queue_annotator_batch') {
+        const bsEl = document.getElementById('batch-annotations-batch-size');
+        const mbEl = document.getElementById('batch-annotations-max-batches');
+        batchSize = bsEl ? bsEl.value : null;
+        maxBatches = mbEl ? mbEl.value : null;
     } else {
         const bsEl = document.getElementById('global-batch-size');
         const mbEl = document.getElementById('global-max-batches');
@@ -699,6 +704,7 @@ async function updateStatus() {
         //setStatus('create_subsets', data.create_subsets);
         setStatus('queue_scraper', data.queue_scraper);
         setStatus('queue_annotator', data.queue_annotator);
+        setStatus('queue_annotator_batch', data.queue_annotator_batch);
         setStatus('meta_refresh_groups', data.meta_refresh_groups);
         setStatus('timelines_refresh', data.timelines_refresh);
         setStatus('recode_refresh_studies', data.recode_refresh_studies);
@@ -723,7 +729,7 @@ async function updateStatus() {
         }
 
         // Detect scraper/annotator completion → refresh enrichment stats for consolidation warning
-        ['queue_scraper', 'queue_annotator'].forEach(name => {
+        ['queue_scraper', 'queue_annotator', 'queue_annotator_batch'].forEach(name => {
             const pData = data[name];
             if (pData && previousProcessStates[name] === 'running' && pData.state !== 'running') {
                 if (typeof fetchEnrichmentStats === 'function') {
@@ -933,7 +939,7 @@ function setStatus(name, data) {
             const el = document.getElementById('enrich_scrape_targets');
             if (el) el.textContent = procData.scrape_queue_len.toLocaleString();
         }
-        if (name === 'queue_annotator' && procData.annotate_queue_len !== undefined) {
+        if ((name === 'queue_annotator' || name === 'queue_annotator_batch') && procData.annotate_queue_len !== undefined) {
             const el = document.getElementById('enrich_annotate_targets');
             if (el) el.textContent = procData.annotate_queue_len.toLocaleString();
         }
