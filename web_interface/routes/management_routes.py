@@ -25,7 +25,9 @@ from fyp.recode_variables import (
     get_recode_func_registry,
     validate_var_schema,
 )
+import fyp.annotation_versioning as annotation_versioning
 from fyp.ingest import get_main_collection
+from fyp.machine_annotation import rebuild_active_annotations_from_archive
 from fyp.organize_datasets import (
     COLLECTIONS_LABEL,
     create_study_recoded_dataset,
@@ -37,6 +39,7 @@ from ..data_service import (
     calculate_inter_coder_reliability,
     invalidate_collection_tags_cache,
     load_display_id_map,
+    study_cache,
 )
 from ..process_manager import (
     load_process_stats,
@@ -1852,6 +1855,84 @@ def _var_schema_admin_enabled() -> bool:
     """
     features = fyp_cf.get("features") or {}
     return bool(features.get("var_schema_admin", True))
+
+
+
+@management_bp.route('/api/manage/annotation-versions', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def list_annotation_versions():
+    """List recorded annotation versions and the active (promoted) one."""
+    try:
+        return jsonify({
+            "versions": annotation_versioning.list_versions(),
+            "active": annotation_versioning.get_active_version(),
+            "current": annotation_versioning.current_annotation_version(),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+@management_bp.route('/api/manage/annotation-versions/<version>', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def get_annotation_version(version):
+    """Return one version's full record, including its prompt + schema snapshot."""
+    try:
+        registry = annotation_versioning.load_registry()
+        info = registry.get("versions", {}).get(version)
+        if info is None:
+            return jsonify({"error": "unknown version"}), 404
+        return jsonify({
+            "version": version,
+            "active": registry.get("active") == version,
+            "record": info,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+@management_bp.route('/api/manage/annotation-versions/promote', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def promote_annotation_version():
+    """Promote a version to active and rebuild the global active dataset.
+
+    Updates the registry, re-derives ``machine_annotations_recoded.parquet`` from
+    the version archive (fast — no re-refinement), and clears the study RAM
+    cache. Per-study datasets still need a study refresh to fully reflect the
+    promotion.
+    """
+    try:
+        body = request.get_json(force=True, silent=True) or {}
+        version = body.get("version")
+        if not version:
+            return jsonify({"error": "version is required"}), 400
+        try:
+            annotation_versioning.promote_version(version)
+        except KeyError:
+            return jsonify({"error": f"unknown version: {version}"}), 404
+
+        rebuilt = rebuild_active_annotations_from_archive(verbose=False)
+        with study_cache.lock:
+            study_cache.cache.clear()
+
+        activity_log.record(
+            actor=_actor(),
+            category="admin",
+            action="annotation_version.promote",
+            details={"version": version, "active_rows": rebuilt},
+        )
+        return jsonify({
+            "ok": True,
+            "active": version,
+            "active_rows": rebuilt,
+            "note": "Global active annotations rebuilt. Refresh studies to apply to per-study datasets.",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 

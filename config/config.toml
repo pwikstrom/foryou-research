@@ -33,6 +33,20 @@ presence_penalty = 0.6
 frequency_penalty = 1.2
 thinking_budget = -1
 
+# Transient-failure retry policy for the Gemini call (see machine_annotation.
+# _generate_with_retry). Retries only transient errors (429 / 5xx / deadline /
+# timeout / dropped connection); fails fast on everything else. max_retries is
+# the number of retries AFTER the first attempt; base delay grows exponentially.
+max_retries = 2
+retry_base_delay = 2.0
+
+# Video frame resolution sent to Gemini. Empty = API default (current behaviour).
+# For Gemini-3 video, LOW and MEDIUM are equivalent (~70 tokens/frame) and HIGH
+# is ~280 tokens/frame, so "LOW" is the cost lever (~75% fewer frame tokens).
+# Flip to "LOW" only after an A/B confirms acceptable quality on OCR/face fields.
+# Changing this creates a new annotation_version automatically.
+media_resolution = ""
+
 max_duration_for_annotation = 300
 
 

@@ -1,7 +1,7 @@
 {
   "n_raw_responses": 150,
   "n_refined_rows": 150,
-  "n_refined_columns": 39,
+  "n_refined_columns": 40,
   "refined_columns": [
     "CRA_complexity_vs_stereotypes",
     "CRA_inclusion_and_exclusion",
@@ -19,6 +19,7 @@
     "aigc",
     "annotated_fail",
     "annotated_ok",
+    "annotation_version",
     "australian_relevance",
     "background_music",
     "call_to_action_words",
@@ -43,9 +44,9 @@
     "type_of_story",
     "video_story"
   ],
-  "var_schema_hash": "v2:ac45ca8c48d7dc32c297119602de16a1679016798edaed4b1c9ea468f1ef46b3",
+  "var_schema_hash": "v2:ba83f5adf55db4baa97b53edd396e20e51fb5d885e85788a34f83baca946b2b3",
   "var_schema_shape": [
-    104,
+    110,
     21
   ],
   "models": [

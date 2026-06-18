@@ -30,9 +30,13 @@ MODULES = [
     GOLDEN_DIR / "test_schema_pipeline_consistency.py",
     GOLDEN_DIR / "test_structured_flatten_equivalence.py",
     GOLDEN_DIR / "test_structured_refinement_path.py",
+    GOLDEN_DIR / "test_versioning_consolidation.py",
     PROJECT_ROOT / "tests" / "unit" / "test_recode_series_branches.py",
     PROJECT_ROOT / "tests" / "unit" / "test_annotation_repair.py",
     PROJECT_ROOT / "tests" / "unit" / "test_schema_cell_parsers.py",
+    PROJECT_ROOT / "tests" / "unit" / "test_call_machine_retry.py",
+    PROJECT_ROOT / "tests" / "unit" / "test_annotation_versioning.py",
+    PROJECT_ROOT / "tests" / "unit" / "test_media_resolution.py",
 ]
 
 
