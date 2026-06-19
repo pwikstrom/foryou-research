@@ -47,14 +47,23 @@ def _rough_cost(usage: dict) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=2, help="number of videos (billable)")
+    ap.add_argument(
+        "--use-generated-prompt",
+        action="store_true",
+        help="send the prompt generated from annotation_contract.toml instead of the file",
+    )
     args = ap.parse_args()
+
+    if args.use_generated_prompt:
+        fyp_cf["machine"]["use_generated_prompt"] = True
 
     video_ids = _pick_local_videos(args.n)
     if not video_ids:
         print(f"No local mp4s in {fyp_cf['paths']['media']}")
         return 1
 
-    print(f"Structured smoke on {len(video_ids)} local video(s): {video_ids}\n")
+    prompt_src = "GENERATED (annotation_contract.toml)" if args.use_generated_prompt else "FILE"
+    print(f"Structured smoke on {len(video_ids)} local video(s) [prompt: {prompt_src}]: {video_ids}\n")
     expected_cols = {name for name, _node, _rule in FIELD_SPECS}
 
     ok = 0

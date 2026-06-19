@@ -156,7 +156,7 @@ def initialize(
     # It is expected that the parameter in the config file is a filename to a text file
     # that is located in a folder named 'prompts' in the project root. 
     for p in cf["machine"].keys():
-        if "prompt" in p:
+        if "prompt" in p and isinstance(cf["machine"][p], str):
             cf["machine"][p] = os.path.join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
 
 
@@ -321,6 +321,67 @@ def _var_schema_source_fingerprint(cf) -> str | None:
 
 
 
+def _apply_contract_accepted_labels(cf) -> None:
+    """Materialize ``accepted_labels`` from the annotation contract, in memory.
+
+    ``accepted_labels`` is NOT stored in ``var_schema.csv``; the Gemini annotation
+    contract (``config/annotation_contract.toml``) is the single source for the enum
+    vocabularies, so the column is rebuilt here at load and overlaid onto the
+    in-memory schema that every consumer reads (recode, the version hash, the admin
+    API, the UI metadata).
+
+    A field is closed-tag — and therefore gets contract-sourced labels — when it is
+    recoded as a closed categorical (``recode_func == "recode_stringified_list"``),
+    does not fold values (empty ``mapper``), and the contract defines an enum for it.
+    Labels are the contract enum lower-cased (the recoded form). Every other field
+    gets ``NA``. Membership is thus derived from var_schema's own recode config, so a
+    new closed categorical picks up its labels automatically; folding fields (e.g.
+    ``main_ethnicity`` via GENERIC_MAPPER) and free-text fields get no labels.
+
+    The column is always created (NA-filled) even when the contract cannot be loaded,
+    so direct consumers and the schema hash never see a missing column.
+
+    Args:
+        cf: the config dict whose ``var_schema`` DataFrame is overlaid in place.
+    """
+    vs = cf.get("var_schema")
+    if vs is None or getattr(vs, "empty", True) or "variable_name" not in vs.columns:
+        return
+    # Always ensure the column exists, so nothing downstream KeyErrors and the
+    # semantic hash is computed over a present column.
+    if "accepted_labels" not in vs.columns:
+        vs["accepted_labels"] = pd.NA
+    try:
+        from fyp import annotation_contract as ac
+
+        contract = ac.load_contract()
+    except Exception:
+        return
+    enum_labels: dict[str, str] = {}
+    for field in contract.get("fields", []):
+        ref = field.get("enum")
+        if ref:
+            values = ac.enum_values(contract, ref)
+            enum_labels[field["name"]] = "[" + ", ".join(str(v).lower() for v in values) + "]"
+    if not enum_labels:
+        return
+
+    def _empty_mapper(value) -> bool:
+        return pd.isna(value) or str(value).strip() in ("", "{}")
+
+    has_recode = "recode_func" in vs.columns
+    has_mapper = "mapper" in vs.columns
+    for idx in vs.index:
+        name = vs.at[idx, "variable_name"]
+        if name not in enum_labels:
+            continue
+        recode_func = str(vs.at[idx, "recode_func"]).strip() if has_recode else ""
+        mapper = vs.at[idx, "mapper"] if has_mapper else ""
+        if recode_func == "recode_stringified_list" and _empty_mapper(mapper):
+            vs.at[idx, "accepted_labels"] = enum_labels[name]
+
+
+
 def load_var_schema(cf, verbose=False):
     # Load variable schema
     var_schema_path = _var_schema_path(cf)
@@ -364,6 +425,7 @@ def load_var_schema(cf, verbose=False):
                 "description", "accepted_labels"
             ])
         cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
+    _apply_contract_accepted_labels(cf)
     return cf
 
 
@@ -451,6 +513,10 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
     except Exception as e:
         if verbose:
             print(f"Backup write failed (continuing): {e}")
+
+    # ``accepted_labels`` is contract-owned (rebuilt in memory at load from
+    # annotation_contract.toml), so it is never persisted to the CSV.
+    df = df.drop(columns=["accepted_labels"], errors="ignore")
 
     # Atomic-ish write: local goes through a temp file + os.replace;
     # GCS overwrites are atomic at the blob level.

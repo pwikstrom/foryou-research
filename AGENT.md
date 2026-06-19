@@ -69,7 +69,8 @@ fyp_main_v02/
 ├── AGENT.md                     # This file (project instructions)
 ├── GEMINI.md                    # Alias for AGENT.md
 ├── config/
-│   └── config.toml              # Active config (paths, GCS, Gemini, labels)
+│   ├── config.toml              # Active config (paths, GCS, Gemini, labels)
+│   └── annotation_contract.toml # Declarative source for the Gemini prompt + response_schema + flattener
 ├── fyp/                         # Core Python package
 │   ├── __init__.py              # Bytecode compilation on import
 │   ├── fyp_config.py            # Config loader; uses __proj__.py to find root
@@ -83,7 +84,8 @@ fyp_main_v02/
 │   ├── tiktok_dl.py             # yt-dlp wrapper (download, retry, error classification)
 │   ├── mypyktok.py              # Legacy PykTok fork (deprecated, kept for reference)
 │   ├── machine_annotation.py    # Gemini-based annotation
-│   ├── annotation_schema.py     # Declarative field spec + Gemini response-schema builder + structured flattener
+│   ├── annotation_contract.py   # Loads/validates config/annotation_contract.toml; builds FIELD_SPECS from it
+│   ├── annotation_schema.py     # Generates prompt + response-schema + structured flattener from the contract
 │   ├── recode_variables.py      # Variable recoding, feature engineering
 │   ├── organize_datasets.py     # Dataset filtering & organisation
 │   ├── calc_collection_stats.py   # Donation-level statistics

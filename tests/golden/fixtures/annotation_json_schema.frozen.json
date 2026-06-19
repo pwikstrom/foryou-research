@@ -1,0 +1,396 @@
+{
+  "type": "object",
+  "properties": {
+    "transcript": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "speaker": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scene_index": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "sentiment": {
+            "type": "string",
+            "enum": [
+              "Positive High-Energy",
+              "Positive Low-Energy",
+              "Negative High-Energy",
+              "Negative Low-Energy"
+            ]
+          }
+        },
+        "required": [
+          "description",
+          "sentiment"
+        ]
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "symbols_and_brands": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "text_overlays": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "faces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "gender": {
+            "type": "string",
+            "enum": [
+              "Female",
+              "Male",
+              "Nonbinary",
+              "Multiple",
+              "-"
+            ]
+          },
+          "age_estimate": {
+            "type": "string",
+            "description": "age range like 20-30"
+          },
+          "ethnicity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "gender",
+          "age_estimate",
+          "ethnicity"
+        ]
+      }
+    },
+    "audio_summary": {
+      "type": "object",
+      "properties": {
+        "speech_vs_music": {
+          "type": "string",
+          "description": "e.g. '60% speech, 40% music'"
+        },
+        "background_music": {
+          "type": "string"
+        },
+        "notable_sounds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "speech_vs_music",
+        "background_music",
+        "notable_sounds"
+      ]
+    },
+    "main_activity": {
+      "type": "string",
+      "description": "verb + object, e.g. 'dancing in a studio'"
+    },
+    "video_story": {
+      "type": "string",
+      "description": "concise narrative summary"
+    },
+    "type_of_story": {
+      "type": "string",
+      "enum": [
+        "Issue-Based",
+        "Event-Based",
+        "Human-Interest",
+        "Descriptive"
+      ]
+    },
+    "content_category": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "Performance",
+          "Comedy",
+          "Film & TV",
+          "Anime & Comics",
+          "Games",
+          "Drama",
+          "Art & Creativity",
+          "Sports",
+          "Daily Life",
+          "Fashion & Beauty",
+          "Interpersonal Relationships",
+          "Food",
+          "Animals",
+          "Fitness & Physical Health",
+          "DIY & Life Hacks",
+          "Travel",
+          "Mental Health & Wellbeing",
+          "News",
+          "Education",
+          "Technology & Design & Reviews",
+          "Finance",
+          "Society"
+        ]
+      },
+      "maxItems": 2
+    },
+    "australian_relevance": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "tiktok_native": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "trend": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "advertising": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "aigc": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "main_gender": {
+      "type": "string",
+      "enum": [
+        "Female",
+        "Male",
+        "Nonbinary",
+        "Multiple",
+        "-"
+      ]
+    },
+    "main_ethnicity": {
+      "type": "string",
+      "enum": [
+        "Indigenous Australian",
+        "Caucasian",
+        "Middle Eastern",
+        "South Asian",
+        "Northeast Asian",
+        "Southeast Asian",
+        "African",
+        "Native American",
+        "Multiple",
+        "-"
+      ]
+    },
+    "political_score": {
+      "type": "object",
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "rationale": {
+          "type": "string",
+          "description": "one-sentence rationale"
+        }
+      },
+      "required": [
+        "score",
+        "rationale"
+      ]
+    },
+    "sensitivity_score": {
+      "type": "object",
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "rationale": {
+          "type": "string",
+          "description": "one-sentence rationale"
+        }
+      },
+      "required": [
+        "score",
+        "rationale"
+      ]
+    },
+    "call_to_action": {
+      "type": "string",
+      "description": "action encouraged, or '-'"
+    },
+    "aussie_political_message": {
+      "type": "string",
+      "description": "summary or '-'",
+      "nullable": true
+    },
+    "aussie_political_positioning": {
+      "type": "string",
+      "enum": [
+        "Pro Coalition/LNP/Nationals",
+        "Anti Coalition/LNP/Nationals",
+        "Pro Labor",
+        "Anti Labor",
+        "Pro Greens",
+        "Anti Greens",
+        "Pro Independents/small parties",
+        "No clear position",
+        "-"
+      ],
+      "nullable": true
+    },
+    "framing_analysis_problem_definition": {
+      "type": "string",
+      "nullable": true
+    },
+    "framing_analysis_attribution_of_responsibility": {
+      "type": "string",
+      "nullable": true
+    },
+    "framing_analysis_moral_evaluation": {
+      "type": "string",
+      "nullable": true
+    },
+    "framing_analysis_treatment_recommendation": {
+      "type": "string",
+      "nullable": true
+    },
+    "cultural_representation_analysis_key_groups": {
+      "type": "string"
+    },
+    "cultural_representation_analysis_complexity_vs_stereotypes": {
+      "type": "string"
+    },
+    "cultural_representation_analysis_symbolism_and_imagery": {
+      "type": "string"
+    },
+    "cultural_representation_analysis_inclusion_and_exclusion": {
+      "type": "string"
+    },
+    "ideological_analysis_dominant_ideologies": {
+      "type": "string"
+    },
+    "ideological_analysis_power_dynamics": {
+      "type": "string"
+    },
+    "ideological_analysis_critique_or_reinforcement": {
+      "type": "string"
+    },
+    "ideological_analysis_cultural_or_historical_context": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "transcript",
+    "scenes",
+    "objects",
+    "symbols_and_brands",
+    "text_overlays",
+    "faces",
+    "audio_summary",
+    "main_activity",
+    "video_story",
+    "type_of_story",
+    "content_category",
+    "australian_relevance",
+    "tiktok_native",
+    "trend",
+    "advertising",
+    "aigc",
+    "main_gender",
+    "main_ethnicity",
+    "political_score",
+    "sensitivity_score",
+    "call_to_action",
+    "cultural_representation_analysis_key_groups",
+    "cultural_representation_analysis_complexity_vs_stereotypes",
+    "cultural_representation_analysis_symbolism_and_imagery",
+    "cultural_representation_analysis_inclusion_and_exclusion",
+    "ideological_analysis_dominant_ideologies",
+    "ideological_analysis_power_dynamics",
+    "ideological_analysis_critique_or_reinforcement",
+    "ideological_analysis_cultural_or_historical_context"
+  ],
+  "propertyOrdering": [
+    "transcript",
+    "scenes",
+    "objects",
+    "symbols_and_brands",
+    "text_overlays",
+    "faces",
+    "audio_summary",
+    "main_activity",
+    "video_story",
+    "type_of_story",
+    "content_category",
+    "australian_relevance",
+    "tiktok_native",
+    "trend",
+    "advertising",
+    "aigc",
+    "main_gender",
+    "main_ethnicity",
+    "political_score",
+    "sensitivity_score",
+    "call_to_action",
+    "aussie_political_message",
+    "aussie_political_positioning",
+    "framing_analysis_problem_definition",
+    "framing_analysis_attribution_of_responsibility",
+    "framing_analysis_moral_evaluation",
+    "framing_analysis_treatment_recommendation",
+    "cultural_representation_analysis_key_groups",
+    "cultural_representation_analysis_complexity_vs_stereotypes",
+    "cultural_representation_analysis_symbolism_and_imagery",
+    "cultural_representation_analysis_inclusion_and_exclusion",
+    "ideological_analysis_dominant_ideologies",
+    "ideological_analysis_power_dynamics",
+    "ideological_analysis_critique_or_reinforcement",
+    "ideological_analysis_cultural_or_historical_context"
+  ]
+}

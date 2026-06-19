@@ -114,10 +114,35 @@ def build_version_descriptor(
 
 
 
-def _read_prompt_text() -> str:
-    """Read the current prompt file's text."""
+def active_prompt_text() -> str:
+    """Return the active system-instruction prompt text.
+
+    When ``[machine] use_generated_prompt`` is true the prompt is generated from
+    the declarative contract (``annotation_schema.build_prompt``); otherwise the
+    configured prompt file is read. The synchronous, batch and versioning paths
+    all route through this so the prompt can never diverge across them.
+
+    Returns:
+        The prompt text the model is (or would be) sent.
+    """
+    if bool(fyp_cf["machine"].get("use_generated_prompt", False)):
+        from fyp.annotation_schema import build_prompt
+
+        return build_prompt()
     with open(fyp_cf["machine"]["prompt"]) as handle:
         return handle.read()
+
+
+def active_prompt_label() -> str:
+    """Return a stable ``prompt_fn`` label for the active prompt source."""
+    if bool(fyp_cf["machine"].get("use_generated_prompt", False)):
+        return "annotation_contract.toml"
+    return os.path.basename(fyp_cf["machine"]["prompt"])
+
+
+def _read_prompt_text() -> str:
+    """Read the active prompt text (file or generated, per config flag)."""
+    return active_prompt_text()
 
 
 
@@ -140,6 +165,7 @@ def current_version_descriptor(fresh: bool = False) -> dict:
     signature = (
         machine.get("model"),
         machine.get("prompt"),
+        bool(machine.get("use_generated_prompt", False)),
         use_structured,
         machine.get("temperature"),
         machine.get("thinking_budget"),
@@ -163,7 +189,7 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         gen_params=gen_params,
         label=machine.get("version_label"),
     )
-    descriptor["prompt_fn"] = os.path.basename(fyp_cf["machine"]["prompt"])
+    descriptor["prompt_fn"] = active_prompt_label()
 
     _DESCRIPTOR_CACHE["signature"] = signature
     _DESCRIPTOR_CACHE["descriptor"] = descriptor

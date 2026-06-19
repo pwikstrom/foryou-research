@@ -28,6 +28,7 @@ PROJECT_ROOT = GOLDEN_DIR.parents[1]
 MODULES = [
     GOLDEN_DIR / "test_refinement_golden.py",
     GOLDEN_DIR / "test_schema_pipeline_consistency.py",
+    GOLDEN_DIR / "test_generated_contract_equivalence.py",
     GOLDEN_DIR / "test_structured_flatten_equivalence.py",
     GOLDEN_DIR / "test_structured_refinement_path.py",
     GOLDEN_DIR / "test_versioning_consolidation.py",
@@ -39,6 +40,8 @@ MODULES = [
     PROJECT_ROOT / "tests" / "unit" / "test_call_machine_retry.py",
     PROJECT_ROOT / "tests" / "unit" / "test_annotation_versioning.py",
     PROJECT_ROOT / "tests" / "unit" / "test_media_resolution.py",
+    PROJECT_ROOT / "tests" / "unit" / "test_generated_prompt_flag.py",
+    PROJECT_ROOT / "tests" / "unit" / "test_contract_accepted_labels.py",
 ]
 
 

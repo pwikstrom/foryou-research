@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import google.genai.types as gt
 
+import fyp.annotation_versioning as annotation_versioning
 from fyp.annotation_schema import build_response_schema
 from fyp.fyp_config import fyp_cf
 from fyp.machine_annotation import initialize_machine
@@ -78,8 +79,9 @@ def build_structured_config(
     if _STRUCTURED_CONFIG is not None and is_default:
         return _STRUCTURED_CONFIG
 
-    with open(fyp_cf["machine"]["prompt"]) as file:
-        machine_prompt = file.read()
+    # Honors [machine] use_generated_prompt: file prompt by default, generated
+    # from the contract when the flag is on.
+    machine_prompt = annotation_versioning.active_prompt_text()
 
     budget = thinking_budget if thinking_budget is not None else fyp_cf["machine"]["thinking_budget"]
     temp = temperature if temperature is not None else fyp_cf["machine"]["temperature"]
