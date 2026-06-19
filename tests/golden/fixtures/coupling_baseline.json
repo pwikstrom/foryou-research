@@ -25,10 +25,7 @@
     "transcript"
   ],
   "required_keys_not_in_prompt": [],
-  "required_keys_not_in_schema": [
-    "scenes",
-    "transcript"
-  ],
+  "required_keys_not_in_schema": [],
   "gemini_schema_vars_not_in_prompt": [
     "CRA_complexity_vs_stereotypes",
     "CRA_inclusion_and_exclusion",

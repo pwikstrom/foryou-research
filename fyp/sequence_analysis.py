@@ -87,7 +87,6 @@ DEFAULT_TARGETS: tuple[tuple[str, str, str], ...] = (
     ("content_category", "list", "Narrative, content & tone"),
     ("type_of_story", "single", "Narrative, content & tone"),
     ("objects", "list", "Narrative, content & tone"),
-    ("scene_sentiments", "list", "Narrative, content & tone"),
     ("political_score", "numeric", "Narrative, content & tone"),
     ("sensitivity_score", "numeric", "Narrative, content & tone"),
     ("aigc", "single", "Provenance & intent"),

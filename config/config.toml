@@ -23,11 +23,10 @@ use_structured_output = true
 # annotation_schema.build_prompt() instead of being read from the prompt file
 # above. The generated prompt + response_schema + flattener all derive from that
 # one contract, so they cannot drift. ENABLED: go-forward annotations use the
-# generated prompt and are stamped annotation_version av_7f1ed2e98c1f. A live A/B
-# (tests/ab_eval/generated_prompt_ab.py, n=20) found it fully reliable (100% valid,
-# 0 non-STOP) and broadly equivalent, with a small content shift on prompt-sensitive
-# categoricals (chiefly type_of_story). Existing studies stay pinned to their
-# current version until the new version is explicitly promoted.
+# generated prompt and are stamped with the annotation_version derived from the
+# current contract (recompute via annotation_versioning.current_annotation_version).
+# Existing studies stay pinned to their current version until the new version is
+# explicitly promoted.
 use_generated_prompt = true
 
 # Vertex AI settings
@@ -195,6 +194,6 @@ IRRELEVANT_WORDS = ["-year-old", "about", "actually", "ad", "add", "after", "all
 
 GENERIC_MAPPER = {"" = "unable to detect", "-" = "unable to detect", "/" = "or", "&" = "and", "none" = "unable to detect", "multiple" = "unable to detect", "mixed" = "unable to detect", "undefined" = "unable to detect", "mixed-race" = "unable to detect", "polynesian" = "pacific islander", "middle eastern or caucasian" = "middle eastern", "middle eastern or south asian" = "middle eastern", "polynesian or pacific islander" = "pacific islander", "southeast asian or pacific islander" = "pacific islander", "indigenous australian or pacific islander" = "indigenous australian", "hispanic or latina" = "latinx", "hispanic or latino" = "latinx", "hispanic" = "latinx", "latino" = "latinx", "latina" = "latinx", "indigenous" = "indigenous australian", "no clear positioning" = "unable to detect", "no clear position" = "unable to detect"}
 
-REQUIRED_KEYS = [
-    "transcript", "objects", "content_category", "symbols_and_brands",
-    "text_overlays", "scenes"]
+# The `required_key` completeness gate was removed with the contract
+# simplification; structured output guarantees every field is present.
+REQUIRED_KEYS = []

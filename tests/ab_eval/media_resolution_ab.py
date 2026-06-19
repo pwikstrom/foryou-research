@@ -40,7 +40,7 @@ from _ab_common import compare_arms, distribution_table, refine_from_flat_dicts
 from structured_annotator import annotate_structured, build_structured_config
 
 import fyp.machine_annotation as ma
-from fyp.annotation_schema import apply_conditional_rules, flatten_structured
+from fyp.annotation_schema import flatten_structured
 from fyp.fyp_config import fyp_cf
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -60,8 +60,8 @@ def _annotate_one(vid: str, res_a: str, res_b: str) -> dict:
     b = annotate_structured(vid, use_local_video_file=True, media_resolution=res_b)
     a_ok = isinstance(a.get("parsed"), dict)
     b_ok = isinstance(b.get("parsed"), dict)
-    flat_a = apply_conditional_rules(flatten_structured(a["parsed"]), a["parsed"]) if a_ok else {}
-    flat_b = apply_conditional_rules(flatten_structured(b["parsed"]), b["parsed"]) if b_ok else {}
+    flat_a = flatten_structured(a["parsed"]) if a_ok else {}
+    flat_b = flatten_structured(b["parsed"]) if b_ok else {}
 
     def _u(d, k):
         return (d.get("usage", {}) or {}).get(k)

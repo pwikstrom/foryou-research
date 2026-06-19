@@ -132,12 +132,6 @@ def test_flatten_unpacks_faces_and_audio() -> None:
     assert "audio_summary" not in flat
 
 
-def test_flatten_missing_required_key_returns_none() -> None:
-    bad = _full_response()
-    del bad["scenes"]  # scenes is in REQUIRED_KEYS
-    assert ma.flatten_one_machine_response(bad) is None
-
-
 def test_flatten_non_dict_returned_as_is() -> None:
     assert ma.flatten_one_machine_response("not a dict") == "not a dict"
     assert ma.flatten_one_machine_response(None) is None

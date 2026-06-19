@@ -109,3 +109,8 @@ scrape,Fundamentals,music_duration,Music duration,standard,ratio,,,,,,,,,,,,,,
 scrape,Fundamentals,music_original,Is this music original?,standard,,,,,,,,,,,,,,,
 derived: embeddings,Semantic,niche_name,Niche,feature,categorical,{},[],,,20,1,210,102,210,,no,,210,"Embeddings-derived micro-genre (KMeans cluster of video embeddings, Gemini-named). High-cardinality: tabs surface the top niches by frequency and fold the long tail into 'Other'. Best-effort-stable across map rebuilds."
 derived: embeddings,Semantic,niche,Niche ID,skip,raw,{},[],,,,,,,,,,,,Integer niche cluster id (join key to video_niches.json); hidden from tabs.
+Gemini,Basic annotation,trend_technical,Technical trend,feature,dichotomous,{},[],keep,recode_stringified_list,,,,,,,,,,Does the video leverage a technical TikTok trend (trending template/effect/sound)? (Yes/No).
+Gemini,Basic annotation,trend_cultural,Cultural trend,feature,dichotomous,{},[],keep,recode_stringified_list,,,,,,,,,,Does the video replicate a cultural TikTok trend (participatory format like a dance/meme)? (Yes/No).
+Gemini,Basic annotation,multilingual,Multilingual,feature,dichotomous,{},[],keep,recode_stringified_list,,,,,,,,,,Are multiple languages spoken or sung in the video? (Yes/No).
+Gemini,Basic annotation,spoken_language,Spoken language,standard,categorical,GENERIC_MAPPER,[],keep,recode_stringified_list,,,,,,,,,,Primary language spoken or sung in the video.
+Gemini,Basic annotation,primary_country,Primary country,standard,categorical,GENERIC_MAPPER,[],keep,recode_stringified_list,,,,,,,,,,Country the video is primarily connected to (creator origin / subject / audience).

@@ -1,77 +1,45 @@
 {
   "properties": {
     "transcript": {
-      "items": {
-        "properties": {
-          "speaker": {
-            "type": "STRING"
-          },
-          "text": {
-            "type": "STRING"
-          }
-        },
-        "propertyOrdering": [
-          "speaker",
-          "text"
-        ],
-        "required": [
-          "text"
-        ],
-        "type": "OBJECT"
-      },
-      "type": "ARRAY"
+      "description": "A verbatim transcript of the words spoken or sung in the video.",
+      "type": "STRING"
     },
-    "scenes": {
-      "items": {
-        "properties": {
-          "scene_index": {
-            "type": "INTEGER"
-          },
-          "description": {
-            "type": "STRING"
-          },
-          "sentiment": {
-            "enum": [
-              "Positive High-Energy",
-              "Positive Low-Energy",
-              "Negative High-Energy",
-              "Negative Low-Energy"
-            ],
-            "type": "STRING"
-          }
-        },
-        "propertyOrdering": [
-          "scene_index",
-          "description",
-          "sentiment"
-        ],
-        "required": [
-          "description",
-          "sentiment"
-        ],
-        "type": "OBJECT"
-      },
-      "type": "ARRAY"
+    "spoken_language": {
+      "description": "The primary language spoken or sung in the video — if several are used, give the one used most. Provide an English name (e.g. 'English', 'Mandarin', 'Arabic'). Use '-' if there is no spoken or sung language (music-only or silent).",
+      "type": "STRING"
+    },
+    "multilingual": {
+      "description": "Are multiple languages spoken or sung in the video (e.g. code-switching, or different speakers using different languages)? Answer No if there is no speech or only one language is used.",
+      "enum": [
+        "Yes",
+        "No",
+        "Unclear"
+      ],
+      "type": "STRING"
     },
     "objects": {
+      "description": "Notable objects visible in the video.",
       "items": {
         "type": "STRING"
       },
       "type": "ARRAY"
     },
     "symbols_and_brands": {
+      "description": "Visible symbols, flags, or brands.",
       "items": {
         "type": "STRING"
       },
       "type": "ARRAY"
     },
     "text_overlays": {
+      "description": "On-screen text, transcribed via OCR.",
       "items": {
         "type": "STRING"
       },
       "type": "ARRAY"
     },
     "faces": {
+      "description": "Each distinct face that appears in the video, with its gender, apparent age range (e.g. 20-30), and apparent ethnicity.",
       "items": {
         "properties": {
           "gender": {
@@ -85,10 +53,11 @@
             "type": "STRING"
           },
           "age_estimate": {
-            "description": "age range like 20-30",
+            "description": "the apparent age range, e.g. 20-30",
             "type": "STRING"
           },
           "ethnicity": {
+            "description": "the apparent ethnicity",
             "type": "STRING"
           }
         },
@@ -107,15 +76,18 @@
       "type": "ARRAY"
     },
     "audio_summary": {
+      "description": "The video's audio profile: the speech-vs-music balance, the style/mood of any background music, and any notable sounds or sound effects.",
       "properties": {
         "speech_vs_music": {
-          "description": "e.g. '60% speech, 40% music'",
+          "description": "the speech-vs-music balance adding to 100%, e.g. '60% speech, 40% music'",
           "type": "STRING"
         },
         "background_music": {
+          "description": "the style or mood of any background music",
           "type": "STRING"
         },
         "notable_sounds": {
+          "description": "notable sounds or sound effects",
           "items": {
             "type": "STRING"
           },
@@ -135,14 +107,15 @@
       "type": "OBJECT"
     },
     "main_activity": {
-      "description": "verb + object, e.g. 'dancing in a studio'",
+      "description": "The main activity, as a verb + object, e.g. 'dancing in a studio'.",
       "type": "STRING"
     },
     "video_story": {
-      "description": "concise narrative summary",
+      "description": "A concise narrative summary of the entire video.",
       "type": "STRING"
     },
     "type_of_story": {
+      "description": "The narrative type of the video.",
       "enum": [
         "Issue-Based",
         "Event-Based",
@@ -152,6 +125,7 @@
       "type": "STRING"
     },
     "content_category": {
+      "description": "The TikTok content categories that best capture the video's dominant focus (up to two; list the most central first). Weigh whether the video's primary purpose is entertainment & cultural expression, lifestyle & personal content, or informative & advisory content, then choose the most fitting category.",
       "items": {
         "enum": [
           "Performance",
@@ -182,42 +156,57 @@
       "maxItems": 2,
       "type": "ARRAY"
     },
-    "australian_relevance": {
-      "enum": [
-        "Yes",
-        "No"
-      ],
+    "primary_country": {
+      "description": "The country the video is primarily connected to — through the creator's origin (accent, language, location tags, or profile), the content's subject matter (events, places, landmarks, or social issues), or its intended audience (region-specific hashtags or localised references). Give the single most-connected country as an English name (e.g. 'Australia', 'United States', 'India'). Use '-' when there is no clear country connection (generic or globally-oriented content).",
       "type": "STRING"
     },
     "tiktok_native": {
+      "description": "Is the video produced primarily for TikTok — vertical/portrait, short (typically under 60 seconds), using TikTok's native features (filters, effects, text overlays, trending sounds) and pacing? Answer No for content clearly made for another platform (e.g. a longer YouTube or TV-style video) and merely reposted to TikTok.",
       "enum": [
         "Yes",
-        "No"
+        "No",
+        "Unclear"
       ],
       "type": "STRING"
     },
-    "trend": {
+    "trend_technical": {
+      "description": "Does the video leverage a technical TikTok trend — a trending template, effect, or sound used to make it (e.g. a CapCut 'try this effect' or 'use this sound' template)? A video can be both a technical and a cultural trend.",
       "enum": [
         "Yes",
-        "No"
+        "No",
+        "Unclear"
+      ],
+      "type": "STRING"
+    },
+    "trend_cultural": {
+      "description": "Does the video replicate a cultural TikTok trend — a participatory format meant for other creators to imitate (e.g. a dance challenge, meme, or format like 'candy salad')? A video can be both a technical and a cultural trend.",
+      "enum": [
+        "Yes",
+        "No",
+        "Unclear"
       ],
       "type": "STRING"
     },
     "advertising": {
+      "description": "Is the video an explicit paid promotion of a product, service, or brand — shown by a sponsorship label, repeated prominent brand mentions, or a direct call to purchase or visit? Answer No for an organic review or discussion, or a creator simply expressing affinity for a brand with no sign of a commercial agreement.",
       "enum": [
         "Yes",
-        "No"
+        "No",
+        "Unclear"
       ],
       "type": "STRING"
     },
     "aigc": {
+      "description": "Is the video primarily AI-generated — AI-generated elements forming a substantial part of it (e.g. prompt-generated footage), or explicitly labelled AI-generated by the creator or platform? Answer No when only minor AI elements are present (e.g. AI stickers, memes, or background music).",
       "enum": [
         "Yes",
-        "No"
+        "No",
+        "Unclear"
       ],
       "type": "STRING"
     },
     "main_gender": {
+      "description": "The gender of the main person featured in the video.",
       "enum": [
         "Female",
         "Male",
@@ -228,6 +217,7 @@
       "type": "STRING"
     },
     "main_ethnicity": {
+      "description": "The ethnicity of the main person featured in the video.",
       "enum": [
         "Indigenous Australian",
         "Caucasian",
@@ -243,113 +233,22 @@
       "type": "STRING"
     },
     "political_score": {
-      "properties": {
-        "score": {
-          "type": "INTEGER"
-        },
-        "rationale": {
-          "description": "one-sentence rationale",
-          "type": "STRING"
-        }
-      },
-      "propertyOrdering": [
-        "score",
-        "rationale"
-      ],
-      "required": [
-        "score",
-        "rationale"
-      ],
-      "type": "OBJECT"
+      "description": "How political the video is, from 0 (not at all) to 100 (entirely political).",
+      "type": "INTEGER"
     },
     "sensitivity_score": {
-      "properties": {
-        "score": {
-          "type": "INTEGER"
-        },
-        "rationale": {
-          "description": "one-sentence rationale",
-          "type": "STRING"
-        }
-      },
-      "propertyOrdering": [
-        "score",
-        "rationale"
-      ],
-      "required": [
-        "score",
-        "rationale"
-      ],
-      "type": "OBJECT"
+      "description": "How sensitive the video's subject matter is, from 0 (not at all) to 100 (extremely sensitive).",
+      "type": "INTEGER"
     },
     "call_to_action": {
-      "description": "action encouraged, or '-'",
-      "type": "STRING"
-    },
-    "aussie_political_message": {
-      "description": "summary or '-'",
-      "nullable": true,
-      "type": "STRING"
-    },
-    "aussie_political_positioning": {
-      "enum": [
-        "Pro Coalition/LNP/Nationals",
-        "Anti Coalition/LNP/Nationals",
-        "Pro Labor",
-        "Anti Labor",
-        "Pro Greens",
-        "Anti Greens",
-        "Pro Independents/small parties",
-        "No clear position",
-        "-"
-      ],
-      "nullable": true,
-      "type": "STRING"
-    },
-    "framing_analysis_problem_definition": {
-      "nullable": true,
-      "type": "STRING"
-    },
-    "framing_analysis_attribution_of_responsibility": {
-      "nullable": true,
-      "type": "STRING"
-    },
-    "framing_analysis_moral_evaluation": {
-      "nullable": true,
-      "type": "STRING"
-    },
-    "framing_analysis_treatment_recommendation": {
-      "nullable": true,
-      "type": "STRING"
-    },
-    "cultural_representation_analysis_key_groups": {
-      "type": "STRING"
-    },
-    "cultural_representation_analysis_complexity_vs_stereotypes": {
-      "type": "STRING"
-    },
-    "cultural_representation_analysis_symbolism_and_imagery": {
-      "type": "STRING"
-    },
-    "cultural_representation_analysis_inclusion_and_exclusion": {
-      "type": "STRING"
-    },
-    "ideological_analysis_dominant_ideologies": {
-      "type": "STRING"
-    },
-    "ideological_analysis_power_dynamics": {
-      "type": "STRING"
-    },
-    "ideological_analysis_critique_or_reinforcement": {
-      "type": "STRING"
-    },
-    "ideological_analysis_cultural_or_historical_context": {
+      "description": "The action the video encourages the viewer to take, or '-' if none.",
       "type": "STRING"
     }
   },
   "propertyOrdering": [
     "transcript",
-    "scenes",
+    "spoken_language",
+    "multilingual",
     "objects",
     "symbols_and_brands",
     "text_overlays",
@@ -359,34 +258,22 @@
     "video_story",
     "type_of_story",
     "content_category",
-    "australian_relevance",
+    "primary_country",
     "tiktok_native",
-    "trend",
+    "trend_technical",
+    "trend_cultural",
     "advertising",
     "aigc",
     "main_gender",
     "main_ethnicity",
     "political_score",
     "sensitivity_score",
-    "call_to_action",
-    "aussie_political_message",
-    "aussie_political_positioning",
-    "framing_analysis_problem_definition",
-    "framing_analysis_attribution_of_responsibility",
-    "framing_analysis_moral_evaluation",
-    "framing_analysis_treatment_recommendation",
-    "cultural_representation_analysis_key_groups",
-    "cultural_representation_analysis_complexity_vs_stereotypes",
-    "cultural_representation_analysis_symbolism_and_imagery",
-    "cultural_representation_analysis_inclusion_and_exclusion",
-    "ideological_analysis_dominant_ideologies",
-    "ideological_analysis_power_dynamics",
-    "ideological_analysis_critique_or_reinforcement",
-    "ideological_analysis_cultural_or_historical_context"
+    "call_to_action"
   ],
   "required": [
     "transcript",
-    "scenes",
+    "spoken_language",
+    "multilingual",
     "objects",
     "symbols_and_brands",
     "text_overlays",
@@ -396,24 +283,17 @@
     "video_story",
     "type_of_story",
     "content_category",
-    "australian_relevance",
+    "primary_country",
     "tiktok_native",
-    "trend",
+    "trend_technical",
+    "trend_cultural",
     "advertising",
     "aigc",
     "main_gender",
     "main_ethnicity",
     "political_score",
     "sensitivity_score",
-    "call_to_action",
-    "cultural_representation_analysis_key_groups",
-    "cultural_representation_analysis_complexity_vs_stereotypes",
-    "cultural_representation_analysis_symbolism_and_imagery",
-    "cultural_representation_analysis_inclusion_and_exclusion",
-    "ideological_analysis_dominant_ideologies",
-    "ideological_analysis_power_dynamics",
-    "ideological_analysis_critique_or_reinforcement",
-    "ideological_analysis_cultural_or_historical_context"
+    "call_to_action"
   ],
   "type": "OBJECT"
 }

@@ -30,35 +30,33 @@ from _harness import _normalize_cell, load_fixture
 
 import fyp.machine_annotation as ma
 from fyp.annotation_schema import (
-    AUSSIE_CONDITIONAL_FIELDS,
-    CONDITIONAL_FIELDS,
     FIELD_SPECS,
-    FRAMING_FIELDS,
-    apply_conditional_rules,
     build_response_schema,
     flatten_structured,
     get_annotation_json_schema,
 )
 
-# Representation differs by design (string vs object); covered by a unit test.
+# Columns whose representation changed by design, excluded from the legacy-vs-
+# structured comparison: scores (free string -> integer) and transcript (array of
+# {speaker, text} -> plain string).
 SCORE_FIELDS = {"political_score", "sensitivity_score"}
+EXCLUDED_FROM_COMPARE = SCORE_FIELDS | {"transcript"}
 
 
 def _to_structured_shape(nested: dict) -> dict:
-    """Convert a legacy-parsed response into the structured score shape.
+    """Convert a legacy-parsed response into the current structured shape.
 
-    Only the score fields differ in representation; everything else (scenes,
-    faces, audio_summary, lists, scalars) already matches the structured shape.
+    Only the score fields differ in representation (legacy free string ->
+    structured integer); the other shared columns (faces, lists, scalars) already
+    match. ``transcript`` and ``audio_summary`` differ by design and are excluded
+    from the comparison below.
     """
     out = dict(nested)
     for key in SCORE_FIELDS:
         val = out.get(key)
         if isinstance(val, str) and val.strip():
-            parts = val.split(", ", 1)
-            num = parts[0].strip()
-            rationale = parts[1] if len(parts) > 1 else ""
             with contextlib.suppress(ValueError):
-                out[key] = {"score": int(float(num)), "rationale": rationale}
+                out[key] = int(float(val.split(", ", 1)[0].strip()))
     return out
 
 
@@ -67,57 +65,51 @@ def _to_structured_shape(nested: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def test_field_spec_and_schema_structure() -> None:
-    assert len(FIELD_SPECS) == 35
+    # Field count is intentionally not hard-coded here (the contract is edited
+    # often); the frozen-fixtures equivalence test is the tripwire for field-set
+    # changes. Here we only pin internal consistency + invariants.
+    n = len(FIELD_SPECS)
+    assert n > 0
     js = get_annotation_json_schema()
     assert js["type"] == "object"
-    assert len(js["properties"]) == 35
+    assert len(js["properties"]) == n
     assert js["propertyOrdering"][0] == "transcript"
+    # Every field is required (the contract has no conditionals).
+    assert set(js["required"]) == set(js["properties"])
     schema = build_response_schema()
     assert str(schema.type).endswith("OBJECT")
-    assert len(schema.properties) == 35
+    assert len(schema.properties) == n
     # Enum constraints survive the conversion.
     assert schema.properties["type_of_story"].enum
     assert schema.properties["content_category"].items.enum
 
 
-def test_score_join_rule() -> None:
-    flat = flatten_structured({"political_score": {"score": 85, "rationale": "high"}})
-    assert flat["political_score"] == "85, high"
-    flat2 = flatten_structured({"sensitivity_score": {"score": 0, "rationale": ""}})
-    assert flat2["sensitivity_score"] == "0"
+def test_object_unpack_rule() -> None:
+    flat = flatten_structured({
+        "faces": [
+            {"gender": "Male", "age_estimate": "20-30", "ethnicity": "Caucasian"},
+            {"gender": "Female", "age_estimate": "30-40", "ethnicity": "African"},
+        ],
+        "audio_summary": {
+            "speech_vs_music": "60% speech, 40% music",
+            "background_music": "upbeat",
+            "notable_sounds": ["laughter", "applause"],
+        },
+    })
+    # Array of objects -> <field>_<key>, pipe-joined across elements.
+    assert flat["faces_gender"] == "Male | Female"
+    assert flat["faces_age_estimate"] == "20-30 | 30-40"
+    assert flat["faces_ethnicity"] == "Caucasian | African"
+    # Single object -> <field>_<key>; list sub-values pipe-joined.
+    assert flat["audio_summary_speech_vs_music"] == "60% speech, 40% music"
+    assert flat["audio_summary_background_music"] == "upbeat"
+    assert flat["audio_summary_notable_sounds"] == "laughter | applause"
 
 
-def test_conditional_fields_nullable_in_schema() -> None:
-    js = get_annotation_json_schema()
-    for field in CONDITIONAL_FIELDS:
-        assert field not in js["required"], f"{field} should not be required"
-        assert js["properties"][field].get("nullable") is True
-    # Non-conditional fields stay required.
-    assert "type_of_story" in js["required"]
-    schema = build_response_schema()
-    assert schema.properties["framing_analysis_moral_evaluation"].nullable is True
-
-
-def test_apply_conditional_rules_framing() -> None:
-    # Non issue/event story -> framing blanked to "-".
-    flat = dict.fromkeys(FRAMING_FIELDS, "some framing text")
-    flat["type_of_story"] = "Human-Interest"
-    out = apply_conditional_rules(dict(flat), {})
-    assert all(out[f] == "-" for f in FRAMING_FIELDS)
-    # Issue-based story -> framing preserved.
-    flat["type_of_story"] = "Issue-Based"
-    out2 = apply_conditional_rules(dict(flat), {})
-    assert all(out2[f] == "some framing text" for f in FRAMING_FIELDS)
-
-
-def test_apply_conditional_rules_political() -> None:
-    flat = dict.fromkeys(AUSSIE_CONDITIONAL_FIELDS, "some political text")
-    # score <= threshold -> blanked.
-    out = apply_conditional_rules(dict(flat), {"political_score": {"score": 10}})
-    assert all(out[f] == "-" for f in AUSSIE_CONDITIONAL_FIELDS)
-    # score > threshold -> preserved.
-    out2 = apply_conditional_rules(dict(flat), {"political_score": {"score": 75}})
-    assert all(out2[f] == "some political text" for f in AUSSIE_CONDITIONAL_FIELDS)
+def test_scalar_score_rule() -> None:
+    flat = flatten_structured({"political_score": 85, "sensitivity_score": 0})
+    assert flat["political_score"] == 85
+    assert flat["sensitivity_score"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +135,7 @@ def test_structured_flatten_matches_legacy_on_real_data() -> None:
         structured = flatten_structured(_to_structured_shape(nested))
 
         compared += 1
-        shared = (set(legacy) & set(structured)) - SCORE_FIELDS
+        shared = (set(legacy) & set(structured)) - EXCLUDED_FROM_COMPARE
         for col in shared:
             if _normalize_cell(legacy[col]) != _normalize_cell(structured[col]):
                 column_mismatches[col] = column_mismatches.get(col, 0) + 1
