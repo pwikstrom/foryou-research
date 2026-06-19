@@ -52,6 +52,7 @@ def build_structured_config(
     thinking_budget: int | None = None,
     media_resolution: str | None = None,
     temperature: float | None = None,
+    prompt_override: str | None = None,
 ) -> gt.GenerateContentConfig:
     """Build the structured-output generation config.
 
@@ -75,13 +76,18 @@ def build_structured_config(
     is_default = (
         not use_penalties and thinking_budget is None
         and media_resolution is None and temperature is None
+        and prompt_override is None
     )
     if _STRUCTURED_CONFIG is not None and is_default:
         return _STRUCTURED_CONFIG
 
-    # Honors [machine] use_generated_prompt: file prompt by default, generated
-    # from the contract when the flag is on.
-    machine_prompt = annotation_versioning.active_prompt_text()
+    # An explicit prompt_override wins (used by the prompt A/B). Otherwise honors
+    # [machine] use_generated_prompt: file prompt by default, generated from the
+    # contract when the flag is on.
+    machine_prompt = (
+        prompt_override if prompt_override is not None
+        else annotation_versioning.active_prompt_text()
+    )
 
     budget = thinking_budget if thinking_budget is not None else fyp_cf["machine"]["thinking_budget"]
     temp = temperature if temperature is not None else fyp_cf["machine"]["temperature"]
@@ -132,6 +138,7 @@ def annotate_structured(
     thinking_budget: int | None = None,
     media_resolution: str | None = None,
     temperature: float | None = None,
+    prompt_override: str | None = None,
     verbose: bool = False,
 ) -> dict:
     """Annotate one video with constrained structured output.
@@ -154,6 +161,7 @@ def annotate_structured(
         thinking_budget=thinking_budget,
         media_resolution=media_resolution,
         temperature=temperature,
+        prompt_override=prompt_override,
     )
 
     out: dict = {

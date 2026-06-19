@@ -22,11 +22,13 @@ use_structured_output = true
 # annotation contract (config/annotation_contract.toml) via
 # annotation_schema.build_prompt() instead of being read from the prompt file
 # above. The generated prompt + response_schema + flattener all derive from that
-# one contract, so they cannot drift. Default false keeps serving the prompt file
-# (zero behaviour change). Flipping to true changes the prompt text the model
-# receives -> a new annotation_version (promote-gated, so no silent re-annotation);
-# validate with tests/ab_eval/smoke_structured.py before flipping in production.
-use_generated_prompt = false
+# one contract, so they cannot drift. ENABLED: go-forward annotations use the
+# generated prompt and are stamped annotation_version av_7f1ed2e98c1f. A live A/B
+# (tests/ab_eval/generated_prompt_ab.py, n=20) found it fully reliable (100% valid,
+# 0 non-STOP) and broadly equivalent, with a small content shift on prompt-sensitive
+# categoricals (chiefly type_of_story). Existing studies stay pinned to their
+# current version until the new version is explicitly promoted.
+use_generated_prompt = true
 
 # Vertex AI settings
 vertexai = true
