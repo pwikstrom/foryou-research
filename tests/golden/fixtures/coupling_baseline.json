@@ -44,11 +44,16 @@
     "faces_age_estimate",
     "faces_ethnicity",
     "faces_gender",
+    "multilingual",
     "notable_sounds",
+    "primary_country",
     "scene_sentiments",
     "scene_sentiments_energy",
     "scene_sentiments_valence",
     "speech_vs_music",
-    "transcript_no_repetitions"
+    "spoken_language",
+    "transcript_no_repetitions",
+    "trend_cultural",
+    "trend_technical"
   ]
 }
