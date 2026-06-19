@@ -1,0 +1,469 @@
+# Declarative annotation contract — the single source for the Gemini prompt,
+# the structured-output response_schema, and the flattener (Workstream E).
+#
+# Edit this file to experiment with the annotation variable set. From it the
+# pipeline generates, by pure deterministic templating (no LLM):
+#   * the text prompt           (annotation_schema.build_prompt)
+#   * the response_schema       (annotation_schema.build_response_schema)
+#   * the flattener field specs (annotation_schema.FIELD_SPECS / flatten_structured)
+#
+# A field's schema-affecting attributes (type / enum / nesting / `description`)
+# feed the response_schema; its `prompt` text feeds the prompt only. Both feed
+# the annotation_version hash, so any change is versioned and promote-gated.
+#
+# `kind`-by-`type`:
+#   string  -> {"type":"string"[, "enum", "description"]}
+#   integer -> {"type":"integer"[, "minimum", "maximum"]}
+#   array   -> {"type":"array", "items": <node>[, "maxItems"]}
+#   object  -> {"type":"object", "properties": [...], "required": [...]}
+# `flatten` names an existing rule in flatten_structured:
+#   scalar | list_join | transcript_join | scenes_join | faces_unpack |
+#   audio_unpack | score_join
+# Prompt tokens in `prompt`/`description`:
+#   {enum}        -> this field's own enum (numbered w/ descriptions if it has them)
+#   {enum:NAME}   -> a named enum from [enums]
+
+[prompt]
+header = "You are a rigorous TikTok video analyst. Input: a single video file. Your job is to perform the following six steps in order, and then return exactly one consolidated JSON object containing all fields described below. Do not include any extra commentary—only valid JSON."
+footer = "**Return** the final JSON object with all of the above fields exactly as keys."
+
+# Conditional-field enforcement parameters (apply_conditional_rules reads these).
+[conditions]
+issue_event_values = ["Issue-Based", "Event-Based"]
+political_threshold = 40
+
+# ---------------------------------------------------------------------------
+# Enums (the authoritative ordered vocab feeds both schema and prompt).
+# ---------------------------------------------------------------------------
+[enums.yes_no]
+values = ["Yes", "No"]
+
+[enums.gender]
+values = ["Female", "Male", "Nonbinary", "Multiple", "-"]
+
+[enums.ethnicity]
+values = ["Indigenous Australian", "Caucasian", "Middle Eastern", "South Asian", "Northeast Asian", "Southeast Asian", "African", "Native American", "Multiple", "-"]
+
+[enums.type_of_story]
+values = ["Issue-Based", "Event-Based", "Human-Interest", "Descriptive"]
+
+[enums.scene_sentiment]
+values = ["Positive High-Energy", "Positive Low-Energy", "Negative High-Energy", "Negative Low-Energy"]
+
+[enums.political_positioning]
+values = ["Pro Coalition/LNP/Nationals", "Anti Coalition/LNP/Nationals", "Pro Labor", "Anti Labor", "Pro Greens", "Anti Greens", "Pro Independents/small parties", "No clear position", "-"]
+
+[enums.content_category]
+values = ["Performance", "Comedy", "Film & TV", "Anime & Comics", "Games", "Drama", "Art & Creativity", "Sports", "Daily Life", "Fashion & Beauty", "Interpersonal Relationships", "Food", "Animals", "Fitness & Physical Health", "DIY & Life Hacks", "Travel", "Mental Health & Wellbeing", "News", "Education", "Technology & Design & Reviews", "Finance", "Society"]
+[enums.content_category.descriptions]
+"Performance" = "Videos showcasing musical or movement-based performance, including live singing, dancing, or lip-syncing."
+"Comedy" = "Content intended to entertain through humor, including skits, stand-up comedy, parodies, or satirical commentary."
+"Film & TV" = "Videos that reference, recap, parody, or comment on television programs or films."
+"Anime & Comics" = "Content that engages with or is rooted in anime or comic book culture. This includes narratives, discussions, cosplay, fan art, or parodies that reference anime or comic themes."
+"Games" = "Videos related to gaming, including gameplay, reviews, walkthroughs, or gaming memes."
+"Drama" = "Videos featuring emotionally charged narratives or serious storytelling."
+"Art & Creativity" = "Videos showcasing artistic endeavors such as drawing, painting, or other creative projects outside of performance."
+"Sports" = "Videos involving athletic performance, sports highlights, or sports commentary."
+"Daily Life" = "Videos capturing everyday routines, personal vlogs, or behind-the-scenes moments."
+"Fashion & Beauty" = "Content focused on self-presentation, including makeup tutorials, skincare routines, clothing hauls, and styling tips."
+"Interpersonal Relationships" = "Videos exploring human connections—romantic, platonic, toxic, dangerous - both positive and negative."
+"Food" = "Videos centered on topics such as recipes, food reviews, dieting, nutrition, or cooking demonstrations."
+"Animals" = "Content featuring pets, wildlife, or humorous and heartwarming animal moments."
+"Fitness & Physical Health" = "Videos related to physical exercise, wellness tips, or health challenges."
+"DIY & Life Hacks" = "Videos offering practical advice, step-by-step instructions, or innovative solutions for everyday problems."
+"Travel" = "Content documenting travel experiences, scenic destinations, or offering travel tips and itineraries."
+"Mental Health & Wellbeing" = "Videos addressing mental health topics, self-care practices, or mindfulness techniques."
+"News" = "Content that informs or comments on current and specific events, political developments, or trending topics."
+"Education" = "Videos aimed at teaching or instructing viewers through tutorials, how-to guides, or academic content."
+"Technology & Design & Reviews" = "Content focusing on technological innovations, product design, and detailed reviews."
+"Finance" = "Videos addressing financial topics such as budgeting, investments, money management, or economic trends."
+"Society" = "Videos engaging with social issues, cultural phenomena, or community trends—including social commentary and activism."
+
+# ---------------------------------------------------------------------------
+# Steps (prompt structure; order = numeric key).
+# ---------------------------------------------------------------------------
+[steps.1]
+title = "Video Profile Extraction"
+intro = "Analyze the raw video and produce these fields:"
+
+[steps.2]
+title = "Persuasion & Scoring"
+intro = "Based on the Video Profile JSON, add or update only:"
+
+[steps.3]
+title = "Australian Political Context"
+intro = "If 'political_score' is greater than 40, add or update only:"
+footer = "Otherwise set each to \"-\"."
+
+[steps.4]
+title = "Framing Analysis"
+intro = "If 'type_of_story' is Issue-Based or Event-Based, add:"
+footer = "Otherwise set each to \"-\"."
+
+[steps.5]
+title = "Cultural Representation"
+intro = "Append these fields, each with a two-sentence justification:"
+
+[steps.6]
+title = "Ideological Power Analysis"
+intro = "Append these fields, each with a two-sentence justification:"
+
+# ---------------------------------------------------------------------------
+# Fields (the 35 Gemini output fields, in prompt/schema order).
+# ---------------------------------------------------------------------------
+
+# --- Step 1: video profile ---
+[[fields]]
+name = "transcript"
+step = 1
+type = "array"
+flatten = "transcript_join"
+required_key = true
+prompt = "Array of { speaker, text } entries — who is speaking and what they say."
+[fields.items]
+type = "object"
+required = ["text"]
+[[fields.items.properties]]
+name = "speaker"
+type = "string"
+[[fields.items.properties]]
+name = "text"
+type = "string"
+
+[[fields]]
+name = "scenes"
+step = 1
+type = "array"
+flatten = "scenes_join"
+required_key = true
+prompt = "Array of { scene_index, description, sentiment } — segment the video; sentiment is one of {enum:scene_sentiment}."
+[fields.items]
+type = "object"
+required = ["description", "sentiment"]
+[[fields.items.properties]]
+name = "scene_index"
+type = "integer"
+[[fields.items.properties]]
+name = "description"
+type = "string"
+[[fields.items.properties]]
+name = "sentiment"
+type = "string"
+enum = "scene_sentiment"
+
+[[fields]]
+name = "objects"
+step = 1
+type = "array"
+flatten = "list_join"
+required_key = true
+prompt = "List of detected objects (strings)."
+[fields.items]
+type = "string"
+
+[[fields]]
+name = "symbols_and_brands"
+step = 1
+type = "array"
+flatten = "list_join"
+required_key = true
+prompt = "List of visible symbols, flags, or brands (strings)."
+[fields.items]
+type = "string"
+
+[[fields]]
+name = "text_overlays"
+step = 1
+type = "array"
+flatten = "list_join"
+required_key = true
+prompt = "List of OCR'd on-screen text (strings)."
+[fields.items]
+type = "string"
+
+[[fields]]
+name = "faces"
+step = 1
+type = "array"
+flatten = "faces_unpack"
+prompt = "Array of detected faces, each with gender, age_estimate (range like 20-30), and ethnicity."
+[fields.items]
+type = "object"
+required = ["gender", "age_estimate", "ethnicity"]
+[[fields.items.properties]]
+name = "gender"
+type = "string"
+enum = "gender"
+[[fields.items.properties]]
+name = "age_estimate"
+type = "string"
+description = "age range like 20-30"
+[[fields.items.properties]]
+name = "ethnicity"
+type = "string"
+
+[[fields]]
+name = "audio_summary"
+step = 1
+type = "object"
+flatten = "audio_unpack"
+required = ["speech_vs_music", "background_music", "notable_sounds"]
+prompt = "Object describing the audio: the speech-vs-music balance (adding to 100%), the style/mood of background music, and any notable sounds or sound effects."
+[[fields.properties]]
+name = "speech_vs_music"
+type = "string"
+description = "e.g. '60% speech, 40% music'"
+[[fields.properties]]
+name = "background_music"
+type = "string"
+[[fields.properties]]
+name = "notable_sounds"
+type = "array"
+[fields.properties.items]
+type = "string"
+
+[[fields]]
+name = "main_activity"
+step = 1
+type = "string"
+flatten = "scalar"
+description = "verb + object, e.g. 'dancing in a studio'"
+prompt = "\"verb + object\" (e.g. \"dancing in a studio\")."
+
+[[fields]]
+name = "video_story"
+step = 1
+type = "string"
+flatten = "scalar"
+description = "concise narrative summary"
+prompt = "Concise narrative summary of the entire video."
+
+[[fields]]
+name = "type_of_story"
+step = 1
+type = "string"
+enum = "type_of_story"
+flatten = "scalar"
+prompt = "One of {enum}."
+
+[[fields]]
+name = "content_category"
+step = 1
+type = "array"
+enum = "content_category"
+maxItems = 2
+flatten = "list_join"
+required_key = true
+prompt = "Array (up to two) from these 22 TikTok categories:\n{enum}"
+[fields.items]
+type = "string"
+enum = "content_category"
+
+[[fields]]
+name = "australian_relevance"
+step = 1
+type = "string"
+enum = "yes_no"
+flatten = "scalar"
+prompt = "{enum} — is the video directly connected to Australia through the creator's origin, the content's subject matter, or the intended audience."
+
+[[fields]]
+name = "tiktok_native"
+step = 1
+type = "string"
+enum = "yes_no"
+flatten = "scalar"
+prompt = "{enum} — is the video produced primarily for TikTok, reflecting the platform's distinctive style, format, and practices."
+
+[[fields]]
+name = "trend"
+step = 1
+type = "string"
+enum = "yes_no"
+flatten = "scalar"
+prompt = "{enum} — is the video directly engaging and replicating current, popular memes, challenges, or formats."
+
+[[fields]]
+name = "advertising"
+step = 1
+type = "string"
+enum = "yes_no"
+flatten = "scalar"
+prompt = "{enum}."
+
+[[fields]]
+name = "aigc"
+step = 1
+type = "string"
+enum = "yes_no"
+flatten = "scalar"
+prompt = "{enum} — is the video created using a prompt."
+
+[[fields]]
+name = "main_gender"
+step = 1
+type = "string"
+enum = "gender"
+flatten = "scalar"
+prompt = "One of {enum}."
+
+[[fields]]
+name = "main_ethnicity"
+step = 1
+type = "string"
+enum = "ethnicity"
+flatten = "scalar"
+prompt = "One of {enum}."
+
+# --- Step 2: persuasion & scoring ---
+[[fields]]
+name = "political_score"
+step = 2
+type = "object"
+flatten = "score_join"
+required = ["score", "rationale"]
+prompt = "0–100 with a one-sentence rationale."
+[[fields.properties]]
+name = "score"
+type = "integer"
+minimum = 0
+maximum = 100
+[[fields.properties]]
+name = "rationale"
+type = "string"
+description = "one-sentence rationale"
+
+[[fields]]
+name = "sensitivity_score"
+step = 2
+type = "object"
+flatten = "score_join"
+required = ["score", "rationale"]
+prompt = "0–100 with a one-sentence rationale."
+[[fields.properties]]
+name = "score"
+type = "integer"
+minimum = 0
+maximum = 100
+[[fields.properties]]
+name = "rationale"
+type = "string"
+description = "one-sentence rationale"
+
+[[fields]]
+name = "call_to_action"
+step = 2
+type = "string"
+flatten = "scalar"
+description = "action encouraged, or '-'"
+prompt = "Action encouraged, or \"-\"."
+
+# --- Step 3: Australian political context (conditional) ---
+[[fields]]
+name = "aussie_political_message"
+step = 3
+type = "string"
+flatten = "scalar"
+description = "summary or '-'"
+conditional = "political_gt_threshold"
+prompt = "Summary or \"-\"."
+
+[[fields]]
+name = "aussie_political_positioning"
+step = 3
+type = "string"
+enum = "political_positioning"
+flatten = "scalar"
+conditional = "political_gt_threshold"
+prompt = "One of {enum}."
+
+# --- Step 4: framing analysis (conditional) ---
+[[fields]]
+name = "framing_analysis_problem_definition"
+step = 4
+type = "string"
+flatten = "scalar"
+conditional = "issue_event"
+prompt = "How the core issue is defined or presented."
+
+[[fields]]
+name = "framing_analysis_attribution_of_responsibility"
+step = 4
+type = "string"
+flatten = "scalar"
+conditional = "issue_event"
+prompt = "Who is blamed or credited for the issue."
+
+[[fields]]
+name = "framing_analysis_moral_evaluation"
+step = 4
+type = "string"
+flatten = "scalar"
+conditional = "issue_event"
+prompt = "The moral judgement made about the issue."
+
+[[fields]]
+name = "framing_analysis_treatment_recommendation"
+step = 4
+type = "string"
+flatten = "scalar"
+conditional = "issue_event"
+prompt = "Proposed solutions or actions for the issue."
+
+# --- Step 5: cultural representation ---
+[[fields]]
+name = "cultural_representation_analysis_key_groups"
+step = 5
+type = "string"
+flatten = "scalar"
+prompt = "Key demographic or cultural groups represented."
+
+[[fields]]
+name = "cultural_representation_analysis_complexity_vs_stereotypes"
+step = 5
+type = "string"
+flatten = "scalar"
+prompt = "Nuanced representation versus clichéd stereotypes."
+
+[[fields]]
+name = "cultural_representation_analysis_symbolism_and_imagery"
+step = 5
+type = "string"
+flatten = "scalar"
+prompt = "Visual symbols or imagery representing cultural themes."
+
+[[fields]]
+name = "cultural_representation_analysis_inclusion_and_exclusion"
+step = 5
+type = "string"
+flatten = "scalar"
+prompt = "Who is included versus marginalized or excluded."
+
+# --- Step 6: ideological power analysis ---
+[[fields]]
+name = "ideological_analysis_dominant_ideologies"
+step = 6
+type = "string"
+flatten = "scalar"
+prompt = "Prevailing social or political beliefs present in the video."
+
+[[fields]]
+name = "ideological_analysis_power_dynamics"
+step = 6
+type = "string"
+flatten = "scalar"
+prompt = "Relationships of authority or influence shown."
+
+[[fields]]
+name = "ideological_analysis_critique_or_reinforcement"
+step = 6
+type = "string"
+flatten = "scalar"
+prompt = "Does the video challenge or support existing power structures."
+
+[[fields]]
+name = "ideological_analysis_cultural_or_historical_context"
+step = 6
+type = "string"
+flatten = "scalar"
+prompt = "Relevant historical or cultural background."

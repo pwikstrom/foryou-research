@@ -18,6 +18,16 @@ prompt = "new_prompt_002.txt"
 # structured output guarantees valid JSON and enforces the variable schema.
 use_structured_output = true
 
+# When true, the prompt (system instruction) is GENERATED from the declarative
+# annotation contract (config/annotation_contract.toml) via
+# annotation_schema.build_prompt() instead of being read from the prompt file
+# above. The generated prompt + response_schema + flattener all derive from that
+# one contract, so they cannot drift. Default false keeps serving the prompt file
+# (zero behaviour change). Flipping to true changes the prompt text the model
+# receives -> a new annotation_version (promote-gated, so no silent re-annotation);
+# validate with tests/ab_eval/smoke_structured.py before flipping in production.
+use_generated_prompt = false
+
 # Vertex AI settings
 vertexai = true
 project = "<gcp-project>"

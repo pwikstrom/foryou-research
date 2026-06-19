@@ -1,0 +1,459 @@
+[
+  {
+    "gemini_field": "transcript",
+    "node": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "speaker": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    "flatten_rule": "transcript_join"
+  },
+  {
+    "gemini_field": "scenes",
+    "node": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scene_index": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "sentiment": {
+            "type": "string",
+            "enum": [
+              "Positive High-Energy",
+              "Positive Low-Energy",
+              "Negative High-Energy",
+              "Negative Low-Energy"
+            ]
+          }
+        },
+        "required": [
+          "description",
+          "sentiment"
+        ]
+      }
+    },
+    "flatten_rule": "scenes_join"
+  },
+  {
+    "gemini_field": "objects",
+    "node": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "flatten_rule": "list_join"
+  },
+  {
+    "gemini_field": "symbols_and_brands",
+    "node": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "flatten_rule": "list_join"
+  },
+  {
+    "gemini_field": "text_overlays",
+    "node": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "flatten_rule": "list_join"
+  },
+  {
+    "gemini_field": "faces",
+    "node": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "gender": {
+            "type": "string",
+            "enum": [
+              "Female",
+              "Male",
+              "Nonbinary",
+              "Multiple",
+              "-"
+            ]
+          },
+          "age_estimate": {
+            "type": "string",
+            "description": "age range like 20-30"
+          },
+          "ethnicity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "gender",
+          "age_estimate",
+          "ethnicity"
+        ]
+      }
+    },
+    "flatten_rule": "faces_unpack"
+  },
+  {
+    "gemini_field": "audio_summary",
+    "node": {
+      "type": "object",
+      "properties": {
+        "speech_vs_music": {
+          "type": "string",
+          "description": "e.g. '60% speech, 40% music'"
+        },
+        "background_music": {
+          "type": "string"
+        },
+        "notable_sounds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "speech_vs_music",
+        "background_music",
+        "notable_sounds"
+      ]
+    },
+    "flatten_rule": "audio_unpack"
+  },
+  {
+    "gemini_field": "main_activity",
+    "node": {
+      "type": "string",
+      "description": "verb + object, e.g. 'dancing in a studio'"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "video_story",
+    "node": {
+      "type": "string",
+      "description": "concise narrative summary"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "type_of_story",
+    "node": {
+      "type": "string",
+      "enum": [
+        "Issue-Based",
+        "Event-Based",
+        "Human-Interest",
+        "Descriptive"
+      ]
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "content_category",
+    "node": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "Performance",
+          "Comedy",
+          "Film & TV",
+          "Anime & Comics",
+          "Games",
+          "Drama",
+          "Art & Creativity",
+          "Sports",
+          "Daily Life",
+          "Fashion & Beauty",
+          "Interpersonal Relationships",
+          "Food",
+          "Animals",
+          "Fitness & Physical Health",
+          "DIY & Life Hacks",
+          "Travel",
+          "Mental Health & Wellbeing",
+          "News",
+          "Education",
+          "Technology & Design & Reviews",
+          "Finance",
+          "Society"
+        ]
+      },
+      "maxItems": 2
+    },
+    "flatten_rule": "list_join"
+  },
+  {
+    "gemini_field": "australian_relevance",
+    "node": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "tiktok_native",
+    "node": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "trend",
+    "node": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "advertising",
+    "node": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "aigc",
+    "node": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ]
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "main_gender",
+    "node": {
+      "type": "string",
+      "enum": [
+        "Female",
+        "Male",
+        "Nonbinary",
+        "Multiple",
+        "-"
+      ]
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "main_ethnicity",
+    "node": {
+      "type": "string",
+      "enum": [
+        "Indigenous Australian",
+        "Caucasian",
+        "Middle Eastern",
+        "South Asian",
+        "Northeast Asian",
+        "Southeast Asian",
+        "African",
+        "Native American",
+        "Multiple",
+        "-"
+      ]
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "political_score",
+    "node": {
+      "type": "object",
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "rationale": {
+          "type": "string",
+          "description": "one-sentence rationale"
+        }
+      },
+      "required": [
+        "score",
+        "rationale"
+      ]
+    },
+    "flatten_rule": "score_join"
+  },
+  {
+    "gemini_field": "sensitivity_score",
+    "node": {
+      "type": "object",
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "rationale": {
+          "type": "string",
+          "description": "one-sentence rationale"
+        }
+      },
+      "required": [
+        "score",
+        "rationale"
+      ]
+    },
+    "flatten_rule": "score_join"
+  },
+  {
+    "gemini_field": "call_to_action",
+    "node": {
+      "type": "string",
+      "description": "action encouraged, or '-'"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "aussie_political_message",
+    "node": {
+      "type": "string",
+      "description": "summary or '-'"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "aussie_political_positioning",
+    "node": {
+      "type": "string",
+      "enum": [
+        "Pro Coalition/LNP/Nationals",
+        "Anti Coalition/LNP/Nationals",
+        "Pro Labor",
+        "Anti Labor",
+        "Pro Greens",
+        "Anti Greens",
+        "Pro Independents/small parties",
+        "No clear position",
+        "-"
+      ]
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "framing_analysis_problem_definition",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "framing_analysis_attribution_of_responsibility",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "framing_analysis_moral_evaluation",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "framing_analysis_treatment_recommendation",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "cultural_representation_analysis_key_groups",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "cultural_representation_analysis_complexity_vs_stereotypes",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "cultural_representation_analysis_symbolism_and_imagery",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "cultural_representation_analysis_inclusion_and_exclusion",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "ideological_analysis_dominant_ideologies",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "ideological_analysis_power_dynamics",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "ideological_analysis_critique_or_reinforcement",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  },
+  {
+    "gemini_field": "ideological_analysis_cultural_or_historical_context",
+    "node": {
+      "type": "string"
+    },
+    "flatten_rule": "scalar"
+  }
+]

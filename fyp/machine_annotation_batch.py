@@ -325,8 +325,7 @@ def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
     bucket_name = fyp_cf["data_io"]["GCS_bucket_name"]
     media_prefix = fyp_cf["data_io"]["gcs_media_prefix"]
     data_prefix = fyp_cf["data_io"].get("gcs_data_prefix", "data")
-    with open(fyp_cf["machine"]["prompt"]) as handle:
-        system_instruction = handle.read()
+    system_instruction = annotation_versioning.active_prompt_text()
     # Batch needs the genai PROTO schema (type:"STRING"/"OBJECT", propertyOrdering),
     # NOT the OpenAPI dict (type:"string") that get_annotation_json_schema emits:
     # the interactive endpoint tolerates the OpenAPI form, but the batch endpoint's

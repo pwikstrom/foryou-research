@@ -1,9 +1,10 @@
-"""Declarative annotation-field spec, Gemini response-schema builder, and a
-structured-output flattener for the machine-annotation pipeline.
+"""Generators for the Gemini annotation contract: response-schema builder,
+structured-output flattener, and prompt renderer — all derived from one
+declarative source, ``config/annotation_contract.toml`` (Workstream E).
 
-This module is the Phase 2 (structured output) groundwork and the seed of the
-Phase 3 inversion (generating the prompt + processing from a schema). It holds a
-single ordered description of the Gemini output contract and derives from it:
+A single ordered description of the Gemini output contract lives in the TOML
+(loaded via ``fyp.annotation_contract``); ``FIELD_SPECS`` is built from it. From
+``FIELD_SPECS`` this module derives:
 
   * ``build_response_schema()`` — a ``google.genai`` ``Schema`` that constrains
     decoding so the model always returns valid, conforming JSON.
@@ -12,8 +13,10 @@ single ordered description of the Gemini output contract and derives from it:
   * ``flatten_structured()`` — turns a structured response into the *exact* flat
     column shape that ``machine_annotation.flatten_one_machine_response``
     produces today, so the existing recode pipeline (and the golden corpus) are
-    reused unchanged. The only variable an A/B test then measures is free-text
-    vs structured generation — not different downstream processing.
+    reused unchanged.
+  * ``build_prompt()`` — renders the text prompt (system instruction) from the
+    same contract by pure deterministic templating (no LLM), so the prompt can
+    never drift from the schema or the flattener.
 
 Design note — scores: the legacy prompt asks for ``"0-100, one-sentence
 rationale"`` as a free string that ``recode_scores`` later splits. Here the same
@@ -26,222 +29,38 @@ import collections
 
 import google.genai.types as gt
 
-YES_NO = ["Yes", "No"]
+from fyp import annotation_contract as _ac
 
-GENDER_VALUES = ["Female", "Male", "Nonbinary", "Multiple", "-"]
+# The declarative contract is loaded once at import; the prompt, response schema
+# and flattener field specs all derive from it.
+_CONTRACT = _ac.load_contract()
 
-ETHNICITY_VALUES = [
-    "Indigenous Australian",
-    "Caucasian",
-    "Middle Eastern",
-    "South Asian",
-    "Northeast Asian",
-    "Southeast Asian",
-    "African",
-    "Native American",
-    "Multiple",
-    "-",
-]
+# Enum value lists (derived from the contract; kept as module-level aliases for
+# readability and any back-compat reference).
+YES_NO = _ac.enum_values(_CONTRACT, "yes_no")
+GENDER_VALUES = _ac.enum_values(_CONTRACT, "gender")
+ETHNICITY_VALUES = _ac.enum_values(_CONTRACT, "ethnicity")
+TYPE_OF_STORY_VALUES = _ac.enum_values(_CONTRACT, "type_of_story")
+SCENE_SENTIMENT_VALUES = _ac.enum_values(_CONTRACT, "scene_sentiment")
+CONTENT_CATEGORY_VALUES = _ac.enum_values(_CONTRACT, "content_category")
+POLITICAL_POSITIONING_VALUES = _ac.enum_values(_CONTRACT, "political_positioning")
 
-TYPE_OF_STORY_VALUES = ["Issue-Based", "Event-Based", "Human-Interest", "Descriptive"]
-
-SCENE_SENTIMENT_VALUES = [
-    "Positive High-Energy",
-    "Positive Low-Energy",
-    "Negative High-Energy",
-    "Negative Low-Energy",
-]
-
-CONTENT_CATEGORY_VALUES = [
-    "Performance",
-    "Comedy",
-    "Film & TV",
-    "Anime & Comics",
-    "Games",
-    "Drama",
-    "Art & Creativity",
-    "Sports",
-    "Daily Life",
-    "Fashion & Beauty",
-    "Interpersonal Relationships",
-    "Food",
-    "Animals",
-    "Fitness & Physical Health",
-    "DIY & Life Hacks",
-    "Travel",
-    "Mental Health & Wellbeing",
-    "News",
-    "Education",
-    "Technology & Design & Reviews",
-    "Finance",
-    "Society",
-]
-
-POLITICAL_POSITIONING_VALUES = [
-    "Pro Coalition/LNP/Nationals",
-    "Anti Coalition/LNP/Nationals",
-    "Pro Labor",
-    "Anti Labor",
-    "Pro Greens",
-    "Anti Greens",
-    "Pro Independents/small parties",
-    "No clear position",
-    "-",
-]
-
-# Conditional fields, per the study design encoded in the prompt:
-# framing analysis applies only to Issue-Based / Event-Based stories; the
-# Australian-political fields only when political_score > 40. Structured output
-# cannot express these conditionals in a single schema, so the fields are made
-# nullable (the model may omit them) and ``apply_conditional_rules`` enforces
-# the condition deterministically afterwards — matching the free-text path,
-# whose coverage of these fields is governed by the same rule.
-ISSUE_EVENT_VALUES = {"Issue-Based", "Event-Based"}
-POLITICAL_THRESHOLD = 40
-FRAMING_FIELDS = (
-    "framing_analysis_problem_definition",
-    "framing_analysis_attribution_of_responsibility",
-    "framing_analysis_moral_evaluation",
-    "framing_analysis_treatment_recommendation",
-)
-AUSSIE_CONDITIONAL_FIELDS = (
-    "aussie_political_message",
-    "aussie_political_positioning",
-)
+# Conditional-field design (derived from the contract): framing analysis applies
+# only to Issue-Based / Event-Based stories; the Australian-political fields only
+# when political_score > the threshold. Structured output cannot express these
+# conditionals in a single schema, so the fields are made nullable (the model may
+# omit them) and ``apply_conditional_rules`` enforces the condition deterministically
+# afterwards — matching the free-text path.
+_COND_GROUPS = _ac.conditional_field_groups(_CONTRACT)
+FRAMING_FIELDS = _COND_GROUPS.get("issue_event", ())
+AUSSIE_CONDITIONAL_FIELDS = _COND_GROUPS.get("political_gt_threshold", ())
 CONDITIONAL_FIELDS = frozenset(FRAMING_FIELDS) | frozenset(AUSSIE_CONDITIONAL_FIELDS)
-
-
-def _obj(properties: dict, required: list[str]) -> dict:
-    """Build a JSON-schema object node with ordered properties.
-
-    Args:
-        properties: Ordered mapping of property name to its JSON-schema node.
-        required: Property names that must be present.
-
-    Returns:
-        A JSON-schema ``object`` node.
-    """
-    return {"type": "object", "properties": properties, "required": required}
-
-
-def _str(description: str = "", enum: list[str] | None = None) -> dict:
-    """Build a JSON-schema string node, optionally enum-constrained."""
-    node: dict = {"type": "string"}
-    if description:
-        node["description"] = description
-    if enum is not None:
-        node["enum"] = enum
-    return node
-
-
-def _list_of(item: dict, description: str = "", max_items: int | None = None) -> dict:
-    """Build a JSON-schema array node."""
-    node: dict = {"type": "array", "items": item}
-    if description:
-        node["description"] = description
-    if max_items is not None:
-        node["maxItems"] = max_items
-    return node
-
+ISSUE_EVENT_VALUES = set(_CONTRACT["conditions"]["issue_event_values"])
+POLITICAL_THRESHOLD = _CONTRACT["conditions"]["political_threshold"]
 
 # Ordered field contract. Each entry: (gemini_field, json_schema_node, flatten_rule).
-# Order mirrors the six prompt steps and drives propertyOrdering.
-_SCORE_OBJ = _obj(
-    {
-        "score": {"type": "integer", "minimum": 0, "maximum": 100},
-        "rationale": _str("one-sentence rationale"),
-    },
-    ["score", "rationale"],
-)
-
-FIELD_SPECS: list[tuple[str, dict, str]] = [
-    # --- Step 1: video profile ---
-    (
-        "transcript",
-        _list_of(_obj({"speaker": _str(), "text": _str()}, ["text"])),
-        "transcript_join",
-    ),
-    (
-        "scenes",
-        _list_of(
-            _obj(
-                {
-                    "scene_index": {"type": "integer"},
-                    "description": _str(),
-                    "sentiment": _str(enum=SCENE_SENTIMENT_VALUES),
-                },
-                ["description", "sentiment"],
-            )
-        ),
-        "scenes_join",
-    ),
-    ("objects", _list_of(_str()), "list_join"),
-    ("symbols_and_brands", _list_of(_str()), "list_join"),
-    ("text_overlays", _list_of(_str()), "list_join"),
-    (
-        "faces",
-        _list_of(
-            _obj(
-                {
-                    "gender": _str(enum=GENDER_VALUES),
-                    "age_estimate": _str("age range like 20-30"),
-                    "ethnicity": _str(),
-                },
-                ["gender", "age_estimate", "ethnicity"],
-            )
-        ),
-        "faces_unpack",
-    ),
-    (
-        "audio_summary",
-        _obj(
-            {
-                "speech_vs_music": _str("e.g. '60% speech, 40% music'"),
-                "background_music": _str(),
-                "notable_sounds": _list_of(_str()),
-            },
-            ["speech_vs_music", "background_music", "notable_sounds"],
-        ),
-        "audio_unpack",
-    ),
-    ("main_activity", _str("verb + object, e.g. 'dancing in a studio'"), "scalar"),
-    ("video_story", _str("concise narrative summary"), "scalar"),
-    ("type_of_story", _str(enum=TYPE_OF_STORY_VALUES), "scalar"),
-    (
-        "content_category",
-        _list_of(_str(enum=CONTENT_CATEGORY_VALUES), max_items=2),
-        "list_join",
-    ),
-    ("australian_relevance", _str(enum=YES_NO), "scalar"),
-    ("tiktok_native", _str(enum=YES_NO), "scalar"),
-    ("trend", _str(enum=YES_NO), "scalar"),
-    ("advertising", _str(enum=YES_NO), "scalar"),
-    ("aigc", _str(enum=YES_NO), "scalar"),
-    ("main_gender", _str(enum=GENDER_VALUES), "scalar"),
-    ("main_ethnicity", _str(enum=ETHNICITY_VALUES), "scalar"),
-    # --- Step 2: persuasion & scoring ---
-    ("political_score", _SCORE_OBJ, "score_join"),
-    ("sensitivity_score", _SCORE_OBJ, "score_join"),
-    ("call_to_action", _str("action encouraged, or '-'"), "scalar"),
-    # --- Step 3: Australian political context (conditional; '-' when N/A) ---
-    ("aussie_political_message", _str("summary or '-'"), "scalar"),
-    ("aussie_political_positioning", _str(enum=POLITICAL_POSITIONING_VALUES), "scalar"),
-    # --- Step 4: framing analysis (conditional; '-' when N/A) ---
-    ("framing_analysis_problem_definition", _str(), "scalar"),
-    ("framing_analysis_attribution_of_responsibility", _str(), "scalar"),
-    ("framing_analysis_moral_evaluation", _str(), "scalar"),
-    ("framing_analysis_treatment_recommendation", _str(), "scalar"),
-    # --- Step 5: cultural representation ---
-    ("cultural_representation_analysis_key_groups", _str(), "scalar"),
-    ("cultural_representation_analysis_complexity_vs_stereotypes", _str(), "scalar"),
-    ("cultural_representation_analysis_symbolism_and_imagery", _str(), "scalar"),
-    ("cultural_representation_analysis_inclusion_and_exclusion", _str(), "scalar"),
-    # --- Step 6: ideological power analysis ---
-    ("ideological_analysis_dominant_ideologies", _str(), "scalar"),
-    ("ideological_analysis_power_dynamics", _str(), "scalar"),
-    ("ideological_analysis_critique_or_reinforcement", _str(), "scalar"),
-    ("ideological_analysis_cultural_or_historical_context", _str(), "scalar"),
-]
+# Built from the TOML; order mirrors the prompt steps and drives propertyOrdering.
+FIELD_SPECS: list[tuple[str, dict, str]] = _ac.build_field_specs(_CONTRACT)
 
 
 def get_annotation_json_schema() -> dict:
@@ -321,6 +140,52 @@ def _json_to_genai_schema(node: dict) -> gt.Schema:
 def build_response_schema() -> gt.Schema:
     """Build the ``genai`` response schema for constrained decoding."""
     return _json_to_genai_schema(get_annotation_json_schema())
+
+
+def get_required_keys() -> list[str]:
+    """Return the pre-flight ``REQUIRED_KEYS`` (must-be-present fields).
+
+    These are the contract fields flagged ``required_key = true`` — the keys the
+    refinement path expects to find in a raw response.
+
+    Returns:
+        Field names in contract order.
+    """
+    return [f["name"] for f in _CONTRACT.get("fields", []) if f.get("required_key")]
+
+
+def build_prompt() -> str:
+    """Render the Gemini system-instruction prompt from the contract.
+
+    Pure deterministic templating (no LLM): a global header, then each step's
+    title + intro + per-field bullets (``{enum}`` tokens rendered from the
+    contract, ``prompt_override`` used verbatim when present) + optional footer,
+    then a global footer. Determinism keeps the prompt-text version hash stable.
+
+    Returns:
+        The full prompt text.
+    """
+    contract = _CONTRACT
+    steps = _ac.steps_by_number(contract)
+    fields_by_step: dict[int, list[dict]] = {}
+    for field in contract.get("fields", []):
+        fields_by_step.setdefault(field["step"], []).append(field)
+
+    lines: list[str] = [contract["prompt"]["header"], ""]
+    for num in sorted(steps):
+        step = steps[num]
+        lines.append(f"{num}. **{step['title']}**")
+        if step.get("intro"):
+            lines.append(f"   {step['intro']}")
+        for field in fields_by_step.get(num, []):
+            text = field.get("prompt_override") or field.get("prompt") or field.get("description") or ""
+            text = _ac.render_prompt_text(text, field, contract)
+            lines.append(f"   • '{field['name']}': {text}")
+        if step.get("footer"):
+            lines.append(f"   {step['footer']}")
+        lines.append("")
+    lines.append(contract["prompt"]["footer"])
+    return "\n".join(lines)
 
 
 def _join_pipe(values: list) -> str:

@@ -74,8 +74,7 @@ def initialize_machine():
 
     if fyp_utils.online_ok():
         try:
-            with open(fyp_cf['machine']['prompt']) as file:
-                machine_prompt = file.read()
+            machine_prompt = annotation_versioning.active_prompt_text()
 
             fyp_cf["machine"]["client"] = google.genai.Client(
                 vertexai=fyp_cf["machine"]["vertexai"],
@@ -148,8 +147,7 @@ def build_structured_generation_config():
     if fyp_cf["machine"].get("structured_generation_config") is not None:
         return fyp_cf["machine"]["structured_generation_config"]
 
-    with open(fyp_cf["machine"]["prompt"]) as file:
-        machine_prompt = file.read()
+    machine_prompt = annotation_versioning.active_prompt_text()
 
     fyp_cf["machine"]["structured_generation_config"] = google.genai.types.GenerateContentConfig(
         system_instruction=machine_prompt,
@@ -292,7 +290,7 @@ def call_machine(
         "inference_ts" : int(times[-1].timestamp()),
         "inference_duration" : -1,
         "model" : fyp_cf['machine']['model'],
-        "prompt_fn" : os.path.basename(fyp_cf['machine']['prompt']),
+        "prompt_fn" : annotation_versioning.active_prompt_label(),
         "annotation_version" : annotation_versioning.current_annotation_version(),
         "structured" : use_structured,
         "usage" : {},
