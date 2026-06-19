@@ -31,7 +31,7 @@ import google.genai
 
 import fyp.annotation_versioning as annotation_versioning
 import fyp.data_io as data_io
-from fyp.annotation_schema import get_annotation_json_schema
+from fyp.annotation_schema import build_response_schema
 from fyp.fyp_config import fyp_cf
 from fyp.machine_annotation import MACHINE_ANNOTATIONS_LABEL, initialize_machine
 
@@ -327,7 +327,19 @@ def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
     data_prefix = fyp_cf["data_io"].get("gcs_data_prefix", "data")
     with open(fyp_cf["machine"]["prompt"]) as handle:
         system_instruction = handle.read()
-    schema_json = get_annotation_json_schema()
+    # Batch needs the genai PROTO schema (type:"STRING"/"OBJECT", propertyOrdering),
+    # NOT the OpenAPI dict (type:"string") that get_annotation_json_schema emits:
+    # the interactive endpoint tolerates the OpenAPI form, but the batch endpoint's
+    # raw-JSON proto parser rejects it (confirmed by the live spike).
+    schema_json = build_response_schema().model_dump(mode="json", by_alias=True, exclude_none=True)
+    # Vertex's batch endpoint mis-converts 2-value string enums (e.g. ["Yes","No"])
+    # into a boolean enum and then rejects its own output. Drop the enum constraint
+    # on such fields for the BATCH request only — the prompt still asks for the value
+    # and the recode pipeline tolerates free strings. (Live-spike-confirmed Vertex
+    # quirk; the synchronous structured path keeps the enums.)
+    for _prop in schema_json.get("properties", {}).values():
+        if isinstance(_prop, dict) and isinstance(_prop.get("enum"), list) and len(_prop["enum"]) == 2:
+            _prop.pop("enum", None)
     gen_params = current_batch_gen_params()
 
     lines = []
