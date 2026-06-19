@@ -32,6 +32,7 @@ MODULES = [
     GOLDEN_DIR / "test_structured_flatten_equivalence.py",
     GOLDEN_DIR / "test_structured_refinement_path.py",
     GOLDEN_DIR / "test_versioning_consolidation.py",
+    GOLDEN_DIR / "test_contract_cutover.py",
     GOLDEN_DIR / "test_batch_annotation.py",
     GOLDEN_DIR / "test_batch_worker.py",
     PROJECT_ROOT / "tests" / "unit" / "test_recode_series_branches.py",
@@ -42,6 +43,7 @@ MODULES = [
     PROJECT_ROOT / "tests" / "unit" / "test_media_resolution.py",
     PROJECT_ROOT / "tests" / "unit" / "test_generated_prompt_flag.py",
     PROJECT_ROOT / "tests" / "unit" / "test_contract_accepted_labels.py",
+    PROJECT_ROOT / "tests" / "unit" / "test_australian_relevance_derivation.py",
 ]
 
 

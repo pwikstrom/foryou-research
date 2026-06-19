@@ -3,9 +3,8 @@
 When ``use_structured_output`` is on, ``call_machine`` marks each raw output
 ``structured=True`` and stores schema-constrained JSON. This test verifies that
 ``refine_one_raw_annotation_batch`` (the production refinement) detects that
-marker and routes through ``flatten_structured`` + ``apply_conditional_rules``
-instead of the legacy fuzzy flattener — producing a valid annotated dataframe
-with the same column shape. No API calls.
+marker and routes through ``flatten_structured`` instead of the legacy fuzzy
+flattener — producing a valid annotated dataframe. No API calls.
 
 Usage:
     python tests/golden/test_structured_refinement_path.py
@@ -26,9 +25,9 @@ import fyp.machine_annotation as ma
 
 def _structured_response(type_of_story: str) -> dict:
     return {
-        "transcript": [{"speaker": "A", "text": "hello world"}],
-        "scenes": [{"scene_index": 0, "description": "a person dances",
-                    "sentiment": "Positive High-Energy"}],
+        "transcript": "hello world, this is the spoken text",
+        "spoken_language": "English",
+        "multilingual": "No",
         "objects": ["phone", "table"],
         "symbols_and_brands": ["nike"],
         "text_overlays": ["hi there"],
@@ -39,25 +38,13 @@ def _structured_response(type_of_story: str) -> dict:
         "video_story": "A person dances in a studio.",
         "type_of_story": type_of_story,
         "content_category": ["Performance", "Daily Life"],
-        "australian_relevance": "No", "tiktok_native": "Yes", "trend": "No",
+        "primary_country": "Australia", "tiktok_native": "Yes",
+        "trend_technical": "No", "trend_cultural": "No",
         "advertising": "No", "aigc": "No",
         "main_gender": "Female", "main_ethnicity": "Caucasian",
-        "political_score": {"score": 0, "rationale": "no political content"},
-        "sensitivity_score": {"score": 10, "rationale": "low sensitivity"},
+        "political_score": 0,
+        "sensitivity_score": 10,
         "call_to_action": "follow for more",
-        "aussie_political_message": "-", "aussie_political_positioning": "-",
-        "framing_analysis_problem_definition": "model-written framing",
-        "framing_analysis_attribution_of_responsibility": "model-written framing",
-        "framing_analysis_moral_evaluation": "model-written framing",
-        "framing_analysis_treatment_recommendation": "model-written framing",
-        "cultural_representation_analysis_key_groups": "two-sentence justification here.",
-        "cultural_representation_analysis_complexity_vs_stereotypes": "two-sentence justification.",
-        "cultural_representation_analysis_symbolism_and_imagery": "two-sentence justification.",
-        "cultural_representation_analysis_inclusion_and_exclusion": "two-sentence justification.",
-        "ideological_analysis_dominant_ideologies": "two-sentence justification here.",
-        "ideological_analysis_power_dynamics": "two-sentence justification here.",
-        "ideological_analysis_critique_or_reinforcement": "two-sentence justification.",
-        "ideological_analysis_cultural_or_historical_context": "two-sentence justification.",
     }
 
 
@@ -93,39 +80,6 @@ def test_structured_refinement_produces_valid_rows() -> None:
     # The structured path produced the recoded analytic columns.
     for col in ("type_of_story", "content_category", "main_gender"):
         assert col in df.columns, f"missing recoded column {col}"
-
-
-def test_routing_is_marker_driven() -> None:
-    """The ``structured`` marker — not the payload — decides which flattener runs.
-
-    The structured path parses the ``{score, rationale}`` score-object correctly
-    into a numeric column; the legacy path (marker off) stringifies the dict and
-    ``recode_scores`` coerces it to NaN. Comparing the recoded ``sensitivity_
-    score`` on the same payload proves routing is governed by the marker.
-    """
-    struct_batch = _raw_batch()
-    legacy_batch = _raw_batch()
-    for entry in legacy_batch.values():
-        entry["structured"] = False
-
-    with pinned_var_schema(), isolated_storage():
-        df_structured = ma.refine_one_raw_annotation_batch(
-            raw_outputs_from_machine=struct_batch,
-            raw_json_filename="structured_route.json", verbose=False,
-        )
-    with pinned_var_schema(), isolated_storage():
-        df_legacy = ma.refine_one_raw_annotation_batch(
-            raw_outputs_from_machine=legacy_batch,
-            raw_json_filename="legacy_route.json", verbose=False,
-        )
-
-    assert df_structured["sensitivity_score"].notna().all(), (
-        "structured path should parse the score-object into a numeric value"
-    )
-    assert df_legacy["sensitivity_score"].isna().all(), (
-        "legacy path should NOT parse the structured score-object (proves routing "
-        "is marker-driven, and that legacy raw files are unaffected)"
-    )
 
 
 def _main() -> int:

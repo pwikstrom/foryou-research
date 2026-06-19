@@ -30,7 +30,6 @@ from fyp.fyp_config import fyp_cf
 
 #from fyp.organize_datasets import select_videos_from_study_dataset
 from fyp.annotation_schema import (
-    apply_conditional_rules,
     build_response_schema,
     flatten_structured,
 )
@@ -1030,17 +1029,14 @@ def flatten_and_fix_machine_outputs(
             entry = raw_outputs_from_machine[h]
             if entry.get("structured"):
                 # Structured responses are schema-constrained valid JSON: parse
-                # directly and use the deterministic structured flattener +
-                # conditional rules. Falls back to the fuzzy loader only if the
-                # strict parse somehow fails.
+                # directly and use the deterministic structured flattener. Falls
+                # back to the fuzzy loader only if the strict parse somehow fails.
                 try:
                     json_response = json.loads(entry["response"])
                 except (json.JSONDecodeError, TypeError):
                     json_response = fuzzy_load_of_json_from_string(entry["response"], notebook_mode=notebook_mode)
                 if isinstance(json_response, dict):
-                    flattened_response = apply_conditional_rules(
-                        flatten_structured(json_response), json_response
-                    )
+                    flattened_response = flatten_structured(json_response)
                 else:
                     flattened_response = None
             else:

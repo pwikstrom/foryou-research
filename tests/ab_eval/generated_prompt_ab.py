@@ -42,7 +42,7 @@ from _ab_common import compare_arms, refine_from_flat_dicts
 from structured_annotator import annotate_structured, build_structured_config
 
 import fyp.machine_annotation as ma
-from fyp.annotation_schema import apply_conditional_rules, build_prompt, flatten_structured
+from fyp.annotation_schema import build_prompt, flatten_structured
 from fyp.fyp_config import fyp_cf
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -54,7 +54,7 @@ _GEN = dict(temperature=0.0, use_penalties=False, media_resolution="HIGH")
 def _annotate(vid: str, arm: str, prompt: str) -> dict:
     o = annotate_structured(vid, use_local_video_file=True, prompt_override=prompt, **_GEN)
     ok = isinstance(o.get("parsed"), dict)
-    flat = apply_conditional_rules(flatten_structured(o["parsed"]), o["parsed"]) if ok else {}
+    flat = flatten_structured(o["parsed"]) if ok else {}
     u = o.get("usage", {}) or {}
     return {
         "arm": arm,

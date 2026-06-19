@@ -37,7 +37,7 @@ from _harness import load_fixture, normalize_frame
 from structured_annotator import annotate_structured
 
 import fyp.machine_annotation as ma
-from fyp.annotation_schema import apply_conditional_rules, flatten_structured
+from fyp.annotation_schema import build_prompt, flatten_structured
 from fyp.fyp_config import fyp_cf
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -45,18 +45,19 @@ SCORE_FIELDS = ("political_score", "sensitivity_score")
 KEY_DISTRIBUTIONS = ("content_category", "type_of_story", "main_gender", "main_ethnicity")
 ADJUDICATION_FIELDS = ("type_of_story", "content_category", "main_ethnicity")
 
+# Live A/B compares OLD (arm A: free-text, FILE prompt) vs NEW (arm B: structured,
+# generated prompt). run_live() pins the global flags + captures this prompt.
+_NEW_PROMPT: str | None = None
+
 
 def _to_structured_shape(nested: dict) -> dict:
+    # Scores are plain integers in the current contract (no rationale).
     out = dict(nested)
     for key in SCORE_FIELDS:
         val = out.get(key)
         if isinstance(val, str) and val.strip():
-            parts = val.split(", ", 1)
             with contextlib.suppress(ValueError):
-                out[key] = {
-                    "score": int(float(parts[0].strip())),
-                    "rationale": parts[1] if len(parts) > 1 else "",
-                }
+                out[key] = int(float(val.split(", ", 1)[0].strip()))
     return out
 
 
@@ -90,9 +91,10 @@ def _annotate_one(vid: str, thinking_budget: int | None) -> dict:
     if not a_ok:
         flat_a = {}
 
-    b = annotate_structured(vid, use_local_video_file=True, thinking_budget=thinking_budget)
+    b = annotate_structured(vid, use_local_video_file=True, thinking_budget=thinking_budget,
+                            prompt_override=_NEW_PROMPT)
     b_ok = isinstance(b.get("parsed"), dict)
-    flat_b = apply_conditional_rules(flatten_structured(b["parsed"]), b["parsed"]) if b_ok else {}
+    flat_b = flatten_structured(b["parsed"]) if b_ok else {}
 
     return {
         "rec_a": {"item_id": vid, **flat_a},
@@ -119,6 +121,12 @@ def run_live(n: int, seed: int, workers: int, thinking_budget: int | None) -> tu
     rng = random.Random(seed)
     rng.shuffle(mp4s)
     video_ids = [Path(p).stem for p in mp4s[:n]]
+
+    global _NEW_PROMPT
+    _NEW_PROMPT = build_prompt()  # NEW arm: generated prompt from the contract.
+    # OLD arm (ma.call_machine) = free-text generation with the FILE prompt.
+    fyp_cf["machine"]["use_structured_output"] = False
+    fyp_cf["machine"]["use_generated_prompt"] = False
 
     ma.initialize_machine()
     from structured_annotator import build_structured_config

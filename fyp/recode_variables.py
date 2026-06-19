@@ -49,6 +49,11 @@ def rename_columns(some_events):
         ("framing_analysis_","FA_"),
         ("cultural_representation_analysis_","CRA_"),
         ("ideological_analysis_","IA_"),
+        # The object_unpack flattener prefixes audio sub-keys with the field
+        # name (audio_summary_speech_vs_music, ...); strip it back to the
+        # var_schema variable names (speech_vs_music, ...). The legacy free-text
+        # flattener already emits the bare names, so this is a no-op for it.
+        ("audio_summary_",""),
 
         ]
 
@@ -671,6 +676,45 @@ def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False)
         print("    Grouping Factors:",", ".join(the_grouping_factors))
 
     return the_grouping_factors
+
+
+
+
+
+def derive_australian_relevance(df: pd.DataFrame) -> pd.DataFrame:
+    """Backfill ``australian_relevance`` from ``primary_country`` where missing.
+
+    The generalized contract replaced the ``australian_relevance`` yes/no field
+    with ``primary_country`` (any country), so rows annotated under the new
+    contract carry ``primary_country`` but no ``australian_relevance``, while rows
+    from older versions still carry the model-output ``australian_relevance``.
+    This coalesces the two so the existing dichotomous ``australian_relevance``
+    feature stays populated: ``"yes"`` when the primary country is Australia,
+    else ``"no"`` — applied only to rows that lack an existing value (older rows
+    are left untouched). A no-op when ``primary_country`` is absent.
+
+    Args:
+        df: A recoded dataframe (annotation columns already lower-cased).
+
+    Returns:
+        The same dataframe with ``australian_relevance`` coalesced.
+    """
+    if "primary_country" not in df.columns:
+        return df
+
+    country = df["primary_country"].astype("string").str.strip().str.lower()
+    derived = pd.Series(pd.NA, index=df.index, dtype="string")
+    derived = derived.mask(country.notna() & country.ne(""), "no")
+    derived = derived.mask(country.eq("australia"), "yes")
+
+    if "australian_relevance" in df.columns:
+        existing = df["australian_relevance"].astype("string").str.strip()
+        has_existing = existing.notna() & existing.ne("")
+        df["australian_relevance"] = existing.where(has_existing, derived).astype("string")
+    else:
+        df["australian_relevance"] = derived
+
+    return df
 
 
 

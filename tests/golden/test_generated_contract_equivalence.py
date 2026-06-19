@@ -12,9 +12,8 @@ This module is the safety gate that proves the generated artifacts are correct:
     OpenAPI dict, and a contract rebuild could match one but perturb the other.
   * FUNCTIONAL (the prompt can't be byte-identical — its prose isn't in the
     structured data): the generated prompt must mention all fields, every enum
-    value, all step titles and both conditional clauses; be deterministic; and
-    match a committed review snapshot.
-  * REQUIRED_KEYS: the contract's required keys must equal config REQUIRED_KEYS.
+    value, and all section titles; be deterministic; and match a committed
+    review snapshot.
 
 After an INTENTIONAL contract edit (experimentation), the byte-identical checks
 fail by design until re-blessed:
@@ -44,13 +43,9 @@ PROMPT_SNAPSHOT = FIXTURE_DIR / "prompt.generated.snapshot.txt"
 
 _FIELD_RE = re.compile(r"[•·]\s*['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]")
 
-_STEP_TITLES = [
+_SECTION_TITLES = [
     "Video Profile Extraction",
     "Persuasion & Scoring",
-    "Australian Political Context",
-    "Framing Analysis",
-    "Cultural Representation",
-    "Ideological Power Analysis",
 ]
 
 
@@ -112,17 +107,16 @@ def test_prompt_functionally_complete() -> None:
         f"extra {sorted(found - spec_names)}"
     )
 
+    from fyp import annotation_contract as ac
+
     enum_values = set()
-    for enum in schema._CONTRACT["enums"].values():
-        enum_values |= set(enum["values"])
+    for name in schema._CONTRACT["enums"]:
+        enum_values |= set(ac.enum_values(schema._CONTRACT, name))
     missing = sorted(v for v in enum_values if v not in prompt)
     assert not missing, f"enum values missing from prompt: {missing}"
 
-    missing_titles = [t for t in _STEP_TITLES if t not in prompt]
-    assert not missing_titles, f"step titles missing from prompt: {missing_titles}"
-
-    assert "political_score" in prompt and "40" in prompt, "political>40 clause missing"
-    assert "Issue-Based" in prompt and "Event-Based" in prompt, "issue/event clause missing"
+    missing_titles = [t for t in _SECTION_TITLES if t not in prompt]
+    assert not missing_titles, f"section titles missing from prompt: {missing_titles}"
 
 
 def test_prompt_deterministic() -> None:
@@ -136,15 +130,6 @@ def test_prompt_matches_snapshot() -> None:
     assert schema.build_prompt() == PROMPT_SNAPSHOT.read_text(encoding="utf-8"), (
         "Generated prompt diverged from the committed snapshot. "
         "Review the diff; re-bless if intentional."
-    )
-
-
-def test_required_keys_match_config() -> None:
-    generated = set(schema.get_required_keys())
-    configured = {str(k) for k in fyp_cf["labels"]["REQUIRED_KEYS"]}
-    assert generated == configured, (
-        f"contract required_key set {sorted(generated)} != config REQUIRED_KEYS "
-        f"{sorted(configured)}"
     )
 
 

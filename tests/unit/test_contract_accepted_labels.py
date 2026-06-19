@@ -34,13 +34,13 @@ import fyp.annotation_contract as ac
 import fyp.recode_variables as rv
 from fyp.fyp_config import _apply_contract_accepted_labels, _var_schema_path, fyp_cf
 
+# NOTE: trend was split into trend_technical/trend_cultural; those are not yet
+# var_schema variables, so they are not checked here (no accepted_labels row yet).
 CLOSED_TAG_FIELDS = [
     "content_category",
     "type_of_story",
     "advertising",
-    "australian_relevance",
     "tiktok_native",
-    "trend",
     "aigc",
 ]
 
@@ -119,7 +119,7 @@ def test_contract_is_the_source() -> None:
 
     def _patched(path=None):
         contract = original(path)
-        contract["enums"]["type_of_story"]["values"].append("Satire-Based")
+        contract["enums"]["type_of_story"].append("Satire-Based")
         return contract
 
     frame = _schema_without_labels()

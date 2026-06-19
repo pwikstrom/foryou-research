@@ -80,8 +80,10 @@ def main() -> int:
                 f"(missing: {missing or 'none'})"
             )
             print(f"      flattened columns: {len(flat)}")
-            for k in ("type_of_story", "content_category", "main_activity",
-                      "political_score", "scene_sentiments"):
+            for k in ("spoken_language", "multilingual", "primary_country",
+                      "type_of_story", "content_category",
+                      "trend_technical", "trend_cultural",
+                      "political_score", "sensitivity_score"):
                 if k in flat:
                     print(f"        {k} = {flat[k]!r}"[:110])
         else:

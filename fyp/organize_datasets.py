@@ -17,7 +17,7 @@ from fyp.fyp_config import fyp_cf
 import fyp.annotation_versioning as annotation_versioning
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
 from fyp.polars_ops import fast_join
-from fyp.recode_variables import compute_var_schema_hash, get_grouping_factors_from_var_schema
+from fyp.recode_variables import compute_var_schema_hash, derive_australian_relevance, get_grouping_factors_from_var_schema
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.studies import init_study_defs
 
@@ -1393,6 +1393,11 @@ def new_merge(
         if verbose:
             print(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
     # --------------------------------------------------------------------------------------------------
+
+    # Backfill australian_relevance from primary_country for rows annotated under
+    # the generalized contract (primary_country replaced it); older-version rows
+    # keep their model-output value. No-op when primary_country is absent.
+    shebang = derive_australian_relevance(shebang)
 
     # Join the embeddings-derived niche columns (item_id-keyed) so they surface
     # as ordinary analysis variables in the explore / timeline / correlation
