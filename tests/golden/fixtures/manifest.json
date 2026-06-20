@@ -1,7 +1,7 @@
 {
   "n_raw_responses": 150,
   "n_refined_rows": 150,
-  "n_refined_columns": 40,
+  "n_refined_columns": 38,
   "refined_columns": [
     "CRA_complexity_vs_stereotypes",
     "CRA_inclusion_and_exclusion",
@@ -32,8 +32,6 @@
     "notable_sounds",
     "objects",
     "political_score",
-    "scene_sentiments_energy",
-    "scene_sentiments_valence",
     "sensitivity_score",
     "speech_vs_music",
     "symbols_and_brands",
@@ -44,9 +42,9 @@
     "type_of_story",
     "video_story"
   ],
-  "var_schema_hash": "v2:b39bd053284fe0b1ae23551bab8bb53ab25f70c546c7bad64d5aea06cbcc3605",
+  "var_schema_hash": "v2:ee5f8821ed51518effc30061461650005a3590330b214a7a9def21ee4eb5adf8",
   "var_schema_shape": [
-    115,
+    112,
     17
   ],
   "models": [

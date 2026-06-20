@@ -198,7 +198,6 @@ def get_recode_func_registry() -> dict:
         "recode_long_strings",
         "recode_numeric",
         "recode_numeric_mean",
-        "recode_scene_sentiments",
         "recode_stringified_list",
         "recode_tokenise",
     )
@@ -273,16 +272,7 @@ _RECODE_FUNC_BY_SCALE = {
     "collection": "recode_stringified_list",
     "string": "recode_long_strings",
     "factor": "recode_long_strings",
-}
-
-# TRANSITIONAL — the few fields whose *value* is still free text that needs a
-# bespoke parser, because the annotation contract has not yet been retyped to emit
-# a clean value. Remove every entry here once the contract change + one-time
-# backfill lands (these parsers are then deleted). See the Stage C plan.
-_TRANSITIONAL_PARSERS = {
-    "scene_sentiments": "recode_scene_sentiments",
-    "call_to_action": "recode_tokenise",
-    "desc": "recode_tokenise",
+    "raw": "recode_tokenise",
 }
 
 
@@ -312,13 +302,13 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
     Replaces the retired ``recode_func`` column. The op is chosen generically:
 
       * ``source`` starting with ``derived:`` -> no recode (already processed);
+      * a numeric array (``int`` sub-key of an ``array`` object, e.g. per-face
+        ages) -> the generic ``recode_numeric_mean``;
       * a numeric field the contract bounds (``int`` with ``min``/``max``, e.g. a
         0-100 score) -> the generic ``recode_numeric`` (extract + normalise);
       * otherwise the generic op for the field's ``scale`` (see
         :data:`_RECODE_FUNC_BY_SCALE`); numeric / datetime / blank scales get no
-        transform (the scale-specific block handles coercion);
-      * the handful of free-text fields in :data:`_TRANSITIONAL_PARSERS` keep a
-        bespoke parser until the contract is retyped (Stage C).
+        transform (the scale-specific block handles coercion).
 
     Args:
         var_schema_indexed: var_schema indexed by ``variable_name`` (reads
@@ -345,9 +335,6 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
 
     plan: dict = {}
     for name in var_schema_indexed.index:
-        if name in _TRANSITIONAL_PARSERS:
-            plan[name] = registry.get(_TRANSITIONAL_PARSERS[name])
-            continue
         source = str(var_schema_indexed.at[name, "source"]).strip() if has_source else ""
         if source.startswith("derived:"):
             plan[name] = None
@@ -979,47 +966,6 @@ def recode_long_strings(
     return new_string
 
 
-
-
-
-def recode_scene_sentiments(
-    a_string: str | pd.Series,
-    recoding_policy : dict = {}) -> dict | pd.Series:
-    """takes a string assumed to contain words that are describing positive/negative valence as well as high/low energy
-    and returns a dict with two values (valence and energy) ranging between -1 and 1
-
-    TODO: check the word lists. They are probably not exhaustive.
-    """
-
-    if isinstance(a_string, pd.Series):
-        # The scalar branch does substring membership against four disjoint word
-        # lists with a constant-time short-circuit per list. The Series branch
-        # applies the same scalar function element-wise - substring matching
-        # across four word lists is already cheap and vectorising it with regex
-        # would change the matching semantics (e.g. partial emoji collisions).
-        return a_string.apply(lambda x: recode_scene_sentiments(x, recoding_policy))
-
-    if not isinstance(a_string,str):
-        return {"valence":pd.NA,"energy":pd.NA}
-
-    a_string = a_string.lower().replace("-","").replace(" ","")
-    valence = 0
-    for w in fyp_cf['labels']['POSITIVE_WORDS']:
-        if w in a_string:
-            valence = 1
-    for w in fyp_cf['labels']['NEGATIVE_WORDS']:
-        if w in a_string:
-            valence = -1
-    energy = 0
-    for w in fyp_cf['labels']['HIGH_ENERGY_WORDS']:
-        if w in a_string:
-            energy = 1
-    for w in fyp_cf['labels']['LOW_ENERGY_WORDS']:
-        if w in a_string:
-            energy = -1
-    
-    return {"valence":valence,"energy":energy}
-    
 
 
 
