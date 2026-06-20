@@ -109,17 +109,18 @@ def build_coupling_report() -> dict:
 # ----------------------------------------------------------------------------
 
 def test_recode_funcs_are_registered() -> None:
+    # recode_func is no longer a column — the op is derived per field by
+    # build_recode_plan (scale + source). Assert every live variable resolves to
+    # a registered callable or None (no dangling/unknown function).
     vs = fyp_cf["var_schema"]
-    registry = set(rv.get_recode_func_registry())
-    referenced = {
-        str(v).strip()
-        for v in vs.get("recode_func", []).dropna().tolist()
-        if str(v).strip()
-    }
-    unknown = sorted(referenced - registry)
+    registry = set(rv.get_recode_func_registry().values())
+    plan = rv.build_recode_plan(vs.set_index("variable_name"))
+    unknown = sorted(
+        name for name, func in plan.items()
+        if func is not None and func not in registry
+    )
     assert not unknown, (
-        f"var_schema references recode_func(s) not in the allow-list registry: {unknown}. "
-        "Add them to get_recode_func_registry() in fyp/recode_variables.py or they no-op silently."
+        f"build_recode_plan resolved variables to non-registry callables: {unknown}."
     )
 
 

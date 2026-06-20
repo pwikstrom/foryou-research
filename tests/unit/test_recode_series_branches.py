@@ -142,30 +142,21 @@ def _compare_parity(series_out: pd.Series, scalar_out: list) -> tuple[int, list[
 def main() -> int:
     var_schema = fyp_cf["var_schema"].copy()
     var_schema.set_index("variable_name", inplace=True)
-    # Mirror the preprocessing done inside recode_events_df: resolve recode_func
-    # and derive each field's mapper / ignore_strings from the annotation
-    # contract (the retired columns), so recoding_policy carries them.
-    if "recode_func" in var_schema.columns:
-        var_schema["recode_func"] = var_schema["recode_func"].map(_try_eval)
+    # Mirror the preprocessing done inside recode_events_df: resolve the recode
+    # callable (build_recode_plan, from scale + source) and derive each field's
+    # mapper / ignore_strings (build_field_normalization), so recoding_policy
+    # carries them. Both replaced retired var_schema columns.
     field_normalization = rv.build_field_normalization(var_schema)
+    recode_plan = rv.build_recode_plan(var_schema)
 
     # (variable, func, status, detail)
     results: list[tuple[str, str, str, str]] = []
     seen_funcs: set[str] = set()
 
     for variable, row in var_schema.iterrows():
-        recode_func_src = row.get("recode_func")
-        if pd.isna(recode_func_src) or not recode_func_src:
+        func = recode_plan.get(variable)
+        if func is None:
             continue
-
-        if callable(recode_func_src):
-            func = recode_func_src
-        else:
-            try:
-                func = eval(recode_func_src, rv.__dict__)
-            except Exception as e:
-                results.append((variable, str(recode_func_src), "EVAL_FAIL", f"{type(e).__name__}: {e}"))
-                continue
 
         func_name = getattr(func, "__name__", str(func))
         # Deduplicate by func name - the parity check is identical per function

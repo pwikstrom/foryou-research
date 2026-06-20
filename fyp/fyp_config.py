@@ -366,13 +366,19 @@ def _apply_contract_accepted_labels(cf) -> None:
     if not enum_labels:
         return
 
-    has_recode = "recode_func" in vs.columns
+    # A field is closed-tag when its (derived) recode op is the list/enum cleaner.
+    # recode_func is no longer a column; resolve the op via build_recode_plan.
+    try:
+        from fyp.recode_variables import build_recode_plan
+
+        plan = build_recode_plan(vs.set_index("variable_name"))
+    except Exception:
+        plan = {}
     for idx in vs.index:
         name = vs.at[idx, "variable_name"]
         if name not in enum_labels:
             continue
-        recode_func = str(vs.at[idx, "recode_func"]).strip() if has_recode else ""
-        if recode_func == "recode_stringified_list":
+        if getattr(plan.get(name), "__name__", "") == "recode_stringified_list":
             vs.at[idx, "accepted_labels"] = enum_labels[name]
 
 
@@ -414,18 +420,18 @@ def load_var_schema(cf, verbose=False):
             print(f"\nCRITICAL: No var_schema.csv and no template found at '{template_path}'.")
             cf["var_schema"] = pd.DataFrame(columns=[
                 "source", "section", "variable_name", "display_name", "role", "scale",
-                "unable_to_detect_policy", "recode_func",
+                "unable_to_detect_policy",
                 "sortable", "searchable", "web_filter_prio", "web_timeline_prio",
                 "web_viz_prio", "web_viz_log", "web_viz_bins", "web_display_prio",
                 "description", "accepted_labels"
             ])
         cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
-    # ``mapper`` / ``ignore_strings`` are retired columns: recode normalization is
-    # now derived from annotation_contract.toml (see recode_variables.
-    # build_field_normalization). Drop them here so a stale on-disk CSV never
-    # surfaces them to the admin editor or the schema hash.
+    # ``mapper`` / ``ignore_strings`` / ``recode_func`` are retired columns: recode
+    # normalization is derived from annotation_contract.toml (build_field_normalization)
+    # and the recode op is derived from scale + source (build_recode_plan). Drop them
+    # here so a stale on-disk CSV never surfaces them to the admin editor or the hash.
     cf["var_schema"] = cf["var_schema"].drop(
-        columns=["mapper", "ignore_strings"], errors="ignore"
+        columns=["mapper", "ignore_strings", "recode_func"], errors="ignore"
     )
     _apply_contract_accepted_labels(cf)
     return cf
@@ -518,10 +524,11 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
 
     # ``accepted_labels`` is contract-owned (rebuilt in memory at load from
     # annotation_contract.toml), so it is never persisted to the CSV. ``mapper`` /
-    # ``ignore_strings`` are retired columns whose behavior is likewise derived
-    # from the contract — never persist them either.
+    # ``ignore_strings`` / ``recode_func`` are retired columns whose behavior is
+    # derived (contract + scale/source) — never persist them either.
     df = df.drop(
-        columns=["accepted_labels", "mapper", "ignore_strings"], errors="ignore"
+        columns=["accepted_labels", "mapper", "ignore_strings", "recode_func"],
+        errors="ignore",
     )
 
     # Atomic-ish write: local goes through a temp file + os.replace;

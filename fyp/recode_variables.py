@@ -158,7 +158,6 @@ SEMANTIC_COLUMNS = (
     "role",
     "scale",
     "unable_to_detect_policy",
-    "recode_func",
     "accepted_labels",
     "allow_scalar_fallback",
 )
@@ -264,6 +263,76 @@ def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dic
             "ignore_strings": list(drop_words.get(name, [])),
         }
     return normalization
+
+
+
+
+# Generic recode op selected by a variable's ``scale`` — the retired ``recode_func``
+# column. A field's recode is its data *kind*, not a per-variable procedure:
+#   enum/dichotomous/collection  -> the list/enum cleaner (recode_stringified_list)
+#   string/factor                -> the text cleaner (recode_long_strings)
+#   numeric/datetime/blank       -> no transform (coercion happens in the scale block)
+_RECODE_FUNC_BY_SCALE = {
+    "categorical": "recode_stringified_list",
+    "dichotomous": "recode_stringified_list",
+    "collection": "recode_stringified_list",
+    "string": "recode_long_strings",
+    "factor": "recode_long_strings",
+}
+
+# TRANSITIONAL — the few fields whose *value* is still free text that needs a
+# bespoke parser, because the annotation contract has not yet been retyped to emit
+# a clean value. Remove every entry here once the contract change + one-time
+# backfill lands (these parsers are then deleted). See the Stage C plan.
+_TRANSITIONAL_PARSERS = {
+    "political_score": "recode_scores",
+    "sensitivity_score": "recode_scores",
+    "speech_vs_music": "recode_speech_vs_music",
+    "faces_age_estimate": "recode_faces_age_estimate",
+    "scene_sentiments": "recode_scene_sentiments",
+    "main_activity": "recode_main_activity",
+    "call_to_action": "recode_call_to_action",
+    "desc": "recode_descriptions",
+}
+
+
+
+def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
+    """Resolve each variable's recode callable from its ``scale`` + ``source``.
+
+    Replaces the retired ``recode_func`` column. The op is chosen generically:
+
+      * ``source`` starting with ``derived:`` -> no recode (already processed);
+      * otherwise the generic op for the field's ``scale`` (see
+        :data:`_RECODE_FUNC_BY_SCALE`); numeric / datetime / blank scales get no
+        transform (the scale-specific block handles coercion);
+      * the handful of free-text fields in :data:`_TRANSITIONAL_PARSERS` keep a
+        bespoke parser until the contract is retyped (Stage C).
+
+    Args:
+        var_schema_indexed: var_schema indexed by ``variable_name`` (reads
+            ``scale`` and ``source``).
+
+    Returns:
+        ``{variable_name: callable | None}``.
+    """
+    registry = get_recode_func_registry()
+    has_scale = "scale" in var_schema_indexed.columns
+    has_source = "source" in var_schema_indexed.columns
+
+    plan: dict = {}
+    for name in var_schema_indexed.index:
+        if name in _TRANSITIONAL_PARSERS:
+            plan[name] = registry.get(_TRANSITIONAL_PARSERS[name])
+            continue
+        source = str(var_schema_indexed.at[name, "source"]).strip() if has_source else ""
+        if source.startswith("derived:"):
+            plan[name] = None
+            continue
+        scale = str(var_schema_indexed.at[name, "scale"]).strip() if has_scale else ""
+        func_name = _RECODE_FUNC_BY_SCALE.get(scale)
+        plan[name] = registry.get(func_name) if func_name else None
+    return plan
 
 
 
@@ -539,11 +608,18 @@ def compute_var_schema_hash() -> str:
     # GENERIC_MAPPER change) must still invalidate cached study parquets.
     norm_payload = b""
     try:
-        norm = build_field_normalization(
-            fyp_cf["var_schema"].set_index("variable_name")
-        )
+        indexed = fyp_cf["var_schema"].set_index("variable_name")
+        norm = build_field_normalization(indexed)
+        recode_plan = build_recode_plan(indexed)
         compact = {
-            n: {"fold": bool(v["mapper"]), "drop": sorted(v["ignore_strings"])}
+            n: {
+                "fold": bool(v["mapper"]),
+                "drop": sorted(v["ignore_strings"]),
+                # The retired recode_func column is now derived (scale + source);
+                # fold the resolved op name in so a source/scale change that
+                # changes recoding still invalidates caches.
+                "op": getattr(recode_plan.get(n), "__name__", "none"),
+            }
             for n, v in norm.items()
         }
         gm_digest = hashlib.sha256(
@@ -1361,16 +1437,12 @@ def recode_events_df(
 
     var_schema.set_index("variable_name", inplace=True)
 
-    # Per-field mapper + ignore_strings are derived from the annotation contract
-    # (the retired var_schema columns), then injected into each field's recoding
-    # policy below. Built before recode_func is resolved to callables so the
-    # derivation reads the recode_func names.
+    # Per-field mapper + ignore_strings, and the per-field recode callable, are
+    # both derived (the retired var_schema columns) and injected into each
+    # field's recoding policy below — mapper/ignore_strings from the annotation
+    # contract, the recode op from the field's scale + source.
     field_normalization = build_field_normalization(var_schema)
-
-    # Strict parser — never eval; unknown recode_func names become None (no-op)
-    # with a logged warning.
-    if "recode_func" in var_schema.columns:
-        var_schema["recode_func"] = var_schema["recode_func"].map(parse_recode_func)
+    recode_plan = build_recode_plan(var_schema)
 
     fyp_factors, _ = get_factors_and_features_from_var_schema(some_events_df = cool_events, verbose = verbose)
 
@@ -1428,10 +1500,11 @@ def recode_events_df(
         # if this is in the var_schema...
         if c in var_schema.index:
             this_var_schema = var_schema.loc[c].to_dict()
-            # Overlay the contract-derived mapper + ignore_strings so
-            # recode_stringified_list / recode_main_activity see them in the
-            # recoding policy (they replaced the dropped var_schema columns).
+            # Overlay the contract-derived mapper + ignore_strings, and the
+            # scale-derived recode callable, into the recoding policy (all three
+            # replaced dropped var_schema columns).
             this_var_schema.update(field_normalization.get(c, {}))
+            this_var_schema["recode_func"] = recode_plan.get(c)
 
             if this_var_schema.get("role", "undefined") != "skip":
 

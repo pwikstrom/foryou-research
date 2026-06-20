@@ -44,10 +44,10 @@
     "type_of_story",
     "video_story"
   ],
-  "var_schema_hash": "v2:1c1d10b7a82331cffac22e448246f75dc66e06b543a508dbb31b7b63000a518b",
+  "var_schema_hash": "v2:11eb9435428cb8f58ddb0285dcf19660435e313310f341deea5d28a7b4ef44a9",
   "var_schema_shape": [
     115,
-    19
+    18
   ],
   "models": [
     "gemini-2.5-flash"
