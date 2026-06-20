@@ -162,6 +162,26 @@ def contract_numeric_ranges(contract: dict) -> dict[str, tuple[int, int]]:
 
 
 
+def contract_numeric_array_fields(contract: dict) -> set[str]:
+    """Return flattened column names that are an array of numbers (one per item).
+
+    A sub-key declared ``int`` inside an ``array``-of-objects field (e.g.
+    ``faces.age_estimate``) flattens to a pipe-joined list of numbers; the generic
+    ``recode_numeric_mean`` collapses it to the mean. Keyed by BOTH the bare
+    sub-key and the ``<object>_<key>`` form (the flattener may strip the prefix).
+    """
+    out: set[str] = set()
+    for field in contract.get("fields", []):
+        if field.get("type") == "object" and field.get("array"):
+            for key, spec in field.get("keys", {}).items():
+                if isinstance(spec, str) and _INT_SUBKEY_RE.match(spec):
+                    out.add(key)
+                    out.add(f"{field.get('name')}_{key}")
+    return out
+
+
+
+
 def field_drop_words(contract: dict) -> dict[str, list[str]]:
     """Return the per-field recode stop words declared in ``[recode.drop]``.
 

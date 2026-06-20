@@ -197,9 +197,9 @@ def get_recode_func_registry() -> dict:
     allowed = (
         "recode_call_to_action",
         "recode_descriptions",
-        "recode_faces_age_estimate",
         "recode_long_strings",
         "recode_numeric",
+        "recode_numeric_mean",
         "recode_scene_sentiments",
         "recode_stringified_list",
     )
@@ -282,7 +282,6 @@ _RECODE_FUNC_BY_SCALE = {
 # a clean value. Remove every entry here once the contract change + one-time
 # backfill lands (these parsers are then deleted). See the Stage C plan.
 _TRANSITIONAL_PARSERS = {
-    "faces_age_estimate": "recode_faces_age_estimate",
     "scene_sentiments": "recode_scene_sentiments",
     "call_to_action": "recode_call_to_action",
     "desc": "recode_descriptions",
@@ -339,8 +338,12 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
         contract = ac.load_contract()
         ranges = ac.contract_numeric_ranges(contract)
         bounded = {n for n in var_schema_indexed.index if n in ranges}
+        array_numeric = {
+            n for n in var_schema_indexed.index
+            if n in ac.contract_numeric_array_fields(contract)
+        }
     except Exception:
-        bounded = set()
+        bounded, array_numeric = set(), set()
 
     plan: dict = {}
     for name in var_schema_indexed.index:
@@ -350,6 +353,9 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
         source = str(var_schema_indexed.at[name, "source"]).strip() if has_source else ""
         if source.startswith("derived:"):
             plan[name] = None
+            continue
+        if name in array_numeric:
+            plan[name] = registry.get("recode_numeric_mean")
             continue
         if name in bounded:
             plan[name] = registry.get("recode_numeric")
@@ -935,6 +941,40 @@ def recode_numeric(
 
 
 
+# Positive numbers only — for an array-of-numbers value the hyphen in "20-30" is
+# a range separator, not a minus sign.
+_POSITIVE_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def recode_numeric_mean(
+    value: str | pd.Series,
+    recoding_policy: dict = {}) -> float | pd.Series:
+    """Per-item mean for an array-of-numbers field (the value is pipe-joined).
+
+    Each item is reduced to the mean of its own numbers (so a clean integer
+    ``"25"`` -> 25 and a legacy range ``"20-30"`` -> 25), then the items are
+    averaged. This weights per item — e.g. per face for ``faces.age_estimate`` —
+    so it reproduces the retired ``recode_faces_age_estimate`` (mean of per-face
+    age midpoints) on legacy data while consuming clean integers from a retyped
+    contract. No backfill.
+    """
+    if isinstance(value, pd.Series):
+        return value.apply(lambda x: recode_numeric_mean(x, recoding_policy))
+
+    if pd.isna(value):
+        return pd.NA
+    per_item = []
+    for item in str(value).split(SPLITTER):
+        nums = [float(n) for n in _POSITIVE_NUMBER_RE.findall(item)]
+        if nums:
+            per_item.append(sum(nums) / len(nums))
+    if not per_item:
+        return pd.NA
+    return sum(per_item) / len(per_item)
+
+
+
+
 def recode_long_strings(
     s: str | list | pd.Series, 
     recoding_policy) -> str | pd.Series:
@@ -1011,75 +1051,6 @@ def recode_scene_sentiments(
     
     return {"valence":valence,"energy":energy}
     
-
-
-
-# "faces_age_estimate" is a bit special since Gemini generates age ranges (strings)
-# and I want to convert these to numeric values. I first convert the list of strings (age ranges) into actual
-# list of age ranges (still strings). I then convert each age range to the mean (float) in the range. This list of floats
-# can be aggregated using the function for continuous variables "calc_centre_and_entropy()".
-def recode_faces_age_estimate(
-    an_age_range_list: str | pd.Series, 
-    recoding_policy : dict = {}) -> float | pd.Series:
-    
-    def _single_age_range_str_to_float(an_age_range: str) -> float:
-        if pd.isna(an_age_range):
-            return pd.NA
-
-        try:
-            return np.float64(an_age_range)
-        except (ValueError, TypeError):
-            pass
-
-        if isinstance(an_age_range,str) and an_age_range.count("-")==1:
-            try:
-                age_limits = [np.int64(i) for i in an_age_range.split("-")]
-                if age_limits[1]<age_limits[0]:
-                    return pd.NA
-                return np.float64(np.mean(age_limits))
-            except (ValueError, TypeError, IndexError):
-                return pd.NA
-        return pd.NA
-
-
-    if isinstance(an_age_range_list, pd.Series):
-        # Explode "A | B | C" -> per-element Series, parse each element as either
-        # an age range ("20-30") or a single age ("25"), then average back per row.
-        mask_na = an_age_range_list.isna()
-        # regex=False so the pipe in " | " is a literal, not a regex alternation.
-        s = an_age_range_list.astype(str).str.split(" | ", regex=False)
-        exploded = s.explode()
-
-        # Primary path: "lo-hi" ranges.
-        ranges = exploded.str.extract(r'^(\d+)-(\d+)$')
-        low = pd.to_numeric(ranges[0], errors='coerce')
-        high = pd.to_numeric(ranges[1], errors='coerce')
-        range_means = (low + high) / 2.0
-        range_valid = (high >= low) & range_means.notna()
-        range_means = range_means.where(range_valid)
-
-        # Fallback path: bare single number ("25" -> 25.0). Matches the scalar
-        # branch which tries np.float64(...) before the dash-split logic.
-        single = pd.to_numeric(exploded, errors='coerce')
-
-        # Prefer the range mean when valid, otherwise the single-number parse.
-        means = range_means.where(range_valid, single)
-        final_means = means.groupby(level=0).mean()
-        result = final_means.reindex(an_age_range_list.index)
-        # Original NA cells should stay NA; astype(str) above turned them into
-        # "nan" which pd.to_numeric already coerces to NaN, so this is belt-and-
-        # braces in case the input contains surprising sentinels.
-        if mask_na.any():
-            result.loc[mask_na] = pd.NA
-        return result
-
-
-
-    if isinstance(an_age_range_list,str):
-        return np.mean(list(map(_single_age_range_str_to_float, an_age_range_list.split(" | "))))
-    else:
-        return an_age_range_list
-
 
 
 

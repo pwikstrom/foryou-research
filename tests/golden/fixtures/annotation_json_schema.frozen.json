@@ -55,8 +55,8 @@
             ]
           },
           "age_estimate": {
-            "type": "string",
-            "description": "the apparent age range, e.g. 20-30"
+            "type": "integer",
+            "description": "the apparent age of the face, in years (a single best estimate)"
           },
           "ethnicity": {
             "type": "string",
@@ -69,7 +69,7 @@
           "ethnicity"
         ]
       },
-      "description": "Each distinct face that appears in the video, with its gender, apparent age range (e.g. 20-30), and apparent ethnicity."
+      "description": "Each distinct face that appears in the video, with its gender, apparent age in years, and apparent ethnicity."
     },
     "audio_summary": {
       "type": "object",

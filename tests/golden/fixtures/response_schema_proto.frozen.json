@@ -39,7 +39,7 @@
       "type": "ARRAY"
     },
     "faces": {
-      "description": "Each distinct face that appears in the video, with its gender, apparent age range (e.g. 20-30), and apparent ethnicity.",
+      "description": "Each distinct face that appears in the video, with its gender, apparent age in years, and apparent ethnicity.",
       "items": {
         "properties": {
           "gender": {
@@ -53,8 +53,8 @@
             "type": "STRING"
           },
           "age_estimate": {
-            "description": "the apparent age range, e.g. 20-30",
-            "type": "STRING"
+            "description": "the apparent age of the face, in years (a single best estimate)",
+            "type": "INTEGER"
           },
           "ethnicity": {
             "description": "the apparent ethnicity",

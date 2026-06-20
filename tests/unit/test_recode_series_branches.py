@@ -70,7 +70,7 @@ def _pick_samples(scale: str, func_name: str) -> list[tuple[str, pd.Series]]:
 
     # Function-specific preferred samples produce cleaner parity signals than
     # the generic fallbacks.
-    if func_name == "recode_faces_age_estimate":
+    if func_name == "recode_numeric_mean":
         return [("age_range_list", SAMPLE_SERIES["age_range_list"])]
     if func_name == "recode_challenges":
         return [("pipe_list", SAMPLE_SERIES["pipe_list"])]

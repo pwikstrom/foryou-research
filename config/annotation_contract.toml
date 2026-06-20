@@ -138,10 +138,10 @@ name = "faces"
 section = "profile"
 type = "object"
 array = true
-desc = "Each distinct face that appears in the video, with its gender, apparent age range (e.g. 20-30), and apparent ethnicity."
+desc = "Each distinct face that appears in the video, with its gender, apparent age in years, and apparent ethnicity."
 [fields.keys]
 gender = "enum:gender"
-age_estimate = "the apparent age range, e.g. 20-30"
+age_estimate = "int: the apparent age of the face, in years (a single best estimate)"
 ethnicity = "the apparent ethnicity"
 
 [[fields]]
