@@ -40,7 +40,7 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
     Args:
         reporter: Status reporter (GCS or local).
         task_args: Optional ``n_niches``, ``map_sample``, ``pca_dim``,
-            ``auto_refresh``.
+            ``auto_refresh``, ``reset_labels``.
 
     Returns:
         A chain dict (Cloud Tasks pipeline) when ``auto_refresh`` triggers the
@@ -58,10 +58,15 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
     map_sample = int(task_args.get("map_sample") or DEFAULT_MAP_SAMPLE)
     pca_dim = int(task_args.get("pca_dim") or DEFAULT_PCA_DIM)
     auto_refresh = bool(task_args.get("auto_refresh"))
+    reset_labels = bool(task_args.get("reset_labels"))
 
-    reporter.log(f"Starting video map refresh (n_niches={n_niches}, map_sample={map_sample})...")
+    reporter.log(
+        f"Starting video map refresh (n_niches={n_niches}, map_sample={map_sample}, "
+        f"reset_labels={reset_labels})..."
+    )
     result = build_niche_map(
-        n_niches=n_niches, map_sample=map_sample, pca_dim=pca_dim, reporter=reporter,
+        n_niches=n_niches, map_sample=map_sample, pca_dim=pca_dim,
+        reset_labels=reset_labels, reporter=reporter,
     )
     reporter.emit_data({
         "map_videos": result["videos"],
@@ -111,6 +116,8 @@ if __name__ == "__main__":
     parser.add_argument("--pca-dim", type=int, default=None, help="PCA dimensionality")
     parser.add_argument("--auto-refresh", action="store_true",
                         help="After rebuilding, refresh all study caches so the new niches propagate.")
+    parser.add_argument("--reset-labels", action="store_true",
+                        help="Regenerate every niche name from scratch (no carry-over from the previous build).")
     args = parser.parse_args()
 
     task_args = {}
@@ -121,6 +128,7 @@ if __name__ == "__main__":
     if args.pca_dim is not None:
         task_args["pca_dim"] = args.pca_dim
     task_args["auto_refresh"] = bool(args.auto_refresh)
+    task_args["reset_labels"] = bool(args.reset_labels)
 
     reporter = LocalStatusReporter("video_map_refresh")
     try:

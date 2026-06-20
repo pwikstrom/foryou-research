@@ -120,13 +120,17 @@
         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
         <div class="font-bold" style="margin-bottom: 10px;">Semantic Map</div>
         <div class="text-xs" style="color: var(--color-text-tertiary); margin-bottom: 10px;">
-            Rebuilds the Semantic Space map (niches + 2D layout) from the embedding store. Not automatic — a rebuild reshuffles the layout and niche labels, so run it deliberately.
+            Rebuilds the Semantic Space map (niches + 2D layout) from the embedding store. Not automatic — a rebuild reshuffles the layout and niche labels, so run it deliberately. Tick "Reset all labels" to regenerate every niche name from scratch instead of preserving stable ones.
         </div>
         <div class="controls"
-            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
             <span id="video_map_refresh-status" class="status-indicator status-stopped"></span>
             <button id="video_map_refresh-toggle" class="btn-primary" data-start-label="Rebuild"
-                onclick="startProcess('video_map_refresh')" style="padding: 4px 12px;">Rebuild</button>
+                onclick="rebuildNicheMap()" style="padding: 4px 12px;">Rebuild</button>
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="video_map_reset-labels">
+                <span style="color: var(--color-text-secondary);">Reset all labels</span>
+            </label>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="video_map_refresh-bar"></div>

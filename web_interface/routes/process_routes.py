@@ -68,6 +68,8 @@ def api_start(name):
         # Callers can opt out with {"auto_refresh": false}.
         if data.get("auto_refresh", True):
             args.append("--auto-refresh")
+        if data.get("reset_labels"):
+            args.append("--reset-labels")
         for flag, key in (
             ("--n-niches", "n_niches"),
             ("--map-sample", "map_sample"),

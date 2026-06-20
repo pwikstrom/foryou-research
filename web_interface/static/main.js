@@ -367,7 +367,7 @@ async function startProcess(name, extraBody = {}) {
     if (['downloader', 'annotator', 'create_subsets', 'regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'].includes(name)) {
         if (!studyName) {
             alert("Please select or enter a study name.");
-            return;
+            return false;
         }
         body = {
             study_name: studyName,
@@ -406,7 +406,7 @@ async function startProcess(name, extraBody = {}) {
         if (current && current.state === 'running') {
             updateStatus();
             _showAlreadyRunningDialog(name, extraBody);
-            return;
+            return false;
         }
     } catch (e) {
         // Fall through to the POST — the server is still the source of truth
@@ -415,6 +415,7 @@ async function startProcess(name, extraBody = {}) {
         console.warn('Pre-start status check failed; attempting start anyway.', e);
     }
 
+    let started = false;
     try {
         const res = await fetch(`/api/start/${name}`, {
             method: 'POST',
@@ -426,10 +427,13 @@ async function startProcess(name, extraBody = {}) {
             _showAlreadyRunningDialog(name, extraBody);
         } else if (data.status !== 'success') {
             alert("Error: " + data.message);
-        } else if (window._pendingArmAfterStart) {
-            // Successful start — arm Consolidate & Refresh so it fires when
-            // the queue finishes. Non-blocking; fires in background.
-            _armAfterQueueStart();
+        } else {
+            started = true;
+            if (window._pendingArmAfterStart) {
+                // Successful start — arm Consolidate & Refresh so it fires when
+                // the queue finishes. Non-blocking; fires in background.
+                _armAfterQueueStart();
+            }
         }
         updateStatus();
     } catch (e) {
@@ -445,6 +449,25 @@ async function startProcess(name, extraBody = {}) {
             }, 1000); // 1 second delay
         }
     }
+
+    return started;
+}
+
+// Rebuild the Semantic Space niche map. When "Reset all labels" is ticked, every
+// niche is renamed from scratch (no carry-over); otherwise stable labels are
+// preserved (default). Reset is destructive, so confirm first; once a run has
+// actually started, untick the box so a later Rebuild click doesn't silently
+// re-run a reset.
+async function rebuildNicheMap() {
+    const box = document.getElementById('video_map_reset-labels');
+    const reset = !!(box && box.checked);
+    if (reset && !confirm(
+        'Reset: regenerate all niche labels from scratch?\n\n' +
+        'Existing labels will NOT be preserved. Cluster IDs are kept, so saved ' +
+        'niche-filtered analyses still point at the same clusters.'
+    )) return;
+    const started = await startProcess('video_map_refresh', { reset_labels: reset });
+    if (started && reset && box) box.checked = false;
 }
 
 // Arm-prompt state (module-scoped). _armPromptResolver is set while the

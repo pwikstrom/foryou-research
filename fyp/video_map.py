@@ -360,6 +360,7 @@ def build_niche_map(
     n_niches: int = DEFAULT_N_NICHES,
     map_sample: int = DEFAULT_MAP_SAMPLE,
     pca_dim: int = DEFAULT_PCA_DIM,
+    reset_labels: bool = False,
     reporter=None,
 ) -> dict:
     """Cluster the embedding store and persist the niche map + metadata.
@@ -368,6 +369,9 @@ def build_niche_map(
         n_niches: Number of MiniBatchKMeans micro-genres.
         map_sample: Max videos projected to 2D for the visual map.
         pca_dim: PCA dimensionality used for clustering and projection.
+        reset_labels: When True, regenerate every niche name from scratch via
+            Gemini instead of carrying stable names forward from the previous
+            build. Cluster ids stay aligned to the previous build either way.
         reporter: Optional status reporter.
 
     Returns:
@@ -402,6 +406,11 @@ def build_niche_map(
     if reporter is not None:
         reporter.update_progress(45, "Aligning niche ids to previous build...")
     labels, niche_carry = _align_labels_to_previous(item_ids, labels, "niche", "niche_name")
+    if reset_labels:
+        # Force a full re-naming: cluster ids stay aligned to the previous build
+        # (saved niche-filtered analyses survive) but every name is regenerated.
+        niche_carry = {}
+        _log("reset_labels=True: regenerating all niche names (no carry-over).")
 
     # Pull video_story + first content_category aligned to item_ids for naming.
     if reporter is not None:
