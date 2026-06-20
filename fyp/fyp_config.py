@@ -331,12 +331,12 @@ def _apply_contract_accepted_labels(cf) -> None:
     API, the UI metadata).
 
     A field is closed-tag — and therefore gets contract-sourced labels — when it is
-    recoded as a closed categorical (``recode_func == "recode_stringified_list"``),
-    does not fold values (empty ``mapper``), and the contract defines an enum for it.
-    Labels are the contract enum lower-cased (the recoded form). Every other field
-    gets ``NA``. Membership is thus derived from var_schema's own recode config, so a
-    new closed categorical picks up its labels automatically; folding fields (e.g.
-    ``main_ethnicity`` via GENERIC_MAPPER) and free-text fields get no labels.
+    recoded as a closed categorical (``recode_func == "recode_stringified_list"``)
+    and the contract defines an enum for it. Labels are the contract enum
+    lower-cased (the recoded form). Every other field gets ``NA``. Membership is
+    thus derived from var_schema's recode config plus the contract, so a new closed
+    categorical picks up its labels automatically; free-text fields (recoded by
+    e.g. ``recode_long_strings``) get no labels.
 
     The column is always created (NA-filled) even when the contract cannot be loaded,
     so direct consumers and the schema hash never see a missing column.
@@ -366,18 +366,13 @@ def _apply_contract_accepted_labels(cf) -> None:
     if not enum_labels:
         return
 
-    def _empty_mapper(value) -> bool:
-        return pd.isna(value) or str(value).strip() in ("", "{}")
-
     has_recode = "recode_func" in vs.columns
-    has_mapper = "mapper" in vs.columns
     for idx in vs.index:
         name = vs.at[idx, "variable_name"]
         if name not in enum_labels:
             continue
         recode_func = str(vs.at[idx, "recode_func"]).strip() if has_recode else ""
-        mapper = vs.at[idx, "mapper"] if has_mapper else ""
-        if recode_func == "recode_stringified_list" and _empty_mapper(mapper):
+        if recode_func == "recode_stringified_list":
             vs.at[idx, "accepted_labels"] = enum_labels[name]
 
 
@@ -419,12 +414,19 @@ def load_var_schema(cf, verbose=False):
             print(f"\nCRITICAL: No var_schema.csv and no template found at '{template_path}'.")
             cf["var_schema"] = pd.DataFrame(columns=[
                 "source", "section", "variable_name", "display_name", "role", "scale",
-                "mapper", "ignore_strings", "unable_to_detect_policy", "recode_func",
+                "unable_to_detect_policy", "recode_func",
                 "sortable", "searchable", "web_filter_prio", "web_timeline_prio",
                 "web_viz_prio", "web_viz_log", "web_viz_bins", "web_display_prio",
                 "description", "accepted_labels"
             ])
         cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
+    # ``mapper`` / ``ignore_strings`` are retired columns: recode normalization is
+    # now derived from annotation_contract.toml (see recode_variables.
+    # build_field_normalization). Drop them here so a stale on-disk CSV never
+    # surfaces them to the admin editor or the schema hash.
+    cf["var_schema"] = cf["var_schema"].drop(
+        columns=["mapper", "ignore_strings"], errors="ignore"
+    )
     _apply_contract_accepted_labels(cf)
     return cf
 
@@ -515,8 +517,12 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
             print(f"Backup write failed (continuing): {e}")
 
     # ``accepted_labels`` is contract-owned (rebuilt in memory at load from
-    # annotation_contract.toml), so it is never persisted to the CSV.
-    df = df.drop(columns=["accepted_labels"], errors="ignore")
+    # annotation_contract.toml), so it is never persisted to the CSV. ``mapper`` /
+    # ``ignore_strings`` are retired columns whose behavior is likewise derived
+    # from the contract — never persist them either.
+    df = df.drop(
+        columns=["accepted_labels", "mapper", "ignore_strings"], errors="ignore"
+    )
 
     # Atomic-ish write: local goes through a temp file + os.replace;
     # GCS overwrites are atomic at the blob level.

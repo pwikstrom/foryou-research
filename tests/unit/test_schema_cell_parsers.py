@@ -7,8 +7,11 @@ and fall back to safe defaults on bad input.  These tests pin that grammar so a
 refactor (or the schema-driven pipeline work) can't silently broaden or break
 what a schema cell is allowed to contain.
 
-Covers: parse_mapper, parse_ignore_strings, parse_accepted_labels,
-parse_recode_func.
+Covers: parse_accepted_labels, parse_recode_func.
+
+(``mapper`` / ``ignore_strings`` no longer exist as schema cells — their recode
+normalization is derived from ``annotation_contract.toml``; see
+``test_recode_series_branches`` and ``test_contract_accepted_labels``.)
 
 Usage:
     python tests/unit/test_schema_cell_parsers.py
@@ -24,58 +27,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pandas as pd
 
 import fyp.recode_variables as rv
-
-# ---------------------------------------------------------------------------
-# parse_mapper
-# ---------------------------------------------------------------------------
-
-def test_mapper_blank_forms_to_empty_dict() -> None:
-    for blank in (None, pd.NA, "", "{}", "   "):
-        assert rv.parse_mapper(blank) == {}
-
-
-def test_mapper_generic_token_resolves_to_configured_mapper() -> None:
-    result = rv.parse_mapper("GENERIC_MAPPER")
-    assert result is rv.GENERIC_MAPPER
-    assert len(result) > 0
-
-
-def test_mapper_json_object_parsed() -> None:
-    assert rv.parse_mapper('{"a": "b", "c": "d"}') == {"a": "b", "c": "d"}
-
-
-def test_mapper_passthrough_dict_and_bad_json() -> None:
-    assert rv.parse_mapper({"x": "y"}) == {"x": "y"}
-    # Non-JSON text degrades to {} (never raises, never evals).
-    assert rv.parse_mapper("not json") == {}
-    # A JSON array is not an object -> {}.
-    assert rv.parse_mapper("[1, 2]") == {}
-
-
-# ---------------------------------------------------------------------------
-# parse_ignore_strings
-# ---------------------------------------------------------------------------
-
-def test_ignore_strings_blank_forms_to_empty_list() -> None:
-    for blank in (None, pd.NA, "", "[]"):
-        assert rv.parse_ignore_strings(blank) == []
-
-
-def test_ignore_strings_json_and_literal_lists() -> None:
-    assert rv.parse_ignore_strings('["a", "b"]') == ["a", "b"]
-    assert rv.parse_ignore_strings("['p', 'q']") == ["p", "q"]
-
-
-def test_ignore_strings_legacy_irrelevant_words_form() -> None:
-    result = rv.parse_ignore_strings("IRRELEVANT_WORDS + ['x', 'y']")
-    expected = [*rv.IRRELEVANT_WORDS, "x", "y"]
-    assert result == expected
-    assert result[-2:] == ["x", "y"]
-
-
-def test_ignore_strings_unparseable_degrades_to_empty() -> None:
-    assert rv.parse_ignore_strings("bad") == []
-
 
 # ---------------------------------------------------------------------------
 # parse_accepted_labels

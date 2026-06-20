@@ -142,12 +142,12 @@ def _compare_parity(series_out: pd.Series, scalar_out: list) -> tuple[int, list[
 def main() -> int:
     var_schema = fyp_cf["var_schema"].copy()
     var_schema.set_index("variable_name", inplace=True)
-    # Mirror the preprocessing done inside recode_events_df so mapper /
-    # ignore_strings arrive as real Python objects in recoding_policy, not
-    # raw CSV strings.
-    for col in ["mapper", "ignore_strings", "recode_func"]:
-        if col in var_schema.columns:
-            var_schema[col] = var_schema[col].map(_try_eval)
+    # Mirror the preprocessing done inside recode_events_df: resolve recode_func
+    # and derive each field's mapper / ignore_strings from the annotation
+    # contract (the retired columns), so recoding_policy carries them.
+    if "recode_func" in var_schema.columns:
+        var_schema["recode_func"] = var_schema["recode_func"].map(_try_eval)
+    field_normalization = rv.build_field_normalization(var_schema)
 
     # (variable, func, status, detail)
     results: list[tuple[str, str, str, str]] = []
@@ -175,6 +175,7 @@ def main() -> int:
         seen_funcs.add(func_name)
 
         policy = row.to_dict()
+        policy.update(field_normalization.get(variable, {}))
 
         passed_on = None
         failures: list[str] = []

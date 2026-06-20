@@ -100,6 +100,36 @@ def enum_descriptions(contract: dict, name: str) -> dict | None:
 
 
 
+def enum_field_names(contract: dict) -> set[str]:
+    """Return the names of fields whose value is a closed enum.
+
+    A closed-enum field is one structured output already constrains to a fixed
+    value set, so the recode pipeline neither folds it through ``GENERIC_MAPPER``
+    nor stoplists it. Used by ``recode_variables.build_field_normalization`` as
+    the single discriminator for the retired ``mapper`` / ``ignore_strings``
+    var_schema columns.
+    """
+    return {f["name"] for f in contract.get("fields", []) if f.get("enum")}
+
+
+
+
+def field_drop_words(contract: dict) -> dict[str, list[str]]:
+    """Return the per-field recode stop words declared in ``[recode.drop]``.
+
+    The table is keyed by the *flattened output column name* (so it can target
+    object sub-keys such as ``notable_sounds`` as well as top-level fields), each
+    mapping to a small list of extra words the recode pipeline drops on top of
+    the global ``IRRELEVANT_WORDS`` stoplist. Co-locating these few field-specific
+    extras in the contract is what lets the var_schema drop its ``ignore_strings``
+    column entirely.
+    """
+    drop = contract.get("recode", {}).get("drop", {})
+    return {k: list(v) for k, v in drop.items() if isinstance(v, list)}
+
+
+
+
 def _is_array(field: dict) -> bool:
     """Return True when a field declares ``array`` (``true`` or an integer)."""
     arr = field.get("array")
@@ -293,5 +323,13 @@ def validate_contract(contract: dict) -> list[str]:
                 for key, spec in keys.items():
                     if isinstance(spec, str) and spec.startswith("enum:"):
                         _check_enum_ref(spec, f"{where}.{key}")
+
+    drop = contract.get("recode", {}).get("drop", {})
+    if not isinstance(drop, dict):
+        errors.append("[recode.drop] must be a table of column → list-of-words")
+    else:
+        for col, words in drop.items():
+            if not isinstance(words, list) or not all(isinstance(w, str) for w in words):
+                errors.append(f"[recode.drop].{col}: must be a list of strings")
 
     return errors

@@ -7,9 +7,9 @@ Pins:
 
   * the overlay creates the column and fills closed-tag enum fields from the contract;
   * membership is derived from var_schema's recode config — a field is closed-tag
-    only when ``recode_func == "recode_stringified_list"`` with an empty ``mapper``
-    and a contract enum (so a free-text-but-enum field like aussie_political_positioning
-    is excluded, and folding fields like main_ethnicity are excluded);
+    when ``recode_func == "recode_stringified_list"`` and the contract defines an
+    enum for it (so a field with no contract enum, like the free-text
+    aussie_political_positioning, is excluded);
   * dropping the column from the CSV does NOT change the var_schema hash (no study
     invalidation) — the reconstructed column equals a column-present schema;
   * the contract is genuinely the source (an enum edit flows through).
@@ -43,6 +43,8 @@ CLOSED_TAG_FIELDS = [
     "trend_technical",
     "trend_cultural",
     "multilingual",
+    "main_gender",
+    "main_ethnicity",
 ]
 
 
@@ -80,13 +82,13 @@ def test_overlay_creates_column_and_fills_closed_tags() -> None:
         assert got == _expected_labels(name), f"{name}: {got!r} != contract-derived"
 
 
-def test_membership_excludes_freetext_and_folding_fields() -> None:
+def test_membership_excludes_freetext_fields() -> None:
     frame = _schema_without_labels()
     with _swapped(frame):
         _apply_contract_accepted_labels(fyp_cf)
-    # aussie_political_positioning: enum + empty mapper but recode_long_strings (free text).
-    # main_gender / main_ethnicity: recode_stringified_list but fold via GENERIC_MAPPER.
-    for name in ["aussie_political_positioning", "main_gender", "main_ethnicity"]:
+    # aussie_political_positioning: no contract enum and recode_long_strings (free text),
+    # so it is not a closed-tag field even though the column exists.
+    for name in ["aussie_political_positioning"]:
         cell = frame.loc[frame["variable_name"] == name, "accepted_labels"].iloc[0]
         assert pd.isna(cell) or str(cell).strip() in ("", "<NA>"), (
             f"{name} should not be a closed-tag field: {cell!r}"

@@ -1,7 +1,6 @@
 
 
 
-import ast
 import difflib
 import hashlib
 import json
@@ -158,8 +157,6 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
 SEMANTIC_COLUMNS = (
     "role",
     "scale",
-    "mapper",
-    "ignore_strings",
     "unable_to_detect_policy",
     "recode_func",
     "accepted_labels",
@@ -224,10 +221,49 @@ def get_recode_func_registry() -> dict:
 
 
 
-_IGNORE_STRINGS_REF_RE = re.compile(
-    r"^\s*IRRELEVANT_WORDS\s*\+\s*(\[.*\])\s*$",
-    re.DOTALL,
-)
+def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dict]:
+    """Derive each field's recode normalization from the annotation contract.
+
+    Replaces the retired var_schema ``mapper`` / ``ignore_strings`` columns. The
+    contract's ``enum`` declaration is the single discriminator:
+
+      * Closed-enum field (the contract gives it an ``enum``): structured output
+        already constrains the value, so it is not folded through
+        ``GENERIC_MAPPER`` — this keeps canonical enum values intact (and lets
+        ``Multiple`` / ``-`` stay first-class for fields like main_gender).
+      * Every other field: folded through ``GENERIC_MAPPER`` (a harmless no-op on
+        value sets it does not touch), normalizing free-text junk.
+
+    Per-field stop words come solely from the contract's ``[recode.drop]`` table
+    (keyed by output column name). The global ``IRRELEVANT_WORDS`` stoplist is
+    *not* applied here — it would delete legitimate short tags like "can" / "us";
+    the recode_func that need it (recode_descriptions / recode_call_to_action)
+    apply it themselves.
+
+    Args:
+        var_schema_indexed: the variable schema indexed by ``variable_name``
+            (unused columns are tolerated; nothing beyond the index is required).
+
+    Returns:
+        ``{variable_name: {"mapper": dict, "ignore_strings": list}}``.
+    """
+    try:
+        from fyp import annotation_contract as ac
+
+        contract = ac.load_contract()
+        enum_fields = ac.enum_field_names(contract)
+        drop_words = ac.field_drop_words(contract)
+    except Exception:
+        enum_fields, drop_words = set(), {}
+
+    normalization: dict[str, dict] = {}
+    for name in var_schema_indexed.index:
+        closed = name in enum_fields
+        normalization[name] = {
+            "mapper": {} if closed else GENERIC_MAPPER,
+            "ignore_strings": list(drop_words.get(name, [])),
+        }
+    return normalization
 
 
 
@@ -260,99 +296,6 @@ def parse_recode_func(value):
         )
         return None
     return func
-
-
-
-def parse_mapper(value):
-    """Resolve a ``mapper`` cell to a dict.
-
-    Allowed forms: empty / ``"{}"`` / NaN → ``{}``;
-    the literal token ``"GENERIC_MAPPER"`` → the configured generic mapper;
-    any other value must be a JSON object string (parsed with ``json.loads``).
-    No Python eval.
-    """
-    if value is None:
-        return {}
-    try:
-        if pd.isna(value):
-            return {}
-    except (TypeError, ValueError):
-        pass
-    if isinstance(value, dict):
-        return value
-    s = str(value).strip()
-    if not s or s == "{}":
-        return {}
-    if s == "GENERIC_MAPPER":
-        return GENERIC_MAPPER
-    try:
-        parsed = json.loads(s)
-    except json.JSONDecodeError as e:
-        logger.warning("var_schema: mapper value %r is not valid JSON (%s); using {}", s, e)
-        return {}
-    if not isinstance(parsed, dict):
-        logger.warning("var_schema: mapper value %r is not a JSON object; using {}", s)
-        return {}
-    return parsed
-
-
-
-def parse_ignore_strings(value):
-    """Resolve an ``ignore_strings`` cell to a list of strings.
-
-    Allowed forms (tried in order):
-      1. empty / ``"[]"`` / NaN → ``[]``
-      2. JSON array  →  parsed list
-      3. ``IRRELEVANT_WORDS + [<python_list_literal>]`` (legacy shape used
-         in five rows of the existing CSV) → ``IRRELEVANT_WORDS`` + the
-         literal list parsed with ``ast.literal_eval``
-      4. plain Python list literal (no names) → ``ast.literal_eval``
-
-    No general ``eval``: only ``ast.literal_eval`` and ``json.loads``,
-    plus a single hard-coded name binding (``IRRELEVANT_WORDS``).
-    """
-    if value is None:
-        return []
-    try:
-        if pd.isna(value):
-            return []
-    except (TypeError, ValueError):
-        pass
-    if isinstance(value, list):
-        return value
-    s = str(value).strip()
-    if not s or s == "[]":
-        return []
-    # 2. JSON array
-    try:
-        parsed = json.loads(s)
-        if isinstance(parsed, list):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-    # 3. Legacy IRRELEVANT_WORDS + [literal]
-    m = _IGNORE_STRINGS_REF_RE.match(s)
-    if m:
-        try:
-            extra = ast.literal_eval(m.group(1))
-            if isinstance(extra, list):
-                return list(IRRELEVANT_WORDS) + extra
-        except (ValueError, SyntaxError) as e:
-            logger.warning(
-                "var_schema: ignore_strings legacy form failed to parse for %r: %s",
-                s,
-                e,
-            )
-            return []
-    # 4. Plain Python list literal
-    try:
-        parsed = ast.literal_eval(s)
-        if isinstance(parsed, list):
-            return parsed
-    except (ValueError, SyntaxError):
-        pass
-    logger.warning("var_schema: ignore_strings value %r could not be parsed; using []", s)
-    return []
 
 
 
@@ -437,9 +380,6 @@ def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
       * ``unable_to_detect_policy`` ∈ ``VAR_SCHEMA_POLICIES`` (blank allowed)
       * ``recode_func`` is empty or names a callable in
         :func:`get_recode_func_registry`
-      * ``mapper`` is empty / ``"{}"`` / ``"GENERIC_MAPPER"`` / JSON object
-      * ``ignore_strings`` is parseable by :func:`parse_ignore_strings`
-        (JSON array, ``IRRELEVANT_WORDS + [...]`` legacy form, or plain list literal)
       * ``accepted_labels`` is empty / JSON array / legacy bareword list
       * ``sortable``, ``web_filter_prio``, ``web_timeline_prio``,
         ``web_viz_prio``, ``web_display_prio`` parse as integers when set
@@ -498,48 +438,6 @@ def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
                 errors.append(VarSchemaError(row_idx, name, "recode_func", rf,
                                              "recode_func is not in the allow-list; "
                                              "add it to get_recode_func_registry() in fyp.recode_variables"))
-
-        # mapper
-        mp = row.get("mapper")
-        if not _is_blank(mp):
-            s = str(mp).strip()
-            if s not in ("{}", "GENERIC_MAPPER"):
-                try:
-                    parsed = json.loads(s)
-                    if not isinstance(parsed, dict):
-                        errors.append(VarSchemaError(row_idx, name, "mapper", mp,
-                                                     "mapper must be a JSON object, {}, or the literal 'GENERIC_MAPPER'"))
-                except json.JSONDecodeError as e:
-                    errors.append(VarSchemaError(row_idx, name, "mapper", mp,
-                                                 f"mapper is not valid JSON: {e}"))
-
-        # ignore_strings
-        ig = row.get("ignore_strings")
-        if not _is_blank(ig):
-            s = str(ig).strip()
-            if s != "[]":
-                ok = False
-                try:
-                    parsed = json.loads(s)
-                    ok = isinstance(parsed, list)
-                except json.JSONDecodeError:
-                    pass
-                if not ok and _IGNORE_STRINGS_REF_RE.match(s):
-                    try:
-                        extra = ast.literal_eval(_IGNORE_STRINGS_REF_RE.match(s).group(1))
-                        ok = isinstance(extra, list)
-                    except (ValueError, SyntaxError):
-                        ok = False
-                if not ok:
-                    try:
-                        parsed = ast.literal_eval(s)
-                        ok = isinstance(parsed, list)
-                    except (ValueError, SyntaxError):
-                        ok = False
-                if not ok:
-                    errors.append(VarSchemaError(row_idx, name, "ignore_strings", ig,
-                                                 "ignore_strings must be a JSON array, [], or "
-                                                 "'IRRELEVANT_WORDS + [<list literal>]'"))
 
         # accepted_labels
         al = row.get("accepted_labels")
@@ -612,7 +510,9 @@ def compute_var_schema_hash() -> str:
     """Return a deterministic SHA-256 hash of the active variable schema.
 
     Only the columns that actually drive recoding (``SEMANTIC_COLUMNS``) plus
-    ``variable_name`` are hashed.  Cosmetic / web-UI columns
+    ``variable_name`` are hashed, together with the contract-derived recode
+    normalization (the retired ``mapper`` / ``ignore_strings`` columns, now
+    sourced from ``annotation_contract.toml``).  Cosmetic / web-UI columns
     (``web_*``, ``sortable``, ``searchable``, ``display_name``, ``section``,
     ``description``) are excluded so admin tweaks to presentation never
     invalidate cached study parquets.
@@ -632,7 +532,30 @@ def compute_var_schema_hash() -> str:
         schema = schema.sort_values("variable_name").reset_index(drop=True)
     schema = schema.reindex(sorted(schema.columns), axis=1)
     payload = schema.to_csv(index=False).encode("utf-8")
-    digest = hashlib.sha256(payload).hexdigest()
+
+    # Fold in the contract-derived recode normalization. The retired ``mapper`` /
+    # ``ignore_strings`` columns now come from annotation_contract.toml + the
+    # GENERIC_MAPPER config dict, so a contract enum / ``[recode.drop]`` edit (or a
+    # GENERIC_MAPPER change) must still invalidate cached study parquets.
+    norm_payload = b""
+    try:
+        norm = build_field_normalization(
+            fyp_cf["var_schema"].set_index("variable_name")
+        )
+        compact = {
+            n: {"fold": bool(v["mapper"]), "drop": sorted(v["ignore_strings"])}
+            for n, v in norm.items()
+        }
+        gm_digest = hashlib.sha256(
+            json.dumps(GENERIC_MAPPER, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
+        norm_payload = json.dumps(
+            {"fields": compact, "gm": gm_digest}, sort_keys=True
+        ).encode("utf-8")
+    except Exception:
+        pass
+
+    digest = hashlib.sha256(payload + norm_payload).hexdigest()
     return f"{VAR_SCHEMA_HASH_VERSION}:{digest}"
 
 
@@ -1438,14 +1361,14 @@ def recode_events_df(
 
     var_schema.set_index("variable_name", inplace=True)
 
+    # Per-field mapper + ignore_strings are derived from the annotation contract
+    # (the retired var_schema columns), then injected into each field's recoding
+    # policy below. Built before recode_func is resolved to callables so the
+    # derivation reads the recode_func names.
+    field_normalization = build_field_normalization(var_schema)
 
-    # Strict parsers — never eval.  See parse_* helpers above for the
-    # grammar each column accepts.  Unknown values become safe defaults
-    # (None / {} / []) with a logged warning.
-    if "mapper" in var_schema.columns:
-        var_schema["mapper"] = var_schema["mapper"].map(parse_mapper)
-    if "ignore_strings" in var_schema.columns:
-        var_schema["ignore_strings"] = var_schema["ignore_strings"].map(parse_ignore_strings)
+    # Strict parser — never eval; unknown recode_func names become None (no-op)
+    # with a logged warning.
     if "recode_func" in var_schema.columns:
         var_schema["recode_func"] = var_schema["recode_func"].map(parse_recode_func)
 
@@ -1504,7 +1427,11 @@ def recode_events_df(
 
         # if this is in the var_schema...
         if c in var_schema.index:
-            this_var_schema = var_schema.loc[c].to_dict() 
+            this_var_schema = var_schema.loc[c].to_dict()
+            # Overlay the contract-derived mapper + ignore_strings so
+            # recode_stringified_list / recode_main_activity see them in the
+            # recoding policy (they replaced the dropped var_schema columns).
+            this_var_schema.update(field_normalization.get(c, {}))
 
             if this_var_schema.get("role", "undefined") != "skip":
 

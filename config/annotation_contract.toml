@@ -24,10 +24,29 @@
 #
 # Inferred (never written): the flatten rule (scalar / list_join / object_unpack),
 # the full JSON-schema node, enum rendering, and `required` (= every field).
+#
+# Recode normalization is derived from this contract, not from var_schema columns
+# (the old `mapper` / `ignore_strings` columns were retired). A field with an
+# `enum` is a closed value set: structured output already constrains it, so it is
+# not folded through GENERIC_MAPPER (canonical values, incl. Multiple / -, stay
+# intact). Every other field is folded through GENERIC_MAPPER to tidy free-text
+# junk. The only field-specific stop words are the few in [recode.drop] below,
+# keyed by the flattened output column name.
 
 [prompt]
 header = "You are a rigorous TikTok video analyst. Input: a single video file. Analyze the video and return exactly one consolidated JSON object containing all of the fields described below. Do not include any extra commentary—only valid JSON. When the video does not give you enough evidence to determine a field with reasonable confidence, use its uncertainty value rather than guessing — '-' (or 'Unclear', where the field offers it) for single-value and free-text fields, and an empty list for list fields. Only commit to a definite value when the evidence clearly supports it."
 footer = "**Return** the final JSON object with all of the above fields exactly as keys."
+
+# ---------------------------------------------------------------------------
+# Recode hints. Field-specific stop words dropped (on top of the global
+# IRRELEVANT_WORDS list) when an open-vocabulary field is recoded. Keyed by the
+# flattened output column name so object sub-keys (e.g. notable_sounds) work too.
+# ---------------------------------------------------------------------------
+[recode.drop]
+objects = ["woman", "man", "person", "people"]
+symbols_and_brands = ["tiktok", "tiktok logo"]
+notable_sounds = ["speech", "music"]
+main_activity = ["getting"]
 
 # ---------------------------------------------------------------------------
 # Enums. A bare list has no per-value descriptions; a table maps value ->

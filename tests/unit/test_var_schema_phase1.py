@@ -16,10 +16,8 @@ Covers, in this order (mirroring tests §1-24 of the plan):
     9. test_recode_lookup_rejects_unknown
    10. test_no_eval_in_recode_path
    11. test_validate_each_enum
-   12. test_validate_mapper_json_only
-   13. test_validate_ignore_strings_json_only
-   14. test_validate_duplicate_variable_name
-   15. test_validate_real_csv_is_clean
+   12. test_validate_duplicate_variable_name
+   13. test_validate_real_csv_is_clean
 
   Save / etag:
    16. test_save_writes_backup
@@ -68,8 +66,6 @@ from fyp.recode_variables import (
     compute_var_schema_hash,
     get_recode_func_registry,
     parse_accepted_labels,
-    parse_ignore_strings,
-    parse_mapper,
     parse_recode_func,
     validate_var_schema,
 )
@@ -237,17 +233,12 @@ def test_no_eval_in_recode_path():
         sentinel.unlink()
     malicious = f"__import__('pathlib').Path({str(sentinel)!r}).write_text('PWNED')"
     result_rf = parse_recode_func(malicious)
-    result_mp = parse_mapper(malicious)
-    result_is = parse_ignore_strings(malicious)
     created = sentinel.exists()
     if sentinel.exists():
         sentinel.unlink()
-    ok = (result_rf is None
-          and result_mp == {}
-          and result_is == []
-          and not created)
+    ok = (result_rf is None and not created)
     _check("test_no_eval_in_recode_path", ok,
-           f"rf={result_rf!r} mp={result_mp!r} is={result_is!r} sentinel_created={created}")
+           f"rf={result_rf!r} sentinel_created={created}")
 
 
 
@@ -276,38 +267,6 @@ def test_validate_each_enum():
           and any(e["column"] == "scale" for e in errs2)
           and any(e["column"] == "unable_to_detect_policy" for e in errs3))
     _check("test_validate_each_enum", ok)
-
-
-
-def test_validate_mapper_json_only():
-    rows = [
-        {"variable_name": "ok_empty", "mapper": ""},
-        {"variable_name": "ok_braces", "mapper": "{}"},
-        {"variable_name": "ok_generic", "mapper": "GENERIC_MAPPER"},
-        {"variable_name": "ok_json", "mapper": '{"a": 1}'},
-        {"variable_name": "bad_python", "mapper": "{1: 'x'}"},
-        {"variable_name": "bad_array", "mapper": '["a","b"]'},
-    ]
-    errs = validate_var_schema(pd.DataFrame(rows))
-    bad_names = {e["variable_name"] for e in errs if e["column"] == "mapper"}
-    ok = bad_names == {"bad_python", "bad_array"}
-    _check("test_validate_mapper_json_only", ok, f"errors on: {bad_names}")
-
-
-
-def test_validate_ignore_strings_json_only():
-    rows = [
-        {"variable_name": "ok_empty", "ignore_strings": ""},
-        {"variable_name": "ok_brackets", "ignore_strings": "[]"},
-        {"variable_name": "ok_json", "ignore_strings": '["a","b"]'},
-        {"variable_name": "ok_legacy_ref", "ignore_strings": "IRRELEVANT_WORDS + ['foo']"},
-        {"variable_name": "ok_python_literal", "ignore_strings": "['a', 'b']"},
-        {"variable_name": "bad_garbage", "ignore_strings": "not even close"},
-    ]
-    errs = validate_var_schema(pd.DataFrame(rows))
-    bad_names = {e["variable_name"] for e in errs if e["column"] == "ignore_strings"}
-    ok = bad_names == {"bad_garbage"}
-    _check("test_validate_ignore_strings_json_only", ok, f"errors on: {bad_names}")
 
 
 
@@ -578,8 +537,6 @@ TESTS = [
     test_recode_lookup_rejects_unknown,
     test_no_eval_in_recode_path,
     test_validate_each_enum,
-    test_validate_mapper_json_only,
-    test_validate_ignore_strings_json_only,
     test_validate_duplicate_variable_name,
     test_validate_real_csv_is_clean,
     test_save_writes_backup,
