@@ -60,9 +60,9 @@ def test_recode_func_blank_to_none() -> None:
 
 
 def test_recode_func_registered_resolves_to_callable() -> None:
-    func = rv.parse_recode_func("recode_scores")
+    func = rv.parse_recode_func("recode_stringified_list")
     assert callable(func)
-    assert func is rv.recode_scores
+    assert func is rv.recode_stringified_list
 
 
 def test_recode_func_unknown_is_none_not_error() -> None:

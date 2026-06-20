@@ -76,7 +76,7 @@ def _pick_samples(scale: str, func_name: str) -> list[tuple[str, pd.Series]]:
         return [("pipe_list", SAMPLE_SERIES["pipe_list"])]
     if func_name == "recode_speech_vs_music":
         return [("percent", SAMPLE_SERIES["percent"])]
-    if func_name == "recode_scores":
+    if func_name == "recode_numeric":
         return [("percent", SAMPLE_SERIES["percent"]), ("numeric", SAMPLE_SERIES["numeric"])]
 
     if scale in {"ratio", "interval"}:

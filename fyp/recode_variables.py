@@ -200,8 +200,8 @@ def get_recode_func_registry() -> dict:
         "recode_faces_age_estimate",
         "recode_long_strings",
         "recode_main_activity",
+        "recode_numeric",
         "recode_scene_sentiments",
-        "recode_scores",
         "recode_speech_vs_music",
         "recode_stringified_list",
     )
@@ -284,8 +284,6 @@ _RECODE_FUNC_BY_SCALE = {
 # a clean value. Remove every entry here once the contract change + one-time
 # backfill lands (these parsers are then deleted). See the Stage C plan.
 _TRANSITIONAL_PARSERS = {
-    "political_score": "recode_scores",
-    "sensitivity_score": "recode_scores",
     "speech_vs_music": "recode_speech_vs_music",
     "faces_age_estimate": "recode_faces_age_estimate",
     "scene_sentiments": "recode_scene_sentiments",
@@ -321,6 +319,8 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
     Replaces the retired ``recode_func`` column. The op is chosen generically:
 
       * ``source`` starting with ``derived:`` -> no recode (already processed);
+      * a numeric field the contract bounds (``int`` with ``min``/``max``, e.g. a
+        0-100 score) -> the generic ``recode_numeric`` (extract + normalise);
       * otherwise the generic op for the field's ``scale`` (see
         :data:`_RECODE_FUNC_BY_SCALE`); numeric / datetime / blank scales get no
         transform (the scale-specific block handles coercion);
@@ -337,6 +337,16 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
     registry = get_recode_func_registry()
     has_scale = "scale" in var_schema_indexed.columns
     has_source = "source" in var_schema_indexed.columns
+    try:
+        from fyp import annotation_contract as ac
+
+        contract = ac.load_contract()
+        bounded = {
+            n for n in var_schema_indexed.index
+            if ac.field_numeric_range(contract, n) is not None
+        }
+    except Exception:
+        bounded = set()
 
     plan: dict = {}
     for name in var_schema_indexed.index:
@@ -346,6 +356,9 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
         source = str(var_schema_indexed.at[name, "source"]).strip() if has_source else ""
         if source.startswith("derived:"):
             plan[name] = None
+            continue
+        if name in bounded:
+            plan[name] = registry.get("recode_numeric")
             continue
         scale = str(var_schema_indexed.at[name, "scale"]).strip() if has_scale else ""
         func_name = _RECODE_FUNC_BY_SCALE.get(scale)
@@ -922,25 +935,42 @@ def recode_speech_vs_music(
     
 
 
-def recode_scores(
-    a_string: str | pd.Series, 
-    recoding_policy: dict = {}) -> float | pd.Series:
-    """
-    takes a string of this template: "<numeral><, ><text>" and returns the numeral split by 100
-    """
-    
-    if isinstance(a_string, pd.Series):
-        val_str = a_string.astype(str).str.split(", ", n=1).str[0]
-        return pd.to_numeric(val_str, errors='coerce') / 100.0
+_LEADING_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
-    if isinstance(a_string,str):
-        the_val = a_string.split(", ")[0]
-        try:
-            return float(the_val) / 100.0
-        except (ValueError, TypeError):
-            return pd.NA
-    else:
-        return a_string
+
+def recode_numeric(
+    value: str | pd.Series,
+    recoding_policy: dict = {}) -> float | pd.Series:
+    """Generic numeric recode: extract the number from a value and, when the
+    contract declares a bounded range for the field (``normalize_range`` in the
+    policy), rescale it to a 0-1 ratio.
+
+    A field's number lives in its value; the recode just reads it and optionally
+    normalises — no per-field parser. Tolerant of legacy free-text forms such as
+    ``"75, explanation"`` or ``"60% speech, 40% music"`` (the leading number is
+    taken), so it reproduces the retired ``recode_scores`` / ``recode_speech_vs_music``
+    on old data while consuming clean integers from a retyped contract.
+    """
+    rng = recoding_policy.get("normalize_range")
+
+    if isinstance(value, pd.Series):
+        nums = pd.to_numeric(
+            value.astype(str).str.extract(r"(-?\d+(?:\.\d+)?)", expand=False),
+            errors="coerce",
+        )
+        if rng is not None and rng[1] != rng[0]:
+            nums = (nums - rng[0]) / (rng[1] - rng[0])
+        return nums
+
+    if pd.isna(value):
+        return pd.NA
+    match = _LEADING_NUMBER_RE.search(str(value))
+    if not match:
+        return pd.NA
+    num = float(match.group(0))
+    if rng is not None and rng[1] != rng[0]:
+        return (num - rng[0]) / (rng[1] - rng[0])
+    return num
 
 
 
@@ -1465,6 +1495,18 @@ def recode_events_df(
     # contract, the recode op from the field's scale + source.
     field_normalization = build_field_normalization(var_schema)
     recode_plan = build_recode_plan(var_schema)
+    # Contract-declared 0-N ranges for bounded numeric fields, so recode_numeric
+    # can normalise them to 0-1 without a per-field parser.
+    try:
+        from fyp import annotation_contract as ac
+
+        _contract = ac.load_contract()
+        field_ranges = {
+            n: ac.field_numeric_range(_contract, n) for n in var_schema.index
+        }
+        field_ranges = {n: r for n, r in field_ranges.items() if r is not None}
+    except Exception:
+        field_ranges = {}
 
     fyp_factors, _ = get_factors_and_features_from_var_schema(some_events_df = cool_events, verbose = verbose)
 
@@ -1527,6 +1569,7 @@ def recode_events_df(
             # replaced dropped var_schema columns).
             this_var_schema.update(field_normalization.get(c, {}))
             this_var_schema["recode_func"] = recode_plan.get(c)
+            this_var_schema["normalize_range"] = field_ranges.get(c)
 
             if this_var_schema.get("role", "undefined") != "skip":
 
