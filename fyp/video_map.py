@@ -19,6 +19,7 @@ from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
+from google import genai
 from scipy.optimize import linear_sum_assignment
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
@@ -66,6 +67,30 @@ OVERLAY_CATEGORICAL = [
 SCRAPE_OVERLAY_NUMERIC = [
     "comments_per_play", "faves_per_play", "shares_per_play", "saves_per_play",
 ]
+
+# Cached Vertex client for niche naming. Distinct from the embeddings client
+# (embeddings._get_client), which is pinned to the embedding endpoint location
+# (us-central1) where the generation model is NOT served. Naming is a generation
+# call, so it must use the configured generation location ([machine].location,
+# e.g. "global").
+_naming_client: genai.Client | None = None
+
+
+def _get_naming_client() -> genai.Client:
+    """Return a cached Vertex client at the generation location for niche naming.
+
+    Returns:
+        A :class:`google.genai.Client` configured for the ``[machine].location``
+        generation endpoint (not the embedding endpoint).
+    """
+    global _naming_client
+    if _naming_client is None:
+        _naming_client = genai.Client(
+            vertexai=fyp_cf["machine"]["vertexai"],
+            project=fyp_cf["machine"]["project"],
+            location=fyp_cf["machine"]["location"],
+        )
+    return _naming_client
 
 
 
@@ -235,8 +260,9 @@ def _name_niches(
             "name": carried_names.get(niche, f"Niche {niche}"),
         }
 
-    client = embeddings._get_client()
+    client = _get_naming_client()
     naming_model = fyp_cf["machine"]["model"]
+    naming_errors: list[str] = []
 
     def _exemplars(niche: int) -> str:
         rows = np.where(labels == niche)[0]
@@ -249,7 +275,8 @@ def _name_niches(
         try:
             resp = client.models.generate_content(model=naming_model, contents=prompt)
             return resp.text.strip().replace("\n", " ")[:48]
-        except Exception:
+        except Exception as e:
+            naming_errors.append(f"{type(e).__name__}: {e}")
             return None
 
     # Labels already fixed by carry-over; fresh names should steer clear of
@@ -278,6 +305,17 @@ def _name_niches(
             meta[niche]["name"] = name
 
     renamed = _dedupe_niche_names(meta, _exemplars, _ask)
+    if naming_errors:
+        warn = (
+            f"WARNING: {len(naming_errors)} niche-naming call(s) failed "
+            f"(model={naming_model}, project={fyp_cf['machine']['project']}, "
+            f"location={fyp_cf['machine']['location']}); affected niches fall "
+            f"back to generic 'Niche N' labels. First error: {naming_errors[0][:300]}"
+        )
+        if reporter is not None:
+            reporter.log(warn)
+        else:
+            print(warn)
     if reporter is not None:
         reporter.log(
             f"Named {len(to_name)} niches via {naming_model} "
