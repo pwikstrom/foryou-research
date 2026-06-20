@@ -195,13 +195,12 @@ def get_recode_func_registry() -> dict:
     if _RECODE_FUNC_REGISTRY is not None:
         return _RECODE_FUNC_REGISTRY
     allowed = (
-        "recode_call_to_action",
-        "recode_descriptions",
         "recode_long_strings",
         "recode_numeric",
         "recode_numeric_mean",
         "recode_scene_sentiments",
         "recode_stringified_list",
+        "recode_tokenise",
     )
     import sys
     this_module = sys.modules[__name__]
@@ -233,8 +232,7 @@ def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dic
     Per-field stop words come solely from the contract's ``[recode.drop]`` table
     (keyed by output column name). The global ``IRRELEVANT_WORDS`` stoplist is
     *not* applied here — it would delete legitimate short tags like "can" / "us";
-    the recode_func that need it (recode_descriptions / recode_call_to_action)
-    apply it themselves.
+    the recode op that needs it (``recode_tokenise``) applies it itself.
 
     Args:
         var_schema_indexed: the variable schema indexed by ``variable_name``
@@ -283,8 +281,8 @@ _RECODE_FUNC_BY_SCALE = {
 # backfill lands (these parsers are then deleted). See the Stage C plan.
 _TRANSITIONAL_PARSERS = {
     "scene_sentiments": "recode_scene_sentiments",
-    "call_to_action": "recode_call_to_action",
-    "desc": "recode_descriptions",
+    "call_to_action": "recode_tokenise",
+    "desc": "recode_tokenise",
 }
 
 
@@ -770,11 +768,14 @@ def _is_emoji(s: str) -> bool:
 
 
 
-def recode_descriptions(
-    a_description: str | pd.Series, 
+def recode_tokenise(
+    a_description: str | pd.Series,
     recoding_policy: dict = {}) -> dict | pd.DataFrame:
-    """
-    Extract hashtags, mentions, and other words from a description string or Series.
+    """Tokenise free text into ``hashtags`` / ``mentions`` / ``not_hashtags`` and a
+    combined ``words`` list (every kept token, in order). One shared op for any
+    text -> tags field — the scrape caption (``desc`` uses hashtags/mentions) and a
+    plain instruction (``call_to_action`` uses ``words``). Stop words are dropped
+    via the global IRRELEVANT_WORDS list; emojis are kept.
     """
     
     # Vectorized handling for Series
@@ -801,33 +802,35 @@ def recode_descriptions(
         # Optimized Apply
         def _fast_parse(text):
             if not isinstance(text, str) or not text:
-                return {"hashtags": [], "mentions": [], "not_hashtags": []}
-            
+                return {"hashtags": [], "mentions": [], "not_hashtags": [], "words": []}
+
             hashtags = []
             mentions = []
             not_hashtags = []
-            
+            words_all = []
+
             # fast split
             # text.split() is fast
             words = text.split()
-            
+
             for w in words:
                 # fast clean using translate
                 # w.lower()
                 clean_word = w.lower().translate(trans_table)
-                
+
                 if not clean_word: continue
-                
+
                 # logic
                 if (len(clean_word) > 1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
+                    words_all.append(clean_word)
                     if w.startswith("#"):
                         hashtags.append(clean_word)
                     elif w.startswith("@"):
                         mentions.append(clean_word)
                     else:
                         not_hashtags.append(clean_word)
-                        
-            return {"hashtags": hashtags, "mentions": mentions, "not_hashtags": not_hashtags}
+
+            return {"hashtags": hashtags, "mentions": mentions, "not_hashtags": not_hashtags, "words": words_all}
 
         return a_description.apply(_fast_parse)
 
@@ -835,11 +838,13 @@ def recode_descriptions(
     hashtags = []
     not_hashtags = []
     mentions = []
+    words_all = []
     if not isinstance(a_description,str) or len(a_description) == 0:
         return {
             "hashtags":[],
             "mentions":[],
-            "not_hashtags":[]
+            "not_hashtags":[],
+            "words":[]
         }
     words = a_description.split(" ")
     for w in words:
@@ -847,55 +852,19 @@ def recode_descriptions(
             first_char = w[0]
             clean_word = "".join([j for j in w.lower() if j not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
             if (len(clean_word)>1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
+                words_all += [clean_word]
                 if first_char=="#":
                     hashtags += [clean_word]
                 elif first_char=="@":
                     mentions += [clean_word]
                 else:
                     not_hashtags += [clean_word]
-        
+
     return {
         "hashtags":hashtags,
         "mentions":mentions,
-        "not_hashtags":not_hashtags
-    }
-
-
-def recode_call_to_action(
-    a_text: str | pd.Series, 
-    recoding_policy: dict = {}) -> dict | pd.Series:
-    
-    
-    if isinstance(a_text, pd.Series):
-        def _fast_parse_cta(text):
-            # Non-str input (including NA) and empty strings collapse to the
-            # empty-words dict. The Series branch is the canonical behaviour
-            # here; the scalar branch below mirrors it.
-            if not isinstance(text, str) or not text:
-                return {"words": []}
-            cta_words = []
-            for w in text.split():
-                if not w: continue
-                clean_word = "".join([c for c in w.lower() if c not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
-                if (len(clean_word)>1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
-                    cta_words.append(clean_word)
-            return {"words": cta_words}
-        return a_text.apply(_fast_parse_cta)
-
-    if not isinstance(a_text, str) or len(a_text) == 0:
-        return {"words": []}
-
-    cta_words = []
-    words = a_text.split(" ")
-    
-    for w in words:
-        if len(w)>0:
-            clean_word = "".join([j for j in w.lower() if j not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
-            if (len(clean_word)>1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
-                cta_words += [clean_word]
-        
-    return {
-        "words":cta_words,
+        "not_hashtags":not_hashtags,
+        "words":words_all
     }
 
 
