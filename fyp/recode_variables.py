@@ -199,7 +199,6 @@ def get_recode_func_registry() -> dict:
         "recode_descriptions",
         "recode_faces_age_estimate",
         "recode_long_strings",
-        "recode_main_activity",
         "recode_numeric",
         "recode_scene_sentiments",
         "recode_speech_vs_music",
@@ -287,7 +286,6 @@ _TRANSITIONAL_PARSERS = {
     "speech_vs_music": "recode_speech_vs_music",
     "faces_age_estimate": "recode_faces_age_estimate",
     "scene_sentiments": "recode_scene_sentiments",
-    "main_activity": "recode_main_activity",
     "call_to_action": "recode_call_to_action",
     "desc": "recode_descriptions",
 }
@@ -1163,53 +1161,6 @@ def recode_challenges(
 # making a very rough simplification of main activity, picking the first word that
 # ends with -ing. The assumption is that this is a verb (I know it isn't) and
 # that it captures the video's main activity 
-def recode_main_activity(
-    fine_actitivies_string : str | pd.Series, 
-    recoding_policy : dict = {}):
-    
-
-    
-    if isinstance(fine_actitivies_string, pd.Series):
-        # Find the first -ing word in each lower-cased cell. Bare .extract is not
-        # a Series method - the str accessor is required after each .str.lower().
-        extracted = fine_actitivies_string.astype(str).str.lower().str.extract(
-            r'\b([a-zA-Z]+ing)\b', expand=False
-        )
-
-        ext_arr = extracted.to_numpy()
-        orig_arr = fine_actitivies_string.to_numpy()
-        final_list = []
-        for i in range(len(fine_actitivies_string)):
-            if pd.isna(orig_arr[i]) or orig_arr[i] == NOT_CODED:
-                final_list.append([NOT_CODED])
-            elif pd.notna(ext_arr[i]):
-                final_list.append([ext_arr[i]])
-            else:
-                final_list.append([UNABLE_TO_DETECT])
-
-        return pd.Series(final_list, index=fine_actitivies_string.index)
-
-    fine_actitivies_list = recode_stringified_list(fine_actitivies_string, recoding_policy)
-
-    if not isinstance(fine_actitivies_list, list):
-        return [NOT_CODED]
-    if fine_actitivies_list == [NOT_CODED]:
-        return [NOT_CODED]
-
-    # Find the first word ending in -ing anywhere inside any list element, matching
-    # the Series branch. An earlier implementation checked `q.endswith("ing")` on
-    # each whole element, which collapsed almost every multi-word phrase (e.g.
-    # "person walking the dog") to UNABLE_TO_DETECT.
-    for item in fine_actitivies_list:
-        if isinstance(item, str):
-            m = re.search(r'\b([a-zA-Z]+ing)\b', item.lower())
-            if m:
-                return [m.group(1)]
-    return [UNABLE_TO_DETECT]
-
-
-
-
 def recode_stringified_list(
     a_string_representing_a_list, 
     recoding_policy

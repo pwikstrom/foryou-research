@@ -46,7 +46,6 @@ footer = "**Return** the final JSON object with all of the above fields exactly 
 objects = ["woman", "man", "person", "people"]
 symbols_and_brands = ["tiktok", "tiktok logo"]
 notable_sounds = ["speech", "music"]
-main_activity = ["getting"]
 
 # ---------------------------------------------------------------------------
 # Enums. A bare list has no per-value descriptions; a table maps value ->
