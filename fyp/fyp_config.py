@@ -420,18 +420,19 @@ def load_var_schema(cf, verbose=False):
             print(f"\nCRITICAL: No var_schema.csv and no template found at '{template_path}'.")
             cf["var_schema"] = pd.DataFrame(columns=[
                 "source", "section", "variable_name", "display_name", "role", "scale",
-                "unable_to_detect_policy",
                 "sortable", "searchable", "web_filter_prio", "web_timeline_prio",
                 "web_viz_prio", "web_viz_log", "web_viz_bins", "web_display_prio",
                 "description", "accepted_labels"
             ])
         cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
-    # ``mapper`` / ``ignore_strings`` / ``recode_func`` are retired columns: recode
-    # normalization is derived from annotation_contract.toml (build_field_normalization)
-    # and the recode op is derived from scale + source (build_recode_plan). Drop them
-    # here so a stale on-disk CSV never surfaces them to the admin editor or the hash.
+    # Retired columns, all now derived: ``mapper`` / ``ignore_strings`` from the
+    # annotation contract (build_field_normalization); ``recode_func`` from scale +
+    # source (build_recode_plan); ``unable_to_detect_policy`` from scale
+    # (default_uncertain_policy — recode normalises, never imputes). Drop them so a
+    # stale on-disk CSV never surfaces them to the admin editor or the hash.
     cf["var_schema"] = cf["var_schema"].drop(
-        columns=["mapper", "ignore_strings", "recode_func"], errors="ignore"
+        columns=["mapper", "ignore_strings", "recode_func", "unable_to_detect_policy"],
+        errors="ignore",
     )
     _apply_contract_accepted_labels(cf)
     return cf
@@ -524,10 +525,11 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
 
     # ``accepted_labels`` is contract-owned (rebuilt in memory at load from
     # annotation_contract.toml), so it is never persisted to the CSV. ``mapper`` /
-    # ``ignore_strings`` / ``recode_func`` are retired columns whose behavior is
-    # derived (contract + scale/source) — never persist them either.
+    # ``ignore_strings`` / ``recode_func`` / ``unable_to_detect_policy`` are retired
+    # columns whose behavior is derived (contract + scale/source) — never persist.
     df = df.drop(
-        columns=["accepted_labels", "mapper", "ignore_strings", "recode_func"],
+        columns=["accepted_labels", "mapper", "ignore_strings", "recode_func",
+                 "unable_to_detect_policy"],
         errors="ignore",
     )
 

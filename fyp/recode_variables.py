@@ -157,7 +157,6 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
 SEMANTIC_COLUMNS = (
     "role",
     "scale",
-    "unable_to_detect_policy",
     "accepted_labels",
     "allow_scalar_fallback",
 )
@@ -294,6 +293,25 @@ _TRANSITIONAL_PARSERS = {
     "call_to_action": "recode_call_to_action",
     "desc": "recode_descriptions",
 }
+
+
+
+# Uncertain-value handling, derived from a field's data kind (the retired
+# ``unable_to_detect_policy`` column). Recode NORMALISES, it does not impute:
+#   numeric    -> NaN   (drop the marker; imputation, if wanted, is an analysis step)
+#   collection -> []    (empty list)
+#   everything else -> keep the "unable to detect" marker
+_UNCERTAIN_NUMERIC_SCALES = ("ratio", "interval", "ordinal")
+
+
+def default_uncertain_policy(scale: str) -> str:
+    """Return the uncertain-value policy for a ``scale`` (no imputation)."""
+    s = (scale or "").strip()
+    if s in _UNCERTAIN_NUMERIC_SCALES:
+        return "drop"
+    if s == "collection":
+        return "empty"
+    return "keep"
 
 
 
@@ -611,14 +629,18 @@ def compute_var_schema_hash() -> str:
         indexed = fyp_cf["var_schema"].set_index("variable_name")
         norm = build_field_normalization(indexed)
         recode_plan = build_recode_plan(indexed)
+        has_scale = "scale" in indexed.columns
         compact = {
             n: {
                 "fold": bool(v["mapper"]),
                 "drop": sorted(v["ignore_strings"]),
-                # The retired recode_func column is now derived (scale + source);
-                # fold the resolved op name in so a source/scale change that
-                # changes recoding still invalidates caches.
+                # The retired recode_func / unable_to_detect_policy columns are now
+                # derived (scale + source); fold the resolved op name and policy in
+                # so a source/scale change that alters recoding invalidates caches.
                 "op": getattr(recode_plan.get(n), "__name__", "none"),
+                "policy": default_uncertain_policy(
+                    str(indexed.at[n, "scale"]) if has_scale else ""
+                ),
             }
             for n, v in norm.items()
         }
@@ -1558,26 +1580,22 @@ def recode_events_df(
 
 
                 # ------------------------------------------------------
-                # 3. implement missing data and unable to detect policies
+                # 3. normalise missing / unable-to-detect values by data kind.
+                #    Recode does NOT impute — numeric uncertainty becomes NaN,
+                #    collections become [], everything else keeps the marker.
+                #    Median/zero imputation, if wanted, is an analysis-layer step.
                 # ------------------------------------------------------
-                if (this_var_schema.get('unable_to_detect_policy', 'unknown') == "median") or (this_var_schema.get('missing_data_policy', 'unknown') == "median"):
-                    # Check if numeric before median
-                    if pd.api.types.is_numeric_dtype(cool_events[c]):
-                        a_fine_median = cool_events[c].median()
-                    else:
-                        a_fine_median = 0 # fallback
-                else:
-                    a_fine_median = None
+                uncertain_policy = default_uncertain_policy(this_var_schema.get("scale", ""))
 
                 cool_events[c] = implement_unable_to_detect_policy(
                     cool_events[c],
-                    this_var_schema.get("unable_to_detect_policy","No policy"),
-                    a_fine_median)
+                    uncertain_policy,
+                    None)
 
                 cool_events[c] = implement_missing_data_policy(
                     cool_events[c],
                     "drop",#this_var_schema.get("missing_data_policy","No policy"),
-                    a_fine_median)
+                    None)
                 
                 
                 # ------------------------------------------------------
@@ -1620,18 +1638,20 @@ def recode_events_df(
 
 
                 # ------------------------------------------------------
-                # 5. for dichotomous variables, I only accept "yes" and "no" as values 
+                # 5. for dichotomous variables, the value set is yes / no plus the
+                #    uncertainty marker. The contract's yes_no enum also offers
+                #    "Unclear", and a field can be missing — both normalise to the
+                #    marker rather than crashing (they are not yes/no).
                 # ------------------------------------------------------
                 if (this_var_schema["scale"] in ["dichotomous"]):
-                    # Vectorized check with safe handling for unhashables (lists)
-                    try:
-                        uniques = set(cool_events[c].dropna().unique())
-                    except TypeError:
-                        # Likely lists remaining. Convert to string for uniqueness check
-                        uniques = set(cool_events[c].dropna().astype(str).unique())
-                        
-                    if not uniques <= {'yes','no'}:
-                        raise ValueError(f"{c} is a dichotomous variable. Only 'yes', 'no' are accepted values. Found: {uniques}")
+                    def _normalize_dichotomous(x):
+                        if isinstance(x, str):
+                            return x if x in ("yes", "no") else UNABLE_TO_DETECT
+                        try:
+                            return x if pd.isna(x) else UNABLE_TO_DETECT
+                        except (TypeError, ValueError):
+                            return UNABLE_TO_DETECT
+                    cool_events[c] = cool_events[c].map(_normalize_dichotomous)
                     
 
                 # ------------------------------------------------------
