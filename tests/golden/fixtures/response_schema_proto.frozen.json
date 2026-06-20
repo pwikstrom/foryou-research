@@ -76,11 +76,11 @@
       "type": "ARRAY"
     },
     "audio_summary": {
-      "description": "The video's audio profile: the speech-vs-music balance, the style/mood of any background music, and any notable sounds or sound effects.",
+      "description": "The video's audio profile: how much of the audio is speech (as a percentage of speech vs music/other), the style/mood of any background music, and any notable sounds or sound effects.",
       "properties": {
         "speech_vs_music": {
-          "description": "the speech-vs-music balance adding to 100%, e.g. '60% speech, 40% music'",
-          "type": "STRING"
+          "description": "the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)",
+          "type": "INTEGER"
         },
         "background_music": {
           "description": "the style or mood of any background music",

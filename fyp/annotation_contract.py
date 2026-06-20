@@ -19,8 +19,14 @@ The per-field surface is intentionally small: everything except ``name`` and
     into ``<field>_<key>`` columns.
 """
 
+import re
 import tomllib
 from pathlib import Path
+
+# A ``[fields.keys]`` sub-key declared as a bounded integer: ``"int(0,100): desc"``
+# (or ``"int: desc"`` with no bounds). Lets an object sub-key be a clean number
+# the generic numeric recode rescales — no per-field parser.
+_INT_SUBKEY_RE = re.compile(r"^int\s*(?:\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\))?\s*:\s*(.*)$", re.DOTALL)
 
 # The leaf/container types a field (or object sub-key) may declare.
 VALID_TYPES = frozenset({"string", "int", "object"})
@@ -130,6 +136,32 @@ def field_numeric_range(contract: dict, name: str) -> tuple[int, int] | None:
 
 
 
+def contract_numeric_ranges(contract: dict) -> dict[str, tuple[int, int]]:
+    """Return ``{flattened_column: (min, max)}`` for every bounded numeric field.
+
+    Covers top-level ``int`` fields (keyed by name) and object sub-keys declared
+    ``"int(lo,hi): ..."`` (keyed by BOTH the bare sub-key and the ``<object>_<key>``
+    form, so the lookup works whether or not the flattener strips the object
+    prefix). The generic numeric recode uses this to rescale a value to 0-1.
+    """
+    ranges: dict[str, tuple[int, int]] = {}
+    for field in contract.get("fields", []):
+        name = field.get("name")
+        if field.get("type") == "int" and "min" in field and "max" in field:
+            ranges[name] = (int(field["min"]), int(field["max"]))
+        if field.get("type") == "object":
+            for key, spec in field.get("keys", {}).items():
+                if isinstance(spec, str):
+                    m = _INT_SUBKEY_RE.match(spec)
+                    if m and m.group(1) is not None:
+                        rng = (int(m.group(1)), int(m.group(2)))
+                        ranges[key] = rng
+                        ranges[f"{name}_{key}"] = rng
+    return ranges
+
+
+
+
 def field_drop_words(contract: dict) -> dict[str, list[str]]:
     """Return the per-field recode stop words declared in ``[recode.drop]``.
 
@@ -199,6 +231,17 @@ def _subkey_node(spec: str, contract: dict) -> dict:
         if desc:
             node["description"] = desc
         return node
+    if isinstance(spec, str):
+        m = _INT_SUBKEY_RE.match(spec)
+        if m:
+            int_node: dict = {"type": "integer"}
+            if m.group(1) is not None:
+                int_node["minimum"] = int(m.group(1))
+                int_node["maximum"] = int(m.group(2))
+            desc = m.group(3).strip()
+            if desc:
+                int_node["description"] = desc
+            return int_node
     node = {"type": "string"}
     if isinstance(spec, str) and spec:
         node["description"] = spec

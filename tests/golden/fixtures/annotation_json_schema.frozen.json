@@ -75,8 +75,10 @@
       "type": "object",
       "properties": {
         "speech_vs_music": {
-          "type": "string",
-          "description": "the speech-vs-music balance adding to 100%, e.g. '60% speech, 40% music'"
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)"
         },
         "background_music": {
           "type": "string",
@@ -95,7 +97,7 @@
         "background_music",
         "notable_sounds"
       ],
-      "description": "The video's audio profile: the speech-vs-music balance, the style/mood of any background music, and any notable sounds or sound effects."
+      "description": "The video's audio profile: how much of the audio is speech (as a percentage of speech vs music/other), the style/mood of any background music, and any notable sounds or sound effects."
     },
     "main_activity": {
       "type": "string",

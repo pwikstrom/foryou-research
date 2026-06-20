@@ -201,7 +201,6 @@ def get_recode_func_registry() -> dict:
         "recode_long_strings",
         "recode_numeric",
         "recode_scene_sentiments",
-        "recode_speech_vs_music",
         "recode_stringified_list",
     )
     import sys
@@ -283,7 +282,6 @@ _RECODE_FUNC_BY_SCALE = {
 # a clean value. Remove every entry here once the contract change + one-time
 # backfill lands (these parsers are then deleted). See the Stage C plan.
 _TRANSITIONAL_PARSERS = {
-    "speech_vs_music": "recode_speech_vs_music",
     "faces_age_estimate": "recode_faces_age_estimate",
     "scene_sentiments": "recode_scene_sentiments",
     "call_to_action": "recode_call_to_action",
@@ -339,10 +337,8 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
         from fyp import annotation_contract as ac
 
         contract = ac.load_contract()
-        bounded = {
-            n for n in var_schema_indexed.index
-            if ac.field_numeric_range(contract, n) is not None
-        }
+        ranges = ac.contract_numeric_ranges(contract)
+        bounded = {n for n in var_schema_indexed.index if n in ranges}
     except Exception:
         bounded = set()
 
@@ -899,40 +895,6 @@ def recode_call_to_action(
 
 
 
-def recode_speech_vs_music(
-    a_string: str | pd.Series, 
-    recoding_policy: dict = {}) -> float | pd.Series | None:
-    
-    
-    if isinstance(a_string, pd.Series):
-        extracted = a_string.astype(str).str.extract(r'(\d+)% speech')[0]
-        return pd.to_numeric(extracted, errors='coerce') / 100.0
-
-
-    if not isinstance(a_string, str):
-        return a_string
-
-    some_list = a_string.split(",")
-    some_list_check = [[1 * ("speech" in h), 1 * ("music" in h)] for h in some_list]
-    if len(some_list) == 2 and all(np.array(some_list_check).sum(axis=0) == 1):
-        try:
-            some_list = [{h.split("%")[1].strip(): np.int64(h.split("%")[0])} for h in some_list]
-        except Exception:
-            return None
-
-        polished_list = []
-        for d in some_list:
-            the_key = list(d.keys())[0]
-            if "speech" in the_key:
-                polished_list += [{"speech": d[the_key]}]
-            elif "music" in the_key:
-                polished_list += [{"music": d[the_key]}]
-        return [rr for rr in polished_list if "speech" in rr.keys()][0]["speech"] / 100
-    else:
-        return None
-    
-
-
 _LEADING_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 
@@ -1452,10 +1414,8 @@ def recode_events_df(
         from fyp import annotation_contract as ac
 
         _contract = ac.load_contract()
-        field_ranges = {
-            n: ac.field_numeric_range(_contract, n) for n in var_schema.index
-        }
-        field_ranges = {n: r for n, r in field_ranges.items() if r is not None}
+        _ranges = ac.contract_numeric_ranges(_contract)
+        field_ranges = {n: _ranges[n] for n in var_schema.index if n in _ranges}
     except Exception:
         field_ranges = {}
 
