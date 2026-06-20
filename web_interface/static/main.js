@@ -845,6 +845,15 @@ function setStatus(name, data) {
             toggleBtn.innerText = startLabel;
             toggleBtn.style.padding = '4px 12px';
             toggleBtn.onclick = function () {
+                // A button may declare a custom start handler (e.g. one that
+                // reads a checkbox and confirms) via data-start-handler. Honour
+                // it so this poll-driven rebind doesn't clobber that logic — the
+                // inline onclick alone is overwritten on the first status poll.
+                const handler = toggleBtn.getAttribute('data-start-handler');
+                if (handler && typeof window[handler] === 'function') {
+                    window[handler]();
+                    return;
+                }
                 const extraRaw = toggleBtn.getAttribute('data-start-extra');
                 const extra = extraRaw ? JSON.parse(extraRaw) : {};
                 startProcess(name, extra);

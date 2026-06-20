@@ -126,7 +126,7 @@
             style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
             <span id="video_map_refresh-status" class="status-indicator status-stopped"></span>
             <button id="video_map_refresh-toggle" class="btn-primary" data-start-label="Rebuild"
-                onclick="rebuildNicheMap()" style="padding: 4px 12px;">Rebuild</button>
+                data-start-handler="rebuildNicheMap" onclick="rebuildNicheMap()" style="padding: 4px 12px;">Rebuild</button>
             <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                 <input type="checkbox" id="video_map_reset-labels">
                 <span style="color: var(--color-text-secondary);">Reset all labels</span>
