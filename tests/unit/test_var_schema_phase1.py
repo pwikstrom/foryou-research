@@ -243,9 +243,10 @@ def test_no_eval_in_recode_path():
 
 
 def test_validate_each_enum():
+    # role and scale are the remaining validated enum columns (mapper / ignore_strings
+    # / recode_func / unable_to_detect_policy were retired and are now derived).
     base = pd.DataFrame([
-        {"variable_name": "v1", "role": "factor", "scale": "ratio",
-         "unable_to_detect_policy": "keep"},
+        {"variable_name": "v1", "role": "factor", "scale": "ratio"},
     ])
     # passing case
     errs = validate_var_schema(base)
@@ -258,14 +259,9 @@ def test_validate_each_enum():
     bad_scale = base.copy()
     bad_scale.loc[0, "scale"] = "ratoi"
     errs2 = validate_var_schema(bad_scale)
-    # policy typo
-    bad_policy = base.copy()
-    bad_policy.loc[0, "unable_to_detect_policy"] = "keepish"
-    errs3 = validate_var_schema(bad_policy)
     ok = (pass_clean
           and any(e["column"] == "role" for e in errs1)
-          and any(e["column"] == "scale" for e in errs2)
-          and any(e["column"] == "unable_to_detect_policy" for e in errs3))
+          and any(e["column"] == "scale" for e in errs2))
     _check("test_validate_each_enum", ok)
 
 

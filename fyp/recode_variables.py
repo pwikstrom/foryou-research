@@ -177,7 +177,6 @@ VAR_SCHEMA_SCALES = (
     "raw",
     "string",
 )
-VAR_SCHEMA_POLICIES = ("drop", "empty", "keep", "median", "zero")
 
 
 
@@ -462,9 +461,6 @@ def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
       * ``variable_name`` present and unique
       * ``role`` ∈ ``VAR_SCHEMA_ROLES`` (blank allowed)
       * ``scale`` ∈ ``VAR_SCHEMA_SCALES`` (blank allowed)
-      * ``unable_to_detect_policy`` ∈ ``VAR_SCHEMA_POLICIES`` (blank allowed)
-      * ``recode_func`` is empty or names a callable in
-        :func:`get_recode_func_registry`
       * ``accepted_labels`` is empty / JSON array / legacy bareword list
       * ``sortable``, ``web_filter_prio``, ``web_timeline_prio``,
         ``web_viz_prio``, ``web_display_prio`` parse as integers when set
@@ -509,20 +505,6 @@ def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
         if not _is_blank(scale) and str(scale).strip() not in VAR_SCHEMA_SCALES:
             errors.append(VarSchemaError(row_idx, name, "scale", scale,
                                          f"unknown scale; expected one of {sorted(VAR_SCHEMA_SCALES)} or blank"))
-
-        # unable_to_detect_policy
-        policy = row.get("unable_to_detect_policy")
-        if not _is_blank(policy) and str(policy).strip() not in VAR_SCHEMA_POLICIES:
-            errors.append(VarSchemaError(row_idx, name, "unable_to_detect_policy", policy,
-                                         f"unknown policy; expected one of {sorted(VAR_SCHEMA_POLICIES)} or blank"))
-
-        # recode_func
-        rf = row.get("recode_func")
-        if not _is_blank(rf):
-            if str(rf).strip() not in get_recode_func_registry():
-                errors.append(VarSchemaError(row_idx, name, "recode_func", rf,
-                                             "recode_func is not in the allow-list; "
-                                             "add it to get_recode_func_registry() in fyp.recode_variables"))
 
         # accepted_labels
         al = row.get("accepted_labels")

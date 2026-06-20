@@ -18,11 +18,9 @@ from fyp.fyp_config import (
 )
 from fyp.recode_variables import (
     SEMANTIC_COLUMNS,
-    VAR_SCHEMA_POLICIES,
     VAR_SCHEMA_ROLES,
     VAR_SCHEMA_SCALES,
     compute_var_schema_hash,
-    get_recode_func_registry,
     validate_var_schema,
 )
 import fyp.annotation_versioning as annotation_versioning
@@ -2004,9 +2002,7 @@ def get_schema():
             "enums": {
                 "role": sorted(VAR_SCHEMA_ROLES),
                 "scale": sorted(VAR_SCHEMA_SCALES),
-                "unable_to_detect_policy": sorted(VAR_SCHEMA_POLICIES),
             },
-            "recode_funcs": sorted(get_recode_func_registry().keys()),
             "etag": compute_var_schema_etag(fyp_cf),
             "current_hash": compute_var_schema_hash(),
         })
