@@ -1219,6 +1219,50 @@ ENGAGEMENT_PER_PLAY_COLUMNS: dict[str, str] = {
 }
 
 
+# TikTok reports view/engagement counts as signed 32-bit integers; counts above
+# 2**31 - 1 (~2.15 billion) arrive wrapped around to a negative value. The true
+# count is recovered by adding 2**32. The yt-dlp "missing" sentinel -1 is left
+# untouched (a genuine 4,294,967,295-view item would also wrap to -1, but that is
+# vanishingly rare and indistinguishable from the sentinel).
+_UINT32_RANGE: int = 1 << 32
+
+OVERFLOW_REPAIR_COLUMNS: tuple[str, ...] = (
+    "stats_playCount",
+    "stats_diggCount",
+    "stats_shareCount",
+    "stats_commentCount",
+    "stats_collectCount",
+)
+
+
+def repair_overflowed_counts(df: pd.DataFrame, columns: tuple[str, ...] = OVERFLOW_REPAIR_COLUMNS, verbose: bool = False) -> pd.DataFrame:
+    """Recover signed-32-bit-overflowed TikTok counts in place.
+
+    Any value strictly below -1 in a count column is treated as a 32-bit wrap of
+    a count exceeding 2**31 and is corrected by adding 2**32. The -1 missing
+    sentinel and all non-negative values are preserved.
+
+    Args:
+        df: DataFrame of scrape stats (mutated and returned).
+        columns: Count column names to repair.
+        verbose: When True, print the number of values repaired per column.
+
+    Returns:
+        The same DataFrame with overflowed counts recovered.
+    """
+    for col in columns:
+        if col not in df.columns:
+            continue
+        series = df[col]
+        mask = (series < -1).fillna(False)
+        n_repaired = int(mask.sum())
+        if n_repaired:
+            df[col] = series.mask(mask, series + _UINT32_RANGE)
+            if verbose:
+                print(f"    Recovered {n_repaired:,} signed-32-bit-overflowed value(s) in {col}")
+    return df
+
+
 
 
 
@@ -1320,6 +1364,11 @@ def consolidate_and_save_scrape_data(
     if top_verbose:
         print(f"Shape: {scrape_df.shape} | Memory usage: {total_memory_mb:.2f} MB")
 
+
+    # Recover any signed-32-bit-overflowed counts (TikTok view counts above
+    # ~2.15B arrive wrapped to a negative value) before they are stored or used
+    # to derive per-play rates / plays-per-day downstream.
+    scrape_df = repair_overflowed_counts(scrape_df, verbose=top_verbose)
 
     # Derive per-play engagement rates so comparisons are not dominated by the
     # mechanical correlation between absolute counts and play count. Plays stays

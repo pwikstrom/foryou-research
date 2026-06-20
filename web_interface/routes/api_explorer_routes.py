@@ -412,20 +412,34 @@ def api_explorer_metadata_base():
                 print(f"    Warning: Error loading/processing cached base metadata: {e}")
                 traceback.print_exc()
 
-    # Cold path: need the DataFrame to compute metadata from scratch
-    df, col_types = get_explorer_data(study, context='explorer')
-    if df is None:
-        return jsonify({"error": "Dataset not found"}), 404
+    # Cold path: need the DataFrame to compute metadata from scratch. This runs
+    # whenever the cached JSON is stale relative to the recoded parquet — most
+    # commonly right after a study has been (re)recoded, when the parquet may
+    # still be mid-write or the in-process schema/version caches lag the new
+    # columns. Any failure here must surface as a clean, retryable message
+    # rather than a raw 500 (which the frontend can only render as the opaque
+    # "Failed to load metadata").
+    try:
+        df, col_types = get_explorer_data(study, context='explorer')
+        if df is None:
+            return jsonify({"error": "Dataset not found"}), 404
 
-    metadata = _build_full_metadata(df, col_types, study)
-    data_io.save_json(
-        data=make_serializable(metadata),
-        storage_location="cache",
-        filename=canonical_filename,
-        verbose=False,
-    )
-    metadata = _finalize_base_metadata(metadata, study)
-    return jsonify(make_serializable(metadata))
+        metadata = _build_full_metadata(df, col_types, study)
+        data_io.save_json(
+            data=make_serializable(metadata),
+            storage_location="cache",
+            filename=canonical_filename,
+            verbose=False,
+        )
+        metadata = _finalize_base_metadata(metadata, study)
+        return jsonify(make_serializable(metadata))
+    except Exception as e:
+        print(f"    [DATA_ROUTES] Cold-path base metadata build failed for {study}: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "error": "This study's data is still being prepared (it may be "
+                     "mid-refresh). Please retry in a moment."
+        }), 503
 
 
 @explorer_bp.route('/api/explore/metadata/overlay', methods=['GET'])
@@ -443,16 +457,28 @@ def api_explorer_metadata_overlay():
 
     context = request.args.get('context', 'explorer')
 
-    df, col_types = get_explorer_data(study, context=context)
-    if df is None:
-        return jsonify({"error": "Dataset not found"}), 404
+    # The overlay is per-user enrichment (tags, annotation status) that the
+    # frontend merges on top of the base metadata. A failure here is non-fatal:
+    # the page still renders from the base call, so degrade gracefully to an
+    # empty overlay rather than 500-ing.
+    try:
+        df, col_types = get_explorer_data(study, context=context)
+        if df is None:
+            return jsonify({"error": "Dataset not found"}), 404
 
-    username = current_user.username
-    shared_simple_map = _get_shared_simple_map(username, current_user.settings)
-    df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
+        username = current_user.username
+        shared_simple_map = _get_shared_simple_map(username, current_user.settings)
+        df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
 
-    overlay = _compute_dynamic_overlay(df, col_types)
-    return jsonify(make_serializable(overlay))
+        overlay = _compute_dynamic_overlay(df, col_types)
+        return jsonify(make_serializable(overlay))
+    except Exception as e:
+        print(f"    [DATA_ROUTES] Overlay metadata build failed for {study}: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "columns": {}, "schema_map": {}, "stats_overlay": {},
+            "filter_priority_prepend": [], "display_priority_prepend": [],
+        })
 
 
 @explorer_bp.route('/api/explore/metadata', methods=['GET'])
