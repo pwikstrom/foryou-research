@@ -578,6 +578,15 @@ def call_machine_threads(
 
 
 
+# Minimum difflib name-similarity required to merge a rare (<10% populated)
+# column into a dominant (>90% populated) one. Genuine stray-key variants score
+# ~0.85+, while unrelated pairs (e.g. a real column vs item_id) score <0.35, so
+# 0.6 cleanly separates them and prevents collapsing mostly-failed batches.
+RARE_COLUMN_MERGE_MIN_SIMILARITY = 0.6
+
+
+
+
 def consolidate_rare_columns_from_gemini_output(
         outputs_from_machine_df_in,
         verbose=False,
@@ -625,17 +634,23 @@ def consolidate_rare_columns_from_gemini_output(
             try:
                 if verbose:
                     print(len(outputs_from_machine_df) - outputs_from_machine_df[unusual_col_name].isna().sum())
-                dominant_col_name = fyp_utils.sort_by_similarity(unusual_col_name, nonnull_ratio[nonnull_ratio>0.9].index)[0]
-                
-                rows_w_nonnull_value_in_unusual_col = outputs_from_machine_df[~outputs_from_machine_df[unusual_col_name].isna()].loc[:,[dominant_col_name,unusual_col_name]]
-                
-                for ii in rows_w_nonnull_value_in_unusual_col.index:
-                    if outputs_from_machine_df.loc[ii,dominant_col_name] is np.nan:
-                        if verbose:
-                            print("*******",ii,dominant_col_name)
-                        outputs_from_machine_df.loc[ii,dominant_col_name] = outputs_from_machine_df.loc[ii,unusual_col_name]
-                    else:
-                        outputs_from_machine_df.loc[ii,unusual_col_name] = np.nan
+                dominant_col_name, similarity = fyp_utils.best_similarity_match(unusual_col_name, nonnull_ratio[nonnull_ratio>0.9].index)
+
+                # Only merge a rare column into a dominant one when their names are
+                # genuinely similar (a stray-key variant). Without this guard a
+                # mostly-failed batch — where the only well-populated column is
+                # item_id — merges every real column into item_id and clears the
+                # values, collapsing the batch to item_id alone.
+                if dominant_col_name is not None and similarity >= RARE_COLUMN_MERGE_MIN_SIMILARITY:
+                    rows_w_nonnull_value_in_unusual_col = outputs_from_machine_df[~outputs_from_machine_df[unusual_col_name].isna()].loc[:,[dominant_col_name,unusual_col_name]]
+
+                    for ii in rows_w_nonnull_value_in_unusual_col.index:
+                        if outputs_from_machine_df.loc[ii,dominant_col_name] is np.nan:
+                            if verbose:
+                                print("*******",ii,dominant_col_name)
+                            outputs_from_machine_df.loc[ii,dominant_col_name] = outputs_from_machine_df.loc[ii,unusual_col_name]
+                        else:
+                            outputs_from_machine_df.loc[ii,unusual_col_name] = np.nan
             except KeyError:
                 if verbose:
                     print(f"ERROR: {unusual_col_name} doesn't seem to be among the columns")

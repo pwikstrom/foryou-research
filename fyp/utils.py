@@ -70,6 +70,30 @@ def sort_by_similarity(reference: str, candidates: Iterable[str]) -> list[str]:
 
 
 
+def best_similarity_match(reference: str, candidates: Iterable[str]) -> tuple[str | None, float]:
+    """Return the most similar candidate to ``reference`` and its similarity ratio.
+
+    Args:
+        reference: The string to match against.
+        candidates: Candidate strings to rank.
+
+    Returns:
+        A ``(candidate, ratio)`` tuple where ratio is the difflib.SequenceMatcher
+        score (0.0–1.0). Returns ``(None, 0.0)`` when ``candidates`` is empty.
+    """
+
+    best_candidate = None
+    best_ratio = 0.0
+    for candidate in candidates:
+        ratio = SequenceMatcher(None, reference, candidate).ratio()
+        if best_candidate is None or ratio > best_ratio:
+            best_candidate = candidate
+            best_ratio = ratio
+    return best_candidate, best_ratio
+
+
+
+
 
 
 def pretty_str_seconds(proc_time_seconds: float) -> str:
