@@ -80,26 +80,19 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
     )
 
     # Chain the downstream refresh so the new niche assignments propagate into
-    # every study cache. Cloud Tasks consumes this via _run_task_with_stats;
-    # local subprocess mode dispatches the same pipeline in monitor_process_completion.
+    # every study cache. recode runs first, then fans out to the concurrent
+    # leaves (meta ‖ pca ‖ timelines) — see build_pipeline_chain. Cloud Tasks
+    # consumes this via _run_task_with_stats; local subprocess mode dispatches
+    # the same pipeline sequentially in monitor_process_completion.
     if auto_refresh and result.get("videos", 0) > 0:
-        first, remaining = _DOWNSTREAM_PIPELINE[0], _DOWNSTREAM_PIPELINE[1:]
-        next_task_args = dict(first["task_args"])
-        next_task_args["pipeline_remaining"] = [
-            {"task": p["task"], "task_args": p["task_args"]} for p in remaining
-        ]
-        next_task_args["pipeline_stage_total"] = 1 + len(_DOWNSTREAM_PIPELINE)
-        next_task_args["pipeline_stage_index"] = 2
+        from web_interface.run_consolidate_enrichment import build_pipeline_chain
+        chain = build_pipeline_chain(list(_DOWNSTREAM_PIPELINE))
         reporter.log(
-            f"Auto-refresh: dispatching {first['task']} "
-            f"(stage 2/{1 + len(_DOWNSTREAM_PIPELINE)}); "
-            f"remaining={[p['task'] for p in remaining]}"
+            f"Auto-refresh: dispatching {chain['next_task']} "
+            f"(stage 2/{chain['next_task_args']['pipeline_stage_total']}); "
+            f"pipeline={[p['task'] for p in _DOWNSTREAM_PIPELINE]}"
         )
-        return {
-            "chain": True,
-            "next_task": first["task"],
-            "next_task_args": next_task_args,
-        }
+        return chain
     return None
 
 

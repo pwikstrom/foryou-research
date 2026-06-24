@@ -120,7 +120,7 @@
         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
         <div class="font-bold" style="margin-bottom: 10px;">Semantic Map</div>
         <div class="text-xs" style="color: var(--color-text-tertiary); margin-bottom: 10px;">
-            Rebuilds the Semantic Space map (niches + 2D layout) from the embedding store. Not automatic — a rebuild reshuffles the layout and niche labels, so run it deliberately. Tick "Reset all labels" to regenerate every niche name from scratch instead of preserving stable ones.
+            Rebuilds the Semantic Space map (niches + 2D layout) from the embedding store. Runs automatically after Consolidate &amp; Refresh in preserve-labels mode, so new videos get niches — niche names stay stable, but the 2D layout still reshuffles each rebuild. Refresh here to rebuild on demand. Tick "Reset all labels" to regenerate every niche name from scratch instead of preserving stable ones.
         </div>
         <div class="controls"
             style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">

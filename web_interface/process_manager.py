@@ -245,6 +245,33 @@ def _run_local_video_map_downstream() -> None:
     )
 
 
+def local_pipeline_script_map() -> dict:
+    """Map each downstream pipeline task name to its subprocess script path.
+
+    Used by the local-dev sequential orchestrator (:func:`_run_local_pipeline`).
+    Every task that can appear in the consolidate or video-map downstream
+    pipeline must have an entry here, or the local pipeline aborts with
+    "Unknown step". Exposed at module level so the invariant is unit-testable.
+    """
+    from fyp.fyp_config import (
+        EMBEDDINGS_REFRESH_SCRIPT,
+        META_REFRESH_GROUPS_SCRIPT,
+        PCA_REFRESH_SCRIPT,
+        RECODE_REFRESH_STUDIES_SCRIPT,
+        TIMELINES_REFRESH_SCRIPT,
+        VIDEO_MAP_REFRESH_SCRIPT,
+    )
+
+    return {
+        "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,
+        "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
+        "pca_refresh": PCA_REFRESH_SCRIPT,
+        "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
+        "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
+        "video_map_refresh": VIDEO_MAP_REFRESH_SCRIPT,
+    }
+
+
 def _run_local_pipeline(pipeline: list, summary_owner: str, summary_fn) -> None:
     """Run a downstream refresh pipeline as sequential subprocesses (local dev).
 
@@ -258,21 +285,7 @@ def _run_local_pipeline(pipeline: list, summary_owner: str, summary_fn) -> None:
         summary_owner: process_stats key to receive the final summary.
         summary_fn: ``(steps_ran, aborted_at) -> str`` summary builder.
     """
-    from fyp.fyp_config import (
-        EMBEDDINGS_REFRESH_SCRIPT,
-        META_REFRESH_GROUPS_SCRIPT,
-        PCA_REFRESH_SCRIPT,
-        RECODE_REFRESH_STUDIES_SCRIPT,
-        TIMELINES_REFRESH_SCRIPT,
-    )
-
-    script_map = {
-        "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,
-        "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
-        "pca_refresh": PCA_REFRESH_SCRIPT,
-        "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
-        "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
-    }
+    script_map = local_pipeline_script_map()
 
     total_stages = 1 + len(pipeline)  # the trigger task itself was stage 1
     _set_pipeline_in_flight(True)

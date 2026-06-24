@@ -61,14 +61,19 @@ management_bp = Blueprint('management_bp', __name__)
 
 
 # Downstream refresh steps considered by the auto-pipeline, in the order they
-# are dispatched. Ordering matters: recode produces the recoded datasets that
-# meta_refresh_groups / pca_refresh consume.
+# are dispatched. Keep in sync with _PIPELINE_STEPS_ORDER in
+# run_consolidate_enrichment.py. Ordering matters: embeddings feed video_map
+# (the niches), video_map feeds recode, and recode produces the recoded datasets
+# that meta_refresh_groups / pca_refresh consume. This list is used only to
+# check whether any pipeline step is currently running, so membership matters
+# more than order, but the two lists are kept identical to avoid drift.
 PIPELINE_STEPS_ORDER = [
+    "embeddings_refresh",
+    "video_map_refresh",
     "recode_refresh_studies",
     "meta_refresh_groups",
     "pca_refresh",
     "timelines_refresh",
-    "embeddings_refresh",
 ]
 
 

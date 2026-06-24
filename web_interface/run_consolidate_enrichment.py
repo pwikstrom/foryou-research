@@ -13,24 +13,105 @@ from web_interface.task_status import TaskStatusReporter
 
 # Downstream refresh steps dispatched by the auto-pipeline, in dependency
 # order. Keep this in sync with PIPELINE_STEPS_ORDER in management_routes.py.
-# embeddings_refresh is last: it is corpus-global and only depends on new
-# annotations, so it runs after the study/collection refreshes.
+# The niche columns flow embeddings -> video_map -> recode: embeddings top up
+# the dense vectors, video_map re-clusters them into niches (writes
+# video_map.parquet), and recode_refresh_studies joins those niches into each
+# study dataset. meta/pca/timelines then consume the recoded outputs. Embedding
+# and map rebuilds therefore run BEFORE the study/collection refreshes, not
+# after, so the niche columns are fresh when the studies recode.
 _PIPELINE_STEPS_ORDER = [
+    "embeddings_refresh",
+    "video_map_refresh",
     "recode_refresh_studies",
     "meta_refresh_groups",
     "pca_refresh",
     "timelines_refresh",
-    "embeddings_refresh",
 ]
 
 _PIPELINE_STAGE_LABELS = {
     "consolidate_enrichment": "Consolidating enrichment data",
+    "embeddings_refresh": "Refreshing semantic embeddings",
+    "video_map_refresh": "Rebuilding semantic map",
     "recode_refresh_studies": "Refreshing study definitions",
     "meta_refresh_groups": "Refreshing explore metadata",
     "pca_refresh": "Refreshing correlations",
     "timelines_refresh": "Refreshing timelines",
-    "embeddings_refresh": "Refreshing semantic embeddings",
 }
+
+# The downstream pipeline is an out-tree: a linear spine
+# (consolidate → embeddings → video_map → recode) that fans out at recode into
+# the terminal leaves below, which run concurrently. meta/pca read the per-study
+# recoded datasets and timelines reads the global recoded datasets; none of them
+# feed another step, so no join is needed. recode is their shared parent (the
+# niche columns it writes are what meta/pca surface).
+_FORK_PARENT = "recode_refresh_studies"
+_FORK_LEAF_TASKS = ("meta_refresh_groups", "pca_refresh", "timelines_refresh")
+
+
+def build_pipeline_chain(pipeline: list[dict]) -> dict | None:
+    """Build the Cloud-Tasks chain dict that launches a downstream pipeline.
+
+    Takes the dependency-ordered candidate list from
+    :func:`_build_downstream_pipeline` and returns the chain dict that dispatches
+    the first step. The terminal leaves (meta/pca/timelines) are forked off
+    recode_refresh_studies so they run concurrently: the recode step carries
+    ``pipeline_fanout`` (the leaves to dispatch on its completion) and
+    ``pipeline_leaves`` (the full leaf set, so the last leaf to finish writes the
+    pipeline summary — see ``_run_task_with_stats``). When recode is absent the
+    pipeline stays fully linear.
+
+    Args:
+        pipeline: Dependency-ordered ``[{"task", "task_args"}, ...]`` steps.
+
+    Returns:
+        A ``{"chain": True, "next_task", "next_task_args"}`` dict, or ``None``
+        when ``pipeline`` is empty.
+    """
+    if not pipeline:
+        return None
+
+    names = [p["task"] for p in pipeline]
+    leaves: list[dict] = []
+    spine: list[dict] = list(pipeline)
+    if _FORK_PARENT in names:
+        leaves = [p for p in pipeline if p["task"] in _FORK_LEAF_TASKS]
+        if leaves:
+            spine = [p for p in pipeline if p["task"] not in _FORK_LEAF_TASKS]
+
+    leaf_names = [p["task"] for p in leaves]
+
+    # Stage framing reflects tree DEPTH, not task count: consolidate (1) + each
+    # spine step + a single stage for the parallel leaves (when there are any).
+    depth = 1 + len(spine) + (1 if leaves else 0)
+
+    # Attach the fork metadata to the recode step so it travels inside
+    # pipeline_remaining and triggers the fan-out when recode completes.
+    spine_steps: list[dict] = []
+    for p in spine:
+        step_args = dict(p.get("task_args") or {})
+        if leaves and p["task"] == _FORK_PARENT:
+            step_args["pipeline_fanout"] = [
+                {"task": leaf["task"], "task_args": dict(leaf.get("task_args") or {})}
+                for leaf in leaves
+            ]
+            step_args["pipeline_leaves"] = leaf_names
+        spine_steps.append({"task": p["task"], "task_args": step_args})
+
+    first = spine_steps[0]
+    remaining = spine_steps[1:]
+
+    next_task_args = dict(first["task_args"])
+    next_task_args["pipeline_remaining"] = [
+        {"task": p["task"], "task_args": p["task_args"]} for p in remaining
+    ]
+    next_task_args["pipeline_stage_total"] = depth
+    next_task_args["pipeline_stage_index"] = 2
+
+    return {
+        "chain": True,
+        "next_task": first["task"],
+        "next_task_args": next_task_args,
+    }
 
 
 def build_pipeline_summary(impact: dict | None, steps_ran: list[str]) -> str:
@@ -47,6 +128,10 @@ def build_pipeline_summary(impact: dict | None, steps_ran: list[str]) -> str:
     steps_set = set(steps_ran)
 
     parts: list[str] = []
+    if "embeddings_refresh" in steps_set:
+        parts.append("semantic embeddings")
+    if "video_map_refresh" in steps_set:
+        parts.append("semantic map")
     if "recode_refresh_studies" in steps_set and studies:
         n = len(studies)
         parts.append(f"{n} study definition{'s' if n != 1 else ''}")
@@ -57,8 +142,6 @@ def build_pipeline_summary(impact: dict | None, steps_ran: list[str]) -> str:
     if "timelines_refresh" in steps_set and collections:
         n = len(collections)
         parts.append(f"{n} timeline{'s' if n != 1 else ''}")
-    if "embeddings_refresh" in steps_set:
-        parts.append("semantic embeddings")
 
     if parts:
         return f"Refreshed {', '.join(parts)}."
@@ -103,17 +186,20 @@ def _build_downstream_pipeline(impact: dict | None) -> list[dict]:
         })
     # Semantic embeddings are corpus-global and depend only on new annotations
     # (not on which studies are affected), so they top up whenever new
-    # annotation data was consolidated. The video map is deliberately NOT
-    # rebuilt here — it stays a manual action so its 2D layout/niche IDs do not
-    # churn on every annotation batch; the Semantic Space tab flags staleness.
+    # annotation data was consolidated. The video map re-clusters those
+    # embeddings into niches and must run after them; it uses empty task_args so
+    # it preserves the existing niche names (reset_labels stays False) and does
+    # NOT trigger its own auto_refresh downstream chain (that would duplicate the
+    # recode/meta/pca/timelines steps the consolidate pipeline already carries).
     if new_annotation_count > 0:
         candidates.append({"task": "embeddings_refresh", "task_args": {}})
+        candidates.append({"task": "video_map_refresh", "task_args": {}})
 
     if not candidates:
         return []
 
-    # Sort into canonical dependency order (recode → meta → pca → timelines →
-    # embeddings).
+    # Sort into canonical dependency order (embeddings → video_map → recode →
+    # meta → pca → timelines).
     by_name = {c["task"]: c for c in candidates}
     return [by_name[name] for name in _PIPELINE_STEPS_ORDER if name in by_name]
 
@@ -246,27 +332,18 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         "last_pipeline_summary_ts": now_iso,
     })
 
-    first = pipeline[0]
-    remaining = pipeline[1:]
-    stage_total = 1 + len(pipeline)  # consolidate itself is stage 1
-
-    next_task_args = dict(first["task_args"])
-    next_task_args["pipeline_remaining"] = [
-        {"task": p["task"], "task_args": p["task_args"]} for p in remaining
-    ]
-    next_task_args["pipeline_stage_total"] = stage_total
-    next_task_args["pipeline_stage_index"] = 2
+    # Build the chain dispatch: a linear spine that fans out at recode into the
+    # concurrent leaves (meta ‖ pca ‖ timelines). See build_pipeline_chain.
+    chain = build_pipeline_chain(pipeline)
+    next_task_args = chain["next_task_args"]
 
     reporter.log(
-        f"Auto-refresh: dispatching {first['task']} "
-        f"(stage 2/{stage_total}); remaining={[p['task'] for p in remaining]}"
+        f"Auto-refresh: dispatching {chain['next_task']} "
+        f"(stage 2/{next_task_args['pipeline_stage_total']}); "
+        f"pipeline={[p['task'] for p in pipeline]}"
     )
 
-    return {
-        "chain": True,
-        "next_task": first["task"],
-        "next_task_args": next_task_args,
-    }
+    return chain
 
 
 

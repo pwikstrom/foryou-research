@@ -404,6 +404,9 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
     start_time = datetime.now(UTC)
     study_name = task_args.get("study_name")
     chain_result: dict | None = None
+    # True once a cross-task chain has been dispatched (the dispatch IS this
+    # step's hand-off, so the pipeline-advance block below must not also fire).
+    dispatched_cross_task = False
 
     try:
         _ensure_task_functions_loaded()
@@ -449,13 +452,19 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
                     _set_pipeline_in_flight(False)
                 # Fall through to stats update (below) with outcome=Success.
                 chain_result = None
+                dispatched_cross_task = True
             else:
                 # Same-task chain: keep the status file "running" so the
                 # next link inherits it. Forward any pipeline metadata from
                 # the incoming task_args so self-chains don't lose pipeline
                 # context (e.g. timelines_refresh batching across many
-                # collections while inside the consolidate pipeline).
-                for k in ("pipeline_remaining", "pipeline_stage_total", "pipeline_stage_index"):
+                # collections while inside the consolidate pipeline). The
+                # fanout/leaf/fork-timestamp keys must survive too, so a
+                # self-chaining terminal leaf still runs the completion barrier
+                # on its final batch.
+                for k in ("pipeline_remaining", "pipeline_stage_total",
+                          "pipeline_stage_index", "pipeline_fanout",
+                          "pipeline_leaves", "pipeline_fork_ts"):
                     if k in task_args and k not in next_args:
                         next_args[k] = task_args[k]
                 success, msg = _dispatch_cloud_task(
@@ -497,10 +506,30 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
     process_stats[status_key] = merged
     save_process_stats()
 
-    # ---- Pipeline advance: after a step completes successfully, dispatch the
-    # next step in the pipeline (if any). Failures abort the pipeline.
-    if outcome == "Success":
-        pipeline_remaining = task_args.get("pipeline_remaining") or []
+    # ---- Pipeline advance. The downstream pipeline is an out-tree: a linear
+    # spine (consolidate → embeddings → video_map → recode) that fans out at
+    # recode into the independent terminal leaves (meta ‖ pca ‖ timelines). So:
+    #   - a spine step advances the single next spine step (pipeline_remaining);
+    #   - the recode step fans out to every leaf at once (pipeline_fanout);
+    #   - a leaf checks whether it is the last leaf to finish (the barrier) and,
+    #     if so, writes the summary;
+    #   - a non-leaf failure aborts the pipeline; a leaf failure does not abort
+    #     its (independent, already-dispatched) siblings.
+    pipeline_remaining = task_args.get("pipeline_remaining") or []
+    pipeline_fanout = task_args.get("pipeline_fanout") or []
+    pipeline_leaves = task_args.get("pipeline_leaves") or []
+    is_leaf = name in pipeline_leaves
+
+    if is_leaf:
+        # Terminal leaf (success OR failure): the forked pipeline is finished
+        # once every leaf is in a terminal state. This leaf has already written
+        # its own terminal status (complete()/fail() above), so the barrier only
+        # reads its siblings' own status files — no shared mutable counter, so no
+        # lost-update race on process_stats.json.
+        _maybe_finish_forked_pipeline(
+            pipeline_leaves, fork_ts=task_args.get("pipeline_fork_ts")
+        )
+    elif outcome == "Success" and not dispatched_cross_task:
         if pipeline_remaining:
             next_step = pipeline_remaining[0]
             next_remaining = pipeline_remaining[1:]
@@ -520,17 +549,102 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
                 print(f"[{name}] Pipeline advance to {next_name} failed: {msg}")
                 _set_pipeline_in_flight(False)
                 _write_pipeline_summary_cloud(partial=True, failed_at=next_name)
+        elif pipeline_fanout:
+            # Fork point (recode): dispatch every terminal leaf concurrently.
+            # The leaves are mutually independent (distinct readers, distinct
+            # outputs), so no join is needed for dispatch — only the leaf
+            # barrier, below, to detect when the whole fan-out has finished. A
+            # single fork timestamp lets each leaf ignore a sibling's stale
+            # "completed" status left over from a previous pipeline run.
+            fork_ts = datetime.now(UTC).isoformat()
+            leaf_stage_index = (
+                int(pipeline_stage_index or 1) + 1 if pipeline_stage_index is not None else None
+            )
+            any_dispatch_failed = False
+            for child in pipeline_fanout:
+                child_name = child["task"]
+                child_args = dict(child.get("task_args") or {})
+                child_args["pipeline_leaves"] = pipeline_leaves
+                child_args["pipeline_fork_ts"] = fork_ts
+                child_args["pipeline_stage_total"] = pipeline_stage_total
+                child_args["pipeline_stage_index"] = leaf_stage_index
+                success, msg = _dispatch_cloud_task(child_name, child_args)
+                if success:
+                    print(f"[{name}] Pipeline: forked {child_name}: {msg}")
+                else:
+                    print(f"[{name}] Pipeline fork of {child_name} failed: {msg}")
+                    any_dispatch_failed = True
+            if any_dispatch_failed:
+                _set_pipeline_in_flight(False)
+                _write_pipeline_summary_cloud(partial=True, failed_at=name)
+            else:
+                _set_pipeline_in_flight(True)
         elif pipeline_stage_index is not None:
-            # This was the final step of a pipeline and it succeeded.
+            # Final step of a fully-linear pipeline (no fan-out) and it succeeded.
             _set_pipeline_in_flight(False)
             _write_pipeline_summary_cloud(partial=False)
-    else:
-        # Step failed — pipeline (if any) is aborted. Log so the failure is
-        # visible in the task runner's console.
-        if task_args.get("pipeline_remaining") or pipeline_stage_index is not None:
+    elif outcome != "Success":
+        # A spine step (non-leaf) failed → abort the pipeline. (A leaf failure is
+        # handled by the barrier above, which must not abort independent siblings.)
+        if pipeline_remaining or pipeline_fanout or pipeline_stage_index is not None:
             print(f"[{name}] Step failed; aborting pipeline.")
             _set_pipeline_in_flight(False)
             _write_pipeline_summary_cloud(partial=True, failed_at=name)
+
+
+def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None) -> None:
+    """Fire the end-of-pipeline summary once every forked leaf has finished.
+
+    Each terminal leaf (meta/pca/timelines) calls this after writing its own
+    terminal status. Completion is detected by reading every leaf's own GCS
+    status file via :func:`read_task_status` — single-writer and strongly
+    consistent — so there is no lost-update race that a shared counter stored in
+    the cross-service ``process_stats.json`` would suffer. The summary/flag
+    writes are idempotent, so a double-fire by two leaves finishing at the same
+    moment is harmless.
+
+    A leaf counts as "finished this run" only when its status is terminal AND its
+    ``updated_at`` is at/after ``fork_ts``, so a stale "completed" status left
+    over from a PREVIOUS pipeline run — read before the leaf has booted for this
+    run — does not trip the barrier early.
+
+    Args:
+        leaves: The full leaf set forked from recode (task names).
+        fork_ts: ISO timestamp of the fan-out, the freshness lower bound.
+    """
+    fork_dt = None
+    if fork_ts:
+        try:
+            fork_dt = datetime.fromisoformat(fork_ts)
+        except (ValueError, TypeError):
+            fork_dt = None
+
+    terminal_states = {"completed", "failed", "cancelled", "error"}
+    failed: list[str] = []
+    for leaf in leaves:
+        status = read_task_status(leaf) or {}
+        state = (status.get("state") or "").lower()
+        if state not in terminal_states:
+            return  # a leaf is still running/pending — not done yet
+        if fork_dt is not None:
+            updated = status.get("updated_at")
+            updated_dt = None
+            if updated:
+                try:
+                    updated_dt = datetime.fromisoformat(updated)
+                except (ValueError, TypeError):
+                    updated_dt = None
+            if updated_dt is None or updated_dt < fork_dt:
+                return  # terminal, but a stale status from a prior pipeline run
+        if state != "completed":
+            failed.append(leaf)
+
+    # Every leaf has reached a terminal state for THIS run — the fan-out is done.
+    _set_pipeline_in_flight(False)
+    _write_pipeline_summary_cloud(
+        partial=bool(failed),
+        failed_at=",".join(failed) if failed else None,
+    )
 
 
 def _write_pipeline_summary_cloud(partial: bool = False, failed_at: str | None = None) -> None:
@@ -555,11 +669,12 @@ def _write_pipeline_summary_cloud(partial: bool = False, failed_at: str | None =
             pass
 
     candidate_steps = [
+        "embeddings_refresh",
+        "video_map_refresh",
         "recode_refresh_studies",
         "meta_refresh_groups",
         "pca_refresh",
         "timelines_refresh",
-        "embeddings_refresh",
     ]
     steps_ran: list[str] = []
     for step in candidate_steps:
