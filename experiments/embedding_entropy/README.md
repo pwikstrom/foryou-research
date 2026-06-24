@@ -47,6 +47,9 @@ Docker/gcloud build; nothing here ships to production.
   (`tmp/figs_presentation/six_minutes_of_beauty_reviews.pptx`; full-bleed
   slides + speaker notes + closing limits slide). Run:
   `NODE_PATH=$(npm root -g) node experiments/embedding_entropy/build_deck.js`.
+- `export_deck_data.py` + `build_deck_native.js` — the same deck as **native
+  PowerPoint elements** (editable text/shapes/charts instead of baked images)
+  → `..._native.pptx`. Run the Python export first, then the JS builder.
 
 Documents, by audience:
 - **`PAPER_DRAFT.md`** — plain-language, paper-shaped draft (intro → questions

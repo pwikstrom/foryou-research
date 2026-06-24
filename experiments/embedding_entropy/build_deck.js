@@ -178,4 +178,9 @@ END LINE: "The honest summary: we went looking for the rabbit hole where it is s
   console.log("wrote", OUT);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (require.main === module) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
+
+// Shared with build_deck_native.js (same notes, same order, same palette).
+module.exports = { SLIDES, COLORS: { BG, PANEL, FG, MUTED, ACCENT, ACCENT2, GOOD, BAD } };
