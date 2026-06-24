@@ -883,7 +883,19 @@ function setStatus(name, data) {
     const bar = document.getElementById(`${name}-bar`);
     const text = document.getElementById(`${name}-text`);
     if (bar && text) {
-        if (Object.keys(info).length > 0 && (info.total > 0 || info.percent !== undefined)) {
+        if (status === 'queued' || status === 'failed' || status === 'error') {
+            // A forked pipeline leaf that is waiting for a worker ('queued') or
+            // could not be initiated ('failed'/'error', e.g. dropped by a 429).
+            // Show the status message directly so the card does not look like a
+            // stalled in-progress run.
+            const fallback = status === 'queued' ? 'Queued…' : "Couldn't start";
+            text.innerText = (info && info.message) || data.error || fallback;
+            if (data.error) text.title = data.error;
+            text.style.color = status === 'queued'
+                ? 'var(--color-warning)'
+                : 'var(--color-danger-soft)';
+            bar.style.width = '0%';
+        } else if (Object.keys(info).length > 0 && (info.total > 0 || info.percent !== undefined)) {
             let barPct = 0;
             let etaStr = "";
 

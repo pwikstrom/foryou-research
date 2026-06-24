@@ -1083,6 +1083,21 @@ button {
     animation: btn-running-pulse 1.5s ease-in-out infinite;
 }
 
+/* A forked pipeline leaf that was dispatched but not yet picked up by a worker.
+   Distinct from running so the card reads "queued", not "in progress". */
+.status-queued {
+    background: var(--color-warning);
+    box-shadow: 0 0 5px var(--color-warning);
+    animation: btn-running-pulse 1.5s ease-in-out infinite;
+}
+
+/* A task that failed or could not be started (e.g. dropped by a 429). */
+.status-failed,
+.status-error {
+    background: var(--color-danger);
+    box-shadow: 0 0 5px var(--color-danger);
+}
+
 .status-dot {
     width: 8px;
     height: 8px;

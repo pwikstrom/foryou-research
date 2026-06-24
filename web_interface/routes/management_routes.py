@@ -1201,6 +1201,18 @@ def get_enrichment_stats():
         q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
         if isinstance(q, list): annotate_queue_len = len(q)
         
+    # Backstop: resolve a forked fan-out (meta‖pca‖timelines) whose dropped leaf
+    # left it un-finalized. The event-driven barrier may miss this if every
+    # surviving leaf finished before the grace window; this poll-driven call
+    # flips a never-started leaf to "failed" and finalizes once grace passes.
+    # No-op when no fan-out is active; Cloud Run only (local mode never forks).
+    if is_cloud_run():
+        try:
+            from .process_routes import resolve_forked_pipeline
+            resolve_forked_pipeline()
+        except Exception as e:
+            print(f"[status] resolve_forked_pipeline failed: {e}")
+
     consolidate_entry = process_stats.get("consolidate_enrichment", {})
 
     # Is any consolidate-pipeline step currently running? Used by the UI to

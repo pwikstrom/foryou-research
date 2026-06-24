@@ -247,11 +247,15 @@ class _BarrierHarness:
         self._statuses = statuses
         self.in_flight_calls: list = []
         self.summary_calls: list = []
+        self.stamp_calls: list = []
+        self.fork_cleared = False
 
     def __enter__(self):
         self._orig_read = pr.read_task_status
         self._orig_flag = pr._set_pipeline_in_flight
         self._orig_summary = pr._write_pipeline_summary_cloud
+        self._orig_stamp = pr.stamp_task_status
+        self._orig_clear = pr._clear_pipeline_fork
         pr.read_task_status = lambda name: self._statuses.get(name)
         pr._set_pipeline_in_flight = lambda v: self.in_flight_calls.append(v)
         pr._write_pipeline_summary_cloud = (
@@ -259,12 +263,25 @@ class _BarrierHarness:
                 {"partial": partial, "failed_at": failed_at}
             )
         )
+
+        def _stamp(name, state, message="", error=None, stage=None):
+            self.stamp_calls.append({"name": name, "state": state, "message": message})
+        pr.stamp_task_status = _stamp
+
+        def _clear():
+            self.fork_cleared = True
+        pr._clear_pipeline_fork = _clear
         return self
 
     def __exit__(self, *a):
         pr.read_task_status = self._orig_read
         pr._set_pipeline_in_flight = self._orig_flag
         pr._write_pipeline_summary_cloud = self._orig_summary
+        pr.stamp_task_status = self._orig_stamp
+        pr._clear_pipeline_fork = self._orig_clear
+
+    def stamped_failed(self, name: str) -> bool:
+        return any(c["name"] == name and c["state"] == "failed" for c in self.stamp_calls)
 
     @property
     def fired(self) -> bool:
@@ -272,6 +289,7 @@ class _BarrierHarness:
 
 
 _LEAVES = ["meta_refresh_groups", "pca_refresh", "timelines_refresh"]
+_GRACE = pr.FORK_START_GRACE_SECONDS
 
 
 def _ts(offset_s: int) -> str:
@@ -340,6 +358,58 @@ def test_barrier_waits_for_missing_status():
     _check("test_barrier_waits_for_missing_status", not h.fired, str(h.summary_calls))
 
 
+def test_barrier_kills_queued_leaf_after_grace():
+    # A leaf still "queued" past the grace window = it was dropped (429) and
+    # never started → mark it failed and finalize partial, so the card stops
+    # looking like it is waiting.
+    fork = _ts(-(_GRACE + 30))
+    statuses = {
+        "meta_refresh_groups": {"state": "completed", "updated_at": _ts(-10)},
+        "pca_refresh": {"state": "completed", "updated_at": _ts(-10)},
+        "timelines_refresh": {"state": "queued", "updated_at": _ts(-(_GRACE + 30))},
+    }
+    with _BarrierHarness(statuses) as h:
+        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+    call = h.summary_calls[0] if h.fired else {}
+    ok = (
+        h.fired
+        and h.stamped_failed("timelines_refresh")
+        and call.get("partial") is True
+        and "timelines_refresh" in (call.get("failed_at") or "")
+        and h.fork_cleared
+    )
+    _check("test_barrier_kills_queued_leaf_after_grace", ok, str((h.summary_calls, h.stamp_calls)))
+
+
+def test_barrier_spares_running_leaf_past_grace():
+    # A genuinely-running (slow) leaf keeps heartbeating — never kill it, even
+    # past grace; the barrier waits for it.
+    fork = _ts(-(_GRACE + 30))
+    statuses = {
+        "meta_refresh_groups": {"state": "completed", "updated_at": _ts(-10)},
+        "pca_refresh": {"state": "completed", "updated_at": _ts(-10)},
+        "timelines_refresh": {"state": "running", "updated_at": _ts(-2)},
+    }
+    with _BarrierHarness(statuses) as h:
+        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+    ok = (not h.fired) and (not h.stamped_failed("timelines_refresh"))
+    _check("test_barrier_spares_running_leaf_past_grace", ok, str((h.summary_calls, h.stamp_calls)))
+
+
+def test_barrier_waits_for_queued_leaf_within_grace():
+    # Still queued but within the grace window (normal cold start) → wait.
+    fork = _ts(-10)
+    statuses = {
+        "meta_refresh_groups": {"state": "completed", "updated_at": _ts(0)},
+        "pca_refresh": {"state": "completed", "updated_at": _ts(0)},
+        "timelines_refresh": {"state": "queued", "updated_at": _ts(-10)},
+    }
+    with _BarrierHarness(statuses) as h:
+        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+    ok = (not h.fired) and (not h.stamped_failed("timelines_refresh"))
+    _check("test_barrier_waits_for_queued_leaf_within_grace", ok, str(h.summary_calls))
+
+
 
 TESTS = [
     test_order_lists_in_sync,
@@ -359,6 +429,9 @@ TESTS = [
     test_barrier_ignores_stale_status_before_fork,
     test_barrier_marks_partial_on_leaf_failure,
     test_barrier_waits_for_missing_status,
+    test_barrier_kills_queued_leaf_after_grace,
+    test_barrier_spares_running_leaf_past_grace,
+    test_barrier_waits_for_queued_leaf_within_grace,
 ]
 
 

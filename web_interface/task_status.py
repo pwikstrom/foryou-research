@@ -456,6 +456,54 @@ def force_clear_status(name: str, reason: str = "cancelled") -> None:
 
 
 
+def stamp_task_status(
+    name: str,
+    state: str,
+    message: str = "",
+    error: str | None = None,
+    stage: dict | None = None,
+) -> None:
+    """Overwrite a task's GCS status file with a given state and message.
+
+    Used by the consolidate fan-out to give each forked leaf a definitive
+    per-run status: ``"queued"`` the instant it is dispatched (so the card shows
+    "Queued — waiting for a worker" instead of a stale status from a previous
+    run), and ``"failed"`` if the leaf could not be initiated — e.g. a Cloud Run
+    429 dropped the task with no retry. Without this, a dropped leaf's card would
+    keep showing its previous-run status and look like it was still waiting to
+    begin.
+
+    Args:
+        name: Task name (status key).
+        state: New state, e.g. ``"queued"`` or ``"failed"``.
+        message: Short progress message shown on the card.
+        error: Optional error detail (shown on failure).
+        stage: Optional stage framing keys to merge into ``progress``.
+    """
+    status = {
+        "state": state,
+        "start_time": None,
+        "progress": {"percent": 0, "message": message},
+        "data": {},
+        "error": error,
+        "logs": [],
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    if stage:
+        status["progress"].update(stage)
+    try:
+        data_io.save_json(
+            data=status,
+            storage_location="cache",
+            filename=f"{STATUS_PREFIX}/{name}.json",
+            verbose=False,
+        )
+    except Exception as e:
+        print(f"[task_status] Failed to stamp status for {name} ({state}): {e}")
+
+
+
+
 def is_cloud_run() -> bool:
     """Check if running on Cloud Run."""
     return bool(os.environ.get("K_SERVICE"))

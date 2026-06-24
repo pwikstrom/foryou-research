@@ -33,9 +33,17 @@ from ..task_status import (
     GCSStatusReporter,
     is_cloud_run,
     read_task_status,
+    stamp_task_status,
 )
 
 process_bp = Blueprint('process_bp', __name__)
+
+# A forked leaf (meta/pca/timelines) that has not reached a fresh "running" or
+# terminal state within this many seconds of the fan-out is treated as having
+# failed to start — e.g. a Cloud Run 429 dropped the task (queue max-attempts=1,
+# no retry). The grace must exceed a worst-case cold start so a merely-slow boot
+# is not flagged.
+FORK_START_GRACE_SECONDS = 150
 
 @process_bp.route('/api/start/<name>', methods=['POST'])
 @auth.admin_required
@@ -560,6 +568,10 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
             leaf_stage_index = (
                 int(pipeline_stage_index or 1) + 1 if pipeline_stage_index is not None else None
             )
+            leaf_stage = {
+                "stage_index": leaf_stage_index,
+                "stage_total": pipeline_stage_total,
+            }
             any_dispatch_failed = False
             for child in pipeline_fanout:
                 child_name = child["task"]
@@ -568,12 +580,29 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
                 child_args["pipeline_fork_ts"] = fork_ts
                 child_args["pipeline_stage_total"] = pipeline_stage_total
                 child_args["pipeline_stage_index"] = leaf_stage_index
+                # Stamp the leaf "queued" BEFORE dispatching so its card shows a
+                # definitive this-run status (not a stale one from a previous
+                # run). When the task actually boots it overwrites this with
+                # "running"; if it is dropped (429, no retry) it stays "queued"
+                # and the grace check below flips it to "failed".
+                stamp_task_status(
+                    child_name, "queued", "Queued — waiting for a worker…",
+                    stage=leaf_stage,
+                )
                 success, msg = _dispatch_cloud_task(child_name, child_args)
                 if success:
                     print(f"[{name}] Pipeline: forked {child_name}: {msg}")
                 else:
                     print(f"[{name}] Pipeline fork of {child_name} failed: {msg}")
+                    stamp_task_status(
+                        child_name, "failed",
+                        "Couldn't start — the task could not be queued for a worker.",
+                        error=f"Dispatch failed: {msg}", stage=leaf_stage,
+                    )
                     any_dispatch_failed = True
+            # Record the fork so the completion barrier and the status-poll
+            # backstop can detect a leaf that was dispatched but never started.
+            _record_pipeline_fork(pipeline_leaves, fork_ts)
             if any_dispatch_failed:
                 _set_pipeline_in_flight(False)
                 _write_pipeline_summary_cloud(partial=True, failed_at=name)
@@ -592,21 +621,63 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
             _write_pipeline_summary_cloud(partial=True, failed_at=name)
 
 
+def _record_pipeline_fork(leaves: list[str], fork_ts: str) -> None:
+    """Persist the active fan-out so the status-poll backstop can resolve it.
+
+    Stored on the consolidate_enrichment stats entry as ``pipeline_fork`` =
+    ``{"leaves": [...], "fork_ts": "..."}``. Cleared by the barrier when the
+    fan-out finishes (see :func:`_maybe_finish_forked_pipeline`).
+    """
+    load_process_stats()
+    entry = process_stats.get("consolidate_enrichment", {})
+    entry["pipeline_fork"] = {"leaves": list(leaves), "fork_ts": fork_ts}
+    process_stats["consolidate_enrichment"] = entry
+    save_process_stats()
+
+
+def _clear_pipeline_fork() -> None:
+    """Remove the recorded fan-out once it has finished (or been resolved)."""
+    load_process_stats()
+    entry = process_stats.get("consolidate_enrichment", {})
+    if "pipeline_fork" in entry:
+        entry.pop("pipeline_fork", None)
+        process_stats["consolidate_enrichment"] = entry
+        save_process_stats()
+
+
+def resolve_forked_pipeline() -> None:
+    """Status-poll backstop: resolve a fan-out whose leaf-completion events have
+    all fired but a dropped leaf still left it un-finalized.
+
+    The barrier (:func:`_maybe_finish_forked_pipeline`) is event-driven — it runs
+    when a leaf completes. If every surviving leaf finishes BEFORE the grace
+    window elapses, no later event re-checks the dropped leaf, so the fan-out
+    would hang. The web-service status poll calls this on each tick; once the
+    grace window passes it flips the dropped leaf to "failed" and finalizes.
+    """
+    load_process_stats()
+    fork = process_stats.get("consolidate_enrichment", {}).get("pipeline_fork")
+    if not fork:
+        return
+    _maybe_finish_forked_pipeline(fork.get("leaves") or [], fork.get("fork_ts"))
+
+
 def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None) -> None:
-    """Fire the end-of-pipeline summary once every forked leaf has finished.
+    """Finalize the fan-out once every forked leaf has reached a terminal state.
 
-    Each terminal leaf (meta/pca/timelines) calls this after writing its own
-    terminal status. Completion is detected by reading every leaf's own GCS
-    status file via :func:`read_task_status` — single-writer and strongly
-    consistent — so there is no lost-update race that a shared counter stored in
-    the cross-service ``process_stats.json`` would suffer. The summary/flag
-    writes are idempotent, so a double-fire by two leaves finishing at the same
-    moment is harmless.
+    Called both by each completing leaf (event-driven) and by the status-poll
+    backstop (time-driven). Completion is read from each leaf's own GCS status
+    file via :func:`read_task_status` — single-writer and strongly consistent —
+    so there is no lost-update race that a shared counter in the cross-service
+    ``process_stats.json`` would suffer. The summary/flag writes are idempotent,
+    so a double-fire by two leaves finishing at once is harmless.
 
-    A leaf counts as "finished this run" only when its status is terminal AND its
-    ``updated_at`` is at/after ``fork_ts``, so a stale "completed" status left
-    over from a PREVIOUS pipeline run — read before the leaf has booted for this
-    run — does not trip the barrier early.
+    A leaf counts as finished for THIS run only when its status is terminal AND
+    its ``updated_at`` is at/after ``fork_ts`` (so a stale terminal status from a
+    previous run does not trip the barrier early). A leaf that was dispatched but
+    never reached a fresh "running"/terminal state within
+    ``FORK_START_GRACE_SECONDS`` of the fork is treated as failed-to-start (a 429
+    drop) and stamped "failed" so its card stops looking like it is still waiting.
 
     Args:
         leaves: The full leaf set forked from recode (task names).
@@ -619,27 +690,47 @@ def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None)
         except (ValueError, TypeError):
             fork_dt = None
 
+    grace_exceeded = (
+        fork_dt is not None
+        and (datetime.now(UTC) - fork_dt).total_seconds() > FORK_START_GRACE_SECONDS
+    )
     terminal_states = {"completed", "failed", "cancelled", "error"}
     failed: list[str] = []
     for leaf in leaves:
         status = read_task_status(leaf) or {}
         state = (status.get("state") or "").lower()
-        if state not in terminal_states:
-            return  # a leaf is still running/pending — not done yet
-        if fork_dt is not None:
-            updated = status.get("updated_at")
-            updated_dt = None
-            if updated:
-                try:
-                    updated_dt = datetime.fromisoformat(updated)
-                except (ValueError, TypeError):
-                    updated_dt = None
-            if updated_dt is None or updated_dt < fork_dt:
-                return  # terminal, but a stale status from a prior pipeline run
-        if state != "completed":
+
+        updated_dt = None
+        updated = status.get("updated_at")
+        if updated:
+            try:
+                updated_dt = datetime.fromisoformat(updated)
+            except (ValueError, TypeError):
+                updated_dt = None
+        fresh = fork_dt is None or (updated_dt is not None and updated_dt >= fork_dt)
+
+        if state in terminal_states and fresh:
+            if state != "completed":
+                failed.append(leaf)
+            continue  # this leaf is done for this run
+
+        # Not a fresh-terminal leaf. A genuinely-running leaf keeps heartbeating,
+        # so never kill state=="running" — only a leaf still stuck "queued"/stale
+        # past the grace window counts as failed-to-start (dropped by a 429).
+        if grace_exceeded and state != "running":
+            stamp_task_status(
+                leaf, "failed",
+                "Couldn't start — no worker was available, so the task was "
+                "dropped. The other steps ran; retry this one.",
+                error="Task was not initiated (HTTP 429 / no instance, no retry).",
+            )
             failed.append(leaf)
+            continue
+
+        return  # still within grace, or running — not done yet
 
     # Every leaf has reached a terminal state for THIS run — the fan-out is done.
+    _clear_pipeline_fork()
     _set_pipeline_in_flight(False)
     _write_pipeline_summary_cloud(
         partial=bool(failed),
