@@ -869,7 +869,9 @@ def flatten_one_machine_response(
         if isinstance(flat_response[k],list):
             if verbose:
                 print(flat_response[k])
-            flat_response[k] = flat_response[k][0]
+            # An empty list carries no value; collapse it to None rather than
+            # indexing [0] (which raised IndexError on the occasional response).
+            flat_response[k] = flat_response[k][0] if flat_response[k] else None
 
     return flat_response
 
