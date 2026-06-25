@@ -302,6 +302,40 @@ def _compute_universe_enrichment(df_raw: pd.DataFrame, df_status: pd.DataFrame |
 
 
 
+def _load_study_raw_window(selected: list) -> pd.DataFrame | None:
+    """Load raw activities for the selected collections, within their event windows.
+
+    Restricts to each collection's first/last event window and to play/observe rows —
+    the same base set used for the modal's "potential" counts and universe mosaic.
+
+    Args:
+        selected: Collection ids to include.
+
+    Returns:
+        A DataFrame with columns collection_id, local_timestamp, activity_type, item_id,
+        or None when nothing is selected or no rows remain.
+    """
+
+    if not selected:
+        return None
+    if not data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
+        return None
+    df_raw = data_io.load_parquet_selective(
+        storage_location="recoded",
+        filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
+        columns=["collection_id", "local_timestamp", "activity_type", "item_id"],
+        filters=[("collection_id", "in", selected)],
+    )
+    if df_raw is None or df_raw.empty:
+        return None
+    windows = _load_collection_event_windows(selected)
+    df_raw = _filter_to_event_windows(df_raw, windows)
+    df_raw = _filter_to_play_observe(df_raw)
+    return df_raw if not df_raw.empty else None
+
+
+
+
 def _count_sparse_cells(df_study: pd.DataFrame) -> tuple[int, int]:
     """Return (sparse_cells, total_cells) where a cell is (day, collection_id).
 
@@ -817,27 +851,19 @@ def calculate_study_stats():
         # date range, classified by the enrichment status of each activity's video.
         # These power the modal's mosaic: column widths (annotated / scraped-only /
         # not-scraped) come from these counts, and the sampled-share band is read
-        # against universe.activities.
+        # against universe.activities. Embedded into `stats` so it is persisted and the
+        # mosaic can be seeded when the modal is reopened.
         universe = {"activities": 0, "scraped": 0, "annotated": 0}
 
-        if selected and data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
-            df_raw = data_io.load_parquet_selective(
-                storage_location="recoded",
-                filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
-                columns=["collection_id", "local_timestamp", "activity_type", "item_id"],
-                filters=[("collection_id", "in", selected)],
-            )
-            if df_raw is not None and not df_raw.empty:
-                windows = _load_collection_event_windows(selected)
-                df_raw = _filter_to_event_windows(df_raw, windows)
-                df_raw = _filter_to_play_observe(df_raw)
-                has_total_days = not df_raw.empty
+        df_raw = _load_study_raw_window(selected)
+        if df_raw is not None:
+            has_total_days = True
+            potentials["activities"] = int(len(df_raw))
+            potentials["active_days"] = int(pd.to_datetime(df_raw["local_timestamp"], errors="coerce").dropna().dt.date.nunique())
+            universe = _compute_universe_enrichment(df_raw, df_status, data.get("START_DATE"), data.get("END_DATE"))
 
-                if has_total_days:
-                    potentials["activities"] = int(len(df_raw))
-                    potentials["active_days"] = int(pd.to_datetime(df_raw["local_timestamp"], errors="coerce").dropna().dt.date.nunique())
-
-                    universe = _compute_universe_enrichment(df_raw, df_status, data.get("START_DATE"), data.get("END_DATE"))
+        if isinstance(stats, dict):
+            stats["universe"] = universe
 
         sparse_cells, total_cells = _count_sparse_cells(df_study)
         sampling_report = None

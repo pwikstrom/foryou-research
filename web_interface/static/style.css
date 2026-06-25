@@ -3204,6 +3204,12 @@ button.meta-tooltip:disabled {
     color: var(--color-text-secondary);
 }
 
+.study-viz__seeded-note {
+    margin-top: 6px;
+    color: var(--color-text-tertiary);
+    font-style: italic;
+}
+
 .study-viz__legend-item {
     display: inline-flex;
     align-items: center;

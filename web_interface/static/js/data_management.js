@@ -666,7 +666,16 @@ function populateForm(row, study) {
     } else {
         _updateCollectionsHeader({ resetActual: true, potential: seededPotentialCols });
     }
-    _resetStudySetViz(row, 'empty');
+    // Seed the mosaic from the last persisted check so it is present on open.
+    // Opening triggers a daily-activities fetch that snaps the date window and can
+    // reset the viz; _fetchDailyChart re-applies this seed once that settles, gated
+    // on the initialFetch flag so later user edits still clear the viz.
+    row.dataset.initialFetch = '1';
+    if (stats.universe && Number(stats.universe.activities) > 0) {
+        _renderStudySetViz(row, { universe: stats.universe, included: stats, frame: study.SAMPLE_FRAME, seeded: true });
+    } else {
+        _resetStudySetViz(row, 'empty');
+    }
 
     _syncUpdateCountsBtn(row);
 
@@ -1243,6 +1252,18 @@ function _fetchDailyChart(row) {
             if (data.potentials && data.potentials.collections != null) {
                 _updateCollectionsHeader({ potential: data.potentials.collections });
             }
+            // On the first fetch after opening, the date snap above may have reset
+            // the seeded mosaic — re-apply the last persisted check so it persists.
+            if (row.dataset.initialFetch === '1') {
+                row.dataset.initialFetch = '';
+                const sd = (typeof allStudies !== 'undefined') ? allStudies.find(x => x.STUDY_NAME === studyName) : null;
+                const st = sd && sd.stats;
+                if (st && st.universe && Number(st.universe.activities) > 0) {
+                    _renderStudySetViz(row, { universe: st.universe, included: st, frame: sd.SAMPLE_FRAME, seeded: true });
+                    if (st.unique_collections != null) _updateCollectionsHeader({ actual: st.unique_collections });
+                    _syncUpdateCountsBtn(row);
+                }
+            }
         })
         .catch(err => {
             s.loading = false;
@@ -1259,18 +1280,22 @@ function _syncDateRangeToCollections(row, totalPerDay) {
     const startInput = row.querySelector('[data-field="START_DATE"]');
     const endInput = row.querySelector('[data-field="END_DATE"]');
     if (!startInput || !endInput) return;
+    // Only fire input (which invalidates the seeded mosaic + actuals) when the
+    // snapped value actually changes, so re-opening a study whose window already
+    // spans the full range doesn't spuriously wipe the seeded viz.
+    const setIfChanged = (inp, val) => {
+        if (inp.value === val) return;
+        inp.value = val;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+    };
     if (!Array.isArray(totalPerDay) || !totalPerDay.length) {
-        startInput.value = '';
-        endInput.value = '';
-        startInput.dispatchEvent(new Event('input', { bubbles: true }));
-        endInput.dispatchEvent(new Event('input', { bubbles: true }));
+        setIfChanged(startInput, '');
+        setIfChanged(endInput, '');
         return;
     }
     const dates = totalPerDay.map(d => d.date).filter(Boolean).sort();
-    startInput.value = dates[0];
-    endInput.value = dates[dates.length - 1];
-    startInput.dispatchEvent(new Event('input', { bubbles: true }));
-    endInput.dispatchEvent(new Event('input', { bubbles: true }));
+    setIfChanged(startInput, dates[0]);
+    setIfChanged(endInput, dates[dates.length - 1]);
 }
 
 function _debouncedRefetchDailyChart(row) {
@@ -1611,7 +1636,7 @@ function _resetStudySetViz(row, state) {
     viz.innerHTML = '<div class="study-set-viz-empty text-xs">Press “Check study design” to see activity coverage and the sampled share.</div>';
 }
 
-function _renderStudySetViz(row, { universe, included, frame } = {}) {
+function _renderStudySetViz(row, { universe, included, frame, seeded } = {}) {
     const viz = row.querySelector('.study-set-viz');
     if (!viz) return;
 
@@ -1684,8 +1709,9 @@ function _renderStudySetViz(row, { universe, included, frame } = {}) {
         `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--included"></span>sampled into study</span>` +
         `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--eligible"></span>in collections, not sampled</span>` +
         `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--outframe"></span>outside frame</span>` +
-        `</div>`;
-    viz.dataset.state = 'ready';
+        `</div>` +
+        (seeded ? `<div class="study-viz__seeded-note text-xxs">Showing the last checked result; press Check study design to refresh.</div>` : '');
+    viz.dataset.state = seeded ? 'seeded' : 'ready';
 }
 
 function _clearStudyIssues(row) {

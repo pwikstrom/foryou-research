@@ -39,7 +39,11 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         make_serializable,
         study_cache,
     )
-    from web_interface.routes.management_routes import _calculate_stats
+    from web_interface.routes.management_routes import (
+        _calculate_stats,
+        _compute_universe_enrichment,
+        _load_study_raw_window,
+    )
 
     if not task_args or "study_name" not in task_args:
         raise ValueError("task_args must contain 'study_name'")
@@ -80,7 +84,19 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         except Exception as exc:
             reporter.log(f"force_full_rebuild: could not remove sidecar: {exc}")
 
-    stats, df_recoded, _ = _calculate_stats(study_config, save_to_cache=True)
+    stats, df_recoded, df_status = _calculate_stats(study_config, save_to_cache=True)
+
+    # Embed the date-range activity universe (by enrichment) into stats so the
+    # Define Study modal's mosaic can be seeded when the study is reopened.
+    try:
+        df_raw_window = _load_study_raw_window(study_config.get("SELECTED_COLLECTIONS") or [])
+        if df_raw_window is not None and isinstance(stats, dict):
+            stats["universe"] = _compute_universe_enrichment(
+                df_raw_window, df_status,
+                study_config.get("START_DATE"), study_config.get("END_DATE"),
+            )
+    except Exception as exc:
+        reporter.log(f"universe computation skipped: {exc}")
 
     # A short-circuited rebuild means the recoded parquet is unchanged on disk.
     # Tagged by create_study_recoded_dataset on the returned DataFrame's attrs.
