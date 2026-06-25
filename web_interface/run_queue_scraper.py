@@ -18,10 +18,14 @@ sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
 
-# Upper safety cap on a single Cloud Task batch. process_manager.py scales
-# the Cloud Tasks dispatch deadline to 3600s when batch_size > 1000, so
-# anything up to ~5000 fits comfortably even under TikTok throttling.
-MAX_BATCH_SIZE = 5000
+# Upper safety cap on a single Cloud Task batch. The scraper's Cloud Tasks
+# dispatch deadline is fixed at 1800s, and the in-pool batch deadline is also
+# capped at 1800s. At realistic throughput (~1.4 items/s under TikTok
+# throttling) a 1000-item batch clears that window with margin, while larger
+# batches overrun it: pending items pile up and the instance is OOM-killed
+# mid-drain, losing the whole batch under the queue's max-attempts=1. The
+# remainder of the queue is processed by self-chaining to the next batch.
+MAX_BATCH_SIZE = 1000
 _DISPATCH_DEADLINE = 1800
 
 

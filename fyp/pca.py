@@ -7,6 +7,7 @@ from typing import Literal, Union
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 from scipy.spatial.distance import pdist as scipy_pdist
 from scipy.spatial.distance import squareform as scipy_squareform
 from sklearn.decomposition import PCA
@@ -19,7 +20,11 @@ from fyp.recode_variables import (
     get_factors_and_features_from_var_schema,
     get_grouping_factors_from_var_schema,
 )
-from fyp.types import convert_dtypes_to_pyarrow, convert_index_dtype_pyarrow
+from fyp.types import (
+    convert_dtypes_to_pyarrow,
+    convert_index_dtype_pyarrow,
+    downgrade_series_if_large,
+)
 
 Group = Union[dict[str, int], Sequence[str]]
 Metric = Literal["jensen-shannon", "hellinger", "total-variation", "bray-curtis", "chi2"]
@@ -348,9 +353,18 @@ def transform_category_column_to_counts_df(
     # 1. Subset & Explode
     # Ensure we work on a copy to avoid SettingWithCopy warnings
     df = some_events[[the_column] + grouping_factors].copy()
-    
-    # Explode list-like elements. Scalars remain scalars.
-    df_exploded = df.explode(the_column)
+
+    # Explode list-like elements; leave scalar columns untouched. A bare
+    # df.explode() is unsafe under pandas 2.2 + pyarrow: it is a silent no-op
+    # on large_list columns (under-counts multi-valued features), and it raises
+    # AttributeError on pyarrow-backed StringDtype scalar columns because the
+    # arrow explode kernel reads dtype.pyarrow_dtype, which StringDtype lacks.
+    # Downgrade large_list to list so explode works, then only explode columns
+    # that are genuinely list-like.
+    df[the_column] = downgrade_series_if_large(df[the_column])
+    col_pa_type = getattr(df[the_column].dtype, "pyarrow_dtype", None)
+    is_list_col = (col_pa_type is not None and pa.types.is_list(col_pa_type)) or df[the_column].dtype == object
+    df_exploded = df.explode(the_column) if is_list_col else df
 
     # 2. Filter (Vectorized)
     # Remove nulls and unwanted keywords
