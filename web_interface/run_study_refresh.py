@@ -80,7 +80,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         except Exception as exc:
             reporter.log(f"force_full_rebuild: could not remove sidecar: {exc}")
 
-    stats, df_recoded = _calculate_stats(study_config, save_to_cache=True)
+    stats, df_recoded, _ = _calculate_stats(study_config, save_to_cache=True)
 
     # A short-circuited rebuild means the recoded parquet is unchanged on disk.
     # Tagged by create_study_recoded_dataset on the returned DataFrame's attrs.

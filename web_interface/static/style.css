@@ -78,6 +78,14 @@
     --color-link: var(--teal-500);
     --color-link-hover: var(--white);
 
+    /* Study set viz (Define Study modal coverage/sample mosaic) */
+    --study-viz-included: var(--blue-600);
+    --study-viz-included-text: var(--gray-50);
+    --study-viz-eligible-bg: var(--gray-750);
+    --study-viz-outframe-bg: var(--gray-900);
+    --study-viz-border: var(--color-border);
+    --study-viz-divider: var(--color-border-subtle);
+
     /* Shadows */
     --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2);
     --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.3);
@@ -273,6 +281,10 @@
     --color-save: #9A7E66;
     --color-link: #5B7E98;
     --color-link-hover: #3D5A72;
+
+    /* Study set viz overrides (light) */
+    --study-viz-eligible-bg: var(--gray-50);
+    --study-viz-outframe-bg: var(--gray-100);
 
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
     --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.12);
@@ -3070,3 +3082,143 @@ button.meta-tooltip:disabled {
         padding: 24px 18px !important;
     }
 }
+
+/* ===== Define Study modal: video coverage / sample mosaic ===== */
+.study-set-viz-empty {
+    color: var(--color-text-tertiary);
+    padding: 12px;
+    border: 1px dashed var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg-surface);
+}
+
+.study-viz__toprow {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    min-height: 14px;
+    margin-bottom: 2px;
+}
+
+.study-viz__help.meta-tooltip {
+    text-decoration: none;
+    cursor: help;
+    color: var(--color-text-muted);
+    margin-left: 5px;
+}
+
+.study-viz__help.meta-tooltip:hover {
+    color: var(--color-text-secondary);
+}
+
+.study-viz__labels {
+    display: flex;
+    margin-bottom: 4px;
+}
+
+.study-viz__collabel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+    padding: 0 2px;
+    line-height: 1.2;
+    overflow: visible;
+    text-align: center;
+}
+
+.study-viz__collabel.meta-tooltip {
+    text-decoration: none;
+    cursor: help;
+}
+
+.study-viz__label-name {
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    text-decoration: underline dotted var(--color-text-muted);
+}
+
+.study-viz__label-count {
+    color: var(--color-text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+
+.study-viz__box {
+    display: flex;
+    height: 96px;
+    border: 1px solid var(--study-viz-border);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--study-viz-eligible-bg);
+}
+
+.study-viz__col {
+    position: relative;
+    height: 100%;
+    background: var(--study-viz-eligible-bg);
+    border-right: 3px solid var(--color-border-strong);
+    box-sizing: border-box;
+}
+
+.study-viz__col:last-child {
+    border-right: none;
+}
+
+.study-viz__col--outframe {
+    background: var(--study-viz-outframe-bg);
+}
+
+.study-viz__fill {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--study-viz-included);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.study-viz__fill-count {
+    color: var(--study-viz-included-text);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.study-viz__headline {
+    margin-top: 8px;
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.study-viz__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 6px;
+    color: var(--color-text-secondary);
+}
+
+.study-viz__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.study-viz__swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    display: inline-block;
+    border: 1px solid var(--study-viz-divider);
+    box-sizing: border-box;
+}
+
+.study-viz__swatch--included { background: var(--study-viz-included); }
+.study-viz__swatch--eligible { background: var(--study-viz-eligible-bg); }
+.study-viz__swatch--outframe { background: var(--study-viz-outframe-bg); }

@@ -5,6 +5,7 @@
                 <div style="display: flex; align-items: baseline; gap: 12px;">
                     <h2 id="editStudyModalTitle" style="margin: 0;">Edit Study</h2>
                     <span id="editStudyModalLastUpdated" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                    <span id="editStudyModalCollections" class="text-xs" style="color: var(--color-text-tertiary); font-variant-numeric: tabular-nums;"></span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 12px;">
                     {% if current_user.is_admin() %}
@@ -51,51 +52,20 @@
 
             <div class="study-issues-list text-xs" style="margin-top: 8px; display: none; flex-direction: column; gap: 3px;"></div>
 
-            <div class="study-metrics-row" style="margin-top: 12px; display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap;">
+            <div class="study-metrics-row" style="margin-top: 12px; display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
 
-                <div class="study-metrics text-xs" style="display: grid; grid-template-columns: max-content max-content max-content max-content; gap: 2px 10px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums;">
-                    <span></span>
-                    <span style="text-align: right; color: var(--color-text-tertiary);">included</span>
-                    <span style="text-align: center; color: var(--color-text-tertiary);"></span>
-                    <span style="text-align: right; color: var(--color-text-tertiary);">potential</span>
-
-                    <span>Collections</span>
-                    <strong class="metric-actual-collections" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
-                    <span style="color: var(--color-text-tertiary);">/</span>
-                    <span class="metric-potential-collections" style="text-align: right;">&ndash;</span>
-
-                    <span>Active days</span>
-                    <strong class="metric-actual-active-days" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
-                    <span style="color: var(--color-text-tertiary);">/</span>
-                    <span class="metric-potential-active-days" style="text-align: right;">&ndash;</span>
-
-                    <span>Activities</span>
-                    <strong class="metric-actual-activities selected-events-count" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
-                    <span style="color: var(--color-text-tertiary);">/</span>
-                    <span class="metric-potential-activities" style="text-align: right;">&ndash;</span>
-
-                    <span>Items</span>
-                    <strong class="metric-actual-items stat-unique-vids" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
-                    <span style="color: var(--color-text-tertiary);">/</span>
-                    <span class="metric-potential-items" style="text-align: right;">&ndash;</span>
-
-                    <span>Scraped</span>
-                    <strong class="metric-actual-scraped stat-scraped-vids" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
-                    <span style="color: var(--color-text-tertiary);">/</span>
-                    <span class="metric-potential-scraped" style="text-align: right;">&ndash;</span>
-
-                    <span>Annotated</span>
-                    <strong class="metric-actual-annotated stat-annotated-vids" style="text-align: right; color: var(--color-text-primary);">&ndash;</strong>
-                    <span style="color: var(--color-text-tertiary);">/</span>
-                    <span class="metric-potential-annotated" style="text-align: right;">&ndash;</span>
-                </div>
-
-                <div class="sample-block" style="min-width: 200px; max-width: 220px;">
+                <div class="sample-block" style="flex: 0 0 auto; min-width: 200px; max-width: 220px;">
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                        <label class="meta-tooltip"
-                            data-tooltip="Control if and how collections are sampled. Set to 'off' to disable sampling."
-                            style="color: var(--color-text-secondary);">Sample</label>
-                        <select data-field="SAMPLE_FRAME" class="control-input" style="flex: 1;" {% if not current_user.is_admin() %}disabled{% endif %}>
+                        <label class="meta-tooltip text-xs"
+                            data-tooltip="Sampling frame — which videos are eligible before sampling:
+• activities: every video
+• scraped: scraped videos only
+• annotated: annotated videos only
+• off: no sampling, keep everything
+
+Included videos can still be enriched afterwards, so a wider frame is fine."
+                            style="color: var(--color-text-secondary); white-space: nowrap;">Sampling frame</label>
+                        <select data-field="SAMPLE_FRAME" class="control-input" style="flex: 0 0 auto; width: 110px;" {% if not current_user.is_admin() %}disabled{% endif %}>
                             <option value="activities">activities</option>
                             <option value="scraped">scraped</option>
                             <option value="annotated">annotated</option>
@@ -108,7 +78,7 @@
                         <span class="text-xs" style="color: var(--color-text-secondary); text-align: center;">Max</span>
 
                         <label class="meta-tooltip text-xs"
-                            data-tooltip="Days with fewer than Min activities are excluded from the sample; days with more than Max activities are downsampled (defaults: 30 / 50)."
+                            data-tooltip="Per collection-day: drop days with fewer than Min eligible activities, and randomly downsample days with more than Max. Stops a few busy days from dominating the study."
                             style="color: var(--color-text-secondary);">Activities per day</label>
                         <input type="number" data-field="MIN_ACTIVITY_COUNT_PER_GROUP"
                             class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
@@ -116,12 +86,18 @@
                             class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
 
                         <label class="meta-tooltip text-xs"
-                            data-tooltip="Collections with fewer than Min qualifying days are excluded from the sample; collections with more than Max qualifying days are downsampled (defaults: 20 / 200)."
+                            data-tooltip="Per collection: drop collections with fewer than Min qualifying days, and downsample collections with more than Max. Balances how much each collection contributes."
                             style="color: var(--color-text-secondary);">Days per collection</label>
                         <input type="number" data-field="MIN_GROUP_COUNT_PER_COLLECTION"
                             class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
                         <input type="number" data-field="MAX_GROUP_COUNT_PER_COLLECTION"
                             class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
+                    </div>
+                </div>
+
+                <div class="study-set-viz" data-state="empty" style="flex: 1 1 320px; min-width: 280px;">
+                    <div class="study-set-viz-empty text-xs" style="color: var(--color-text-tertiary); padding: 12px; border: 1px dashed var(--color-border); border-radius: 4px; background: var(--color-bg-surface);">
+                        Press &ldquo;Check study design&rdquo; to see video coverage and the sampled share.
                     </div>
                 </div>
             </div>

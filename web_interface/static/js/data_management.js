@@ -239,9 +239,8 @@ function renderCollectionSelector(container, selectedList) {
 function _syncUpdateCountsBtn(formContainer) {
     const btn = formContainer.querySelector('[onclick*="updateStudyEstimates"]');
     if (!btn) return;
-    const el = formContainer.querySelector('.metric-actual-activities');
-    const txt = (el?.textContent || '').trim();
-    const needsUpdate = !txt || txt === '-' || txt === '\u2013';
+    const viz = formContainer.querySelector('.study-set-viz');
+    const needsUpdate = !viz || viz.dataset.state !== 'ready';
     btn.style.opacity = needsUpdate ? '1' : '0.4';
     btn.style.pointerEvents = needsUpdate ? '' : 'none';
 }
@@ -302,7 +301,8 @@ function updateCollectionSelection(selectorDiv) {
 
     // Collections potential updates instantly; everything else waits on
     // /daily_activities (debounced) or /calculate_stats.
-    _renderStudyMetrics(formContainer, { resetActuals: true, potentials: { collections: values.length } });
+    _updateCollectionsHeader({ resetActual: true, potential: values.length });
+    _resetStudySetViz(formContainer, 'stale');
     _syncUpdateCountsBtn(formContainer);
 
     if (hiddenInput && hiddenInput.dataset.field === 'SELECTED_COLLECTIONS') {
@@ -655,30 +655,25 @@ function populateForm(row, study) {
     // rather than the cloned template, so look it up via the modal scope.
     _renderAccessDropdown(study);
 
-    // 3. Stats Display (seed from saved study; potentials fill on chart fetch)
+    // 3. Stats Display (seed from saved study; potentials fill on chart fetch).
+    // Collections shows in the header; the mosaic viz needs the date-range universe
+    // counts (only from /calculate_stats), so it stays on its placeholder until
+    // "Check study design".
     const stats = study.stats || {};
-    const seededActuals = {
-        collections: stats.unique_collections,
-        active_days: stats.active_days,
-        activities: stats.total_activities,
-        items: stats.unique_videos,
-        scraped: stats.scraped_videos,
-        annotated: stats.annotated_videos,
-    };
-    const seededPotentials = {
-        collections: Array.isArray(study.SELECTED_COLLECTIONS) ? study.SELECTED_COLLECTIONS.length : undefined,
-        // Cascade potentials: derived directly from the saved stats.
-        items: stats.total_activities,
-        scraped: stats.unique_videos,
-        annotated: stats.scraped_videos,
-    };
-    _renderStudyMetrics(row, { actuals: seededActuals, potentials: seededPotentials });
+    const seededPotentialCols = Array.isArray(study.SELECTED_COLLECTIONS) ? study.SELECTED_COLLECTIONS.length : undefined;
+    if (stats.unique_collections != null) {
+        _updateCollectionsHeader({ actual: stats.unique_collections, potential: seededPotentialCols });
+    } else {
+        _updateCollectionsHeader({ resetActual: true, potential: seededPotentialCols });
+    }
+    _resetStudySetViz(row, 'empty');
 
     _syncUpdateCountsBtn(row);
 
     // Invalidate actuals when date/sample settings change.
     const _resetStats = () => {
-        _renderStudyMetrics(row, { resetActuals: true });
+        _updateCollectionsHeader({ resetActual: true });
+        _resetStudySetViz(row, 'stale');
         _syncUpdateCountsBtn(row);
         _clearStudyIssues(row);
         _invalidateDailyChartOverlay(row);
@@ -706,8 +701,8 @@ function populateForm(row, study) {
     const cache = study.cached_daily_activities;
     if (cache && Array.isArray(cache.total_per_day) && cache.total_per_day.length) {
         chartState.totalPerDay = cache.total_per_day;
-        if (cache.potentials) {
-            _renderStudyMetrics(row, { potentials: cache.potentials });
+        if (cache.potentials && cache.potentials.collections != null) {
+            _updateCollectionsHeader({ potential: cache.potentials.collections });
         }
         _renderDailyChart(row);
     }
@@ -1085,16 +1080,11 @@ window.updateStudyEstimates = async function (btn, event) {
                 if (data.status === 'success') {
                     const stats = data.stats || {};
                     const potentials = data.potentials || {};
-                    _renderStudyMetrics(formContainer, {
-                        actuals: {
-                            collections: stats.unique_collections,
-                            active_days: stats.active_days,
-                            activities: stats.total_activities,
-                            items: stats.unique_videos,
-                            scraped: stats.scraped_videos,
-                            annotated: stats.annotated_videos,
-                        },
-                        potentials,
+                    _updateCollectionsHeader({ actual: stats.unique_collections, potential: potentials.collections });
+                    _renderStudySetViz(formContainer, {
+                        universe: data.universe,
+                        included: stats,
+                        frame: formData.SAMPLE_FRAME,
                     });
                     _syncUpdateCountsBtn(formContainer);
 
@@ -1250,8 +1240,8 @@ function _fetchDailyChart(row) {
             s.totalPerDay = data.total_per_day || [];
             _syncDateRangeToCollections(row, s.totalPerDay);
             _renderDailyChart(row);
-            if (data.potentials) {
-                _renderStudyMetrics(row, { potentials: data.potentials });
+            if (data.potentials && data.potentials.collections != null) {
+                _updateCollectionsHeader({ potential: data.potentials.collections });
             }
         })
         .catch(err => {
@@ -1573,37 +1563,129 @@ document.addEventListener('click', (ev) => {
 });
 
 
-const _METRIC_KEYS = ['collections', 'active_days', 'activities', 'items', 'scraped', 'annotated'];
-const _METRIC_SIDE_SELECTORS = {
-    'collections':  { actual: '.metric-actual-collections',  potential: '.metric-potential-collections'  },
-    'active_days':  { actual: '.metric-actual-active-days',  potential: '.metric-potential-active-days'  },
-    'activities':   { actual: '.metric-actual-activities',   potential: '.metric-potential-activities'   },
-    'items':        { actual: '.metric-actual-items',        potential: '.metric-potential-items'        },
-    'scraped':      { actual: '.metric-actual-scraped',      potential: '.metric-potential-scraped'      },
-    'annotated':    { actual: '.metric-actual-annotated',    potential: '.metric-potential-annotated'    },
-};
-
-function _formatMetric(v) {
-    if (v === undefined || v === null || v === '') return '\u2013';
-    if (typeof v === 'number' && !Number.isNaN(v)) return v.toLocaleString();
-    return String(v);
+// Collections count lives in the modal header (next to "Last updated"). It carries
+// the included (after sampling/date filter) and potential (selected) counts, stored
+// on the element's dataset so partial updates (only actual, or only potential) work.
+function _updateCollectionsHeader({ actual, potential, resetActual } = {}) {
+    const el = document.getElementById('editStudyModalCollections');
+    if (!el) return;
+    if (resetActual) el.dataset.actual = '';
+    else if (actual !== undefined && actual !== null) el.dataset.actual = String(actual);
+    if (potential !== undefined && potential !== null) el.dataset.potential = String(potential);
+    const a = el.dataset.actual ? Number(el.dataset.actual).toLocaleString() : '\u2013';
+    const p = el.dataset.potential ? Number(el.dataset.potential).toLocaleString() : '\u2013';
+    el.textContent = `${a} / ${p} collections`;
 }
 
-function _renderStudyMetrics(row, { actuals, potentials, resetActuals } = {}) {
-    if (!row) return;
-    _METRIC_KEYS.forEach(key => {
-        const sel = _METRIC_SIDE_SELECTORS[key];
-        if (!sel) return;
-        const aEl = row.querySelector(sel.actual);
-        const pEl = row.querySelector(sel.potential);
-        if (aEl) {
-            if (resetActuals) aEl.textContent = '\u2013';
-            else if (actuals && Object.prototype.hasOwnProperty.call(actuals, key)) aEl.textContent = _formatMetric(actuals[key]);
-        }
-        if (pEl && potentials && Object.prototype.hasOwnProperty.call(potentials, key)) {
-            pEl.textContent = _formatMetric(potentials[key]);
-        }
-    });
+const _SET_FRAME_ELIGIBLE = {
+    activities: ['annotated', 'scrapedOnly', 'notScraped'],
+    off: ['annotated', 'scrapedOnly', 'notScraped'],
+    scraped: ['annotated', 'scrapedOnly'],
+    annotated: ['annotated'],
+};
+
+// Help copy for the mosaic. \n becomes a line break (tooltip uses white-space: pre-wrap).
+// Keep these free of double-quotes, < , > and & so they stay valid inside data-tooltip="…".
+const _VIZ_TIPS = {
+    overview: 'This box is every activity (a play or observe event) in your selected collections and date range.\n\n'
+        + 'The columns split those activities by how enriched each video currently is. The shaded band is the share the sampling keeps for the study.\n\n'
+        + 'Key point: enrichment status is the current state, not a limit. You can scrape and annotate the videos you include here afterwards — see the column hints.',
+    annotated: 'Activities on videos that are scraped AND annotated by the LLM (captions, on-screen text, themes, language, country…). This is the richest data for analysis.',
+    scrapedOnly: 'Activities on videos that are scraped (metadata and video downloaded) but not yet annotated.\n\n'
+        + 'Including them is fine: you can annotate these videos later (Scrape and Annotate tab) and they move into the annotated column.',
+    notScraped: 'Activities on videos with no enrichment yet — only the raw on-device capture.\n\n'
+        + 'Including them is fine: you can scrape them later, then annotate them, moving them across the columns.',
+    headline: 'How many activities the sampling actually kept, out of all activities in your collections and date range.\n\n'
+        + 'The shaded band shows this share; the number inside each band is how many kept activities are of that enrichment type.',
+};
+
+function _fmtInt(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toLocaleString() : '0';
+}
+
+function _resetStudySetViz(row, state) {
+    const viz = row.querySelector('.study-set-viz');
+    if (!viz) return;
+    viz.dataset.state = state || 'stale';
+    viz.innerHTML = '<div class="study-set-viz-empty text-xs">Press “Check study design” to see activity coverage and the sampled share.</div>';
+}
+
+function _renderStudySetViz(row, { universe, included, frame } = {}) {
+    const viz = row.querySelector('.study-set-viz');
+    if (!viz) return;
+
+    const all = Math.max(0, Number(universe && universe.activities) || 0);
+    if (!all) { _resetStudySetViz(row, 'empty'); return; }
+
+    const uScraped = Math.max(0, Number(universe && universe.scraped) || 0);
+    const uAnnotated = Math.max(0, Number(universe && universe.annotated) || 0);
+    const incActivities = Math.max(0, Number(included && included.total_activities) || 0);
+
+    // Included activities split by the enrichment status of their video.
+    const incAnnotated = Math.max(0, Number(included && included.activities_annotated) || 0);
+    const incScraped = Math.max(0, Number(included && included.activities_scraped) || 0);
+    const incScrapedOnly = Math.max(incScraped - incAnnotated, 0);
+    const incNotScraped = Math.max(incActivities - incScraped, 0);
+
+    // Column counts (clamp so nesting holds: annotated <= scraped <= all).
+    const colAnnotated = Math.min(uAnnotated, all);
+    const colScrapedOnly = Math.max(Math.min(uScraped, all) - colAnnotated, 0);
+    const colNotScraped = Math.max(all - colAnnotated - colScrapedOnly, 0);
+
+    const cols = [
+        { key: 'annotated', label: 'annotated', count: colAnnotated, inc: incAnnotated },
+        { key: 'scrapedOnly', label: 'scraped only', count: colScrapedOnly, inc: incScrapedOnly },
+        { key: 'notScraped', label: 'not scraped', count: colNotScraped, inc: incNotScraped },
+    ];
+
+    const frameKey = frame || 'activities';
+    const eligibleKeys = _SET_FRAME_ELIGIBLE[frameKey] || _SET_FRAME_ELIGIBLE.activities;
+
+    // Uniform fill height across the eligible columns: sampling treats the frame as
+    // one pool, so the band height is included activities / (universe within the frame).
+    const frameUniverse = cols
+        .filter(c => eligibleKeys.indexOf(c.key) !== -1)
+        .reduce((s, c) => s + c.count, 0);
+    let fillPct = frameUniverse > 0 ? (incActivities / frameUniverse) * 100 : 0;
+    fillPct = Math.max(0, Math.min(100, fillPct));
+
+    const samplePct = all > 0 ? Math.round((incActivities / all) * 100) : 0;
+
+    const labelsHtml = cols.map(c => {
+        const widthPct = (c.count / all) * 100;
+        const tip = _VIZ_TIPS[c.key] || '';
+        const anchor = c.key === 'notScraped' ? ' tooltip-right-anchored' : '';
+        return `<div class="study-viz__collabel meta-tooltip${anchor}" data-tooltip="${tip}" style="flex: 0 0 ${widthPct}%;">` +
+            `<span class="study-viz__label-name text-xxs">${c.label}</span>` +
+            `<span class="study-viz__label-count text-xxs">${_fmtInt(c.count)}</span>` +
+            `</div>`;
+    }).join('');
+
+    const boxHtml = cols.map(c => {
+        const widthPct = (c.count / all) * 100;
+        const eligible = eligibleKeys.indexOf(c.key) !== -1;
+        const countTxt = (eligible && c.inc > 0) ? `<span class="study-viz__fill-count text-xxs">${_fmtInt(c.inc)}</span>` : '';
+        const fill = eligible ? `<div class="study-viz__fill" style="height: ${fillPct}%;">${countTxt}</div>` : '';
+        const clsExtra = eligible ? '' : ' study-viz__col--outframe';
+        return `<div class="study-viz__col${clsExtra}" style="flex: 0 0 ${widthPct}%;">${fill}</div>`;
+    }).join('');
+
+    viz.innerHTML =
+        `<div class="study-viz__toprow">` +
+            `<span class="study-viz__help meta-tooltip tooltip-below tooltip-right-anchored" data-tooltip="${_VIZ_TIPS.overview}">&#9432;</span>` +
+        `</div>` +
+        `<div class="study-viz__labels">${labelsHtml}</div>` +
+        `<div class="study-viz__box">${boxHtml}</div>` +
+        `<div class="study-viz__headline text-xs">sampled into study &middot; ${_fmtInt(incActivities)} of ${_fmtInt(all)} activities (${samplePct}%)` +
+            `<span class="study-viz__help meta-tooltip tooltip-right-anchored" data-tooltip="${_VIZ_TIPS.headline}">&#9432;</span>` +
+        `</div>` +
+        `<div class="study-viz__legend text-xxs">` +
+        `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--included"></span>sampled into study</span>` +
+        `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--eligible"></span>in collections, not sampled</span>` +
+        `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--outframe"></span>outside frame</span>` +
+        `</div>`;
+    viz.dataset.state = 'ready';
 }
 
 function _clearStudyIssues(row) {

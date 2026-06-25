@@ -239,6 +239,69 @@ def _filter_to_play_observe(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
+def _compute_universe_enrichment(df_raw: pd.DataFrame, df_status: pd.DataFrame | None,
+                                 start_date: str | None, end_date: str | None) -> dict:
+    """Count activities by the scrape/annotation status of their video, within the date range.
+
+    Enrichment status is a per-video fact; here each activity inherits its video's status so
+    the counts are consistent with the rest of the modal (daily chart, sampling controls),
+    which are activity-based.
+
+    Args:
+        df_raw: Raw activities for the selected collections, already restricted to each
+            collection's event window and to play/observe rows.
+        df_status: enrichment_status.parquet (scraped_ok / annotated_ok per item_id), or None.
+        start_date: Inclusive lower bound as 'YYYY-MM-DD', or empty/None for no lower bound.
+        end_date: Inclusive upper bound as 'YYYY-MM-DD', or empty/None for no upper bound.
+
+    Returns:
+        Dict with integer keys 'activities', 'scraped', 'annotated' — the total activities and
+        the activities whose video is scraped / annotated, for the date-filtered universe.
+    """
+
+    universe = {"activities": 0, "scraped": 0, "annotated": 0}
+    if df_raw is None or df_raw.empty or 'item_id' not in df_raw.columns:
+        return universe
+
+    df_uni = df_raw
+    start_date = (start_date or "").strip()
+    end_date = (end_date or "").strip()
+    if 'local_timestamp' in df_uni.columns and (start_date or end_date):
+        ts = pd.to_datetime(df_uni['local_timestamp'], errors='coerce')
+        mask = ts.notna()
+        if start_date:
+            mask &= ts.dt.date >= pd.to_datetime(start_date).date()
+        if end_date:
+            mask &= ts.dt.date <= pd.to_datetime(end_date).date()
+        df_uni = df_uni.loc[mask]
+
+    if df_uni.empty:
+        return universe
+
+    universe["activities"] = int(len(df_uni))
+
+    if df_status is None or df_status.empty:
+        return universe
+
+    if 'item_id' not in df_status.columns and df_status.index.name == 'item_id':
+        df_status = df_status.reset_index()
+    if 'item_id' not in df_status.columns:
+        return universe
+
+    status_ids = df_status['item_id'].astype(str)
+    uni_ids = df_uni['item_id'].astype(str)
+
+    if 'scraped_ok' in df_status.columns:
+        scraped_set = set(status_ids[df_status['scraped_ok'].fillna(False).to_numpy()])
+        universe["scraped"] = int(uni_ids.isin(scraped_set).sum())
+    if 'annotated_ok' in df_status.columns:
+        annotated_set = set(status_ids[df_status['annotated_ok'].fillna(False).to_numpy()])
+        universe["annotated"] = int(uni_ids.isin(annotated_set).sum())
+    return universe
+
+
+
+
 def _count_sparse_cells(df_study: pd.DataFrame) -> tuple[int, int]:
     """Return (sparse_cells, total_cells) where a cell is (day, collection_id).
 
@@ -349,23 +412,25 @@ def _derive_study_issues(stats: dict, sparse_cells: int, total_cells: int, has_t
 
 
 
-def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFrame | None]:
+def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFrame | None, pd.DataFrame | None]:
     """Calculate stats for a study using enrichment_status.parquet AND the study's specific recoded dataset.
 
     Returns:
-        Tuple of (stats_dict, full_recoded_dataframe). The DataFrame is None when no data exists.
+        Tuple of (stats_dict, full_recoded_dataframe, enrichment_status_dataframe). The recoded
+        DataFrame is None when no data exists; the enrichment-status DataFrame is None when no
+        enrichment_status.parquet is present (or when returning before it is loaded).
     """
 
-    empty_stats = {"total_activities": 0, "unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "unique_collections": 0}
+    empty_stats = {"total_activities": 0, "unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0, "activities_scraped": 0, "activities_annotated": 0, "unique_collections": 0}
 
     study_name = study_config.get("STUDY_NAME")
     if not study_name:
-         return empty_stats, None
+         return empty_stats, None, None
 
     # If no collections are selected, the study is empty — skip expensive computation
     selected = study_config.get("SELECTED_COLLECTIONS", [])
     if not selected:
-         return empty_stats, None
+         return empty_stats, None, None
 
     _t_total = _time.perf_counter()
 
@@ -394,7 +459,7 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
         data_io.remove(storage_location="cache", filename=f"{study_name}_explorer_metadata.json")
         data_io.remove(storage_location="cache", filename=f"{study_name}_comp_interpretations.json")
         data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
-        return empty_stats, None
+        return empty_stats, None, df_status
 
     # 3. Count unique items. Filter to play/observe within each collection's
     # event window so the displayed "included" counts use the same definition
@@ -417,6 +482,10 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
     # 4. Match against enrichment status for scrape/annotation counts
     scraped_videos = 0
     annotated_videos = 0
+    # Activity-level included counts by the enrichment status of each activity's video,
+    # so the mosaic can label the included band per category (annotated / scraped / not).
+    activities_scraped = 0
+    activities_annotated = 0
 
     if df_status is not None and not df_status.empty:
         # Robust alignment: Ensure item_id is a column and use PyArrow strings
@@ -436,16 +505,31 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
             study_item_ids = df_counts['item_id'].unique()
             matched_status = df_status.loc[df_status.index.isin(study_item_ids)].copy()
 
+        if 'item_id' not in matched_status.columns and matched_status.index.name == 'item_id':
+            matched_status = matched_status.reset_index()
+
         if 'scraped_ok' in matched_status.columns:
             scraped_videos = int(matched_status['scraped_ok'].fillna(False).sum())
         if 'annotated_ok' in matched_status.columns:
             annotated_videos = int(matched_status['annotated_ok'].fillna(False).sum())
+
+        if 'item_id' in matched_status.columns and 'item_id' in df_counts.columns:
+            m_ids = matched_status['item_id'].astype(str)
+            study_ids_str = df_counts['item_id'].astype(str)
+            if 'scraped_ok' in matched_status.columns:
+                scraped_set = set(m_ids[matched_status['scraped_ok'].fillna(False).to_numpy()])
+                activities_scraped = int(study_ids_str.isin(scraped_set).sum())
+            if 'annotated_ok' in matched_status.columns:
+                annotated_set = set(m_ids[matched_status['annotated_ok'].fillna(False).to_numpy()])
+                activities_annotated = int(study_ids_str.isin(annotated_set).sum())
 
     stats = {
         "total_activities": int(total_activities),
         "unique_videos": int(unique_videos),
         "scraped_videos": scraped_videos,
         "annotated_videos": annotated_videos,
+        "activities_scraped": activities_scraped,
+        "activities_annotated": activities_annotated,
         "unique_collections": int(unique_collections),
         "active_days": active_days,
     }
@@ -458,7 +542,7 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
         f"count={_t_count:.2f}s total={_t_stats_total:.2f}s"
     )
 
-    return stats, df_study
+    return stats, df_study, df_status
 
 
 
@@ -705,7 +789,7 @@ def calculate_study_stats():
     try:
         # 3. specific instruction: "Force update of the study dataset"
         # The logic in _calculate_stats calls create_study_recoded_dataset
-        stats, df_study = _calculate_stats(data, save_to_cache=False)
+        stats, df_study, df_status = _calculate_stats(data, save_to_cache=False)
         stats_to_persist = stats
 
         included_per_day = _daily_counts(df_study)
@@ -729,11 +813,18 @@ def calculate_study_stats():
         selected = data.get("SELECTED_COLLECTIONS") or []
         potentials["collections"] = len(selected)
 
+        # Universe of activities in the selected collections, restricted to the chosen
+        # date range, classified by the enrichment status of each activity's video.
+        # These power the modal's mosaic: column widths (annotated / scraped-only /
+        # not-scraped) come from these counts, and the sampled-share band is read
+        # against universe.activities.
+        universe = {"activities": 0, "scraped": 0, "annotated": 0}
+
         if selected and data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
             df_raw = data_io.load_parquet_selective(
                 storage_location="recoded",
                 filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
-                columns=["collection_id", "local_timestamp", "activity_type"],
+                columns=["collection_id", "local_timestamp", "activity_type", "item_id"],
                 filters=[("collection_id", "in", selected)],
             )
             if df_raw is not None and not df_raw.empty:
@@ -746,6 +837,8 @@ def calculate_study_stats():
                     potentials["activities"] = int(len(df_raw))
                     potentials["active_days"] = int(pd.to_datetime(df_raw["local_timestamp"], errors="coerce").dropna().dt.date.nunique())
 
+                    universe = _compute_universe_enrichment(df_raw, df_status, data.get("START_DATE"), data.get("END_DATE"))
+
         sparse_cells, total_cells = _count_sparse_cells(df_study)
         sampling_report = None
         if df_study is not None and hasattr(df_study, 'attrs'):
@@ -756,6 +849,7 @@ def calculate_study_stats():
             "status": "success",
             "stats": stats,
             "potentials": potentials,
+            "universe": universe,
             "included_per_day": included_per_day,
             "issues": issues,
         })
