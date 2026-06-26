@@ -620,6 +620,85 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
             _set_pipeline_in_flight(False)
             _write_pipeline_summary_cloud(partial=True, failed_at=name)
 
+    # Server-side auto-fire of an armed Consolidate & Refresh. Arming promises
+    # the pipeline runs once the enrichment queues finish, but the original
+    # trigger was a browser poll POST — which fails silently when the tab's CSRF
+    # token has expired (queues often run >1h) or the tab is closed. Firing here,
+    # on the task-runner at terminal worker completion, makes it browser-independent.
+    if name in ("queue_scraper", "queue_annotator"):
+        _maybe_autofire_armed_consolidate(name)
+
+
+def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
+    """Dispatch an armed Consolidate & Refresh once the enrichment queues idle.
+
+    Called from a terminal ``queue_scraper`` / ``queue_annotator`` completion on
+    the task-runner. No-ops unless ``consolidate_enrichment.auto_armed`` is set.
+    Defers while the *other* enrichment worker is still running (that worker runs
+    this same check when it finishes) and while a consolidate is already in
+    flight. The armed flag is cleared before dispatch so two near-simultaneous
+    finishers can't both fire; a failed dispatch re-arms for a later retry.
+
+    Args:
+        just_finished: The worker whose completion triggered this check.
+    """
+    from ..process_manager import _dispatch_cloud_task
+
+    load_process_stats()
+    entry = process_stats.get("consolidate_enrichment", {})
+    if not entry.get("auto_armed"):
+        return
+
+    # The other enrichment worker may still be running on a separate task-runner
+    # instance — read its GCS status (single source of truth across instances).
+    others = [w for w in ("queue_scraper", "queue_annotator") if w != just_finished]
+    for worker in others:
+        st = read_task_status(worker) or {}
+        if (st.get("state") or "").lower() == "running":
+            updated = st.get("updated_at") or ""
+            try:
+                age = (datetime.now(UTC) - datetime.fromisoformat(updated)).total_seconds()
+                if age <= 600:
+                    return
+            except (ValueError, TypeError):
+                return  # Malformed heartbeat — treat as running, be safe.
+
+    # Don't double-fire onto an already-running consolidate.
+    cs = read_task_status("consolidate_enrichment") or {}
+    if (cs.get("state") or "").lower() == "running":
+        return
+
+    # Claim the armed flag (clear before dispatch) so a concurrent finisher
+    # observing the same idle state can't also fire.
+    force = bool(entry.get("auto_armed_force"))
+    auto_refresh = bool(entry.get("auto_armed_auto_refresh"))
+    entry.pop("auto_armed", None)
+    entry.pop("auto_armed_force", None)
+    entry.pop("auto_armed_auto_refresh", None)
+    process_stats["consolidate_enrichment"] = entry
+    save_process_stats()
+
+    task_args: dict = {}
+    if force:
+        task_args["force_consolidation"] = True
+    if auto_refresh:
+        task_args["auto_refresh"] = True
+
+    success, msg = _dispatch_cloud_task("consolidate_enrichment", task_args)
+    if success:
+        print(f"[{just_finished}] Armed Consolidate & Refresh fired: {msg}")
+        _set_pipeline_in_flight(True)
+    else:
+        print(f"[{just_finished}] Armed consolidate dispatch failed: {msg}")
+        # Re-arm so the other finisher or a manual trigger can retry.
+        load_process_stats()
+        entry = process_stats.get("consolidate_enrichment", {})
+        entry["auto_armed"] = True
+        entry["auto_armed_force"] = force
+        entry["auto_armed_auto_refresh"] = auto_refresh
+        process_stats["consolidate_enrichment"] = entry
+        save_process_stats()
+
 
 def _record_pipeline_fork(leaves: list[str], fork_ts: str) -> None:
     """Persist the active fan-out so the status-poll backstop can resolve it.

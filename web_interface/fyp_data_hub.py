@@ -77,6 +77,12 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "local-dev-key")
 
 # Init Auth
 login_manager.init_app(app)
+# Validate CSRF tokens against the session only, with no separate time limit.
+# The default 3600s expiry silently breaks state-changing POSTs from tabs left
+# open longer than an hour (e.g. while the enrichment queues run), surfacing as
+# opaque HTTP 400s on Consolidate & Refresh, collection delete, etc. Tokens stay
+# bound to the session secret, so CSRF protection is unchanged.
+app.config["WTF_CSRF_TIME_LIMIT"] = None
 csrf.init_app(app)
 
 # Register Blueprints
