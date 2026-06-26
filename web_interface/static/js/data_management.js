@@ -1368,7 +1368,8 @@ function _renderDailyChart(row) {
 
     const mutedColor = getCSSVar('--color-text-tertiary') || 'rgba(150,150,150,0.4)';
     const baseColor = getCSSVar('--color-text-secondary') || 'rgba(100,100,100,0.8)';
-    const accentColor = getCSSVar('--color-accent') || '#5B7E98';
+    // Match the "sampled into study" fill in the coverage mosaic.
+    const accentColor = getCSSVar('--study-viz-included') || '#6A9B7E';
 
     const inRange = (d) => {
         if (startVal && d < startVal) return false;
@@ -1419,7 +1420,7 @@ function _renderDailyChart(row) {
     const fmtIsoDate = (iso) => _toIsoDate(iso) || '';
     const rangeFirst = fmtIsoDate(startInputVal || xs[0]);
     const rangeLast = fmtIsoDate(endInputVal || xs[xs.length - 1]);
-    const dateRangeCaption = `Date range: ${rangeFirst} \u2013 ${rangeLast}`;
+    const dateRangeCaption = `Selected date range: ${rangeFirst} \u2013 ${rangeLast}`;
 
     const layout = {
         barmode: 'overlay',
@@ -1614,7 +1615,7 @@ const _SET_FRAME_ELIGIBLE = {
 const _VIZ_TIPS = {
     overview: 'This box is every activity (a play or observe event) in your selected collections and date range.\n\n'
         + 'The columns split those activities by how enriched each video currently is. The shaded band is the share the sampling keeps for the study.\n\n'
-        + 'Key point: enrichment status is the current state, not a limit. You can scrape and annotate the videos you include here afterwards — see the column hints.',
+        + 'Key point: enrichment status is the current state, not a limit. You can scrape and annotate the videos you include here afterwards. Hover over the areas in the plot for details.',
     annotated: 'Activities on videos that are scraped AND annotated by the LLM (captions, on-screen text, themes, language, country…). This is the richest data for analysis.',
     scrapedOnly: 'Activities on videos that are scraped (metadata and video downloaded) but not yet annotated.\n\n'
         + 'Including them is fine: you can annotate these videos later (Scrape and Annotate tab) and they move into the annotated column.',
@@ -1677,41 +1678,57 @@ function _renderStudySetViz(row, { universe, included, frame, seeded } = {}) {
 
     const samplePct = all > 0 ? Math.round((incActivities / all) * 100) : 0;
 
-    const labelsHtml = cols.map(c => {
-        const widthPct = (c.count / all) * 100;
-        const tip = _VIZ_TIPS[c.key] || '';
-        const anchor = c.key === 'notScraped' ? ' tooltip-right-anchored' : '';
-        return `<div class="study-viz__collabel meta-tooltip${anchor}" data-tooltip="${tip}" style="flex: 0 0 ${widthPct}%;">` +
-            `<span class="study-viz__label-name text-xxs">${c.label}</span>` +
-            `<span class="study-viz__label-count text-xxs">${_fmtInt(c.count)}</span>` +
-            `</div>`;
-    }).join('');
-
+    // Each column shows only its label; the counts live in a dynamic tooltip so
+    // they stay legible even when a column is too narrow to fit a number.
     const boxHtml = cols.map(c => {
         const widthPct = (c.count / all) * 100;
         const eligible = eligibleKeys.indexOf(c.key) !== -1;
-        const countTxt = (eligible && c.inc > 0) ? `<span class="study-viz__fill-count text-xxs">${_fmtInt(c.inc)}</span>` : '';
-        const fill = eligible ? `<div class="study-viz__fill" style="height: ${fillPct}%;">${countTxt}</div>` : '';
+        const countLine = eligible
+            ? `${c.label}: ${_fmtInt(c.count)} activities in frame, ${_fmtInt(c.inc)} sampled into study.`
+            : `${c.label}: ${_fmtInt(c.count)} activities, outside the sampling frame.`;
+        const tip = `${countLine}\n\n${_VIZ_TIPS[c.key] || ''}`;
+        const anchor = c.key === 'notScraped' ? ' tooltip-right-anchored' : '';
+        const fill = eligible ? `<div class="study-viz__fill" style="height: ${fillPct}%;"></div>` : '';
         const clsExtra = eligible ? '' : ' study-viz__col--outframe';
-        return `<div class="study-viz__col${clsExtra}" style="flex: 0 0 ${widthPct}%;">${fill}</div>`;
+        return `<div class="study-viz__col meta-tooltip tooltip-below${clsExtra}${anchor}" data-tooltip="${tip}" style="flex: 0 0 ${widthPct}%;">` +
+            fill +
+            `<span class="study-viz__collabel-in text-xxs">${c.label}</span>` +
+            `</div>`;
     }).join('');
 
     viz.innerHTML =
-        `<div class="study-viz__toprow">` +
-            `<span class="study-viz__help meta-tooltip tooltip-below tooltip-right-anchored" data-tooltip="${_VIZ_TIPS.overview}">&#9432;</span>` +
+        `<div class="study-viz__main">` +
+            `<div class="study-viz__box">${boxHtml}</div>` +
+            `<span class="study-viz__help study-viz__help--side meta-tooltip tooltip-below tooltip-right-anchored text-xxs" data-tooltip="${_VIZ_TIPS.overview}">what is this?</span>` +
         `</div>` +
-        `<div class="study-viz__labels">${labelsHtml}</div>` +
-        `<div class="study-viz__box">${boxHtml}</div>` +
         `<div class="study-viz__headline text-xs">sampled into study &middot; ${_fmtInt(incActivities)} of ${_fmtInt(all)} activities (${samplePct}%)` +
             `<span class="study-viz__help meta-tooltip tooltip-right-anchored" data-tooltip="${_VIZ_TIPS.headline}">&#9432;</span>` +
         `</div>` +
         `<div class="study-viz__legend text-xxs">` +
         `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--included"></span>sampled into study</span>` +
-        `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--eligible"></span>in collections, not sampled</span>` +
+        `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--eligible"></span>inside frame, not sampled</span>` +
         `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--outframe"></span>outside frame</span>` +
         `</div>` +
         (seeded ? `<div class="study-viz__seeded-note text-xxs">Showing the last checked result; press Check study design to refresh.</div>` : '');
     viz.dataset.state = seeded ? 'seeded' : 'ready';
+    requestAnimationFrame(() => _fitMosaicLabels(viz));
+}
+
+// Rotate a column label to vertical (and shrink it) when it cannot fit
+// horizontally — mirrors how Plotly lays out cramped bar labels.
+function _fitMosaicLabels(viz) {
+    const cols = viz.querySelectorAll('.study-viz__col');
+    cols.forEach((col) => {
+        const label = col.querySelector('.study-viz__collabel-in');
+        if (!label) return;
+        col.classList.remove('study-viz__col--vlabel', 'study-viz__col--tinylabel');
+        const naturalWidth = label.scrollWidth;
+        if (naturalWidth <= col.clientWidth - 4) return;
+        col.classList.add('study-viz__col--vlabel');
+        if (naturalWidth > col.clientHeight - 6) {
+            col.classList.add('study-viz__col--tinylabel');
+        }
+    });
 }
 
 function _clearStudyIssues(row) {

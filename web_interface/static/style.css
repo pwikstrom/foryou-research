@@ -79,12 +79,15 @@
     --color-link-hover: var(--white);
 
     /* Study set viz (Define Study modal coverage/sample mosaic) */
-    --study-viz-included: var(--blue-600);
+    --study-viz-included: var(--green-500);
+    --study-viz-included-pulse: var(--green-400);
     --study-viz-included-text: var(--gray-50);
     --study-viz-eligible-bg: var(--gray-750);
     --study-viz-outframe-bg: var(--gray-900);
     --study-viz-border: var(--color-border);
     --study-viz-divider: var(--color-border-subtle);
+    --study-viz-label-text: var(--gray-50);
+    --study-viz-label-halo: var(--gray-900);
 
     /* Shadows */
     --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -285,6 +288,8 @@
     /* Study set viz overrides (light) */
     --study-viz-eligible-bg: var(--gray-50);
     --study-viz-outframe-bg: var(--gray-100);
+    --study-viz-label-text: var(--gray-900);
+    --study-viz-label-halo: var(--white);
 
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
     --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.12);
@@ -3155,12 +3160,10 @@ button.meta-tooltip:disabled {
     background: var(--color-bg-surface);
 }
 
-.study-viz__toprow {
+.study-viz__main {
     display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    min-height: 14px;
-    margin-bottom: 2px;
+    align-items: stretch;
+    gap: 0;
 }
 
 .study-viz__help.meta-tooltip {
@@ -3174,61 +3177,60 @@ button.meta-tooltip:disabled {
     color: var(--color-text-secondary);
 }
 
-.study-viz__labels {
+/* Vertical "what is this?" sitting right against the mosaic. */
+.study-viz__help--side.meta-tooltip {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    margin-left: 0;
+    padding: 0 0 0 1px;
     display: flex;
-    margin-bottom: 4px;
-}
-
-.study-viz__collabel {
-    display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: flex-end;
-    min-width: 0;
-    padding: 0 2px;
-    line-height: 1.2;
-    overflow: visible;
-    text-align: center;
-}
-
-.study-viz__collabel.meta-tooltip {
-    text-decoration: none;
-    cursor: help;
-}
-
-.study-viz__label-name {
-    color: var(--color-text-secondary);
+    justify-content: center;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
     text-decoration: underline dotted var(--color-text-muted);
 }
 
-.study-viz__label-count {
-    color: var(--color-text-tertiary);
-    font-variant-numeric: tabular-nums;
+/* Keep the tooltip copy horizontal even though the trigger reads vertically. */
+.study-viz__help--side::after {
+    writing-mode: horizontal-tb;
+    text-orientation: mixed;
 }
 
 .study-viz__box {
     display: flex;
-    height: 96px;
+    flex: 1 1 auto;
+    height: 84px;
     border: 1px solid var(--study-viz-border);
     border-radius: 4px;
-    overflow: hidden;
     background: var(--study-viz-eligible-bg);
 }
 
 .study-viz__col {
     position: relative;
     height: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: var(--study-viz-eligible-bg);
     border-right: 3px solid var(--color-border-strong);
     box-sizing: border-box;
+    text-decoration: none;
+    cursor: help;
 }
 
 .study-viz__col:last-child {
     border-right: none;
+}
+
+.study-viz__col:first-child {
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+}
+
+.study-viz__col:last-child {
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
 }
 
 .study-viz__col--outframe {
@@ -3241,16 +3243,47 @@ button.meta-tooltip:disabled {
     right: 0;
     bottom: 0;
     background: var(--study-viz-included);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    animation: study-viz-pulse 2s ease-in-out infinite;
 }
 
-.study-viz__fill-count {
-    color: var(--study-viz-included-text);
-    font-variant-numeric: tabular-nums;
+.study-viz__col:first-child .study-viz__fill {
+    border-bottom-left-radius: 4px;
+}
+
+.study-viz__col:last-child .study-viz__fill {
+    border-bottom-right-radius: 4px;
+}
+
+@keyframes study-viz-pulse {
+    0%, 100% { background: var(--study-viz-included); }
+    50% { background: var(--study-viz-included-pulse); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .study-viz__fill { animation: none; }
+}
+
+/* Column label sits centred inside the field; the count is in the tooltip. */
+.study-viz__collabel-in {
+    position: relative;
+    z-index: 1;
+    padding: 0 2px;
+    color: var(--study-viz-label-text);
     white-space: nowrap;
+    text-align: center;
     pointer-events: none;
+    text-shadow: 0 1px 2px var(--study-viz-label-halo), 0 0 2px var(--study-viz-label-halo);
+}
+
+/* Too narrow for horizontal text — rotate the label like a Plotly axis tick. */
+.study-viz__col--vlabel .study-viz__collabel-in {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+}
+
+.study-viz__col--tinylabel .study-viz__collabel-in {
+    transform: scale(0.78);
+    transform-origin: center;
 }
 
 .study-viz__headline {
