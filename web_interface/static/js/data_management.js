@@ -1798,7 +1798,12 @@ function renderConsolidateStatus(stats) {
     // has an explicit statement of what happened.
     if (stats.last_pipeline_summary) {
         const esc = escapeHtml(stats.last_pipeline_summary);
-        lines.push(`<span style="color: var(--color-success-light); font-weight: var(--weight-medium);">✓ ${esc}</span>`);
+        // A partial/aborted pipeline is surfaced as an amber warning, not a
+        // green ✓ — otherwise an aborted refresh reads as a success.
+        const partial = !!stats.last_pipeline_partial;
+        const icon = partial ? '⚠' : '✓';
+        const color = partial ? 'var(--color-warning)' : 'var(--color-success-light)';
+        lines.push(`<span style="color: ${color}; font-weight: var(--weight-medium);">${icon} ${esc}</span>`);
     }
     if (lines.length) {
         statusEl.innerHTML = lines.join('<br>');
@@ -1878,15 +1883,30 @@ function checkConsolidationNeeded(data) {
 //   2. Refresh Caches page buttons are disabled while a cascade is running
 let _cascadeRefresh = null;
 
-function renderConsolidationImpact(impact) {
+function renderConsolidationImpact(impact, partial = null) {
     const panel = document.getElementById('consolidate-impact');
     const details = document.getElementById('impact-details');
     const actions = document.getElementById('impact-actions');
+    const note = document.getElementById('impact-partial-note');
     if (!panel || !details || !actions) return;
 
     if (!impact || !impact.changed_item_count) {
         panel.style.display = 'none';
         return;
+    }
+
+    // When the last auto-refresh aborted partway, explain why the impact is
+    // still here so the panel doesn't read as "nothing happened".
+    if (note) {
+        if (partial && partial.partial) {
+            const where = partial.failedAt
+                ? ` at "${escapeHtml(_humanizePipelineSteps(partial.failedAt))}"` : '';
+            note.textContent = `⚠ The auto-refresh stopped${where}; the items below were not fully refreshed. `
+                + `Click "Refresh All Affected" to complete.`;
+            note.style.display = '';
+        } else {
+            note.style.display = 'none';
+        }
     }
 
     const parts = [];
@@ -1925,56 +1945,43 @@ function renderConsolidationImpact(impact) {
 }
 
 function startCascadeRefresh(impact, btn) {
-    const studyNames = impact.affected_study_names || [];
-    const collectionIds = impact.affected_collection_ids || [];
-
-    // Set up cascade state
-    _cascadeRefresh = {
-        studyNames,
-        collectionIds,
-        phase: 'starting',
-        statusText: 'Starting...',
-        startedStudies: false,
-        startedTimelines: false,
-        startedMetaViewer: false,
-        startedMetaGroups: false,
-        startedPca: false,
-    };
-
-    btn.disabled = true;
-    btn.textContent = 'Starting...';
-    btn.className = 'btn-running text-xs';
-    updateCascadeRefreshPageLock(true);
-
-    // Phase 1: Start study refresh + timelines concurrently
-    const promises = [];
-
-    if (studyNames.length) {
-        promises.push(
-            startTargetedRefresh('recode_refresh_studies', { studies: studyNames.join(',') })
-                .then(() => { _cascadeRefresh.startedStudies = true; })
-        );
+    // Run the SAME downstream pipeline the consolidate auto-refresh uses
+    // (embeddings → video_map → recode → {meta ‖ pca ‖ timelines}) against the
+    // stored impact. The backend builds + dispatches it and records the
+    // pipeline_plan; we then poll the shared pipeline status — so the step list
+    // and the niche steps (embeddings/video_map) that the old per-button
+    // cascade skipped are now both covered.
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Starting…';
+        btn.className = 'btn-running text-xs';
     }
-    if (collectionIds.length) {
-        promises.push(
-            startTargetedRefresh('timelines_refresh', { collections: collectionIds.join(',') })
-                .then(() => { _cascadeRefresh.startedTimelines = true; })
-        );
-    }
-
-    Promise.allSettled(promises).then(() => {
-        _cascadeRefresh.phase = 'waiting_for_studies';
-        _cascadeRefresh.statusText = 'Refreshing studies & timelines...';
-        updateCascadeButton();
-
-        // If no studies to refresh, skip straight to meta refresh
-        if (!studyNames.length || !_cascadeRefresh.startedStudies) {
-            _cascadeRefresh.phase = 'waiting_for_meta';
-            startMetaRefreshes();
-        }
-        // Otherwise, main.js updateStatus() detects recode_refresh_studies completion
-        // and calls onCascadeStudiesComplete()
-    });
+    fetch('/api/manage/enrichment/refresh-downstream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: '{}',
+    })
+        .then(res => res.json())
+        .then(resp => {
+            if (resp.status === 'started') {
+                // Hide the impact card while the pipeline runs; the step list +
+                // status line take over. It only re-appears if the run was partial.
+                renderConsolidationImpact(null);
+                pollConsolidationStatus();
+            } else {
+                const statusEl = document.getElementById('consolidate-status');
+                if (statusEl) {
+                    statusEl.textContent = resp.message || 'Could not start refresh.';
+                    statusEl.style.color = (resp.status === 'noop')
+                        ? 'var(--color-text-secondary)' : 'var(--color-danger)';
+                }
+                if (btn) { btn.disabled = false; btn.textContent = 'Refresh All Affected'; btn.className = 'action-btn text-xs'; }
+            }
+        })
+        .catch(err => {
+            console.error('Failed to start downstream refresh:', err);
+            if (btn) { btn.disabled = false; btn.textContent = 'Refresh All Affected'; btn.className = 'action-btn text-xs'; }
+        });
 }
 
 function onCascadeStudiesComplete() {
@@ -2097,9 +2104,13 @@ function fetchEnrichmentStats() {
                 // button would invoke, so showing it is misleading.
                 const pipelineActive = !!data.consolidate_pipeline_active || !!_cascadeRefresh;
                 renderConsolidationImpact(
-                    pipelineActive ? null : data.consolidate_stats.consolidation_impact
+                    pipelineActive ? null : data.consolidate_stats.consolidation_impact,
+                    { partial: !!data.last_pipeline_partial, failedAt: data.last_pipeline_failed_at }
                 );
             }
+
+            // Persistent + live per-step pipeline list (updates every tick).
+            renderPipelineSteps(data.pipeline_steps);
 
             // Button state (armed / workers-running / idle)
             applyConsolidateButtonState(data);
@@ -2235,14 +2246,70 @@ function emptyQueue(queueType) {
 let _consolidatePollActive = false;
 
 // Downstream pipeline steps in dispatch order; used to identify the
-// currently-running step during the consolidate pipeline.
+// currently-running step during the consolidate pipeline. Must include the
+// embeddings/video_map spine steps or the live poll can't surface progress for
+// the slowest (and most failure-prone) part of the chain.
 const _PIPELINE_STEPS = [
     "consolidate_enrichment",
+    "embeddings_refresh",
+    "video_map_refresh",
     "recode_refresh_studies",
     "meta_refresh_groups",
     "pca_refresh",
     "timelines_refresh",
 ];
+
+// Short human labels for pipeline steps — mirrors _PIPELINE_STAGE_LABELS on the
+// backend. Used to humanize the failed-at step name in the impact panel note.
+const _PIPELINE_STEP_LABELS = {
+    consolidate_enrichment: "Consolidate enrichment data",
+    embeddings_refresh: "Semantic embeddings",
+    video_map_refresh: "Semantic map",
+    recode_refresh_studies: "Study definitions",
+    meta_refresh_groups: "Explore metadata",
+    pca_refresh: "Correlations",
+    timelines_refresh: "Timelines",
+};
+
+function _humanizePipelineSteps(csv) {
+    // failed_at may be a single step name or a comma-separated list of leaf
+    // names. Return a readable, comma-joined label list.
+    if (!csv) return '';
+    return String(csv).split(',')
+        .map(s => _PIPELINE_STEP_LABELS[s.trim()] || s.trim())
+        .filter(Boolean)
+        .join(', ');
+}
+
+function renderPipelineSteps(steps) {
+    // Render the persistent + live per-step pipeline list below the consolidate
+    // buttons. Hidden when no plan has been recorded (e.g. after a no-refresh
+    // consolidation). Each step shows a status dot, label, state, and — for the
+    // active step — an inline progress message/percent.
+    const container = document.getElementById('consolidate-pipeline-steps');
+    const list = document.getElementById('pipeline-steps-list');
+    if (!container || !list) return;
+    if (!steps || !steps.length) {
+        container.style.display = 'none';
+        list.innerHTML = '';
+        return;
+    }
+    list.innerHTML = steps.map(s => {
+        const state = s.state || 'pending';
+        let detail = '';
+        if (state === 'running' && (s.message || s.percent != null)) {
+            const pct = (s.percent != null) ? ` ${Math.round(s.percent)}%` : '';
+            detail = `<span class="pipeline-step-detail text-xxs">${escapeHtml(s.message || '')}${pct}</span>`;
+        }
+        return `<div class="pipeline-step pipeline-step--${state}">`
+            + `<span class="pipeline-step-dot" aria-hidden="true"></span>`
+            + `<span class="pipeline-step-label text-xs">${escapeHtml(s.label || s.step)}</span>`
+            + `<span class="pipeline-step-state text-xxs">${escapeHtml(state)}</span>`
+            + detail
+            + `</div>`;
+    }).join('');
+    container.style.display = '';
+}
 
 function _activePipelineStep(statusData) {
     // Return the {name, state_obj} of the currently-running pipeline step, or
@@ -2310,16 +2377,24 @@ function _renderStageText(statusEl, stepName, progress) {
     statusEl.style.color = 'var(--color-text-secondary)';
 }
 
-function consolidateEnrichmentData(btn, force = false) {
+function consolidateEnrichmentData(btn, force = false, skipRefresh = false) {
     const statusEl = document.getElementById('consolidate-status');
     const btnC = document.getElementById('btn-consolidate');
+    const btnI = document.getElementById('btn-consolidate-incremental');
     const btnF = document.getElementById('btn-consolidate-force');
+
+    // Three modes map to two flags:
+    //   default     → {}                  (incremental consolidate + refresh)
+    //   force       → {force:true}        (full rebuild, no refresh)
+    //   skipRefresh → {auto_refresh:false}(incremental consolidate, no refresh)
+    const body = force ? { force: true } : (skipRefresh ? { auto_refresh: false } : {});
 
     // Hide the impact panel up-front so the old run's summary doesn't linger
     // while the new run is in flight. It will re-render on completion.
     renderConsolidationImpact(null);
 
-    // If the button is already armed, a click disarms.
+    // If the button is already armed, a click disarms. Both non-force buttons
+    // can be the armed one (dataset.armed is routed by applyConsolidateButtonState).
     if (!force && btn.dataset.armed === '1') {
         fetch('/api/manage/enrichment/consolidate/disarm', {
             method: 'POST',
@@ -2346,15 +2421,14 @@ function consolidateEnrichmentData(btn, force = false) {
     fetch('/api/manage/enrichment/consolidate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify(force ? { force: true } : {})
+        body: JSON.stringify(body)
     })
         .then(res => res.json())
         .then(data => {
             if (data.status === 'started') {
                 btn.textContent = 'Consolidating...';
                 btn.className = 'btn-running';
-                if (btnC && btnC !== btn) btnC.disabled = true;
-                if (btnF && btnF !== btn) btnF.disabled = true;
+                [btnC, btnI, btnF].forEach(b => { if (b && b !== btn) b.disabled = true; });
                 statusEl.textContent = 'Consolidation running...';
                 statusEl.style.color = 'var(--color-text-secondary)';
                 pollConsolidationStatus();
@@ -2383,15 +2457,44 @@ function consolidateEnrichmentData(btn, force = false) {
         });
 }
 
+function _applyArmableButton(btn, idleLabel, isArmed, blocking, workersRunning) {
+    // Render a non-force consolidate button's idle/armed state. Leaves the
+    // btn-has-pending class alone in the idle branch — it is owned by
+    // checkConsolidationNeeded() — but clears it when armed.
+    if (!btn) return;
+    if (isArmed) {
+        btn.dataset.armed = '1';
+        btn.textContent = '⏳ Armed — click to cancel';
+        btn.classList.add('action-btn', 'btn-armed-pulse');
+        btn.classList.remove('btn-running', 'btn-has-pending');
+        btn.title = blocking.length
+            ? `Runs when ${blocking.join(', ')} finish.`
+            : 'Runs when scraper/annotator finish.';
+    } else {
+        btn.dataset.armed = '';
+        btn.textContent = idleLabel;
+        btn.classList.add('action-btn');
+        btn.classList.remove('btn-running', 'btn-armed-pulse');
+        btn.title = workersRunning
+            ? 'Click to arm — will run when scraper/annotator finish.'
+            : '';
+    }
+    btn.disabled = false;
+}
+
 function applyConsolidateButtonState(data) {
     // Drive button styling off the latest enrichment-stats response.
     // Called from fetchEnrichmentStats every poll tick.
     const btnC = document.getElementById('btn-consolidate');
+    const btnI = document.getElementById('btn-consolidate-incremental');
     const btnF = document.getElementById('btn-consolidate-force');
     if (!btnC || !btnF) return;
 
     const blocking = data.workers_blocking_consolidate || [];
     const armed = !!data.consolidate_auto_armed;
+    // Both non-force buttons share the single armed slot. The saved refresh
+    // preference tells us WHICH button is the armed one.
+    const armedRefresh = !!data.consolidate_auto_armed_auto_refresh;
     const workersRunning = blocking.length > 0;
     const pipelineActive = !!data.consolidate_pipeline_active;
 
@@ -2410,32 +2513,16 @@ function applyConsolidateButtonState(data) {
         btnF.title = '';
     }
 
-    // Consolidate button: tri-state (idle, armed, running).
+    // Non-force buttons: tri-state (idle, armed, running).
     if (_consolidatePollActive) {
         // Polling loop owns the button text/state during an active run.
         return;
     }
 
-    if (armed) {
-        btnC.dataset.armed = '1';
-        btnC.textContent = '⏳ Armed — click to cancel';
-        btnC.classList.add('action-btn', 'btn-armed-pulse');
-        btnC.classList.remove('btn-running', 'btn-has-pending');
-        btnC.title = blocking.length
-            ? `Runs when ${blocking.join(', ')} finish.`
-            : 'Runs when scraper/annotator finish.';
-        btnC.disabled = false;
-    } else {
-        btnC.dataset.armed = '';
-        btnC.textContent = 'Consolidate & Refresh';
-        btnC.classList.add('action-btn');
-        btnC.classList.remove('btn-running', 'btn-armed-pulse');
-        // btn-has-pending is managed separately by checkConsolidationNeeded()
-        btnC.title = workersRunning
-            ? 'Click to arm — will run when scraper/annotator finish.'
-            : '';
-        btnC.disabled = false;
-    }
+    // Route the armed indicator to whichever button's mode is armed; the other
+    // shows its normal idle label.
+    _applyArmableButton(btnC, 'Consolidate & Refresh', armed && armedRefresh, blocking, workersRunning);
+    _applyArmableButton(btnI, 'Consolidate Only', armed && !armedRefresh, blocking, workersRunning);
 }
 
 function pollConsolidationStatus() {
@@ -2449,6 +2536,7 @@ function pollConsolidationStatus() {
 
     const statusEl = document.getElementById('consolidate-status');
     const btnC = document.getElementById('btn-consolidate');
+    const btnI = document.getElementById('btn-consolidate-incremental');
     const btnF = document.getElementById('btn-consolidate-force');
     if (btnC) {
         btnC.disabled = true;
@@ -2456,6 +2544,7 @@ function pollConsolidationStatus() {
         btnC.classList.add('action-btn', 'btn-running');
         btnC.classList.remove('btn-armed-pulse', 'btn-has-pending');
     }
+    if (btnI) { btnI.disabled = true; btnI.classList.remove('btn-armed-pulse'); }
     if (btnF) btnF.disabled = true;
 
     // Hide the "scraper/annotator completed after last consolidation" warning
@@ -2474,6 +2563,9 @@ function pollConsolidationStatus() {
             fetch('/api/manage/enrichment/stats').then(r => r.json()),
         ])
             .then(([data, estats]) => {
+                // Keep the per-step list live during the run.
+                if (estats) renderPipelineSteps(estats.pipeline_steps);
+
                 const active = _activePipelineStep(data);
                 if (active) {
                     _renderStageText(statusEl, active.name, active.state.progress || {});
@@ -2509,6 +2601,13 @@ function pollConsolidationStatus() {
                     btnC.disabled = false;
                     btnC.dataset.armed = '';
                 }
+                if (btnI) {
+                    btnI.classList.remove('btn-running', 'btn-armed-pulse');
+                    btnI.classList.add('action-btn');
+                    btnI.textContent = 'Consolidate Only';
+                    btnI.disabled = false;
+                    btnI.dataset.armed = '';
+                }
                 if (btnF) btnF.disabled = false;
 
                 if (outcome === 'Success') {
@@ -2532,6 +2631,11 @@ function pollConsolidationStatus() {
                     btnC.className = 'action-btn';
                     btnC.textContent = 'Consolidate & Refresh';
                     btnC.disabled = false;
+                }
+                if (btnI) {
+                    btnI.className = 'action-btn btn-discreet';
+                    btnI.textContent = 'Consolidate Only';
+                    btnI.disabled = false;
                 }
                 if (btnF) btnF.disabled = false;
             });

@@ -346,6 +346,14 @@ def _run_local_pipeline(pipeline: list, summary_owner: str, summary_fn) -> None:
         entry = process_stats.get(summary_owner, {})
         entry["last_pipeline_summary"] = summary_fn(steps_ran, aborted_at)
         entry["last_pipeline_summary_ts"] = _dt.now(UTC).isoformat()
+        # Structured outcome (mirrors _write_pipeline_summary_cloud) so the UI
+        # styles the summary and impact panel correctly in local dev too.
+        entry["last_pipeline_partial"] = bool(aborted_at)
+        entry["last_pipeline_failed_at"] = aborted_at
+        # A fully-successful consolidate downstream pipeline resolves the stored
+        # impact — clear it so "Refresh All Affected" stops being offered.
+        if not aborted_at and summary_owner == "consolidate_enrichment":
+            entry.pop("consolidation_impact", None)
         process_stats[summary_owner] = entry
         save_process_stats()
         _set_pipeline_in_flight(False)

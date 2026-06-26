@@ -785,6 +785,17 @@ def _write_pipeline_summary_cloud(partial: bool = False, failed_at: str | None =
         summary = summary + suffix
     entry["last_pipeline_summary"] = summary
     entry["last_pipeline_summary_ts"] = datetime.now(UTC).isoformat()
+    # Structured outcome so the UI can style the summary (green ✓ vs amber ⚠)
+    # and annotate the impact panel with where the chain stopped.
+    entry["last_pipeline_partial"] = bool(partial)
+    entry["last_pipeline_failed_at"] = failed_at
+    # On a fully-successful pipeline every affected study/collection has been
+    # refreshed, so the consolidation impact is fully resolved — clear it
+    # deterministically here instead of waiting for the timestamp-based
+    # staleness heuristic to notice on a later poll. On a partial/aborted run we
+    # keep the impact so "Refresh All Affected" stays offered.
+    if not partial:
+        entry.pop("consolidation_impact", None)
     process_stats["consolidate_enrichment"] = entry
     save_process_stats()
 

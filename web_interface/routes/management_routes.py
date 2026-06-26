@@ -114,6 +114,109 @@ def _workers_blocking_consolidate() -> list[str]:
     return blocking
 
 
+def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
+    """Build an ordered per-step view of the last/active consolidate pipeline.
+
+    Returns one dict per step (``consolidate_enrichment`` plus every step in the
+    persisted ``pipeline_plan``) with keys ``step``, ``label``, ``state``,
+    ``percent``, ``message`` and ``ran_at``. ``state`` is one of ``running``,
+    ``queued``, ``success``, ``failed``, ``skipped`` or ``pending``. Live state
+    comes from each step's GCS status file (Cloud Run); terminal outcomes fall
+    back to ``process_stats``. Returns ``[]`` when no plan has been recorded so
+    the UI hides the list.
+
+    Args:
+        pipeline_active: Whether a consolidate pipeline is currently in flight
+            (``pipeline_in_flight`` or any step running). Drives the
+            pending-vs-skipped distinction for steps that have not run.
+    """
+    from web_interface.run_consolidate_enrichment import _PIPELINE_STAGE_LABELS
+
+    # Merge the in-memory ::DATA:: copy: in local/subprocess mode the consolidate
+    # worker's pipeline_plan lives in processes[...]["data"] until the process
+    # completes, so reading process_stats alone would miss it mid-run.
+    entry = {
+        **process_stats.get("consolidate_enrichment", {}),
+        **(processes.get("consolidate_enrichment", {}).get("data", {}) or {}),
+    }
+    plan = entry.get("pipeline_plan") or {}
+    steps = plan.get("steps") or []
+    if not steps:
+        return []
+
+    started_dt = None
+    started_ts = plan.get("started_ts")
+    if started_ts:
+        try:
+            started_dt = datetime.fromisoformat(started_ts)
+        except (ValueError, TypeError):
+            started_dt = None
+
+    cloud = is_cloud_run()
+    view: list[dict] = []
+    for step in ["consolidate_enrichment"] + steps:
+        ps = process_stats.get(step, {})
+        label = _PIPELINE_STAGE_LABELS.get(step, step)
+
+        # Live status: a fresh running/queued state wins. On Cloud Run this comes
+        # from the per-step GCS status file; locally from the in-memory process
+        # entry (the web service runs the local pipeline thread in-process).
+        live_state = None
+        percent = None
+        message = None
+        if cloud:
+            st = read_task_status(step) or {}
+            raw = (st.get("state") or "").lower()
+            fresh = True
+            updated = st.get("updated_at")
+            if started_dt and updated:
+                try:
+                    fresh = datetime.fromisoformat(updated) >= started_dt
+                except (ValueError, TypeError):
+                    fresh = True
+            if fresh and raw in ("running", "queued"):
+                live_state = raw
+                prog = st.get("progress") or {}
+                percent = prog.get("percent")
+                message = prog.get("message")
+        else:
+            if (processes.get(step, {}) or {}).get("status") == "running":
+                live_state = "running"
+                prog = (processes.get(step, {}) or {}).get("progress") or {}
+                percent = prog.get("percent")
+                message = prog.get("message")
+
+        # Did this step reach a terminal state as part of THIS pipeline run?
+        end = ps.get("last_run_end_time")
+        end_dt = None
+        if end:
+            try:
+                end_dt = datetime.fromisoformat(end)
+            except (ValueError, TypeError):
+                end_dt = None
+        ran_this_run = end_dt is not None and (started_dt is None or end_dt >= started_dt)
+
+        if live_state:
+            state = live_state
+        elif ran_this_run:
+            state = "success" if ps.get("last_run_outcome") == "Success" else "failed"
+        else:
+            # Never ran this round: pending while the pipeline is still active,
+            # otherwise skipped (aborted before reaching it / dropped by a 429).
+            state = "pending" if pipeline_active else "skipped"
+
+        view.append({
+            "step": step,
+            "label": label,
+            "state": state,
+            "percent": percent if state == "running" else None,
+            "message": message if state == "running" else None,
+            "ran_at": end if ran_this_run else None,
+        })
+
+    return view
+
+
 
 
 
@@ -1382,6 +1485,9 @@ def get_enrichment_stats():
         "consolidate_auto_armed": bool(consolidate_entry.get("auto_armed")),
         "consolidate_auto_armed_auto_refresh": bool(consolidate_entry.get("auto_armed_auto_refresh")),
         "consolidate_pipeline_active": pipeline_active,
+        "pipeline_steps": _build_pipeline_step_view(pipeline_active),
+        "last_pipeline_partial": bool(consolidate_entry.get("last_pipeline_partial")),
+        "last_pipeline_failed_at": consolidate_entry.get("last_pipeline_failed_at"),
         "workers_blocking_consolidate": _workers_blocking_consolidate(),
         "scraper_last_success": process_stats.get("queue_scraper", {}).get("last_success"),
         "annotator_last_success": process_stats.get("queue_annotator", {}).get("last_success"),
@@ -1823,6 +1929,75 @@ def api_consolidate_disarm():
     process_stats["consolidate_enrichment"] = entry
     save_process_stats()
     return jsonify({"status": "disarmed", "was_armed": was_armed})
+
+
+@management_bp.route('/api/manage/enrichment/refresh-downstream', methods=['POST'])
+@permission_required('tab.data_management.enrichment')
+@login_required
+def api_refresh_downstream():
+    """Re-run the downstream refresh pipeline for the stored consolidation impact.
+
+    Powers the "Refresh All Affected" button. It runs the SAME pipeline as the
+    consolidate auto-refresh — embeddings → video_map → recode → {meta ‖ pca ‖
+    timelines} — against the impact recorded by a prior Consolidate Only run, so
+    the niche steps the old per-button cascade skipped are now included and in
+    the right order. Writes ``pipeline_plan`` so the step list renders, then
+    dispatches via the Cloud Tasks chain (Cloud Run) or the local sequential
+    orchestrator (dev).
+    """
+    from web_interface.run_consolidate_enrichment import (
+        _build_downstream_pipeline,
+        build_pipeline_chain,
+    )
+
+    load_process_stats()
+    ps_entry = process_stats.get("consolidate_enrichment", {})
+    mem = processes.get("consolidate_enrichment", {}).get("data", {}) or {}
+    impact = ps_entry.get("consolidation_impact") or mem.get("consolidation_impact")
+    if not impact:
+        return jsonify({"status": "noop", "message": "No consolidation impact to refresh."})
+
+    # Don't start on top of a running pipeline.
+    if ps_entry.get("pipeline_in_flight") or any(
+        _is_worker_running(n) for n in (["consolidate_enrichment"] + PIPELINE_STEPS_ORDER)
+    ):
+        return jsonify({"status": "error", "message": "A refresh pipeline is already running."}), 409
+
+    pipeline = _build_downstream_pipeline(impact)
+    if not pipeline:
+        return jsonify({"status": "noop", "message": "Nothing to refresh."})
+
+    now_iso = datetime.now(UTC).isoformat()
+    ps_entry["pipeline_plan"] = {"steps": [p["task"] for p in pipeline], "started_ts": now_iso}
+    ps_entry["last_pipeline_partial"] = False
+    ps_entry["last_pipeline_failed_at"] = None
+    ps_entry["last_pipeline_summary"] = "Pipeline in progress — refreshing caches..."
+    ps_entry["last_pipeline_summary_ts"] = now_iso
+    ps_entry["pipeline_in_flight"] = True
+    process_stats["consolidate_enrichment"] = ps_entry
+    save_process_stats()
+
+    if is_cloud_run():
+        from ..process_manager import _dispatch_cloud_task
+        chain = build_pipeline_chain(pipeline)
+        success, msg = _dispatch_cloud_task(chain["next_task"], chain["next_task_args"])
+        if not success:
+            # Roll back the in-flight flag so the UI doesn't hang.
+            load_process_stats()
+            entry = process_stats.get("consolidate_enrichment", {})
+            entry.pop("pipeline_in_flight", None)
+            process_stats["consolidate_enrichment"] = entry
+            save_process_stats()
+            return jsonify({"status": "error", "message": f"Dispatch failed: {msg}"}), 409
+    else:
+        import threading
+
+        from ..process_manager import _run_local_downstream_pipeline
+        threading.Thread(
+            target=_run_local_downstream_pipeline, args=(impact,), daemon=True
+        ).start()
+
+    return jsonify({"status": "started", "message": "Downstream refresh started."})
 
 
 

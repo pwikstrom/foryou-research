@@ -309,9 +309,15 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     # statement of the outcome (persists alongside "Last consolidation
     # {date}" across page reloads and subsequent polls).
     if not auto_refresh:
+        # No downstream pipeline runs, so clear any plan/partial flags left over
+        # from a previous refresh run — the step list should not show a stale
+        # chain after an incremental/force consolidation.
         reporter.emit_data({
             "last_pipeline_summary": "Downstream refreshes were skipped.",
             "last_pipeline_summary_ts": now_iso,
+            "pipeline_plan": None,
+            "last_pipeline_partial": False,
+            "last_pipeline_failed_at": None,
         })
         return None
 
@@ -321,15 +327,26 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         reporter.emit_data({
             "last_pipeline_summary": summary,
             "last_pipeline_summary_ts": now_iso,
+            "pipeline_plan": None,
+            "last_pipeline_partial": False,
+            "last_pipeline_failed_at": None,
         })
         reporter.log(f"Pipeline outcome: {summary}")
         return None
 
-    # Pipeline will follow — emit a provisional summary so the UI doesn't
-    # show a stale "finished" message from a previous run while we wait.
+    # Pipeline will follow — emit a provisional summary plus the ordered plan so
+    # the UI can render every step (live + persistent) and reset any partial
+    # flag from a previous run. started_ts lets the stats endpoint tell which
+    # step runs belong to THIS pipeline (end_time >= started_ts).
     reporter.emit_data({
         "last_pipeline_summary": "Pipeline in progress — refreshing caches...",
         "last_pipeline_summary_ts": now_iso,
+        "pipeline_plan": {
+            "steps": [p["task"] for p in pipeline],
+            "started_ts": now_iso,
+        },
+        "last_pipeline_partial": False,
+        "last_pipeline_failed_at": None,
     })
 
     # Build the chain dispatch: a linear spine that fans out at recode into the
