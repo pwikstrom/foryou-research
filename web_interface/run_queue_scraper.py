@@ -58,6 +58,10 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # Absent on the first chain (or on old in-flight tasks that used the
     # ``videos_processed`` scheme) — default from the current queue below.
     initial_total: int = int(task_args.get("initial_total", 0))
+    # Job-wide OK/fail totals carried forward across self-chained batches so the
+    # progress line shows totals, not batch-local counts.
+    cumulative_ok: int = int(task_args.get("cumulative_ok", 0))
+    cumulative_fail: int = int(task_args.get("cumulative_fail", 0))
 
     # ---- Load the scrape queue ----
     target_cache_file = "to_scrape.json"
@@ -122,27 +126,13 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         f"Batch {batch_label}: scraping {len(batch):,} videos")
     reporter.emit_data({"threads": 4})
 
-    done_in_batch = 0
-    ok_in_batch = 0
-    fail_in_batch = 0
-
     def _on_threads_change(n: int) -> None:
         reporter.emit_data({"threads": n})
 
-    def _on_video_done(idx: int, ok: bool, error_cat: str | None) -> None:
-        nonlocal done_in_batch, ok_in_batch, fail_in_batch
-        done_in_batch += 1
-        if ok:
-            ok_in_batch += 1
-        else:
-            fail_in_batch += 1
-        completed = already_done + done_in_batch
-        pct = int(completed / overall_total * 100) if overall_total else 0
-        pending = len(batch) - done_in_batch
-        reporter.update_progress(pct,
-            f"Batch {batch_label}: {ok_in_batch} OK, {fail_in_batch} fail, {pending} pending")
-
     # ---- Scrape ----
+    # The monitor thread inside download_video_threads owns the live progress
+    # line (it has throughput / processing count / ETA); pass the reporter and
+    # the job-wide OK/fail carry-over so it can render totals.
     results_df, permanent_failed, transient_failed = download_video_threads(
         interesting_videos=batch,
         max_workers=8,
@@ -151,8 +141,10 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         batch_label=batch_label,
         cumulative_done=already_done,
         cumulative_total=overall_total,
+        cumulative_ok=cumulative_ok,
+        cumulative_fail=cumulative_fail,
+        reporter=reporter,
         on_concurrency_change=_on_threads_change,
-        on_video_done=_on_video_done,
     )
 
     good_ids = []
@@ -216,6 +208,8 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         "max_batches": max_batches,
         "chunk_index": next_chunk,
         "initial_total": initial_total,
+        "cumulative_ok": cumulative_ok + len(good_ids),
+        "cumulative_fail": cumulative_fail + len(permanent_failed),
     }
     reporter.log(f"Chaining to next batch (chunk_index={next_chunk})...")
     return {

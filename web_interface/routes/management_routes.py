@@ -1977,6 +1977,19 @@ def api_refresh_downstream():
     process_stats["consolidate_enrichment"] = ps_entry
     save_process_stats()
 
+    # In local dev the consolidate worker's last ::DATA:: emission lingers in
+    # processes["consolidate_enrichment"]["data"] and the stats / step-view
+    # endpoints overlay it on top of process_stats. After a "Consolidate Only"
+    # run that emission carries pipeline_plan=None, which would shadow the fresh
+    # plan just written and hide the step list. Mirror the new plan into the
+    # in-memory copy so both stores agree (no-op on Cloud Run, where there is no
+    # in-process consolidate subprocess).
+    mem = processes.get("consolidate_enrichment", {}).get("data")
+    if isinstance(mem, dict):
+        mem["pipeline_plan"] = ps_entry["pipeline_plan"]
+        mem["last_pipeline_partial"] = False
+        mem["last_pipeline_failed_at"] = None
+
     if is_cloud_run():
         from ..process_manager import _dispatch_cloud_task
         chain = build_pipeline_chain(pipeline)

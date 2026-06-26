@@ -2713,6 +2713,14 @@ function openDataManagementPage(pageId, clickedItem) {
         clickedItem.classList.add('active');
     }
 
+    // Refresh enrichment stats when entering the Scrape & Annotate page so the
+    // consolidation-impact panel + pipeline step list reflect current server
+    // state on navigation (the panel is otherwise only re-rendered by event
+    // handlers, so it can show a stale snapshot after navigating away and back).
+    if (pageId === 'dm-page-enrichment') {
+        fetchEnrichmentStats();
+    }
+
     // Fetch staleness status when entering the refresh page + apply cascade lock
     if (pageId === 'dm-page-refresh') {
         fetchStalenessStatus();

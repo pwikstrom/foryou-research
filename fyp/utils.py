@@ -189,6 +189,8 @@ def start_monitor(
     batch_label: str | None = None,
     cumulative_done: int = 0,
     cumulative_total: int = 0,
+    cumulative_ok: int = 0,
+    cumulative_fail: int = 0,
     reporter=None,
 ):
     """
@@ -283,15 +285,31 @@ def start_monitor(
                  overall_total = cumulative_total if cumulative_total > 0 else total
                  overall_eta = (overall_total - overall_done) / throughput if throughput > 0 else 0
                  pct = int((overall_done / overall_total) * 100) if overall_total > 0 else 0
-                 batch_str = f"Batch {batch_label}: " if batch_label else ""
-                 if n_good is not None and done > 0:
-                     fail_count = done - n_good
-                     counts_str = f"{n_good} OK, {fail_count} fail, {pending} pending"
+                 # Job-wide totals: cumulative carries OK/fail finalised in prior
+                 # batches/chains; the current batch's live counts are added on top.
+                 # Note for the scraper: mid-batch a not-yet-succeeded item counts
+                 # as fail here (done - n_good); transient failures that will be
+                 # retried only get reconciled back into pending at the batch
+                 # boundary, where cumulative_fail carries permanent fails only.
+                 batch_ok = n_good if n_good is not None else 0
+                 batch_fail = (done - n_good) if n_good is not None else 0
+                 total_ok = cumulative_ok + batch_ok
+                 total_fail = cumulative_fail + batch_fail
+                 total_pending = max(0, overall_total - overall_done - running)
+                 batch_pct = int((done / total) * 100) if total > 0 else 0
+                 # batch_label is "n/max"; render "Batch n (dd%)/max".
+                 if batch_label and "/" in batch_label:
+                     b_n, b_max = batch_label.split("/", 1)
+                     batch_str = f"Batch {b_n} ({batch_pct}%)/{b_max} · "
+                 elif batch_label:
+                     batch_str = f"Batch {batch_label} ({batch_pct}%) · "
                  else:
-                     counts_str = f"{done}/{total} done, {pending} pending"
+                     batch_str = ""
                  reporter.update_progress(
                      pct,
-                     f"{batch_str}{counts_str} ({throughput:.1f}/s, ETA {_fmt_secs(overall_eta)})",
+                     f"{batch_str}{total_ok} OK · {total_fail} fail · "
+                     f"{running} processing · {total_pending} pending · "
+                     f"ETA {_fmt_secs(overall_eta)}",
                  )
             elif "WEB_INTERFACE" in os.environ:
                  overall_done = cumulative_done + done if cumulative_total > 0 else done

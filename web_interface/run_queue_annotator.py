@@ -65,6 +65,10 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
     # under pruning. Absent on the first chain or legacy in-flight tasks —
     # defaulted below from the current queue length.
     initial_total: int = int(task_args.get("initial_total", 0))
+    # Job-wide OK/fail totals carried forward across self-chained batches so the
+    # progress line shows totals, not batch-local counts.
+    cumulative_ok: int = int(task_args.get("cumulative_ok", 0))
+    cumulative_fail: int = int(task_args.get("cumulative_fail", 0))
 
     # ---- Validate batch size ----
     if batch_size > MAX_BATCH_SIZE:
@@ -119,6 +123,8 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         batch_label=batch_label,
         cumulative_done=already_done,
         cumulative_total=overall_total,
+        cumulative_ok=cumulative_ok,
+        cumulative_fail=cumulative_fail,
         reporter=reporter,
     )
 
@@ -174,6 +180,8 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         "max_batches": max_batches,
         "chunk_index": next_chunk,
         "initial_total": initial_total,
+        "cumulative_ok": cumulative_ok + len(ok_ids),
+        "cumulative_fail": cumulative_fail + len(fail_ids),
     }
     reporter.log(f"Chaining to next batch (chunk_index={next_chunk})...")
     return {

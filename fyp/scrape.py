@@ -671,6 +671,9 @@ def download_video_threads(
     batch_label: str | None = None,
     cumulative_done: int = 0,
     cumulative_total: int = 0,
+    cumulative_ok: int = 0,
+    cumulative_fail: int = 0,
+    reporter=None,
     on_concurrency_change: "callable | None" = None,
     on_video_done: "callable | None" = None):
 
@@ -761,7 +764,10 @@ def download_video_threads(
             result_checker=lambda f: isinstance(f.result()[1], pd.DataFrame),
             batch_label=batch_label,
             cumulative_done=cumulative_done,
-            cumulative_total=cumulative_total
+            cumulative_total=cumulative_total,
+            cumulative_ok=cumulative_ok,
+            cumulative_fail=cumulative_fail,
+            reporter=reporter,
         )
 
 
@@ -955,27 +961,9 @@ def scraper_loop_from_list(
         batch_label = f"{batch_number}/{batch_target}"
         print(f"  Batch {batch_label}")
 
-        ok_in_batch = 0
-        fail_in_batch = 0
-        done_in_batch = 0
-        current_batch_size = len(batch)
-
-        def _on_video_done(idx, ok, error_cat):
-            nonlocal done_in_batch, ok_in_batch, fail_in_batch
-            done_in_batch += 1
-            if ok:
-                ok_in_batch += 1
-            else:
-                fail_in_batch += 1
-            if reporter is not None:
-                completed = cumulative_done + done_in_batch
-                pct = int(completed / total_items * 100) if total_items else 0
-                pending = current_batch_size - done_in_batch
-                reporter.update_progress(
-                    pct,
-                    f"Batch {batch_label}: {ok_in_batch} OK, {fail_in_batch} fail, {pending} pending",
-                )
-
+        # Progress is owned by the monitor thread inside download_video_threads
+        # (it has throughput / processing count / ETA); pass the reporter and the
+        # job-wide OK/fail carry-over so it renders totals, not batch-local counts.
         results_from_scraper, perm_failed, trans_failed = download_video_threads(
             interesting_videos = batch,
             max_workers=4,
@@ -984,8 +972,10 @@ def scraper_loop_from_list(
             batch_label=batch_label,
             cumulative_done=cumulative_done,
             cumulative_total=total_items,
-            on_concurrency_change=_on_threads_change,
-            on_video_done=_on_video_done)
+            cumulative_ok=len(good_scrapes),
+            cumulative_fail=len(all_permanent_failed),
+            reporter=reporter,
+            on_concurrency_change=_on_threads_change)
 
         if not results_from_scraper.empty and "item_id" in results_from_scraper.columns:
             good_scrapes += results_from_scraper["item_id"].to_list()

@@ -427,6 +427,8 @@ def call_machine_threads(
         batch_label: str | None = None,
         cumulative_done: int = 0,
         cumulative_total: int = 0,
+        cumulative_ok: int = 0,
+        cumulative_fail: int = 0,
         reporter=None):
 
     if notebook_mode:
@@ -506,6 +508,8 @@ def call_machine_threads(
             batch_label=batch_label,
             cumulative_done=cumulative_done,
             cumulative_total=cumulative_total,
+            cumulative_ok=cumulative_ok,
+            cumulative_fail=cumulative_fail,
             reporter=reporter,
         )
 
@@ -1874,6 +1878,8 @@ def annotate_from_video_id_list(
     batch_label: str | None = None,
     cumulative_done: int = 0,
     cumulative_total: int = 0,
+    cumulative_ok: int = 0,
+    cumulative_fail: int = 0,
     reporter=None):
 
     if notebook_mode:
@@ -1906,6 +1912,8 @@ def annotate_from_video_id_list(
                 batch_label=batch_label,
                 cumulative_done=cumulative_done,
                 cumulative_total=cumulative_total,
+                cumulative_ok=cumulative_ok,
+                cumulative_fail=cumulative_fail,
                 reporter=reporter,
             )
 
@@ -2024,6 +2032,8 @@ def annotate_videos_loop_from_list(
 
     batch_number = 1
     cumulative_done = 0
+    cumulative_ok = 0
+    cumulative_fail = 0
 
     batch_target = min(max_batches, len(video_list) // batch_size + 1)
     total_items = min(len(video_list), batch_target * batch_size)
@@ -2044,10 +2054,14 @@ def annotate_videos_loop_from_list(
             batch_label=batch_label,
             cumulative_done=cumulative_done,
             cumulative_total=total_items,
+            cumulative_ok=cumulative_ok,
+            cumulative_fail=cumulative_fail,
             reporter=reporter,
         )
 
         cumulative_done += len(batch)
+        cumulative_ok += len(ok_ids)
+        cumulative_fail += len(fail_ids)
 
         # Prune successful + failed items from the on-disk queue so it stays
         # in sync with reality. Mirrors the scraper's prune in

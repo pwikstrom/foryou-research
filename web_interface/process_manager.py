@@ -356,6 +356,21 @@ def _run_local_pipeline(pipeline: list, summary_owner: str, summary_fn) -> None:
             entry.pop("consolidation_impact", None)
         process_stats[summary_owner] = entry
         save_process_stats()
+
+        # Keep the in-memory ::DATA:: copy in sync with the authoritative entry.
+        # The enrichment-stats / step-view endpoints overlay it on top of
+        # process_stats, so a lingering consolidation_impact (or stale pipeline
+        # flags) here would re-show the impact panel after the pipeline cleared
+        # it. No-op on Cloud Run (no in-process subprocess data).
+        mem = processes.get(summary_owner, {}).get("data")
+        if isinstance(mem, dict):
+            mem["last_pipeline_summary"] = entry["last_pipeline_summary"]
+            mem["last_pipeline_summary_ts"] = entry["last_pipeline_summary_ts"]
+            mem["last_pipeline_partial"] = entry["last_pipeline_partial"]
+            mem["last_pipeline_failed_at"] = entry["last_pipeline_failed_at"]
+            if not aborted_at and summary_owner == "consolidate_enrichment":
+                mem.pop("consolidation_impact", None)
+
         _set_pipeline_in_flight(False)
 
 
@@ -568,7 +583,9 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         processes[name]["status"] = "running"
         processes[name]["start_time"] = datetime.now(UTC).isoformat()
         processes[name]["study_name"] = study_name
-        processes[name]["progress"] = {}
+        # Seed a "Starting..." placeholder (mirrors the Cloud Run path) so the
+        # first status poll shows immediate feedback rather than an empty bar.
+        processes[name]["progress"] = {"percent": 0, "message": "Starting..."}
         processes[name]["last_message"] = ""
         # Reset emitted data too — otherwise the in-memory ::DATA:: payload
         # from a previous run leaks into /api/status until the new worker

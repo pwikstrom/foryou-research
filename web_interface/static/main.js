@@ -324,6 +324,42 @@ async function loadDefinedStudies() {
     }
 }
 
+// Processes the user has just clicked Start on but for which the server has not
+// yet reported a 'running' state. While a name sits here, setStatus keeps the
+// card in an optimistic "Starting…" state so the 1 s status poll can't flip the
+// button back to "Start"/"Refresh" during the dispatch + task-runner boot gap.
+const pendingStarts = new Set();
+
+// Apply the optimistic "Starting…" UI to a process card the instant the user
+// clicks Start, before any network round-trip or status poll completes.
+function markStarting(name) {
+    pendingStarts.add(name);
+
+    const statusEl = document.getElementById(`${name}-status`);
+    if (statusEl) statusEl.className = 'status-indicator status-running';
+
+    const toggleBtn = document.getElementById(`${name}-toggle`);
+    if (toggleBtn) {
+        toggleBtn.className = 'btn-running';
+        toggleBtn.innerText = 'Starting…';
+        toggleBtn.style.padding = '4px 12px';
+        toggleBtn.onclick = null;
+    }
+
+    const text = document.getElementById(`${name}-text`);
+    if (text) {
+        text.innerText = 'Starting…';
+        text.style.color = '';
+    }
+    const bar = document.getElementById(`${name}-bar`);
+    if (bar) bar.style.width = '0%';
+
+    // Failsafe: if the server never reports 'running' (e.g. a dispatch that
+    // silently failed), don't wedge the card in "Starting…" forever — release
+    // it so a later poll can restore the real (idle) state.
+    setTimeout(() => { pendingStarts.delete(name); }, 20000);
+}
+
 async function startProcess(name, extraBody = {}) {
     let body = {};
     // Determine context (tab) for study name input
@@ -393,6 +429,11 @@ async function startProcess(name, extraBody = {}) {
         }
     }
 
+    // Immediate optimistic feedback: flip the card to "Starting…" the moment
+    // the click is committed, before the dispatch round-trip and task-runner
+    // boot. setStatus keeps this state until the server reports 'running'.
+    markStarting(name);
+
     // Pre-flight check: the toggle button is updated on a 1-s poll, but the
     // user can click between polls or right after navigating to the tab
     // before the first poll has landed. Fetch fresh status so we never POST
@@ -404,6 +445,7 @@ async function startProcess(name, extraBody = {}) {
         const statusData = await statusRes.json();
         const current = statusData && statusData[name];
         if (current && current.state === 'running') {
+            pendingStarts.delete(name);
             updateStatus();
             _showAlreadyRunningDialog(name, extraBody);
             return false;
@@ -424,8 +466,14 @@ async function startProcess(name, extraBody = {}) {
         });
         const data = await res.json();
         if (res.status === 409) {
+            // Already running — drop the optimistic state and let the poll
+            // render the real running status.
+            pendingStarts.delete(name);
             _showAlreadyRunningDialog(name, extraBody);
         } else if (data.status !== 'success') {
+            // Dispatch refused — revert the card so it doesn't sit in
+            // "Starting…"; the next poll restores the idle UI.
+            pendingStarts.delete(name);
             alert("Error: " + data.message);
         } else {
             started = true;
@@ -437,6 +485,8 @@ async function startProcess(name, extraBody = {}) {
         }
         updateStatus();
     } catch (e) {
+        // Network error — don't strand the card in "Starting…".
+        pendingStarts.delete(name);
         console.error(e);
     }
 
@@ -822,6 +872,21 @@ function setStatus(name, data) {
     if (!data) return;
     const status = data.state;
     const info = data.progress || {};
+
+    // Optimistic "Starting…" guard: while a just-clicked process is awaiting the
+    // server's first 'running' report, keep the Starting UI and skip the normal
+    // render so a poll returning the *prior* state (typically 'stopped' before
+    // the start request lands, or a stale 'failed' from a previous run) can't
+    // flip the button back to Start/Refresh. Only the awaited 'running' signal
+    // releases the guard here; failed dispatches are cleared by the POST-result
+    // handlers in startProcess, and a stuck start by the failsafe timeout.
+    if (pendingStarts.has(name)) {
+        if (status === 'running') {
+            pendingStarts.delete(name);
+        } else {
+            return;
+        }
+    }
 
     const el = document.getElementById(`${name}-status`);
     if (el) el.className = `status-indicator status-${status}`;
