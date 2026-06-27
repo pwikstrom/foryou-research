@@ -43,14 +43,8 @@
         <div class="study-edit-form" data-study-name="">
             <input type="hidden" data-field="START_DATE">
             <input type="hidden" data-field="END_DATE">
-            <div style="margin-top: 16px; display: flex; gap: 8px; align-items: center;">
-                <button type="button" class="text-xs meta-tooltip tooltip-below" onclick="updateStudyEstimates(this, event)"
-                    data-tooltip="Runs the sampling pipeline on the current settings, reports the realised counts, and flags oversized studies, sparse day×collection cells, and excluded/downsampled collections."
-                    style="padding: 2px 5px; cursor: pointer; background: var(--btn-discreet-bg); border: 1px solid var(--btn-discreet-border); color: var(--btn-discreet-text); border-radius: 3px;"
-                    {% if not current_user.is_admin() %}disabled{% endif %}>Check study design</button>
-            </div>
 
-            <div class="study-issues-list text-xs" style="margin-top: 8px; display: none; flex-direction: column; gap: 3px;"></div>
+            <div class="study-issues-list text-xs" style="margin-top: 16px; display: none; flex-direction: column; gap: 3px;"></div>
 
             <div class="study-metrics-row" style="margin-top: 12px; display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
 
@@ -97,7 +91,7 @@ Included videos can still be enriched afterwards, so a wider frame is fine."
 
                 <div class="study-set-viz" data-state="empty" style="flex: 1 1 320px; min-width: 280px;">
                     <div class="study-set-viz-empty text-xs" style="color: var(--color-text-tertiary); padding: 12px; border: 1px dashed var(--color-border); border-radius: 4px; background: var(--color-bg-surface);">
-                        Press &ldquo;Check study design&rdquo; to see video coverage and the sampled share.
+                        Select one or more collections to see video coverage and the sampled share.
                     </div>
                 </div>
             </div>

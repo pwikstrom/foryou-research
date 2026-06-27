@@ -299,17 +299,23 @@ function updateCollectionSelection(selectorDiv) {
     const checked = container.querySelectorAll('input[type="checkbox"]:checked:not(.select-all-collections)');
     const values = Array.from(checked).map(c => c.value);
 
-    // Collections potential updates instantly; everything else waits on
-    // /daily_activities (debounced) or /calculate_stats.
+    // Collections potential updates instantly; the mosaic + stats are recomputed for
+    // the new collection set (which may rebuild the cache), so show a loading message
+    // instead of wiping to the empty placeholder. The estimate fires from the daily-
+    // chart refetch below once the date window has snapped to the new collections.
     _updateCollectionsHeader({ resetActual: true, potential: values.length });
-    _resetStudySetViz(formContainer, 'stale');
-    _syncUpdateCountsBtn(formContainer);
+    if (values.length) {
+        _showStudyVizLoading(formContainer, 'Loading new collection(s)…');
+    } else {
+        _resetStudySetViz(formContainer, 'empty');
+    }
 
     if (hiddenInput && hiddenInput.dataset.field === 'SELECTED_COLLECTIONS') {
         hiddenInput.value = JSON.stringify(values);
     }
 
-    // Clear previous issues & included-per-day overlay; refetch chart totals (debounced).
+    // Clear previous issues & included-per-day overlay; refetch chart totals (debounced),
+    // which re-estimates the mosaic once the new date window is known.
     _clearStudyIssues(formContainer);
     _invalidateDailyChartOverlay(formContainer);
     _debouncedRefetchDailyChart(formContainer);
@@ -679,27 +685,24 @@ function populateForm(row, study) {
 
     _syncUpdateCountsBtn(row);
 
-    // Invalidate actuals when date/sample settings change.
-    const _resetStats = () => {
-        _updateCollectionsHeader({ resetActual: true });
-        _resetStudySetViz(row, 'stale');
-        _syncUpdateCountsBtn(row);
-        _clearStudyIssues(row);
-        _invalidateDailyChartOverlay(row);
-    };
-    const fieldsToWatch = ['START_DATE', 'END_DATE', 'SAMPLE_FRAME',
+    // Auto-update the mosaic / issues / overlay when sampling or the date window
+    // changes — no button. Sampling commits on 'change' (release/blur); the hidden
+    // date fields are driven by the chart selection via 'input'. Both funnel through
+    // one debounced, sequenced estimate (_scheduleStudyEstimate), which dims the
+    // current mosaic while in flight rather than wiping it.
+    const samplingFields = ['SAMPLE_FRAME',
         'MIN_ACTIVITY_COUNT_PER_GROUP', 'MAX_ACTIVITY_COUNT_PER_GROUP',
         'MIN_GROUP_COUNT_PER_COLLECTION', 'MAX_GROUP_COUNT_PER_COLLECTION'];
-    fieldsToWatch.forEach(field => {
+    samplingFields.forEach(field => {
         const el = row.querySelector(`[data-field="${field}"]`);
-        if (el) el.addEventListener('input', _resetStats);
+        if (el) el.addEventListener('change', () => _scheduleStudyEstimate(row));
     });
 
-    // Date inputs are hidden and driven by the chart selection; redraw the
-    // chart shading live when they change.
+    // Date inputs are hidden and driven by the chart selection; redraw the chart
+    // shading live and re-estimate when they change.
     ['START_DATE', 'END_DATE'].forEach(field => {
         const el = row.querySelector(`[data-field="${field}"]`);
-        if (el) el.addEventListener('input', () => _renderDailyChart(row));
+        if (el) el.addEventListener('input', () => { _renderDailyChart(row); _scheduleStudyEstimate(row); });
     });
 
     // Seed the chart from the cached snapshot saved on the study so it
@@ -716,7 +719,9 @@ function populateForm(row, study) {
         _renderDailyChart(row);
     }
 
-    // Kick off initial chart fetch for the selected collections.
+    // Kick off initial chart fetch for the selected collections. This prewarms the
+    // preview frame, snaps the date window, and (in its callback) triggers the initial
+    // mosaic estimate.
     _fetchDailyChart(row);
 }
 
@@ -1005,6 +1010,109 @@ function _pollStudyRefresh(studyName) {
 }
 
 
+// Live preview: auto-update the mosaic/issues/overlay when sampling or the date
+// window changes. Replaces the old "Check study design" button. Debounced so a burst
+// of changes coalesces into one call, and sequenced so an out-of-order response from a
+// superseded request can't overwrite the latest numbers.
+const _studyEstimateDebounce = new WeakMap();
+const _studyEstimateSeq = new WeakMap();
+
+function _setStudyVizLoading(row, on) {
+    const viz = row.querySelector('.study-set-viz');
+    if (!viz) return;
+    // Dim the existing mosaic while recomputing rather than wiping it.
+    viz.style.transition = 'opacity 0.15s ease';
+    viz.style.opacity = on ? '0.45' : '1';
+    let badge = row.querySelector('.study-viz-updating');
+    if (on) {
+        if (!badge) {
+            badge = document.createElement('div');
+            badge.className = 'study-viz-updating text-xxs';
+            badge.style.cssText = 'color: var(--color-text-tertiary); margin-top: 2px;';
+            badge.textContent = 'updating…';
+            viz.insertAdjacentElement('afterend', badge);
+        }
+        badge.style.display = '';
+    } else if (badge) {
+        badge.style.display = 'none';
+    }
+}
+
+// Replace the mosaic with a spinner + message. Used when there's no current mosaic to
+// dim — e.g. after a collection change, where the cache may be (re)built from scratch.
+function _showStudyVizLoading(row, message) {
+    const viz = row.querySelector('.study-set-viz');
+    if (!viz) return;
+    viz.style.opacity = '1';
+    viz.dataset.state = 'loading';
+    viz.innerHTML =
+        '<div class="study-set-viz-empty text-xs" style="display:flex; align-items:center; gap:8px; color: var(--color-text-tertiary); padding: 12px; border: 1px dashed var(--color-border); border-radius: 4px; background: var(--color-bg-surface);">'
+        + '<span class="global-tasks-spinner"></span><span>' + message + '</span></div>';
+    const badge = row.querySelector('.study-viz-updating');
+    if (badge) badge.style.display = 'none';
+}
+
+function _scheduleStudyEstimate(row, delay = 400) {
+    const prev = _studyEstimateDebounce.get(row);
+    if (prev) clearTimeout(prev);
+    _studyEstimateDebounce.set(row, setTimeout(() => _runStudyEstimate(row), delay));
+}
+
+function _runStudyEstimate(row) {
+    const selected = _getSelectedCollections(row);
+    if (!selected.length) {
+        _resetStudySetViz(row, 'empty');
+        _clearStudyIssues(row);
+        _invalidateDailyChartOverlay(row);
+        return;
+    }
+
+    let formData;
+    try { formData = collectFormData(row); }
+    catch (e) { console.error('estimate: collectFormData failed', e); return; }
+    // Name is only needed for the request contract; previews never persist, so a
+    // placeholder is fine for an unsaved study.
+    formData.STUDY_NAME = row.dataset.studyName
+        || (document.getElementById('newStudyNameInput')?.value || '').trim()
+        || '__preview__';
+    formData.PREVIEW_ONLY = true;
+
+    const seq = (_studyEstimateSeq.get(row) || 0) + 1;
+    _studyEstimateSeq.set(row, seq);
+    // If a mosaic is already shown (sampling/date tweak), dim it in place. Otherwise
+    // (collection change → cache rebuild, or first load) show a spinner + message.
+    const viz = row.querySelector('.study-set-viz');
+    const hasMosaic = viz && (viz.dataset.state === 'ready' || viz.dataset.state === 'seeded');
+    if (hasMosaic) _setStudyVizLoading(row, true);
+    else if (!viz || viz.dataset.state !== 'loading') _showStudyVizLoading(row, 'Loading…');
+
+    fetch('/api/manage/studies/calculate_stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(formData)
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (_studyEstimateSeq.get(row) !== seq) return;   // superseded by a newer request
+            if (data.status === 'success') {
+                const stats = data.stats || {};
+                const potentials = data.potentials || {};
+                _updateCollectionsHeader({ actual: stats.unique_collections, potential: potentials.collections });
+                _renderStudySetViz(row, { universe: data.universe, included: stats, frame: formData.SAMPLE_FRAME });
+                _setDailyChartOverlay(row, data.included_per_day || []);
+                _renderStudyIssues(row, data.issues || []);
+                const cached = (typeof allStudies !== 'undefined') ? allStudies.find(s => s.STUDY_NAME === row.dataset.studyName) : null;
+                if (cached) cached.stats = stats;   // keep client cache fresh so reopen seeds instantly
+            } else if (data.error) {
+                console.error('estimate error:', data.error);
+            }
+        })
+        .catch(err => { console.error('estimate request failed', err); })
+        .finally(() => {
+            if (_studyEstimateSeq.get(row) === seq) _setStudyVizLoading(row, false);
+        });
+}
+
 window.updateStudyEstimates = async function (btn, event) {
     if (event) event.preventDefault();
     const formContainer = btn.closest('.study-edit-form');
@@ -1219,6 +1327,19 @@ function _getSelectedCollections(row) {
     catch (e) { return []; }
 }
 
+// Warm the server-side "Check study design" frame for the current collection set so
+// the first button press is fast. Fire-and-forget: the modal calls this on open and on
+// every collection-selection change (via _fetchDailyChart), so the (possibly slow)
+// build / disk-load happens during the user's think-time rather than on the first press.
+function _prewarmStudyCheck(selected, studyName) {
+    if (!Array.isArray(selected) || selected.length === 0) return;
+    fetch('/api/manage/studies/prewarm_check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ SELECTED_COLLECTIONS: selected, STUDY_NAME: studyName })
+    }).catch(() => { /* best-effort warming */ });
+}
+
 function _fetchDailyChart(row) {
     const selected = _getSelectedCollections(row);
     const s = _getChartState(row);
@@ -1237,6 +1358,7 @@ function _fetchDailyChart(row) {
     _renderDailyChart(row);
 
     const studyName = row.dataset.studyName || null;
+    _prewarmStudyCheck(selected, studyName);
     fetch('/api/manage/studies/daily_activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
@@ -1261,9 +1383,12 @@ function _fetchDailyChart(row) {
                 if (st && st.universe && Number(st.universe.activities) > 0) {
                     _renderStudySetViz(row, { universe: st.universe, included: st, frame: sd.SAMPLE_FRAME, seeded: true });
                     if (st.unique_collections != null) _updateCollectionsHeader({ actual: st.unique_collections });
-                    _syncUpdateCountsBtn(row);
                 }
             }
+            // Re-estimate now that the date window has snapped to the collections.
+            // This is the canonical trigger on collection change — it fires even when
+            // the snapped dates are unchanged (so the date 'input' event wouldn't).
+            _scheduleStudyEstimate(row);
         })
         .catch(err => {
             s.loading = false;
