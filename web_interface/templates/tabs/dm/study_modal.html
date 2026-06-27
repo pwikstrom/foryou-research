@@ -72,19 +72,19 @@ Included videos can still be enriched afterwards, so a wider frame is fine."
                         <span class="text-xs" style="color: var(--color-text-secondary); text-align: center;">Max</span>
 
                         <label class="meta-tooltip text-xs"
-                            data-tooltip="Per collection-day: drop days with fewer than Min eligible activities, and randomly downsample days with more than Max. Stops a few busy days from dominating the study."
+                            data-tooltip="Per collection-day: drop days with fewer than Min eligible activities, and randomly downsample days with more than Max. Leave Max blank (or &ldquo;-&rdquo;) for no cap. Stops a few busy days from dominating the study."
                             style="color: var(--color-text-secondary);">Activities per day</label>
                         <input type="number" data-field="MIN_ACTIVITY_COUNT_PER_GROUP"
                             class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
-                        <input type="number" data-field="MAX_ACTIVITY_COUNT_PER_GROUP"
+                        <input type="number" data-field="MAX_ACTIVITY_COUNT_PER_GROUP" placeholder="∞ no cap"
                             class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
 
                         <label class="meta-tooltip text-xs"
-                            data-tooltip="Per collection: drop collections with fewer than Min qualifying days, and downsample collections with more than Max. Balances how much each collection contributes."
+                            data-tooltip="Per collection: drop collections with fewer than Min qualifying days, and downsample collections with more than Max. Leave Max blank (or &ldquo;-&rdquo;) for no cap. Balances how much each collection contributes."
                             style="color: var(--color-text-secondary);">Days per collection</label>
                         <input type="number" data-field="MIN_GROUP_COUNT_PER_COLLECTION"
                             class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
-                        <input type="number" data-field="MAX_GROUP_COUNT_PER_COLLECTION"
+                        <input type="number" data-field="MAX_GROUP_COUNT_PER_COLLECTION" placeholder="∞ no cap"
                             class="control-input sampling-input" style="width: 100%; text-align: right;" {% if not current_user.is_admin() %}disabled{% endif %}>
                     </div>
                 </div>

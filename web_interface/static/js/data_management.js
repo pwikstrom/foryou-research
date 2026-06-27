@@ -626,16 +626,21 @@ function populateForm(row, study) {
             }
         }
         else {
+            // Defaults for a NEW study (field undefined). Max fields default to blank,
+            // which the backend reads as "no cap". An explicitly blank value on an
+            // existing study is preserved (also "no cap") rather than re-defaulted.
             const samplingDefaults = {
-                'MIN_ACTIVITY_COUNT_PER_GROUP': 30,
-                'MAX_ACTIVITY_COUNT_PER_GROUP': 50,
-                'MIN_GROUP_COUNT_PER_COLLECTION': 20,
-                'MAX_GROUP_COUNT_PER_COLLECTION': 200
+                'MIN_ACTIVITY_COUNT_PER_GROUP': 10,
+                'MAX_ACTIVITY_COUNT_PER_GROUP': '',
+                'MIN_GROUP_COUNT_PER_COLLECTION': 0,
+                'MAX_GROUP_COUNT_PER_COLLECTION': ''
             };
-            if (value !== undefined && value !== null && value !== '') {
+            if (value !== undefined && value !== null) {
                 input.value = value;
+            } else if (field in samplingDefaults) {
+                input.value = samplingDefaults[field];
             } else {
-                input.value = samplingDefaults[field] ?? '';
+                input.value = '';
             }
         }
     });
@@ -760,8 +765,16 @@ function collectFormData(row) {
             }
         }
         else if (input.type === 'number') {
-            data[field] = parseInt(value, 10);
-            if (isNaN(data[field])) data[field] = 0;
+            // Preserve a blank number field as '' (the backend reads it as no minimum
+            // for a min threshold, or no cap for a max threshold) — never coerce to 0,
+            // which on a max would cap every cell to zero rows.
+            const raw = (value ?? '').trim();
+            if (raw === '') {
+                data[field] = '';
+            } else {
+                const n = parseInt(raw, 10);
+                data[field] = isNaN(n) ? '' : n;
+            }
         }
         else {
             data[field] = value;

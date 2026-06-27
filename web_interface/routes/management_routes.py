@@ -31,7 +31,9 @@ from fyp.ingest import get_main_collection
 from fyp.machine_annotation import rebuild_active_annotations_from_archive
 from fyp.organize_datasets import (
     COLLECTIONS_LABEL,
+    SAMPLE_NO_CAP,
     create_study_recoded_dataset,
+    parse_sample_threshold,
 )
 from fyp.studies import init_study_defs, save_study_defs
 
@@ -1123,10 +1125,11 @@ def _estimate_from_prepared(frame: pd.DataFrame | None, study_config: dict) -> t
     if df.empty:
         return dict(empty), [], 0, 0, None
 
-    min_events = int(study_config.get("MIN_ACTIVITY_COUNT_PER_GROUP", 30))
-    max_events = int(study_config.get("MAX_ACTIVITY_COUNT_PER_GROUP", 50))
-    min_cells = int(study_config.get("MIN_GROUP_COUNT_PER_COLLECTION", 20))
-    max_cells = int(study_config.get("MAX_GROUP_COUNT_PER_COLLECTION", 200))
+    # A blank max ('' / '-') means "no cap" → SAMPLE_NO_CAP, matching the real sampler.
+    min_events = parse_sample_threshold(study_config.get("MIN_ACTIVITY_COUNT_PER_GROUP"), 30)
+    max_events = parse_sample_threshold(study_config.get("MAX_ACTIVITY_COUNT_PER_GROUP"), 50, uncapped=True)
+    min_cells = parse_sample_threshold(study_config.get("MIN_GROUP_COUNT_PER_COLLECTION"), 20)
+    max_cells = parse_sample_threshold(study_config.get("MAX_GROUP_COUNT_PER_COLLECTION"), 200, uncapped=True)
 
     sampling_report = None
 
@@ -1162,19 +1165,26 @@ def _estimate_from_prepared(frame: pd.DataFrame | None, study_config: dict) -> t
 
         # Stage 2: drop collections with < min_cells qualifying cells; for the rest,
         # keep at most max_cells cells, chosen at random (seeded) to stay unbiased.
+        # Skip the random selection entirely when uncapped (keep every qualifying cell).
         kept_colls = set(cells_per_coll[cells_per_coll >= min_cells].index)
         cells = cells[cells["collection_id"].isin(kept_colls)].copy()
         rng = np.random.RandomState(42)
-        cells["_r"] = rng.random(len(cells))
-        cells["_rank"] = cells.groupby("collection_id", observed=True)["_r"].rank(method="first")
-        cells = cells[cells["_rank"] <= max_cells][["collection_id", "_ld"]]
+        if max_cells < SAMPLE_NO_CAP:
+            cells["_r"] = rng.random(len(cells))
+            cells["_rank"] = cells.groupby("collection_id", observed=True)["_r"].rank(method="first")
+            cells = cells[cells["_rank"] <= max_cells]
+        cells = cells[["collection_id", "_ld"]]
 
         qf = qf.merge(cells, on=["collection_id", "_ld"], how="inner")
 
         # Stage 1 cap: keep at most max_events rows per surviving cell, at random.
-        qf = qf.assign(_r2=rng.random(len(qf)))
-        qf["_row_rank"] = qf.groupby(["collection_id", "_ld"], observed=True)["_r2"].rank(method="first")
-        capped = qf[qf["_row_rank"] <= max_events]
+        # Skip entirely when uncapped (keep every row in the surviving cells).
+        if max_events < SAMPLE_NO_CAP:
+            qf = qf.assign(_r2=rng.random(len(qf)))
+            qf["_row_rank"] = qf.groupby(["collection_id", "_ld"], observed=True)["_r2"].rank(method="first")
+            capped = qf[qf["_row_rank"] <= max_events]
+        else:
+            capped = qf
 
     if capped.empty:
         return dict(empty), [], 0, 0, sampling_report

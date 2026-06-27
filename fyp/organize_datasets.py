@@ -26,6 +26,40 @@ timestamp_column = "local_timestamp"
 event_type_column = "activity_type"
 
 
+# Sentinel for an uncapped sampling maximum. A blank ('' / '-') max in a study
+# definition means "no cap"; it is parsed to this value, which is larger than any real
+# per-cell or per-collection count, so min(count, SAMPLE_NO_CAP) == count.
+SAMPLE_NO_CAP = 10 ** 12
+
+
+def parse_sample_threshold(value, default: int, uncapped: bool = False) -> int:
+    """Parse a sampling threshold from a study definition.
+
+    A missing key falls back to `default` (preserving legacy behaviour). An explicitly
+    blank value ('' or '-') means "no minimum" (0) for a min threshold, or "no cap"
+    (SAMPLE_NO_CAP) for a max threshold (`uncapped=True`). Unparseable values fall back
+    to `default`.
+
+    Args:
+        value: Raw config value (str / int / None).
+        default: Fallback for a missing or unparseable value.
+        uncapped: True for max thresholds, where a blank value means no cap.
+
+    Returns:
+        An integer threshold.
+    """
+
+    if value is None:
+        return default
+    s = str(value).strip()
+    if s in ("", "-"):
+        return SAMPLE_NO_CAP if uncapped else 0
+    try:
+        return int(float(s))
+    except (ValueError, TypeError):
+        return default
+
+
 # ----------------------------------------------------------------------------
 # Memory-profiling helpers for the merge hot path.
 #
@@ -684,10 +718,11 @@ def simple_sample_collection_events(
     if "study_defs" not in fyp_cf:
         init_study_defs()
 
-    MIN_EVENTS_REQUIRED = fyp_cf["study_defs"][study_name].get("MIN_ACTIVITY_COUNT_PER_GROUP", 30)
-    MAX_EVENTS_SELECTED = fyp_cf["study_defs"][study_name].get("MAX_ACTIVITY_COUNT_PER_GROUP", 50)
-    MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION = fyp_cf["study_defs"][study_name].get("MIN_GROUP_COUNT_PER_COLLECTION", 20)
-    MAX_GROUP_COUNT_SELECTED_PER_COLLECTION = fyp_cf["study_defs"][study_name].get("MAX_GROUP_COUNT_PER_COLLECTION", 200)
+    _study_def = fyp_cf["study_defs"][study_name]
+    MIN_EVENTS_REQUIRED = parse_sample_threshold(_study_def.get("MIN_ACTIVITY_COUNT_PER_GROUP"), 30)
+    MAX_EVENTS_SELECTED = parse_sample_threshold(_study_def.get("MAX_ACTIVITY_COUNT_PER_GROUP"), 50, uncapped=True)
+    MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION = parse_sample_threshold(_study_def.get("MIN_GROUP_COUNT_PER_COLLECTION"), 20)
+    MAX_GROUP_COUNT_SELECTED_PER_COLLECTION = parse_sample_threshold(_study_def.get("MAX_GROUP_COUNT_PER_COLLECTION"), 200, uncapped=True)
 
 
     # Filter to viewing events only (play + observe). Non-viewing activity types
