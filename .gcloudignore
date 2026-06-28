@@ -154,6 +154,8 @@ celerybeat.pid
 # experiments/ holds standalone research scripts that must never ship in prod.
 tmp/
 experiments/
+# Claude Code worktrees / agent state — never ship to prod.
+.claude/
 *.docx
 DEVELOPMENT_ROADMAP.md
 POST_HOLIDAY_NOTES.md
