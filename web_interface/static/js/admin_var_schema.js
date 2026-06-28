@@ -41,6 +41,16 @@
         'variable_name', 'display_name', 'section', 'source', 'role', 'scale',
     ]);
 
+    // Columns that are derived/overlaid in memory rather than stored in the CSV:
+    // the annotation contract (config/annotation_contract.toml) is the source of
+    // truth, the column is rebuilt at load, and any edit is stripped before save.
+    // Shown read-only here for context — editing happens in the contract, not here.
+    const READONLY_COLUMNS = new Set(['accepted_labels']);
+
+    const READONLY_TOOLTIP = 'Derived from the annotation contract '
+        + '(config/annotation_contract.toml) — read-only here. Edit the contract '
+        + 'to change the accepted labels.';
+
     // ---------- helpers ----------
 
     function _columnGroup(col) {
@@ -203,9 +213,12 @@
 
         thead.innerHTML = '<tr>' + cols.map(col => {
             const group = _columnGroup(col);
-            const marker = group === 'semantic'
-                ? '<span class="meta-tooltip" data-tooltip="Semantic column — editing this rebuilds study caches." style="color: var(--color-warning); margin-left: 4px;">⚠</span>'
-                : '';
+            let marker = '';
+            if (READONLY_COLUMNS.has(col)) {
+                marker = `<span class="meta-tooltip" data-tooltip="${_esc(READONLY_TOOLTIP)}" style="color: var(--color-text-muted); margin-left: 4px;">🔒</span>`;
+            } else if (group === 'semantic') {
+                marker = '<span class="meta-tooltip" data-tooltip="Semantic column — editing this rebuilds study caches." style="color: var(--color-warning); margin-left: 4px;">⚠</span>';
+            }
             const isSorted = state.sort.col === col;
             const arrow = isSorted
                 ? `<span style="margin-left: 4px;">${state.sort.dir === 1 ? '▲' : '▼'}</span>`
@@ -237,6 +250,16 @@
 
         if (col === 'variable_name' || col === 'source') {
             return `<td class="font-mono text-xs" style="${baseStyle} color: var(--color-text-primary); white-space: nowrap;">${_esc(current)}</td>`;
+        }
+
+        // Contract-derived columns: display-only, greyed, with a tooltip that
+        // points at the real source of truth instead of an editable input.
+        if (READONLY_COLUMNS.has(col)) {
+            const shown = String(current).trim()
+                ? _esc(current)
+                : '<span style="opacity: 0.5;">—</span>';
+            return `<td class="meta-tooltip font-mono text-xs" data-tooltip="${_esc(READONLY_TOOLTIP)}"
+                style="${baseStyle} color: var(--color-text-muted);">${shown}</td>`;
         }
 
         // Enums via <select>
