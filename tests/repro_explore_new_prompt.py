@@ -28,12 +28,7 @@ except Exception:
 
 print("\n=== get_current_stats ===")
 try:
-    from web_interface.routes.api_explorer_routes import get_viz_config
-    viz_config = get_viz_config()
-except Exception:
-    viz_config = None
-try:
-    res = explorer.get_current_stats(df, col_types, viz_config=viz_config)
+    res = explorer.get_current_stats(df, col_types, number_meta=metadata)
     print("stats ok; keys:", list(res.keys())[:10] if isinstance(res, dict) else type(res))
 except Exception:
     traceback.print_exc()

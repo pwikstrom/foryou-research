@@ -34,7 +34,6 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     from fyp.studies import init_study_defs, save_study_defs
     from web_interface import explorer_backend as explorer
     from web_interface.data_service import (
-        get_viz_config,
         load_schema_metadata,
         make_serializable,
         study_cache,
@@ -204,8 +203,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.update_progress(60, "Generating explorer metadata...")
         explorer_meta = explorer.get_metadata(df_filtered, col_types)
 
-        viz_config = get_viz_config()
-        stats_res = explorer.get_current_stats(df_filtered, col_types, viz_config=viz_config)
+        stats_res = explorer.get_current_stats(df_filtered, col_types, number_meta=explorer_meta)
         explorer_meta["total_stats"] = stats_res["stats"]
 
         # Bake the list of collection_ids actually present in the filtered study data.

@@ -15,7 +15,7 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
     import fyp.data_io as data_io
     from fyp.fyp_config import fyp_cf
     from fyp.studies import init_study_defs
-    from web_interface.data_service import get_viz_config, load_schema_metadata
+    from web_interface.data_service import load_schema_metadata
     from web_interface.explorer_backend import (
         get_current_stats,
         get_metadata,
@@ -66,9 +66,8 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
             reporter.log(f"  Generating metadata for {len(df_explorer)} items...")
             meta = get_metadata(df_explorer, col_types)
 
-            # Calculate Stats
-            viz_config = get_viz_config()
-            stats_res = get_current_stats(df_explorer, col_types, viz_config=viz_config)
+            # Calculate Stats — log/bins decided from the full-study metadata.
+            stats_res = get_current_stats(df_explorer, col_types, number_meta=meta)
             meta['total_stats'] = stats_res['stats']
 
             # Source Info Injection

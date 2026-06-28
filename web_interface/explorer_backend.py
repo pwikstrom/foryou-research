@@ -102,6 +102,64 @@ def slider_quantiles(series: pd.Series) -> dict:
 
 
 
+# Multiplicative spread (p99 / p10 of positive values) above which a numeric
+# column reads better on a log axis. Counts and per-play / per-day rates span
+# many decades and clear this bar; bounded 0-1 scores barely span one.
+LOG_SCALE_SPREAD_THRESHOLD = 25.0
+
+
+
+
+def derive_log_scale(series: pd.Series) -> bool:
+    """Decide whether a numeric column should display on a log10 scale.
+
+    Heavy-tailed non-negative columns — counts and per-play / per-day rates that
+    span orders of magnitude, including sub-1 ratios — read better on a log axis;
+    bounded scores (0-1 probabilities, percentages) and short ranges do not. The
+    decision is made once on the full study distribution so it stays stable
+    across filtered views (a filtered subset must never flip the axis).
+
+    The test is the multiplicative spread of the positive values: the ratio of
+    their 99th to 10th percentile. Negatives disqualify a log scale outright.
+
+    Args:
+        series: Numeric column values (NaNs allowed).
+
+    Returns:
+        True when a log10 display scale is appropriate.
+    """
+    s = series.dropna()
+    if s.empty or float(s.min()) < 0:
+        return False
+    positive = s[s > 0]
+    if len(positive) < 50:
+        return False
+    lo = float(positive.quantile(0.10))
+    hi = float(positive.quantile(0.99))
+    if lo <= 0:
+        return False
+    return (hi / lo) >= LOG_SCALE_SPREAD_THRESHOLD
+
+
+
+
+def derive_bin_count(use_log: bool) -> int:
+    """Return the histogram bin target for a numeric column.
+
+    Heavy-tailed (log-scaled) columns get a finer grid so the long tail keeps
+    resolution after the adaptive merge; bounded columns get a coarser grid.
+
+    Args:
+        use_log: Whether the column uses a log10 display scale.
+
+    Returns:
+        The target bin count fed to :func:`calculate_adaptive_histogram`.
+    """
+    return 50 if use_log else 10
+
+
+
+
 
 
 def get_metadata(df, column_types, verbose=False):
@@ -144,11 +202,18 @@ def get_metadata(df, column_types, verbose=False):
 
         if dtype == "number":
             min_val, max_val, max_capped = get_robust_bounds(df[col])
+            # Log scale and bin count are derived from the full-study
+            # distribution here, the single place they are decided, so every
+            # consumer (sliders, density histogram, timeline) reads one stable
+            # answer rather than recomputing on a filtered subset.
+            log_flag = derive_log_scale(df[col])
             base_meta.update({
                 "type": "number",
                 "min": min_val,
                 "max": max_val,
                 "max_capped": max_capped,
+                "log": log_flag,
+                "bins": derive_bin_count(log_flag),
                 "log_offset": log_axis_offset(df[col]),
                 "quantiles": slider_quantiles(df[col])
             })
@@ -588,18 +653,27 @@ def load_data(study: str, verbose: bool = False):
 
 
 
-def get_current_stats(df, column_types, viz_config=None, verbose=False):
-    
+def get_current_stats(df, column_types, number_meta=None, verbose=False):
+    """Build per-column display stats (density histograms for numbers).
+
+    Args:
+        df: The (possibly filtered) frame to summarise.
+        column_types: Mapping of column name to classified type.
+        number_meta: Per-column metadata from :func:`get_metadata`, built on the
+            FULL study frame. Supplies the canonical ``log`` / ``bins`` decision
+            so a filtered view never flips a column's axis or bin count.
+        verbose: When True, print timing.
+    """
     pd.set_option('future.no_silent_downcasting', True)
-    
+
     t1 = _dt.datetime.now()
-    
+
     if verbose:
         print("    Calculating stats for viewer and explorer...")
 
     count = len(df)
     stats = {}
-    if viz_config is None: viz_config = {}
+    if number_meta is None: number_meta = {}
 
     if count == 0:
         return {"count": 0, "stats": {}}
@@ -632,12 +706,10 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
              min_val = float(series.min())
              max_val = float(series.max())
              
-             transform = "linear"
-             use_log = False
-             if col in viz_config and viz_config[col].get('log'):
-                 use_log = True
-             if use_log: transform = "log10"
-             
+             col_meta = number_meta.get(col, {})
+             use_log = bool(col_meta.get('log'))
+             transform = "log10" if use_log else "linear"
+
              clamped_series = series
              log_offset = log_axis_offset(clamped_series) if use_log else 1.0
 
@@ -658,12 +730,11 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
                     }
                      continue
 
-                 bins_arg = 10 
-                 adaptive = True
-                 if col in viz_config and viz_config[col].get('bins') is not None:
-                      bins_arg = viz_config[col]['bins']
-                      adaptive = False
-                 
+                 bins_target = col_meta.get('bins')
+                 if not isinstance(bins_target, int) or bins_target <= 0:
+                     bins_target = derive_bin_count(use_log)
+
+
                  if transform == "log10":
                      # Log Transform: log10(x + offset). The offset is 1 for
                      # count-like data and data-driven for fractional data
@@ -676,15 +747,7 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
                      log_min = np.log10(min_val + log_offset)
                      log_max = np.log10(max_val + log_offset)
 
-                     if adaptive and isinstance(bins_arg, int):
-                          counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max, bins=bins_arg)
-                     else:
-                          chosen_bins = bins_arg
-                          if isinstance(chosen_bins, (list, np.ndarray)):
-                              chosen_bins = [np.log10(b + log_offset) for b in chosen_bins]
-
-                          counts, bin_edges = np.histogram(log_data, bins=chosen_bins, range=(log_min, log_max) if isinstance(chosen_bins, int) else None, density=True)
-                          bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                     counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max, bins=bins_target)
 
                      # Decade ticks labelled in ORIGINAL units. Zeros sit at
                      # log10(offset), so the "0" tick marks that position.
@@ -723,13 +786,10 @@ def get_current_stats(df, column_types, viz_config=None, verbose=False):
                  
                  else:
                      arr_data = clamped_series.to_numpy()
-                     
-                     if adaptive and isinstance(bins_arg, int):
-                         counts, bin_centers = calculate_adaptive_histogram(arr_data, min_val, max_val, bins=bins_arg)
-                     else:
-                         counts, bin_edges = np.histogram(arr_data, bins=bins_arg, range=(min_val, max_val) if isinstance(bins_arg, int) else None, density=True)
-                         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-                         
+
+                     counts, bin_centers = calculate_adaptive_histogram(arr_data, min_val, max_val, bins=bins_target)
+
+
                      stats[col] = {
                         "type": "density",
                         "x": bin_centers.tolist(),

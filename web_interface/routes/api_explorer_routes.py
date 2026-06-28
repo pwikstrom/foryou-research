@@ -17,7 +17,6 @@ from ..data_service import (
     get_collection_tags,
     get_explorer_data,
     get_study_collections,
-    get_viz_config,
     load_display_id_map,
     load_schema_metadata,
     load_shared_tags,
@@ -274,11 +273,7 @@ def _build_full_metadata(df, col_types, study):
     """
     metadata = explorer.get_metadata(df, col_types)
 
-    viz_config = get_viz_config()
-    for col, cfg in viz_config.items():
-        if col in metadata and metadata[col].get('type') == 'number' and cfg.get('log'):
-            metadata[col]['log'] = True
-    res = explorer.get_current_stats(df, col_types, viz_config=viz_config)
+    res = explorer.get_current_stats(df, col_types, number_meta=metadata)
     metadata['total_stats'] = res['stats']
 
     try:
@@ -330,7 +325,7 @@ def _compute_dynamic_overlay(df, col_types):
         if cols_to_get:
             columns = explorer.get_metadata(df[cols_to_get], dynamic_cols)
             if 'User Tags' in df.columns:
-                res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'}, viz_config=get_viz_config())
+                res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'})
                 stats_overlay.update(res_tags.get('stats', {}))
 
     if 'User Tags' in columns:
@@ -526,7 +521,7 @@ def api_explorer_metadata():
 
                       # Force update of User Tags stats specifically if it's a list (to capture merged shared tags)
                       if 'User Tags' in df.columns:
-                          res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'}, viz_config=get_viz_config())
+                          res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'})
                           if 'stats' in res_tags:
                               if 'total_stats' not in potential_metadata: potential_metadata['total_stats'] = {}
                               potential_metadata['total_stats'].update(res_tags['stats'])
@@ -640,12 +635,7 @@ def api_explorer_metadata():
             metadata['filter_priority'].remove('User Tags')
         metadata['filter_priority'].insert(0, 'User Tags')
 
-    viz_config = get_viz_config()
-    # Inject log flag into number metadata so frontend sliders can use log scale
-    for col, cfg in viz_config.items():
-        if col in metadata and metadata[col].get('type') == 'number' and cfg.get('log'):
-            metadata[col]['log'] = True
-    res = explorer.get_current_stats(df, col_types, viz_config=viz_config)
+    res = explorer.get_current_stats(df, col_types, number_meta=metadata)
     metadata['total_stats'] = res['stats']
 
     try:
@@ -806,13 +796,12 @@ def api_explorer_filter():
             # Inject User Tags stats if missing
             if 'User Tags' in col_types and 'User Tags' not in result['stats']:
                  if 'User Tags' in df.columns:
-                     res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'}, viz_config=get_viz_config())
+                     res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'})
                      result['stats'].update(res_tags['stats'])
 
         else:
             filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
-            viz_config = get_viz_config()
-            res1 = explorer.get_current_stats(filtered_df, col_types, viz_config=viz_config)
+            res1 = explorer.get_current_stats(filtered_df, col_types, number_meta=cached_metadata)
             result['stats'] = res1['stats']
             result['count'] = res1['count']
 
@@ -841,8 +830,7 @@ def api_explorer_filter():
                  result['count2'] = len(df)
             else:
                 filtered_df2 = explorer.filter_dataframe(df, col_types, filters2, search_query2)
-                viz_config = get_viz_config()
-                res2 = explorer.get_current_stats(filtered_df2, col_types, viz_config=viz_config)
+                res2 = explorer.get_current_stats(filtered_df2, col_types, number_meta=cached_metadata)
 
                 result['stats2'] = res2['stats']
                 result['count2'] = res2['count']

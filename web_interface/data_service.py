@@ -442,67 +442,6 @@ def load_shared_tags(allowed_usernames):
 
 
 
-def get_viz_config():
-    """
-    Reads var_schema.csv and returns a dictionary of visualization settings.
-    {
-        var_name: {
-            "log": bool,
-            "bins": int or list of edges or None
-        }
-    }
-    """
-    config = {}
-    try:
-        #var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
-        if "var_schema" in fyp_cf and not fyp_cf["var_schema"].empty:
-            df = fyp_cf["var_schema"].copy()
-            
-            # Check if columns exist
-            has_log = 'web_viz_log' in df.columns
-            has_bins = 'web_viz_bins' in df.columns
-            
-            if not has_log and not has_bins:
-                return {}
-                
-            for _, row in df.iterrows():
-                var = row['variable_name']
-                cfg = {}
-                
-                # Log Setting
-                if has_log:
-                    val = str(row['web_viz_log']).lower().strip()
-                    cfg['log'] = (val == 'yes')
-                
-                # Bin Setting
-                if has_bins:
-                    val = row['web_viz_bins']
-                    if pd.notna(val):
-                        val_str = str(val).strip()
-                        if "|" in val_str:
-                            # Parse custom edges: "10|30|50"
-                            try:
-                                edges = [float(x) for x in val_str.split("|")]
-                                cfg['bins'] = sorted(edges)
-
-                            except (ValueError, TypeError):
-                                cfg['bins'] = None
-                        elif val_str.isdigit():
-                             cfg['bins'] = int(val_str)
-                        else:
-                             cfg['bins'] = None
-                    else:
-                        cfg['bins'] = None
-                
-                if cfg:
-                    config[var] = cfg
-                    
-    except Exception as e:
-        print(f"Error reading viz config: {e}")
-        
-    return config
-
-
 
 TIMELINE_SCHEMA_VERSION = 7
 # Marker columns that prove a cached timeline parquet was written by the
@@ -927,8 +866,6 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
         print("ERROR: var_schema missing")
         return {}
 
-    schema = fyp_cf.get('var_schema', {})
-
     # Load Schema Metadata
     meta = {}
     load_schema_metadata(meta)
@@ -1060,19 +997,16 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
         if not has_val and not has_counts:
             continue
 
-        # Log Scale Config
-        use_log = False
-        if schema_map.get(var, {}).get('web_viz_log') == 'yes' or (isinstance(schema, dict) and schema.get(var, {}).get('web_viz_log') == 'yes'):
-             use_log = True
-
         # Display Name
         display_name = schema_map.get(var, {}).get('display_name', var)
         if var == 'machine_state':
             display_name = 'Scrape and Annotation States'
 
-        # Multi-label flag: schema-driven.  Variables not in the schema
-        # (e.g. the synthetic 'machine_state') default to single-label.
-        is_multi_label = (schema_map.get(var, {}).get('web_viz_multi_label') == 'yes')
+        # Multi-label flag drives the share denominator: collection-scaled
+        # variables (hashtags, content categories) can tag one video several
+        # times, so their shares are taken over videos and may exceed 100%.
+        # Everything else (and the synthetic 'machine_state') is single-label.
+        is_multi_label = (schema_map.get(var, {}).get('scale') == 'collection')
         share_denominator = 'videos' if is_multi_label else 'valid'
 
         # Per-period denominators consumed downstream.
@@ -1084,6 +1018,11 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
             # (computed in check_and_update_timeline_cache).  Use list
             # comprehension to coerce NaN → None for JSON safety.
             vals = [None if pd.isna(x) else float(x) for x in df[f"{var}_val"]]
+            # Log scale derived from the spread of the per-period means: bounded
+            # scores stay linear, order-of-magnitude series go log.
+            use_log = explorer.derive_log_scale(
+                pd.Series([v for v in vals if v is not None], dtype="float64")
+            )
             variables[var] = {
                 "type": "numeric",
                 "values": vals,
@@ -1754,13 +1693,13 @@ def load_schema_metadata(metadata):
                     if pd.notna(prio):
                          schema_map[var_name]['web_display_prio'] = float(prio)
 
-                # Multi-label flag for timeline share denominator
-                if 'web_viz_multi_label' in row:
-                    mval = row['web_viz_multi_label']
-                    if pd.notna(mval):
-                        mval = str(mval).lower().strip()
-                        if mval in ('yes', 'no'):
-                            schema_map[var_name]['web_viz_multi_label'] = mval
+                # Scale drives the timeline multi-label share denominator
+                # (collection => multi-label) now that web_viz_multi_label is
+                # derived rather than stored.
+                if 'scale' in row:
+                    sval = row['scale']
+                    if pd.notna(sval):
+                        schema_map[var_name]['scale'] = str(sval).strip().lower()
 
             metadata['schema_map'] = schema_map
                 

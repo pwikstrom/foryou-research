@@ -253,23 +253,12 @@
             </td>`;
         }
 
-        // Boolean-ish toggles
-        if (col === 'web_viz_log' || col === 'searchable') {
-            const on = String(current).trim() === (col === 'searchable' ? '1' : 'yes');
-            const onValue = col === 'searchable' ? '1' : 'yes';
+        // Boolean-ish toggle
+        if (col === 'searchable') {
+            const on = String(current).trim() === '1';
             return `<td style="${baseStyle}">
                 <input type="checkbox" ${on ? 'checked' : ''}
-                    onchange="vsOnEdit(${rowIdx}, '${_esc(col)}', this.checked ? '${onValue}' : '')">
-            </td>`;
-        }
-        if (col === 'web_viz_multi_label') {
-            const opts = ['', 'yes', 'no'].map(v =>
-                `<option value="${v}" ${String(current) === v ? 'selected' : ''}>${v || '—'}</option>`);
-            return `<td style="${baseStyle}">
-                <select onchange="vsOnEdit(${rowIdx}, '${_esc(col)}', this.value)"
-                    style="padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 3px; background: var(--color-bg-input); color: var(--color-text-primary); font-size: inherit;">
-                    ${opts.join('')}
-                </select>
+                    onchange="vsOnEdit(${rowIdx}, '${_esc(col)}', this.checked ? '1' : '')">
             </td>`;
         }
 

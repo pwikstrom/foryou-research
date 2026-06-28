@@ -464,11 +464,7 @@ def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
       * ``accepted_labels`` is empty / JSON array / legacy bareword list
       * ``sortable``, ``web_filter_prio``, ``web_timeline_prio``,
         ``web_viz_prio``, ``web_display_prio`` parse as integers when set
-      * ``web_viz_bins`` is empty, a positive integer, or a pipe-separated
-        list of numeric edges (matches :func:`get_viz_config`)
       * ``searchable`` ∈ ``{"", "1"}``
-      * ``web_viz_log`` ∈ ``{"", "yes"}``
-      * ``web_viz_multi_label`` ∈ ``{"", "yes", "no"}``
     """
     errors: list[VarSchemaError] = []
     if df is None or df.empty:
@@ -534,33 +530,9 @@ def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
                 errors.append(VarSchemaError(row_idx, name, col, val,
                                              f"{col} must be an integer when set"))
 
-        # web_viz_bins (int or pipe-separated numeric edges)
-        bins = row.get("web_viz_bins")
-        if not _is_blank(bins):
-            s = str(bins).strip()
-            if "|" in s:
-                for tok in s.split("|"):
-                    try:
-                        float(tok)
-                    except ValueError:
-                        errors.append(VarSchemaError(row_idx, name, "web_viz_bins", bins,
-                                                     "web_viz_bins pipe-list must contain only numbers"))
-                        break
-            else:
-                try:
-                    n = int(s)
-                    if n <= 0:
-                        errors.append(VarSchemaError(row_idx, name, "web_viz_bins", bins,
-                                                     "web_viz_bins must be a positive integer"))
-                except ValueError:
-                    errors.append(VarSchemaError(row_idx, name, "web_viz_bins", bins,
-                                                 "web_viz_bins must be an integer or 'a|b|c' edges"))
-
         # boolean-shaped columns
         for col, allowed in (
             ("searchable", {"", "1"}),
-            ("web_viz_log", {"", "yes"}),
-            ("web_viz_multi_label", {"", "yes", "no"}),
         ):
             val = row.get(col)
             if _is_blank(val):

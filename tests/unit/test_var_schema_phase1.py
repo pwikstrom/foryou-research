@@ -154,7 +154,6 @@ def test_hash_v2_ignores_presentation_changes():
     presentation_cols = [
         "display_name", "section", "description",
         "web_filter_prio", "web_timeline_prio", "web_viz_prio",
-        "web_viz_log", "web_viz_multi_label", "web_viz_bins",
         "web_display_prio", "sortable", "searchable",
     ]
     for col in presentation_cols:
@@ -511,14 +510,6 @@ def test_get_factors_and_features_from_var_schema_unchanged():
 
 
 
-def test_get_viz_config_unchanged():
-    from web_interface.data_service import get_viz_config
-    cfg = get_viz_config()
-    ok = isinstance(cfg, dict) and len(cfg) > 0
-    _check("test_get_viz_config_unchanged", ok, f"size={len(cfg) if cfg else 0}")
-
-
-
 # -------- Driver --------
 
 TESTS = [
@@ -543,7 +534,6 @@ TESTS = [
     test_migrate_hash_v2_dry_run_no_writes,
     test_migrate_hash_v2_apply_rewrites_v1_only,
     test_get_factors_and_features_from_var_schema_unchanged,
-    test_get_viz_config_unchanged,
 ]
 
 
