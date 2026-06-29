@@ -40,8 +40,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _harness import FIXTURE_DIR, PROJECT_ROOT, fyp_cf
+from _harness import FIXTURE_DIR, fyp_cf
 
+import fyp.annotation_versioning as annotation_versioning
 import fyp.recode_variables as rv
 
 COUPLING_BASELINE = FIXTURE_DIR / "coupling_baseline.json"
@@ -63,13 +64,15 @@ FLATTEN_HANDLED_KEYS = {
 
 
 def extract_prompt_fields() -> set[str]:
-    """Best-effort parse of quoted field names from the Gemini prompt file."""
-    prompt_path = Path(fyp_cf["machine"]["prompt"])
-    if not prompt_path.is_absolute():
-        # config stores a bare filename; the prompt lives under prompts/
-        prompt_path = PROJECT_ROOT / "prompts" / prompt_path.name
-    text = prompt_path.read_text(encoding="utf-8")
-    # Field lines look like:  • 'transcript': Array of ...
+    """Parse quoted field names from the *active* Gemini prompt.
+
+    Routes through ``active_prompt_text()`` so it reflects whatever the model is
+    actually sent: the contract-generated prompt when ``use_generated_prompt`` is
+    on, otherwise the configured static prompt file. (Reading the static file
+    directly would pin a vestigial prompt that no longer matches the contract.)
+    """
+    text = annotation_versioning.active_prompt_text()
+    # Field lines look like:  • 'transcript': A verbatim transcript ...
     fields = set(re.findall(r"[•·]\s*['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]", text))
     return fields
 
