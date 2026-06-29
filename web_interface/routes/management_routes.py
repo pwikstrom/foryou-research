@@ -2929,6 +2929,34 @@ def set_study_annotation_version(study):
 
 
 
+def _contract_locked_map(df) -> dict:
+    """Return ``{variable_name: {metadata, section}}`` for contract-owned cells.
+
+    ``metadata`` is True when the annotation contract owns the row's
+    role/scale/display_name/description (its flattened output columns);
+    ``section`` is True for every Gemini-origin row (all forced under "GenAI").
+    The admin editor renders these cells read-only. Degrades to ``{}`` if the
+    contract cannot be loaded, so the editor never breaks on a contract error.
+    """
+    try:
+        from fyp import annotation_contract as ac
+
+        contract_cols = set(ac.contract_column_metadata(ac.load_contract()).keys())
+    except Exception:
+        return {}
+    locked: dict = {}
+    for _, row in df.iterrows():
+        vn = str(row.get("variable_name", ""))
+        src = str(row.get("source", "")).strip()
+        is_gemini = src == "Gemini" or src.startswith("derived: Gemini")
+        meta_owned = vn in contract_cols
+        if meta_owned or is_gemini:
+            locked[vn] = {"metadata": meta_owned, "section": is_gemini}
+    return locked
+
+
+
+
 @management_bp.route('/api/manage/schema', methods=['GET'])
 @permission_required('tab.admin.schema')
 @login_required
@@ -2955,6 +2983,8 @@ def get_schema():
                 "role": sorted(VAR_SCHEMA_ROLES),
                 "scale": sorted(VAR_SCHEMA_SCALES),
             },
+            "contract_locked": _contract_locked_map(df),
+            "contract_path": "config/annotation_contract.toml",
             "etag": compute_var_schema_etag(fyp_cf),
             "current_hash": compute_var_schema_hash(),
         })

@@ -151,12 +151,11 @@ def contract_numeric_ranges(contract: dict) -> dict[str, tuple[int, int]]:
             ranges[name] = (int(field["min"]), int(field["max"]))
         if field.get("type") == "object":
             for key, spec in field.get("keys", {}).items():
-                if isinstance(spec, str):
-                    m = _INT_SUBKEY_RE.match(spec)
-                    if m and m.group(1) is not None:
-                        rng = (int(m.group(1)), int(m.group(2)))
-                        ranges[key] = rng
-                        ranges[f"{name}_{key}"] = rng
+                m = _INT_SUBKEY_RE.match(_subkey_spec(spec))
+                if m and m.group(1) is not None:
+                    rng = (int(m.group(1)), int(m.group(2)))
+                    ranges[key] = rng
+                    ranges[f"{name}_{key}"] = rng
     return ranges
 
 
@@ -174,7 +173,7 @@ def contract_numeric_array_fields(contract: dict) -> set[str]:
     for field in contract.get("fields", []):
         if field.get("type") == "object" and field.get("array"):
             for key, spec in field.get("keys", {}).items():
-                if isinstance(spec, str) and _INT_SUBKEY_RE.match(spec):
+                if _INT_SUBKEY_RE.match(_subkey_spec(spec)):
                     out.add(key)
                     out.add(f"{field.get('name')}_{key}")
     return out
@@ -235,13 +234,50 @@ def _scalar_node(field: dict, contract: dict) -> dict:
 
 
 
-def _subkey_node(spec: str, contract: dict) -> dict:
+def _subkey_spec(spec) -> str:
+    """Return the schema-defining string for a ``[fields.keys]`` sub-key.
+
+    A sub-key may be declared as a plain string (``"enum:gender"``) or as an
+    inline table that carries var_schema metadata alongside the spec
+    (``{ spec = "enum:gender", role = "skip", ... }``). Both forms resolve to the
+    same spec string here, so every existing string parser (node builder, numeric
+    range/array detectors, the ``enum:`` validator) works unchanged regardless of
+    which form the contract uses.
+    """
+    if isinstance(spec, dict):
+        return str(spec.get("spec", ""))
+    return spec if isinstance(spec, str) else ""
+
+
+
+
+def _subkey_metadata(spec) -> dict | None:
+    """Return the var_schema metadata declared on a richer sub-key, or ``None``.
+
+    Only the inline-table sub-key form carries ``role`` / ``scale`` /
+    ``display_name`` / ``description``; a plain-string sub-key has none.
+    """
+    if isinstance(spec, dict):
+        return {
+            "role": spec.get("role"),
+            "scale": spec.get("scale"),
+            "display_name": spec.get("display_name"),
+            "description": spec.get("description"),
+        }
+    return None
+
+
+
+
+def _subkey_node(spec, contract: dict) -> dict:
     """Build a JSON-schema node for one ``[fields.keys]`` sub-key.
 
-    The value is a short string: ``"enum:NAME"`` → an enum string property,
-    ``"list: <desc>"`` → an array-of-string property, anything else → a string
-    property whose description is the text itself.
+    The value is a short string (or the ``spec`` of an inline-table sub-key):
+    ``"enum:NAME"`` → an enum string property, ``"list: <desc>"`` → an
+    array-of-string property, anything else → a string property whose description
+    is the text itself.
     """
+    spec = _subkey_spec(spec)
     if isinstance(spec, str) and spec.startswith("enum:"):
         name = spec[len("enum:"):].strip()
         return {"type": "string", "enum": enum_values(contract, name)}
@@ -335,6 +371,85 @@ def build_field_specs(contract: dict) -> list[tuple[str, dict, str]]:
 
 
 
+# A contract field whose flattened column is renamed downstream of the
+# flattener. ``transcript`` is rebuilt as ``transcript_no_repetitions`` in
+# ``machine_annotation.py`` (search that file for ``transcript_no_repetitions``).
+_RENAMED_FIELDS = {"transcript": "transcript_no_repetitions"}
+
+# Object fields whose ``<field>_<key>`` sub-key columns are prefix-stripped back
+# to the bare sub-key name by ``recode_variables.rename_columns`` (the
+# ``("audio_summary_", "")`` rule). Faces is NOT stripped, so it keeps the
+# ``faces_`` prefix. Keep this in lockstep with that rename map.
+_PREFIX_STRIPPED_OBJECTS = {"audio_summary"}
+
+
+
+
+def contract_output_column(field_name: str, sub_key: str | None = None) -> str:
+    """Return the final var_schema column name a contract field/sub-key becomes.
+
+    Encodes the one-and-only rename/prefix-strip chain so every consumer agrees
+    on the mapping (the flattener emits ``name`` / ``<name>_<key>``; then the
+    transcript rename and the ``audio_summary_`` strip apply). This is the single
+    bridge between a contract field and its ``var_schema.csv`` row.
+
+    Args:
+        field_name: the contract field ``name``.
+        sub_key: the ``[fields.keys]`` sub-key, for object fields.
+
+    Returns:
+        The flattened/recoded column name as it appears in ``var_schema.csv``.
+    """
+    if sub_key is None:
+        return _RENAMED_FIELDS.get(field_name, field_name)
+    if field_name in _PREFIX_STRIPPED_OBJECTS:
+        return sub_key
+    return f"{field_name}_{sub_key}"
+
+
+
+
+def contract_column_metadata(contract: dict) -> dict[str, dict]:
+    """Return ``{final_column: {role, scale, display_name, description}}``.
+
+    Covers every contract-owned output column that declares var_schema metadata —
+    scalar/list fields (keyed by their flattened column) and object sub-keys
+    (keyed via :func:`contract_output_column`). A field/sub-key that declares no
+    ``role`` is skipped, so columns the contract does not own are never overlaid.
+    ``description`` falls back to the prompt ``desc`` only if no explicit
+    ``description`` is set.
+
+    Args:
+        contract: the parsed contract dict.
+
+    Returns:
+        Mapping of var_schema column name → its contract-owned metadata.
+    """
+    out: dict[str, dict] = {}
+    for field in contract.get("fields", []):
+        name = field.get("name")
+        if not name:
+            continue
+        if field.get("type") == "object":
+            for key, spec in field.get("keys", {}).items():
+                meta = _subkey_metadata(spec)
+                if not meta or not meta.get("role"):
+                    continue
+                out[contract_output_column(name, key)] = meta
+        else:
+            if not field.get("role"):
+                continue
+            out[contract_output_column(name)] = {
+                "role": field.get("role"),
+                "scale": field.get("scale"),
+                "display_name": field.get("display_name"),
+                "description": field.get("description", field.get("desc")),
+            }
+    return out
+
+
+
+
 def validate_contract(contract: dict) -> list[str]:
     """Validate the annotation contract; return a list of error strings.
 
@@ -352,6 +467,22 @@ def validate_contract(contract: dict) -> list[str]:
     enums = contract.get("enums", {})
     fields = contract.get("fields", [])
     section_names = {s.get("name") for s in contract.get("section", [])}
+
+    # var_schema role/scale vocabularies live in recode_variables; import lazily so
+    # this module never pulls in fyp_config (which recode_variables imports) at load.
+    try:
+        from fyp.recode_variables import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+        valid_roles, valid_scales = set(VAR_SCHEMA_ROLES), set(VAR_SCHEMA_SCALES)
+    except Exception:
+        valid_roles, valid_scales = None, None
+
+    def _check_role_scale(meta: dict, where: str) -> None:
+        role = meta.get("role")
+        scale = meta.get("scale")
+        if valid_roles is not None and role is not None and role not in valid_roles:
+            errors.append(f"{where}: invalid role '{role}'")
+        if valid_scales is not None and scale is not None and scale not in valid_scales:
+            errors.append(f"{where}: invalid scale '{scale}'")
 
     if not fields:
         errors.append("contract has no [[fields]]")
@@ -394,14 +525,19 @@ def validate_contract(contract: dict) -> list[str]:
         if "enum" in field:
             _check_enum_ref(field["enum"], where)
 
+        _check_role_scale(field, where)
+
         if ftype == "object":
             keys = field.get("keys")
             if not isinstance(keys, dict) or not keys:
                 errors.append(f"{where}: object field needs a non-empty [fields.keys]")
             else:
                 for key, spec in keys.items():
-                    if isinstance(spec, str) and spec.startswith("enum:"):
-                        _check_enum_ref(spec, f"{where}.{key}")
+                    spec_str = _subkey_spec(spec)
+                    if spec_str.startswith("enum:"):
+                        _check_enum_ref(spec_str, f"{where}.{key}")
+                    if isinstance(spec, dict):
+                        _check_role_scale(spec, f"{where}.{key}")
 
     drop = contract.get("recode", {}).get("drop", {})
     if not isinstance(drop, dict):

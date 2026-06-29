@@ -29,6 +29,10 @@
         hiddenColumns: new Set(),   // user-hidden via the Columns dropdown
         sort: { col: null, dir: 1 },  // dir: 1 = asc, -1 = desc
         loaded: false,
+        // {variable_name: {metadata: bool, section: bool}} — which cells the
+        // annotation contract owns (so the editor renders them read-only).
+        contractLocked: {},
+        contractPath: 'config/annotation_contract.toml',
     };
 
     // localStorage key for the user's hidden-column choices.
@@ -50,6 +54,10 @@
     const READONLY_TOOLTIP = 'Derived from the annotation contract '
         + '(config/annotation_contract.toml) — read-only here. Edit the contract '
         + 'to change the accepted labels.';
+
+    // Metadata columns the annotation contract owns for its Gemini output
+    // variables. Locked per-row (not per-column) via state.contractLocked.
+    const META_LOCK_COLS = new Set(['role', 'scale', 'display_name', 'description']);
 
     // ---------- helpers ----------
 
@@ -243,6 +251,25 @@
         }
     }
 
+    // Return the tooltip for a contract-owned (read-only) cell, or null when the
+    // cell is editable. accepted_labels is always derived; for a Gemini variable
+    // the contract owns role/scale/display_name/description and the GenAI section.
+    function _cellReadonlyTooltip(rowIdx, col) {
+        if (READONLY_COLUMNS.has(col)) return READONLY_TOOLTIP;
+        const row = state.rows[rowIdx];
+        const lock = row && state.contractLocked[row.variable_name];
+        if (!lock) return null;
+        if (col === 'section' && lock.section) {
+            return 'Gemini variables are grouped under "GenAI" automatically — '
+                + 'this section is set by the app, not editable here.';
+        }
+        if (lock.metadata && META_LOCK_COLS.has(col)) {
+            return `Owned by the annotation contract (${state.contractPath}) — `
+                + `edit ${col.replace(/_/g, ' ')} there, not here.`;
+        }
+        return null;
+    }
+
     function _renderCell(rowIdx, col) {
         const current = _effectiveValue(rowIdx, col);
         const isEdited = state.edits[rowIdx] && col in state.edits[rowIdx];
@@ -252,13 +279,16 @@
             return `<td class="font-mono text-xs" style="${baseStyle} color: var(--color-text-primary); white-space: nowrap;">${_esc(current)}</td>`;
         }
 
-        // Contract-derived columns: display-only, greyed, with a tooltip that
-        // points at the real source of truth instead of an editable input.
-        if (READONLY_COLUMNS.has(col)) {
+        // Contract-owned cells: display-only, greyed, with a tooltip that points
+        // at the real source of truth instead of an editable input. Covers the
+        // always-derived accepted_labels plus the per-row contract metadata /
+        // forced GenAI section for Gemini variables.
+        const lockTip = _cellReadonlyTooltip(rowIdx, col);
+        if (lockTip !== null) {
             const shown = String(current).trim()
                 ? _esc(current)
                 : '<span style="opacity: 0.5;">—</span>';
-            return `<td class="meta-tooltip font-mono text-xs" data-tooltip="${_esc(READONLY_TOOLTIP)}"
+            return `<td class="meta-tooltip font-mono text-xs" data-tooltip="${_esc(lockTip)}"
                 style="${baseStyle} color: var(--color-text-muted);">${shown}</td>`;
         }
 
@@ -416,6 +446,8 @@
             state.semanticColumns = new Set(body.semantic_columns || []);
             state.enums = body.enums || {};
             state.recodeFuncs = body.recode_funcs || [];
+            state.contractLocked = body.contract_locked || {};
+            state.contractPath = body.contract_path || state.contractPath;
             state.etag = body.etag;
             state.currentHash = body.current_hash;
             state.edits = {};

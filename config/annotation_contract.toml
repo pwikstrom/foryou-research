@@ -102,34 +102,58 @@ intro = "Based on the video, add:"
 [[fields]]
 name = "transcript"
 section = "profile"
+role = "standard"
+scale = "string"
+display_name = "Transcript"
+description = "Transcription of spoken words"
 desc = "A verbatim transcript of the words spoken or sung in the video."
 
 [[fields]]
 name = "spoken_language"
 section = "profile"
+role = "standard"
+scale = "categorical"
+display_name = "Spoken language"
+description = "Primary language spoken or sung in the video."
 desc = "The primary language spoken or sung in the video — if several are used, give the one used most. Provide an English name (e.g. 'English', 'Mandarin', 'Arabic'). Use '-' if there is no spoken or sung language (music-only or silent)."
 
 [[fields]]
 name = "multilingual"
 section = "profile"
+role = "feature"
+scale = "dichotomous"
+display_name = "Multilingual"
+description = "Are multiple languages spoken or sung in the video? (Yes/No)."
 enum = "yes_no"
 desc = "Are multiple languages spoken or sung in the video (e.g. code-switching, or different speakers using different languages)? Answer No if there is no speech or only one language is used."
 
 [[fields]]
 name = "objects"
 section = "profile"
+role = "standard"
+scale = "collection"
+display_name = "Objects in video"
+description = "List of physical items detected in the video."
 array = true
 desc = "Notable objects visible in the video."
 
 [[fields]]
 name = "symbols_and_brands"
 section = "profile"
+role = "standard"
+scale = "collection"
+display_name = "Symbols and brands"
+description = "Visible logos, flags, or symbols detected by AI."
 array = true
 desc = "Visible symbols, flags, or brands."
 
 [[fields]]
 name = "text_overlays"
 section = "profile"
+role = "standard"
+scale = "collection"
+display_name = "Text overlays"
+description = "Text detected on-screen via OCR."
 array = true
 desc = "On-screen text, transcribed via OCR."
 
@@ -140,9 +164,9 @@ type = "object"
 array = true
 desc = "Each distinct face that appears in the video, with its gender, apparent age in years, and apparent ethnicity."
 [fields.keys]
-gender = "enum:gender"
-age_estimate = "int: the apparent age of the face, in years (a single best estimate)"
-ethnicity = "the apparent ethnicity"
+gender = { spec = "enum:gender", role = "skip", scale = "collection", display_name = "Gender of observed faces", description = "List of genders for all faces detected." }
+age_estimate = { spec = "int: the apparent age of the face, in years (a single best estimate)", role = "standard", scale = "ratio", display_name = "Average age of observed faces", description = "Estimated age range of faces visible in the video." }
+ethnicity = { spec = "the apparent ethnicity", role = "skip", scale = "collection", display_name = "Ethnicity of observed faces", description = "List of ethnicities for all faces detected." }
 
 [[fields]]
 name = "audio_summary"
@@ -150,29 +174,45 @@ section = "profile"
 type = "object"
 desc = "The video's audio profile: how much of the audio is speech (as a percentage of speech vs music/other), the style/mood of any background music, and any notable sounds or sound effects."
 [fields.keys]
-speech_vs_music = "int(0,100): the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)"
-background_music = "the style or mood of any background music"
-notable_sounds = "list: notable sounds or sound effects"
+speech_vs_music = { spec = "int(0,100): the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)", role = "standard", scale = "ratio", display_name = "Speech % (vs music)", description = "Ratio of spoken word to background music." }
+background_music = { spec = "the style or mood of any background music", role = "standard", scale = "collection", display_name = "Background music", description = "Description of the style/mood of background music." }
+notable_sounds = { spec = "list: notable sounds or sound effects", role = "standard", scale = "collection", display_name = "Notable sounds", description = "Specific sound effects (e.g., sirens) detected." }
 
 [[fields]]
 name = "main_activity"
 section = "profile"
+role = "feature"
+scale = "categorical"
+display_name = "Main activity"
+description = "Primary action occurring in the video (verb + object)."
 desc = "The main activity, as a verb + object, e.g. 'dancing in a studio'."
 
 [[fields]]
 name = "video_story"
 section = "profile"
+role = "standard"
+scale = "string"
+display_name = "Video story"
+description = "Concise AI-generated narrative summary of the video."
 desc = "A concise narrative summary of the entire video."
 
 [[fields]]
 name = "type_of_story"
 section = "profile"
+role = "feature"
+scale = "categorical"
+display_name = "Type of story"
+description = "Narrative classification (e.g., Issue, Event, Human-Interest)."
 enum = "type_of_story"
 desc = "The narrative type of the video."
 
 [[fields]]
 name = "content_category"
 section = "profile"
+role = "feature"
+scale = "collection"
+display_name = "Content category"
+description = "AI classification of content (e.g., Comedy, Sports)."
 enum = "content_category"
 array = 2
 desc = "The TikTok content categories that best capture the video's dominant focus (up to two; list the most central first). Weigh whether the video's primary purpose is entertainment & cultural expression, lifestyle & personal content, or informative & advisory content, then choose the most fitting category."
@@ -180,47 +220,79 @@ desc = "The TikTok content categories that best capture the video's dominant foc
 [[fields]]
 name = "primary_country"
 section = "profile"
+role = "standard"
+scale = "categorical"
+display_name = "Primary country"
+description = "Country the video is primarily connected to (creator origin / subject / audience)."
 desc = "The country the video is primarily connected to — through the creator's origin (accent, language, location tags, or profile), the content's subject matter (events, places, landmarks, or social issues), or its intended audience (region-specific hashtags or localised references). Give the single most-connected country as an English name (e.g. 'Australia', 'United States', 'India'). Use '-' when there is no clear country connection (generic or globally-oriented content)."
 
 [[fields]]
 name = "tiktok_native"
 section = "profile"
+role = "feature"
+scale = "dichotomous"
+display_name = "TikTok Native"
+description = "Does the video use native TikTok styles/formats? (Yes/No)."
 enum = "yes_no"
 desc = "Is the video produced primarily for TikTok — vertical/portrait, short (typically under 60 seconds), using TikTok's native features (filters, effects, text overlays, trending sounds) and pacing? Answer No for content clearly made for another platform (e.g. a longer YouTube or TV-style video) and merely reposted to TikTok."
 
 [[fields]]
 name = "trend_technical"
 section = "profile"
+role = "feature"
+scale = "dichotomous"
+display_name = "Technical trend"
+description = "Does the video leverage a technical TikTok trend (trending template/effect/sound)? (Yes/No)."
 enum = "yes_no"
 desc = "Does the video leverage a technical TikTok trend — a trending template, effect, or sound used to make it (e.g. a CapCut 'try this effect' or 'use this sound' template)? A video can be both a technical and a cultural trend."
 
 [[fields]]
 name = "trend_cultural"
 section = "profile"
+role = "feature"
+scale = "dichotomous"
+display_name = "Cultural trend"
+description = "Does the video replicate a cultural TikTok trend (participatory format like a dance/meme)? (Yes/No)."
 enum = "yes_no"
 desc = "Does the video replicate a cultural TikTok trend — a participatory format meant for other creators to imitate (e.g. a dance challenge, meme, or format like 'candy salad')? A video can be both a technical and a cultural trend."
 
 [[fields]]
 name = "advertising"
 section = "profile"
+role = "feature"
+scale = "dichotomous"
+display_name = "Advertising - Gemini"
+description = "AI detection of advertising content (Yes/No)."
 enum = "yes_no"
 desc = "Is the video an explicit paid promotion of a product, service, or brand — shown by a sponsorship label, repeated prominent brand mentions, or a direct call to purchase or visit? Answer No for an organic review or discussion, or a creator simply expressing affinity for a brand with no sign of a commercial agreement."
 
 [[fields]]
 name = "aigc"
 section = "profile"
+role = "standard"
+scale = "categorical"
+display_name = "AIGC"
+description = "AI detection of AI-generated content (Yes/No)."
 enum = "yes_no"
 desc = "Is the video primarily AI-generated — AI-generated elements forming a substantial part of it (e.g. prompt-generated footage), or explicitly labelled AI-generated by the creator or platform? Answer No when only minor AI elements are present (e.g. AI stickers, memes, or background music)."
 
 [[fields]]
 name = "main_gender"
 section = "profile"
+role = "feature"
+scale = "categorical"
+display_name = "Main gender"
+description = "Primary gender represented in the video."
 enum = "gender"
 desc = "The gender of the main person featured in the video."
 
 [[fields]]
 name = "main_ethnicity"
 section = "profile"
+role = "feature"
+scale = "categorical"
+display_name = "Main ethnicity"
+description = "Primary ethnic group represented in the video."
 enum = "ethnicity"
 desc = "The ethnicity of the main person featured in the video."
 
@@ -228,6 +300,10 @@ desc = "The ethnicity of the main person featured in the video."
 [[fields]]
 name = "political_score"
 section = "scoring"
+role = "standard"
+scale = "ratio"
+display_name = "Political? (score 0-1)"
+description = "AI-estimated probability (0-100) of political content."
 type = "int"
 min = 0
 max = 100
@@ -236,6 +312,10 @@ desc = "How political the video is, from 0 (not at all) to 100 (entirely politic
 [[fields]]
 name = "sensitivity_score"
 section = "scoring"
+role = "standard"
+scale = "ratio"
+display_name = "Sensitive? (score 0-1)"
+description = "AI-estimated probability (0-100) of sensitive topics."
 type = "int"
 min = 0
 max = 100
@@ -244,4 +324,8 @@ desc = "How sensitive the video's subject matter is, from 0 (not at all) to 100 
 [[fields]]
 name = "call_to_action"
 section = "scoring"
+role = "raw"
+scale = "raw"
+display_name = "Call to action (raw)"
+description = "Raw text of actions the video asks viewers to take."
 desc = "The action the video encourages the viewer to take, or '-' if none."

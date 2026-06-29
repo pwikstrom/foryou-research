@@ -383,6 +383,55 @@ def _apply_contract_accepted_labels(cf) -> None:
 
 
 
+
+def _apply_contract_variable_metadata(cf) -> None:
+    """Materialize Gemini variable metadata from the annotation contract, in memory.
+
+    For variables the contract owns (its flattened output columns), ``role`` /
+    ``scale`` / ``display_name`` / ``description`` are NOT stored in
+    ``var_schema.csv`` — the annotation contract (``config/annotation_contract.toml``)
+    is the single source, and the columns are overlaid here at load. Separately,
+    EVERY Gemini-origin row (``source == "Gemini"`` or a ``"derived: Gemini ..."``
+    source) is grouped under a single ``"GenAI"`` UI section, replacing whatever
+    ``section`` the CSV carried — so the three computed Gemini columns the contract
+    does not own (``trend`` / ``australian_relevance`` / ``call_to_action_words``)
+    keep their CSV role/scale/display_name but still land under GenAI.
+
+    The overlay is PER-ROW: non-Gemini rows keep their CSV values untouched. It
+    runs after :func:`_apply_contract_accepted_labels` and before any consumer
+    reads the overlaid ``role`` / ``scale`` (recode, the schema hash, the admin
+    API, the UI metadata), mirroring the accepted-labels overlay. Degrades to a
+    no-op when the contract cannot be loaded, so the columns are never missing.
+
+    Args:
+        cf: the config dict whose ``var_schema`` DataFrame is overlaid in place.
+    """
+    vs = cf.get("var_schema")
+    if vs is None or getattr(vs, "empty", True) or "variable_name" not in vs.columns:
+        return
+    for col in ("role", "scale", "display_name", "description", "section"):
+        if col not in vs.columns:
+            vs[col] = pd.NA
+    try:
+        from fyp import annotation_contract as ac
+
+        meta = ac.contract_column_metadata(ac.load_contract())
+    except Exception:
+        return
+    has_source = "source" in vs.columns
+    for idx in vs.index:
+        name = vs.at[idx, "variable_name"]
+        owned = meta.get(name)
+        if owned:
+            for col in ("role", "scale", "display_name", "description"):
+                if owned.get(col) is not None:
+                    vs.at[idx, col] = owned[col]
+        source = str(vs.at[idx, "source"]).strip() if has_source else ""
+        if source == "Gemini" or source.startswith("derived: Gemini"):
+            vs.at[idx, "section"] = "GenAI"
+
+
+
 def load_var_schema(cf, verbose=False):
     # Load variable schema
     var_schema_path = _var_schema_path(cf)
@@ -438,6 +487,11 @@ def load_var_schema(cf, verbose=False):
                  "web_viz_log", "web_viz_multi_label", "web_viz_bins"],
         errors="ignore",
     )
+    # Variable metadata first: it restores ``scale`` for contract columns, which
+    # the accepted-labels overlay reads (via build_recode_plan) to decide closed-tag
+    # membership. Once the CSV no longer stores scale for these rows, accepted_labels
+    # would otherwise see a blank scale and skip them.
+    _apply_contract_variable_metadata(cf)
     _apply_contract_accepted_labels(cf)
     return cf
 
@@ -536,6 +590,30 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
                  "unable_to_detect_policy"],
         errors="ignore",
     )
+
+    # Contract-owned metadata is rebuilt in memory at load from
+    # annotation_contract.toml (see ``_apply_contract_variable_metadata``), so it
+    # is never persisted: blank ``role``/``scale``/``display_name``/``description``
+    # for the contract's output columns, and blank ``section`` for EVERY
+    # Gemini-origin row (all forced to "GenAI" on load). Per-row — non-Gemini rows
+    # keep their CSV values. The on-disk CSV is thus a clean slate the overlay
+    # re-fills, so an admin edit to a contract cell is discarded by design.
+    try:
+        from fyp import annotation_contract as ac
+
+        contract_cols = set(ac.contract_column_metadata(ac.load_contract()).keys())
+    except Exception:
+        contract_cols = set()
+    if "variable_name" in df.columns:
+        if contract_cols:
+            owned = df["variable_name"].isin(contract_cols)
+            for col in ("role", "scale", "display_name", "description"):
+                if col in df.columns:
+                    df.loc[owned, col] = pd.NA
+        if "source" in df.columns and "section" in df.columns:
+            src = df["source"].astype("string").fillna("")
+            gemini = src.eq("Gemini") | src.str.startswith("derived: Gemini")
+            df.loc[gemini, "section"] = pd.NA
 
     # Atomic-ish write: local goes through a temp file + os.replace;
     # GCS overwrites are atomic at the blob level.
