@@ -166,6 +166,15 @@ methods; subclasses auto-register via `__init_subclass__`; the three existing cl
 analysis stack (PCA/stats/recode) and the study abstraction are fully generic — a study can already
 mix collections across platforms.
 
+> **✅ Update (2026-06-29):** the **scraping/enrichment** half of this thrust is shipped (step 3
+> below). The scraper is now `BaseScraper` (ABC, auto-registry, `get_scraper()`) + `TikTokScraper`,
+> mirroring the ingestion ABC, driven by a declarative `config/scrape_contract.toml` that owns the
+> canonical cross-platform scrape schema (base + per-platform fields). The output is canonicalised
+> (`create_time`/`play_count`/`duration`/`author_name`/`*_per_K_play` + `scrape_status`/`storage_link`/
+> `scrape_ts`) and deployed to prod. Adding a platform = one subclass (five hooks) + a `[platform]`
+> block. Remaining for this thrust: a real second-platform **ingestion** subclass (step 2) and the
+> messy-intake UX (step 4).
+
 **Where the TikTok coupling actually lives (the work):**
 - **Scraping/enrichment** (`fyp/tiktok_dl.py`): yt-dlp wrapper, TikTok cookie handling, TikTok error
   codes, TikTok page-JSON extraction, TikTok URL template. This is the biggest platform-specific

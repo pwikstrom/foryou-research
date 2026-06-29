@@ -70,7 +70,8 @@ fyp_main_v02/
 ├── GEMINI.md                    # Alias for AGENT.md
 ├── config/
 │   ├── config.toml              # Active config (paths, GCS, Gemini, labels)
-│   └── annotation_contract.toml # Declarative source for the Gemini prompt + response_schema + flattener
+│   ├── annotation_contract.toml # Declarative source for the Gemini prompt + response_schema + flattener
+│   └── scrape_contract.toml     # Declarative source for the canonical cross-platform scrape schema (base + per-platform fields)
 ├── fyp/                         # Core Python package
 │   ├── __init__.py              # Bytecode compilation on import
 │   ├── fyp_config.py            # Config loader; uses __proj__.py to find root
@@ -80,9 +81,11 @@ fyp_main_v02/
 │   ├── utils.py                 # Shared utility functions
 │   ├── ingest.py                # Data ingestion pipeline
 │   ├── donations.py             # Donation-level data handling (AIO/AWS fetch, collection metadata)
-│   ├── scrape.py                # Scrape orchestration (queue, batching, threads)
-│   ├── tiktok_dl.py             # yt-dlp wrapper (download, retry, error classification)
-│   ├── mypyktok.py              # Legacy PykTok fork (deprecated, kept for reference)
+│   ├── scrape.py                # Platform-agnostic scrape orchestration (queue, batching, threads, consolidation, legacy-parquet migration)
+│   ├── platform_scraper.py      # BaseScraper ABC + auto-registry + get_scraper() factory; shared per-K / plays_per_day derivations
+│   ├── scrape_contract.py       # Loads/validates config/scrape_contract.toml; the canonical scrape field set + PyArrow dtypes
+│   ├── tiktok_dl.py             # TikTokScraper(BaseScraper) + yt-dlp helpers (download, retry, error classification, 32-bit overflow repair)
+│   ├── mypyktok.py              # Legacy PykTok fork (deprecated; alternate TikTok backend behind scraper_backend config)
 │   ├── machine_annotation.py    # Gemini-based annotation
 │   ├── annotation_contract.py   # Loads/validates config/annotation_contract.toml; builds FIELD_SPECS from it
 │   ├── annotation_schema.py     # Generates prompt + response-schema + structured flattener from the contract
@@ -273,6 +276,8 @@ python web_interface/run_meta_refresh_groups.py  # Group + Video Analysis metada
 | `[misc]` | Timezone (`Australia/Brisbane`), `local_mode` |
 | `[labels]` | Content categories, irrelevant words, generic mapper |
 
+Two **declarative TOML contracts** sit alongside it and own their variable schemas (overlaid onto `var_schema`, read-only in the admin editor): `config/annotation_contract.toml` (the Gemini annotation fields) and `config/scrape_contract.toml` (the canonical cross-platform scrape fields). See *Scrapers: Base Class + Declarative Contract* below.
+
 ---
 
 ## Key Patterns & Conventions
@@ -282,6 +287,13 @@ python web_interface/run_meta_refresh_groups.py  # Group + Video Analysis metada
 
 ### Data I/O Abstraction
 `fyp/data_io.py` abstracts local vs. GCS storage. Use named locations (`"cache"`, `"recoded"`, `"users"`) rather than raw paths. Toggle `use_gcs_*` flags in config to switch backends.
+
+### Scrapers: Base Class + Declarative Contract
+The scraper mirrors the collection-ingestion design in `fyp/ingest.py`. `fyp/platform_scraper.py` defines `BaseScraper` (an ABC with an `__init_subclass__` auto-registry and a `get_scraper(platform)` factory) plus the shared, platform-agnostic derivations (per-K engagement rates, `plays_per_day`, column standardization). `fyp/tiktok_dl.py` holds `TikTokScraper(BaseScraper)` (yt-dlp/pyktok). `fyp/scrape.py` is platform-agnostic orchestration (threading, queue, consolidation) and calls the active scraper through the base interface.
+
+A new platform (Instagram Reels, YouTube Shorts, …) is **one subclass** implementing five hooks — `item_url`, `fetch`, `map_to_canonical`, `classify_error`, `repair_counts` — plus a `scope="platform"` block in the contract. No orchestration changes.
+
+`config/scrape_contract.toml` is the **single declarative source for the canonical, cross-platform scrape schema** — the scraper's analogue of `annotation_contract.toml`. It defines the **base** fields every platform emits (`scrape_status`, `storage_link`, `scrape_ts`, `desc`, `create_time`, `author_id`, `duration`, `play_count`, `comments_per_K_play` / `faves_per_K_play` / `shares_per_K_play` / `saves_per_K_play`, `plays_per_day`, `author_name`) and the per-platform fields, each with its PyArrow dtype + var_schema metadata (role/scale/display_name/description/section). `fyp/scrape_contract.py` loads/validates it. At config load, `fyp_config._apply_contract_scrape_metadata` overlays that metadata onto `var_schema` (self-healing legacy→canonical rename via `LEGACY_COLUMN_ALIASES` + injection of any missing rows), and the admin schema editor renders those cells **read-only** — exactly like the Gemini contract. Engagement per-K ratios and `plays_per_day` are derived at **scrape time**; legacy on-disk scrape parquets are migrated to canonical names by `_canonicalize_legacy_scrape` during consolidation.
 
 ### Parquet & PyArrow
 Data is stored in Parquet. Complex types (dicts, lists) are JSON-stringified before storage. Surrogate characters are escaped. Use `fyp/types.py` helpers for dtype conversion.
