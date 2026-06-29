@@ -1,0 +1,411 @@
+# Declarative scrape contract — the single source for the canonical, cross-platform
+# scrape schema. It plays the same role for the scraper that
+# `config/annotation_contract.toml` plays for the Gemini annotator.
+#
+# From this file:
+#   * the scraper base class (`fyp/platform_scraper.py`) reads its base
+#     (scope="base") and per-platform (scope="platform") field sets + PyArrow
+#     dtypes — the `REQUIRED_COLUMNS` / `additional_columns` analogue from
+#     `fyp/ingest.py`;
+#   * `fyp/fyp_config.py` overlays role / scale / display_name / description /
+#     section onto the matching `var_schema` rows (so `var_schema.csv` stops
+#     owning that metadata), and injects any scrape columns missing from the CSV;
+#   * `fyp/recode_variables.py` folds a digest of the field set into the
+#     var_schema hash so a contract edit invalidates cached study parquets.
+#
+# Per-field keys (everything except `name` + `scope` + `dtype` is optional):
+#   name        — canonical stored column name (the REAL schema)
+#   scope       — "base" (every platform emits it) | "platform"
+#   platform    — for scope="platform": which platform owns the field (e.g. "tiktok")
+#   dtype       — PyArrow dtype string for the stored column, e.g. "double[pyarrow]"
+#   section     — var_schema UI section (Fundamentals / Popularity / backstage / ...)
+#   role        — var_schema role (standard / feature / factor / skip / raw / ...)
+#   scale       — var_schema scale (string / ratio / datetime / dichotomous / ...)
+#   display_name / description — var_schema metadata (overlaid at load)
+#   derived     — true when computed at scrape time, not a raw platform field
+#   per_k_of    — for an engagement-rate field, the absolute-count denominator base
+#                 field it is normalised against (count / play_count * 1000)
+#
+# A new platform = one new subclass + a block of scope="platform" [[fields]] here
+# (and, for engagement ratios, a [perk.<platform>] map). No other edits required.
+
+[meta]
+version = "1"
+default_platform = "tiktok"
+
+# Per-platform raw-absolute-count source for each canonical *_per_K_play ratio.
+# The base class derives  rate = raw_count / play_count * 1000  using this map.
+[perk.tiktok]
+faves_per_K_play = "stats_diggCount"
+comments_per_K_play = "stats_commentCount"
+shares_per_K_play = "stats_shareCount"
+saves_per_K_play = "stats_collectCount"
+
+# ===========================================================================
+# BASE fields (the 14). Every platform subclass must emit these canonical names.
+# ===========================================================================
+
+[[fields]]
+name = "scrape_status"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "backstage"
+role = "standard"
+scale = "categorical"
+display_name = "Scrape status"
+description = "Outcome of the scrape: 'ok', 'permanent:<reason>', or 'transient:<reason>'."
+derived = true
+
+[[fields]]
+name = "storage_link"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "string"
+display_name = "Media storage link"
+description = "Path or URL to the stored media object for this item (empty when no media was saved)."
+derived = true
+
+[[fields]]
+name = "scrape_ts"
+scope = "base"
+dtype = "timestamp[ns][pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "datetime"
+display_name = "Scrape time"
+description = "Timestamp of when this item was scraped."
+derived = true
+
+[[fields]]
+name = "desc"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "raw"
+scale = "raw"
+display_name = "Desc raw"
+description = "Description text."
+
+[[fields]]
+name = "create_time"
+scope = "base"
+dtype = "timestamp[ns][pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "datetime"
+display_name = "Time added to platform"
+description = "Timestamp of when the item was uploaded to the platform."
+
+[[fields]]
+name = "author_id"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "string"
+display_name = "Author ID"
+description = "Stable platform identifier for the item's creator."
+
+[[fields]]
+name = "duration"
+scope = "base"
+dtype = "int64[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "ratio"
+display_name = "Video duration"
+description = "Length of the item in seconds."
+
+[[fields]]
+name = "author_name"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "string"
+display_name = "Author nickname"
+description = "The display name shown on the creator's profile."
+
+[[fields]]
+name = "play_count"
+scope = "base"
+dtype = "int64[pyarrow]"
+section = "Popularity"
+role = "feature"
+scale = "ratio"
+display_name = "Play count"
+description = "Total plays/views of the item."
+
+[[fields]]
+name = "faves_per_K_play"
+scope = "base"
+dtype = "double[pyarrow]"
+section = "Popularity"
+role = "feature"
+scale = "ratio"
+display_name = "Faves per 1K plays"
+description = "Likes per thousand plays (likes / plays * 1000)."
+derived = true
+per_k_of = "play_count"
+
+[[fields]]
+name = "comments_per_K_play"
+scope = "base"
+dtype = "double[pyarrow]"
+section = "Popularity"
+role = "feature"
+scale = "ratio"
+display_name = "Comments per 1K plays"
+description = "Comments per thousand plays (comments / plays * 1000)."
+derived = true
+per_k_of = "play_count"
+
+[[fields]]
+name = "shares_per_K_play"
+scope = "base"
+dtype = "double[pyarrow]"
+section = "Popularity"
+role = "feature"
+scale = "ratio"
+display_name = "Shares per 1K plays"
+description = "Shares per thousand plays (shares / plays * 1000)."
+derived = true
+per_k_of = "play_count"
+
+[[fields]]
+name = "saves_per_K_play"
+scope = "base"
+dtype = "double[pyarrow]"
+section = "Popularity"
+role = "feature"
+scale = "ratio"
+display_name = "Saves per 1K plays"
+description = "Saves per thousand plays (saves / plays * 1000)."
+derived = true
+per_k_of = "play_count"
+
+[[fields]]
+name = "plays_per_day"
+scope = "base"
+dtype = "double[pyarrow]"
+section = "Popularity"
+role = "standard"
+scale = "ratio"
+display_name = "Plays per day"
+description = "Average plays per day since upload (play_count / days since upload), computed at scrape time."
+derived = true
+
+# ===========================================================================
+# TikTok PLATFORM-SPECIFIC fields (the subclass's additional_columns). Metadata
+# copied verbatim from the existing var_schema scrape rows. The absolute counts
+# stay platform-specific raw fields — the cross-platform engagement signal is the
+# base *_per_K_play set above, derived from them via [perk.tiktok].
+# ===========================================================================
+
+[[fields]]
+name = "author_uniqueId"
+scope = "platform"
+platform = "tiktok"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "string"
+display_name = "Author uniqueId"
+description = "The creator's unique username handle"
+
+[[fields]]
+name = "author_signature"
+scope = "platform"
+platform = "tiktok"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "string"
+display_name = "Author signature"
+description = "The text content of the creator's bio."
+
+[[fields]]
+name = "anchors"
+scope = "platform"
+platform = "tiktok"
+dtype = "string[pyarrow]"
+section = "backstage"
+role = "standard"
+scale = "string"
+display_name = "Anchors"
+description = "TBD"
+
+[[fields]]
+name = "primary_label"
+scope = "platform"
+platform = "tiktok"
+dtype = "string[pyarrow]"
+section = "backstage"
+role = "standard"
+scale = "string"
+display_name = "Extra label"
+description = "TBD"
+
+[[fields]]
+name = "music_id"
+scope = "platform"
+platform = "tiktok"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "string"
+display_name = "Music ID"
+description = "TBD"
+
+[[fields]]
+name = "music_title"
+scope = "platform"
+platform = "tiktok"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "string"
+display_name = "Music title"
+description = "Title of the song playing."
+
+[[fields]]
+name = "music_authorName"
+scope = "platform"
+platform = "tiktok"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "string"
+display_name = "Music author name"
+description = "Name of the artist who created the song."
+
+[[fields]]
+name = "music_album"
+scope = "platform"
+platform = "tiktok"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "string"
+display_name = "Music album"
+description = "Album where the song appeared."
+
+[[fields]]
+name = "music_duration"
+scope = "platform"
+platform = "tiktok"
+dtype = "int64[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+scale = "ratio"
+display_name = "Music duration"
+description = ""
+
+[[fields]]
+name = "music_original"
+scope = "platform"
+platform = "tiktok"
+dtype = "bool[pyarrow]"
+section = "Fundamentals"
+role = "standard"
+display_name = "Is this music original?"
+description = ""
+
+[[fields]]
+name = "challenges"
+scope = "platform"
+platform = "tiktok"
+dtype = "string[pyarrow]"
+section = "Fundamentals"
+role = "skip"
+scale = "categorical"
+display_name = "This is a list of hashtags"
+description = "Hashtags or trends associated with the video."
+
+[[fields]]
+name = "image_list"
+scope = "platform"
+platform = "tiktok"
+dtype = "int64[pyarrow]"
+section = "backstage"
+role = "standard"
+display_name = ""
+description = "Number of images in the item's photo carousel (0 for a video)."
+
+[[fields]]
+name = "isAd"
+scope = "platform"
+platform = "tiktok"
+dtype = "bool[pyarrow]"
+section = "Fundamentals"
+role = "feature"
+scale = "dichotomous"
+display_name = "Advertising - TikTok"
+description = "Platform flag indicating if the video is an advertisement."
+
+[[fields]]
+name = "IsAigc"
+scope = "platform"
+platform = "tiktok"
+dtype = "bool[pyarrow]"
+section = "Fundamentals"
+role = "feature"
+scale = "dichotomous"
+display_name = "AIGC - TikTok"
+description = "Platform flag indicating AI-generated content."
+
+[[fields]]
+name = "stats_diggCount"
+scope = "platform"
+platform = "tiktok"
+dtype = "int64[pyarrow]"
+section = "Popularity"
+role = "standard"
+scale = "ratio"
+display_name = "Fave count"
+description = "Total likes on the video."
+
+[[fields]]
+name = "stats_commentCount"
+scope = "platform"
+platform = "tiktok"
+dtype = "int64[pyarrow]"
+section = "Popularity"
+role = "standard"
+scale = "ratio"
+display_name = "Comment count"
+description = "Total comments on the video."
+
+[[fields]]
+name = "stats_shareCount"
+scope = "platform"
+platform = "tiktok"
+dtype = "int64[pyarrow]"
+section = "Popularity"
+role = "standard"
+scale = "ratio"
+display_name = "Share count"
+description = "Total shares of the video."
+
+[[fields]]
+name = "stats_collectCount"
+scope = "platform"
+platform = "tiktok"
+dtype = "int64[pyarrow]"
+section = "Popularity"
+role = "standard"
+scale = "ratio"
+display_name = "Save count"
+description = "Number of times the video was added to a user's 'Collection'"
+
+[[fields]]
+name = "video_downloaded"
+scope = "platform"
+platform = "tiktok"
+dtype = "bool[pyarrow]"
+section = "backstage"
+role = "standard"
+display_name = "Video downloaded"
+description = "TBD"

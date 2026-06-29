@@ -112,7 +112,7 @@ RECIPES = [
     {
         'name': 'scrapes_recoded.parquet',
         'storage_location': 'recoded',
-        'cols': ['item_id', 'video_duration', 'stats_playCount', 'createTime'],
+        'cols': ['item_id', 'duration', 'play_count', 'create_time'],
         # Filter on a small set of item_ids
         'filter_factory': lambda path: _filter_sample_strings(path, 'item_id', n=100),
     },
@@ -134,7 +134,7 @@ RECIPES = [
         'storage_location': 'cache',
         'cols': ['collection_id', 'item_id', 'local_timestamp', 'activity_type',
                  'main_activity', 'political_score', 'sensitivity_score',
-                 'video_duration'],
+                 'duration'],
         'filter_factory': lambda path: _filter_top_string(path, 'collection_id'),
     },
     {
@@ -142,7 +142,7 @@ RECIPES = [
         'storage_location': 'cache',
         'cols': ['collection_id', 'item_id', 'local_timestamp', 'activity_type',
                  'main_activity', 'political_score', 'sensitivity_score',
-                 'video_duration'],
+                 'duration'],
         'filter_factory': lambda path: _filter_top_string(path, 'collection_id'),
     },
     {
@@ -150,7 +150,7 @@ RECIPES = [
         'storage_location': 'cache',
         'cols': ['collection_id', 'item_id', 'local_timestamp', 'activity_type',
                  'main_activity', 'political_score', 'sensitivity_score',
-                 'video_duration'],
+                 'duration'],
         'filter_factory': lambda path: _filter_top_string(path, 'collection_id'),
     },
 ]

@@ -22,9 +22,10 @@ import pandas as pd
 from PIL import Image, ImageColor
 
 import fyp.data_io as data_io
-import fyp.mypyktok as pyk
 import fyp.tiktok_dl as tiktok_dl
+from fyp import scrape_contract as sc
 from fyp.fyp_config import fyp_cf
+from fyp.platform_scraper import get_scraper
 from fyp.recode_variables import recode_events_df, rename_columns
 from fyp.utils import chunk_list, start_monitor
 
@@ -191,10 +192,11 @@ def make_slideshow(
 
 
 def download_single_video(
-    video_id: str = None, 
+    video_id: str = None,
     verbose: bool = True,
     save_video = True,
     dry_run: bool = False,
+    scraper=None,
     ):
 
 
@@ -219,35 +221,23 @@ def download_single_video(
         raise ValueError("No GCS bucket specified")
 
     gcs_media_prefix = fyp_cf['data_io']['gcs_media_prefix']
-    scraper_backend = fyp_cf['misc'].get('scraper_backend', 'pyktok')
 
-    # Routing for save_tiktok: GCS mode -> bucket + gcs prefix; local mode -> local dir, no bucket
+    # Routing for fetch: GCS mode -> bucket + gcs prefix; local mode -> local dir, no bucket
     save_path_arg = gcs_media_prefix if use_gcs else media_dir
     stream_to_bucket_arg = bucket if use_gcs else None
 
-    tiktok_url = f"https://www.tiktok.com/@/video/{video_id}/"
+    if scraper is None:
+        scraper = get_scraper(verbose=verbose)
 
-    # try to scrape metadata and download video
-    if scraper_backend == 'ytdlp':
-        scrape_metadata = tiktok_dl.save_tiktok(
-            tiktok_url,
-            save_video=save_video,
-            max_duration_to_save=fyp_cf['misc']['max_duration_for_download'],
-            save_path=save_path_arg,
-            stream_to_bucket=stream_to_bucket_arg,
-            verbose=verbose,
-        )
-    else:
-        pyk.specify_browser('chrome')
-        scrape_metadata = pyk.save_tiktok(
-            tiktok_url,
-            save_video=save_video,
-            max_duration_to_save=fyp_cf['misc']['max_duration_for_download'],
-            browser_name='chrome',
-            save_path=save_path_arg,
-            stream_to_bucket=stream_to_bucket_arg,
-            verbose=verbose,
-        )
+    # try to scrape metadata and download media via the platform scraper
+    # (backend selection + URL construction live in the subclass)
+    scrape_metadata = scraper.fetch(
+        video_id,
+        save_media=save_video,
+        save_path=save_path_arg,
+        stream_to_bucket=stream_to_bucket_arg,
+        verbose=verbose,
+    )
 
     try:
         # if there are columns in the result and a something has been downloaded
@@ -421,6 +411,157 @@ def download_single_video(
 
 
 
+def _add_storage_link(results: pd.DataFrame) -> pd.DataFrame:
+    """Populate the canonical ``storage_link`` from item_id + video_downloaded.
+
+    The media object path mirrors the routing in ``download_single_video``: a
+    ``gs://`` URL when media is stored on GCS, else the local media path. Empty
+    for rows whose media was not downloaded.
+
+    Args:
+        results: a canonical scrape frame with ``item_id`` / ``video_downloaded``.
+
+    Returns:
+        The same frame with a ``string[pyarrow]`` ``storage_link`` column.
+    """
+    use_gcs = fyp_cf['data_io']['use_gcs_for_media']
+    if use_gcs:
+        bucket = fyp_cf['data_io'].get('bucket')
+        prefix = fyp_cf['data_io']['gcs_media_prefix']
+        bucket_name = getattr(bucket, "name", "") if bucket is not None else ""
+        def _link(vid: str) -> str:
+            return f"gs://{bucket_name}/{prefix}/{vid}.mp4"
+    else:
+        media_dir = fyp_cf['paths']['media']
+        def _link(vid: str) -> str:
+            return os.path.join(media_dir, f"{vid}.mp4")
+    if "video_downloaded" in results.columns:
+        downloaded = results["video_downloaded"].fillna(False)
+    else:
+        downloaded = pd.Series(False, index=results.index)
+    results["storage_link"] = pd.Series(
+        [_link(vid) if dl else "" for vid, dl in zip(results["item_id"], downloaded)],
+        index=results.index,
+        dtype="string[pyarrow]",
+    )
+    return results
+
+
+
+
+def _canonicalize_recode_save(
+    results: pd.DataFrame,
+    scraper,
+    fine_ts: str,
+    verbose: bool = False,
+) -> pd.DataFrame:
+    """Fix up, canonicalize, recode, and save a raw scrape batch to parquet.
+
+    Shared by ``download_video_threads`` and ``rescue_tiktok_meta_threads``.
+    Operates on the concatenated raw single-row frames: fixes the slideshow
+    image_list/duration on the RAW names, canonicalizes via the scraper (rename +
+    overflow repair + per-K rates + plays_per_day + scrape_status), stamps
+    storage_link, filters to the var_schema, recodes, and writes
+    ``scrapes_<ts>.parquet``.
+
+    Args:
+        results: concatenated raw single-row scrape frames.
+        scraper: the platform scraper instance (provides canonicalize_batch).
+        fine_ts: digit-only timestamp for the output filename.
+        verbose: print dropped-column / save diagnostics.
+
+    Returns:
+        The saved (recoded, canonical) frame.
+    """
+    scrape_filename = f"{SCRAPES_LABEL}_{fine_ts}.parquet"
+
+    # save the raw results to local temp just in case everything goes to pieces
+    results.to_parquet(os.path.join(fyp_cf['paths']['temp'], "recovered_" + scrape_filename))
+
+    try:
+        # fix up the image_list and durations of slide shows on the RAW names,
+        # before the scraper renames video_duration -> duration.
+        results.set_index('item_id', inplace=True)
+        results['image_list'] = results['image_list'].map(
+            lambda x: len(x.split("|")) if not pd.isna(x) and x != "" and isinstance(x, str) else 0
+        ).astype("int64[pyarrow]")
+        # image posts: set video_duration to image count * 2 seconds (a hunch)
+        results.loc[results[results['image_list'] > 0].index, 'video_duration'] = (
+            results.loc[results[results['image_list'] > 0].index, 'image_list'] * 2
+        )
+        results.reset_index(inplace=True)
+        results.drop(["do_not_modify"], axis=1, errors='ignore', inplace=True)
+        # video duration is never zero - set zero durations to pd.NA
+        results.loc[results[results['video_duration'] < 1].index, 'video_duration'] = pd.NA
+
+        # canonicalize: raw TikTok names -> canonical, plus per-K / plays_per_day /
+        # scrape_status, then stamp the media storage_link.
+        results = scraper.canonicalize_batch(results, status="ok")
+        results = _add_storage_link(results)
+
+        # apply prefix renames (no-op for scrape columns; covers annotation prefixes)
+        results = rename_columns(results).copy()
+
+        # only keep columns as defined by the variable schema
+        dropped_vars_str = textwrap.wrap(", ".join(list(set(results.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
+        relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in results.columns]
+        results = results[relevant_cols].copy()
+
+        if verbose and dropped_vars_str:
+            joined_vars = '\n'.join(dropped_vars_str)
+            print(f"Dropped these columns, which are not in the variable schema:\n{joined_vars}\nCurrent shape: {results.shape}")
+
+        # recode_events_df drops role=skip columns (scrape_ts / storage_link are
+        # base provenance fields kept on disk but hidden from analysis). Snapshot
+        # the base columns by item_id, then restore any the recode dropped.
+        base_present = [c for c in scraper.base_columns if c in results.columns]
+        base_snapshot = (
+            results[["item_id"] + [c for c in base_present if c != "item_id"]].copy()
+            if "item_id" in results.columns else None
+        )
+
+        # recode the data
+        results = recode_events_df(
+            study_dataset=results,
+            drop_single_value_cols=False,
+            verbose=verbose,
+        )
+
+        if base_snapshot is not None and "item_id" in results.columns:
+            for col in base_present:
+                if col == "item_id" or col in results.columns:
+                    continue
+                mapping = dict(zip(base_snapshot["item_id"], base_snapshot[col]))
+                restored = results["item_id"].map(mapping)
+                try:
+                    restored = restored.astype(scraper.base_columns[col])
+                except Exception:
+                    pass
+                results[col] = restored
+
+        # scraped_ok is retained as a derived back-compat shim (downstream merges
+        # in organize_datasets / data_service still read it); scrape_status is the
+        # source of truth.
+        results["scraped_ok"] = (results["scrape_status"] == "ok").astype("bool[pyarrow]")
+
+        data_io.save_parquet(df=results, storage_location="scrape", filename=scrape_filename)
+        print(f"Saved {len(results):,} rows to '{scrape_filename}'. Media downloaded for {len(results[results['video_downloaded']]):,} of these.")
+
+    except Exception as e:
+        print(f"CRITICAL: Failed to save results to parquet: {e}")
+        print("Recovering the un-processed results from temp")
+        data_io.move(
+            src_storage_location="temp",
+            dst_storage_location="scrape",
+            filename="recovered_" + scrape_filename,
+            verbose=verbose,
+        )
+
+    return results
+
+
+
+
 def rescue_tiktok_meta_threads(
     interesting_videos:list[str] = None,
     max_workers:int = 4,
@@ -442,14 +583,16 @@ def rescue_tiktok_meta_threads(
             return pd.DataFrame()
 
     results_by_index = {}
+    scraper = get_scraper(verbose=verbose)
 
     def worker(idx_video):
         idx, video = idx_video
         return idx, download_single_video(
-            video_id = video, 
+            video_id = video,
             verbose=verbose,
             save_video=False,
-            dry_run=dry_run)
+            dry_run=dry_run,
+            scraper=scraper)
 
 
     if verbose:
@@ -495,7 +638,8 @@ def rescue_tiktok_meta_threads(
             vid = interesting_videos[idx]
             failed_items += [vid]
             error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
-            if error_type in ('removed', 'private', 'geo_blocked', 'ip_blocked', 'extraction'):
+            # The scraper owns its platform's permanent-vs-transient taxonomy.
+            if scraper.classify_error(error_type).startswith('permanent'):
                 permanent_failed_ids.append(vid)
             else:
                 transient_failed_ids.append(vid)
@@ -513,78 +657,7 @@ def rescue_tiktok_meta_threads(
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
     if not dry_run and len(results)>0:
-        
-        scrape_filename = f"{SCRAPES_LABEL}_{fine_ts}.parquet"
-
-        # saving the results to local temp just in case everything goes to pieces
-        results.to_parquet(os.path.join(fyp_cf['paths']['temp'], "recovered_"+scrape_filename))
-    
-
-
-
-
-
-        # -----------------------------------------------
-        # recode the results before saving
-        # -----------------------------------------------
-
-        try:
-            # fix up the image_list and video_durations of slide shows
-
-            # first, set item_id as index - to allow for easy access
-            results.set_index('item_id', inplace=True)
-            results['image_list'] = results['image_list'].map(lambda x:len(x.split("|")) if not pd.isna(x) and x!="" and isinstance(x,str) else 0).astype("int64[pyarrow]")
-            # for items with more than zero images in the image_list, set video_duration based on number of images * 2 seconds - just a hunch...
-            results.loc[results[results['image_list']>0].index,'video_duration'] = results.loc[results[results['image_list']>0].index,'image_list'] * 2
-            # move the item_id back from the index to a column - this also resets the index to a nice range, which is what I want
-            results.reset_index(inplace=True)
-
-            # drop do_not_modify column if it exists - it should not exist in 2026+ versions of the code
-            results.drop(["do_not_modify"], axis=1, errors='ignore', inplace=True)
-
-            # video duration is never zero - set zero durations to pd.NA
-            results.loc[results[results['video_duration']<1].index,'video_duration'] = pd.NA
-
-            # rename the columns
-            #results = results.rename(columns={c:"S_"+c if not c=="item_id" and not c.startswith("S_") else c for c in results.columns}).copy()
-            results = rename_columns(results).copy()
-
-            # only keep columns as defined by the variable schema
-            dropped_vars_str = textwrap.wrap(", ".join(list(set(results.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
-            relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in results.columns]
-            results = results[relevant_cols].copy()
-
-            if verbose and dropped_vars_str:
-                joined_vars = '\n'.join(dropped_vars_str)
-                print(f"Dropped these columns, which are not in the variable schema:\n{joined_vars}\nCurrent shape: {results.shape}")
-    
-
-            # recode the data
-            results = recode_events_df(
-                study_dataset = results,
-                drop_single_value_cols=False,
-                verbose = verbose
-                )
-
-            # add scraped_ok column that is True for all rows - necessary for later merging with other datasets
-            results["scraped_ok"] = pd.Series(True, index=results.index, dtype="bool[pyarrow]")
-
-
-            data_io.save_parquet(df=results, storage_location="scrape", filename=scrape_filename)
-
-            print(f"Saved {len(results):,} rows to '{scrape_filename}'. Media downloaded for {len(results[results['video_downloaded']]):,} of these.")
-
-        except Exception as e:
-            print(f"CRITICAL: Failed to save results to parquet: {e}")
-            print("Recovering the un-processed results from temp")
-            data_io.move(
-                src_storage_location="temp",
-                dst_storage_location="scrape",
-                filename="recovered_"+scrape_filename,
-                verbose=verbose
-                )
-
-
+        results = _canonicalize_recode_save(results, scraper, fine_ts, verbose=verbose)
 
     if not dry_run and len(failed_items)>0:
         data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
@@ -698,6 +771,9 @@ def download_video_threads(
             )
 
     results_by_index = {}
+    # One scraper instance for the whole batch (loads the scrape contract once);
+    # the platform-specific fetch/canonicalize/classify live on it.
+    scraper = get_scraper(verbose=verbose)
     # Lower ceiling than before (was 12). With a single TikTok session
     # behind cookies, >6 concurrent requests reliably triggers TikTok's
     # behavioural flags — keep headroom but don't let the throttle grow
@@ -715,7 +791,8 @@ def download_video_threads(
                 video_id=video,
                 verbose=verbose,
                 save_video=not skip_media,
-                dry_run=dry_run)
+                dry_run=dry_run,
+                scraper=scraper)
             # For items where media already exists, reflect actual storage state
             # in the metadata row — save_tiktok returns video_downloaded=False
             # when save_video=False, which is misleading for skipped items.
@@ -814,7 +891,8 @@ def download_video_threads(
             vid = interesting_videos[idx]
             failed_items += [vid]
             error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
-            if error_type in ('removed', 'private', 'geo_blocked', 'ip_blocked', 'extraction'):
+            # The scraper owns its platform's permanent-vs-transient taxonomy.
+            if scraper.classify_error(error_type).startswith('permanent'):
                 permanent_failed_ids.append(vid)
             else:
                 transient_failed_ids.append(vid)
@@ -832,73 +910,7 @@ def download_video_threads(
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
     if not dry_run and len(results)>0:
-        
-        scrape_filename = f"{SCRAPES_LABEL}_{fine_ts}.parquet"
-
-        # saving the results to local temp just in case everything goes to pieces
-        results.to_parquet(os.path.join(fyp_cf['paths']['temp'], "recovered_"+scrape_filename))
-
-
-        # -----------------------------------------------
-        # recode the results before saving
-        # -----------------------------------------------
-
-        try:
-            # fix up the image_list and video_durations of slide shows
-
-            # first, set item_id as index - to allow for easy access
-            results.set_index('item_id', inplace=True)
-            results['image_list'] = results['image_list'].map(lambda x:len(x.split("|")) if not pd.isna(x) and x!="" else 0).astype("int64[pyarrow]")
-            # for items with more than zero images in the image_list, set video_duration based on number of images * 2 seconds - just a hunch...
-            results.loc[results[results['image_list']>0].index,'video_duration'] = results.loc[results[results['image_list']>0].index,'image_list'] * 2
-            # move the item_id back from the index to a column - this also resets the index to a nice range, which is what I want
-            results.reset_index(inplace=True)
-
-            # drop do_not_modify column if it exists - it should not exist in 2026+ versions of the code
-            results.drop(["do_not_modify"], axis=1, errors='ignore', inplace=True)
-
-            # video duration is never zero - set zero durations to pd.NA
-            results.loc[results[results['video_duration']<1].index,'video_duration'] = pd.NA
-
-            # rename the columns
-            #results = results.rename(columns={c:"S_"+c if not c=="item_id" and not c.startswith("S_") else c for c in results.columns}).copy()
-            results = rename_columns(results).copy()
-
-            # only keep columns as defined by the variable schema
-            dropped_vars_str = textwrap.wrap(", ".join(list(set(results.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
-            relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in results.columns]
-            results = results[relevant_cols].copy()
-
-            if verbose and dropped_vars_str:
-                joined_vars = '\n'.join(dropped_vars_str)
-                print(f"Dropped these columns, which are not in the variable schema:\n{joined_vars}\nCurrent shape: {results.shape}")
-    
-
-            # recode the data
-            results = recode_events_df(
-                study_dataset = results,
-                drop_single_value_cols=False,
-                verbose = verbose
-                )
-
-            # add scraped_ok column that is True for all rows - necessary for later merging with other datasets
-            results["scraped_ok"] = pd.Series(True, index=results.index, dtype="bool[pyarrow]")
-
-
-            data_io.save_parquet(df=results, storage_location="scrape", filename=scrape_filename)
-
-            print(f"Saved {len(results):,} rows to '{scrape_filename}'. Media downloaded for {len(results[results['video_downloaded']]):,} of these.")
-
-        except Exception as e:
-            print(f"CRITICAL: Failed to save results to parquet: {e}")
-            print("Recovering the un-processed results from temp")
-            data_io.move(
-                src_storage_location="temp",
-                dst_storage_location="scrape",
-                filename="recovered_"+scrape_filename,
-                verbose=verbose
-                )
-
+        results = _canonicalize_recode_save(results, scraper, fine_ts, verbose=verbose)
 
     if not dry_run and len(failed_items)>0:
         data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
@@ -1177,82 +1189,74 @@ def queue_scraper_loop(
 
 
 
-def _engagement_per_play(numerator: pd.Series, plays: pd.Series) -> pd.Series:
-    """Divide an engagement count by play count, returning a proportion.
+def _parse_scrape_filename_ts(filename: str | None) -> "pd.Timestamp":
+    """Best-effort parse a ``scrapes_<digits>.parquet`` filename into a Timestamp.
 
-    The yt-dlp sentinel ``-1`` (and any value < 0) in the numerator, and any
-    play count <= 0, are treated as missing and yield ``pd.NA``.
-
-    Args:
-        numerator: Engagement counts (e.g. comments, faves, shares, saves).
-        plays: Play (view) counts used as the denominator.
-
-    Returns:
-        A ``double[pyarrow]`` Series of ``numerator / plays`` proportions with
-        ``pd.NA`` wherever either side is missing or the denominator is non-positive.
-    """
-    num = numerator.astype("double[pyarrow]").mask(numerator < 0, pd.NA)
-    den = plays.astype("double[pyarrow]").mask(plays <= 0, pd.NA)
-    return (num / den).astype("double[pyarrow]")
-
-
-
-
-
-
-# Engagement-rate columns derived at consolidation: new per-play column → source count.
-ENGAGEMENT_PER_PLAY_COLUMNS: dict[str, str] = {
-    "comments_per_play": "stats_commentCount",
-    "faves_per_play": "stats_diggCount",
-    "shares_per_play": "stats_shareCount",
-    "saves_per_play": "stats_collectCount",
-}
-
-
-# TikTok reports view/engagement counts as signed 32-bit integers; counts above
-# 2**31 - 1 (~2.15 billion) arrive wrapped around to a negative value. The true
-# count is recovered by adding 2**32. The yt-dlp "missing" sentinel -1 is left
-# untouched (a genuine 4,294,967,295-view item would also wrap to -1, but that is
-# vanishingly rare and indistinguishable from the sentinel).
-_UINT32_RANGE: int = 1 << 32
-
-OVERFLOW_REPAIR_COLUMNS: tuple[str, ...] = (
-    "stats_playCount",
-    "stats_diggCount",
-    "stats_shareCount",
-    "stats_commentCount",
-    "stats_collectCount",
-)
-
-
-def repair_overflowed_counts(df: pd.DataFrame, columns: tuple[str, ...] = OVERFLOW_REPAIR_COLUMNS, verbose: bool = False) -> pd.DataFrame:
-    """Recover signed-32-bit-overflowed TikTok counts in place.
-
-    Any value strictly below -1 in a count column is treated as a 32-bit wrap of
-    a count exceeding 2**31 and is corrected by adding 2**32. The -1 missing
-    sentinel and all non-negative values are preserved.
+    Legacy raw scrape parquets predate the persisted ``scrape_ts`` column; the
+    file's name encodes when the scrape ran (the digits of ``datetime.now()``),
+    which serves as a per-file scrape time so ``plays_per_day`` can still be
+    derived. Returns ``pd.NaT`` when the name carries no parseable timestamp.
 
     Args:
-        df: DataFrame of scrape stats (mutated and returned).
-        columns: Count column names to repair.
-        verbose: When True, print the number of values repaired per column.
+        filename: the scrape parquet filename.
 
     Returns:
-        The same DataFrame with overflowed counts recovered.
+        The parsed timestamp, or ``pd.NaT``.
     """
-    for col in columns:
-        if col not in df.columns:
-            continue
-        series = df[col]
-        mask = (series < -1).fillna(False)
-        n_repaired = int(mask.sum())
-        if n_repaired:
-            df[col] = series.mask(mask, series + _UINT32_RANGE)
-            if verbose:
-                print(f"    Recovered {n_repaired:,} signed-32-bit-overflowed value(s) in {col}")
+    if not filename:
+        return pd.NaT
+    digits = "".join(c for c in filename if c.isdigit())
+    if len(digits) < 14:
+        return pd.NaT
+    try:
+        return pd.to_datetime(digits[:14], format="%Y%m%d%H%M%S")
+    except Exception:
+        return pd.NaT
+
+
+
+
+def _canonicalize_legacy_scrape(df: pd.DataFrame, filename: str | None = None, scraper=None) -> pd.DataFrame:
+    """Migrate a legacy (pre-canonical) scrape parquet to the canonical schema.
+
+    New scrape parquets are already saved with canonical column names, per-K
+    engagement rates, plays_per_day, and scrape_status, so this is a no-op for
+    them. A legacy parquet (TikTok-named columns, no per-K, ``scraped_ok`` bool)
+    is renamed to canonical, its counts overflow-repaired, the per-K rates and
+    plays_per_day derived, ``scrape_ts`` back-filled from the filename timestamp,
+    and ``scrape_status`` back-filled from ``scraped_ok`` — so old and new files
+    concatenate into one canonical frame.
+
+    Args:
+        df: a single raw scrape parquet's frame.
+        filename: the parquet filename (back-fills scrape_ts for legacy frames).
+        scraper: a platform scraper instance (created if not provided).
+
+    Returns:
+        The canonical frame (the input unchanged when already canonical).
+    """
+    if not any(c in df.columns for c in sc.LEGACY_COLUMN_ALIASES):
+        return df
+    df = df.rename(columns=sc.LEGACY_COLUMN_ALIASES)
+    if "scrape_ts" not in df.columns or df["scrape_ts"].isna().all():
+        df["scrape_ts"] = pd.Series(
+            _parse_scrape_filename_ts(filename), index=df.index, dtype="timestamp[ns][pyarrow]"
+        )
+    if scraper is None:
+        scraper = get_scraper(verbose=False)
+    df = scraper.repair_counts(df)
+    df = scraper.derive_engagement_rates(df)
+    df = scraper.derive_plays_per_day(df)
+    if "scrape_status" not in df.columns:
+        if "scraped_ok" in df.columns:
+            ok = df["scraped_ok"].astype("boolean").fillna(False)
+            df["scrape_status"] = ok.map({True: "ok", False: "failed"}).astype("string[pyarrow]")
+        else:
+            df["scrape_status"] = pd.Series("ok", index=df.index, dtype="string[pyarrow]")
+    # Complete the canonical schema: base fields the legacy frame never carried
+    # (e.g. storage_link — no media path was recorded historically) become all-NA.
+    df = scraper.ensure_base_columns(df)
     return df
-
-
 
 
 
@@ -1303,8 +1307,12 @@ def consolidate_and_save_scrape_data(
     if top_verbose:
         print("Loading scrape files...")
     many_scrape_dfs = []
+    scraper = get_scraper(verbose=False)
     for fn in files_to_concatenate:
         df = data_io.load_parquet(storage_location="scrape", filename=fn)
+        # Migrate legacy (pre-canonical) parquets to the canonical schema; a no-op
+        # for files already saved with canonical names.
+        df = _canonicalize_legacy_scrape(df, filename=fn, scraper=scraper)
         many_scrape_dfs.append(df)
         if verbose:
             print(fn, df.shape)
@@ -1355,21 +1363,10 @@ def consolidate_and_save_scrape_data(
         print(f"Shape: {scrape_df.shape} | Memory usage: {total_memory_mb:.2f} MB")
 
 
-    # Recover any signed-32-bit-overflowed counts (TikTok view counts above
-    # ~2.15B arrive wrapped to a negative value) before they are stored or used
-    # to derive per-play rates / plays-per-day downstream.
-    scrape_df = repair_overflowed_counts(scrape_df, verbose=top_verbose)
-
-    # Derive per-play engagement rates so comparisons are not dominated by the
-    # mechanical correlation between absolute counts and play count. Plays stays
-    # absolute; the raw counts are retained for provenance.
-    has_plays = "stats_playCount" in scrape_df.columns
-    for new_col, src_col in ENGAGEMENT_PER_PLAY_COLUMNS.items():
-        if has_plays and src_col in scrape_df.columns:
-            scrape_df[new_col] = _engagement_per_play(scrape_df[src_col], scrape_df["stats_playCount"])
-        else:
-            scrape_df[new_col] = pd.Series(pd.NA, index=scrape_df.index, dtype="double[pyarrow]")
-
+    # Count-overflow repair, per-K engagement rates, and plays_per_day are now
+    # produced at scrape time (BaseScraper.canonicalize_batch) and back-filled for
+    # any legacy parquet by _canonicalize_legacy_scrape at load, so consolidation
+    # only needs to concatenate and deduplicate.
 
     # Compute new item_ids by comparing against existing consolidated data
     new_item_ids: set[str] = set()

@@ -605,7 +605,20 @@ def compute_var_schema_hash() -> str:
     except Exception:
         pass
 
-    digest = hashlib.sha256(payload + norm_payload).hexdigest()
+    # Fold in the scrape contract's field set (stored dtypes, scope/platform, the
+    # per-K engagement map) so a scrape_contract.toml edit invalidates cached study
+    # parquets the same way an annotation-contract edit does via norm_payload.
+    scrape_payload = b""
+    try:
+        from fyp import scrape_contract as sc
+
+        scrape_payload = json.dumps(
+            sc.contract_field_digest(sc.load_contract()), sort_keys=True
+        ).encode("utf-8")
+    except Exception:
+        pass
+
+    digest = hashlib.sha256(payload + norm_payload + scrape_payload).hexdigest()
     return f"{VAR_SCHEMA_HASH_VERSION}:{digest}"
 
 

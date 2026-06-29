@@ -432,6 +432,65 @@ def _apply_contract_variable_metadata(cf) -> None:
 
 
 
+def _apply_contract_scrape_metadata(cf) -> None:
+    """Materialize scrape-variable metadata from the scrape contract, in memory.
+
+    The scrape contract (``config/scrape_contract.toml``) owns ``role`` /
+    ``scale`` / ``display_name`` / ``description`` / ``section`` for the canonical
+    scrape columns, the same way the annotation contract owns them for the Gemini
+    columns. This (a) overlays that metadata onto the matching ``var_schema`` rows
+    and (b) injects any contract-owned scrape column missing from
+    ``var_schema.csv``, so the TOML — not the CSV — is the source of truth for the
+    scrape field set (a new platform's fields appear with no CSV edit). The
+    overlay is PER-ROW and additive: non-scrape rows are untouched. It runs after
+    :func:`_apply_contract_variable_metadata` in :func:`load_var_schema` and
+    degrades to a no-op when the contract cannot be loaded.
+
+    Args:
+        cf: the config dict whose ``var_schema`` DataFrame is overlaid in place.
+    """
+    vs = cf.get("var_schema")
+    if vs is None or getattr(vs, "empty", True) or "variable_name" not in vs.columns:
+        return
+    for col in ("role", "scale", "display_name", "description", "section"):
+        if col not in vs.columns:
+            vs[col] = pd.NA
+    try:
+        from fyp import scrape_contract as sc
+
+        contract = sc.load_contract()
+        meta = sc.contract_column_metadata(contract)
+        derived = sc.derived_fields(contract)
+    except Exception:
+        return
+    # Migrate legacy TikTok-named rows to canonical in-memory, so an un-migrated
+    # var_schema.csv (existing local or prod deployment) self-heals at load.
+    vs["variable_name"] = vs["variable_name"].replace(sc.LEGACY_COLUMN_ALIASES)
+    for idx in vs.index:
+        owned = meta.get(vs.at[idx, "variable_name"])
+        if owned:
+            for col in ("role", "scale", "display_name", "description", "section"):
+                if owned.get(col) is not None:
+                    vs.at[idx, col] = owned[col]
+    present = set(vs["variable_name"].astype("string"))
+    missing = [name for name in meta if name not in present]
+    if missing:
+        rows = []
+        for name in missing:
+            owned = meta[name]
+            rows.append({
+                "variable_name": name,
+                "source": "derived: scrape" if name in derived else "scrape",
+                "role": owned.get("role"),
+                "scale": owned.get("scale"),
+                "display_name": owned.get("display_name"),
+                "description": owned.get("description"),
+                "section": owned.get("section"),
+            })
+        cf["var_schema"] = pd.concat([vs, pd.DataFrame(rows)], ignore_index=True)
+
+
+
 def load_var_schema(cf, verbose=False):
     # Load variable schema
     var_schema_path = _var_schema_path(cf)
@@ -492,6 +551,7 @@ def load_var_schema(cf, verbose=False):
     # membership. Once the CSV no longer stores scale for these rows, accepted_labels
     # would otherwise see a blank scale and skip them.
     _apply_contract_variable_metadata(cf)
+    _apply_contract_scrape_metadata(cf)
     _apply_contract_accepted_labels(cf)
     return cf
 
@@ -591,29 +651,45 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
         errors="ignore",
     )
 
-    # Contract-owned metadata is rebuilt in memory at load from
-    # annotation_contract.toml (see ``_apply_contract_variable_metadata``), so it
-    # is never persisted: blank ``role``/``scale``/``display_name``/``description``
-    # for the contract's output columns, and blank ``section`` for EVERY
-    # Gemini-origin row (all forced to "GenAI" on load). Per-row — non-Gemini rows
-    # keep their CSV values. The on-disk CSV is thus a clean slate the overlay
-    # re-fills, so an admin edit to a contract cell is discarded by design.
+    # Contract-owned metadata is rebuilt in memory at load from the annotation
+    # contract (``_apply_contract_variable_metadata``) and the scrape contract
+    # (``_apply_contract_scrape_metadata``), so it is never persisted: blank
+    # ``role``/``scale``/``display_name``/``description`` for either contract's
+    # columns, and blank ``section`` for every Gemini-origin row (forced to
+    # "GenAI") and every scrape-contract column (the scrape contract owns their
+    # section). Per-row — uncontracted rows keep their CSV values. The on-disk CSV
+    # is thus a clean slate the overlays re-fill, so an admin edit to a contract
+    # cell is discarded by design.
     try:
         from fyp import annotation_contract as ac
 
         contract_cols = set(ac.contract_column_metadata(ac.load_contract()).keys())
     except Exception:
         contract_cols = set()
+    try:
+        from fyp import scrape_contract as sc
+
+        scrape_cols = set(sc.contract_column_metadata(sc.load_contract()).keys())
+    except Exception:
+        scrape_cols = set()
     if "variable_name" in df.columns:
-        if contract_cols:
-            owned = df["variable_name"].isin(contract_cols)
+        owned_cols = contract_cols | scrape_cols
+        if owned_cols:
+            owned = df["variable_name"].isin(owned_cols)
             for col in ("role", "scale", "display_name", "description"):
                 if col in df.columns:
                     df.loc[owned, col] = pd.NA
-        if "source" in df.columns and "section" in df.columns:
-            src = df["source"].astype("string").fillna("")
-            gemini = src.eq("Gemini") | src.str.startswith("derived: Gemini")
-            df.loc[gemini, "section"] = pd.NA
+        if "section" in df.columns:
+            if "source" in df.columns:
+                src = df["source"].astype("string").fillna("")
+                gemini = src.eq("Gemini") | src.str.startswith("derived: Gemini")
+            else:
+                gemini = pd.Series(False, index=df.index)
+            scrape_owned = (
+                df["variable_name"].isin(scrape_cols)
+                if scrape_cols else pd.Series(False, index=df.index)
+            )
+            df.loc[gemini | scrape_owned, "section"] = pd.NA
 
     # Atomic-ish write: local goes through a temp file + os.replace;
     # GCS overwrites are atomic at the blob level.

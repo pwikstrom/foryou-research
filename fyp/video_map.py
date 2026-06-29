@@ -62,10 +62,10 @@ OVERLAY_CATEGORICAL = [
     "australian_relevance", "tiktok_native", "trend", "advertising", "aigc",
     "main_gender", "main_ethnicity",
 ]
-# Scrape-derived per-play engagement rates (computed at scrape consolidation)
+# Scrape-derived per-1K-play engagement rates (computed at scrape time)
 # denormalised into the map file as numeric colour overlays.
 SCRAPE_OVERLAY_NUMERIC = [
-    "comments_per_play", "faves_per_play", "shares_per_play", "saves_per_play",
+    "comments_per_K_play", "faves_per_K_play", "shares_per_K_play", "saves_per_K_play",
 ]
 
 # Cached Vertex client for niche naming. Distinct from the embeddings client
@@ -509,12 +509,12 @@ def build_niche_map(
     scr = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION,
         filename=embeddings.SCRAPES_FILE,
-        columns=["item_id", "stats_playCount"] + scrape_numeric,
+        columns=["item_id", "play_count"] + scrape_numeric,
     )
     scr["item_id"] = scr["item_id"].astype("string")
     scr_by_item = scr.drop_duplicates("item_id").set_index("item_id")
     item_index = pd.Index(item_ids, dtype="string")
-    plays = pd.to_numeric(scr_by_item["stats_playCount"].reindex(item_index), errors="coerce")
+    plays = pd.to_numeric(scr_by_item["play_count"].reindex(item_index), errors="coerce")
     log_plays = np.log10(plays.fillna(0).clip(lower=0).to_numpy() + 1.0)
 
     # Denormalise the annotation overlay scalars (aligned to item_ids order).

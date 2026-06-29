@@ -19,7 +19,7 @@ the collection's plays are read straight from the consolidated activity file
 ``collection_id`` filter. That file is clustered by ``collection_id``, so the
 filter prunes row groups and one collection loads in ~100 ms / <1 MB — light
 enough for a live request (unlike the full enrichment merge the timeline worker
-runs). The trade-off: ``video_duration`` lives only in the scrape enrichment, so
+runs). The trade-off: ``duration`` lives only in the scrape enrichment, so
 the watch-time weight is ``play_duration`` (already capped at 600 s in ingest);
 collections with no recorded watch time (e.g. ``observe``-only baselines) fall
 back to a unit count, surfaced as ``weight_mode``.

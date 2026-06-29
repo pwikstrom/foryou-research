@@ -57,7 +57,10 @@ def pinned_var_schema(schema_csv: Path = SCHEMA_SNAPSHOT):
     Falls back to the live schema (no swap) if the snapshot is missing, so the
     builder can run before a snapshot exists.
     """
-    from fyp.fyp_config import _apply_contract_accepted_labels
+    from fyp.fyp_config import (
+        _apply_contract_accepted_labels,
+        _apply_contract_scrape_metadata,
+    )
 
     original = fyp_cf.get("var_schema")
     try:
@@ -65,8 +68,10 @@ def pinned_var_schema(schema_csv: Path = SCHEMA_SNAPSHOT):
             fyp_cf["var_schema"] = pd.read_csv(
                 schema_csv, dtype_backend="pyarrow", encoding="utf-8"
             )
-            # accepted_labels is contract-owned and not stored in the CSV/snapshot;
-            # rebuild it in memory exactly as the live load path does.
+            # Scrape metadata + accepted_labels are contract-owned and not stored in
+            # the CSV/snapshot; rebuild them in memory exactly as the live load path
+            # does (scrape metadata first, mirroring load_var_schema).
+            _apply_contract_scrape_metadata(fyp_cf)
             _apply_contract_accepted_labels(fyp_cf)
         yield fyp_cf.get("var_schema")
     finally:

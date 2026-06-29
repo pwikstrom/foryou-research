@@ -1032,7 +1032,7 @@ def _build_agg_dict_to_generate_basic_video_stats(study_dataset: pd.DataFrame = 
         "scraped_fail": ("scraped_fail", "first"),
         "annotated_ok": ("annotated_ok", "first"),
         "annotated_fail": ("annotated_fail", "first"),
-        "video_duration": ("video_duration", "max"),
+        "duration": ("duration", "max"),
     }
 
     if study_dataset is None:
@@ -1066,9 +1066,9 @@ def select_videos_from_study_dataset(
 
     video_stats = study_dataset[confirmed_cols].groupby('item_id').agg(**agg_dict)
 
-    if "video_duration" in video_stats.columns:
-        video_stats['duration_ok_to_annotate'] = (video_stats['video_duration'] <= fyp_cf["machine"]["max_duration_for_annotation"]).fillna(False)
-        video_stats.drop(columns=["video_duration"], inplace=True)
+    if "duration" in video_stats.columns:
+        video_stats['duration_ok_to_annotate'] = (video_stats['duration'] <= fyp_cf["machine"]["max_duration_for_annotation"]).fillna(False)
+        video_stats.drop(columns=["duration"], inplace=True)
     else:
         video_stats['duration_ok_to_annotate'] = False
 
@@ -1394,23 +1394,27 @@ def new_merge(
         # adding some calculated columns to this merged dataset
         # --------------------------------------------------------------------------------------------------
 
-        # 1. days since created
+        # 1. days since created (activity-local time minus upload time)
         calc_col = ["days_since_created"]
-        if "local_timestamp" in shebang.columns and "createTime" in shebang.columns:
-            shebang[calc_col[-1]] = shebang["local_timestamp"] - shebang["createTime"]
+        if "local_timestamp" in shebang.columns and "create_time" in shebang.columns:
+            shebang[calc_col[-1]] = shebang["local_timestamp"] - shebang["create_time"]
             shebang[calc_col[-1]] = shebang[calc_col[-1]].map(lambda x: x.days if x is not pd.NA else pd.NA).astype("int64[pyarrow]")
             shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0)
         else:
             shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="int64[pyarrow]")
 
-        # 2. plays per day
+        # 2. plays per day — produced at scrape time (BaseScraper.derive_plays_per_day,
+        # using scrape_ts); fall back to an activity-time estimate only for rows that
+        # lack it (e.g. items merged in without scrape enrichment).
         calc_col += ["plays_per_day"]
         def _safe_vector_divide(x, y):
             return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
-        if "stats_playCount" in shebang.columns and "days_since_created" in shebang.columns and not shebang["days_since_created"].isna().all():
-            shebang[calc_col[-1]] = _safe_vector_divide(shebang['stats_playCount'],shebang['days_since_created'])
-        else:
-            shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
+        if "plays_per_day" not in shebang.columns:
+            shebang["plays_per_day"] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
+        need_ppd = shebang["plays_per_day"].isna()
+        if need_ppd.any() and "play_count" in shebang.columns and "days_since_created" in shebang.columns and not shebang["days_since_created"].isna().all():
+            fallback = _safe_vector_divide(shebang['play_count'], shebang['days_since_created'])
+            shebang.loc[need_ppd, "plays_per_day"] = fallback[need_ppd]
 
         # 3. scraped fail
         failed_scrapes = set(load_failed_scrapes(verbose=verbose))
@@ -1419,8 +1423,8 @@ def new_merge(
 
         # 4. completion rate
         calc_col += ["completion_rate"]
-        if "play_duration" in shebang.columns and "video_duration" in shebang.columns:
-            shebang[calc_col[-1]] = shebang["play_duration"] / shebang["video_duration"]
+        if "play_duration" in shebang.columns and "duration" in shebang.columns:
+            shebang[calc_col[-1]] = shebang["play_duration"] / shebang["duration"]
             shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0,upper=1).astype("double[pyarrow]")
         else:
             shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")

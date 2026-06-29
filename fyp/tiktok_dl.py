@@ -23,6 +23,7 @@ from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp.fyp_config import fyp_cf
+from fyp.platform_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -956,3 +957,141 @@ def save_tiktok(
                 break
 
     return data_row
+
+
+
+
+# -------------------------------------------------------------------------
+# Count overflow repair (TikTok-specific) + the platform scraper subclass
+# -------------------------------------------------------------------------
+
+# TikTok reports view/engagement counts as signed 32-bit integers; counts above
+# 2**31 - 1 (~2.15 billion) arrive wrapped around to a negative value. The true
+# count is recovered by adding 2**32. The yt-dlp "missing" sentinel -1 is left
+# untouched (a genuine 4,294,967,295-count item would also wrap to -1, but that is
+# vanishingly rare and indistinguishable from the sentinel).
+_UINT32_RANGE: int = 1 << 32
+
+# Repaired on the CANONICAL frame: play_count is the renamed view count; the four
+# stats_* counts stay platform-specific and feed the per-K engagement rates.
+OVERFLOW_REPAIR_COLUMNS: tuple[str, ...] = (
+    "play_count",
+    "stats_diggCount",
+    "stats_shareCount",
+    "stats_commentCount",
+    "stats_collectCount",
+)
+
+
+# Raw yt-dlp / page-JSON column names → canonical base names. Platform-specific
+# fields (music_*, stats_diggCount, challenges, ...) keep their raw names.
+_RAW_TO_CANONICAL: dict[str, str] = {
+    "createTime": "create_time",
+    "video_duration": "duration",
+    "stats_playCount": "play_count",
+    "author_nickname": "author_name",
+    "last_modified": "scrape_ts",
+}
+
+
+
+
+def repair_overflowed_counts(
+    df: pd.DataFrame,
+    columns: tuple[str, ...] = OVERFLOW_REPAIR_COLUMNS,
+    verbose: bool = False,
+) -> pd.DataFrame:
+    """Recover signed-32-bit-overflowed TikTok counts in place.
+
+    Any value strictly below -1 in a count column is treated as a 32-bit wrap of
+    a count exceeding 2**31 and is corrected by adding 2**32. The -1 missing
+    sentinel and all non-negative values are preserved.
+
+    Args:
+        df: DataFrame of scrape stats (mutated and returned).
+        columns: Count column names to repair (canonical names).
+        verbose: When True, print the number of values repaired per column.
+
+    Returns:
+        The same DataFrame with overflowed counts recovered.
+    """
+    for col in columns:
+        if col not in df.columns:
+            continue
+        series = df[col]
+        mask = (series < -1).fillna(False)
+        n_repaired = int(mask.sum())
+        if n_repaired:
+            df[col] = series.mask(mask, series + _UINT32_RANGE)
+            if verbose:
+                print(f"    Recovered {n_repaired:,} signed-32-bit-overflowed value(s) in {col}")
+    return df
+
+
+
+
+class TikTokScraper(BaseScraper):
+    """TikTok platform scraper (yt-dlp primary, legacy pyktok fallback).
+
+    Wraps the module's existing download/extraction helpers behind the
+    :class:`~fyp.platform_scraper.BaseScraper` contract: :meth:`fetch` selects the
+    backend and returns the raw single-row frame; :meth:`map_to_canonical`
+    renames it to the canonical schema; :meth:`classify_error` and
+    :meth:`repair_counts` cover TikTok's error categories and 32-bit count wrap.
+    """
+
+    platform = "tiktok"
+    url_template = "https://www.tiktok.com/@/video/{item_id}/"
+
+
+    def item_url(self, item_id: str) -> str:
+        return self.url_template.format(item_id=item_id)
+
+
+    def fetch(
+        self,
+        item_id: str,
+        *,
+        save_media: bool,
+        save_path: str,
+        stream_to_bucket=None,
+        verbose: bool = False,
+    ) -> pd.DataFrame:
+        backend = fyp_cf['misc'].get('scraper_backend', 'pyktok')
+        max_duration = fyp_cf['misc']['max_duration_for_download']
+        url = self.item_url(item_id)
+        if backend == 'ytdlp':
+            return save_tiktok(
+                url,
+                save_video=save_media,
+                max_duration_to_save=max_duration,
+                save_path=save_path,
+                stream_to_bucket=stream_to_bucket,
+                verbose=verbose,
+            )
+        import fyp.mypyktok as pyk
+        pyk.specify_browser('chrome')
+        return pyk.save_tiktok(
+            url,
+            save_video=save_media,
+            max_duration_to_save=max_duration,
+            browser_name='chrome',
+            save_path=save_path,
+            stream_to_bucket=stream_to_bucket,
+            verbose=verbose,
+        )
+
+
+    def map_to_canonical(self, raw: pd.DataFrame) -> pd.DataFrame:
+        return raw.rename(columns=_RAW_TO_CANONICAL)
+
+
+    def classify_error(self, error_type: str | None) -> str:
+        if error_type is None:
+            return "ok"
+        bucket = "permanent" if error_type in _PERMANENT else "transient"
+        return f"{bucket}:{error_type}"
+
+
+    def repair_counts(self, df: pd.DataFrame) -> pd.DataFrame:
+        return repair_overflowed_counts(df, verbose=self.verbose)

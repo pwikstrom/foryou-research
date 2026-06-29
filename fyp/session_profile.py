@@ -42,7 +42,7 @@ SCALAR_FEATURES: dict[str, str] = {
     "political_score": "mean",
     "sensitivity_score": "mean",
     "log_playcount": "mean",
-    "video_duration": "mean",
+    "duration": "mean",
     "main_gender": "share:female",
     "advertising": "share:yes",
     "aigc": "share:yes",

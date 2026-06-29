@@ -2421,8 +2421,8 @@ def calculate_to_annotate():
                 if 'index' in df_status.columns and 'item_id' not in df_status.columns:
                     df_status = df_status.rename(columns={'index': 'item_id'})
 
-            if 'video_duration' in df_study.columns:
-                study_videos = df_study[['item_id', 'video_duration']].copy()
+            if 'duration' in df_study.columns:
+                study_videos = df_study[['item_id', 'duration']].copy()
             else:
                 study_videos = df_study[['item_id']].copy()
                 
@@ -2446,9 +2446,9 @@ def calculate_to_annotate():
 
             unannotated_mask = is_scraped_ok & not_annotated_ok & not_annotated_fail
             
-            if 'video_duration' in study_status.columns:
+            if 'duration' in study_status.columns:
                 max_dur = fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600)
-                duration_ok = (study_status['video_duration'] < max_dur) | pd.isna(study_status['video_duration'])
+                duration_ok = (study_status['duration'] < max_dur) | pd.isna(study_status['duration'])
                 unannotated_mask = unannotated_mask & duration_ok
 
             unannotated_videos = study_status.loc[unannotated_mask, 'item_id'].dropna().tolist()
@@ -2932,26 +2932,39 @@ def set_study_annotation_version(study):
 def _contract_locked_map(df) -> dict:
     """Return ``{variable_name: {metadata, section}}`` for contract-owned cells.
 
-    ``metadata`` is True when the annotation contract owns the row's
-    role/scale/display_name/description (its flattened output columns);
-    ``section`` is True for every Gemini-origin row (all forced under "GenAI").
-    The admin editor renders these cells read-only. Degrades to ``{}`` if the
-    contract cannot be loaded, so the editor never breaks on a contract error.
+    ``metadata`` is True when a contract owns the row's role/scale/display_name/
+    description — the annotation contract's flattened Gemini columns, or the
+    scrape contract's canonical scrape columns. ``section`` is True for every
+    Gemini-origin row (all forced under "GenAI") and for every scrape-contract
+    column (whose section the scrape contract owns). The admin editor renders
+    these cells read-only. Degrades to ``{}`` if neither contract can be loaded,
+    so the editor never breaks on a contract error.
     """
+    annotation_cols: set = set()
+    scrape_cols: set = set()
     try:
         from fyp import annotation_contract as ac
 
-        contract_cols = set(ac.contract_column_metadata(ac.load_contract()).keys())
+        annotation_cols = set(ac.contract_column_metadata(ac.load_contract()).keys())
     except Exception:
+        pass
+    try:
+        from fyp import scrape_contract as sc
+
+        scrape_cols = set(sc.contract_column_metadata(sc.load_contract()).keys())
+    except Exception:
+        pass
+    if not annotation_cols and not scrape_cols:
         return {}
     locked: dict = {}
     for _, row in df.iterrows():
         vn = str(row.get("variable_name", ""))
         src = str(row.get("source", "")).strip()
         is_gemini = src == "Gemini" or src.startswith("derived: Gemini")
-        meta_owned = vn in contract_cols
+        scrape_owned = vn in scrape_cols
+        meta_owned = vn in annotation_cols or scrape_owned
         if meta_owned or is_gemini:
-            locked[vn] = {"metadata": meta_owned, "section": is_gemini}
+            locked[vn] = {"metadata": meta_owned, "section": is_gemini or scrape_owned}
     return locked
 
 
@@ -2985,6 +2998,7 @@ def get_schema():
             },
             "contract_locked": _contract_locked_map(df),
             "contract_path": "config/annotation_contract.toml",
+            "scrape_contract_path": "config/scrape_contract.toml",
             "etag": compute_var_schema_etag(fyp_cf),
             "current_hash": compute_var_schema_hash(),
         })

@@ -203,9 +203,9 @@ def test_save_blanks_only_contract_cells_and_preserves_hash() -> None:
             src = raw["source"].astype("string").fillna("")
             gem = raw[src.eq("Gemini") | src.str.startswith("derived: Gemini")]
             assert gem["section"].isna().all(), "on-disk section not blanked for Gemini rows"
-            # A non-Gemini row keeps its role/scale on disk.
-            sp = raw.loc[raw["variable_name"] == "stats_playCount"]
-            assert not sp.empty and not pd.isna(sp["role"].iloc[0]), "non-Gemini role wiped"
+            # A row owned by neither contract keeps its role/scale on disk.
+            sp = raw.loc[raw["variable_name"] == "activity_type"]
+            assert not sp.empty and not pd.isna(sp["role"].iloc[0]), "uncontracted role wiped"
     finally:
         fyp_cf["paths"]["local_data"] = orig_local
         fyp_cf["data_io"]["use_gcs_for_data"] = orig_use_gcs

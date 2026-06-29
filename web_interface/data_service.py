@@ -556,7 +556,7 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
 
     # Universe filter — accept both 'play' (donor watched) and 'observe'
     # (baseline-collection scrapes with no donor watch-time). For 'observe'
-    # rows there's no play_duration; video_duration acts as the implied
+    # rows there's no play_duration; duration acts as the implied
     # attention proxy so they can still participate in weighted aggregates.
     # Plays with play_duration == 0 are kept: zero watch time is still a real
     # exposure (rapid scroll-past), and contributes weight 0 to weighted
@@ -564,7 +564,7 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
     # cap-overflow, last-in-log) is still excluded.
     valid_activity = (df['activity_type'].isin(['play', 'observe'])) if 'activity_type' in df.columns else pd.Series(True, index=df.index)
     play_dur_present = df['play_duration'].notna()
-    vid_dur_present = (df['video_duration'].notna() & (df['video_duration'] > 0)) if 'video_duration' in df.columns else pd.Series(False, index=df.index)
+    vid_dur_present = (df['duration'].notna() & (df['duration'] > 0)) if 'duration' in df.columns else pd.Series(False, index=df.index)
     is_observe = (df['activity_type'] == 'observe') if 'activity_type' in df.columns else pd.Series(False, index=df.index)
     duration_mask = play_dur_present | (is_observe & vid_dur_present)
     scrape_mask = (df['scraped_ok'] == True) if 'scraped_ok' in df.columns else pd.Series(True, index=df.index)
@@ -575,11 +575,11 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         print(f"WARN: No annotated plays with recorded play_duration for {collection_id}; nothing to aggregate.")
         return None
 
-    # Per-row attention weight: play rows = min(play_duration, video_duration);
-    # observe rows = video_duration (full-video implied attention).
+    # Per-row attention weight: play rows = min(play_duration, duration);
+    # observe rows = duration (full-video implied attention).
     play_dur = df['play_duration'].astype('float64')
-    if 'video_duration' in df.columns:
-        vid_dur = df['video_duration'].astype('float64')
+    if 'duration' in df.columns:
+        vid_dur = df['duration'].astype('float64')
         df['_w'] = np.minimum(play_dur, vid_dur.fillna(play_dur))
         if 'activity_type' in df.columns:
             observe_rows = df['activity_type'] == 'observe'
