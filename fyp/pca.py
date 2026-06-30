@@ -672,12 +672,11 @@ def calculate_scaled_pca_scores(
             # Project to only the columns PCA actually consumes. The cache
             # `*_recoded.parquet` files contain 91 columns (collections joined
             # with scrapes + annotations), but PCA only needs the var_schema
-            # factors/features/grouping_factors plus `annotated_ok` (filter)
-            # and `dd_event_id` (defensively dropped below if present).
+            # factors/features/grouping_factors plus `annotated_ok` (filter).
             pca_factors, pca_features = get_factors_and_features_from_var_schema(verbose=False)
             pca_grouping = get_grouping_factors_from_var_schema(verbose=False)
             cols_for_pca = sorted(set(pca_factors + pca_features + pca_grouping
-                                      + ['annotated_ok', 'dd_event_id']))
+                                      + ['annotated_ok']))
             study_recoded_dataset = data_io.load_parquet_selective(
                 storage_location="cache",
                 filename=f"{study_name}_recoded.parquet",
@@ -705,9 +704,6 @@ def calculate_scaled_pca_scores(
     if verbose:
         print(f"    [PCA] Starting with a dataset of shape {study_recoded_dataset.shape}")
 
-
-    # I was experimenting with this column during one stage - dropping it in case it lingers in the dataset somewhere
-    study_recoded_dataset.drop(columns=['dd_event_id'], errors='ignore', inplace=True)
 
     # checking that the groupubg factors are properly defined and present in the dataset
     targeted_grouping_factors = get_grouping_factors_from_var_schema(some_events_df = None, verbose=verbose)

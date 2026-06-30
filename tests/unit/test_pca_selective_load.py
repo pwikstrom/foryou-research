@@ -28,7 +28,7 @@ def main():
     factors, features = get_factors_and_features_from_var_schema(verbose=False)
     grouping = get_grouping_factors_from_var_schema(verbose=False)
     cols_for_pca = sorted(set(factors + features + grouping
-                              + ['annotated_ok', 'dd_event_id']))
+                              + ['annotated_ok']))
     print(f"      var_schema requests {len(cols_for_pca)} columns for PCA")
 
     df_proj = data_io.load_parquet_selective(

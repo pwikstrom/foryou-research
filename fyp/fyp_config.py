@@ -541,14 +541,20 @@ LEGACY_ROLE_ALIASES = {
 
 
 # Variable rows retired from the schema: derived fan-out columns the recode no
-# longer produces. ``desc`` now yields only ``desc_hashtags`` (mentions /
-# not_hashtags dropped); ``call_to_action`` is plain ``text`` (no ``_words``).
-# Dropped at load so an existing CSV (local or prod GCS) self-cleans without a
-# manual migration. Safe to retire once every on-disk CSV has been re-saved.
+# longer produces, plus unbacked placeholder rows for features never built.
+# ``desc`` now yields only ``desc_hashtags`` (mentions / not_hashtags dropped);
+# ``call_to_action`` is plain ``text`` (no ``_words``). ``event_id`` /
+# ``event_order_in_session`` / ``event_pos_in_session`` described a per-activity
+# identifier and ordering that no pipeline ever produced. Dropped at load so an
+# existing CSV (local or prod GCS) self-cleans without a manual migration. Safe
+# to retire once every on-disk CSV has been re-saved.
 RETIRED_VAR_SCHEMA_ROWS = frozenset({
     "desc_mentions",
     "desc_not_hashtags",
     "call_to_action_words",
+    "event_id",
+    "event_order_in_session",
+    "event_pos_in_session",
 })
 
 
