@@ -4,11 +4,11 @@
 contract's output columns no longer live in ``var_schema.csv``; the contract
 (``config/annotation_contract.toml``) is the single source, and
 ``fyp_config._apply_contract_variable_metadata`` overlays them in memory at load.
-Every Gemini-origin row is also forced under a single ``"GenAI"`` UI section.
+Every Gemini-origin row is also forced under a single ``"AI Annotations"`` UI section.
 Pins:
 
   * the overlay sets role/scale/display_name/description for contract-owned columns;
-  * the overlay forces section="GenAI" for all Gemini-origin rows, leaving the three
+  * the overlay forces section="AI Annotations" for all Gemini-origin rows, leaving the three
     computed columns' role/scale/display_name (trend / australian_relevance /
     call_to_action_words) intact and non-Gemini rows fully untouched;
   * contract_column_metadata keys equal the flattener's output columns (rename +
@@ -104,10 +104,10 @@ def test_overlay_forces_genai_section() -> None:
         _apply_contract_variable_metadata(fyp_cf)
     src = frame["source"].astype("string").fillna("")
     gemini = frame[src.eq("Gemini") | src.str.startswith("derived: Gemini")]
-    assert (gemini["section"].astype(str) == "GenAI").all(), "all Gemini rows must be GenAI"
+    assert (gemini["section"].astype(str) == "AI Annotations").all(), "all Gemini rows must be AI Annotations"
     # A non-Gemini row keeps its CSV section.
-    non = frame.loc[frame["variable_name"] == "stats_playCount", "section"].iloc[0]
-    assert str(non) != "GenAI", "non-Gemini row must keep its section"
+    non = frame.loc[frame["variable_name"] == "activity_type", "section"].iloc[0]
+    assert str(non) != "AI Annotations", "non-Gemini row must keep its section"
 
 
 def test_overlay_keeps_computed_columns() -> None:
@@ -117,7 +117,7 @@ def test_overlay_keeps_computed_columns() -> None:
         _apply_contract_variable_metadata(fyp_cf)
     ov = frame.set_index("variable_name")
     for col in COMPUTED_GEMINI:
-        assert str(ov.at[col, "section"]) == "GenAI", f"{col} should be GenAI"
+        assert str(ov.at[col, "section"]) == "AI Annotations", f"{col} should be AI Annotations"
         for k in ("role", "scale", "display_name"):
             assert str(ov.at[col, k]) == str(raw.at[col, k]), (
                 f"{col}.{k} must keep its CSV value (computed column, not contract-owned)"
@@ -163,7 +163,7 @@ def test_hash_invariant_to_overlay() -> None:
     """THE GATE: contract cells in the CSV vs blanked+overlaid must hash identically."""
     verbatim = _raw_schema()  # CSV still carries role/scale for contract cols
     with _swapped(verbatim):
-        _apply_contract_variable_metadata(fyp_cf)  # section→GenAI either way
+        _apply_contract_variable_metadata(fyp_cf)  # section→AI Annotations either way
         hash_verbatim = rv.compute_var_schema_hash()
 
     blanked = _blank_contract_cells(_raw_schema())  # post-deploy on-disk shape

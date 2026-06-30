@@ -56,6 +56,18 @@ class StudyCache:
 study_cache = StudyCache(maxsize=2)
 
 
+# Hard-coded display order of UI sections. Variables in sections not listed here
+# sort after these, alphabetically. Used by ``load_schema_metadata`` to order
+# every web variable list and exposed to the frontend as ``section_order``.
+SECTION_ORDER = ["Activity", "Item metadata", "Popularity", "AI Annotations"]
+
+# ``scale`` values that count as categorical for the categorical-before-numerical
+# ordering rule. Everything else (ratio/interval/raw/datetime/blank) is numerical.
+_CAT_SCALES = {
+    "categorical", "collection", "dichotomous", "factor", "ordinal", "string",
+}
+
+
 
 
 def _get_recoded_mtime(study):
@@ -1624,31 +1636,45 @@ def load_schema_metadata(metadata):
         #var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
         if "var_schema" in fyp_cf and not fyp_cf["var_schema"].empty:
             schema_df = fyp_cf["var_schema"].copy()
-            
-            schema_df['web_display_prio'] = pd.to_numeric(schema_df['web_display_prio'], errors='coerce')
-            display_df = schema_df.dropna(subset=['web_display_prio']).sort_values('web_display_prio')
-            metadata['display_priority'] = display_df['variable_name'].tolist()
 
-            if 'web_viz_prio' in schema_df.columns:
-                schema_df['web_viz_prio'] = pd.to_numeric(schema_df['web_viz_prio'], errors='coerce')
-                viz_df = schema_df.dropna(subset=['web_viz_prio']).sort_values('web_viz_prio')
-                metadata['viz_priority'] = viz_df['variable_name'].tolist()
+            # A variable's position in every web list is derived, not hand-ranked:
+            # (1) hard-coded section order, (2) categorical before numerical (from
+            # ``scale``), (3) alphabetical by display name. The four ``web_*_prio``
+            # columns are read as on/off membership only — any non-blank value
+            # includes the variable; the numeric value no longer affects order.
+            if 'section' in schema_df.columns:
+                _sections = schema_df['section'].astype('string').fillna('')
             else:
-                 metadata['viz_priority'] = []
-            
-            if 'web_timeline_prio' in schema_df.columns:
-                schema_df['web_timeline_prio'] = pd.to_numeric(schema_df['web_timeline_prio'], errors='coerce')
-                timeline_df = schema_df.dropna(subset=['web_timeline_prio']).sort_values('web_timeline_prio')
-                metadata['timeline_priority'] = timeline_df['variable_name'].tolist()
+                _sections = pd.Series('', index=schema_df.index)
+            if 'scale' in schema_df.columns:
+                _scales = schema_df['scale'].astype('string').fillna('').str.strip().str.lower()
             else:
-                 metadata['timeline_priority'] = []
+                _scales = pd.Series('', index=schema_df.index)
+            if 'display_name' in schema_df.columns:
+                _names = schema_df['display_name'].astype('string')
+            else:
+                _names = pd.Series(pd.NA, index=schema_df.index)
+            _names = _names.fillna(schema_df['variable_name'].astype('string')).fillna('').str.strip().str.lower()
 
-            if 'web_filter_prio' in schema_df.columns:  
-                schema_df['web_filter_prio'] = pd.to_numeric(schema_df['web_filter_prio'], errors='coerce')
-                filter_df = schema_df.dropna(subset=['web_filter_prio']).sort_values('web_filter_prio')
-                metadata['filter_priority'] = filter_df['variable_name'].tolist()
-            else:
-                metadata['filter_priority'] = []
+            schema_df['_sec_rank'] = _sections.map(
+                lambda s: SECTION_ORDER.index(s) if s in SECTION_ORDER else len(SECTION_ORDER))
+            schema_df['_section'] = _sections
+            schema_df['_cat_num'] = _scales.map(lambda s: 0 if s in _CAT_SCALES else 1)
+            schema_df['_sort_name'] = _names
+            order_cols = ['_sec_rank', '_section', '_cat_num', '_sort_name']
+
+            def _ordered(prio_col):
+                """Return ON variables for ``prio_col`` in canonical sort order."""
+                if prio_col not in schema_df.columns:
+                    return []
+                is_on = pd.to_numeric(schema_df[prio_col], errors='coerce').notna()
+                return schema_df[is_on].sort_values(order_cols)['variable_name'].tolist()
+
+            metadata['section_order'] = list(SECTION_ORDER)
+            metadata['display_priority'] = _ordered('web_display_prio')
+            metadata['viz_priority'] = _ordered('web_viz_prio')
+            metadata['timeline_priority'] = _ordered('web_timeline_prio')
+            metadata['filter_priority'] = _ordered('web_filter_prio')
 
             if 'section' not in schema_df.columns:
                 schema_df['section'] = 'General'
@@ -1681,9 +1707,11 @@ def load_schema_metadata(metadata):
                     if dname and dname.lower() != 'nan' and dname.strip():
                         schema_map[var_name]['display_name'] = dname.strip()
 
-                # Add Display Priority (for filtering in viewer)
+                # On/off membership flag the viewer's metadata panel reads to
+                # decide whether to render a variable (the value itself is no
+                # longer used for ordering, so any non-blank entry counts as on).
                 if 'web_display_prio' in row:
-                    prio = row['web_display_prio']
+                    prio = pd.to_numeric(row['web_display_prio'], errors='coerce')
                     if pd.notna(prio):
                          schema_map[var_name]['web_display_prio'] = float(prio)
 

@@ -127,7 +127,7 @@ def _inject_collection_tags(metadata: dict, collection_ids: list[str]) -> dict:
     if 'schema_map' not in metadata:
         metadata['schema_map'] = {}
     metadata['schema_map']['Collection Tags'] = {
-        "section": "Activity details",
+        "section": "Activity",
         "display_name": "Collection Tags",
         "description": "Filter by tags assigned to collections."
     }

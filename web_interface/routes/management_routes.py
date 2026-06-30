@@ -2935,7 +2935,7 @@ def _contract_locked_map(df) -> dict:
     ``metadata`` is True when a contract owns the row's role/scale/display_name/
     description — the annotation contract's flattened Gemini columns, or the
     scrape contract's canonical scrape columns. ``section`` is True for every
-    Gemini-origin row (all forced under "GenAI") and for every scrape-contract
+    Gemini-origin row (all forced under "AI Annotations") and for every scrape-contract
     column (whose section the scrape contract owns). The admin editor renders
     these cells read-only. Degrades to ``{}`` if neither contract can be loaded,
     so the editor never breaks on a contract error.

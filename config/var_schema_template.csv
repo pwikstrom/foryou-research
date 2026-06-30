@@ -1,11 +1,11 @@
 source,section,variable_name,display_name,role,scale,web_filter_prio,web_timeline_prio,web_viz_prio,web_display_prio,description
-activity,Activity details,activity_type,Activity type,standard,string,402,110,402,307,The type of the activity
-activity,Activity details,extra_data,Engagement activity,standard,string,405,,,310,Engagement activities (fave/comment/share/follow/save) folded into the leading play row of a session run.
-activity,Activity details,collection_id,Collection ID,group_factor,string,401,,,301,Identifier for the collection
-activity,Activity details,data_source,Data source,standard,string,409,,,,TBD
-activity,Activity details,play_duration,Play duration,standard,ratio,,,,308,For how long did they play the video.
-activity,Activity details,utc_timestamp,UTC Timestamp,standard,datetime,,,,,Standard Coordinated Universal Time of the activity.
-activity,Fundamentals,item_id,Video ID,standard,string,,,,101,Unique identifier for the specific video.
+activity,Activity,activity_type,Activity type,standard,string,402,110,402,307,The type of the activity
+activity,Activity,extra_data,Engagement activity,standard,string,405,,,310,Engagement activities (fave/comment/share/follow/save) folded into the leading play row of a session run.
+activity,Activity,collection_id,Collection ID,group_factor,string,401,,,301,Identifier for the collection
+activity,Activity,data_source,Data source,standard,string,409,,,,TBD
+activity,Activity,play_duration,Play duration,standard,ratio,,,,308,For how long did they play the video.
+activity,Activity,utc_timestamp,UTC Timestamp,standard,datetime,,,,,Standard Coordinated Universal Time of the activity.
+activity,Item metadata,item_id,Video ID,standard,string,,,,101,Unique identifier for the specific video.
 backstage,backstage,event_id,Activity ID,standard,ratio,,,,,TBD
 backstage,backstage,scrape_fail,Scrape Failed,standard,,,,,,TBD
 backstage,backstage,scraped_ok,Scrape OK,standard,,,,,,TBD
@@ -14,22 +14,22 @@ backstage,backstage,ts_added_to_dataset,TS added to dataset,standard,datetime,,,
 backstage,,video_downloaded,,,,,,,,
 backstage,backstage,annotated_fail,Machine Annotation Failed,standard,,,,,,Flag indicating AI analysis failed.
 backstage,backstage,annotated_ok,Machine Annotation OK,standard,,,,,,Flag indicating AI analysis completed successfully.
-derived: activity,Activity details,local_date,Activity date,group_factor,datetime,405,,,,Date of the activity adjusted to local timezone.
-derived: activity,Activity details,local_day_segment,Activity day segment,standard,string,404,,404,303,"Time of day (e.g., morning, night) in local time."
-derived: activity,Activity details,local_hour,Activity hour,feature,interval,,,,,Hour of the day (0-23) in local time.
-derived: activity,Activity details,local_timestamp,Activity timestamp,standard,datetime,,,,304,Precise activity time adjusted to local timezone.
-derived: activity,Activity details,local_week,Activity week,factor,string,406,,,305,Week number of the activity in local time.
-derived: activity,Activity details,local_weekday,Activity weekday,factor,string,407,,407,306,"Day of the week (e.g., Monday) in local time."
+derived: activity,Activity,local_date,Activity date,group_factor,datetime,405,,,,Date of the activity adjusted to local timezone.
+derived: activity,Activity,local_day_segment,Activity day segment,standard,string,404,,404,303,"Time of day (e.g., morning, night) in local time."
+derived: activity,Activity,local_hour,Activity hour,feature,interval,,,,,Hour of the day (0-23) in local time.
+derived: activity,Activity,local_timestamp,Activity timestamp,standard,datetime,,,,304,Precise activity time adjusted to local timezone.
+derived: activity,Activity,local_week,Activity week,factor,string,406,,,305,Week number of the activity in local time.
+derived: activity,Activity,local_weekday,Activity weekday,factor,string,407,,407,306,"Day of the week (e.g., Monday) in local time."
 derived: activity,backstage,event_order_in_session,Activity order in session,standard,ordinal,,,,,TBD
 derived: activity,backstage,event_pos_in_session,Activity pos in session,standard,interval,,,,,TBD
-derived: activity & scrape,Activity details,completion_rate,Completion Rate,feature,ratio,408,,408,309,How much of the video did the user play at this activity
-derived: activity & scrape,Activity details,days_since_created,Days since posted,standard,ratio,403,,403,302,Number of days elapsed since the video was uploaded.
+derived: activity & scrape,Activity,completion_rate,Completion Rate,feature,ratio,408,,408,309,How much of the video did the user play at this activity
+derived: activity & scrape,Activity,days_since_created,Days since posted,standard,ratio,403,,403,302,Number of days elapsed since the video was uploaded.
 derived: Gemini (call_to_action),Experimental,call_to_action_words,Call to action (words),standard,collection,,,,,Keywords extracted from the call to action.
-derived: scrape,Activity details,tz_offset,Timezone offset,standard,interval,,,,,Offset in seconds from UTC.
-derived: scrape,Fundamentals,desc_hashtags,Hashtags,standard,collection,101,102,101,104,List of hashtags extracted from the caption.
-derived: scrape,Fundamentals,desc_mentions,Desc mentions,skip,collection,,,,,User mentions in the description.
-derived: scrape,Fundamentals,desc_not_hashtags,Desc words that are not hashtags,skip,collection,,,,,Description text with hashtags removed.
-derived: scrape,Fundamentals,desc_raw,Description,standard,string,,,,105,Original video caption including text and hashtags.
+derived: scrape,Activity,tz_offset,Timezone offset,standard,interval,,,,,Offset in seconds from UTC.
+derived: scrape,Item metadata,desc_hashtags,Hashtags,standard,collection,101,102,101,104,List of hashtags extracted from the caption.
+derived: scrape,Item metadata,desc_mentions,Desc mentions,skip,collection,,,,,User mentions in the description.
+derived: scrape,Item metadata,desc_not_hashtags,Desc words that are not hashtags,skip,collection,,,,,Description text with hashtags removed.
+derived: scrape,Item metadata,desc_raw,Description,standard,string,,,,105,Original video caption including text and hashtags.
 derived: scrape,,plays_per_day,,,,306,,306,401,
 Gemini,Experimental,call_to_action,Call to action (raw),raw,raw,,,,,Raw text of actions the video asks viewers to take.
 Gemini,Experimental,faces_age_estimate,Average age of observed faces,standard,ratio,503,,503,2003,Estimated age range of faces visible in the video.

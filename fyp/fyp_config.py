@@ -392,10 +392,11 @@ def _apply_contract_variable_metadata(cf) -> None:
     ``var_schema.csv`` — the annotation contract (``config/annotation_contract.toml``)
     is the single source, and the columns are overlaid here at load. Separately,
     EVERY Gemini-origin row (``source == "Gemini"`` or a ``"derived: Gemini ..."``
-    source) is grouped under a single ``"GenAI"`` UI section, replacing whatever
-    ``section`` the CSV carried — so the three computed Gemini columns the contract
-    does not own (``trend`` / ``australian_relevance`` / ``call_to_action_words``)
-    keep their CSV role/scale/display_name but still land under GenAI.
+    source) is grouped under a single ``"AI Annotations"`` UI section, replacing
+    whatever ``section`` the CSV carried — so the three computed Gemini columns the
+    contract does not own (``trend`` / ``australian_relevance`` /
+    ``call_to_action_words``) keep their CSV role/scale/display_name but still land
+    under AI Annotations.
 
     The overlay is PER-ROW: non-Gemini rows keep their CSV values untouched. It
     runs after :func:`_apply_contract_accepted_labels` and before any consumer
@@ -428,7 +429,7 @@ def _apply_contract_variable_metadata(cf) -> None:
                     vs.at[idx, col] = owned[col]
         source = str(vs.at[idx, "source"]).strip() if has_source else ""
         if source == "Gemini" or source.startswith("derived: Gemini"):
-            vs.at[idx, "section"] = "GenAI"
+            vs.at[idx, "section"] = "AI Annotations"
 
 
 
@@ -491,6 +492,24 @@ def _apply_contract_scrape_metadata(cf) -> None:
 
 
 
+# Self-healing rename of CSV-owned UI sections. Applied at load so an existing
+# ``var_schema.csv`` (local or prod GCS) using the old labels surfaces under the
+# new names without a data migration. Contract-owned sections (scrape +
+# AI Annotations) are renamed at their source (the scrape contract and
+# ``_apply_contract_variable_metadata``), not here. Safe to retire once every
+# on-disk CSV has been re-saved with the new labels.
+LEGACY_SECTION_ALIASES = {
+    "Activity details": "Activity",
+    "Fundamentals": "Item metadata",
+    # Heals CSV rows literally labelled the old "GenAI" section (e.g. the
+    # embedding-derived ``niche`` / ``niche_name``, which are not Gemini-sourced
+    # so the contract overlay leaves their section untouched).
+    "GenAI": "AI Annotations",
+}
+
+
+
+
 def load_var_schema(cf, verbose=False):
     # Load variable schema
     var_schema_path = _var_schema_path(cf)
@@ -550,6 +569,9 @@ def load_var_schema(cf, verbose=False):
                  "sortable", "searchable"],
         errors="ignore",
     )
+    # Self-heal legacy CSV-owned section labels before the contract overlays run.
+    if "section" in cf["var_schema"].columns:
+        cf["var_schema"]["section"] = cf["var_schema"]["section"].replace(LEGACY_SECTION_ALIASES)
     # Variable metadata first: it restores ``scale`` for contract columns, which
     # the accepted-labels overlay reads (via build_recode_plan) to decide closed-tag
     # membership. Once the CSV no longer stores scale for these rows, accepted_labels
@@ -660,7 +682,7 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
     # (``_apply_contract_scrape_metadata``), so it is never persisted: blank
     # ``role``/``scale``/``display_name``/``description`` for either contract's
     # columns, and blank ``section`` for every Gemini-origin row (forced to
-    # "GenAI") and every scrape-contract column (the scrape contract owns their
+    # "AI Annotations") and every scrape-contract column (the scrape contract owns their
     # section). Per-row — uncontracted rows keep their CSV values. The on-disk CSV
     # is thus a clean slate the overlays re-fill, so an admin edit to a contract
     # cell is discarded by design.

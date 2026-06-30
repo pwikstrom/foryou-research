@@ -394,27 +394,17 @@ function renderViewerFilters(metadata) {
         sections[section].push(col);
     });
 
-    // Sort Sections (Reusing logic from renderMetadata)
-    // Use display_priority for section ordering to match Metadata Panel
-    const sortPriority = metadata.display_priority && metadata.display_priority.length > 0 ? metadata.display_priority : priority;
-
+    // Sort Sections by the backend's hard-coded section_order; sections not
+    // listed fall after, alphabetically. Variables within a section already
+    // arrive pre-sorted (categorical-before-numerical, then alphabetical).
+    const sectionOrder = metadata.section_order || [];
+    const sectionRank = (secName) => {
+        const i = sectionOrder.indexOf(secName);
+        return i === -1 ? sectionOrder.length : i;
+    };
     let sectionNames = Object.keys(sections).sort((a, b) => {
-        const getSectionPrio = (secName) => {
-            const vars = sections[secName] || [];
-            let minPrio = 999999;
-            vars.forEach(v => {
-                const idx = sortPriority ? sortPriority.indexOf(v) : -1;
-                // If not in priority list, treat as high number
-                const p = idx === -1 ? 999999 : idx;
-                if (p < minPrio) minPrio = p;
-            });
-            return minPrio;
-        };
-
-        const prioA = getSectionPrio(a);
-        const prioB = getSectionPrio(b);
-
-        if (prioA !== prioB) return prioA - prioB;
+        const ra = sectionRank(a), rb = sectionRank(b);
+        if (ra !== rb) return ra - rb;
         return a.localeCompare(b);
     });
 
@@ -1237,39 +1227,21 @@ function renderMetadata(item) {
         sections[section].push(key);
     });
 
-    // Sort Sections based on the LOWEST (best) display_priority of any variable in that section
+    // Sort Sections by the backend's hard-coded section_order; sections not
+    // listed fall after, alphabetically.
+    const sectionOrder = viewerData.metadata && viewerData.metadata.section_order ? viewerData.metadata.section_order : [];
+    const sectionRank = (secName) => {
+        const i = sectionOrder.indexOf(secName);
+        return i === -1 ? sectionOrder.length : i;
+    };
     let sectionNames = Object.keys(sections).sort((a, b) => {
-        const getSectionPrio = (secName) => {
-            const vars = sections[secName] || [];
-            let minPrio = 999999;
-            vars.forEach(v => {
-                const idx = priorityList.indexOf(v);
-                if (idx !== -1 && idx < minPrio) {
-                    minPrio = idx;
-                }
-            });
-            return minPrio;
-        };
-
-        const prioA = getSectionPrio(a);
-        const prioB = getSectionPrio(b);
-
-        if (prioA !== prioB) return prioA - prioB;
+        const ra = sectionRank(a), rb = sectionRank(b);
+        if (ra !== rb) return ra - rb;
         return a.localeCompare(b);
     });
 
-    // --- DEBUG LOGGING ---
-    sectionNames.forEach(sec => {
-        const vars = sections[sec];
-        let minPrio = 999999;
-        vars.forEach(v => {
-            const idx = priorityList.indexOf(v);
-            if (idx !== -1 && idx < minPrio) minPrio = idx;
-        });
-    });
-    // ---------------------
-
-    // Sort variables within sections
+    // Sort variables within sections (display_priority already arrives
+    // pre-sorted: categorical-before-numerical, then alphabetical)
     sectionNames.forEach(sec => {
         sections[sec].sort((a, b) => {
             const idxA = priorityList.indexOf(a);

@@ -299,23 +299,17 @@ function renderFiltersV2(metadata, sliceId) {
         sections[section].push(col);
     });
 
-    // Sort Sections
-    const sortPriority = metadata.display_priority && metadata.display_priority.length > 0 ? metadata.display_priority : priority;
-
+    // Sort Sections by the backend's hard-coded section_order; sections not
+    // listed fall after, alphabetically. Variables within a section already
+    // arrive pre-sorted (categorical-before-numerical, then alphabetical).
+    const sectionOrder = metadata.section_order || [];
+    const sectionRank = (secName) => {
+        const i = sectionOrder.indexOf(secName);
+        return i === -1 ? sectionOrder.length : i;
+    };
     let sectionNames = Object.keys(sections).sort((a, b) => {
-        const getSectionPrio = (secName) => {
-            const vars = sections[secName] || [];
-            let minPrio = 999999;
-            vars.forEach(v => {
-                const idx = sortPriority ? sortPriority.indexOf(v) : -1;
-                const p = idx === -1 ? 999999 : idx;
-                if (p < minPrio) minPrio = p;
-            });
-            return minPrio;
-        };
-        const prioA = getSectionPrio(a);
-        const prioB = getSectionPrio(b);
-        if (prioA !== prioB) return prioA - prioB;
+        const ra = sectionRank(a), rb = sectionRank(b);
+        if (ra !== rb) return ra - rb;
         return a.localeCompare(b);
     });
 

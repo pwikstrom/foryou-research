@@ -253,14 +253,14 @@
 
     // Return the tooltip for a contract-owned (read-only) cell, or null when the
     // cell is editable. accepted_labels is always derived; for a Gemini variable
-    // the contract owns role/scale/display_name/description and the GenAI section.
+    // the contract owns role/scale/display_name/description and the AI Annotations section.
     function _cellReadonlyTooltip(rowIdx, col) {
         if (READONLY_COLUMNS.has(col)) return READONLY_TOOLTIP;
         const row = state.rows[rowIdx];
         const lock = row && state.contractLocked[row.variable_name];
         if (!lock) return null;
         if (col === 'section' && lock.section) {
-            return 'Gemini variables are grouped under "GenAI" automatically — '
+            return 'Gemini variables are grouped under "AI Annotations" automatically — '
                 + 'this section is set by the app, not editable here.';
         }
         if (lock.metadata && META_LOCK_COLS.has(col)) {
@@ -282,7 +282,7 @@
         // Contract-owned cells: display-only, greyed, with a tooltip that points
         // at the real source of truth instead of an editable input. Covers the
         // always-derived accepted_labels plus the per-row contract metadata /
-        // forced GenAI section for Gemini variables.
+        // forced AI Annotations section for Gemini variables.
         const lockTip = _cellReadonlyTooltip(rowIdx, col);
         if (lockTip !== null) {
             const shown = String(current).trim()
