@@ -62,9 +62,9 @@ study_cache = StudyCache(maxsize=2)
 SECTION_ORDER = ["Activity", "Item metadata", "Popularity", "AI Annotations"]
 
 # ``scale`` values that count as categorical for the categorical-before-numerical
-# ordering rule. Everything else (ratio/interval/raw/datetime/blank) is numerical.
+# ordering rule. Everything else (numeric/datetime/blank) is numerical.
 _CAT_SCALES = {
-    "categorical", "collection", "dichotomous", "factor", "ordinal", "string",
+    "categorical", "list", "text",
 }
 
 
@@ -1014,11 +1014,11 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
         if var == 'machine_state':
             display_name = 'Scrape and Annotation States'
 
-        # Multi-label flag drives the share denominator: collection-scaled
+        # Multi-label flag drives the share denominator: list-scaled
         # variables (hashtags, content categories) can tag one video several
         # times, so their shares are taken over videos and may exceed 100%.
         # Everything else (and the synthetic 'machine_state') is single-label.
-        is_multi_label = (schema_map.get(var, {}).get('scale') == 'collection')
+        is_multi_label = (schema_map.get(var, {}).get('scale') == 'list')
         share_denominator = 'videos' if is_multi_label else 'valid'
 
         # Per-period denominators consumed downstream.

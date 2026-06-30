@@ -103,7 +103,7 @@ intro = "Based on the video, add:"
 name = "transcript"
 section = "profile"
 role = "standard"
-scale = "string"
+scale = "text"
 display_name = "Transcript"
 description = "Transcription of spoken words"
 desc = "A verbatim transcript of the words spoken or sung in the video."
@@ -121,7 +121,7 @@ desc = "The primary language spoken or sung in the video — if several are used
 name = "multilingual"
 section = "profile"
 role = "feature"
-scale = "dichotomous"
+scale = "categorical"
 display_name = "Multilingual"
 description = "Are multiple languages spoken or sung in the video? (Yes/No)."
 enum = "yes_no"
@@ -131,7 +131,7 @@ desc = "Are multiple languages spoken or sung in the video (e.g. code-switching,
 name = "objects"
 section = "profile"
 role = "standard"
-scale = "collection"
+scale = "list"
 display_name = "Objects in video"
 description = "List of physical items detected in the video."
 array = true
@@ -141,7 +141,7 @@ desc = "Notable objects visible in the video."
 name = "symbols_and_brands"
 section = "profile"
 role = "standard"
-scale = "collection"
+scale = "list"
 display_name = "Symbols and brands"
 description = "Visible logos, flags, or symbols detected by AI."
 array = true
@@ -151,7 +151,7 @@ desc = "Visible symbols, flags, or brands."
 name = "text_overlays"
 section = "profile"
 role = "standard"
-scale = "collection"
+scale = "list"
 display_name = "Text overlays"
 description = "Text detected on-screen via OCR."
 array = true
@@ -164,9 +164,9 @@ type = "object"
 array = true
 desc = "Each distinct face that appears in the video, with its gender, apparent age in years, and apparent ethnicity."
 [fields.keys]
-gender = { spec = "enum:gender", role = "skip", scale = "collection", display_name = "Gender of observed faces", description = "List of genders for all faces detected." }
-age_estimate = { spec = "int: the apparent age of the face, in years (a single best estimate)", role = "standard", scale = "ratio", display_name = "Average age of observed faces", description = "Estimated age range of faces visible in the video." }
-ethnicity = { spec = "the apparent ethnicity", role = "skip", scale = "collection", display_name = "Ethnicity of observed faces", description = "List of ethnicities for all faces detected." }
+gender = { spec = "enum:gender", role = "skip", scale = "list", display_name = "Gender of observed faces", description = "List of genders for all faces detected." }
+age_estimate = { spec = "int: the apparent age of the face, in years (a single best estimate)", role = "standard", scale = "numeric", display_name = "Average age of observed faces", description = "Estimated age range of faces visible in the video." }
+ethnicity = { spec = "the apparent ethnicity", role = "skip", scale = "list", display_name = "Ethnicity of observed faces", description = "List of ethnicities for all faces detected." }
 
 [[fields]]
 name = "audio_summary"
@@ -174,9 +174,9 @@ section = "profile"
 type = "object"
 desc = "The video's audio profile: how much of the audio is speech (as a percentage of speech vs music/other), the style/mood of any background music, and any notable sounds or sound effects."
 [fields.keys]
-speech_vs_music = { spec = "int(0,100): the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)", role = "standard", scale = "ratio", display_name = "Speech % (vs music)", description = "Ratio of spoken word to background music." }
-background_music = { spec = "the style or mood of any background music", role = "standard", scale = "collection", display_name = "Background music", description = "Description of the style/mood of background music." }
-notable_sounds = { spec = "list: notable sounds or sound effects", role = "standard", scale = "collection", display_name = "Notable sounds", description = "Specific sound effects (e.g., sirens) detected." }
+speech_vs_music = { spec = "int(0,100): the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)", role = "standard", scale = "numeric", display_name = "Speech % (vs music)", description = "Ratio of spoken word to background music." }
+background_music = { spec = "the style or mood of any background music", role = "standard", scale = "list", display_name = "Background music", description = "Description of the style/mood of background music." }
+notable_sounds = { spec = "list: notable sounds or sound effects", role = "standard", scale = "list", display_name = "Notable sounds", description = "Specific sound effects (e.g., sirens) detected." }
 
 [[fields]]
 name = "main_activity"
@@ -191,7 +191,7 @@ desc = "The main activity, as a verb + object, e.g. 'dancing in a studio'."
 name = "video_story"
 section = "profile"
 role = "standard"
-scale = "string"
+scale = "text"
 display_name = "Video story"
 description = "Concise AI-generated narrative summary of the video."
 desc = "A concise narrative summary of the entire video."
@@ -210,7 +210,7 @@ desc = "The narrative type of the video."
 name = "content_category"
 section = "profile"
 role = "feature"
-scale = "collection"
+scale = "list"
 display_name = "Content category"
 description = "AI classification of content (e.g., Comedy, Sports)."
 enum = "content_category"
@@ -230,7 +230,7 @@ desc = "The country the video is primarily connected to — through the creator'
 name = "tiktok_native"
 section = "profile"
 role = "feature"
-scale = "dichotomous"
+scale = "categorical"
 display_name = "TikTok Native"
 description = "Does the video use native TikTok styles/formats? (Yes/No)."
 enum = "yes_no"
@@ -240,7 +240,7 @@ desc = "Is the video produced primarily for TikTok — vertical/portrait, short 
 name = "trend_technical"
 section = "profile"
 role = "feature"
-scale = "dichotomous"
+scale = "categorical"
 display_name = "Technical trend"
 description = "Does the video leverage a technical TikTok trend (trending template/effect/sound)? (Yes/No)."
 enum = "yes_no"
@@ -250,7 +250,7 @@ desc = "Does the video leverage a technical TikTok trend — a trending template
 name = "trend_cultural"
 section = "profile"
 role = "feature"
-scale = "dichotomous"
+scale = "categorical"
 display_name = "Cultural trend"
 description = "Does the video replicate a cultural TikTok trend (participatory format like a dance/meme)? (Yes/No)."
 enum = "yes_no"
@@ -260,7 +260,7 @@ desc = "Does the video replicate a cultural TikTok trend — a participatory for
 name = "advertising"
 section = "profile"
 role = "feature"
-scale = "dichotomous"
+scale = "categorical"
 display_name = "Advertising - Gemini"
 description = "AI detection of advertising content (Yes/No)."
 enum = "yes_no"
@@ -301,7 +301,7 @@ desc = "The ethnicity of the main person featured in the video."
 name = "political_score"
 section = "scoring"
 role = "standard"
-scale = "ratio"
+scale = "numeric"
 display_name = "Political? (score 0-1)"
 description = "AI-estimated probability (0-100) of political content."
 type = "int"
@@ -313,7 +313,7 @@ desc = "How political the video is, from 0 (not at all) to 100 (entirely politic
 name = "sensitivity_score"
 section = "scoring"
 role = "standard"
-scale = "ratio"
+scale = "numeric"
 display_name = "Sensitive? (score 0-1)"
 description = "AI-estimated probability (0-100) of sensitive topics."
 type = "int"

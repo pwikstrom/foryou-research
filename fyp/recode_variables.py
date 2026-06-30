@@ -167,15 +167,11 @@ VAR_SCHEMA_HASH_VERSION = "v2"
 VAR_SCHEMA_ROLES = ("factor", "group_factor", "feature", "standard", "skip", "raw")
 VAR_SCHEMA_SCALES = (
     "categorical",
-    "collection",
     "datetime",
-    "dichotomous",
-    "factor",
-    "interval",
-    "ordinal",
-    "ratio",
+    "list",
+    "numeric",
     "raw",
-    "string",
+    "text",
 )
 
 
@@ -262,15 +258,14 @@ def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dic
 
 # Generic recode op selected by a variable's ``scale`` — the retired ``recode_func``
 # column. A field's recode is its data *kind*, not a per-variable procedure:
-#   enum/dichotomous/collection  -> the list/enum cleaner (recode_stringified_list)
-#   string/factor                -> the text cleaner (recode_long_strings)
-#   numeric/datetime/blank       -> no transform (coercion happens in the scale block)
+#   categorical/list       -> the list/enum cleaner (recode_stringified_list)
+#   text                   -> the text cleaner (recode_long_strings)
+#   raw                    -> the tokeniser fan-out (recode_tokenise: hashtags/mentions/words)
+#   numeric/datetime/blank -> no transform (coercion happens in the scale block)
 _RECODE_FUNC_BY_SCALE = {
     "categorical": "recode_stringified_list",
-    "dichotomous": "recode_stringified_list",
-    "collection": "recode_stringified_list",
-    "string": "recode_long_strings",
-    "factor": "recode_long_strings",
+    "list": "recode_stringified_list",
+    "text": "recode_long_strings",
     "raw": "recode_tokenise",
 }
 
@@ -278,10 +273,10 @@ _RECODE_FUNC_BY_SCALE = {
 
 # Uncertain-value handling, derived from a field's data kind (the retired
 # ``unable_to_detect_policy`` column). Recode NORMALISES, it does not impute:
-#   numeric    -> NaN   (drop the marker; imputation, if wanted, is an analysis step)
-#   collection -> []    (empty list)
+#   numeric -> NaN   (drop the marker; imputation, if wanted, is an analysis step)
+#   list    -> []    (empty list)
 #   everything else -> keep the "unable to detect" marker
-_UNCERTAIN_NUMERIC_SCALES = ("ratio", "interval", "ordinal")
+_UNCERTAIN_NUMERIC_SCALES = ("numeric",)
 
 
 def default_uncertain_policy(scale: str) -> str:
@@ -289,7 +284,7 @@ def default_uncertain_policy(scale: str) -> str:
     s = (scale or "").strip()
     if s in _UNCERTAIN_NUMERIC_SCALES:
         return "drop"
-    if s == "collection":
+    if s == "list":
         return "empty"
     return "keep"
 
@@ -1328,7 +1323,7 @@ def recode_events_df(
                 # 1.'raw' means that the variable is going to be transformed into a set of new variables
                 # and if there is a variable in the schema with the same name as this variable but with the
                 # extension "_raw" it means that I want to keep the original variable (it is copied here).
-                # If such a variable name isn't in the schema, then the original variable will be dropped.   
+                # If such a variable name isn't in the schema, then the original variable will be dropped.
                 # ------------------------------------------------------
                 if this_var_schema.get("scale", "undefined") == "raw" and c+"_raw" in var_schema.index:
                     if verbose:
@@ -1396,8 +1391,8 @@ def recode_events_df(
                 # 4. Check for multiple values/types logic
                 # ------------------------------------------------------
                 
-                # If we expect single values (categorical, dichotomous, etc.), ensure no lists > 1
-                if this_var_schema.get("scale", "") in ["categorical","dichotomous","ordinal","ratio","interval","datetime"]:
+                # If we expect single values (categorical, numeric, datetime), ensure no lists > 1
+                if this_var_schema.get("scale", "") in ["categorical","numeric","datetime"]:
                     # Fast check: if object type, might contain lists
                     if cool_events[c].dtype == object:
                         # 'get first if list' logic normalization
@@ -1415,38 +1410,21 @@ def recode_events_df(
                         if has_lists:
                              # calculate count for error message
                              count = cool_events[c].map(lambda x: isinstance(x, list)).sum()
-                             raise ValueError(f"{c} has {count} values with more than one entry. Only a single value is allowed for categorical, dichotomous, ordinal, ratio, and interval variables.")
+                             raise ValueError(f"{c} has {count} values with more than one entry. Only a single value is allowed for categorical, numeric, and datetime variables.")
 
 
 
 
                 # ------------------------------------------------------
-                # 4&half. for ratio variables, I only accept numeric values
+                # 4&half. for numeric variables, I only accept numeric values
                 # ------------------------------------------------------
-                if (this_var_schema["scale"] in ["ratio"]):
+                if (this_var_schema["scale"] in ["numeric"]):
                     cool_events[c] = cool_events[c].astype("double[pyarrow]")
                     # Check for integers using numpy float64 - safer for NaNs and avoids pyarrow mod error
                     if not (cool_events[c].dropna().astype("float64") % 1 != 0).any():
                         cool_events[c] = cool_events[c].astype("int64[pyarrow]")
 
 
-
-                # ------------------------------------------------------
-                # 5. for dichotomous variables, the value set is yes / no plus the
-                #    uncertainty marker. The contract's yes_no enum also offers
-                #    "Unclear", and a field can be missing — both normalise to the
-                #    marker rather than crashing (they are not yes/no).
-                # ------------------------------------------------------
-                if (this_var_schema["scale"] in ["dichotomous"]):
-                    def _normalize_dichotomous(x):
-                        if isinstance(x, str):
-                            return x if x in ("yes", "no") else UNABLE_TO_DETECT
-                        try:
-                            return x if pd.isna(x) else UNABLE_TO_DETECT
-                        except (TypeError, ValueError):
-                            return UNABLE_TO_DETECT
-                    cool_events[c] = cool_events[c].map(_normalize_dichotomous)
-                    
 
                 # ------------------------------------------------------
                 # 6. for dict variables, I unpack the dicts into new separate columns

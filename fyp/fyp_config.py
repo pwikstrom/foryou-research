@@ -508,6 +508,25 @@ LEGACY_SECTION_ALIASES = {
 }
 
 
+# Self-healing rename of the ``scale`` vocabulary, collapsed from 10 values to 6
+# canonical kinds (numeric · categorical · list · text · datetime · raw). Applied
+# at load so an existing ``var_schema.csv`` (local or prod GCS) using the old
+# values surfaces under the new ones without a data migration. ``raw`` is kept —
+# it drives the tokeniser fan-out (hashtags/mentions/words). Contract-owned scales
+# are renamed at their source (the two TOML contracts), so this only needs to
+# cover CSV-owned rows; blanks are left untouched. Safe to retire once every
+# on-disk CSV has been re-saved with the new values.
+LEGACY_SCALE_ALIASES = {
+    "ratio": "numeric",
+    "interval": "numeric",
+    "ordinal": "numeric",
+    "dichotomous": "categorical",
+    "collection": "list",
+    "string": "text",
+    "factor": "text",
+}
+
+
 
 
 def load_var_schema(cf, verbose=False):
@@ -572,6 +591,11 @@ def load_var_schema(cf, verbose=False):
     # Self-heal legacy CSV-owned section labels before the contract overlays run.
     if "section" in cf["var_schema"].columns:
         cf["var_schema"]["section"] = cf["var_schema"]["section"].replace(LEGACY_SECTION_ALIASES)
+    # Self-heal the legacy 10-value ``scale`` vocabulary to the 6 canonical kinds.
+    # CSV-owned rows heal here; contract-owned rows take their value from the
+    # overlays below. Blanks are untouched.
+    if "scale" in cf["var_schema"].columns:
+        cf["var_schema"]["scale"] = cf["var_schema"]["scale"].replace(LEGACY_SCALE_ALIASES)
     # Variable metadata first: it restores ``scale`` for contract columns, which
     # the accepted-labels overlay reads (via build_recode_plan) to decide closed-tag
     # membership. Once the CSV no longer stores scale for these rows, accepted_labels
