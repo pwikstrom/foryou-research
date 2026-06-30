@@ -186,3 +186,6 @@ dist-ssr
 
 # Temporary research/debug data — never commit (may contain donor-derived data)
 tmp/
+
+# Claude Code local launch config — machine-specific paths + secrets (API keys)
+.claude/launch.json
