@@ -1,20 +1,8 @@
 {
   "n_raw_responses": 150,
   "n_refined_rows": 150,
-  "n_refined_columns": 38,
+  "n_refined_columns": 26,
   "refined_columns": [
-    "CRA_complexity_vs_stereotypes",
-    "CRA_inclusion_and_exclusion",
-    "CRA_key_groups",
-    "CRA_symbolism_and_imagery",
-    "FA_attribution_of_responsibility",
-    "FA_moral_evaluation",
-    "FA_problem_definition",
-    "FA_treatment_recommendation",
-    "IA_critique_or_reinforcement",
-    "IA_cultural_or_historical_context",
-    "IA_dominant_ideologies",
-    "IA_power_dynamics",
     "advertising",
     "aigc",
     "annotated_fail",
@@ -22,7 +10,7 @@
     "annotation_version",
     "australian_relevance",
     "background_music",
-    "call_to_action_words",
+    "call_to_action",
     "content_category",
     "faces_age_estimate",
     "item_id",
@@ -42,10 +30,10 @@
     "type_of_story",
     "video_story"
   ],
-  "var_schema_hash": "v2:ee5f8821ed51518effc30061461650005a3590330b214a7a9def21ee4eb5adf8",
+  "var_schema_hash": "v2:236761052cacf426c6ba133d34dd358aa153cad0f7a985e87071df9d60b871ef",
   "var_schema_shape": [
-    112,
-    17
+    91,
+    12
   ],
   "models": [
     "gemini-2.5-flash"

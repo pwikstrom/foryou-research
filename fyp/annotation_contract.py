@@ -415,9 +415,11 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
     Covers every contract-owned output column that declares var_schema metadata —
     scalar/list fields (keyed by their flattened column) and object sub-keys
     (keyed via :func:`contract_output_column`). A field/sub-key that declares no
-    ``role`` is skipped, so columns the contract does not own are never overlaid.
-    ``description`` falls back to the prompt ``desc`` only if no explicit
-    ``description`` is set.
+    var_schema metadata at all (no ``role`` / ``scale`` / ``display_name``) is
+    skipped, so columns the contract does not own are never overlaid. A plain
+    carried column declares ``scale`` / ``display_name`` but no ``role`` (blank
+    role is the default), and is still overlaid. ``description`` falls back to the
+    prompt ``desc`` only if no explicit ``description`` is set.
 
     Args:
         contract: the parsed contract dict.
@@ -433,11 +435,11 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
         if field.get("type") == "object":
             for key, spec in field.get("keys", {}).items():
                 meta = _subkey_metadata(spec)
-                if not meta or not meta.get("role"):
+                if not meta or not (meta.get("role") or meta.get("scale") or meta.get("display_name")):
                     continue
                 out[contract_output_column(name, key)] = meta
         else:
-            if not field.get("role"):
+            if not (field.get("role") or field.get("scale") or field.get("display_name")):
                 continue
             out[contract_output_column(name)] = {
                 "role": field.get("role"),

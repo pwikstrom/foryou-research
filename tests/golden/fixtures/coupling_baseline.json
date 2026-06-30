@@ -18,7 +18,6 @@
   "gemini_schema_vars_not_in_prompt": [
     "australian_relevance",
     "background_music",
-    "call_to_action_words",
     "faces_age_estimate",
     "faces_ethnicity",
     "faces_gender",

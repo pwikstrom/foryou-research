@@ -102,7 +102,6 @@ intro = "Based on the video, add:"
 [[fields]]
 name = "transcript"
 section = "profile"
-role = "standard"
 scale = "text"
 display_name = "Transcript"
 description = "Transcription of spoken words"
@@ -111,7 +110,6 @@ desc = "A verbatim transcript of the words spoken or sung in the video."
 [[fields]]
 name = "spoken_language"
 section = "profile"
-role = "standard"
 scale = "categorical"
 display_name = "Spoken language"
 description = "Primary language spoken or sung in the video."
@@ -130,7 +128,6 @@ desc = "Are multiple languages spoken or sung in the video (e.g. code-switching,
 [[fields]]
 name = "objects"
 section = "profile"
-role = "standard"
 scale = "list"
 display_name = "Objects in video"
 description = "List of physical items detected in the video."
@@ -140,7 +137,6 @@ desc = "Notable objects visible in the video."
 [[fields]]
 name = "symbols_and_brands"
 section = "profile"
-role = "standard"
 scale = "list"
 display_name = "Symbols and brands"
 description = "Visible logos, flags, or symbols detected by AI."
@@ -150,7 +146,6 @@ desc = "Visible symbols, flags, or brands."
 [[fields]]
 name = "text_overlays"
 section = "profile"
-role = "standard"
 scale = "list"
 display_name = "Text overlays"
 description = "Text detected on-screen via OCR."
@@ -165,7 +160,7 @@ array = true
 desc = "Each distinct face that appears in the video, with its gender, apparent age in years, and apparent ethnicity."
 [fields.keys]
 gender = { spec = "enum:gender", role = "skip", scale = "list", display_name = "Gender of observed faces", description = "List of genders for all faces detected." }
-age_estimate = { spec = "int: the apparent age of the face, in years (a single best estimate)", role = "standard", scale = "numeric", display_name = "Average age of observed faces", description = "Estimated age range of faces visible in the video." }
+age_estimate = { spec = "int: the apparent age of the face, in years (a single best estimate)", scale = "numeric", display_name = "Average age of observed faces", description = "Estimated age range of faces visible in the video." }
 ethnicity = { spec = "the apparent ethnicity", role = "skip", scale = "list", display_name = "Ethnicity of observed faces", description = "List of ethnicities for all faces detected." }
 
 [[fields]]
@@ -174,9 +169,9 @@ section = "profile"
 type = "object"
 desc = "The video's audio profile: how much of the audio is speech (as a percentage of speech vs music/other), the style/mood of any background music, and any notable sounds or sound effects."
 [fields.keys]
-speech_vs_music = { spec = "int(0,100): the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)", role = "standard", scale = "numeric", display_name = "Speech % (vs music)", description = "Ratio of spoken word to background music." }
-background_music = { spec = "the style or mood of any background music", role = "standard", scale = "list", display_name = "Background music", description = "Description of the style/mood of background music." }
-notable_sounds = { spec = "list: notable sounds or sound effects", role = "standard", scale = "list", display_name = "Notable sounds", description = "Specific sound effects (e.g., sirens) detected." }
+speech_vs_music = { spec = "int(0,100): the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)", scale = "numeric", display_name = "Speech % (vs music)", description = "Ratio of spoken word to background music." }
+background_music = { spec = "the style or mood of any background music", scale = "list", display_name = "Background music", description = "Description of the style/mood of background music." }
+notable_sounds = { spec = "list: notable sounds or sound effects", scale = "list", display_name = "Notable sounds", description = "Specific sound effects (e.g., sirens) detected." }
 
 [[fields]]
 name = "main_activity"
@@ -190,7 +185,6 @@ desc = "The main activity, as a verb + object, e.g. 'dancing in a studio'."
 [[fields]]
 name = "video_story"
 section = "profile"
-role = "standard"
 scale = "text"
 display_name = "Video story"
 description = "Concise AI-generated narrative summary of the video."
@@ -220,7 +214,6 @@ desc = "The TikTok content categories that best capture the video's dominant foc
 [[fields]]
 name = "primary_country"
 section = "profile"
-role = "standard"
 scale = "categorical"
 display_name = "Primary country"
 description = "Country the video is primarily connected to (creator origin / subject / audience)."
@@ -269,7 +262,6 @@ desc = "Is the video an explicit paid promotion of a product, service, or brand 
 [[fields]]
 name = "aigc"
 section = "profile"
-role = "standard"
 scale = "categorical"
 display_name = "AIGC"
 description = "AI detection of AI-generated content (Yes/No)."
@@ -300,7 +292,6 @@ desc = "The ethnicity of the main person featured in the video."
 [[fields]]
 name = "political_score"
 section = "scoring"
-role = "standard"
 scale = "numeric"
 display_name = "Political? (score 0-1)"
 description = "AI-estimated probability (0-100) of political content."
@@ -312,7 +303,6 @@ desc = "How political the video is, from 0 (not at all) to 100 (entirely politic
 [[fields]]
 name = "sensitivity_score"
 section = "scoring"
-role = "standard"
 scale = "numeric"
 display_name = "Sensitive? (score 0-1)"
 description = "AI-estimated probability (0-100) of sensitive topics."
@@ -324,8 +314,7 @@ desc = "How sensitive the video's subject matter is, from 0 (not at all) to 100 
 [[fields]]
 name = "call_to_action"
 section = "scoring"
-role = "raw"
-scale = "raw"
-display_name = "Call to action (raw)"
-description = "Raw text of actions the video asks viewers to take."
+scale = "text"
+display_name = "Call to action"
+description = "Text of actions the video asks viewers to take."
 desc = "The action the video encourages the viewer to take, or '-' if none."

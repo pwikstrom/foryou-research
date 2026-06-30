@@ -31,10 +31,11 @@ TEXT_FIELDS: dict[str, int] = {
     "objects": 1,
     "text_overlays": 1,
     "symbols_and_brands": 1,
-    "desc_not_hashtags": 1,
+    "desc_raw": 1,
     "transcript_no_repetitions": 1,
     "desc_hashtags": 1,
     "music_title": 1,
+    "call_to_action": 1,
 }
 
 ITEM_ID_COL = "item_id"

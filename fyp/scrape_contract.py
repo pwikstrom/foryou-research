@@ -201,8 +201,10 @@ def per_k_sources(contract: dict, platform: str) -> dict[str, str]:
 def contract_column_metadata(contract: dict) -> dict[str, dict]:
     """Return ``{column: {role, scale, display_name, description, section}}``.
 
-    The var_schema overlay payload — one entry per field that declares a
-    ``role`` (a field without a role is not contract-owned and is skipped). The
+    The var_schema overlay payload — one entry per field that declares any
+    var_schema metadata (``role`` / ``scale`` / ``display_name``); a field with
+    none is not contract-owned and is skipped. A plain carried column declares
+    ``scale`` / ``display_name`` but no ``role`` (blank role is the default). The
     scrape contract has no object/array flattening, so the column name is the
     field ``name`` directly.
 
@@ -215,7 +217,7 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for field in contract.get("fields", []):
         name = field.get("name")
-        if not name or not field.get("role"):
+        if not name or not (field.get("role") or field.get("scale") or field.get("display_name")):
             continue
         out[name] = {
             "role": field.get("role"),

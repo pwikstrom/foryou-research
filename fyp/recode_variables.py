@@ -164,7 +164,7 @@ SEMANTIC_COLUMNS = (
 VAR_SCHEMA_HASH_VERSION = "v2"
 
 
-VAR_SCHEMA_ROLES = ("factor", "group_factor", "feature", "standard", "skip", "raw")
+VAR_SCHEMA_ROLES = ("factor", "feature", "group_factor", "skip")
 VAR_SCHEMA_SCALES = (
     "categorical",
     "datetime",
@@ -260,7 +260,7 @@ def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dic
 # column. A field's recode is its data *kind*, not a per-variable procedure:
 #   categorical/list       -> the list/enum cleaner (recode_stringified_list)
 #   text                   -> the text cleaner (recode_long_strings)
-#   raw                    -> the tokeniser fan-out (recode_tokenise: hashtags/mentions/words)
+#   raw                    -> the hashtag extractor (recode_tokenise: <field>_hashtags)
 #   numeric/datetime/blank -> no transform (coercion happens in the scale block)
 _RECODE_FUNC_BY_SCALE = {
     "categorical": "recode_stringified_list",
@@ -707,101 +707,40 @@ def _is_emoji(s: str) -> bool:
 def recode_tokenise(
     a_description: str | pd.Series,
     recoding_policy: dict = {}) -> dict | pd.DataFrame:
-    """Tokenise free text into ``hashtags`` / ``mentions`` / ``not_hashtags`` and a
-    combined ``words`` list (every kept token, in order). One shared op for any
-    text -> tags field — the scrape caption (``desc`` uses hashtags/mentions) and a
-    plain instruction (``call_to_action`` uses ``words``). Stop words are dropped
-    via the global IRRELEVANT_WORDS list; emojis are kept.
+    """Extract the ``hashtags`` from free text (the scrape caption ``desc``).
+
+    A token starting with ``#`` is cleaned and kept when it survives the same
+    filter the rest of the pipeline uses — longer than one character and not in
+    the global IRRELEVANT_WORDS stoplist, or a single emoji. Returns a one-key
+    ``{"hashtags": [...]}`` dict so the recode unpacker fans it out into the
+    ``<field>_hashtags`` column. ``desc`` is the only field tokenised; the raw
+    caption itself is kept separately as ``desc_raw``.
     """
-    
+
+    # chars to strip from a token before testing it (keeps letters + emojis)
+    remove_chars = ",.:;!)(*/&|^%$#@<>?'`’1234567890"
+    trans_table = str.maketrans("", "", remove_chars)
+
+    def _hashtags(text) -> list:
+        if not isinstance(text, str) or not text:
+            return []
+        out = []
+        for w in text.split():
+            if not w.startswith("#"):
+                continue
+            clean_word = w.lower().translate(trans_table)
+            if not clean_word:
+                continue
+            if (len(clean_word) > 1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
+                out.append(clean_word)
+        return out
+
     # Vectorized handling for Series
     if isinstance(a_description, pd.Series):
-        # We'll use a fast regex approach to extract all relevant tokens once
-        # Token pattern: #word or @word or word
-        # We need to exclude IRRELEVANT_WORDS and handle emojis
-        # Doing full logic in regex is hard, but we can extract all words and filter
-        
-        # NOTE: For complex logic like "exclude irrelevant words", a list comprehension
-        # is often faster than pure pandas string ops if the ops are complex.
-        # But let's try to be efficient. 
-        
-        # Actually, for 100k rows, a simple apply might be acceptable if the inner function is fast,
-        # but let's try to speed it up.
-        # The original logic splits by space, cleans chars, checks length/irrelevant/emoji.
-        
-        # Let's stick to the list comprehension for now as it's readable and Python 3.14 is fast.
-        # Pre-compile translation table for fast cleaning
-        # chars to remove: ",.:;!)(*/&|^%$#@<>?'`’1234567890"
-        remove_chars = ",.:;!)(*/&|^%$#@<>?'`’1234567890"
-        trans_table = str.maketrans("", "", remove_chars)
-        
-        # Optimized Apply
-        def _fast_parse(text):
-            if not isinstance(text, str) or not text:
-                return {"hashtags": [], "mentions": [], "not_hashtags": [], "words": []}
+        return a_description.apply(lambda text: {"hashtags": _hashtags(text)})
 
-            hashtags = []
-            mentions = []
-            not_hashtags = []
-            words_all = []
-
-            # fast split
-            # text.split() is fast
-            words = text.split()
-
-            for w in words:
-                # fast clean using translate
-                # w.lower()
-                clean_word = w.lower().translate(trans_table)
-
-                if not clean_word: continue
-
-                # logic
-                if (len(clean_word) > 1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
-                    words_all.append(clean_word)
-                    if w.startswith("#"):
-                        hashtags.append(clean_word)
-                    elif w.startswith("@"):
-                        mentions.append(clean_word)
-                    else:
-                        not_hashtags.append(clean_word)
-
-            return {"hashtags": hashtags, "mentions": mentions, "not_hashtags": not_hashtags, "words": words_all}
-
-        return a_description.apply(_fast_parse)
-
-    # Legacy single string handling
-    hashtags = []
-    not_hashtags = []
-    mentions = []
-    words_all = []
-    if not isinstance(a_description,str) or len(a_description) == 0:
-        return {
-            "hashtags":[],
-            "mentions":[],
-            "not_hashtags":[],
-            "words":[]
-        }
-    words = a_description.split(" ")
-    for w in words:
-        if len(w)>0:
-            first_char = w[0]
-            clean_word = "".join([j for j in w.lower() if j not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
-            if (len(clean_word)>1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
-                words_all += [clean_word]
-                if first_char=="#":
-                    hashtags += [clean_word]
-                elif first_char=="@":
-                    mentions += [clean_word]
-                else:
-                    not_hashtags += [clean_word]
-
-    return {
-        "hashtags":hashtags,
-        "mentions":mentions,
-        "not_hashtags":not_hashtags,
-        "words":words_all
-    }
+    # Single string handling
+    return {"hashtags": _hashtags(a_description)}
 
 
 
@@ -1448,13 +1387,17 @@ def recode_events_df(
 
                     new_thing_cols = copy(new_thing.columns)
                     for new_thing_c in new_thing_cols:
-                        if new_thing_c not in var_schema.index or var_schema.loc[new_thing_c, "role"] == "skip":
+                        # ``str(...)`` keeps the skip test NA-safe: a fan-out column with a
+                        # blank (NA) role compares False rather than raising on ``NA == "skip"``.
+                        if new_thing_c not in var_schema.index or str(var_schema.loc[new_thing_c, "role"]) == "skip":
                             if verbose:
                                 print(f"{preamble2}Skipping new variable: {new_thing_c}")
                             new_thing = new_thing.drop(columns=new_thing_c)
 
-                    # drop the original column or not
-                    if var_schema.loc[c,"role"] == "raw":
+                    # Drop the original source column once it has been fanned out.
+                    # Keyed on ``scale == "raw"`` (the tokeniser kind), so the source
+                    # caption (``desc``) is discarded after its hashtags are unpacked.
+                    if var_schema.loc[c,"scale"] == "raw":
                         # Lightweight column-level drop (no full-frame copy of
                         # the remaining columns); heavy concat is deferred
                         # below unless a later iteration needs the new cols.

@@ -512,7 +512,7 @@ LEGACY_SECTION_ALIASES = {
 # canonical kinds (numeric · categorical · list · text · datetime · raw). Applied
 # at load so an existing ``var_schema.csv`` (local or prod GCS) using the old
 # values surfaces under the new ones without a data migration. ``raw`` is kept —
-# it drives the tokeniser fan-out (hashtags/mentions/words). Contract-owned scales
+# it drives the hashtag extractor for ``desc`` (recode_tokenise). Contract-owned scales
 # are renamed at their source (the two TOML contracts), so this only needs to
 # cover CSV-owned rows; blanks are left untouched. Safe to retire once every
 # on-disk CSV has been re-saved with the new values.
@@ -525,6 +525,31 @@ LEGACY_SCALE_ALIASES = {
     "string": "text",
     "factor": "text",
 }
+
+
+# Self-healing rename of the ``role`` vocabulary, collapsed from 6 values to 4
+# (factor · feature · group_factor · skip). ``standard`` did nothing — every code
+# path treats it like a blank role — and ``raw`` only signalled "drop the source
+# column after tokenising", which is now derived from ``scale == "raw"`` directly.
+# Both heal to blank (the default for a plain carried column). Applied at load so
+# an existing CSV self-heals; contract-owned roles are blanked at their source (the
+# two TOML contracts). Safe to retire once every on-disk CSV has been re-saved.
+LEGACY_ROLE_ALIASES = {
+    "standard": "",
+    "raw": "",
+}
+
+
+# Variable rows retired from the schema: derived fan-out columns the recode no
+# longer produces. ``desc`` now yields only ``desc_hashtags`` (mentions /
+# not_hashtags dropped); ``call_to_action`` is plain ``text`` (no ``_words``).
+# Dropped at load so an existing CSV (local or prod GCS) self-cleans without a
+# manual migration. Safe to retire once every on-disk CSV has been re-saved.
+RETIRED_VAR_SCHEMA_ROWS = frozenset({
+    "desc_mentions",
+    "desc_not_hashtags",
+    "call_to_action_words",
+})
 
 
 
@@ -588,6 +613,12 @@ def load_var_schema(cf, verbose=False):
                  "sortable", "searchable"],
         errors="ignore",
     )
+    # Drop retired variable rows (derived fan-out columns no longer produced) so a
+    # stale on-disk CSV never surfaces them to the admin editor, recode, or the hash.
+    if "variable_name" in cf["var_schema"].columns:
+        cf["var_schema"] = cf["var_schema"][
+            ~cf["var_schema"]["variable_name"].isin(RETIRED_VAR_SCHEMA_ROWS)
+        ].reset_index(drop=True)
     # Self-heal legacy CSV-owned section labels before the contract overlays run.
     if "section" in cf["var_schema"].columns:
         cf["var_schema"]["section"] = cf["var_schema"]["section"].replace(LEGACY_SECTION_ALIASES)
@@ -596,6 +627,11 @@ def load_var_schema(cf, verbose=False):
     # overlays below. Blanks are untouched.
     if "scale" in cf["var_schema"].columns:
         cf["var_schema"]["scale"] = cf["var_schema"]["scale"].replace(LEGACY_SCALE_ALIASES)
+    # Self-heal the legacy 6-value ``role`` vocabulary to the 4 canonical roles.
+    # CSV-owned ``standard`` / ``raw`` heal to blank here; contract-owned rows take
+    # their (blanked) value from the overlays below.
+    if "role" in cf["var_schema"].columns:
+        cf["var_schema"]["role"] = cf["var_schema"]["role"].replace(LEGACY_ROLE_ALIASES)
     # Variable metadata first: it restores ``scale`` for contract columns, which
     # the accepted-labels overlay reads (via build_recode_plan) to decide closed-tag
     # membership. Once the CSV no longer stores scale for these rows, accepted_labels
