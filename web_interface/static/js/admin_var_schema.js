@@ -306,15 +306,6 @@
             </td>`;
         }
 
-        // Boolean-ish toggle
-        if (col === 'searchable') {
-            const on = String(current).trim() === '1';
-            return `<td style="${baseStyle}">
-                <input type="checkbox" ${on ? 'checked' : ''}
-                    onchange="vsOnEdit(${rowIdx}, '${_esc(col)}', this.checked ? '1' : '')">
-            </td>`;
-        }
-
         // Free-text fallback
         const isLong = String(current).length > 30 || col === 'description';
         const widthStyle = isLong ? 'min-width: 240px;' : 'min-width: 80px;';

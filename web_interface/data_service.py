@@ -1681,12 +1681,6 @@ def load_schema_metadata(metadata):
                     if dname and dname.lower() != 'nan' and dname.strip():
                         schema_map[var_name]['display_name'] = dname.strip()
 
-                # Add Sortable (for sort dropdown in viewer)
-                if 'sortable' in row:
-                    sval = row['sortable']
-                    if pd.notna(sval):
-                        schema_map[var_name]['sortable'] = int(sval)
-
                 # Add Display Priority (for filtering in viewer)
                 if 'web_display_prio' in row:
                     prio = row['web_display_prio']

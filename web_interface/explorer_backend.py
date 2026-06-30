@@ -392,29 +392,16 @@ def filter_dataframe(df, column_types, filters, search_query=None):
             # We want rows where ALL terms appear ANYWHERE in the row
             original_indices = filtered_df.index
             final_mask = pd.Series(True, index=original_indices)
-            
-            # Extract explicitly searchable columns from schema
-            explicit_searchable_vars = set()
-            if 'var_schema' in fyp_cf and isinstance(fyp_cf['var_schema'], pd.DataFrame):
-                vs = fyp_cf['var_schema']
-                if 'searchable' in vs.columns and 'variable_name' in vs.columns:
-                    # Look for '1' or 1.0
-                    is_searchable = vs['searchable'].astype(str).str.strip().str.startswith('1')
-                    explicit_searchable_vars = set(vs.loc[is_searchable, 'variable_name'].astype(str).tolist())
-            
-            # Pre-filter columns to search
-            # Avoid casting huge numeric arrays to string if the search term isn't a number
-            searchable_cols = []
-            for col in filtered_df.columns:
-                # If the column is in the schema, it MUST have searchable == 1
-                if explicit_searchable_vars and 'var_schema' in fyp_cf:
-                    # To handle dynamic columns not in schema (like User Tags), we still check schema presence
-                    if col in vs['variable_name'].values and col not in explicit_searchable_vars:
-                         continue # Skip this column if it's in schema but not searchable
 
-                dtype = column_types.get(col)
-                if dtype in ["category", "long_text", "identifier", "list"]:
-                    searchable_cols.append(col)
+            # Data-driven searchable set: every string/collection column except
+            # identifiers. ``classify_columns`` already separates opaque IDs (huge
+            # ints, URLs, >90%-unique strings → "identifier") from human-readable
+            # text/categorical/list fields, so free-text search targets the latter
+            # and never matches inside IDs, hashes, or storage links.
+            searchable_cols = [
+                col for col in filtered_df.columns
+                if column_types.get(col) in ("category", "long_text", "list")
+            ]
             
             for term in terms:
                 term_mask = pd.Series(False, index=original_indices)

@@ -103,10 +103,6 @@ def api_pca_metadata():
                 dname = str(row['display_name'])
                 if dname and dname.lower() != 'nan' and dname.strip():
                     entry['display_name'] = dname.strip()
-            if 'sortable' in row:
-                sval = row['sortable']
-                if pd.notna(sval):
-                    entry['sortable'] = int(sval)
             if entry:
                 schema_map[var_name] = entry
 

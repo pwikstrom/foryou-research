@@ -462,9 +462,8 @@ def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
       * ``role`` ∈ ``VAR_SCHEMA_ROLES`` (blank allowed)
       * ``scale`` ∈ ``VAR_SCHEMA_SCALES`` (blank allowed)
       * ``accepted_labels`` is empty / JSON array / legacy bareword list
-      * ``sortable``, ``web_filter_prio``, ``web_timeline_prio``,
-        ``web_viz_prio``, ``web_display_prio`` parse as integers when set
-      * ``searchable`` ∈ ``{"", "1"}``
+      * ``web_filter_prio``, ``web_timeline_prio``, ``web_viz_prio``,
+        ``web_display_prio`` parse as integers when set
     """
     errors: list[VarSchemaError] = []
     if df is None or df.empty:
@@ -519,7 +518,7 @@ def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
                                              "accepted_labels must be a JSON array or a legacy bareword list"))
 
         # integer-priority columns
-        for col in ("sortable", "web_filter_prio", "web_timeline_prio",
+        for col in ("web_filter_prio", "web_timeline_prio",
                     "web_viz_prio", "web_display_prio"):
             val = row.get(col)
             if _is_blank(val):
@@ -529,17 +528,6 @@ def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
             except ValueError:
                 errors.append(VarSchemaError(row_idx, name, col, val,
                                              f"{col} must be an integer when set"))
-
-        # boolean-shaped columns
-        for col, allowed in (
-            ("searchable", {"", "1"}),
-        ):
-            val = row.get(col)
-            if _is_blank(val):
-                continue
-            if str(val).strip() not in allowed:
-                errors.append(VarSchemaError(row_idx, name, col, val,
-                                             f"{col} must be one of {sorted(allowed)} or blank"))
 
     return errors
 
@@ -552,9 +540,8 @@ def compute_var_schema_hash() -> str:
     ``variable_name`` are hashed, together with the contract-derived recode
     normalization (the retired ``mapper`` / ``ignore_strings`` columns, now
     sourced from ``annotation_contract.toml``).  Cosmetic / web-UI columns
-    (``web_*``, ``sortable``, ``searchable``, ``display_name``, ``section``,
-    ``description``) are excluded so admin tweaks to presentation never
-    invalidate cached study parquets.
+    (``web_*``, ``display_name``, ``section``, ``description``) are excluded so
+    admin tweaks to presentation never invalidate cached study parquets.
 
     Output is prefixed with ``VAR_SCHEMA_HASH_VERSION`` so digests from
     different hash generations cannot collide.  Row order, column order, and

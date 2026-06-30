@@ -154,7 +154,7 @@ def test_hash_v2_ignores_presentation_changes():
     presentation_cols = [
         "display_name", "section", "description",
         "web_filter_prio", "web_timeline_prio", "web_viz_prio",
-        "web_display_prio", "sortable", "searchable",
+        "web_display_prio",
     ]
     for col in presentation_cols:
         if col in df_mod.columns:

@@ -12,21 +12,10 @@
         </button>
         <button class="mobile-only mobile-drawer-trigger" data-drawer-target="#va-left-panel"
             style="margin-right: 10px;">Filters</button>
-        <label for="viewer-sort-select" style="margin-right: 10px;">Sort By:</label>
-        <div style="display: flex; align-items: center;">
-            <select id="viewer-sort-select" class="dropdown"
-                style="width: 200px;">
-                <option value="" selected>Default (Unsorted)</option>
-            </select>
-            <label class="sort-toggle meta-tooltip" style="margin-left: 8px;" data-tooltip="Toggle sort order">
-                <input type="checkbox" id="viewer-sort-checkbox" onchange="toggleViewerSort()">
-                <span class="sort-toggle-track">
-                    <span class="sort-toggle-label sort-toggle-asc">&#x2191;</span>
-                    <span class="sort-toggle-label sort-toggle-desc">&#x2193;</span>
-                    <span class="sort-toggle-thumb"></span>
-                </span>
-            </label>
-        </div>
+        <span class="text-sm" style="margin-right: 8px; color: var(--control-bar-text);">Date range:</span>
+        <span id="viewer-date-range" class="text-sm meta-tooltip"
+            data-tooltip="First and last activity timestamp in the current selection (UTC). Videos are sorted oldest to newest."
+            style="color: var(--control-bar-info);">&mdash;</span>
 
         <span id="viewer-file-info" class="text-sm" style="margin-left: 20px; color: var(--control-bar-info);"></span>
 

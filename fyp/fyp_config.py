@@ -528,22 +528,26 @@ def load_var_schema(cf, verbose=False):
             print(f"\nCRITICAL: No var_schema.csv and no template found at '{template_path}'.")
             cf["var_schema"] = pd.DataFrame(columns=[
                 "source", "section", "variable_name", "display_name", "role", "scale",
-                "sortable", "searchable", "web_filter_prio", "web_timeline_prio",
+                "web_filter_prio", "web_timeline_prio",
                 "web_viz_prio", "web_display_prio",
                 "description", "accepted_labels"
             ])
         cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
-    # Retired columns, all now derived: ``mapper`` / ``ignore_strings`` from the
-    # annotation contract (build_field_normalization); ``recode_func`` from scale +
-    # source (build_recode_plan); ``unable_to_detect_policy`` from scale
+    # Retired columns, all now derived or dropped: ``mapper`` / ``ignore_strings``
+    # from the annotation contract (build_field_normalization); ``recode_func`` from
+    # scale + source (build_recode_plan); ``unable_to_detect_policy`` from scale
     # (default_uncertain_policy — recode normalises, never imputes); the three
     # ``web_viz_*`` presentation flags now derived from the data distribution and
     # scale (``derive_log_scale`` / ``derive_bin_count`` in explorer_backend, and
-    # ``scale == 'collection'`` for the timeline multi-label denominator). Drop
-    # them so a stale on-disk CSV never surfaces them to the admin editor or the hash.
+    # ``scale == 'collection'`` for the timeline multi-label denominator);
+    # ``sortable`` (the viewer now always sorts chronologically) and ``searchable``
+    # (the explorer derives the searchable set from the classified column type).
+    # Drop them so a stale on-disk CSV never surfaces them to the admin editor or
+    # the hash.
     cf["var_schema"] = cf["var_schema"].drop(
         columns=["mapper", "ignore_strings", "recode_func", "unable_to_detect_policy",
-                 "web_viz_log", "web_viz_multi_label", "web_viz_bins"],
+                 "web_viz_log", "web_viz_multi_label", "web_viz_bins",
+                 "sortable", "searchable"],
         errors="ignore",
     )
     # Variable metadata first: it restores ``scale`` for contract columns, which

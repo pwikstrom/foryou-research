@@ -1,6 +1,7 @@
 import os
 
 import numpy as np
+import pandas as pd
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_login import current_user, login_required
 
@@ -47,7 +48,6 @@ def api_viewer_ids():
 
     filters = data.get("filters", {})
     search_query = data.get("search_query")
-    sort_by = data.get("sort_by")
 
     # Pagination Optional Params
     offset = data.get("offset", 0)
@@ -55,17 +55,12 @@ def api_viewer_ids():
 
     filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
 
-    if sort_by and sort_by in filtered_df.columns:
-        sort_order = data.get("sort_order")
-        if sort_order:
-            ascending = (sort_order == 'asc')
-        else:
-            dtype = col_types.get(sort_by)
-            ascending = True
-            if dtype == 'number':
-                ascending = False
-
-        filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending)
+    # Videos are always presented in chronological order. Sort ascending (oldest
+    # first) on the first available activity-timestamp column.
+    ts_col = next((c for c in ("utc_timestamp", "local_timestamp", "create_time")
+                   if c in filtered_df.columns), None)
+    if ts_col is not None:
+        filtered_df = filtered_df.sort_values(by=ts_col, ascending=True)
 
     id_col = 'item_id'
     if id_col not in filtered_df.columns:
@@ -85,6 +80,22 @@ def api_viewer_ids():
 
     # Calculate true total count before slicing
     total_count = len(filtered_df)
+
+    # First / last activity timestamp across the whole filtered set (the
+    # chronological span shown in the viewer header). Only needed on the initial
+    # chunk; pagination requests reuse the value already on the client.
+    time_span = None
+    if offset == 0 and ts_col is not None and total_count > 0:
+        try:
+            first_ts = filtered_df[ts_col].min()
+            last_ts = filtered_df[ts_col].max()
+            if pd.notna(first_ts) and pd.notna(last_ts):
+                time_span = {
+                    "first": pd.Timestamp(first_ts).strftime("%Y-%m-%d %H:%M"),
+                    "last": pd.Timestamp(last_ts).strftime("%Y-%m-%d %H:%M"),
+                }
+        except (ValueError, TypeError):
+            time_span = None
 
     # Build global list of indices (0-based) where extra_data is present.
     # Only computed on the first chunk request (offset 0) to avoid repeat work.
@@ -113,7 +124,8 @@ def api_viewer_ids():
         "count": total_count,
         "offset": offset,
         "display_ids": relevant_display_ids,
-        "truncated": False
+        "truncated": False,
+        "time_span": time_span,
     }
 
     if extra_data_indices is not None:

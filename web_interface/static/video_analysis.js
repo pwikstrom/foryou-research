@@ -7,8 +7,6 @@ let viewerData = {
     filteredIds: [],
     itemCount: 0,
     searchQuery: "",
-    sortBy: null,
-    sortOrder: 'asc',
     currentIndex: -1,
     userTags: {},
     userVotes: [],
@@ -427,42 +425,6 @@ function renderViewerFilters(metadata) {
         sectionNames.push('Annotation Status');
     }
 
-    // Populate Sort Dropdown — only include variables marked as sortable in var_schema
-    const sortSelect = document.getElementById('viewer-sort-select');
-    if (sortSelect) {
-        const currentVal = sortSelect.value || viewerData.sortBy;
-        sortSelect.innerHTML = '<option value="">Default (Unsorted)</option>';
-
-        // Collect sortable columns from schema_map and order by their sortable value
-        let sortableCols = Object.keys(schemaMap)
-            .filter(col => schemaMap[col].sortable !== undefined)
-            .sort((a, b) => schemaMap[a].sortable - schemaMap[b].sortable);
-
-        // Find the default sort variable (sortable === 1)
-        const defaultSortCol = sortableCols.find(col => schemaMap[col].sortable === 1);
-
-        sortableCols.forEach(col => {
-            const opt = document.createElement('option');
-            opt.value = col;
-            opt.text = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
-            if (currentVal === col) opt.selected = true;
-            sortSelect.appendChild(opt);
-        });
-
-        // Set default sort to the sortable=1 variable if no sort is active yet
-        if (!currentVal && defaultSortCol) {
-            sortSelect.value = defaultSortCol;
-            viewerData.sortBy = defaultSortCol;
-            viewerData.sortOrder = 'asc';
-        }
-
-        sortSelect.onchange = (e) => {
-            viewerData.sortBy = e.target.value;
-            applyViewerFilters();
-        };
-    }
-    updateSortBtnUI();
-
     // Helper: populate a section body lazily (only when expanded)
     const populateSectionBody = (body, vars) => {
         if (body.dataset.populated === '1') return;
@@ -860,18 +822,13 @@ function resetViewerFilters() {
     applyViewerFilters(); // Re-query the video list with cleared filters
 }
 
-function toggleViewerSort() {
-    const cb = document.getElementById('viewer-sort-checkbox');
-    viewerData.sortOrder = cb && cb.checked ? 'desc' : 'asc';
-    if (viewerData.sortBy) {
-        applyViewerFilters();
-    }
-}
-
-function updateSortBtnUI() {
-    const cb = document.getElementById('viewer-sort-checkbox');
-    if (cb) {
-        cb.checked = viewerData.sortOrder === 'desc';
+function updateViewerDateRange(span) {
+    const el = document.getElementById('viewer-date-range');
+    if (!el) return;
+    if (span && span.first && span.last) {
+        el.textContent = `${span.first} → ${span.last}`;
+    } else {
+        el.textContent = "";
     }
 }
 
@@ -888,8 +845,6 @@ async function applyViewerFilters() {
                 study: viewerData.activeStudy,
                 filters: viewerData.filters,
                 search_query: viewerData.searchQuery,
-                sort_by: viewerData.sortBy,
-                sort_order: viewerData.sortOrder,
                 hide_duplicates: hideDuplicates,
                 offset: 0,
                 limit: 1000
@@ -910,6 +865,7 @@ async function applyViewerFilters() {
         viewerData.filteredIds = data.ids;
         viewerData.rowIdxs = data.row_idxs || [];
         viewerData.itemCount = data.count; // True total number of matching items
+        updateViewerDateRange(data.time_span);
         clearMetadataCache();
         viewerData.currentOffset = data.offset || 0; // The base index of the downloaded chunk
         viewerData.chunkLimit = 1000; // Expected max size of the downloaded chunk
@@ -1081,8 +1037,6 @@ async function loadViewerItem(index) {
                     study: viewerData.activeStudy,
                     filters: viewerData.filters,
                     search_query: viewerData.searchQuery,
-                    sort_by: viewerData.sortBy,
-                    sort_order: viewerData.sortOrder,
                     hide_duplicates: hideDuplicates,
                     offset: newOffset,
                     limit: viewerData.chunkLimit || 1000
