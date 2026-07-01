@@ -2934,14 +2934,16 @@ def _contract_locked_map(df) -> dict:
 
     ``metadata`` is True when a contract owns the row's role/scale/display_name/
     description — the annotation contract's flattened Gemini columns, or the
-    scrape contract's canonical scrape columns. ``section`` is True for every
-    Gemini-origin row (all forced under "AI Annotations") and for every scrape-contract
-    column (whose section the scrape contract owns). The admin editor renders
-    these cells read-only. Degrades to ``{}`` if neither contract can be loaded,
-    so the editor never breaks on a contract error.
+    scrape / activity / derived contracts' canonical columns. ``section`` is True
+    for every Gemini-origin row (all forced under "AI Annotations") and for every
+    scrape / activity / derived contract column (whose section those contracts
+    own). The admin editor renders these cells read-only. Degrades to ``{}`` if no
+    contract can be loaded, so the editor never breaks on a contract error.
     """
     annotation_cols: set = set()
     scrape_cols: set = set()
+    activity_cols: set = set()
+    derived_cols: set = set()
     try:
         from fyp import annotation_contract as ac
 
@@ -2954,17 +2956,33 @@ def _contract_locked_map(df) -> dict:
         scrape_cols = set(sc.contract_column_metadata(sc.load_contract()).keys())
     except Exception:
         pass
-    if not annotation_cols and not scrape_cols:
+    try:
+        from fyp import activity_contract as acy
+
+        activity_cols = set(acy.contract_column_metadata(acy.load_contract()).keys())
+    except Exception:
+        pass
+    try:
+        from fyp import derived_contract as dc
+
+        derived_cols = set(dc.contract_column_metadata(dc.load_contract()).keys())
+    except Exception:
+        pass
+    if not (annotation_cols or scrape_cols or activity_cols or derived_cols):
         return {}
+    section_owned_cols = scrape_cols | activity_cols | derived_cols
     locked: dict = {}
     for _, row in df.iterrows():
         vn = str(row.get("variable_name", ""))
         src = str(row.get("source", "")).strip()
         is_gemini = src == "Gemini" or src.startswith("derived: Gemini")
-        scrape_owned = vn in scrape_cols
-        meta_owned = vn in annotation_cols or scrape_owned
+        section_owned = vn in section_owned_cols
+        meta_owned = (
+            vn in annotation_cols or vn in scrape_cols
+            or vn in activity_cols or vn in derived_cols
+        )
         if meta_owned or is_gemini:
-            locked[vn] = {"metadata": meta_owned, "section": is_gemini or scrape_owned}
+            locked[vn] = {"metadata": meta_owned, "section": is_gemini or section_owned}
     return locked
 
 

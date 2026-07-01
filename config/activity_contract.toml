@@ -1,0 +1,236 @@
+# Declarative activity contract — the single source for the canonical,
+# platform-agnostic ACTIVITY schema (the donation/engagement stream ingested by
+# fyp/ingest.py). It plays the same role for ingestion that
+# `config/scrape_contract.toml` plays for the scraper and
+# `config/annotation_contract.toml` plays for the Gemini annotator.
+#
+# From this file:
+#   * fyp/ingest.py reads its required columns + PyArrow dtypes (the hardcoded
+#     REQUIRED_COLUMNS / additional_columns analogue) and the required-core set
+#     that drives the per-row hard-drop integrity gate;
+#   * fyp/fyp_config.py overlays role / scale / display_name / description /
+#     section onto the matching var_schema rows (and injects any missing ones);
+#   * fyp/recode_variables.py folds a digest of the field set into the var_schema
+#     hash so a contract edit invalidates cached study parquets.
+#
+# Per-field keys (everything except `name` + `scope` + `dtype` + `section` is optional):
+#   name        — canonical stored column name
+#   scope       — "base" (every platform emits it) | "platform"
+#   platform    — for scope="platform": which platform owns the field (e.g. "tiktok")
+#   dtype       — PyArrow dtype string for the stored column
+#   section     — var_schema UI section (Activity / Item metadata / backstage)
+#   role        — var_schema role (factor / feature / group_factor / skip); omit for the default
+#   scale       — var_schema scale (numeric / categorical / list / text / datetime / raw)
+#   display_name / description — var_schema metadata (overlaid at load)
+#   required    — true when a null value makes a row invalid (the hard-drop gate)
+#   derived     — true when computed AFTER ingestion (session_id / local_* / provenance),
+#                 so it is owned for metadata but is not an ingested required column
+
+[meta]
+version = "1"
+
+# ===========================================================================
+# BASE required-columns (ingested; the REQUIRED_COLUMNS analogue).
+# `required = true` marks the structural fields whose null value drops the row.
+# ===========================================================================
+
+[[fields]]
+name = "item_id"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Item metadata"
+scale = "text"
+display_name = "Video ID"
+description = "Unique identifier for the specific item."
+
+[[fields]]
+name = "activity_type"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Activity"
+scale = "text"
+display_name = "Activity type"
+description = "The type of the activity (play, fave, comment, follow, login, ...)."
+required = true
+
+[[fields]]
+name = "utc_timestamp"
+scope = "base"
+dtype = "timestamp[ns][pyarrow]"
+section = "Activity"
+scale = "datetime"
+display_name = "UTC Timestamp"
+description = "Coordinated Universal Time of the activity."
+required = true
+
+[[fields]]
+name = "collection_id"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Activity"
+role = "group_factor"
+scale = "text"
+display_name = "Collection ID"
+description = "Identifier for the collection (participant/donation) this activity belongs to."
+required = true
+
+[[fields]]
+name = "data_source"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Activity"
+scale = "text"
+display_name = "Data source"
+description = "Data source within the platform (ddp, aio, zeeschuimer)."
+required = true
+
+[[fields]]
+name = "extra_data"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Activity"
+scale = "text"
+display_name = "Engagement activity"
+description = "Engagement activities (fave/comment/share/follow/save) folded into the leading play row of a session run. Null for most rows."
+
+[[fields]]
+name = "tz_offset"
+scope = "base"
+dtype = "int64[pyarrow]"
+section = "Activity"
+scale = "numeric"
+display_name = "Timezone offset"
+description = "The user's UTC offset (hours) at the time of the activity."
+required = true
+
+[[fields]]
+name = "raw_file"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "text"
+display_name = "Raw file"
+description = "Filename of the source raw donation file."
+
+[[fields]]
+name = "source_platform"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "text"
+display_name = "Source platform"
+description = "The platform this activity was donated from (tiktok, ...)."
+
+[[fields]]
+name = "ts_added_to_dataset"
+scope = "base"
+dtype = "timestamp[ns][pyarrow]"
+section = "backstage"
+scale = "datetime"
+display_name = "TS added to dataset"
+description = "When the source raw file was added to the dataset (file mtime)."
+
+# ===========================================================================
+# DERIVED fields (computed after ingestion; owned for metadata, not ingested).
+# ===========================================================================
+
+[[fields]]
+name = "session_id"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "backstage"
+scale = "text"
+display_name = "Session id"
+description = "Persistent sitting-level session id (collection_id__N)."
+derived = true
+
+[[fields]]
+name = "local_date"
+scope = "base"
+dtype = "date32[pyarrow]"
+section = "Activity"
+role = "group_factor"
+scale = "datetime"
+display_name = "Activity date"
+description = "Date of the activity adjusted to local timezone."
+derived = true
+
+[[fields]]
+name = "local_day_segment"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Activity"
+scale = "text"
+display_name = "Activity day segment"
+description = "Time of day (e.g., morning, night) in local time."
+derived = true
+
+[[fields]]
+name = "local_hour"
+scope = "base"
+dtype = "uint8[pyarrow]"
+section = "Activity"
+role = "feature"
+scale = "numeric"
+display_name = "Activity hour"
+description = "Hour of the day (0-23) in local time."
+derived = true
+
+[[fields]]
+name = "local_timestamp"
+scope = "base"
+dtype = "timestamp[ns][pyarrow]"
+section = "Activity"
+scale = "datetime"
+display_name = "Activity timestamp"
+description = "Precise activity time adjusted to local timezone."
+derived = true
+
+[[fields]]
+name = "local_week"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Activity"
+role = "factor"
+scale = "text"
+display_name = "Activity week"
+description = "Week (YYYY-WW) of the activity in local time."
+derived = true
+
+[[fields]]
+name = "local_weekday"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Activity"
+role = "factor"
+scale = "text"
+display_name = "Activity weekday"
+description = "Day of the week (e.g., monday) in local time."
+derived = true
+
+[[fields]]
+name = "activity_contract_version"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "categorical"
+display_name = "Activity contract version"
+description = "Deterministic acv_<hash> of the activity-contract field set active when this row was ingested (per-row provenance)."
+derived = true
+
+# ===========================================================================
+# PLATFORM fields. Only emitted by specific platform subclasses.
+# ===========================================================================
+
+[[fields]]
+name = "play_duration"
+scope = "platform"
+platform = "tiktok"
+dtype = "int64[pyarrow]"
+section = "Activity"
+scale = "numeric"
+display_name = "Play duration"
+description = "How long the item was played, in seconds (TikTok DDP only)."

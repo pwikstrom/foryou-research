@@ -601,7 +601,31 @@ def compute_var_schema_hash() -> str:
     except Exception:
         pass
 
-    digest = hashlib.sha256(payload + norm_payload + scrape_payload).hexdigest()
+    # Fold in the activity + derived contracts' field sets so an
+    # activity_contract.toml / derived_contract.toml edit invalidates cached study
+    # parquets the same way a scrape/annotation contract edit does.
+    activity_payload = b""
+    try:
+        from fyp import activity_contract as acy
+
+        activity_payload = json.dumps(
+            acy.contract_field_digest(acy.load_contract()), sort_keys=True
+        ).encode("utf-8")
+    except Exception:
+        pass
+    derived_payload = b""
+    try:
+        from fyp import derived_contract as dc
+
+        derived_payload = json.dumps(
+            dc.contract_field_digest(dc.load_contract()), sort_keys=True
+        ).encode("utf-8")
+    except Exception:
+        pass
+
+    digest = hashlib.sha256(
+        payload + norm_payload + scrape_payload + activity_payload + derived_payload
+    ).hexdigest()
     return f"{VAR_SCHEMA_HASH_VERSION}:{digest}"
 
 

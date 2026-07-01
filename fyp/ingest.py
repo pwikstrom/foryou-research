@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 
 import fyp.data_io as data_io
+from fyp import activity_contract as _activity_contract
+from fyp import activity_versioning as _activity_versioning
 from fyp.donations import generate_collection_metadata
 from fyp.organize_datasets import COLLECTIONS_LABEL
 from fyp.polars_ops import fast_vertical_concat
@@ -26,6 +28,32 @@ from fyp.types import convert_dtypes_to_pyarrow
 from fyp.utils import clean_url
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
+
+
+# The activity schema is owned by config/activity_contract.toml (the REQUIRED_COLUMNS /
+# additional_columns analogue). Loaded once at import; falls back to a literal schema
+# only if the contract cannot be read, so ingestion never hard-fails on a contract error.
+try:
+    _ACTIVITY_CONTRACT = _activity_contract.load_contract()
+    _ACTIVITY_REQUIRED_COLUMNS = _activity_contract.required_columns(_ACTIVITY_CONTRACT)
+    _ACTIVITY_REQUIRED_CORE = _activity_contract.required_core_fields(_ACTIVITY_CONTRACT)
+except Exception:
+    _ACTIVITY_CONTRACT = None
+    _ACTIVITY_REQUIRED_COLUMNS = {
+        "collection_id": "string[pyarrow]",
+        "raw_file": "string[pyarrow]",
+        "source_platform": "string[pyarrow]",
+        "data_source": "string[pyarrow]",
+        "activity_type": "string[pyarrow]",
+        "utc_timestamp": "timestamp[ns][pyarrow]",
+        "tz_offset": "int64[pyarrow]",
+        "item_id": "string[pyarrow]",
+        "ts_added_to_dataset": "timestamp[ns][pyarrow]",
+        "extra_data": "string[pyarrow]",
+    }
+    _ACTIVITY_REQUIRED_CORE = [
+        "activity_type", "utc_timestamp", "collection_id", "data_source", "tz_offset",
+    ]
 
 
 
@@ -253,18 +281,8 @@ class ForYouBaseCollection(ABC):
         if cls.__name__ != "ForYouCollection":
             ForYouBaseCollection._registry.append(cls)
 
-    REQUIRED_COLUMNS = {
-        "collection_id": "string[pyarrow]",
-        "raw_file": "string[pyarrow]",
-        "source_platform": "string[pyarrow]",
-        "data_source": "string[pyarrow]",
-        "activity_type": "string[pyarrow]",
-        "utc_timestamp": "timestamp[ns][pyarrow]",
-        "tz_offset": "int64[pyarrow]",
-        "item_id": "string[pyarrow]",
-        "ts_added_to_dataset": "timestamp[ns][pyarrow]",
-        "extra_data": "string[pyarrow]"
-    }
+    # The canonical required columns come from config/activity_contract.toml.
+    REQUIRED_COLUMNS = _ACTIVITY_REQUIRED_COLUMNS
     
 
 
@@ -478,6 +496,15 @@ class ForYouBaseCollection(ABC):
             print(f"Processing {len(self.data):,} raw rows for platform/data_source '{self.source_platform}_{self.data_source}'...")
 
         self.data = self.data.groupby("raw_file", group_keys=False)[self.data.columns].apply(self.process_single)
+
+        # Platform-specific extras (the additional_columns analogue) come from the
+        # activity contract, keyed on this collection's platform. Merged over any
+        # subclass-set columns so a contract-load failure still degrades gracefully.
+        if _ACTIVITY_CONTRACT is not None:
+            self.additional_columns = {
+                **self.additional_columns,
+                **_activity_contract.platform_columns(_ACTIVITY_CONTRACT, self.source_platform),
+            }
 
         good_columns = list((set(self.additional_columns.keys()) | set(list(self.REQUIRED_COLUMNS.keys()))) & set(self.data.columns))
         
@@ -755,6 +782,27 @@ class ForYouBaseCollection(ABC):
              df = convert_dtypes_to_pyarrow(df, verbose=False)
         except Exception as e:
              if self.verbose: print(f"Warning: convert_dtypes_to_pyarrow failed: {e}")
+
+        # Hard-drop integrity gate: a row missing any required-core STRUCTURAL field
+        # is malformed and dropped. Column presence is already ensured above; this
+        # checks VALUES. item_id (null for login/search/follow) and extra_data (the
+        # folded-engagement payload, null for ~92% of rows) are intentionally NOT
+        # required and stay nullable.
+        core = [c for c in _ACTIVITY_REQUIRED_CORE if c in df.columns]
+        if core:
+            invalid = df[core].isna().any(axis=1)
+            n_bad = int(invalid.sum())
+            if n_bad:
+                print(
+                    f"Activity ingest: hard-dropping {n_bad:,} row(s) with a null "
+                    f"required-core field ({', '.join(core)})."
+                )
+                df = df[~invalid].copy()
+
+        # Stamp per-row activity-contract provenance. This is a derived field, so it
+        # is not part of REQUIRED_COLUMNS / the good_columns filter, but it persists
+        # like the rest (save_processed only drops the transient local_* columns).
+        df = _activity_versioning.stamp_version(df)
 
         # -----------------------------------------------------
         # It's important to sort by time

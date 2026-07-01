@@ -492,6 +492,107 @@ def _apply_contract_scrape_metadata(cf) -> None:
 
 
 
+
+def _overlay_contract_metadata(
+    cf, meta: dict, derived_names: set, base_source: str, derived_source: str
+) -> None:
+    """Overlay a contract's column metadata onto var_schema and inject missing rows.
+
+    Shared by the activity and derived contract overlays (the scrape overlay is
+    separate — it also self-heals legacy column names). Per-row and additive: rows
+    the contract does not own are untouched. ``meta`` maps column name →
+    ``{role, scale, display_name, description, section}``; an injected row is
+    labelled ``derived_source`` when its name is in ``derived_names``, else
+    ``base_source``.
+
+    Args:
+        cf: the config dict whose ``var_schema`` DataFrame is overlaid in place.
+        meta: the contract's ``contract_column_metadata`` payload.
+        derived_names: names to label with ``derived_source`` when injected.
+        base_source: ``source`` label for injected non-derived rows.
+        derived_source: ``source`` label for injected derived rows.
+    """
+    vs = cf.get("var_schema")
+    if vs is None or getattr(vs, "empty", True) or "variable_name" not in vs.columns:
+        return
+    for col in ("role", "scale", "display_name", "description", "section"):
+        if col not in vs.columns:
+            vs[col] = pd.NA
+    if not meta:
+        return
+    for idx in vs.index:
+        owned = meta.get(vs.at[idx, "variable_name"])
+        if owned:
+            for col in ("role", "scale", "display_name", "description", "section"):
+                if owned.get(col) is not None:
+                    vs.at[idx, col] = owned[col]
+    present = set(vs["variable_name"].astype("string"))
+    missing = [name for name in meta if name not in present]
+    if missing:
+        rows = []
+        for name in missing:
+            owned = meta[name]
+            rows.append({
+                "variable_name": name,
+                "source": derived_source if name in derived_names else base_source,
+                "role": owned.get("role"),
+                "scale": owned.get("scale"),
+                "display_name": owned.get("display_name"),
+                "description": owned.get("description"),
+                "section": owned.get("section"),
+            })
+        cf["var_schema"] = pd.concat([vs, pd.DataFrame(rows)], ignore_index=True)
+
+
+
+
+def _apply_contract_activity_metadata(cf) -> None:
+    """Materialize activity-variable metadata from the activity contract, in memory.
+
+    Mirrors :func:`_apply_contract_scrape_metadata` for
+    ``config/activity_contract.toml``: the activity contract owns
+    role/scale/display_name/description/section for the canonical activity columns
+    (incl. ``item_id``, the ``local_*`` features, ``session_id`` and the
+    ``activity_contract_version`` provenance stamp), and injects any missing ones
+    (``source_platform`` / ``raw_file`` / ``activity_contract_version`` are absent
+    from ``var_schema.csv`` today). Degrades to a no-op if the contract cannot load.
+    """
+    try:
+        from fyp import activity_contract as acy
+
+        contract = acy.load_contract()
+        meta = acy.contract_column_metadata(contract)
+        derived = acy.derived_fields(contract)
+    except Exception:
+        return
+    _overlay_contract_metadata(
+        cf, meta, derived, base_source="activity", derived_source="derived: activity"
+    )
+
+
+
+
+def _apply_contract_derived_metadata(cf) -> None:
+    """Materialize enrichment-variable metadata from the derived contract, in memory.
+
+    Mirrors the activity overlay for ``config/derived_contract.toml`` (the
+    merge-time calculated + niche columns). Injects ``scraped_fail`` (absent from
+    ``var_schema.csv`` today, so the produced column gains its metadata).
+    """
+    try:
+        from fyp import derived_contract as dc
+
+        contract = dc.load_contract()
+        meta = dc.contract_column_metadata(contract)
+        derived = dc.derived_fields(contract)
+    except Exception:
+        return
+    _overlay_contract_metadata(
+        cf, meta, derived, base_source="derived: enrichment", derived_source="derived: enrichment"
+    )
+
+
+
 # Self-healing rename of CSV-owned UI sections. Applied at load so an existing
 # ``var_schema.csv`` (local or prod GCS) using the old labels surfaces under the
 # new names without a data migration. Contract-owned sections (scrape +
@@ -644,6 +745,8 @@ def load_var_schema(cf, verbose=False):
     # would otherwise see a blank scale and skip them.
     _apply_contract_variable_metadata(cf)
     _apply_contract_scrape_metadata(cf)
+    _apply_contract_activity_metadata(cf)
+    _apply_contract_derived_metadata(cf)
     _apply_contract_accepted_labels(cf)
     return cf
 
@@ -744,14 +847,14 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
     )
 
     # Contract-owned metadata is rebuilt in memory at load from the annotation
-    # contract (``_apply_contract_variable_metadata``) and the scrape contract
-    # (``_apply_contract_scrape_metadata``), so it is never persisted: blank
-    # ``role``/``scale``/``display_name``/``description`` for either contract's
+    # contract (``_apply_contract_variable_metadata``), the scrape contract, the
+    # activity contract, and the derived contract, so it is never persisted: blank
+    # ``role``/``scale``/``display_name``/``description`` for any contract's
     # columns, and blank ``section`` for every Gemini-origin row (forced to
-    # "AI Annotations") and every scrape-contract column (the scrape contract owns their
-    # section). Per-row — uncontracted rows keep their CSV values. The on-disk CSV
-    # is thus a clean slate the overlays re-fill, so an admin edit to a contract
-    # cell is discarded by design.
+    # "AI Annotations") and every scrape / activity / derived contract column
+    # (whose section those contracts own). Per-row — uncontracted rows keep their
+    # CSV values. The on-disk CSV is thus a clean slate the overlays re-fill, so an
+    # admin edit to a contract cell is discarded by design.
     try:
         from fyp import annotation_contract as ac
 
@@ -764,8 +867,20 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
         scrape_cols = set(sc.contract_column_metadata(sc.load_contract()).keys())
     except Exception:
         scrape_cols = set()
+    try:
+        from fyp import activity_contract as acy
+
+        activity_cols = set(acy.contract_column_metadata(acy.load_contract()).keys())
+    except Exception:
+        activity_cols = set()
+    try:
+        from fyp import derived_contract as dc
+
+        derived_cols = set(dc.contract_column_metadata(dc.load_contract()).keys())
+    except Exception:
+        derived_cols = set()
     if "variable_name" in df.columns:
-        owned_cols = contract_cols | scrape_cols
+        owned_cols = contract_cols | scrape_cols | activity_cols | derived_cols
         if owned_cols:
             owned = df["variable_name"].isin(owned_cols)
             for col in ("role", "scale", "display_name", "description"):
@@ -777,11 +892,12 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
                 gemini = src.eq("Gemini") | src.str.startswith("derived: Gemini")
             else:
                 gemini = pd.Series(False, index=df.index)
-            scrape_owned = (
-                df["variable_name"].isin(scrape_cols)
-                if scrape_cols else pd.Series(False, index=df.index)
+            section_cols = scrape_cols | activity_cols | derived_cols
+            section_owned = (
+                df["variable_name"].isin(section_cols)
+                if section_cols else pd.Series(False, index=df.index)
             )
-            df.loc[gemini | scrape_owned, "section"] = pd.NA
+            df.loc[gemini | section_owned, "section"] = pd.NA
 
     # Atomic-ish write: local goes through a temp file + os.replace;
     # GCS overwrites are atomic at the blob level.

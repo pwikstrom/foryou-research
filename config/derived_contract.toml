@@ -1,0 +1,60 @@
+# Declarative derived contract — owns the var_schema metadata for the enrichment
+# columns COMPUTED AT MERGE TIME in fyp/organize_datasets.py:new_merge()
+# (days_since_created / completion_rate / scraped_fail) and the embeddings-derived
+# niche columns (niche / niche_name).
+#
+# Metadata-only: unlike scrape/activity contracts this drives no computation — the
+# merge-time calculations stay in organize_datasets. It moves role / scale /
+# display_name / description / section for these columns out of var_schema.csv and
+# folds a field-set digest into the var_schema hash.
+#
+# NOTE: `plays_per_day` is NOT here — it is derived at scrape time and owned by
+# the scrape contract. `scraped_fail` has no var_schema.csv row today, so the
+# overlay injects it (giving the produced column metadata it currently lacks).
+
+[meta]
+version = "1"
+
+[[fields]]
+name = "days_since_created"
+dtype = "double[pyarrow]"
+section = "Activity"
+scale = "numeric"
+display_name = "Days since posted"
+description = "Number of days elapsed between the item's post time and this activity."
+
+[[fields]]
+name = "completion_rate"
+dtype = "double[pyarrow]"
+section = "Activity"
+role = "feature"
+scale = "numeric"
+display_name = "Completion Rate"
+description = "How much of the item the user played at this activity (0-1)."
+
+[[fields]]
+name = "scraped_fail"
+dtype = "bool[pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "categorical"
+display_name = "Scrape failed"
+description = "Whether the item's media scrape failed (item_id in the failed-scrapes set)."
+
+[[fields]]
+name = "niche_name"
+dtype = "string[pyarrow]"
+section = "Semantic"
+role = "feature"
+scale = "categorical"
+display_name = "Niche"
+description = "Embeddings-derived micro-genre (KMeans cluster of video embeddings, Gemini-named). High-cardinality: tabs surface the top niches by frequency and fold the long tail into 'Other'. Best-effort-stable across map rebuilds."
+
+[[fields]]
+name = "niche"
+dtype = "int64[pyarrow]"
+section = "Semantic"
+role = "skip"
+scale = "raw"
+display_name = "Niche ID"
+description = "Integer niche cluster id (join key to video_niches.json); hidden from tabs."

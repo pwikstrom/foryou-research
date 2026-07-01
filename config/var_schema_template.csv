@@ -21,7 +21,7 @@ derived: activity,Activity,local_week,Activity week,factor,text,406,,,305,Week n
 derived: activity,Activity,local_weekday,Activity weekday,factor,text,407,,407,306,"Day of the week (e.g., Monday) in local time."
 derived: activity & scrape,Activity,completion_rate,Completion Rate,feature,numeric,408,,408,309,How much of the video did the user play at this activity
 derived: activity & scrape,Activity,days_since_created,Days since posted,,numeric,403,,403,302,Number of days elapsed since the video was uploaded.
-derived: scrape,Activity,tz_offset,Timezone offset,,numeric,,,,,Offset in seconds from UTC.
+activity,Activity,tz_offset,Timezone offset,,numeric,,,,,The user's UTC offset (hours) at the time of the activity.
 derived: scrape,Item metadata,desc_hashtags,Hashtags,,list,101,102,101,104,List of hashtags extracted from the caption.
 derived: scrape,Item metadata,desc_raw,Description,,text,,,,105,Original video caption including text and hashtags.
 derived: scrape,,plays_per_day,,,,306,,306,401,
