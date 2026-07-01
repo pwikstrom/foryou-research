@@ -10,7 +10,6 @@ Date:
 
 import json
 import os
-import textwrap
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,10 +23,11 @@ from PIL import Image, ImageColor
 import fyp.data_io as data_io
 import fyp.tiktok_dl as tiktok_dl
 from fyp import scrape_contract as sc
+from fyp import scrape_versioning
 from fyp.fyp_config import fyp_cf
 from fyp.platform_scraper import get_scraper
 from fyp.recode_variables import recode_events_df, rename_columns
-from fyp.utils import chunk_list, start_monitor
+from fyp.utils import chunk_list, record_dropped_columns, start_monitor
 
 SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
 FAILED_SCRAPES_LABEL = fyp_cf["labels"]["FAILED_SCRAPES_LABEL"]
@@ -454,6 +454,7 @@ def _canonicalize_recode_save(
     scraper,
     fine_ts: str,
     verbose: bool = False,
+    reporter=None,
 ) -> pd.DataFrame:
     """Fix up, canonicalize, recode, and save a raw scrape batch to parquet.
 
@@ -503,13 +504,13 @@ def _canonicalize_recode_save(
         results = rename_columns(results).copy()
 
         # only keep columns as defined by the variable schema
-        dropped_vars_str = textwrap.wrap(", ".join(list(set(results.columns) - set(fyp_cf['var_schema'].variable_name))), width=120)
+        dropped = sorted(set(results.columns) - set(fyp_cf['var_schema'].variable_name))
         relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in results.columns]
         results = results[relevant_cols].copy()
-
-        if verbose and dropped_vars_str:
-            joined_vars = '\n'.join(dropped_vars_str)
-            print(f"Dropped these columns, which are not in the variable schema:\n{joined_vars}\nCurrent shape: {results.shape}")
+        record_dropped_columns(
+            "scrape_whitelist", dropped, reason="whitelist", reporter=reporter,
+            guardrail="off", verbose=verbose,
+        )
 
         # recode_events_df drops role=skip columns (scrape_ts / storage_link are
         # base provenance fields kept on disk but hidden from analysis). Snapshot
@@ -525,6 +526,7 @@ def _canonicalize_recode_save(
             study_dataset=results,
             drop_single_value_cols=False,
             verbose=verbose,
+            reporter=reporter,
         )
 
         if base_snapshot is not None and "item_id" in results.columns:
@@ -569,7 +571,8 @@ def rescue_tiktok_meta_threads(
     dry_run:bool = False,
     batch_label: str | None = None,
     cumulative_done: int = 0,
-    cumulative_total: int = 0):
+    cumulative_total: int = 0,
+    reporter=None):
     
 
 
@@ -657,7 +660,7 @@ def rescue_tiktok_meta_threads(
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
     if not dry_run and len(results)>0:
-        results = _canonicalize_recode_save(results, scraper, fine_ts, verbose=verbose)
+        results = _canonicalize_recode_save(results, scraper, fine_ts, verbose=verbose, reporter=reporter)
 
     if not dry_run and len(failed_items)>0:
         data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
@@ -774,6 +777,8 @@ def download_video_threads(
     # One scraper instance for the whole batch (loads the scrape contract once);
     # the platform-specific fetch/canonicalize/classify live on it.
     scraper = get_scraper(verbose=verbose)
+    # Record the active scrape-contract version once per batch (idempotent, non-raising).
+    scrape_versioning.ensure_current_version_registered()
     # Lower ceiling than before (was 12). With a single TikTok session
     # behind cookies, >6 concurrent requests reliably triggers TikTok's
     # behavioural flags — keep headroom but don't let the throttle grow
@@ -910,7 +915,7 @@ def download_video_threads(
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
     if not dry_run and len(results)>0:
-        results = _canonicalize_recode_save(results, scraper, fine_ts, verbose=verbose)
+        results = _canonicalize_recode_save(results, scraper, fine_ts, verbose=verbose, reporter=reporter)
 
     if not dry_run and len(failed_items)>0:
         data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)

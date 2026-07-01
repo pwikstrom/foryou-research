@@ -204,6 +204,8 @@ class BaseScraper(ABC):
         df = self.derive_engagement_rates(df)
         df = self.derive_plays_per_day(df)
         df["scrape_status"] = pd.Series(status, index=df.index, dtype="string[pyarrow]")
+        from fyp import scrape_versioning
+        df = scrape_versioning.stamp_version(df)
         df = self.ensure_base_columns(df)
         return df
 

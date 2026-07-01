@@ -42,6 +42,98 @@ def chunk_list(lst, n):
 
 
 
+def record_dropped_columns(
+    stage: str,
+    dropped: Iterable[str],
+    reason: str,
+    *,
+    reporter=None,
+    allow_list: set[str] | None = None,
+    guardrail: str = "off",
+    verbose: bool = False,
+) -> dict:
+    """Record and surface columns dropped at one pipeline stage.
+
+    Makes the otherwise-silent column drops in recoding/scraping observable. A
+    structured payload is always routed to the task reporter (so the drops show
+    up in ``process_stats`` / the UI regardless of ``verbose``); the full column
+    list is printed to stdout only under ``verbose`` to avoid per-batch noise
+    from routine, intentional drops. Genuinely *unexpected* unknown columns (the
+    data-loss-risk case) can be escalated via ``guardrail``.
+
+    Args:
+        stage: A short stage label (e.g. ``"recode_prefilter"`` /
+            ``"scrape_whitelist"``); used as the payload key so multiple stages
+            coexist in one ``process_stats`` entry without clobbering.
+        dropped: The column names dropped at this stage.
+        reason: Why they were dropped — ``"unknown"`` (not in the variable
+            schema; potential data loss), ``"skip"`` (intentional ``role=skip``),
+            or ``"whitelist"`` (the scrape pre-recode whitelist).
+        reporter: An optional object exposing ``emit_data(dict)`` and
+            ``log(str)`` (a ``TaskStatusReporter``); duck-typed to avoid an
+            import cycle.
+        allow_list: Column names dropped deliberately that must not count as
+            unexpected (only consulted when ``reason == "unknown"``).
+        guardrail: Action on unexpected unknown columns — ``"raise"`` raises
+            ``ValueError``, ``"warn"`` emits a prominent warning, ``"off"`` does
+            nothing beyond the structured/verbose record.
+        verbose: When True, also print the full dropped-column list to stdout.
+
+    Returns:
+        A summary dict ``{stage, reason, count, columns, unexpected}``.
+
+    Raises:
+        ValueError: when ``guardrail == "raise"`` and an unexpected unknown
+            column is present.
+    """
+    columns = sorted(str(c) for c in dropped)
+    allowed = allow_list or set()
+    unexpected = [c for c in columns if c not in allowed] if reason == "unknown" else []
+    summary = {
+        "stage": stage,
+        "reason": reason,
+        "count": len(columns),
+        "columns": columns,
+        "unexpected": unexpected,
+    }
+
+    if not columns:
+        return summary
+
+    if reporter is not None:
+        try:
+            reporter.emit_data({"dropped_columns": {stage: summary}})
+        except Exception:
+            pass
+
+    if verbose:
+        message = f"[{stage}] dropped {len(columns)} column(s) ({reason}): {', '.join(columns)}"
+        print(message)
+        if reporter is not None:
+            try:
+                reporter.log(message)
+            except Exception:
+                pass
+
+    if unexpected and guardrail in ("warn", "raise"):
+        warning = (
+            f"WARNING: {len(unexpected)} unexpected column(s) dropped at '{stage}' "
+            f"(not in the variable schema and not allow-listed): {', '.join(unexpected)}"
+        )
+        if guardrail == "raise":
+            raise ValueError(warning)
+        print(warning)
+        if reporter is not None:
+            try:
+                reporter.log(warning)
+            except Exception:
+                pass
+
+    return summary
+
+
+
+
 def is_list_like_col(s):
     # Check for the Arrow List type (your original code)
     is_arrow_list = (

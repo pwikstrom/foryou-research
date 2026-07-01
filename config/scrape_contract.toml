@@ -42,7 +42,7 @@ shares_per_K_play = "stats_shareCount"
 saves_per_K_play = "stats_collectCount"
 
 # ===========================================================================
-# BASE fields (the 14). Every platform subclass must emit these canonical names.
+# BASE fields (the 15). Every platform subclass must emit these canonical names.
 # ===========================================================================
 
 [[fields]]
@@ -75,6 +75,17 @@ role = "skip"
 scale = "datetime"
 display_name = "Scrape time"
 description = "Timestamp of when this item was scraped."
+derived = true
+
+[[fields]]
+name = "scrape_contract_version"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "categorical"
+display_name = "Scrape contract version"
+description = "Deterministic sv_<hash> of the scrape-contract field set active when this row was scraped (per-row provenance)."
 derived = true
 
 [[fields]]

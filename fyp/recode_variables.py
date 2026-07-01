@@ -15,6 +15,7 @@ import pandas as pd
 
 from fyp.fyp_config import fyp_cf
 from fyp.types import convert_dtypes_to_pyarrow
+from fyp.utils import record_dropped_columns
 
 logger = logging.getLogger(__name__)
 
@@ -1146,7 +1147,10 @@ def recode_events_df(
     study_dataset: pd.DataFrame = None,
     drop_single_value_cols: bool = True,
     ensure_pyarrow_compliance: bool = True,
-    verbose: bool = False
+    verbose: bool = False,
+    reporter=None,
+    drop_guardrail: str = "off",
+    drop_allow_list: set[str] | None = None,
     ):
 
 
@@ -1207,9 +1211,11 @@ def recode_events_df(
     # this is a bit redundant too - these variables checked (are dropped again if necessary) at another stage
     variables_not_found_in_var_schema = list(set(cool_events.columns) - set(var_schema.index))
     if len(variables_not_found_in_var_schema) > 0:
-        if verbose:
-            join_str = "\n    - "
-            print(f"Step 1. Dropping {len(variables_not_found_in_var_schema)} columns not found in the variable scheme:\n    - {join_str.join(variables_not_found_in_var_schema)}")
+        record_dropped_columns(
+            "recode_prefilter", variables_not_found_in_var_schema, reason="unknown",
+            reporter=reporter, allow_list=drop_allow_list, guardrail=drop_guardrail,
+            verbose=verbose,
+        )
         cool_events = cool_events.drop(columns=variables_not_found_in_var_schema).copy()
 
 
@@ -1239,6 +1245,10 @@ def recode_events_df(
     remaining_columns_by_index = [
         set(cool_columns[j+1:]) for j in range(len(cool_columns))
     ]
+    # Columns dropped inside the per-column pass, recorded once after the loop
+    # (rather than per column) to keep the reporter payload compact.
+    skipped_columns: list[str] = []
+    unknown_columns: list[str] = []
     # iterate over the columns in the events df
     for i,c in enumerate(cool_columns):
         preamble = f"    {(i+1):02}/{len(cool_columns):02}. {c}{' '*(40-len(c))}"
@@ -1413,11 +1423,23 @@ def recode_events_df(
             else:
                 if verbose:
                     print(f"{preamble}Skipping")
+                skipped_columns.append(c)
                 cool_events = cool_events.drop(columns=[c]).copy()
         else:
             if verbose:
                 print(f"{preamble}Not found in the variable scheme, skipping")
+            unknown_columns.append(c)
             cool_events = cool_events.drop(columns=[c]).copy()
+
+    # Surface the columns dropped during the per-column pass, once.
+    record_dropped_columns(
+        "recode_skip", skipped_columns, reason="skip", reporter=reporter, verbose=verbose
+    )
+    record_dropped_columns(
+        "recode_unknown", unknown_columns, reason="unknown",
+        reporter=reporter, allow_list=drop_allow_list, guardrail=drop_guardrail,
+        verbose=verbose,
+    )
 
     # Flush any deferred unpacked columns in a single concat — this collapses
     # what used to be N in-loop concats into one, avoiding quadratic copies

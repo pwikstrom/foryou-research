@@ -24,12 +24,12 @@ def test_contract_loads_and_validates() -> None:
 
 
 def test_base_and_platform_field_split() -> None:
-    """field_dtypes returns the 14 base fields, plus the TikTok platform set."""
+    """field_dtypes returns the 15 base fields, plus the TikTok platform set."""
     contract = sc.load_contract()
     base = sc.field_dtypes(contract)
-    assert len(base) == 14, base
-    for expected in ("scrape_status", "storage_link", "scrape_ts", "create_time",
-                     "play_count", "comments_per_K_play", "plays_per_day", "author_name"):
+    assert len(base) == 15, base
+    for expected in ("scrape_status", "storage_link", "scrape_ts", "scrape_contract_version",
+                     "create_time", "play_count", "comments_per_K_play", "plays_per_day", "author_name"):
         assert expected in base, expected
     full = sc.field_dtypes(contract, "tiktok")
     assert set(base).issubset(full)
@@ -44,7 +44,7 @@ def test_get_scraper_registry() -> None:
     scraper = get_scraper()
     assert isinstance(scraper, BaseScraper)
     assert scraper.platform == "tiktok"
-    assert len(scraper.base_columns) == 14
+    assert len(scraper.base_columns) == 15
     try:
         get_scraper("no_such_platform")
     except ValueError:
