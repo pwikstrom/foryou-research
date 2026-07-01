@@ -71,7 +71,9 @@ fyp_main_v02/
 ├── config/
 │   ├── config.toml              # Active config (paths, GCS, Gemini, labels)
 │   ├── annotation_contract.toml # Declarative source for the Gemini prompt + response_schema + flattener
-│   └── scrape_contract.toml     # Declarative source for the canonical cross-platform scrape schema (base + per-platform fields)
+│   ├── scrape_contract.toml     # Declarative source for the canonical cross-platform scrape schema (base + per-platform fields)
+│   ├── activity_contract.toml   # Declarative source for the platform-agnostic activity schema (ingest required columns + required-core hard-drop set + derived local_*/session fields)
+│   └── derived_contract.toml    # Declarative source for merge-derived columns (days_since_created/completion_rate/scraped_fail, niche/niche_name, desc_hashtags/desc_raw, status flags)
 ├── fyp/                         # Core Python package
 │   ├── __init__.py              # Bytecode compilation on import
 │   ├── fyp_config.py            # Config loader; uses __proj__.py to find root
@@ -84,11 +86,16 @@ fyp_main_v02/
 │   ├── scrape.py                # Platform-agnostic scrape orchestration (queue, batching, threads, consolidation, legacy-parquet migration)
 │   ├── platform_scraper.py      # BaseScraper ABC + auto-registry + get_scraper() factory; shared per-K / plays_per_day derivations
 │   ├── scrape_contract.py       # Loads/validates config/scrape_contract.toml; the canonical scrape field set + PyArrow dtypes
+│   ├── scrape_versioning.py     # Scrape-contract version registry (sv_ hash) + per-row scrape_contract_version provenance
+│   ├── activity_contract.py     # Loads/validates config/activity_contract.toml; activity field set + required_columns / required_core_fields (hard-drop)
+│   ├── activity_versioning.py   # Activity-contract version registry (acv_ hash) + per-row activity_contract_version provenance
+│   ├── derived_contract.py      # Loads/validates config/derived_contract.toml; owns var_schema metadata for merge-derived columns
 │   ├── tiktok_dl.py             # TikTokScraper(BaseScraper) + yt-dlp helpers (download, retry, error classification, 32-bit overflow repair)
 │   ├── mypyktok.py              # Legacy PykTok fork (deprecated; alternate TikTok backend behind scraper_backend config)
 │   ├── machine_annotation.py    # Gemini-based annotation
 │   ├── annotation_contract.py   # Loads/validates config/annotation_contract.toml; builds FIELD_SPECS from it
 │   ├── annotation_schema.py     # Generates prompt + response-schema + structured flattener from the contract
+│   ├── annotation_versioning.py # Annotation version registry (av_ hash + per-version field_metadata snapshots) + per-row annotation_version; drives legacy-field ownership
 │   ├── recode_variables.py      # Variable recoding, feature engineering
 │   ├── organize_datasets.py     # Dataset filtering & organisation
 │   ├── calc_collection_stats.py   # Donation-level statistics
@@ -276,7 +283,7 @@ python web_interface/run_meta_refresh_groups.py  # Group + Video Analysis metada
 | `[misc]` | Timezone (`Australia/Brisbane`), `local_mode` |
 | `[labels]` | Content categories, irrelevant words, generic mapper |
 
-Two **declarative TOML contracts** sit alongside it and own their variable schemas (overlaid onto `var_schema`, read-only in the admin editor): `config/annotation_contract.toml` (the Gemini annotation fields) and `config/scrape_contract.toml` (the canonical cross-platform scrape fields). See *Scrapers: Base Class + Declarative Contract* below.
+**Four declarative TOML contracts** sit alongside it and own their variable schemas (overlaid onto `var_schema` at config load, read-only in the admin editor): `config/annotation_contract.toml` (Gemini annotation fields), `config/scrape_contract.toml` (canonical cross-platform scrape fields), `config/activity_contract.toml` (platform-agnostic activity schema), and `config/derived_contract.toml` (merge-derived columns). `var_schema.csv` is being **retired onto these contracts**: `fyp_config.load_var_schema` blanks contract-owned metadata cells on save and re-populates them in-memory from the contracts at load (so an all-blank CSV is expected — its metadata columns are coerced to `string` before the overlays to avoid an arrow `null`-type crash). Each contract also has a **version registry** (`annotation_versioning`/`scrape_versioning`/`activity_versioning`, id prefixes `av_`/`sv_`/`acv_`) that stamps per-row provenance; the annotation registry additionally snapshots per-version `field_metadata` so **superseded ("legacy") fields stay contract-owned/read-only** — unioned into the overlay and badged "legacy" in the admin editor. See *Scrapers: Base Class + Declarative Contract* below.
 
 ---
 
