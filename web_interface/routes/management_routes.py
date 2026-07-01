@@ -2968,7 +2968,17 @@ def _contract_locked_map(df) -> dict:
         derived_cols = set(dc.contract_column_metadata(dc.load_contract()).keys())
     except Exception:
         pass
-    if not (annotation_cols or scrape_cols or activity_cols or derived_cols):
+    # Legacy annotation fields owned by past-version registry snapshots (e.g. trend
+    # / australian_relevance) — contract-owned/read-only, and badged "legacy" in the
+    # editor. A field the current annotation contract still owns is NOT legacy.
+    legacy_cols: set = set()
+    try:
+        from fyp import annotation_versioning as av
+
+        legacy_cols = set(av.union_field_metadata().keys()) - annotation_cols
+    except Exception:
+        pass
+    if not (annotation_cols or scrape_cols or activity_cols or derived_cols or legacy_cols):
         return {}
     section_owned_cols = scrape_cols | activity_cols | derived_cols
     locked: dict = {}
@@ -2977,12 +2987,16 @@ def _contract_locked_map(df) -> dict:
         src = str(row.get("source", "")).strip()
         is_gemini = src == "Gemini" or src.startswith("derived: Gemini")
         section_owned = vn in section_owned_cols
+        is_legacy = vn in legacy_cols
         meta_owned = (
             vn in annotation_cols or vn in scrape_cols
-            or vn in activity_cols or vn in derived_cols
+            or vn in activity_cols or vn in derived_cols or is_legacy
         )
         if meta_owned or is_gemini:
-            locked[vn] = {"metadata": meta_owned, "section": is_gemini or section_owned}
+            entry = {"metadata": meta_owned, "section": is_gemini or section_owned}
+            if is_legacy:
+                entry["legacy"] = True
+            locked[vn] = entry
     return locked
 
 

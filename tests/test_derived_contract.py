@@ -6,7 +6,10 @@ metadata / digest accessors.
 
 from fyp import derived_contract as dc
 
-_EXPECTED = {"days_since_created", "completion_rate", "scraped_fail", "niche", "niche_name"}
+_EXPECTED = {
+    "days_since_created", "completion_rate", "scraped_fail", "niche", "niche_name",
+    "desc_hashtags", "desc_raw", "scraped_ok", "annotated_ok", "annotated_fail",
+}
 
 
 
@@ -30,6 +33,11 @@ def test_owns_the_calc_and_niche_columns() -> None:
     assert meta["niche_name"]["role"] == "feature"
     assert meta["niche"]["role"] == "skip" and meta["niche"]["scale"] == "raw"
     assert meta["scraped_fail"]["role"] == "skip"
+    # recode fan-out of desc + the status-flag family
+    assert meta["desc_hashtags"]["scale"] == "list"
+    assert meta["desc_raw"]["scale"] == "text"
+    for flag in ("scraped_ok", "annotated_ok", "annotated_fail"):
+        assert meta[flag]["role"] == "skip", flag
     print("test_owns_the_calc_and_niche_columns PASSED")
 
 

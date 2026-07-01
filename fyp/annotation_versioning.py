@@ -24,7 +24,6 @@ import pandas as pd
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 
-
 REGISTRY_FILENAME = "annotation_versions.json"
 REGISTRY_LOCATION = "recoded"
 LEGACY_VERSION = "v0_legacy"
@@ -217,12 +216,31 @@ def empty_registry() -> dict:
 
 
 
+def _snapshot_field_metadata() -> dict:
+    """Snapshot the current annotation contract's var_schema column metadata.
+
+    ``{column: {role, scale, display_name, description, section}}`` for the
+    contract's flattened output columns — recorded per version so a field a future
+    contract stops emitting keeps its metadata (and stays contract-owned) via the
+    version that defined it. Never raises.
+    """
+    try:
+        from fyp import annotation_contract as ac
+
+        return ac.contract_column_metadata(ac.load_contract())
+    except Exception:
+        return {}
+
+
+
+
 def _register_into(
     registry: dict,
     descriptor: dict,
     prompt_text: str | None,
     schema_json: dict | None,
     created_at: str | None = None,
+    field_metadata: dict | None = None,
 ) -> dict:
     """Return a copy of ``registry`` with ``descriptor`` recorded if new.
 
@@ -240,6 +258,7 @@ def _register_into(
             **descriptor,
             "prompt_text": prompt_text,
             "schema_json": schema_json,
+            "field_metadata": field_metadata or {},
             "created_at": created_at,
         }
     return registry
@@ -285,22 +304,28 @@ def register_version(
     prompt_text: str | None = None,
     schema_json: dict | None = None,
     created_at: str | None = None,
+    field_metadata: dict | None = None,
 ) -> dict:
     """Record a version in the registry if it is not already present.
 
     With no arguments the current configuration's descriptor (and its prompt /
-    schema snapshot) is used. Returns the (possibly updated) registry.
+    schema snapshot + var_schema field metadata) is used. Returns the (possibly
+    updated) registry.
     """
     if descriptor is None:
         current_version_descriptor()
         descriptor = _DESCRIPTOR_CACHE["descriptor"]
         prompt_text = _DESCRIPTOR_CACHE.get("prompt_text")
         schema_json = _DESCRIPTOR_CACHE.get("schema_json")
+    if field_metadata is None:
+        field_metadata = _snapshot_field_metadata()
     if created_at is None:
         created_at = _dt.datetime.now().isoformat(timespec="seconds")
 
     registry = load_registry()
-    updated = _register_into(registry, descriptor, prompt_text, schema_json, created_at)
+    updated = _register_into(
+        registry, descriptor, prompt_text, schema_json, created_at, field_metadata
+    )
     if updated != registry:
         save_registry(updated)
     return updated
@@ -325,15 +350,43 @@ def promote_version(version: str) -> dict:
 
 
 def list_versions() -> list[dict]:
-    """Return version summaries (without the bulky prompt/schema snapshots)."""
+    """Return version summaries (without the bulky prompt/schema/metadata snapshots)."""
     registry = load_registry()
     active = registry.get("active")
     summaries = []
     for version, info in registry.get("versions", {}).items():
-        summary = {k: v for k, v in info.items() if k not in ("prompt_text", "schema_json")}
+        summary = {
+            k: v for k, v in info.items()
+            if k not in ("prompt_text", "schema_json", "field_metadata")
+        }
         summary["active"] = version == active
         summaries.append(summary)
     return summaries
+
+
+
+
+def union_field_metadata() -> dict:
+    """Merge ``field_metadata`` across all registered versions.
+
+    Returns ``{column: metadata}``. Newer versions (by ``created_at``) win on a
+    column present in several snapshots. The var_schema overlay uses this to keep
+    fields from PAST contract versions (e.g. ``trend`` / ``australian_relevance``)
+    contract-owned and read-only after the current contract stops emitting them.
+    Never raises.
+    """
+    try:
+        versions = load_registry().get("versions", {})
+    except Exception:
+        return {}
+    ordered = sorted(versions.values(), key=lambda e: e.get("created_at") or "")
+    merged: dict = {}
+    for entry in ordered:
+        fm = entry.get("field_metadata") or {}
+        for col, meta in fm.items():
+            if isinstance(meta, dict):
+                merged[col] = meta
+    return merged
 
 
 
@@ -412,3 +465,101 @@ def ensure_current_version_registered() -> str:
         return descriptor["annotation_version"]
     except Exception:
         return "unknown"
+
+
+
+
+def _harvest_orphan_metadata() -> dict:
+    """Return metadata of Gemini-source var_schema rows the current contract lacks.
+
+    These are the legacy annotation fields (e.g. ``trend`` / ``australian_relevance``)
+    whose metadata still lives in ``var_schema.csv`` because the current contract no
+    longer owns them. Harvested so the version registry can take ownership. Never
+    raises.
+    """
+    try:
+        from fyp import annotation_contract as ac
+        from fyp.fyp_config import fyp_cf
+
+        owned = set(ac.contract_column_metadata(ac.load_contract()))
+        vs = fyp_cf.get("var_schema")
+        if vs is None or "variable_name" not in getattr(vs, "columns", []):
+            return {}
+
+        def _cell(row, col):
+            val = row.get(col)
+            return None if val is None or (isinstance(val, float) and pd.isna(val)) or pd.isna(val) else str(val)
+
+        out: dict = {}
+        for _, row in vs.iterrows():
+            name = str(row.get("variable_name"))
+            source = str(row.get("source") or "")
+            if name in owned:
+                continue
+            if source == "Gemini" or source.startswith("derived: Gemini"):
+                out[name] = {
+                    "role": _cell(row, "role"),
+                    "scale": _cell(row, "scale"),
+                    "display_name": _cell(row, "display_name"),
+                    "description": _cell(row, "description"),
+                    "section": _cell(row, "section"),
+                }
+        return out
+    except Exception:
+        return {}
+
+
+
+
+def backfill_legacy_metadata(orphan_metadata: dict | None = None) -> dict:
+    """Seed the registry with metadata for existing legacy annotation fields.
+
+    One-time, idempotent migration for the versions that predate per-version
+    metadata snapshotting. Attaches the current orphan Gemini fields' metadata
+    (:func:`_harvest_orphan_metadata` — ``trend`` / ``australian_relevance``) to a
+    ``v0_legacy`` registry entry (created if absent), so the registry — not
+    ``var_schema.csv`` — owns them. ``created_at`` is epoch so it sorts oldest in
+    :func:`union_field_metadata` (newer versions win). Returns the registry.
+    """
+    if orphan_metadata is None:
+        orphan_metadata = _harvest_orphan_metadata()
+
+    registry = load_registry()
+    versions = registry.setdefault("versions", {})
+    entry = versions.get(LEGACY_VERSION)
+    if entry is None:
+        entry = {
+            "annotation_version": LEGACY_VERSION,
+            "label": "pre-versioning (legacy)",
+            "field_metadata": {},
+            "created_at": "1970-01-01T00:00:00",
+        }
+        versions[LEGACY_VERSION] = entry
+
+    fm = entry.setdefault("field_metadata", {})
+    changed = False
+    for col, meta in orphan_metadata.items():
+        if col not in fm:
+            fm[col] = meta
+            changed = True
+    if changed:
+        save_registry(registry)
+    return registry
+
+
+
+
+if __name__ == "__main__":
+    import json as _json
+
+    import fyp.fyp_config as _fc
+
+    _fc.initialize()
+    _reg = backfill_legacy_metadata()
+    _summary = {
+        v: sorted((e.get("field_metadata") or {}).keys())
+        for v, e in _reg.get("versions", {}).items()
+    }
+    print("Backfilled legacy annotation metadata. Per-version field_metadata keys:")
+    print(_json.dumps(_summary, indent=2))
+    print("union_field_metadata():", sorted(union_field_metadata().keys()))

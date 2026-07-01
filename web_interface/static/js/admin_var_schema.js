@@ -276,7 +276,15 @@
         const baseStyle = `padding: 4px 8px; vertical-align: top; ${isEdited ? 'background: var(--color-bg-input);' : ''}`;
 
         if (col === 'variable_name' || col === 'source') {
-            return `<td class="font-mono text-xs" style="${baseStyle} color: var(--color-text-primary); white-space: nowrap;">${_esc(current)}</td>`;
+            let badge = '';
+            if (col === 'variable_name') {
+                const lock = state.contractLocked[String(current)];
+                if (lock && lock.legacy) {
+                    badge = ` <span class="meta-tooltip" data-tooltip="Legacy annotation field — owned by a past contract version and kept for older annotated rows; not editable here."`
+                        + ` style="color: var(--color-text-muted); font-size: var(--text-xxs); border: 1px solid var(--color-border); border-radius: 3px; padding: 0 3px; white-space: nowrap;">legacy</span>`;
+                }
+            }
+            return `<td class="font-mono text-xs" style="${baseStyle} color: var(--color-text-primary); white-space: nowrap;">${_esc(current)}${badge}</td>`;
         }
 
         // Contract-owned cells: display-only, greyed, with a tooltip that points

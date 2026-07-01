@@ -419,10 +419,21 @@ def _apply_contract_variable_metadata(cf) -> None:
         meta = ac.contract_column_metadata(ac.load_contract())
     except Exception:
         return
+    # Legacy fields owned by PAST annotation versions (the union of the version
+    # registry's per-version metadata snapshots), minus anything the CURRENT
+    # contract still owns — so superseded Gemini fields (e.g. ``trend`` /
+    # ``australian_relevance``) stay contract-owned/read-only instead of degrading
+    # into editable orphans. Current-contract metadata always wins.
+    try:
+        from fyp import annotation_versioning as av
+
+        legacy_meta = {k: v for k, v in av.union_field_metadata().items() if k not in meta}
+    except Exception:
+        legacy_meta = {}
     has_source = "source" in vs.columns
     for idx in vs.index:
         name = vs.at[idx, "variable_name"]
-        owned = meta.get(name)
+        owned = meta.get(name) or legacy_meta.get(name)
         if owned:
             for col in ("role", "scale", "display_name", "description"):
                 if owned.get(col) is not None:
@@ -430,6 +441,25 @@ def _apply_contract_variable_metadata(cf) -> None:
         source = str(vs.at[idx, "source"]).strip() if has_source else ""
         if source == "Gemini" or source.startswith("derived: Gemini"):
             vs.at[idx, "section"] = "AI Annotations"
+    # Inject legacy fields absent from var_schema.csv so they surface as owned rows
+    # (source "Gemini" → grouped under "AI Annotations" by the pass above's rule).
+    if legacy_meta:
+        present = set(vs["variable_name"].astype("string"))
+        missing = [name for name in legacy_meta if name not in present]
+        if missing:
+            rows = []
+            for name in missing:
+                owned = legacy_meta[name]
+                rows.append({
+                    "variable_name": name,
+                    "source": "Gemini",
+                    "role": owned.get("role"),
+                    "scale": owned.get("scale"),
+                    "display_name": owned.get("display_name"),
+                    "description": owned.get("description"),
+                    "section": "AI Annotations",
+                })
+            cf["var_schema"] = pd.concat([vs, pd.DataFrame(rows)], ignore_index=True)
 
 
 
@@ -656,6 +686,10 @@ RETIRED_VAR_SCHEMA_ROWS = frozenset({
     "event_id",
     "event_order_in_session",
     "event_pos_in_session",
+    # ``scrape_fail`` (no "d") is an orphan: only ever set on an internal frame in
+    # organize_datasets (never persisted). The real, persisted flag is
+    # ``scraped_fail`` (owned by the derived contract).
+    "scrape_fail",
 })
 
 
@@ -739,6 +773,17 @@ def load_var_schema(cf, verbose=False):
     # their (blanked) value from the overlays below.
     if "role" in cf["var_schema"].columns:
         cf["var_schema"]["role"] = cf["var_schema"]["role"].replace(LEGACY_ROLE_ALIASES)
+    # Coerce the overlay-target columns to string dtype. When every row's metadata is
+    # contract-owned, save_var_schema blanks these cells, so an all-blank column loads
+    # as arrow ``null`` type — and the contract overlays below cannot box a string into
+    # a null-typed column (pyarrow raises "Invalid null value"). Casting null → string
+    # (values stay NA) lets the overlays populate them.
+    for _meta_col in ("role", "scale", "display_name", "description", "section", "source", "variable_name"):
+        if _meta_col in cf["var_schema"].columns:
+            try:
+                cf["var_schema"][_meta_col] = cf["var_schema"][_meta_col].astype("string[pyarrow]")
+            except Exception:
+                pass
     # Variable metadata first: it restores ``scale`` for contract columns, which
     # the accepted-labels overlay reads (via build_recode_plan) to decide closed-tag
     # membership. Once the CSV no longer stores scale for these rows, accepted_labels
@@ -879,8 +924,17 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
         derived_cols = set(dc.contract_column_metadata(dc.load_contract()).keys())
     except Exception:
         derived_cols = set()
+    # Legacy annotation fields owned by past-version registry snapshots (e.g. trend
+    # / australian_relevance): blank their metadata too so the registry stays the
+    # source and the CSV is a clean slate the overlay re-fills.
+    try:
+        from fyp import annotation_versioning as av
+
+        legacy_ann_cols = set(av.union_field_metadata().keys())
+    except Exception:
+        legacy_ann_cols = set()
     if "variable_name" in df.columns:
-        owned_cols = contract_cols | scrape_cols | activity_cols | derived_cols
+        owned_cols = contract_cols | scrape_cols | activity_cols | derived_cols | legacy_ann_cols
         if owned_cols:
             owned = df["variable_name"].isin(owned_cols)
             for col in ("role", "scale", "display_name", "description"):

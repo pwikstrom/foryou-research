@@ -1,16 +1,22 @@
-# Declarative derived contract — owns the var_schema metadata for the enrichment
-# columns COMPUTED AT MERGE TIME in fyp/organize_datasets.py:new_merge()
-# (days_since_created / completion_rate / scraped_fail) and the embeddings-derived
-# niche columns (niche / niche_name).
+# Declarative derived contract — owns the var_schema metadata for columns that no
+# scraper / annotator / ingest step directly emits: the enrichment columns COMPUTED
+# AT MERGE TIME in fyp/organize_datasets.py:new_merge() (days_since_created /
+# completion_rate / scraped_fail), the embeddings-derived niche columns (niche /
+# niche_name), the recode fan-out of the scrape-owned `desc` (desc_hashtags /
+# desc_raw), and the per-item enrichment status flags (scraped_ok / annotated_ok /
+# annotated_fail).
 #
 # Metadata-only: unlike scrape/activity contracts this drives no computation — the
-# merge-time calculations stay in organize_datasets. It moves role / scale /
+# calculations stay in organize_datasets / recode. It moves role / scale /
 # display_name / description / section for these columns out of var_schema.csv and
 # folds a field-set digest into the var_schema hash.
 #
 # NOTE: `plays_per_day` is NOT here — it is derived at scrape time and owned by
-# the scrape contract. `scraped_fail` has no var_schema.csv row today, so the
-# overlay injects it (giving the produced column metadata it currently lacks).
+# the scrape contract. `scraped_fail` / `scraped_ok` / `annotated_ok` /
+# `annotated_fail` are the working per-item status flags (kept as-is; not replaced
+# by scrape_status). desc_hashtags/desc_raw live HERE (not the scrape contract) so
+# they never leak into BaseScraper.base_columns — they are recode fan-out, not
+# scraper output.
 
 [meta]
 version = "1"
@@ -58,3 +64,50 @@ role = "skip"
 scale = "raw"
 display_name = "Niche ID"
 description = "Integer niche cluster id (join key to video_niches.json); hidden from tabs."
+
+# Recode fan-out of the scrape-owned `desc` (produced by recode_tokenise). Owned
+# here rather than the scrape contract so they never enter BaseScraper.base_columns.
+[[fields]]
+name = "desc_hashtags"
+dtype = "list<string>[pyarrow]"
+section = "Item metadata"
+scale = "list"
+display_name = "Description hashtags"
+description = "Hashtags extracted from the caption (recode fan-out of the scrape-owned `desc`)."
+
+[[fields]]
+name = "desc_raw"
+dtype = "string[pyarrow]"
+section = "Item metadata"
+scale = "text"
+display_name = "Description"
+description = "Original caption text, preserved before hashtag extraction (the `<field>_raw` copy of `desc`)."
+
+# Per-item enrichment status flags (kept as the working flags; scrape_status is the
+# scraper-layer outcome and stays separate). role=skip: hidden from analysis.
+[[fields]]
+name = "scraped_ok"
+dtype = "bool[pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "categorical"
+display_name = "Scrape OK"
+description = "Whether the item's media scrape succeeded (per-item enrichment status)."
+
+[[fields]]
+name = "annotated_ok"
+dtype = "bool[pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "categorical"
+display_name = "Machine annotation OK"
+description = "Whether the item was annotated successfully (type_of_story present)."
+
+[[fields]]
+name = "annotated_fail"
+dtype = "bool[pyarrow]"
+section = "backstage"
+role = "skip"
+scale = "categorical"
+display_name = "Machine annotation failed"
+description = "Whether the item's annotation failed (type_of_story missing)."

@@ -623,8 +623,23 @@ def compute_var_schema_hash() -> str:
     except Exception:
         pass
 
+    # Fold in the union of per-version legacy annotation metadata so a change to the
+    # set/metadata of legacy fields (e.g. a new contract version retiring a field)
+    # invalidates cached study parquets. Stable across loads when the registry is
+    # unchanged.
+    legacy_ann_payload = b""
+    try:
+        from fyp import annotation_versioning as av
+
+        legacy_ann_payload = json.dumps(
+            av.union_field_metadata(), sort_keys=True
+        ).encode("utf-8")
+    except Exception:
+        pass
+
     digest = hashlib.sha256(
-        payload + norm_payload + scrape_payload + activity_payload + derived_payload
+        payload + norm_payload + scrape_payload + activity_payload
+        + derived_payload + legacy_ann_payload
     ).hexdigest()
     return f"{VAR_SCHEMA_HASH_VERSION}:{digest}"
 

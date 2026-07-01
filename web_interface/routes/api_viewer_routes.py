@@ -2,7 +2,7 @@ import os
 
 import numpy as np
 import pandas as pd
-from flask import Blueprint, Response, jsonify, request, stream_with_context
+from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
@@ -436,28 +436,21 @@ def api_video_stream(study, item_id):
             start = int(parts[0])
             end = int(parts[1]) if parts[1] else min(start + chunk_size * 16 - 1, total_size - 1)
             end = min(end, total_size - 1)
-            length = end - start + 1
 
-            def generate_range():
-                with blob.open("rb") as f:
-                    f.seek(start)
-                    remaining = length
-                    while remaining > 0:
-                        read_size = min(chunk_size, remaining)
-                        data = f.read(read_size)
-                        if not data:
-                            break
-                        remaining -= len(data)
-                        yield data
-
+            # Read only the requested range into memory (a single GCS ranged GET) and
+            # return it — no long-lived streaming generator holding the GCS connection
+            # open. A <video> tag navigated away mid-stream abandons the generator,
+            # leaking its connection/fd until GC ("Too many open files" under rapid
+            # navigation). Range chunks are small (~1 MB) so buffering is cheap.
+            data = blob.download_as_bytes(start=start, end=end)
             headers = {
                 'Content-Range': f'bytes {start}-{end}/{total_size}',
                 'Accept-Ranges': 'bytes',
-                'Content-Length': str(length),
+                'Content-Length': str(len(data)),
                 'Content-Type': 'video/mp4',
                 'Cache-Control': 'private, max-age=3600',
             }
-            return Response(stream_with_context(generate_range()), status=206, headers=headers)
+            return Response(data, status=206, headers=headers)
 
         def generate():
             with blob.open("rb") as f:
@@ -472,51 +465,15 @@ def api_video_stream(study, item_id):
         }
         return Response(stream_with_context(generate()), headers=headers)
 
-    # Local filesystem path
+    # Local filesystem path. send_file(conditional=True) serves HTTP Range requests
+    # natively AND manages the file handle via the response lifecycle (closed even on
+    # client disconnect), avoiding the fd leak a manual streaming generator has.
     media_path = os.path.join(fyp_cf['paths']['media'], f"{item_id}.mp4")
     if not os.path.exists(media_path):
         return f"Video {item_id}.mp4 not found", 404
-
-    total_size = os.path.getsize(media_path)
-
-    if range_header:
-        range_spec = range_header.replace('bytes=', '').strip()
-        parts = range_spec.split('-')
-        start = int(parts[0])
-        end = int(parts[1]) if parts[1] else min(start + chunk_size * 16 - 1, total_size - 1)
-        end = min(end, total_size - 1)
-        length = end - start + 1
-
-        def generate_range():
-            with open(media_path, 'rb') as f:
-                f.seek(start)
-                remaining = length
-                while remaining > 0:
-                    read_size = min(chunk_size, remaining)
-                    data = f.read(read_size)
-                    if not data:
-                        break
-                    remaining -= len(data)
-                    yield data
-
-        headers = {
-            'Content-Range': f'bytes {start}-{end}/{total_size}',
-            'Accept-Ranges': 'bytes',
-            'Content-Length': str(length),
-            'Content-Type': 'video/mp4',
-            'Cache-Control': 'private, max-age=3600',
-        }
-        return Response(stream_with_context(generate_range()), status=206, headers=headers)
-
-    def generate():
-        with open(media_path, 'rb') as f:
-            while chunk := f.read(chunk_size):
-                yield chunk
-
-    headers = {
-        'Accept-Ranges': 'bytes',
-        'Content-Length': str(total_size),
-        'Content-Type': 'video/mp4',
-        'Cache-Control': 'private, max-age=3600',
-    }
-    return Response(stream_with_context(generate()), headers=headers)
+    return send_file(
+        media_path,
+        mimetype='video/mp4',
+        conditional=True,
+        max_age=3600,
+    )
