@@ -6,10 +6,10 @@
 Pins:
 
   * the overlay creates the column and fills closed-tag enum fields from the contract;
-  * membership is derived from var_schema's recode config — a field is closed-tag
-    when ``recode_func == "recode_stringified_list"`` and the contract defines an
-    enum for it (so a field with no contract enum, like the free-text
-    video_story, is excluded);
+  * membership is derived from the contract alone — a field is closed-tag when the
+    contract defines an enum for it and declares a closed scale (categorical/list),
+    so the overlay works on a raw CSV frame whose contract-owned cells are blanked
+    (a field with no contract enum, like the free-text video_story, is excluded);
   * dropping the column from the CSV does NOT change the var_schema hash (no study
     invalidation) — the reconstructed column equals a column-present schema;
   * the contract is genuinely the source (an enum edit flows through).

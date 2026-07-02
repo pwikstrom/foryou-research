@@ -330,13 +330,13 @@ def _apply_contract_accepted_labels(cf) -> None:
     in-memory schema that every consumer reads (recode, the version hash, the admin
     API, the UI metadata).
 
-    A field is closed-tag — and therefore gets contract-sourced labels — when it is
-    recoded as a closed categorical (``recode_func == "recode_stringified_list"``)
-    and the contract defines an enum for it. Labels are the contract enum
-    lower-cased (the recoded form). Every other field gets ``NA``. Membership is
-    thus derived from var_schema's recode config plus the contract, so a new closed
-    categorical picks up its labels automatically; free-text fields (recoded by
-    e.g. ``recode_long_strings``) get no labels.
+    A field is closed-tag — and therefore gets contract-sourced labels — when the
+    contract defines an enum for it and declares a closed scale (``categorical`` or
+    ``list``). Labels are the contract enum lower-cased (the recoded form). Every
+    other field gets ``NA``. Membership is derived from the contract alone, so the
+    overlay does not depend on any other overlay having restored ``scale`` on the
+    frame first (the raw CSV blanks contract-owned cells); free-text fields have
+    no enum and get no labels.
 
     The column is always created (NA-filled) even when the contract cannot be loaded,
     so direct consumers and the schema hash never see a missing column.
@@ -360,25 +360,16 @@ def _apply_contract_accepted_labels(cf) -> None:
     enum_labels: dict[str, str] = {}
     for field in contract.get("fields", []):
         ref = field.get("enum")
-        if ref:
+        scale = str(field.get("scale") or "").strip().lower()
+        if ref and scale in ("categorical", "list"):
             values = ac.enum_values(contract, ref)
             enum_labels[field["name"]] = "[" + ", ".join(str(v).lower() for v in values) + "]"
     if not enum_labels:
         return
 
-    # A field is closed-tag when its (derived) recode op is the list/enum cleaner.
-    # recode_func is no longer a column; resolve the op via build_recode_plan.
-    try:
-        from fyp.recode_variables import build_recode_plan
-
-        plan = build_recode_plan(vs.set_index("variable_name"))
-    except Exception:
-        plan = {}
     for idx in vs.index:
         name = vs.at[idx, "variable_name"]
-        if name not in enum_labels:
-            continue
-        if getattr(plan.get(name), "__name__", "") == "recode_stringified_list":
+        if name in enum_labels:
             vs.at[idx, "accepted_labels"] = enum_labels[name]
 
 

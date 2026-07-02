@@ -319,6 +319,7 @@
         const widthStyle = isLong ? 'min-width: 240px;' : 'min-width: 80px;';
         return `<td style="${baseStyle}">
             <input type="text" value="${_esc(current)}"
+                oninput="vsOnEditDebounced(${rowIdx}, '${_esc(col)}', this.value)"
                 onchange="vsOnEdit(${rowIdx}, '${_esc(col)}', this.value)"
                 style="padding: 2px 6px; border: 1px solid var(--color-border); border-radius: 3px; background: var(--color-bg-input); color: var(--color-text-primary); width: 100%; ${widthStyle} font-family: inherit; font-size: inherit;">
         </td>`;
@@ -503,7 +504,26 @@
         out.innerHTML = html;
     }
 
+    let _editDebounceTimer = null;
+
+    function _setEditDebounced(rowIdx, col, value) {
+        if (_editDebounceTimer) clearTimeout(_editDebounceTimer);
+        _editDebounceTimer = setTimeout(() => {
+            _editDebounceTimer = null;
+            _setEdit(rowIdx, col, value);
+        }, 150);
+    }
+
     async function _save() {
+        // Flush a focused-but-uncommitted cell: text inputs only commit on
+        // change (blur), so a click straight onto Save would otherwise see
+        // zero dirty edits and silently no-op.
+        const active = document.activeElement;
+        if (active && typeof active.blur === 'function') active.blur();
+        if (_editDebounceTimer) {
+            clearTimeout(_editDebounceTimer);
+            _editDebounceTimer = null;
+        }
         if (_dirtyCount() === 0) return;
         const out = document.getElementById('vs-validation-output');
         if (out) out.textContent = 'Saving…';
@@ -616,6 +636,7 @@
 
     // Public globals used by inline handlers in the template.
     window.vsOnEdit = _setEdit;
+    window.vsOnEditDebounced = _setEditDebounced;
     window.vsSort = _onSort;
     window.vsToggleColumn = _toggleColumn;
     window.vsToggleColumnsMenu = () => _toggleColumnsMenu(false);
