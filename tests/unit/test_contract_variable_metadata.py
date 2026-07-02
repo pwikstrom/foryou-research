@@ -1,22 +1,30 @@
-"""Unit tests for contract-sourced Gemini variable metadata.
+"""Unit tests for contract-sourced Gemini variable metadata (synthesized schema).
 
-``role`` / ``scale`` / ``display_name`` / ``description`` for the annotation
-contract's output columns no longer live in ``var_schema.csv``; the contract
-(``config/annotation_contract.toml``) is the single source, and
-``fyp_config._apply_contract_variable_metadata`` overlays them in memory at load.
-Every Gemini-origin row is also forced under a single ``"AI Annotations"`` UI section.
+``var_schema.csv`` is retired: ``fyp_config.load_var_schema`` synthesizes the
+in-memory schema from the four contract TOMLs (+ the version registries' legacy
+snapshots) overlaid onto an empty typed skeleton (``VAR_SCHEMA_COLUMNS``), then
+fills the four ``web_*_prio`` membership columns from the presentation store
+(``var_presentation.json``). ``fyp_config._apply_contract_variable_metadata`` is
+the annotation overlay: on the skeleton it INJECTS every contract-owned row.
 Pins:
 
-  * the overlay sets role/scale/display_name/description for contract-owned columns;
-  * the overlay forces section="AI Annotations" for all Gemini-origin rows, leaving the three
-    computed columns' role/scale/display_name (trend / australian_relevance /
-    call_to_action_words) intact and non-Gemini rows fully untouched;
+  * on an empty typed skeleton the overlay injects every contract-owned column
+    with the contract's role/scale/display_name/description, exactly once, and
+    forces section="AI Annotations";
+  * legacy fields owned only by PAST annotation versions (the registry's
+    per-version field_metadata union, minus the current contract) are injected
+    too, from their registry snapshots — superseded fields stay contract-owned;
+    the current contract wins wherever both own a column;
+  * the overlay is idempotent (a second pass changes nothing, no duplicate rows);
   * contract_column_metadata keys equal the flattener's output columns (rename +
     audio_summary prefix-strip), guarding the column-name mapping against drift;
-  * THE HASH GATE: blanking the contract cells from the CSV and reconstructing them
-    via the overlay does NOT change the var_schema hash (no study invalidation);
-  * save_var_schema blanks only the contract cells (+ section for Gemini rows) and a
-    real on-disk save → reload round-trip preserves the hash;
+  * the LIVE synthesized schema carries every owned row exactly once, keeps
+    non-Gemini rows out of "AI Annotations", and stores metadata as pyarrow
+    strings;
+  * the prio membership columns mirror the presentation store per surface;
+  * THE HASH GATE: re-synthesizing yields an identical var_schema hash
+    (deterministic — no per-load drift), and the presentation-store prios are
+    never hash-affecting (no study invalidation from admin surface toggles);
   * validate_contract rejects an invalid role/scale.
 
 No Gemini API calls.
@@ -28,10 +36,7 @@ Usage:
 from __future__ import annotations
 
 import contextlib
-import os
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -39,27 +44,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pandas as pd
 
 import fyp.annotation_contract as ac
+import fyp.annotation_versioning as av
 import fyp.recode_variables as rv
+from fyp import var_presentation as vp
 from fyp.annotation_schema import flatten_structured
 from fyp.fyp_config import (
+    VAR_SCHEMA_COLUMNS,
     _apply_contract_variable_metadata,
-    _var_schema_path,
     fyp_cf,
     load_var_schema,
-    save_var_schema,
 )
 
 META_COLS = ("role", "scale", "display_name", "description")
-COMPUTED_GEMINI = ["trend", "australian_relevance", "call_to_action_words"]
 # Contract-owned columns whose final name differs from the contract field name.
 EXPECTED_RENAMED = {"transcript_no_repetitions", "speech_vs_music",
                     "background_music", "notable_sounds",
                     "faces_gender", "faces_age_estimate", "faces_ethnicity"}
 
 
-def _raw_schema() -> pd.DataFrame:
-    """The on-disk var_schema (contract cells still populated verbatim)."""
-    return pd.read_csv(_var_schema_path(fyp_cf), dtype_backend="pyarrow", encoding="utf-8")
+def _skeleton() -> pd.DataFrame:
+    """The empty typed frame load_var_schema starts the synthesis from."""
+    return pd.DataFrame(
+        {c: pd.Series(dtype="string[pyarrow]") for c in VAR_SCHEMA_COLUMNS}
+    )
 
 
 @contextlib.contextmanager
@@ -72,68 +79,73 @@ def _swapped(frame: pd.DataFrame):
         fyp_cf["var_schema"] = saved
 
 
-def _blank_contract_cells(df: pd.DataFrame) -> pd.DataFrame:
-    """Mimic what save_var_schema persists: contract cells + Gemini section blanked."""
-    out = df.copy()
-    contract_cols = set(ac.contract_column_metadata(ac.load_contract()).keys())
-    owned = out["variable_name"].isin(contract_cols)
-    for col in META_COLS:
-        out.loc[owned, col] = pd.NA
-    src = out["source"].astype("string").fillna("")
-    gemini = src.eq("Gemini") | src.str.startswith("derived: Gemini")
-    out.loc[gemini, "section"] = pd.NA
-    return out
-
-
-def test_overlay_sets_contract_metadata() -> None:
-    meta = ac.contract_column_metadata(ac.load_contract())
-    frame = _blank_contract_cells(_raw_schema())  # start from the post-deploy CSV shape
-    with _swapped(frame):
+def _overlaid_skeleton() -> pd.DataFrame:
+    """The annotation overlay applied to an empty skeleton (row injection path)."""
+    with _swapped(_skeleton()):
         _apply_contract_variable_metadata(fyp_cf)
+        return fyp_cf["var_schema"]
+
+
+def _legacy_meta() -> dict:
+    """Registry-snapshot metadata for fields the CURRENT contract no longer owns."""
+    current = ac.contract_column_metadata(ac.load_contract())
+    return {k: v for k, v in av.union_field_metadata().items() if k not in current}
+
+
+def test_overlay_injects_contract_rows_on_skeleton() -> None:
+    meta = ac.contract_column_metadata(ac.load_contract())
+    frame = _overlaid_skeleton()
     for col, m in meta.items():
         row = frame.loc[frame["variable_name"] == col]
-        assert not row.empty, f"{col} missing from var_schema"
+        assert len(row) == 1, f"{col}: expected exactly one injected row, got {len(row)}"
         for k in META_COLS:
             got = str(row[k].iloc[0])
             assert got == str(m[k]), f"{col}.{k}: {got!r} != contract {m[k]!r}"
+        assert str(row["section"].iloc[0]) == "AI Annotations", (
+            f"{col} must be grouped under AI Annotations"
+        )
 
 
-def test_overlay_forces_genai_section() -> None:
-    frame = _raw_schema()
-    with _swapped(frame):
-        _apply_contract_variable_metadata(fyp_cf)
-    src = frame["source"].astype("string").fillna("")
-    gemini = frame[src.eq("Gemini") | src.str.startswith("derived: Gemini")]
-    assert (gemini["section"].astype(str) == "AI Annotations").all(), "all Gemini rows must be AI Annotations"
-    # A non-Gemini row keeps its CSV section.
-    non = frame.loc[frame["variable_name"] == "activity_type", "section"].iloc[0]
-    assert str(non) != "AI Annotations", "non-Gemini row must keep its section"
-
-
-def test_overlay_keeps_computed_columns() -> None:
-    raw = _raw_schema().set_index("variable_name")
-    frame = _raw_schema()
-    with _swapped(frame):
-        _apply_contract_variable_metadata(fyp_cf)
-    ov = frame.set_index("variable_name")
-    for col in COMPUTED_GEMINI:
-        assert str(ov.at[col, "section"]) == "AI Annotations", f"{col} should be AI Annotations"
+def test_overlay_injects_legacy_registry_rows() -> None:
+    legacy = _legacy_meta()
+    assert legacy, (
+        "no legacy annotation fields in the registry union — expected superseded "
+        "fields (e.g. trend / australian_relevance); is annotation_versions.json missing?"
+    )
+    frame = _overlaid_skeleton()
+    for col, m in legacy.items():
+        row = frame.loc[frame["variable_name"] == col]
+        assert len(row) == 1, f"legacy {col}: expected exactly one injected row"
         for k in ("role", "scale", "display_name"):
-            assert str(ov.at[col, k]) == str(raw.at[col, k]), (
-                f"{col}.{k} must keep its CSV value (computed column, not contract-owned)"
+            if m.get(k) is not None:
+                got = str(row[k].iloc[0])
+                assert got == str(m[k]), f"legacy {col}.{k}: {got!r} != snapshot {m[k]!r}"
+        assert str(row["section"].iloc[0]) == "AI Annotations", (
+            f"legacy {col} must be grouped under AI Annotations"
+        )
+
+
+def test_current_contract_wins_over_legacy_snapshots() -> None:
+    meta = ac.contract_column_metadata(ac.load_contract())
+    overlap = set(meta) & set(av.union_field_metadata())
+    frame = _overlaid_skeleton().set_index("variable_name")
+    for col in overlap:
+        for k in META_COLS:
+            got = str(frame.at[col, k])
+            assert got == str(meta[col][k]), (
+                f"{col}.{k}: {got!r} != current contract {meta[col][k]!r} — "
+                "a registry snapshot must never shadow the live contract"
             )
 
 
-def test_overlay_leaves_non_gemini_untouched() -> None:
-    raw = _raw_schema().set_index("variable_name")
-    frame = _raw_schema()
-    with _swapped(frame):
+def test_overlay_is_idempotent() -> None:
+    once = _overlaid_skeleton()
+    with _swapped(once.copy()):
         _apply_contract_variable_metadata(fyp_cf)
-    ov = frame.set_index("variable_name")
-    for col in ["stats_playCount", "desc_hashtags"]:
-        if col in raw.index:
-            for k in (*META_COLS, "section"):
-                assert str(ov.at[col, k]) == str(raw.at[col, k]), f"{col}.{k} changed"
+        twice = fyp_cf["var_schema"]
+    key = lambda df: df.sort_values("variable_name").reset_index(drop=True).astype(str).to_csv(index=False)
+    assert len(twice) == len(once), "second overlay pass injected duplicate rows"
+    assert key(twice) == key(once), "second overlay pass changed the frame"
 
 
 def test_column_mapping_matches_flattener() -> None:
@@ -159,57 +171,61 @@ def test_column_mapping_matches_flattener() -> None:
         assert col in keys, f"{col} emitted by flattener but not in metadata"
 
 
-def test_hash_invariant_to_overlay() -> None:
-    """THE GATE: contract cells in the CSV vs blanked+overlaid must hash identically."""
-    verbatim = _raw_schema()  # CSV still carries role/scale for contract cols
-    with _swapped(verbatim):
-        _apply_contract_variable_metadata(fyp_cf)  # section→AI Annotations either way
-        hash_verbatim = rv.compute_var_schema_hash()
-
-    blanked = _blank_contract_cells(_raw_schema())  # post-deploy on-disk shape
-    with _swapped(blanked):
-        _apply_contract_variable_metadata(fyp_cf)
-        hash_overlay = rv.compute_var_schema_hash()
-
-    assert hash_verbatim == hash_overlay, (
-        "blanking contract role/scale from the CSV and reconstructing via the overlay "
-        "changed the var_schema hash -> would invalidate every study cache"
+def test_synthesized_schema_carries_owned_rows() -> None:
+    vs = fyp_cf["var_schema"]
+    meta = ac.contract_column_metadata(ac.load_contract())
+    owned = {**_legacy_meta(), **meta}
+    names = vs["variable_name"].astype(str)
+    for col in owned:
+        assert int((names == col).sum()) == 1, f"{col}: not exactly once in synthesized schema"
+    gemini_rows = vs.loc[names.isin(owned)]
+    assert (gemini_rows["section"].astype(str) == "AI Annotations").all(), (
+        "every annotation-owned row must sit under AI Annotations"
     )
+    # A non-Gemini row keeps its own contract's section.
+    non = vs.loc[names == "activity_type", "section"]
+    assert len(non) == 1 and str(non.iloc[0]) != "AI Annotations", (
+        "non-Gemini row must keep its contract section"
+    )
+    # load_var_schema re-coerces the injected metadata columns to pyarrow strings.
+    for col in ("variable_name", "source", "role", "scale", "display_name",
+                "description", "section"):
+        assert str(vs[col].dtype) == "string", f"{col} dtype degraded to {vs[col].dtype}"
 
 
-def test_save_blanks_only_contract_cells_and_preserves_hash() -> None:
-    """Real save_var_schema round-trip against a temp dir (never touches live CSV)."""
-    live_path = _var_schema_path(fyp_cf)
-    orig_local = fyp_cf["paths"]["local_data"]
-    orig_use_gcs = fyp_cf["data_io"]["use_gcs_for_data"]
-    orig_vs = fyp_cf.get("var_schema")
-    contract_cols = set(ac.contract_column_metadata(ac.load_contract()).keys())
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            fyp_cf["data_io"]["use_gcs_for_data"] = False
-            fyp_cf["paths"]["local_data"] = td
-            shutil.copy2(live_path, os.path.join(td, "var_schema.csv"))
-            load_var_schema(fyp_cf)                       # overlay applied
-            overlaid_hash = rv.compute_var_schema_hash()
-            save_var_schema(fyp_cf["var_schema"].copy(), cf=fyp_cf)  # blanks + writes + reloads
-            reloaded_hash = rv.compute_var_schema_hash()
-            assert reloaded_hash == overlaid_hash, "save→reload changed the hash"
+def test_prio_columns_mirror_presentation_store() -> None:
+    vs = fyp_cf["var_schema"]
+    presentation = vp.load_presentation() or vp.empty_presentation()
+    names = set(vs["variable_name"].astype(str))
+    for surface, col in vp.SURFACE_TO_PRIO_COLUMN.items():
+        members = set(presentation.get("surfaces", {}).get(surface, []) or [])
+        on = set(vs.loc[vs[col].astype("string") == "1", "variable_name"].astype(str))
+        assert on == (members & names), (
+            f"{surface}: prio column {col} does not mirror the presentation store "
+            f"(extra: {on - members}, missing: {(members & names) - on})"
+        )
+        off = vs.loc[~vs["variable_name"].astype(str).isin(members), col]
+        assert off.isna().all(), f"{surface}: non-members must have a blank {col}"
 
-            raw = pd.read_csv(os.path.join(td, "var_schema.csv"),
-                              dtype_backend="pyarrow", encoding="utf-8")
-            owned = raw[raw["variable_name"].isin(contract_cols)]
-            for col in META_COLS:
-                assert owned[col].isna().all(), f"on-disk {col} not blanked for contract rows"
-            src = raw["source"].astype("string").fillna("")
-            gem = raw[src.eq("Gemini") | src.str.startswith("derived: Gemini")]
-            assert gem["section"].isna().all(), "on-disk section not blanked for Gemini rows"
-            # A row owned by neither contract keeps its role/scale on disk.
-            sp = raw.loc[raw["variable_name"] == "activity_type"]
-            assert not sp.empty and not pd.isna(sp["role"].iloc[0]), "uncontracted role wiped"
-    finally:
-        fyp_cf["paths"]["local_data"] = orig_local
-        fyp_cf["data_io"]["use_gcs_for_data"] = orig_use_gcs
-        fyp_cf["var_schema"] = orig_vs
+
+def test_hash_deterministic_and_prios_never_hash() -> None:
+    """THE GATE: re-synthesis is hash-stable; presentation prios never invalidate."""
+    hash_live = rv.compute_var_schema_hash()
+    load_var_schema(fyp_cf)  # full re-synthesis from contracts + registries + store
+    assert rv.compute_var_schema_hash() == hash_live, (
+        "re-synthesizing the schema changed the var_schema hash -> per-load drift "
+        "would invalidate every study cache"
+    )
+    flipped = fyp_cf["var_schema"].copy()
+    for col in vp.SURFACE_TO_PRIO_COLUMN.values():
+        flipped[col] = pd.Series(["1"] * len(flipped), dtype="string[pyarrow]",
+                                 index=flipped.index)
+    with _swapped(flipped):
+        hash_flipped = rv.compute_var_schema_hash()
+    assert hash_flipped == hash_live, (
+        "toggling presentation prios changed the var_schema hash -> an admin "
+        "surface checkbox would invalidate study caches"
+    )
 
 
 def test_validate_contract_rejects_bad_role_scale() -> None:

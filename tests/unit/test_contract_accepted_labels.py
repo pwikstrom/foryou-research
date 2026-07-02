@@ -1,17 +1,18 @@
-"""Unit tests for contract-sourced ``accepted_labels`` (column dropped from CSV).
+"""Unit tests for contract-sourced ``accepted_labels`` (synthesized schema).
 
-``accepted_labels`` no longer lives in ``var_schema.csv``; the annotation contract
+``accepted_labels`` is never persisted anywhere — ``var_schema.csv`` is retired and
+the schema is synthesized from the contract TOMLs; the annotation contract
 (``config/annotation_contract.toml``) is the single source for the enum vocabularies.
-``fyp_config._apply_contract_accepted_labels`` rebuilds the column in memory at load.
-Pins:
+``fyp_config._apply_contract_accepted_labels`` rebuilds the column in memory at the
+end of every ``load_var_schema`` synthesis. Pins:
 
-  * the overlay creates the column and fills closed-tag enum fields from the contract;
+  * on a synthesized frame missing the column, the overlay creates it and fills
+    closed-tag enum fields from the contract;
   * membership is derived from the contract alone — a field is closed-tag when the
-    contract defines an enum for it and declares a closed scale (categorical/list),
-    so the overlay works on a raw CSV frame whose contract-owned cells are blanked
-    (a field with no contract enum, like the free-text video_story, is excluded);
-  * dropping the column from the CSV does NOT change the var_schema hash (no study
-    invalidation) — the reconstructed column equals a column-present schema;
+    contract defines an enum for it and declares a closed scale (categorical/list);
+    a field with no contract enum, like the free-text video_story, is excluded;
+  * reconstructing the column does NOT change the var_schema hash (no study
+    invalidation) — it equals a schema whose column was pre-populated verbatim;
   * the contract is genuinely the source (an enum edit flows through).
 
 No Gemini API calls.
@@ -32,7 +33,7 @@ import pandas as pd
 
 import fyp.annotation_contract as ac
 import fyp.recode_variables as rv
-from fyp.fyp_config import _apply_contract_accepted_labels, _var_schema_path, fyp_cf
+from fyp.fyp_config import _apply_contract_accepted_labels, fyp_cf
 
 CLOSED_TAG_FIELDS = [
     "content_category",
@@ -49,9 +50,8 @@ CLOSED_TAG_FIELDS = [
 
 
 def _schema_without_labels() -> pd.DataFrame:
-    """The on-disk var_schema (no ``accepted_labels`` column anymore)."""
-    df = pd.read_csv(_var_schema_path(fyp_cf), dtype_backend="pyarrow", encoding="utf-8")
-    return df.drop(columns=["accepted_labels"], errors="ignore")
+    """A copy of the live synthesized var_schema with ``accepted_labels`` dropped."""
+    return fyp_cf["var_schema"].copy().drop(columns=["accepted_labels"], errors="ignore")
 
 
 @contextlib.contextmanager
@@ -95,25 +95,25 @@ def test_membership_excludes_freetext_fields() -> None:
         )
 
 
-def test_hash_invariant_to_dropping_column() -> None:
+def test_hash_invariant_to_reconstruction() -> None:
     base = _schema_without_labels()
 
-    # As if the column were still in the CSV with the contract values.
+    # As if the column were pre-populated verbatim with the contract values.
     with_col = base.copy()
     labels = {n: _expected_labels(n) for n in CLOSED_TAG_FIELDS}
     with_col["accepted_labels"] = with_col["variable_name"].map(labels).astype("string[pyarrow]")
     with _swapped(with_col):
         hash_with = rv.compute_var_schema_hash()
 
-    # Column dropped from CSV, reconstructed by the overlay.
+    # Column absent, reconstructed by the overlay (the load_var_schema path).
     without_col = base.copy()
     with _swapped(without_col):
         _apply_contract_accepted_labels(fyp_cf)
         hash_without = rv.compute_var_schema_hash()
 
     assert hash_with == hash_without, (
-        "dropping accepted_labels from the CSV changed the var_schema hash -> would "
-        "invalidate study caches; the reconstructed column must match a column-present schema"
+        "reconstructing accepted_labels via the overlay changed the var_schema hash -> "
+        "would invalidate study caches; it must match a column-present schema"
     )
 
 
