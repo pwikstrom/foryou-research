@@ -419,7 +419,10 @@ def _apply_contract_variable_metadata(cf) -> None:
         from fyp import annotation_versioning as av
 
         legacy_meta = {k: v for k, v in av.union_field_metadata().items() if k not in meta}
-    except Exception:
+    except Exception as e:
+        # Loud on purpose: a silent failure here once cost hours — boot frames
+        # lost all legacy metadata and the schema hash drifted per-instance.
+        print(f"WARNING: legacy annotation metadata union unavailable ({e}); overlay incomplete.")
         legacy_meta = {}
     has_source = "source" in vs.columns
     for idx in vs.index:
@@ -492,8 +495,8 @@ def _apply_contract_scrape_metadata(cf) -> None:
         from fyp import scrape_versioning as sv
 
         meta = {**{k: v for k, v in sv.union_field_metadata().items() if k not in meta}, **meta}
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"WARNING: legacy scrape metadata union unavailable ({e}); overlay incomplete.")
     # Migrate legacy TikTok-named rows to canonical in-memory, so an un-migrated
     # var_schema.csv (existing local or prod deployment) self-heals at load.
     vs["variable_name"] = vs["variable_name"].replace(sc.LEGACY_COLUMN_ALIASES)
@@ -601,8 +604,8 @@ def _apply_contract_activity_metadata(cf) -> None:
         from fyp import activity_versioning as av_act
 
         meta = {**{k: v for k, v in av_act.union_field_metadata().items() if k not in meta}, **meta}
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"WARNING: legacy activity metadata union unavailable ({e}); overlay incomplete.")
     _overlay_contract_metadata(
         cf, meta, derived, base_source="activity", derived_source="derived: activity"
     )

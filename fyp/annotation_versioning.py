@@ -21,8 +21,29 @@ import os
 
 import pandas as pd
 
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
+# NOTE: fyp.data_io / fyp.fyp_config are imported LAZILY inside functions.
+# A module-level import here creates an import cycle: importing this module
+# first (as the web app's import graph does) triggers fyp_config's module-level
+# load_var_schema while THIS module is still partially initialized, so the
+# legacy-metadata overlay's `av.union_field_metadata()` raised AttributeError
+# and was silently swallowed — boot frames lost all legacy field metadata (and
+# the schema hash drifted per-instance). Keep these imports function-level.
+
+
+def _data_io():
+    """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
+    import fyp.data_io as data_io
+
+    return data_io
+
+
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
 
 REGISTRY_FILENAME = "annotation_versions.json"
 REGISTRY_LOCATION = "recoded"
@@ -124,19 +145,19 @@ def active_prompt_text() -> str:
     Returns:
         The prompt text the model is (or would be) sent.
     """
-    if bool(fyp_cf["machine"].get("use_generated_prompt", False)):
+    if bool(_cf()["machine"].get("use_generated_prompt", False)):
         from fyp.annotation_schema import build_prompt
 
         return build_prompt()
-    with open(fyp_cf["machine"]["prompt"]) as handle:
+    with open(_cf()["machine"]["prompt"]) as handle:
         return handle.read()
 
 
 def active_prompt_label() -> str:
     """Return a stable ``prompt_fn`` label for the active prompt source."""
-    if bool(fyp_cf["machine"].get("use_generated_prompt", False)):
+    if bool(_cf()["machine"].get("use_generated_prompt", False)):
         return "annotation_contract.toml"
-    return os.path.basename(fyp_cf["machine"]["prompt"])
+    return os.path.basename(_cf()["machine"]["prompt"])
 
 
 def _read_prompt_text() -> str:
@@ -159,7 +180,7 @@ def current_version_descriptor(fresh: bool = False) -> dict:
     Returns:
         The version descriptor for the active configuration.
     """
-    machine = fyp_cf["machine"]
+    machine = _cf()["machine"]
     use_structured = bool(machine.get("use_structured_output", False))
     signature = (
         machine.get("model"),
@@ -277,8 +298,8 @@ def _promote_into(registry: dict, version: str) -> dict:
 
 def load_registry() -> dict:
     """Load the version registry from storage, or an empty one if absent."""
-    if data_io.exists(storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME):
-        registry = data_io.load_json(
+    if _data_io().exists(storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME):
+        registry = _data_io().load_json(
             storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
         )
         if isinstance(registry, dict) and "versions" in registry:
@@ -290,7 +311,7 @@ def load_registry() -> dict:
 
 def save_registry(registry: dict) -> None:
     """Persist the version registry to storage."""
-    data_io.save_json(
+    _data_io().save_json(
         data=registry, storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
     )
 
@@ -377,8 +398,8 @@ def versions_in_data() -> set | None:
     callers fall back to the unpruned all-versions behaviour. Never raises.
     """
     try:
-        if data_io.exists(storage_location=REGISTRY_LOCATION, filename=VERSIONS_IN_DATA_FILENAME):
-            payload = data_io.load_json(
+        if _data_io().exists(storage_location=REGISTRY_LOCATION, filename=VERSIONS_IN_DATA_FILENAME):
+            payload = _data_io().load_json(
                 storage_location=REGISTRY_LOCATION, filename=VERSIONS_IN_DATA_FILENAME
             )
             values = payload.get("versions")
@@ -405,7 +426,7 @@ def record_versions_in_data(versions) -> None:
             "versions": sorted({str(v) for v in versions if v and str(v) != "unknown"}),
             "updated_at": _dt.datetime.now().isoformat(timespec="seconds"),
         }
-        data_io.save_json(
+        _data_io().save_json(
             data=payload,
             storage_location=REGISTRY_LOCATION,
             filename=VERSIONS_IN_DATA_FILENAME,
@@ -431,7 +452,10 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
     """
     try:
         registry = load_registry()
-    except Exception:
+    except Exception as e:
+        # Loud on purpose: silently returning {} here once hid an import-cycle
+        # failure that cost per-instance schema-hash drift.
+        print(f"WARNING: annotation version registry unreadable ({e}); legacy union empty.")
         return {}
     if versions_to_include is None:
         in_data = versions_in_data()

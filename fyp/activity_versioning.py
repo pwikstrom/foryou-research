@@ -20,8 +20,19 @@ import json
 
 import pandas as pd
 
-import fyp.data_io as data_io
 from fyp import activity_contract as ac
+
+# NOTE: fyp.data_io is imported LAZILY inside functions — a module-level import
+# creates an import cycle via fyp_config (importing this module first leaves it
+# partially initialized while fyp_config's load_var_schema overlay calls into
+# it, silently losing legacy metadata). See fyp.annotation_versioning.
+
+
+def _data_io():
+    """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
+    import fyp.data_io as data_io
+
+    return data_io
 
 REGISTRY_FILENAME = "activity_versions.json"
 REGISTRY_LOCATION = "recoded"
@@ -158,8 +169,8 @@ def _promote_into(registry: dict, version: str) -> dict:
 
 def load_registry() -> dict:
     """Load the version registry from storage, or an empty one if absent."""
-    if data_io.exists(storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME):
-        registry = data_io.load_json(
+    if _data_io().exists(storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME):
+        registry = _data_io().load_json(
             storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
         )
         if isinstance(registry, dict) and "versions" in registry:
@@ -171,7 +182,7 @@ def load_registry() -> dict:
 
 def save_registry(registry: dict) -> None:
     """Persist the version registry to storage."""
-    data_io.save_json(
+    _data_io().save_json(
         data=registry, storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
     )
 
@@ -239,7 +250,8 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
         from fyp import registry_metadata as rm
 
         return rm.union_field_metadata(load_registry(), versions_to_include)
-    except Exception:
+    except Exception as e:
+        print(f"WARNING: activity version registry unreadable ({e}); legacy union empty.")
         return {}
 
 

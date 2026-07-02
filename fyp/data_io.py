@@ -22,8 +22,21 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from fyp.fyp_config import fyp_cf
 from fyp.types import convert_dtypes_to_pyarrow
+
+# NOTE: fyp.fyp_config is accessed LAZILY — a module-level `from fyp.fyp_config
+# import fyp_cf` makes this module part of an import cycle: any entry module
+# that imports data_io first leaves it partially initialized while fyp_config's
+# module-level load_var_schema runs, so the contract overlays' registry reads
+# hit half-defined functions and silently lost legacy metadata (per-instance
+# schema-hash drift, pinned 2026-07-02). Keep config access function-level.
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
 
 
 def _io_log(op: str, loc: str, filename: str, mode: str, bytes_: int, t_ms: float) -> None:
@@ -61,8 +74,8 @@ def _resolve_paths(storage_location: str = "cache", filename: str = ""):
     #print(60*"==")
     #print(storage_location)
     #print(60*"==")
-    if storage_location not in fyp_cf['paths']:
-        valid_locs = ', '.join(list(fyp_cf['paths'].keys()))
+    if storage_location not in _cf()['paths']:
+        valid_locs = ', '.join(list(_cf()['paths'].keys()))
         raise ValueError(f"Invalid storage location: '{storage_location}'. Use: {valid_locs}")
 
 
@@ -71,14 +84,14 @@ def _resolve_paths(storage_location: str = "cache", filename: str = ""):
     gcs_base = False
     use_gcs = False
     if storage_location == 'cache':
-        use_gcs = fyp_cf['data_io']['use_gcs_for_cache']
+        use_gcs = _cf()['data_io']['use_gcs_for_cache']
     else:
-        use_gcs = fyp_cf['data_io']['use_gcs_for_data']
+        use_gcs = _cf()['data_io']['use_gcs_for_data']
 
     if use_gcs:
-        gcs_base = fyp_cf['gcs_paths'][storage_location]
+        gcs_base = _cf()['gcs_paths'][storage_location]
 
-    bucket_name = fyp_cf['data_io']['GCS_bucket_name']
+    bucket_name = _cf()['data_io']['GCS_bucket_name']
     
     # 3. Resolve
     if use_gcs and gcs_base:
@@ -93,14 +106,14 @@ def _resolve_paths(storage_location: str = "cache", filename: str = ""):
         return (gcs_uri, None, 'gcs', blob_name)
     else:
         # Local
-        local_path = os.path.join(fyp_cf['paths'][storage_location], filename)
+        local_path = os.path.join(_cf()['paths'][storage_location], filename)
         return (local_path, None, 'local', None)
 
 
 
 def _get_bucket():
     """Retrieve the bucket object from config."""
-    w = fyp_cf['data_io']['bucket']
+    w = _cf()['data_io']['bucket']
     return w
 
 
@@ -218,7 +231,7 @@ def getctime(storage_location: str = "cache", filename: str = "", verbose: bool 
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
     
     if mode == 'gcs':
-        bucket = fyp_cf['data_io']['bucket']
+        bucket = _cf()['data_io']['bucket']
         if bucket:
             blob = bucket.get_blob(blob_name)
             if blob and blob.time_created:
@@ -406,12 +419,12 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
     gcs_base = False
     use_gcs = False
     if storage_location == 'cache':
-        use_gcs = fyp_cf['data_io']['use_gcs_for_cache']
+        use_gcs = _cf()['data_io']['use_gcs_for_cache']
     else:
-        use_gcs = fyp_cf['data_io']['use_gcs_for_data']
+        use_gcs = _cf()['data_io']['use_gcs_for_data']
 
     if use_gcs:
-        gcs_base = fyp_cf['gcs_paths'][storage_location]
+        gcs_base = _cf()['gcs_paths'][storage_location]
 
 
     files = []
@@ -419,8 +432,8 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
     if use_gcs and gcs_base:
         # GCS Mode
         try:
-            bucket = fyp_cf['data_io']['bucket']
-            bucket_name = fyp_cf['data_io']['GCS_bucket_name']
+            bucket = _cf()['data_io']['bucket']
+            bucket_name = _cf()['data_io']['GCS_bucket_name']
             if bucket:
                 # Add trailing slash to treat as directory
                 prefix = gcs_base
@@ -460,9 +473,9 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
              
     else:
         # Local Mode
-        if storage_location not in fyp_cf['paths']:
+        if storage_location not in _cf()['paths']:
             raise ValueError(f"Invalid storage location: '{storage_location}'.")
-        local_dir = fyp_cf['paths'][storage_location]
+        local_dir = _cf()['paths'][storage_location]
 
         #if verbose: print(f"    [DATA_IO] Listing files in local storage: {local_dir}")
 
@@ -515,7 +528,7 @@ def move(src_storage_location: str = "", dst_storage_location: str = "", filenam
     # temp to storage_location
     if src_storage_location == "temp":
         
-        src_path = os.path.join(fyp_cf['paths']['temp'], filename)
+        src_path = os.path.join(_cf()['paths']['temp'], filename)
         if not os.path.exists(src_path):
              if verbose: print(f"    [DATA_IO] ERROR: Source file not found in temp: '{src_path}'")
              return
@@ -609,7 +622,7 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
                 if blob.exists():
                     with blob.open("r") as file:
                         for line in file:
-                            #line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
+                            #line = '{"label":"' + _cf()["misc"]["label"] + '",' + line[1:]
                             #line = '{"log_script":"' + root + '",' + line[1:]
                             data.append(json.loads(line))
                     return data
@@ -621,7 +634,7 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
             # Local Primary
             with open(primary, encoding='utf-8') as file:
                 for line in file:
-                    #line = '{"label":"' + fyp_cf["misc"]["label"] + '",' + line[1:]
+                    #line = '{"label":"' + _cf()["misc"]["label"] + '",' + line[1:]
                     #line = '{"log_script":"' + root + '",' + line[1:]
                     data.append(json.loads(line))
             return data
@@ -861,15 +874,15 @@ def load_parquet(
     t1 = _dt.datetime.now()
 
 
-    if fyp_cf['data_io']['bucket'] is not None:
+    if _cf()['data_io']['bucket'] is not None:
         # Initialize GCS filesystem
         fs = gcsfs.GCSFileSystem()
 
 
     # if we are to load all parquet files in this location (and it is gcs)
-    if filename == "*" and fyp_cf['data_io']['use_gcs_for_data']:
-        gcs_base = fyp_cf.get("gcs_paths", {}).get(storage_location)
-        bucket_name = fyp_cf['data_io'].get('GCS_bucket_name')
+    if filename == "*" and _cf()['data_io']['use_gcs_for_data']:
+        gcs_base = _cf().get("gcs_paths", {}).get(storage_location)
+        bucket_name = _cf()['data_io'].get('GCS_bucket_name')
         files = fs.glob(f'gs://{bucket_name}/{gcs_base}/*.parquet')
         files = ["gs://" + f for f in files]
 
@@ -1369,7 +1382,7 @@ def save_logs_as_csv(
         outdata_for_csv_export["tiktok_url"] = "https://www.tiktok.com/@/video/" + outdata_for_csv_export["item_id"] + "/"
 
         # Export with error handling for any remaining encoding issues
-        outdata_for_csv_export.to_csv(os.path.join(fyp_cf['paths']['exports'],log_as_csv_filename), encoding='utf-8-sig', errors='replace')
+        outdata_for_csv_export.to_csv(os.path.join(_cf()['paths']['exports'],log_as_csv_filename), encoding='utf-8-sig', errors='replace')
         if verbose:
             print(f"Exported {len(outdata_for_csv_export):,} observations in {log_as_csv_filename}.")
             print(f"The date of the observations in the log range from {outdata_filtered['local_timestamp'].min()} -- {outdata_filtered['local_timestamp'].max()}")
