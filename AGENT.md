@@ -90,6 +90,8 @@ fyp_main_v02/
 │   ├── activity_contract.py     # Loads/validates config/activity_contract.toml; activity field set + required_columns / required_core_fields (hard-drop)
 │   ├── activity_versioning.py   # Activity-contract version registry (acv_ hash) + per-row activity_contract_version provenance
 │   ├── derived_contract.py      # Loads/validates config/derived_contract.toml; owns var_schema metadata for merge-derived columns
+│   ├── registry_metadata.py     # Shared per-version field_metadata snapshot + union helpers for the three registries
+│   ├── var_presentation.py      # Admin-editable presentation store (users/var_presentation.json) — owns the four web_*_prio surface flags
 │   ├── tiktok_dl.py             # TikTokScraper(BaseScraper) + yt-dlp helpers (download, retry, error classification, 32-bit overflow repair)
 │   ├── mypyktok.py              # Legacy PykTok fork (deprecated; alternate TikTok backend behind scraper_backend config)
 │   ├── machine_annotation.py    # Gemini-based annotation
@@ -178,7 +180,8 @@ fyp_main_v02/
 │       ├── style.css            # Main stylesheet
 │       ├── js/
 │       │   ├── data_management.js
-│       │   └── admin_var_schema.js   # Var-schema admin editor
+│       │   ├── variable_prefs.js     # Per-user "Customize variables" panels (gear buttons; deltas in user.settings.variable_prefs)
+│       │   └── admin_var_schema.js   # Var-schema admin viewer (metadata read-only; prio checkboxes save to /api/manage/presentation)
 │       └── css/                 # (empty — styles in style.css)
 ├── tests/                       # Ad-hoc test/debug scripts
 ├── prompts/                     # Gemini prompt templates (*.txt)
@@ -292,6 +295,9 @@ python web_interface/run_meta_refresh_groups.py  # Group + Video Analysis metada
 ### Project Root Discovery
 `__proj__.py` is an empty sentinel file. `fyp_config.py` walks up the directory tree looking for it to locate the project root — this makes imports work regardless of working directory.
 
+### Import-Cycle Rule (fyp_config auto-initializes at import)
+`fyp/fyp_config.py` runs `initialize()` + `load_var_schema()` at MODULE IMPORT. Never add a module-level `from fyp.fyp_config import fyp_cf` (or `import fyp.data_io`) to modules that the load-time contract overlays call into (`data_io`, the three `*_versioning` modules, `var_presentation`) — a partially-initialized module mid-cycle once made the overlays silently drop legacy metadata and the schema hash drift per-instance. Use function-level `_cf()` / `_data_io()` accessors (see those modules); `tests/unit/test_import_cycle_hash.py` guards this.
+
 ### Data I/O Abstraction
 `fyp/data_io.py` abstracts local vs. GCS storage. Use named locations (`"cache"`, `"recoded"`, `"users"`) rather than raw paths. Toggle `use_gcs_*` flags in config to switch backends.
 
@@ -309,7 +315,7 @@ Data is stored in Parquet. Complex types (dicts, lists) are JSON-stringified bef
 `StudyCache` in `data_service.py` uses double-checked locking — be careful when modifying cache logic.
 
 ### Frontend
-Single-page app with tab navigation controlled by `main.js`. All data endpoints return JSON; JS handles filtering and rendering. No bundler — JS files are served as-is from `static/`.
+Single-page app with tab navigation controlled by `main.js`. All data endpoints return JSON; JS handles filtering and rendering. No bundler — JS files are served as-is from `static/`. **Per-user variable preferences**: each user can include/exclude variables per surface (filter / viz / detail-panel / timeline) via the ⚙ panels — stored as deltas in `user.settings.variable_prefs`, composed as `(global ∪ include) − exclude` (`static/js/variable_prefs.js` client-side; timelines compose server-side with on-demand cache re-aggregation).
 
 ### Role-Based Access
 Use `@admin_required` decorator from `web_interface/auth.py`. User data lives in JSON files under `{local_data}/users/`.
