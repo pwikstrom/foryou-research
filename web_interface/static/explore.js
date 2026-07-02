@@ -265,13 +265,38 @@ function renderFiltersV2(metadata, sliceId) {
     const container = document.getElementById(`explorer-v2-filters-${sliceId}`);
     container.innerHTML = '';
 
-    const priority = metadata.filter_priority;
+    // Per-user composition: (global ∪ include) − exclude over the canonical
+    // candidate order. Dynamic prepends (user tags etc.) ride along as
+    // non-schema extras inside filter_priority.
+    const priority = (window.VariablePrefs && metadata.all_variables_order)
+        ? VariablePrefs.effective('filter', metadata.all_variables_order, metadata.filter_priority || [])
+        : metadata.filter_priority;
     let availableCols = [];
 
     if (priority && priority.length > 0) {
         availableCols = priority.filter(c => metadata[c]);
     } else {
         availableCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
+    }
+
+    // "Customize variables" gear for this user's filter set.
+    if (window.VariablePrefs && metadata.all_variables_order) {
+        const gearWrap = document.createElement('div');
+        gearWrap.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 4px;';
+        gearWrap.appendChild(VariablePrefs.gearButton('filter', () => {
+            VariablePrefs.openPanel({
+                surface: 'filter',
+                title: 'Customize filter variables',
+                allOrder: metadata.all_variables_order.filter(c => metadata[c]),
+                globalList: metadata.filter_priority || [],
+                schemaMap: metadata.schema_map || {},
+                onApply: () => {
+                    renderFiltersV2(metadata, sliceId);
+                    if (explorerDataV2.dualSliceMode) renderFiltersV2(metadata, sliceId === 1 ? 2 : 1);
+                },
+            });
+        }));
+        container.appendChild(gearWrap);
     }
 
     // Hide categorical/list filters with 0 or 1 unique values (no filtering possible)
@@ -819,16 +844,35 @@ function renderStatsV2(stats1, stats2) {
     const metadata = explorerDataV2.metadata;
     if (!metadata) return;
 
-    const priority = metadata.viz_priority;
+    const priority = (window.VariablePrefs && metadata.all_variables_order)
+        ? VariablePrefs.effective('viz', metadata.all_variables_order, metadata.viz_priority || [])
+        : metadata.viz_priority;
     let colsToRender = [];
 
-    // Use stats1 keys as base. If stats2 has more keys? 
+    // Use stats1 keys as base. If stats2 has more keys?
     // Ideally use metadata keys, but fallback to stats keys
 
-    // We should compute union of keys from stats1 and stats2 in case 
+    // We should compute union of keys from stats1 and stats2 in case
     // filtering somehow removed a column entirely? (Unlikely)
     // Safe bet: use stats1 keys
     const keys1 = stats1 ? Object.keys(stats1) : [];
+
+    // "Customize variables" gear for this user's visualization set.
+    if (window.VariablePrefs && metadata.all_variables_order) {
+        const gearWrap = document.createElement('div');
+        gearWrap.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 4px;';
+        gearWrap.appendChild(VariablePrefs.gearButton('viz', () => {
+            VariablePrefs.openPanel({
+                surface: 'viz',
+                title: 'Customize visualized variables',
+                allOrder: metadata.all_variables_order.filter(c => keys1.includes(c)),
+                globalList: metadata.viz_priority || [],
+                schemaMap: metadata.schema_map || {},
+                onApply: () => renderStatsV2(explorerDataV2.stats1, explorerDataV2.stats2),
+            });
+        }));
+        container.appendChild(gearWrap);
+    }
 
     if (priority && priority.length > 0) {
         colsToRender = priority.filter(c => keys1.includes(c));

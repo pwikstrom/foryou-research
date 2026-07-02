@@ -495,23 +495,40 @@ window.timelines = {
         // Collect all plotIds for zoom sync
         const allPlotIds = [];
 
-        // Sort variables according to variables_order if provided from backend (web_timeline_prio)
+        // Sort variables according to variables_order if provided from backend
+        // (the server composes it with this user's variable preferences, so a
+        // var in the cache but outside the effective order is also dropped).
         let varKeys = Object.keys(data.variables);
         if (data.variables_order && Array.isArray(data.variables_order)) {
-            varKeys.sort((a, b) => {
-                const idxA = data.variables_order.indexOf(a);
-                const idxB = data.variables_order.indexOf(b);
-                // If not in array, push to bottom. Otherwise, sort by index
-                if (idxA === -1 && idxB === -1) return 0;
-                if (idxA === -1) return 1;
-                if (idxB === -1) return -1;
-                return idxA - idxB;
-            });
+            varKeys = varKeys.filter(k => data.variables_order.includes(k));
+            varKeys.sort((a, b) =>
+                data.variables_order.indexOf(a) - data.variables_order.indexOf(b));
         }
 
         // machine_state is always a flat "5: Scrape ok, MA ok" line because
         // the timeline universe filter drops all other states — hide the chart.
         varKeys = varKeys.filter(k => k !== 'machine_state');
+
+        // "Customize variables" gear for this user's timeline set.
+        if (window.VariablePrefs && Array.isArray(data.all_variables_order) && data.all_variables_order.length) {
+            const gearWrap = document.createElement('div');
+            gearWrap.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 4px;';
+            gearWrap.appendChild(VariablePrefs.gearButton('timeline', () => {
+                VariablePrefs.openPanel({
+                    surface: 'timeline',
+                    title: 'Customize timeline variables',
+                    allOrder: data.all_variables_order,
+                    globalList: data.variables_global || [],
+                    schemaMap: data.schema_map_lite || {},
+                    coveredSet: data.variables_covered || null,
+                    onApply: () => {
+                        const sel = document.getElementById('timelines-collection-select');
+                        if (sel && sel.value) timelines.selectDonation(sel.value);
+                    },
+                });
+            }));
+            container.appendChild(gearWrap);
+        }
 
         // Iterate over variables
         varKeys.forEach(varName => {
@@ -2383,14 +2400,11 @@ window.timelines = {
 
         let varKeys = Object.keys(this.timelineData.variables);
         if (this.timelineData.variables_order && Array.isArray(this.timelineData.variables_order)) {
-            varKeys.sort((a, b) => {
-                const idxA = this.timelineData.variables_order.indexOf(a);
-                const idxB = this.timelineData.variables_order.indexOf(b);
-                if (idxA === -1 && idxB === -1) return 0;
-                if (idxA === -1) return 1;
-                if (idxB === -1) return -1;
-                return idxA - idxB;
-            });
+            // The order arrives composed with this user's variable preferences —
+            // membership filter keeps excluded (or merely cached) vars out.
+            varKeys = varKeys.filter(k => this.timelineData.variables_order.includes(k));
+            varKeys.sort((a, b) =>
+                this.timelineData.variables_order.indexOf(a) - this.timelineData.variables_order.indexOf(b));
         }
         // machine_state is a flat "5: Scrape ok, MA ok" post-filter — drop it.
         varKeys = varKeys.filter(k => k !== 'machine_state');

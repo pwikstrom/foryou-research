@@ -359,14 +359,33 @@ function renderViewerFilters(metadata) {
     const container = document.getElementById('viewer-filters');
     container.innerHTML = '';
 
-    // Use filter_priority if available
-    const priority = metadata.filter_priority;
+    // Per-user composed filter set (same 'filter' surface as the Explore tab).
+    const priority = (window.VariablePrefs && metadata.all_variables_order)
+        ? VariablePrefs.effective('filter', metadata.all_variables_order, metadata.filter_priority || [])
+        : metadata.filter_priority;
     let availableCols = [];
 
     if (priority && priority.length > 0) {
         availableCols = priority.filter(c => metadata[c]);
     } else {
         availableCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
+    }
+
+    // "Customize variables" gear (shared filter surface).
+    if (window.VariablePrefs && metadata.all_variables_order) {
+        const gearWrap = document.createElement('div');
+        gearWrap.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 4px;';
+        gearWrap.appendChild(VariablePrefs.gearButton('filter', () => {
+            VariablePrefs.openPanel({
+                surface: 'filter',
+                title: 'Customize filter variables',
+                allOrder: metadata.all_variables_order.filter(c => metadata[c]),
+                globalList: metadata.filter_priority || [],
+                schemaMap: metadata.schema_map || {},
+                onApply: () => renderViewerFilters(metadata),
+            });
+        }));
+        container.appendChild(gearWrap);
     }
 
     // Hide categorical/list filters with 0 or 1 unique values (no filtering possible)
@@ -1182,6 +1201,7 @@ function linkify(text) {
 function renderMetadata(item) {
     const tbody = document.getElementById('viewer-metadata').querySelector('tbody');
     tbody.innerHTML = '';
+    viewerData.lastMetadataItem = item;
 
     // Update Platform Link in header
     const voteContainer = document.getElementById('viewer-vote-container');
@@ -1190,6 +1210,22 @@ function renderMetadata(item) {
             voteContainer.innerHTML = `<a href="${item.platform_url}" target="_blank" rel="noopener noreferrer" style="color:var(--color-info); text-decoration:underline;">View on platform ↗</a>`;
         } else {
             voteContainer.innerHTML = '';
+        }
+        // "Customize variables" gear for this user's detail-panel field set.
+        const m = viewerData.metadata || {};
+        if (window.VariablePrefs && m.all_variables_order && !document.querySelector('[data-vp-gear="display"]')) {
+            voteContainer.parentElement.appendChild(VariablePrefs.gearButton('display', () => {
+                VariablePrefs.openPanel({
+                    surface: 'display',
+                    title: 'Customize detail-panel fields',
+                    allOrder: m.all_variables_order,
+                    globalList: m.display_priority || [],
+                    schemaMap: m.schema_map || {},
+                    onApply: () => {
+                        if (viewerData.lastMetadataItem) renderMetadata(viewerData.lastMetadataItem);
+                    },
+                });
+            }));
         }
     }
 
@@ -1203,17 +1239,30 @@ function renderMetadata(item) {
 
 
 
-    const priorityList = viewerData.metadata && viewerData.metadata.display_priority ? viewerData.metadata.display_priority : [];
-    const schemaMap = viewerData.metadata && viewerData.metadata.schema_map ? viewerData.metadata.schema_map : {};
+    const meta = viewerData.metadata || {};
+    const globalDisplay = meta.display_priority || [];
+    const schemaMap = meta.schema_map || {};
+
+    // Per-user composition of the detail-panel membership: (global ∪ include)
+    // − exclude; the pre-sorted display_priority stays the ordering source.
+    const priorityList = (window.VariablePrefs && meta.all_variables_order)
+        ? VariablePrefs.effective('display', meta.all_variables_order, globalDisplay)
+        : globalDisplay;
+    const effectiveDisplay = new Set(priorityList);
 
     // Group items by Section
     const sections = {};
     const generalSection = "General";
 
     Object.keys(item).forEach(key => {
-        // FILTER: Only show if BOTH display_name and web_display_prio are present
+        // FILTER: needs a display_name and per-user (or global) membership.
         const schema = schemaMap[key];
-        if (!schema || !schema.display_name || schema.web_display_prio === undefined) {
+        if (!schema || !schema.display_name) {
+            return;
+        }
+        if (window.VariablePrefs && meta.all_variables_order) {
+            if (!effectiveDisplay.has(key)) return;
+        } else if (schema.web_display_prio === undefined) {
             return;
         }
 

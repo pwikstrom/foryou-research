@@ -274,7 +274,6 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     Returns (enriched_df, enriched_col_types).
     If no tags found, returns original.
     """
-    tag_filename = f"{username}_tags.json"
     filename = f"{username}.json"
     user_data = {}
     user_tags = {}
@@ -469,6 +468,28 @@ _TIMELINE_REQUIRED_COLUMNS: set[str] = {
 }
 
 
+def get_timeline_covered_vars(collection_id, interval='day'):
+    """Variables a cached timeline parquet was aggregated with, or None.
+
+    Read from the ``timeline_<cid>_<interval>.aggvars.json`` sidecar written at
+    generation time. None means the cache predates coverage tracking.
+    """
+    fname = f"timeline_{collection_id}_{interval}.aggvars.json"
+    try:
+        if data_io.exists(storage_location="cache", filename=fname):
+            payload = data_io.load_json(storage_location="cache", filename=fname)
+            vars_list = payload.get("vars")
+            if isinstance(vars_list, list):
+                return set(str(v) for v in vars_list)
+    except Exception:
+        pass
+    return None
+
+
+
+
+
+
 def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, preloaded_df=None):
     """Ensures that timeline aggregation for day exists in cache.
 
@@ -497,6 +518,30 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
                 if verbose:
                     print(f"    [TIMELINE] Cache for {collection_id}/{interval} missing v{TIMELINE_SCHEMA_VERSION} columns; regenerating.")
                 missing.append(interval)
+                continue
+            # Per-var coverage: a per-user include beyond the vars this parquet
+            # was aggregated with has no data until we re-aggregate. Coverage is
+            # tracked in a sidecar (not by sniffing columns) so a variable that
+            # is absent from the collection's data doesn't trigger a
+            # regeneration loop. Missing sidecar => cache predates per-user
+            # includes and covers whatever it was built with; fall back to a
+            # column sniff for the *requested* vars only.
+            covered = get_timeline_covered_vars(collection_id, interval)
+            if covered is None:
+                # Pre-sidecar cache: it was built from the then-global timeline
+                # list, so treat the current global set (plus any column
+                # actually present) as covered — only a genuinely new include
+                # should force a regeneration.
+                meta_fallback = load_schema_metadata({})
+                covered = set(meta_fallback.get('timeline_priority', []))
+                covered.add('machine_state')
+                covered.update(
+                    c[: -len('_valid')] for c in sample_df.columns if c.endswith('_valid'))
+            uncovered = [v for v in viz_vars if v not in covered]
+            if uncovered:
+                if verbose:
+                    print(f"    [TIMELINE] Cache for {collection_id}/{interval} lacks {uncovered}; regenerating.")
+                missing.append(interval)
         except Exception:
             missing.append(interval)
 
@@ -516,7 +561,14 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         if verbose:
             print(f"    [TIMELINE] Using cached timeline data for {collection_id}")
         return {"day": None}  # truthy — cache already exists, no agg_df available
-            
+
+    # Regenerate with the UNION of the requested vars and everything the prior
+    # cache covered, so one user's per-user include never evicts another's —
+    # the study-wide cache only ever grows a superset of aggregated columns.
+    prior_covered = get_timeline_covered_vars(collection_id, 'day')
+    if prior_covered:
+        viz_vars = list(viz_vars) + [v for v in sorted(prior_covered) if v not in viz_vars]
+
     # Generate Data
     # 1. Load Unified Dataset
     if preloaded_df is not None:
@@ -774,6 +826,17 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         # Save
         filename = f"timeline_{collection_id}_{interval}.parquet"
         data_io.save_parquet(df=agg_df, storage_location="cache", filename=filename)
+        # Coverage sidecar: which vars this parquet was aggregated with. Read by
+        # get_timeline_covered_vars so a variable absent from the data doesn't
+        # look uncovered and trigger a regeneration loop.
+        try:
+            data_io.save_json(
+                data={"vars": list(viz_vars)},
+                storage_location="cache",
+                filename=f"timeline_{collection_id}_{interval}.aggvars.json",
+            )
+        except Exception as e:
+            print(f"    [TIMELINE] Failed to write aggvars sidecar for {collection_id}/{interval}: {e}")
         result_dfs[interval] = agg_df
 
     return result_dfs
@@ -853,7 +916,8 @@ def _remap_analysis_indices(
 
 def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = False,
                       preloaded_agg_df: pd.DataFrame | None = None,
-                      study: str | None = None):
+                      study: str | None = None,
+                      extra_vars: list[str] | None = None):
     """Returns timeline data for plotting.
 
     - Numeric: Daily Mean (Raw values, invalid/missing ignored).
@@ -872,6 +936,10 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
             study admitted post-sampling. Falls back to the unfiltered view
             when the sidecar is missing, pre-v2, or doesn't list this
             collection.
+        extra_vars: Per-user includes beyond the global timeline set. Known
+            schema variables are appended (canonical order) to the aggregation
+            set; an uncovered one triggers a one-time cache re-aggregation with
+            the union, growing the study-wide cache for every user.
     """
 
     if 'var_schema' not in fyp_cf:
@@ -883,6 +951,12 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
     load_schema_metadata(meta)
     viz_vars = meta.get('timeline_priority', [])
     schema_map = meta.get('schema_map', {})
+    global_vars = list(viz_vars)
+    if extra_vars:
+        known = set(meta.get('all_variables_order', []))
+        wanted = {v for v in extra_vars if v in known and v not in viz_vars}
+        # Canonical order comes from all_variables_order, not request order.
+        viz_vars = viz_vars + [v for v in meta.get('all_variables_order', []) if v in wanted]
 
     if 'machine_state' not in viz_vars:
         viz_vars = ['machine_state'] + viz_vars
@@ -1108,6 +1182,21 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
     extra_data_breakdown = {t: df[t].tolist() for t in ENGAGEMENT_TYPES if t in df.columns}
 
     result = {"dates": dates, "date_labels": date_labels, "variables": variables, "counts": period_counts, "variables_order": viz_vars}
+    # For the per-user "Customize variables" panel: the uncomposed global list
+    # and the vars already covered by the cached parquet (an include outside
+    # this set will pay a one-time re-aggregation on first load).
+    # machine_state is a synthetic always-on series prepended server-side; it
+    # belongs to the global set so per-user composition can never drop it.
+    if 'machine_state' not in global_vars:
+        global_vars = ['machine_state'] + global_vars
+    result["variables_global"] = global_vars
+    covered = get_timeline_covered_vars(collection_id, interval)
+    result["variables_covered"] = sorted(covered) if covered is not None else list(variables.keys())
+    result["all_variables_order"] = meta.get('all_variables_order', [])
+    result["schema_map_lite"] = {
+        v: {k: schema_map[v][k] for k in ("display_name", "section", "description") if k in schema_map[v]}
+        for v in result["all_variables_order"] if v in schema_map
+    }
 
     if extra_data_counts is not None:
         result["extra_data_counts"] = extra_data_counts
@@ -1630,6 +1719,45 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
 
 
 
+def compose_effective_variables(global_list, prefs, all_order, available=None):
+    """Compose a per-user effective variable list for one surface.
+
+    ``effective = (global ∪ include) − exclude``, ordered by ``all_order`` (the
+    canonical derived order). Unknown names in the prefs are ignored, so stored
+    preferences survive schema evolution. When ``available`` is given, includes
+    are clipped to it (used by timelines, where a variable needs aggregated
+    data to be renderable).
+
+    Args:
+        global_list: the admin-set global ON list for the surface.
+        prefs: ``{"include": [...], "exclude": [...]}`` or None/empty.
+        all_order: full canonical-ordered candidate list.
+        available: optional iterable of variables that actually have data.
+
+    Returns:
+        list[str] in canonical order.
+    """
+    prefs = prefs or {}
+    include = set(prefs.get("include") or [])
+    exclude = set(prefs.get("exclude") or [])
+    base = set(global_list) | include
+    base -= exclude
+    if available is not None:
+        avail = set(available)
+        # Global members stay even without an availability entry (back-compat);
+        # only user includes are clipped to what has data.
+        base = {v for v in base if v in avail or v in set(global_list)}
+    ordered = [v for v in all_order if v in base]
+    # Preserve anything not in all_order (e.g. synthetic vars like
+    # machine_state prepended by the server) in its original position.
+    extras = [v for v in global_list if v not in all_order and v in base]
+    return extras + ordered
+
+
+
+
+
+
 def load_schema_metadata(metadata):
     """Helper to load and inject schema metadata (priorities, descriptions, accepted_labels) from CSV."""
     try:
@@ -1675,6 +1803,11 @@ def load_schema_metadata(metadata):
             metadata['viz_priority'] = _ordered('web_viz_prio')
             metadata['timeline_priority'] = _ordered('web_timeline_prio')
             metadata['filter_priority'] = _ordered('web_filter_prio')
+            # Full candidate list in the same canonical order, regardless of the
+            # on/off flags. Per-user variable preferences compose against this
+            # (effective = (global ∪ include) − exclude) client-side.
+            metadata['all_variables_order'] = (
+                schema_df.sort_values(order_cols)['variable_name'].tolist())
 
             if 'section' not in schema_df.columns:
                 schema_df['section'] = 'General'

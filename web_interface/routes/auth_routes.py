@@ -424,11 +424,48 @@ def api_user_settings():
     
     elif request.method == 'POST':
         settings = request.json
+        if isinstance(settings, dict) and 'variable_prefs' in settings:
+            err = _validate_variable_prefs(settings['variable_prefs'])
+            if err:
+                return jsonify({"error": err}), 400
         success, msg = user_manager.update_user_settings(current_user.username, settings)
         if success:
             return jsonify({"status": "success", "message": msg})
         else:
             return jsonify({"error": msg}), 400
+
+
+
+
+
+
+VARIABLE_PREF_SURFACES = ("filter", "display", "timeline", "viz")
+
+
+def _validate_variable_prefs(prefs) -> str | None:
+    """Shape-check a posted ``variable_prefs`` blob; return an error string or None.
+
+    Expected shape: ``{surface: {"include": [names], "exclude": [names]}}`` with
+    surfaces limited to :data:`VARIABLE_PREF_SURFACES`. An empty dict resets all
+    customizations. Variable names are not checked against the schema here —
+    unknown names are simply ignored at composition time, which lets prefs
+    survive schema evolution.
+    """
+    if not isinstance(prefs, dict):
+        return "variable_prefs must be an object"
+    for surface, delta in prefs.items():
+        if surface not in VARIABLE_PREF_SURFACES:
+            return f"unknown surface {surface!r}"
+        if not isinstance(delta, dict):
+            return f"surface {surface!r} must be an object"
+        for key, names in delta.items():
+            if key not in ("include", "exclude"):
+                return f"surface {surface!r}: unknown key {key!r}"
+            if not isinstance(names, list) or len(names) > 500:
+                return f"surface {surface!r}.{key} must be a list of at most 500 names"
+            if not all(isinstance(n, str) for n in names):
+                return f"surface {surface!r}.{key} must contain only strings"
+    return None
 
 @auth_bp.route('/api/admin/annotations', methods=['GET'])
 @permission_required('tab.admin.annotations')

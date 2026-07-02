@@ -58,6 +58,17 @@
             </label>
         </div>
 
+        <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Variable customizations</h4>
+
+        <div class="setting-group" style="margin-bottom: 12px;">
+            <p class="text-sm" style="color: var(--color-text-muted); margin-bottom: 8px;">
+                Your personal variable selections for filters, visualizations, the video detail panel
+                and timelines (set via the ⚙ buttons on each tab).
+                <span id="variable-prefs-status" class="font-semibold"></span>
+            </p>
+            <button class="btn-discreet text-sm" onclick="resetVariablePrefs()">Reset all to defaults</button>
+        </div>
+
         <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 30px 0;">
 
         <h2>Manage My Video Tags</h2>
@@ -134,7 +145,23 @@
             themeToggle.checked = currentTheme === 'dark';
         }
 
+        renderVariablePrefsStatus();
         loadSystemInfo();
+    }
+
+    function renderVariablePrefsStatus() {
+        const el = document.getElementById('variable-prefs-status');
+        if (!el || !window.VariablePrefs) return;
+        const customized = ['filter', 'display', 'timeline', 'viz'].filter(s => VariablePrefs.isCustomized(s));
+        el.textContent = customized.length
+            ? `Active customizations: ${customized.join(', ')}.`
+            : 'No active customizations.';
+    }
+
+    async function resetVariablePrefs() {
+        if (!window.VariablePrefs) return;
+        await VariablePrefs.resetAll();
+        renderVariablePrefsStatus();
     }
 
     function loadSystemInfo() {

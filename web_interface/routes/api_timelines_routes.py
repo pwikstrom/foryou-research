@@ -8,6 +8,7 @@ import fyp.data_io as data_io
 from fyp.organize_datasets import COLLECTIONS_LABEL
 
 from ..data_service import (
+    compose_effective_variables,
     get_accessible_studies,
     get_study_collections,
     get_timeline_data,
@@ -91,11 +92,26 @@ def api_timeline_data():
     study_for_filter = study if (study and study in studies) else None
 
     try:
-        result = get_timeline_data(collection_id, interval=interval, study=study_for_filter)
+        # Per-user variable preferences: includes beyond the global timeline set
+        # are aggregated on demand (one-time cache regeneration with the union);
+        # the returned variables_order is the user's composed effective list.
+        prefs = ((current_user.settings or {}).get('variable_prefs') or {}).get('timeline') or {}
+        extra_vars = [v for v in (prefs.get('include') or []) if isinstance(v, str)]
+
+        result = get_timeline_data(collection_id, interval=interval, study=study_for_filter,
+                                   extra_vars=extra_vars or None)
         if result is None:
              return jsonify({"error": "No data found"}), 404
         if "error" in result:
              return jsonify(result), 400
+
+        if prefs:
+            result['variables_order'] = compose_effective_variables(
+                result.get('variables_global', []),
+                prefs,
+                result.get('variables_order', []),
+                available=set(result.get('variables', {}).keys()),
+            )
 
         return jsonify(make_serializable(result))
     except Exception as e:
