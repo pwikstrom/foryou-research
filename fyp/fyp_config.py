@@ -485,6 +485,15 @@ def _apply_contract_scrape_metadata(cf) -> None:
         derived = sc.derived_fields(contract)
     except Exception:
         return
+    # Union in fields owned by PAST scrape-contract versions (the registry's
+    # per-version metadata snapshots) so a field a future contract stops
+    # emitting stays contract-owned/read-only. Current contract wins.
+    try:
+        from fyp import scrape_versioning as sv
+
+        meta = {**{k: v for k, v in sv.union_field_metadata().items() if k not in meta}, **meta}
+    except Exception:
+        pass
     # Migrate legacy TikTok-named rows to canonical in-memory, so an un-migrated
     # var_schema.csv (existing local or prod deployment) self-heals at load.
     vs["variable_name"] = vs["variable_name"].replace(sc.LEGACY_COLUMN_ALIASES)
@@ -586,6 +595,14 @@ def _apply_contract_activity_metadata(cf) -> None:
         derived = acy.derived_fields(contract)
     except Exception:
         return
+    # Union in fields owned by PAST activity-contract versions (registry
+    # snapshots); current contract wins — mirrors the scrape/annotation overlays.
+    try:
+        from fyp import activity_versioning as av_act
+
+        meta = {**{k: v for k, v in av_act.union_field_metadata().items() if k not in meta}, **meta}
+    except Exception:
+        pass
     _overlay_contract_metadata(
         cf, meta, derived, base_source="activity", derived_source="derived: activity"
     )
@@ -915,15 +932,28 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
         derived_cols = set(dc.contract_column_metadata(dc.load_contract()).keys())
     except Exception:
         derived_cols = set()
-    # Legacy annotation fields owned by past-version registry snapshots (e.g. trend
-    # / australian_relevance): blank their metadata too so the registry stays the
-    # source and the CSV is a clean slate the overlay re-fills.
+    # Legacy fields owned by past-version registry snapshots (e.g. trend /
+    # australian_relevance for annotation; any future retired scrape/activity
+    # field): blank their metadata too so the registries stay the source and
+    # the CSV is a clean slate the overlays re-fill.
     try:
         from fyp import annotation_versioning as av
 
         legacy_ann_cols = set(av.union_field_metadata().keys())
     except Exception:
         legacy_ann_cols = set()
+    try:
+        from fyp import scrape_versioning as sv
+
+        scrape_cols |= set(sv.union_field_metadata().keys())
+    except Exception:
+        pass
+    try:
+        from fyp import activity_versioning as av_act
+
+        activity_cols |= set(av_act.union_field_metadata().keys())
+    except Exception:
+        pass
     if "variable_name" in df.columns:
         owned_cols = contract_cols | scrape_cols | activity_cols | derived_cols | legacy_ann_cols
         if owned_cols:

@@ -224,12 +224,10 @@ def _snapshot_field_metadata() -> dict:
     contract stops emitting keeps its metadata (and stays contract-owned) via the
     version that defined it. Never raises.
     """
-    try:
-        from fyp import annotation_contract as ac
+    from fyp import annotation_contract as ac
+    from fyp import registry_metadata as rm
 
-        return ac.contract_column_metadata(ac.load_contract())
-    except Exception:
-        return {}
+    return rm.snapshot_field_metadata(ac)
 
 
 
@@ -366,27 +364,82 @@ def list_versions() -> list[dict]:
 
 
 
-def union_field_metadata() -> dict:
-    """Merge ``field_metadata`` across all registered versions.
+VERSIONS_IN_DATA_FILENAME = "annotation_versions_in_data.json"
+
+
+
+
+def versions_in_data() -> set | None:
+    """Distinct ``annotation_version`` values present in the consolidated archive.
+
+    Read from the snapshot consolidation writes (see
+    :func:`record_versions_in_data`). ``None`` means no snapshot exists yet —
+    callers fall back to the unpruned all-versions behaviour. Never raises.
+    """
+    try:
+        if data_io.exists(storage_location=REGISTRY_LOCATION, filename=VERSIONS_IN_DATA_FILENAME):
+            payload = data_io.load_json(
+                storage_location=REGISTRY_LOCATION, filename=VERSIONS_IN_DATA_FILENAME
+            )
+            values = payload.get("versions")
+            if isinstance(values, list):
+                return {str(v) for v in values}
+    except Exception:
+        pass
+    return None
+
+
+
+
+def record_versions_in_data(versions) -> None:
+    """Persist the distinct ``annotation_version`` values present in the archive.
+
+    Called at consolidation, right after the all-versions archive is
+    materialized. Prunes :func:`union_field_metadata`'s legacy union to versions
+    that can actually occur in the data — NOTE this feeds the var_schema hash,
+    so a consolidation that shrinks the set correctly marks studies for rebuild.
+    Never raises.
+    """
+    try:
+        payload = {
+            "versions": sorted({str(v) for v in versions if v and str(v) != "unknown"}),
+            "updated_at": _dt.datetime.now().isoformat(timespec="seconds"),
+        }
+        data_io.save_json(
+            data=payload,
+            storage_location=REGISTRY_LOCATION,
+            filename=VERSIONS_IN_DATA_FILENAME,
+        )
+    except Exception:
+        pass
+
+
+
+
+def union_field_metadata(versions_to_include: set | None = None) -> dict:
+    """Merge ``field_metadata`` across registered versions.
 
     Returns ``{column: metadata}``. Newer versions (by ``created_at``) win on a
     column present in several snapshots. The var_schema overlay uses this to keep
     fields from PAST contract versions (e.g. ``trend`` / ``australian_relevance``)
     contract-owned and read-only after the current contract stops emitting them.
-    Never raises.
+
+    By default the union is pruned to the versions actually present in the
+    consolidated archive (plus the current contract's version) when consolidation
+    has recorded that set — see :func:`record_versions_in_data`; with no snapshot
+    every registered version participates (backward-compatible). Never raises.
     """
     try:
-        versions = load_registry().get("versions", {})
+        registry = load_registry()
     except Exception:
         return {}
-    ordered = sorted(versions.values(), key=lambda e: e.get("created_at") or "")
-    merged: dict = {}
-    for entry in ordered:
-        fm = entry.get("field_metadata") or {}
-        for col, meta in fm.items():
-            if isinstance(meta, dict):
-                merged[col] = meta
-    return merged
+    if versions_to_include is None:
+        in_data = versions_in_data()
+        if in_data is not None:
+            versions_to_include = in_data | {current_annotation_version()}
+    from fyp import registry_metadata as rm
+
+    return rm.union_field_metadata(registry, versions_to_include)
 
 
 

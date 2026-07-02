@@ -1766,6 +1766,13 @@ def consolidate_and_save_refined_annotations(
         filename=f"{MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet",
         verbose=verbose,
     )
+    # Record which annotation versions the archive actually contains, so the
+    # legacy-metadata union (and therefore the var_schema hash) is pruned to
+    # versions that can occur in the data. NOTE: a consolidation that shrinks
+    # this set changes the schema hash and marks studies for rebuild.
+    annotation_versioning.record_versions_in_data(
+        annotation_archive["annotation_version"].dropna().unique()
+    )
 
     active_version = annotation_versioning.get_active_version()
     if active_version is None:

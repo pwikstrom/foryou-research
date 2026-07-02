@@ -623,16 +623,47 @@ def compute_var_schema_hash() -> str:
     except Exception:
         pass
 
-    # Fold in the union of per-version legacy annotation metadata so a change to the
-    # set/metadata of legacy fields (e.g. a new contract version retiring a field)
-    # invalidates cached study parquets. Stable across loads when the registry is
-    # unchanged.
+    # Fold in the per-version legacy metadata (annotation + scrape + activity
+    # registries) so a change to the set/metadata of legacy fields (e.g. a new
+    # contract version retiring a field, or consolidation pruning the annotation
+    # union to versions present in the archive) invalidates cached study
+    # parquets. Only the LEGACY DELTA (union minus what the current contract
+    # owns) is hashed: a routine registration whose snapshot matches the current
+    # contract must not flip the hash — the first scrape/ingest after a deploy
+    # would otherwise trigger a surprise full rebuild.
     legacy_ann_payload = b""
     try:
+        from fyp import annotation_contract as anc
         from fyp import annotation_versioning as av
 
+        current_ann = set(anc.contract_column_metadata(anc.load_contract()).keys())
         legacy_ann_payload = json.dumps(
-            av.union_field_metadata(), sort_keys=True
+            {k: v for k, v in av.union_field_metadata().items() if k not in current_ann},
+            sort_keys=True,
+        ).encode("utf-8")
+    except Exception:
+        pass
+    legacy_scrape_payload = b""
+    try:
+        from fyp import scrape_contract as scc
+        from fyp import scrape_versioning as sv
+
+        current_scrape = set(scc.contract_column_metadata(scc.load_contract()).keys())
+        legacy_scrape_payload = json.dumps(
+            {k: v for k, v in sv.union_field_metadata().items() if k not in current_scrape},
+            sort_keys=True,
+        ).encode("utf-8")
+    except Exception:
+        pass
+    legacy_activity_payload = b""
+    try:
+        from fyp import activity_contract as acc
+        from fyp import activity_versioning as av_act
+
+        current_activity = set(acc.contract_column_metadata(acc.load_contract()).keys())
+        legacy_activity_payload = json.dumps(
+            {k: v for k, v in av_act.union_field_metadata().items() if k not in current_activity},
+            sort_keys=True,
         ).encode("utf-8")
     except Exception:
         pass
@@ -640,6 +671,7 @@ def compute_var_schema_hash() -> str:
     digest = hashlib.sha256(
         payload + norm_payload + scrape_payload + activity_payload
         + derived_payload + legacy_ann_payload
+        + legacy_scrape_payload + legacy_activity_payload
     ).hexdigest()
     return f"{VAR_SCHEMA_HASH_VERSION}:{digest}"
 

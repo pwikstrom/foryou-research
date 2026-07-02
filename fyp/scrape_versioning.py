@@ -129,17 +129,30 @@ def empty_registry() -> dict:
 
 
 
-def _register_into(registry: dict, descriptor: dict, created_at: str | None = None) -> dict:
+def _register_into(
+    registry: dict,
+    descriptor: dict,
+    created_at: str | None = None,
+    field_metadata: dict | None = None,
+) -> dict:
     """Return a copy of ``registry`` with ``descriptor`` recorded if new.
 
     Recording a version never changes the ``active`` pointer — the active version
     only ever changes via :func:`promote_version` (stay-pinned-until-promote).
+    ``field_metadata`` snapshots the contract's var_schema column metadata at
+    registration so a field a future contract stops emitting stays
+    contract-owned via :func:`union_field_metadata` (same mechanism as the
+    annotation registry).
     """
     registry = _copy.deepcopy(registry)
     versions = registry.setdefault("versions", {})
     version = descriptor["scrape_contract_version"]
     if version not in versions:
-        versions[version] = {**descriptor, "created_at": created_at}
+        versions[version] = {
+            **descriptor,
+            "field_metadata": field_metadata or {},
+            "created_at": created_at,
+        }
     return registry
 
 
@@ -189,8 +202,12 @@ def register_version(descriptor: dict | None = None, created_at: str | None = No
     if created_at is None:
         created_at = _dt.datetime.now().isoformat(timespec="seconds")
 
+    from fyp import registry_metadata as rm
+
     registry = load_registry()
-    updated = _register_into(registry, descriptor, created_at)
+    updated = _register_into(
+        registry, descriptor, created_at, field_metadata=rm.snapshot_field_metadata(sc)
+    )
     if updated != registry:
         save_registry(updated)
     return updated
@@ -215,15 +232,32 @@ def promote_version(version: str) -> dict:
 
 
 def list_versions() -> list[dict]:
-    """Return version summaries (without the bulky field-digest snapshot)."""
+    """Return version summaries (without the bulky per-field snapshots)."""
     registry = load_registry()
     active = registry.get("active")
     summaries = []
     for version, info in registry.get("versions", {}).items():
-        summary = {k: v for k, v in info.items() if k != "field_digest"}
+        summary = {k: v for k, v in info.items() if k not in ("field_digest", "field_metadata")}
         summary["active"] = version == active
         summaries.append(summary)
     return summaries
+
+
+
+
+def union_field_metadata(versions_to_include: set | None = None) -> dict:
+    """Merge ``field_metadata`` across registered scrape versions, never raising.
+
+    The var_schema overlay unions this with the current contract's metadata so
+    a scrape field retired from a future contract stays contract-owned and
+    read-only (badged "legacy") instead of degrading into an editable orphan.
+    """
+    try:
+        from fyp import registry_metadata as rm
+
+        return rm.union_field_metadata(load_registry(), versions_to_include)
+    except Exception:
+        return {}
 
 
 

@@ -2968,14 +2968,31 @@ def _contract_locked_map(df) -> dict:
         derived_cols = set(dc.contract_column_metadata(dc.load_contract()).keys())
     except Exception:
         pass
-    # Legacy annotation fields owned by past-version registry snapshots (e.g. trend
-    # / australian_relevance) — contract-owned/read-only, and badged "legacy" in the
-    # editor. A field the current annotation contract still owns is NOT legacy.
+    # Legacy fields owned by past-version registry snapshots (e.g. trend /
+    # australian_relevance for annotation; any future retired scrape/activity
+    # field) — contract-owned/read-only, and badged "legacy" in the editor. A
+    # field a CURRENT contract still owns is NOT legacy.
     legacy_cols: set = set()
     try:
         from fyp import annotation_versioning as av
 
-        legacy_cols = set(av.union_field_metadata().keys()) - annotation_cols
+        legacy_cols |= set(av.union_field_metadata().keys()) - annotation_cols
+    except Exception:
+        pass
+    try:
+        from fyp import scrape_versioning as sv
+
+        legacy_scrape = set(sv.union_field_metadata().keys()) - scrape_cols
+        legacy_cols |= legacy_scrape
+        scrape_cols |= legacy_scrape
+    except Exception:
+        pass
+    try:
+        from fyp import activity_versioning as av_act
+
+        legacy_activity = set(av_act.union_field_metadata().keys()) - activity_cols
+        legacy_cols |= legacy_activity
+        activity_cols |= legacy_activity
     except Exception:
         pass
     if not (annotation_cols or scrape_cols or activity_cols or derived_cols or legacy_cols):
