@@ -13,18 +13,14 @@ from werkzeug.utils import secure_filename
 
 import fyp.data_io as data_io
 from fyp.fyp_config import (
-    VarSchemaConflict,
-    compute_var_schema_etag,
     fyp_cf,
     load_var_schema,
-    save_var_schema,
 )
 from fyp.recode_variables import (
     SEMANTIC_COLUMNS,
     VAR_SCHEMA_ROLES,
     VAR_SCHEMA_SCALES,
     compute_var_schema_hash,
-    validate_var_schema,
 )
 import fyp.annotation_versioning as annotation_versioning
 from fyp.ingest import get_main_collection
@@ -3033,10 +3029,13 @@ def get_schema():
     post-save refresh omit the flag — they only need in-memory state.
     """
     try:
+        from fyp import var_presentation as vp
+
         if request.args.get("force_reload") in ("1", "true", "yes"):
             global fyp_cf
             fyp_cf = load_var_schema(fyp_cf, verbose=False)
         df = fyp_cf["var_schema"]
+        presentation = vp.load_presentation() or vp.empty_presentation()
         return jsonify({
             "rows": _df_to_records(df),
             "columns": list(df.columns),
@@ -3048,7 +3047,11 @@ def get_schema():
             "contract_locked": _contract_locked_map(df),
             "contract_path": "config/annotation_contract.toml",
             "scrape_contract_path": "config/scrape_contract.toml",
-            "etag": compute_var_schema_etag(fyp_cf),
+            # The presentation store is the only admin-editable payload left
+            # (the metadata is contract-owned); its etag guards saves.
+            "presentation": presentation.get("surfaces", {}),
+            "prio_columns": dict(vp.SURFACE_TO_PRIO_COLUMN),
+            "etag": vp.compute_presentation_etag(presentation),
             "current_hash": compute_var_schema_hash(),
         })
     except Exception as e:
@@ -3071,33 +3074,12 @@ def _payload_to_df(payload_rows: list[dict]) -> pd.DataFrame:
 @permission_required('tab.admin.schema')
 @login_required
 def validate_schema_endpoint():
-    """Validate proposed rows and report the hash impact, without writing."""
-    if not _var_schema_admin_enabled():
-        return jsonify({"error": "schema admin disabled"}), 503
-    try:
-        body = request.get_json(force=True, silent=False) or {}
-        rows = body.get("rows")
-        if not isinstance(rows, list):
-            return jsonify({"error": "rows must be a list"}), 400
-        df = _payload_to_df(rows)
-        errors = list(validate_var_schema(df))
-        # Compute new hash under a temporary cf swap so validation is pure
-        prev = fyp_cf.get("var_schema")
-        try:
-            fyp_cf["var_schema"] = df
-            new_hash = compute_var_schema_hash()
-        finally:
-            fyp_cf["var_schema"] = prev
-        hash_changed = (new_hash != compute_var_schema_hash())
-        affected = _affected_studies_for_hash(new_hash) if hash_changed else []
-        return jsonify({
-            "errors": errors,
-            "hash_changed": hash_changed,
-            "new_hash": new_hash,
-            "affected_studies": affected,
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    """Retired: metadata is contract-owned; only presentation flags are editable."""
+    return jsonify({
+        "error": "retired",
+        "message": "var_schema metadata is contract-owned; edit the contract TOMLs. "
+                   "Presentation flags save via POST /api/manage/presentation.",
+    }), 410
 
 
 
@@ -3105,43 +3087,71 @@ def validate_schema_endpoint():
 @permission_required('tab.admin.schema')
 @login_required
 def save_schema_endpoint():
-    """Persist edits.  Refuses on stale etag (409) or validation errors (400)."""
+    """Retired: metadata is contract-owned; only presentation flags are editable."""
+    return jsonify({
+        "error": "retired",
+        "message": "var_schema metadata is contract-owned; edit the contract TOMLs. "
+                   "Presentation flags save via POST /api/manage/presentation.",
+    }), 410
+
+
+
+@management_bp.route('/api/manage/presentation', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def save_presentation_endpoint():
+    """Persist the global web-surface membership flags (the admin defaults).
+
+    Body: ``{"surfaces": {filter|timeline|viz|display: [variable_name, ...]},
+    "etag": <presentation etag from GET /api/manage/schema>}``. Refuses on a
+    stale etag (409) or unknown variable names (400). Presentation edits can
+    never change the study hash — asserted server-side as a guard.
+    """
+    global fyp_cf
     if not _var_schema_admin_enabled():
         return jsonify({"error": "schema admin disabled"}), 503
     try:
+        from fyp import var_presentation as vp
+
         body = request.get_json(force=True, silent=False) or {}
-        rows = body.get("rows")
+        surfaces = body.get("surfaces")
         etag = body.get("etag")
-        if not isinstance(rows, list):
-            return jsonify({"error": "rows must be a list"}), 400
-        df = _payload_to_df(rows)
-        errors = list(validate_var_schema(df))
-        if errors:
-            return jsonify({"error": "validation failed", "errors": errors}), 400
+        if not isinstance(surfaces, dict):
+            return jsonify({"error": "surfaces must be an object"}), 400
+        known = set(fyp_cf["var_schema"]["variable_name"].astype("string"))
+        unknown = sorted({
+            n for names in surfaces.values() if isinstance(names, list)
+            for n in names if n not in known
+        })
+        if unknown:
+            return jsonify({"error": "unknown variables", "unknown": unknown}), 400
+
         old_hash = compute_var_schema_hash()
         try:
-            result = save_var_schema(df, expected_etag=etag, verbose=False)
-        except VarSchemaConflict as e:
+            result = vp.save_presentation(surfaces, expected_etag=etag, updated_by=_actor())
+        except vp.PresentationConflict as e:
             return jsonify({
                 "error": "conflict",
                 "message": str(e),
-                "etag": compute_var_schema_etag(fyp_cf),
+                "etag": vp.compute_presentation_etag(),
             }), 409
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+        fyp_cf = load_var_schema(fyp_cf, verbose=False)
         new_hash = compute_var_schema_hash()
         hash_changed = new_hash != old_hash
-        affected = _affected_studies_for_hash(new_hash) if hash_changed else []
+        if hash_changed:
+            # Presentation flags are excluded from the hash by design; a change
+            # here means something else drifted — surface it loudly.
+            print(f"WARNING: presentation save changed the schema hash ({old_hash[:16]} -> {new_hash[:16]}).")
         activity_log.record(
             actor=_actor(),
             category="admin",
-            action="var_schema.save",
-            details={"hash_changed": hash_changed, "affected_studies": len(affected)},
+            action="var_presentation.save",
+            details={"hash_changed": hash_changed},
         )
-        return jsonify({
-            "etag": result["etag"],
-            "hash_changed": hash_changed,
-            "new_hash": new_hash,
-            "affected_studies": affected,
-        })
+        return jsonify({"etag": result["etag"], "hash_changed": hash_changed})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

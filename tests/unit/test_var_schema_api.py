@@ -35,7 +35,9 @@ import pandas as pd
 
 from web_interface import security
 from web_interface.auth import ROLE_ADMIN, User
-from fyp.fyp_config import _var_schema_path, compute_var_schema_etag, fyp_cf, load_var_schema
+from fyp.fyp_config import _var_schema_path, fyp_cf, load_var_schema
+from fyp.recode_variables import compute_var_schema_hash
+from fyp import var_presentation as vp
 
 
 PASS = 0
@@ -158,6 +160,20 @@ def _restore_csv(snap):
 
 
 
+# ------- backup the presentation store so tests are non-destructive -------
+
+def _snapshot_presentation():
+    return vp.load_presentation()
+
+
+
+def _restore_presentation(snap):
+    if snap is not None:
+        vp.save_presentation(snap.get("surfaces", {}), updated_by="test-restore")
+    load_var_schema(fyp_cf, verbose=False)
+
+
+
 # ------- tests -------
 
 def test_get_schema_returns_etag_and_rows(client):
@@ -175,7 +191,9 @@ def test_get_schema_returns_etag_and_rows(client):
         and isinstance(body.get("etag"), str) and body["etag"]
         and isinstance(body.get("columns"), list)
         and isinstance(body.get("enums"), dict)
-        and isinstance(body.get("recode_funcs"), list)
+        # The presentation store (the only editable payload) rides along.
+        and isinstance(body.get("presentation"), dict)
+        and set(body.get("prio_columns", {})) == {"filter", "timeline", "viz", "display"}
         and body.get("current_hash", "").startswith("v2:")
     )
     _check("test_get_schema_returns_etag_and_rows", ok,
@@ -196,110 +214,103 @@ def test_post_schema_rejects_without_permission(client):
 
 
 
-def test_post_schema_rejects_stale_etag(client):
-    snap = _snapshot_csv()
+def test_post_schema_retired(client):
+    """The legacy row-save and validate endpoints answer 410 (contract-owned)."""
+    _login(client, _TEST_ADMIN_USERNAME)
+    save_res = client.post(
+        "/api/manage/schema",
+        data=json.dumps({"rows": [], "etag": "x"}),
+        content_type="application/json",
+    )
+    val_res = client.post(
+        "/api/manage/schema/validate",
+        data=json.dumps({"rows": []}),
+        content_type="application/json",
+    )
+    _check("test_post_schema_retired",
+           save_res.status_code == 410 and val_res.status_code == 410,
+           f"save={save_res.status_code} validate={val_res.status_code}")
+
+
+
+def test_post_presentation_rejects_stale_etag(client):
+    snap = _snapshot_presentation()
     try:
         _login(client, _TEST_ADMIN_USERNAME)
-        # First get a valid payload + etag, then save with a deliberately
-        # wrong etag to provoke 409.
         gres = client.get("/api/manage/schema")
         body = gres.get_json()
-        save_res = client.post(
-            "/api/manage/schema",
-            data=json.dumps({"rows": body["rows"], "etag": "stale-etag-value"}),
-            content_type="application/json",
-        )
-        _check("test_post_schema_rejects_stale_etag",
-               save_res.status_code == 409,
-               f"status={save_res.status_code} body={save_res.data[:200]}")
-    finally:
-        _restore_csv(snap)
-
-
-
-def test_post_schema_rejects_invalid_payload(client):
-    snap = _snapshot_csv()
-    try:
-        _login(client, _TEST_ADMIN_USERNAME)
-        gres = client.get("/api/manage/schema")
-        body = gres.get_json()
-        # Corrupt the role of the first row to an illegal value.
-        bad_rows = [dict(r) for r in body["rows"]]
-        bad_rows[0]["role"] = "factro_typo"
         res = client.post(
-            "/api/manage/schema",
-            data=json.dumps({"rows": bad_rows, "etag": body["etag"]}),
+            "/api/manage/presentation",
+            data=json.dumps({"surfaces": body["presentation"], "etag": "stale-etag-value"}),
             content_type="application/json",
         )
-        ok = (res.status_code == 400
-              and isinstance(res.get_json().get("errors"), list)
-              and any(e["column"] == "role" for e in res.get_json()["errors"]))
-        _check("test_post_schema_rejects_invalid_payload", ok,
+        _check("test_post_presentation_rejects_stale_etag",
+               res.status_code == 409,
                f"status={res.status_code} body={res.data[:200]}")
     finally:
-        _restore_csv(snap)
+        _restore_presentation(snap)
 
 
 
-def test_post_schema_persists_and_reloads(client):
-    snap = _snapshot_csv()
+def test_post_presentation_rejects_unknown_variable(client):
+    snap = _snapshot_presentation()
     try:
         _login(client, _TEST_ADMIN_USERNAME)
         gres = client.get("/api/manage/schema")
         body = gres.get_json()
-        rows = [dict(r) for r in body["rows"]]
-        rows[0]["description"] = "PHASE2_ROUND_TRIP_PROBE"
+        surfaces = dict(body["presentation"])
+        surfaces["filter"] = list(surfaces.get("filter", [])) + ["no_such_variable_xyz"]
         res = client.post(
-            "/api/manage/schema",
-            data=json.dumps({"rows": rows, "etag": body["etag"]}),
+            "/api/manage/presentation",
+            data=json.dumps({"surfaces": surfaces, "etag": body["etag"]}),
+            content_type="application/json",
+        )
+        resp = res.get_json() or {}
+        ok = res.status_code == 400 and "no_such_variable_xyz" in (resp.get("unknown") or [])
+        _check("test_post_presentation_rejects_unknown_variable", ok,
+               f"status={res.status_code} body={res.data[:200]}")
+    finally:
+        _restore_presentation(snap)
+
+
+
+def test_post_presentation_persists_and_reloads(client):
+    snap = _snapshot_presentation()
+    try:
+        _login(client, _TEST_ADMIN_USERNAME)
+        gres = client.get("/api/manage/schema")
+        body = gres.get_json()
+        surfaces = {k: list(v) for k, v in body["presentation"].items()}
+        # Toggle one variable's filter membership.
+        probe = str(fyp_cf["var_schema"]["variable_name"].iloc[0])
+        if probe in surfaces.get("filter", []):
+            surfaces["filter"] = [n for n in surfaces["filter"] if n != probe]
+            expect_on = False
+        else:
+            surfaces["filter"] = surfaces.get("filter", []) + [probe]
+            expect_on = True
+        before_hash = compute_var_schema_hash()
+        res = client.post(
+            "/api/manage/presentation",
+            data=json.dumps({"surfaces": surfaces, "etag": body["etag"]}),
             content_type="application/json",
         )
         if res.status_code != 200:
-            _check("test_post_schema_persists_and_reloads", False,
+            _check("test_post_presentation_persists_and_reloads", False,
                    f"status={res.status_code} body={res.data[:200]}")
             return
-        # Verify in-memory cf reflects the change
-        in_mem = fyp_cf["var_schema"].iloc[0]["description"]
-        # And the response carries a fresh etag + hash_changed flag (False
-        # for a cosmetic edit — description is presentation, not semantic).
+        vs = fyp_cf["var_schema"]
+        cell = vs.loc[vs["variable_name"] == probe, "web_filter_prio"].iloc[0]
+        is_on = str(cell).strip() not in ("", "<NA>", "None", "nan")
         resp = res.get_json()
-        ok = (str(in_mem) == "PHASE2_ROUND_TRIP_PROBE"
+        ok = (is_on == expect_on
               and resp.get("hash_changed") is False
+              and compute_var_schema_hash() == before_hash
               and isinstance(resp.get("etag"), str))
-        _check("test_post_schema_persists_and_reloads", ok,
-               f"in_mem={in_mem!r} resp={resp}")
+        _check("test_post_presentation_persists_and_reloads", ok,
+               f"probe={probe!r} cell={cell!r} expect_on={expect_on} resp={resp}")
     finally:
-        _restore_csv(snap)
-
-
-
-def test_post_schema_validate_dry_runs(client):
-    snap = _snapshot_csv()
-    try:
-        _login(client, _TEST_ADMIN_USERNAME)
-        gres = client.get("/api/manage/schema")
-        body = gres.get_json()
-        rows = [dict(r) for r in body["rows"]]
-        # Make a semantic change so hash_changed is True
-        current_scale = rows[0].get("scale", "")
-        rows[0]["scale"] = "categorical" if current_scale != "categorical" else "string"
-        before_disk_hash = compute_var_schema_etag(fyp_cf)
-        res = client.post(
-            "/api/manage/schema/validate",
-            data=json.dumps({"rows": rows}),
-            content_type="application/json",
-        )
-        after_disk_hash = compute_var_schema_etag(fyp_cf)
-        resp = res.get_json()
-        ok = (res.status_code == 200
-              and isinstance(resp.get("errors"), list)
-              and resp.get("hash_changed") is True
-              and before_disk_hash == after_disk_hash)  # disk untouched
-        _check("test_post_schema_validate_dry_runs", ok,
-               f"status={res.status_code} resp_keys={list(resp.keys()) if resp else None} "
-               f"before={before_disk_hash[:8]} after={after_disk_hash[:8]}")
-    finally:
-        _restore_csv(snap)
+        _restore_presentation(snap)
 
 
 
@@ -314,10 +325,10 @@ def main():
             tests = [
                 test_get_schema_returns_etag_and_rows,
                 test_post_schema_rejects_without_permission,
-                test_post_schema_rejects_stale_etag,
-                test_post_schema_rejects_invalid_payload,
-                test_post_schema_persists_and_reloads,
-                test_post_schema_validate_dry_runs,
+                test_post_schema_retired,
+                test_post_presentation_rejects_stale_etag,
+                test_post_presentation_rejects_unknown_variable,
+                test_post_presentation_persists_and_reloads,
             ]
             for t in tests:
                 try:

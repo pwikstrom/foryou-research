@@ -23,6 +23,7 @@ version = "1"
 
 [[fields]]
 name = "days_since_created"
+source = "derived: activity & scrape"
 dtype = "double[pyarrow]"
 section = "Activity"
 scale = "numeric"
@@ -31,6 +32,7 @@ description = "Number of days elapsed between the item's post time and this acti
 
 [[fields]]
 name = "completion_rate"
+source = "derived: activity & scrape"
 dtype = "double[pyarrow]"
 section = "Activity"
 role = "feature"
@@ -49,6 +51,7 @@ description = "Whether the item's media scrape failed (item_id in the failed-scr
 
 [[fields]]
 name = "niche_name"
+source = "derived: embeddings"
 dtype = "string[pyarrow]"
 section = "Semantic"
 role = "feature"
@@ -58,6 +61,7 @@ description = "Embeddings-derived micro-genre (KMeans cluster of video embedding
 
 [[fields]]
 name = "niche"
+source = "derived: embeddings"
 dtype = "int64[pyarrow]"
 section = "Semantic"
 role = "skip"
@@ -69,6 +73,7 @@ description = "Integer niche cluster id (join key to video_niches.json); hidden 
 # here rather than the scrape contract so they never enter BaseScraper.base_columns.
 [[fields]]
 name = "desc_hashtags"
+source = "derived: scrape"
 dtype = "list<string>[pyarrow]"
 section = "Item metadata"
 scale = "list"
@@ -77,6 +82,7 @@ description = "Hashtags extracted from the caption (recode fan-out of the scrape
 
 [[fields]]
 name = "desc_raw"
+source = "derived: scrape"
 dtype = "string[pyarrow]"
 section = "Item metadata"
 scale = "text"
@@ -87,6 +93,7 @@ description = "Original caption text, preserved before hashtag extraction (the `
 # scraper-layer outcome and stays separate). role=skip: hidden from analysis.
 [[fields]]
 name = "scraped_ok"
+source = "backstage"
 dtype = "bool[pyarrow]"
 section = "backstage"
 role = "skip"
@@ -96,6 +103,7 @@ description = "Whether the item's media scrape succeeded (per-item enrichment st
 
 [[fields]]
 name = "annotated_ok"
+source = "backstage"
 dtype = "bool[pyarrow]"
 section = "backstage"
 role = "skip"
@@ -105,6 +113,7 @@ description = "Whether the item was annotated successfully (type_of_story presen
 
 [[fields]]
 name = "annotated_fail"
+source = "backstage"
 dtype = "bool[pyarrow]"
 section = "backstage"
 role = "skip"

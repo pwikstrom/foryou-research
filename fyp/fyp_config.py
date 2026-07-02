@@ -1,6 +1,5 @@
 import http.client
 import os
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -300,22 +299,35 @@ def _var_schema_path(cf) -> str:
 
 
 def _var_schema_source_fingerprint(cf) -> str | None:
-    """Cheap O(1) fingerprint of the on-disk schema source.
+    """Cheap fingerprint of the synthesized schema's RUNTIME inputs.
 
-    Local: ``"{mtime_ns}:{size}"``.
-    GCS: the blob's ``generation`` number (changes on every overwrite).
-    Returns None if the source can't be reached (logged elsewhere).
+    The schema is synthesized from the contract TOMLs (baked into the deploy —
+    a change means a new process anyway), the presentation store, and the
+    version registries (which change at runtime: registrations, the
+    versions-in-data snapshot, admin presentation edits).
+    ``reload_var_schema_if_changed`` compares this at every Cloud Task entry so
+    long-lived containers pick those changes up. Returns None on failure.
     """
-    path = _var_schema_path(cf)
     try:
-        if path.startswith("gs://"):
-            bucket = cf['data_io'].get('bucket')
-            if bucket is None:
-                return None
-            blob = bucket.get_blob(path[len(f"gs://{bucket.name}/"):])
-            return None if blob is None else str(blob.generation)
-        st = os.stat(path)
-        return f"{st.st_mtime_ns}:{st.st_size}"
+        from fyp import var_presentation as vp
+        import fyp.data_io as data_io
+
+        parts = [f"presentation:{vp.compute_presentation_etag()}"]
+        for fname in (
+            "annotation_versions.json",
+            "scrape_versions.json",
+            "activity_versions.json",
+            "annotation_versions_in_data.json",
+        ):
+            try:
+                if data_io.exists(storage_location="recoded", filename=fname):
+                    mtime = data_io.getmtime(storage_location="recoded", filename=fname)
+                    parts.append(f"{fname}:{mtime}")
+                else:
+                    parts.append(f"{fname}:absent")
+            except Exception:
+                parts.append(f"{fname}:unknown")
+        return "|".join(parts)
     except Exception:
         return None
 
@@ -345,7 +357,9 @@ def _apply_contract_accepted_labels(cf) -> None:
         cf: the config dict whose ``var_schema`` DataFrame is overlaid in place.
     """
     vs = cf.get("var_schema")
-    if vs is None or getattr(vs, "empty", True) or "variable_name" not in vs.columns:
+    if vs is None or "variable_name" not in getattr(vs, "columns", []):
+        # An EMPTY frame with the right columns is the synthesis skeleton —
+        # the overlay proceeds and injects every contract-owned row.
         return
     # Always ensure the column exists, so nothing downstream KeyErrors and the
     # semantic hash is computed over a present column.
@@ -399,7 +413,9 @@ def _apply_contract_variable_metadata(cf) -> None:
         cf: the config dict whose ``var_schema`` DataFrame is overlaid in place.
     """
     vs = cf.get("var_schema")
-    if vs is None or getattr(vs, "empty", True) or "variable_name" not in vs.columns:
+    if vs is None or "variable_name" not in getattr(vs, "columns", []):
+        # An EMPTY frame with the right columns is the synthesis skeleton —
+        # the overlay proceeds and injects every contract-owned row.
         return
     for col in ("role", "scale", "display_name", "description", "section"):
         if col not in vs.columns:
@@ -435,18 +451,21 @@ def _apply_contract_variable_metadata(cf) -> None:
         source = str(vs.at[idx, "source"]).strip() if has_source else ""
         if source == "Gemini" or source.startswith("derived: Gemini"):
             vs.at[idx, "section"] = "AI Annotations"
-    # Inject legacy fields absent from var_schema.csv so they surface as owned rows
-    # (source "Gemini" → grouped under "AI Annotations" by the pass above's rule).
-    if legacy_meta:
+    # Inject contract/legacy fields absent from the frame so they surface as owned
+    # rows (source "Gemini" → grouped under "AI Annotations" by the pass above's
+    # rule). With the synthesized (CSV-free) schema every annotation row enters
+    # here; on a legacy CSV load only genuinely missing rows are added.
+    all_owned = {**legacy_meta, **meta}
+    if all_owned:
         present = set(vs["variable_name"].astype("string"))
-        missing = [name for name in legacy_meta if name not in present]
+        missing = [name for name in all_owned if name not in present]
         if missing:
             rows = []
             for name in missing:
-                owned = legacy_meta[name]
+                owned = all_owned[name]
                 rows.append({
                     "variable_name": name,
-                    "source": "Gemini",
+                    "source": owned.get("source") or "Gemini",
                     "role": owned.get("role"),
                     "scale": owned.get("scale"),
                     "display_name": owned.get("display_name"),
@@ -475,7 +494,9 @@ def _apply_contract_scrape_metadata(cf) -> None:
         cf: the config dict whose ``var_schema`` DataFrame is overlaid in place.
     """
     vs = cf.get("var_schema")
-    if vs is None or getattr(vs, "empty", True) or "variable_name" not in vs.columns:
+    if vs is None or "variable_name" not in getattr(vs, "columns", []):
+        # An EMPTY frame with the right columns is the synthesis skeleton —
+        # the overlay proceeds and injects every contract-owned row.
         return
     for col in ("role", "scale", "display_name", "description", "section"):
         if col not in vs.columns:
@@ -514,7 +535,8 @@ def _apply_contract_scrape_metadata(cf) -> None:
             owned = meta[name]
             rows.append({
                 "variable_name": name,
-                "source": "derived: scrape" if name in derived else "scrape",
+                "source": owned.get("source")
+                or ("derived: scrape" if name in derived else "scrape"),
                 "role": owned.get("role"),
                 "scale": owned.get("scale"),
                 "display_name": owned.get("display_name"),
@@ -546,7 +568,9 @@ def _overlay_contract_metadata(
         derived_source: ``source`` label for injected derived rows.
     """
     vs = cf.get("var_schema")
-    if vs is None or getattr(vs, "empty", True) or "variable_name" not in vs.columns:
+    if vs is None or "variable_name" not in getattr(vs, "columns", []):
+        # An EMPTY frame with the right columns is the synthesis skeleton —
+        # the overlay proceeds and injects every contract-owned row.
         return
     for col in ("role", "scale", "display_name", "description", "section"):
         if col not in vs.columns:
@@ -567,7 +591,8 @@ def _overlay_contract_metadata(
             owned = meta[name]
             rows.append({
                 "variable_name": name,
-                "source": derived_source if name in derived_names else base_source,
+                "source": owned.get("source")
+                or (derived_source if name in derived_names else base_source),
                 "role": owned.get("role"),
                 "scale": owned.get("scale"),
                 "display_name": owned.get("display_name"),
@@ -706,104 +731,101 @@ RETIRED_VAR_SCHEMA_ROWS = frozenset({
 
 
 
-def load_var_schema(cf, verbose=False):
-    # Load variable schema
-    var_schema_path = _var_schema_path(cf)
-    if cf['data_io']['use_gcs_for_data']:
-        if verbose:
-            print("Loading variable schema from GCS", end="", flush=True)
-    else:
-        if verbose:
-            print("Loading variable schema from local disk", end="", flush=True)
+# The synthesized schema's column set (accepted_labels is added by its overlay).
+VAR_SCHEMA_COLUMNS = [
+    "source", "section", "variable_name", "display_name", "role", "scale",
+    "web_filter_prio", "web_timeline_prio", "web_viz_prio", "web_display_prio",
+    "description",
+]
+
+
+
+
+def _load_legacy_var_schema_csv(cf, verbose=False):
+    """Read the retired ``var_schema.csv`` if it still exists, else None.
+
+    Only used to seed ``var_presentation.json`` once (the CSV's prio columns
+    were the last admin-editable payload it carried). Never raises.
+    """
     try:
-        cf["var_schema"] = pd.read_csv(var_schema_path, dtype_backend="pyarrow", encoding="utf-8")
-        cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
+        frame = pd.read_csv(_var_schema_path(cf), dtype_backend="pyarrow", encoding="utf-8")
         if verbose:
-            print(f" - OK. Shape: {cf['var_schema'].shape}")
+            print(f"Read legacy var_schema.csv for presentation seeding. Shape: {frame.shape}")
+        return frame
     except Exception:
-        # var_schema not found — try to bootstrap from template
-        template_path = os.path.join(cf["paths"]["project_root"], "config", "var_schema_template.csv")
-        if os.path.exists(template_path):
-            print(f"\nVariable schema not found at '{var_schema_path}'. Bootstrapping from template.")
-            template_df = pd.read_csv(template_path, dtype_backend="pyarrow", encoding="utf-8")
-            if cf['data_io']['use_gcs_for_data']:
-                # Upload template to GCS
-                bucket = cf['data_io'].get('bucket')
-                if bucket:
-                    blob = bucket.blob(f"{cf['data_io'].get('gcs_data_prefix', 'data')}/var_schema.csv")
-                    blob.upload_from_filename(template_path)
-                    print("Uploaded var_schema template to GCS.")
-            else:
-                # Copy template to local data directory
-                os.makedirs(os.path.dirname(var_schema_path), exist_ok=True)
-                shutil.copy2(template_path, var_schema_path)
-                print(f"Copied var_schema template to '{var_schema_path}'.")
-            cf["var_schema"] = template_df
+        return None
+
+
+
+
+def load_var_schema(cf, verbose=False):
+    """Synthesize the in-memory var_schema — the CSV is retired.
+
+    Sources, in order:
+      1. the four contract TOMLs (+ the version registries' legacy snapshots)
+         own every row's semantic + display metadata, injected by the overlays;
+      2. ``var_presentation.json`` owns the four ``web_*_prio`` membership
+         columns (seeded once from a legacy ``var_schema.csv`` when missing);
+      3. ``accepted_labels`` is rebuilt from the annotation contract's enums.
+
+    The result is identical (rows / role / scale / accepted_labels / source) to
+    what the legacy CSV path produced after its overlays, so the study hash is
+    unchanged by the retirement.
+    """
+    from fyp import var_presentation as vp
+
+    # 1. Presentation store; seed once from the legacy CSV when absent.
+    presentation = vp.load_presentation()
+    if presentation is None:
+        legacy_frame = _load_legacy_var_schema_csv(cf, verbose=verbose)
+        seeded = vp.seed_from_var_schema_frame(legacy_frame)
+        if seeded is not None:
+            try:
+                vp.save_presentation(seeded["surfaces"], updated_by="csv-seed")
+                presentation = vp.load_presentation() or seeded
+                print("Seeded var_presentation.json from legacy var_schema.csv prios.")
+            except Exception as e:
+                print(f"WARNING: could not persist seeded presentation ({e}); using in-memory seed.")
+                presentation = seeded
         else:
-            print(f"\nCRITICAL: No var_schema.csv and no template found at '{template_path}'.")
-            cf["var_schema"] = pd.DataFrame(columns=[
-                "source", "section", "variable_name", "display_name", "role", "scale",
-                "web_filter_prio", "web_timeline_prio",
-                "web_viz_prio", "web_display_prio",
-                "description", "accepted_labels"
-            ])
-        cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
-    # Retired columns, all now derived or dropped: ``mapper`` / ``ignore_strings``
-    # from the annotation contract (build_field_normalization); ``recode_func`` from
-    # scale + source (build_recode_plan); ``unable_to_detect_policy`` from scale
-    # (default_uncertain_policy — recode normalises, never imputes); the three
-    # ``web_viz_*`` presentation flags now derived from the data distribution and
-    # scale (``derive_log_scale`` / ``derive_bin_count`` in explorer_backend, and
-    # ``scale == 'collection'`` for the timeline multi-label denominator);
-    # ``sortable`` (the viewer now always sorts chronologically) and ``searchable``
-    # (the explorer derives the searchable set from the classified column type).
-    # Drop them so a stale on-disk CSV never surfaces them to the admin editor or
-    # the hash.
-    cf["var_schema"] = cf["var_schema"].drop(
-        columns=["mapper", "ignore_strings", "recode_func", "unable_to_detect_policy",
-                 "web_viz_log", "web_viz_multi_label", "web_viz_bins",
-                 "sortable", "searchable"],
-        errors="ignore",
+            print("WARNING: no presentation store and no legacy var_schema.csv — all prio surfaces start empty.")
+            presentation = vp.empty_presentation()
+
+    # 2. Empty typed skeleton; the contract overlays below inject every owned row.
+    cf["var_schema"] = pd.DataFrame(
+        {c: pd.Series(dtype="string[pyarrow]") for c in VAR_SCHEMA_COLUMNS}
     )
-    # Drop retired variable rows (derived fan-out columns no longer produced) so a
-    # stale on-disk CSV never surfaces them to the admin editor, recode, or the hash.
-    if "variable_name" in cf["var_schema"].columns:
-        cf["var_schema"] = cf["var_schema"][
-            ~cf["var_schema"]["variable_name"].isin(RETIRED_VAR_SCHEMA_ROWS)
-        ].reset_index(drop=True)
-    # Self-heal legacy CSV-owned section labels before the contract overlays run.
-    if "section" in cf["var_schema"].columns:
-        cf["var_schema"]["section"] = cf["var_schema"]["section"].replace(LEGACY_SECTION_ALIASES)
-    # Self-heal the legacy 10-value ``scale`` vocabulary to the 6 canonical kinds.
-    # CSV-owned rows heal here; contract-owned rows take their value from the
-    # overlays below. Blanks are untouched.
-    if "scale" in cf["var_schema"].columns:
-        cf["var_schema"]["scale"] = cf["var_schema"]["scale"].replace(LEGACY_SCALE_ALIASES)
-    # Self-heal the legacy 6-value ``role`` vocabulary to the 4 canonical roles.
-    # CSV-owned ``standard`` / ``raw`` heal to blank here; contract-owned rows take
-    # their (blanked) value from the overlays below.
-    if "role" in cf["var_schema"].columns:
-        cf["var_schema"]["role"] = cf["var_schema"]["role"].replace(LEGACY_ROLE_ALIASES)
-    # Coerce the overlay-target columns to string dtype. When every row's metadata is
-    # contract-owned, save_var_schema blanks these cells, so an all-blank column loads
-    # as arrow ``null`` type — and the contract overlays below cannot box a string into
-    # a null-typed column (pyarrow raises "Invalid null value"). Casting null → string
-    # (values stay NA) lets the overlays populate them.
+    # 3. Contract overlays — on the empty skeleton these inject every owned row
+    #    (annotation incl. registry legacy fields, scrape, activity, derived) and
+    #    the accepted_labels overlay fills the enum vocabularies.
+    _apply_contract_variable_metadata(cf)
+    _apply_contract_scrape_metadata(cf)
+    _apply_contract_activity_metadata(cf)
+    _apply_contract_derived_metadata(cf)
+    _apply_contract_accepted_labels(cf)
+
+    # Injection concatenates plain-dict rows, which can degrade column dtypes —
+    # re-coerce the metadata columns to pyarrow strings for downstream consumers.
     for _meta_col in ("role", "scale", "display_name", "description", "section", "source", "variable_name"):
         if _meta_col in cf["var_schema"].columns:
             try:
                 cf["var_schema"][_meta_col] = cf["var_schema"][_meta_col].astype("string[pyarrow]")
             except Exception:
                 pass
-    # Variable metadata first: it restores ``scale`` for contract columns, which
-    # the accepted-labels overlay reads (via build_recode_plan) to decide closed-tag
-    # membership. Once the CSV no longer stores scale for these rows, accepted_labels
-    # would otherwise see a blank scale and skip them.
-    _apply_contract_variable_metadata(cf)
-    _apply_contract_scrape_metadata(cf)
-    _apply_contract_activity_metadata(cf)
-    _apply_contract_derived_metadata(cf)
-    _apply_contract_accepted_labels(cf)
+
+    # 4. Fill the four prio membership columns from the presentation store
+    #    ("1" = ON — any non-blank numeric counts as membership downstream).
+    vs = cf["var_schema"]
+    for surface, col in vp.SURFACE_TO_PRIO_COLUMN.items():
+        members = set(presentation.get("surfaces", {}).get(surface, []) or [])
+        vs[col] = pd.Series(
+            ["1" if n in members else pd.NA for n in vs["variable_name"]],
+            dtype="string[pyarrow]", index=vs.index,
+        )
+
+    cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
+    if verbose:
+        print(f"Synthesized variable schema from contracts + presentation store. Shape: {cf['var_schema'].shape}")
     return cf
 
 

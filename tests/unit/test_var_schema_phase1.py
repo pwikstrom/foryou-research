@@ -26,7 +26,7 @@ Covers, in this order (mirroring tests §1-24 of the plan):
 
   Cross-process freshness:
    19. test_reload_var_schema_if_changed_noop_when_unchanged
-   20. test_reload_var_schema_if_changed_picks_up_disk_edit
+   20. test_reload_var_schema_if_changed_picks_up_presentation_edit
 
   Migration:
    21. test_migrate_hash_v2_dry_run_no_writes
@@ -245,7 +245,7 @@ def test_validate_each_enum():
     # role and scale are the remaining validated enum columns (mapper / ignore_strings
     # / recode_func / unable_to_detect_policy were retired and are now derived).
     base = pd.DataFrame([
-        {"variable_name": "v1", "role": "factor", "scale": "ratio"},
+        {"variable_name": "v1", "role": "factor", "scale": "numeric"},
     ])
     # passing case
     errs = validate_var_schema(base)
@@ -363,6 +363,8 @@ def test_save_etag_mismatch_raises():
 
 
 def test_save_hash_changed_flag():
+    """CSV saves cannot affect the synthesized schema: contracts own the
+    semantics, so writing any CSV content leaves the hash untouched."""
     global SKIP
     snap = _save_test_with_local_data()
     if snap is None:
@@ -371,20 +373,14 @@ def test_save_hash_changed_flag():
         return
     try:
         h_before = compute_var_schema_hash()
-        # cosmetic edit
         df = fyp_cf["var_schema"].copy()
         df.loc[df.index[0], "display_name"] = "TEST_NAME"
-        save_var_schema(df, expected_etag=compute_var_schema_etag(fyp_cf), verbose=False)
-        h_cosmetic = compute_var_schema_hash()
-        # semantic edit — flip to a value guaranteed to be different.
-        df2 = fyp_cf["var_schema"].copy()
-        current_scale = str(df2.loc[df2.index[0], "scale"])
-        df2.loc[df2.index[0], "scale"] = "categorical" if current_scale != "categorical" else "string"
-        save_var_schema(df2, expected_etag=compute_var_schema_etag(fyp_cf), verbose=False)
-        h_semantic = compute_var_schema_hash()
-        ok = (h_cosmetic == h_before) and (h_semantic != h_before)
-        _check("test_save_hash_changed_flag", ok,
-               f"before={h_before[:16]} cosmetic={h_cosmetic[:16]} semantic={h_semantic[:16]}")
+        current_scale = str(df.loc[df.index[0], "scale"])
+        df.loc[df.index[0], "scale"] = "categorical" if current_scale != "categorical" else "text"
+        save_var_schema(df, verbose=False)
+        h_after = compute_var_schema_hash()
+        _check("test_save_hash_changed_flag", h_after == h_before,
+               f"before={h_before[:16]} after={h_after[:16]}")
     finally:
         _restore(snap)
 
@@ -399,21 +395,33 @@ def test_reload_var_schema_if_changed_noop_when_unchanged():
 
 
 
-def test_reload_var_schema_if_changed_picks_up_disk_edit():
+def test_reload_var_schema_if_changed_picks_up_presentation_edit():
+    """The schema is synthesized: the fingerprint watches the presentation
+    store (+ version registries), not the retired var_schema.csv."""
     global SKIP
     if fyp_cf.get("data_io", {}).get("use_gcs_for_data"):
         SKIP += 1
-        print("  SKIP  test_reload_var_schema_if_changed_picks_up_disk_edit (GCS)")
+        print("  SKIP  test_reload_var_schema_if_changed_picks_up_presentation_edit (GCS)")
         return
-    import time
-    from fyp.fyp_config import _var_schema_path
-    p = _var_schema_path(fyp_cf)
-    reload_var_schema_if_changed()  # prime
-    # Touch the file to bump mtime
-    new_time = time.time() + 1
-    os.utime(p, (new_time, new_time))
-    res = reload_var_schema_if_changed()
-    _check("test_reload_var_schema_if_changed_picks_up_disk_edit", res is True, str(res))
+    from fyp import var_presentation as vp
+    snap = vp.load_presentation()
+    try:
+        reload_var_schema_if_changed()  # prime
+        primed = reload_var_schema_if_changed()  # steady state -> no reload
+        # Edit the presentation store directly (as a second instance would).
+        surfaces = dict((snap or vp.empty_presentation()).get("surfaces", {}))
+        probe = str(fyp_cf["var_schema"]["variable_name"].iloc[0])
+        flt = [n for n in surfaces.get("filter", []) if n != probe]
+        if len(flt) == len(surfaces.get("filter", [])):
+            flt = flt + [probe]
+        vp.save_presentation({**surfaces, "filter": flt}, updated_by="phase1-test")
+        res = reload_var_schema_if_changed()
+        _check("test_reload_var_schema_if_changed_picks_up_presentation_edit",
+               primed is False and res is True, f"primed={primed} res={res}")
+    finally:
+        if snap is not None:
+            vp.save_presentation(snap.get("surfaces", {}), updated_by="phase1-restore")
+        reload_var_schema_if_changed()
 
 
 
@@ -530,7 +538,7 @@ TESTS = [
     test_save_etag_mismatch_raises,
     test_save_hash_changed_flag,
     test_reload_var_schema_if_changed_noop_when_unchanged,
-    test_reload_var_schema_if_changed_picks_up_disk_edit,
+    test_reload_var_schema_if_changed_picks_up_presentation_edit,
     test_migrate_hash_v2_dry_run_no_writes,
     test_migrate_hash_v2_apply_rewrites_v1_only,
     test_get_factors_and_features_from_var_schema_unchanged,

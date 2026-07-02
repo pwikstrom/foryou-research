@@ -96,6 +96,7 @@ description = "Engagement activities (fave/comment/share/follow/save) folded int
 [[fields]]
 name = "tz_offset"
 scope = "base"
+source = "derived: scrape"
 dtype = "int64[pyarrow]"
 section = "Activity"
 scale = "numeric"
@@ -126,6 +127,7 @@ description = "The platform this activity was donated from (tiktok, ...)."
 [[fields]]
 name = "ts_added_to_dataset"
 scope = "base"
+source = "backstage"
 dtype = "timestamp[ns][pyarrow]"
 section = "backstage"
 scale = "datetime"
@@ -139,6 +141,7 @@ description = "When the source raw file was added to the dataset (file mtime)."
 [[fields]]
 name = "session_id"
 scope = "base"
+source = "backstage"
 dtype = "string[pyarrow]"
 section = "backstage"
 scale = "text"

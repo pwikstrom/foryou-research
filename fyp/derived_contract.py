@@ -84,6 +84,9 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
             "display_name": field.get("display_name"),
             "description": field.get("description"),
             "section": field.get("section"),
+            # source is semantic (a "derived:" prefix short-circuits the recode
+            # plan); explicit per-field override, else the enrichment default.
+            "source": field.get("source") or "derived: enrichment",
         }
     return out
 

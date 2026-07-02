@@ -13,7 +13,17 @@
     'use strict';
 
     const SCHEMA_ENDPOINT = '/api/manage/schema';
-    const VALIDATE_ENDPOINT = '/api/manage/schema/validate';
+    const PRESENTATION_ENDPOINT = '/api/manage/presentation';
+
+    // The four web-surface membership columns — the only editable payload left
+    // (metadata is contract-owned). Rendered as checkboxes; saved as
+    // per-surface variable lists to the presentation store.
+    const PRIO_COLUMNS = {
+        web_filter_prio: 'filter',
+        web_timeline_prio: 'timeline',
+        web_viz_prio: 'viz',
+        web_display_prio: 'display',
+    };
 
     // Module state — bound once when the schema tab is first opened.
     const state = {
@@ -300,6 +310,16 @@
                 style="${baseStyle} color: var(--color-text-muted);">${shown}</td>`;
         }
 
+        // Presentation membership flags: ON/OFF checkboxes (the numeric value
+        // is historical — any non-blank means ON).
+        if (col in PRIO_COLUMNS) {
+            const checked = String(current).trim() !== '' && String(current) !== '<NA>';
+            return `<td style="${baseStyle} text-align: center;">
+                <input type="checkbox" ${checked ? 'checked' : ''}
+                    onchange="vsOnEdit(${rowIdx}, '${_esc(col)}', this.checked ? '1' : '')">
+            </td>`;
+        }
+
         // Enums via <select>
         const enumChoices = _enumForColumn(col);
         if (enumChoices) {
@@ -464,19 +484,13 @@
     }
 
     async function _validate() {
+        // Metadata is contract-owned and presentation flags are excluded from
+        // the study hash, so there is no semantic impact to preview anymore.
         const out = document.getElementById('vs-validation-output');
-        if (out) out.textContent = 'Validating…';
-        try {
-            const res = await fetch(VALIDATE_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ rows: _payloadRows() }),
-            });
-            const body = await res.json();
-            if (!res.ok) throw new Error(body.error || 'Validation failed');
-            _renderValidation(body);
-        } catch (e) {
-            if (out) out.textContent = `Error: ${e.message}`;
+        if (out) {
+            out.innerHTML = '<div style="color: var(--color-text-muted);">'
+                + 'Metadata is owned by the contract TOMLs (read-only here); the '
+                + 'on/off surface flags never affect cached study data — nothing to preview.</div>';
         }
     }
 
@@ -528,10 +542,19 @@
         const out = document.getElementById('vs-validation-output');
         if (out) out.textContent = 'Saving…';
         try {
-            const res = await fetch(SCHEMA_ENDPOINT, {
+            // Only the presentation flags are editable — build the per-surface
+            // membership lists from the effective (edited) checkbox values.
+            const surfaces = {};
+            for (const [col, surface] of Object.entries(PRIO_COLUMNS)) {
+                surfaces[surface] = state.rows
+                    .map((row, i) => ({ name: row.variable_name, v: _effectiveValue(i, col) }))
+                    .filter(x => String(x.v).trim() !== '' && String(x.v) !== '<NA>')
+                    .map(x => x.name);
+            }
+            const res = await fetch(PRESENTATION_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ rows: _payloadRows(), etag: state.etag }),
+                body: JSON.stringify({ surfaces, etag: state.etag }),
             });
             const body = await res.json();
             if (res.status === 409) {
@@ -540,10 +563,6 @@
                 return;
             }
             if (!res.ok) {
-                if (body.errors) {
-                    _renderValidation(body);
-                    return;
-                }
                 throw new Error(body.error || `HTTP ${res.status}`);
             }
             // Re-fetch from the server so state.rows reflects what was
@@ -551,14 +570,7 @@
             // pre-save in-memory data and the edit appears to revert until
             // the page is reloaded.
             await _load();
-            if (out) {
-                let msg = `<div style="color: var(--color-success);">Saved.</div>`;
-                if (body.hash_changed) {
-                    const affected = body.affected_studies || [];
-                    msg += `<div style="margin-top: 6px;">Schema hash changed. Studies marked for rebuild on next refresh: ${affected.length}.</div>`;
-                }
-                out.innerHTML = msg;
-            }
+            if (out) out.innerHTML = `<div style="color: var(--color-success);">Saved.</div>`;
         } catch (e) {
             if (out) out.textContent = `Error: ${e.message}`;
         }
