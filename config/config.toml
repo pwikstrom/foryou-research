@@ -9,7 +9,12 @@ key = ""
 # The model
 model = "gemini-3-flash-preview"
 
-# the prompt
+# The file-based prompt. With use_generated_prompt = true (below) this is NOT
+# used for new annotations — the prompt is generated from the annotation
+# contract. It is retained as the legacy prompt: it is what the pre-versioning
+# "v0_legacy" annotation version was produced with, and it is what the admin
+# Annotation Versions viewer shows for that version. It also serves as the
+# file-based fallback if use_generated_prompt is turned off.
 prompt = "new_prompt_002.txt"
 
 # When true, annotation uses Gemini structured output (response_schema from

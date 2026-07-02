@@ -1,10 +1,16 @@
 <!-- Variable Schema sub-page -->
 <h2 style="margin: 0 0 8px 0;">Variable Schema</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    Edit how each variable is recoded, named, and surfaced in the UI.
-    Semantic columns affect cached recodes — editing them will rebuild study
-    parquets the next time each study refreshes. Presentation columns are
-    safe to edit any time.
+    This table is a <strong>read-only</strong> view of the variable schema. Each
+    variable's recoding, name, role, scale and source is owned by the declarative
+    contracts (<code>config/*_contract.toml</code>) and the version registries, so
+    those cells can't be edited here. The only editable cells are the four
+    surface checkboxes &mdash; <strong>Filter</strong>, <strong>Display</strong>,
+    <strong>Timeline</strong> and <strong>Viz</strong>: they set the
+    <em>global default</em> set of variables shown on each surface, which every
+    user can then tailor for themselves via the &ldquo;Customize variables&rdquo;
+    gear on that tab. Toggling a checkbox saves immediately and never triggers a
+    study rebuild.
 </p>
 
 <!-- Filter / toolbar -->

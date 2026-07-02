@@ -371,21 +371,28 @@ function renderViewerFilters(metadata) {
         availableCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
     }
 
-    // "Customize variables" gear (shared filter surface).
+    // "Customize variables" gear (shared filter surface) — mounted next to the
+    // "Filters" heading. Re-run safe (removes any prior gear first); margin-auto
+    // keeps it beside the heading with the Reset button pushed to the right.
     if (window.VariablePrefs && metadata.all_variables_order) {
-        const gearWrap = document.createElement('div');
-        gearWrap.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 4px;';
-        gearWrap.appendChild(VariablePrefs.gearButton('filter', () => {
-            VariablePrefs.openPanel({
-                surface: 'filter',
-                title: 'Customize filter variables',
-                allOrder: metadata.all_variables_order.filter(c => metadata[c]),
-                globalList: metadata.filter_priority || [],
-                schemaMap: metadata.schema_map || {},
-                onApply: () => renderViewerFilters(metadata),
+        const heading = document.querySelector('#va-left-panel .header h2');
+        if (heading) {
+            const existing = document.getElementById('viewer-filter-gear');
+            if (existing) existing.remove();
+            const gear = VariablePrefs.gearButton('filter', () => {
+                VariablePrefs.openPanel({
+                    surface: 'filter',
+                    title: 'Customize filter variables',
+                    allOrder: metadata.all_variables_order.filter(c => metadata[c]),
+                    globalList: metadata.filter_priority || [],
+                    schemaMap: metadata.schema_map || {},
+                    onApply: () => renderViewerFilters(metadata),
+                });
             });
-        }));
-        container.appendChild(gearWrap);
+            gear.id = 'viewer-filter-gear';
+            gear.style.marginRight = 'auto';
+            heading.insertAdjacentElement('afterend', gear);
+        }
     }
 
     // Hide categorical/list filters with 0 or 1 unique values (no filtering possible)
@@ -1929,3 +1936,19 @@ function prevExtraData() {
 
 
 // Theme changes are handled automatically via var() CSS references
+
+
+// The 'filter' surface is shared with the Explore tab, so a "Customize
+// variables" change made there (or here) must refresh this tab's filter list
+// even while Video Analysis is hidden. Without this, the panel kept the stale
+// variable set until the study was reloaded.
+window.addEventListener('fyp:variable-prefs-changed', (ev) => {
+    if (!viewerData || !viewerData.metadata) return;
+    const surface = ev.detail && ev.detail.surface;
+    if (!surface || surface === 'filter') {
+        renderViewerFilters(viewerData.metadata);
+    }
+    if ((!surface || surface === 'display') && viewerData.lastMetadataItem) {
+        renderMetadata(viewerData.lastMetadataItem);
+    }
+});

@@ -101,9 +101,12 @@ function setExplorerV2SliceMode(isDual) {
     const slice2Panel = document.getElementById('explorer-v2-slice2-panel');
     if (slice2Panel) slice2Panel.style.display = (isDual && explorerDataV2.filterPanel2Visible) ? 'flex' : 'none';
 
-    // Show/hide the dedicated right-panel toggle button (desktop)
+    // Show/hide the dedicated right-panel toggle button (desktop) and the
+    // slice-2 "Customize variables" gear that sits beside it.
     const slice2ToggleBtn = document.getElementById('explore-sidebar-toggle-2');
     if (slice2ToggleBtn) slice2ToggleBtn.style.display = isDual ? 'flex' : 'none';
+    const slice2Gear = document.getElementById('explorer-v2-filter-gear-2');
+    if (slice2Gear) slice2Gear.style.display = isDual ? 'inline-flex' : 'none';
 
     // Show/hide the mobile "Filters 2" trigger; relabel the slice-1 trigger so the two are distinguishable in dual mode
     const mobile1 = document.getElementById('explorer-v2-mobile-filters-1');
@@ -261,6 +264,41 @@ if (!explorerDataV2.expandedFilters2) {
     } catch (e) { explorerDataV2.expandedFilters2 = []; }
 }
 
+// Mount the "Customize variables" gear for a filter slice next to that slice's
+// show/hide toggle in the control bar. Re-run safe (removes any prior gear for
+// the slice so the customized-dot indicator stays fresh). The slice-2 gear
+// tracks dual-slice visibility since its toggle only exists in dual mode.
+function mountFilterGearV2(metadata, sliceId) {
+    if (!(window.VariablePrefs && metadata && metadata.all_variables_order)) return;
+    const toggle = document.getElementById(
+        sliceId === 2 ? 'explore-sidebar-toggle-2' : 'explore-sidebar-toggle');
+    if (!toggle) return;
+
+    const gearId = `explorer-v2-filter-gear-${sliceId}`;
+    const existing = document.getElementById(gearId);
+    if (existing) existing.remove();
+
+    const gear = VariablePrefs.gearButton('filter', () => {
+        VariablePrefs.openPanel({
+            surface: 'filter',
+            title: 'Customize filter variables',
+            allOrder: metadata.all_variables_order.filter(c => metadata[c]),
+            globalList: metadata.filter_priority || [],
+            schemaMap: metadata.schema_map || {},
+            onApply: () => {
+                renderFiltersV2(metadata, sliceId);
+                if (explorerDataV2.dualSliceMode) renderFiltersV2(metadata, sliceId === 1 ? 2 : 1);
+            },
+        });
+    });
+    gear.id = gearId;
+    // Restore the button's own display (must match gearButton's inline-flex) —
+    // setting it to '' would clear it and let the block SVG wrap the dot below.
+    if (sliceId === 2) gear.style.display = explorerDataV2.dualSliceMode ? 'inline-flex' : 'none';
+    toggle.insertAdjacentElement('afterend', gear);
+}
+
+
 function renderFiltersV2(metadata, sliceId) {
     const container = document.getElementById(`explorer-v2-filters-${sliceId}`);
     container.innerHTML = '';
@@ -279,25 +317,9 @@ function renderFiltersV2(metadata, sliceId) {
         availableCols = Object.keys(metadata).sort().filter(c => c !== 'total_stats');
     }
 
-    // "Customize variables" gear for this user's filter set.
-    if (window.VariablePrefs && metadata.all_variables_order) {
-        const gearWrap = document.createElement('div');
-        gearWrap.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 4px;';
-        gearWrap.appendChild(VariablePrefs.gearButton('filter', () => {
-            VariablePrefs.openPanel({
-                surface: 'filter',
-                title: 'Customize filter variables',
-                allOrder: metadata.all_variables_order.filter(c => metadata[c]),
-                globalList: metadata.filter_priority || [],
-                schemaMap: metadata.schema_map || {},
-                onApply: () => {
-                    renderFiltersV2(metadata, sliceId);
-                    if (explorerDataV2.dualSliceMode) renderFiltersV2(metadata, sliceId === 1 ? 2 : 1);
-                },
-            });
-        }));
-        container.appendChild(gearWrap);
-    }
+    // "Customize variables" gear for this user's filter set — mounted next to
+    // the panel show/hide toggle in the control bar (see mountFilterGearV2).
+    mountFilterGearV2(metadata, sliceId);
 
     // Hide categorical/list filters with 0 or 1 unique values (no filtering possible)
     availableCols = availableCols.filter(col => {
@@ -857,21 +879,27 @@ function renderStatsV2(stats1, stats2) {
     // Safe bet: use stats1 keys
     const keys1 = stats1 ? Object.keys(stats1) : [];
 
-    // "Customize variables" gear for this user's visualization set.
+    // "Customize variables" gear for this user's visualization set — mounted in
+    // the center control row next to "Slices to explore" / "Sort by" to save
+    // vertical space. Re-run safe (removes any prior gear first).
     if (window.VariablePrefs && metadata.all_variables_order) {
-        const gearWrap = document.createElement('div');
-        gearWrap.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 4px;';
-        gearWrap.appendChild(VariablePrefs.gearButton('viz', () => {
-            VariablePrefs.openPanel({
-                surface: 'viz',
-                title: 'Customize visualized variables',
-                allOrder: metadata.all_variables_order.filter(c => keys1.includes(c)),
-                globalList: metadata.viz_priority || [],
-                schemaMap: metadata.schema_map || {},
-                onApply: () => renderStatsV2(explorerDataV2.stats1, explorerDataV2.stats2),
+        const header = document.querySelector('.explorer-v2-center-header');
+        if (header) {
+            const existing = document.getElementById('explorer-v2-viz-gear');
+            if (existing) existing.remove();
+            const gear = VariablePrefs.gearButton('viz', () => {
+                VariablePrefs.openPanel({
+                    surface: 'viz',
+                    title: 'Customize visualized variables',
+                    allOrder: metadata.all_variables_order.filter(c => keys1.includes(c)),
+                    globalList: metadata.viz_priority || [],
+                    schemaMap: metadata.schema_map || {},
+                    onApply: () => renderStatsV2(explorerDataV2.stats1, explorerDataV2.stats2),
+                });
             });
-        }));
-        container.appendChild(gearWrap);
+            gear.id = 'explorer-v2-viz-gear';
+            header.appendChild(gear);
+        }
     }
 
     if (priority && priority.length > 0) {
@@ -1272,6 +1300,22 @@ function showDrillDownConfirm(variableName, valueLabel, onConfirm) {
 window.addEventListener('theme-changed', () => {
     // Re-render charts (Plotly needs resolved color values, not CSS var() references)
     if (explorerDataV2.stats1) {
+        renderStatsV2(explorerDataV2.stats1, explorerDataV2.dualSliceMode ? explorerDataV2.stats2 : null);
+    }
+});
+
+
+// A "Customize variables" change made on another tab (the 'filter' surface is
+// shared with Video Analysis) must be reflected here even while Explore is
+// hidden — re-render the affected surface whenever prefs change.
+window.addEventListener('fyp:variable-prefs-changed', (ev) => {
+    if (!explorerDataV2 || !explorerDataV2.metadata) return;
+    const surface = ev.detail && ev.detail.surface;
+    if (!surface || surface === 'filter') {
+        renderFiltersV2(explorerDataV2.metadata, 1);
+        if (explorerDataV2.dualSliceMode) renderFiltersV2(explorerDataV2.metadata, 2);
+    }
+    if ((!surface || surface === 'viz') && explorerDataV2.stats1) {
         renderStatsV2(explorerDataV2.stats1, explorerDataV2.dualSliceMode ? explorerDataV2.stats2 : null);
     }
 });

@@ -49,6 +49,14 @@ REGISTRY_FILENAME = "annotation_versions.json"
 REGISTRY_LOCATION = "recoded"
 LEGACY_VERSION = "v0_legacy"
 
+# The file-based prompt that predates the declarative-contract / generated-prompt
+# system. Go-forward annotations use the generated contract prompt, so this file
+# is only the historical ("legacy") prompt — it is what the ``v0_legacy``
+# annotation version was produced with, and is shown for that version in the
+# admin viewer. Kept under ``prompts/`` (referenced by ``[machine] prompt`` as
+# the file-based fallback when ``use_generated_prompt`` is off).
+LEGACY_PROMPT_FILENAME = "new_prompt_002.txt"
+
 # Generation parameters that materially change model output and therefore
 # belong in the version identity.
 _VERSION_GEN_PARAM_KEYS = (
@@ -163,6 +171,27 @@ def active_prompt_label() -> str:
 def _read_prompt_text() -> str:
     """Read the active prompt text (file or generated, per config flag)."""
     return active_prompt_text()
+
+
+def legacy_prompt_text() -> str:
+    """Return the pre-versioning file-based prompt text (the legacy prompt).
+
+    This is the prompt used before the generated-contract system existed, i.e.
+    what the ``v0_legacy`` annotation version was produced with. It is read from
+    ``prompts/{LEGACY_PROMPT_FILENAME}`` and is never used for go-forward
+    annotations. The admin annotation-versions viewer shows it for the legacy
+    version, which otherwise has no stored prompt snapshot.
+
+    Returns:
+        The legacy prompt text, or ``""`` if the file cannot be read.
+    """
+    path = os.path.join(_cf()["paths"]["project_root"], "prompts", LEGACY_PROMPT_FILENAME)
+    try:
+        with open(path) as handle:
+            return handle.read()
+    except OSError as e:
+        print(f"WARNING: legacy prompt file unreadable ({e}).")
+        return ""
 
 
 
@@ -360,7 +389,18 @@ def get_active_version() -> str | None:
 
 
 def promote_version(version: str) -> dict:
-    """Promote ``version`` to be the active version. Returns the registry."""
+    """Promote ``version`` to be the active version. Returns the registry.
+
+    The synthetic ``v0_legacy`` version only exists to keep pre-versioning legacy
+    fields contract-owned — it has no prompt/schema snapshot and can never be the
+    active version, so promoting it is rejected.
+
+    Raises:
+        ValueError: If ``version`` is the legacy version.
+        KeyError: If ``version`` is not in the registry.
+    """
+    if version == LEGACY_VERSION:
+        raise ValueError("the legacy version cannot be promoted")
     registry = _promote_into(load_registry(), version)
     save_registry(registry)
     return registry

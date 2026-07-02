@@ -509,25 +509,31 @@ window.timelines = {
         // the timeline universe filter drops all other states — hide the chart.
         varKeys = varKeys.filter(k => k !== 'machine_state');
 
-        // "Customize variables" gear for this user's timeline set.
+        // "Customize variables" gear for this user's timeline set — mounted next
+        // to the Engagement dropdown in the control bar. Re-run safe (removes any
+        // prior gear first so the customized-dot indicator stays fresh).
         if (window.VariablePrefs && Array.isArray(data.all_variables_order) && data.all_variables_order.length) {
-            const gearWrap = document.createElement('div');
-            gearWrap.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 4px;';
-            gearWrap.appendChild(VariablePrefs.gearButton('timeline', () => {
-                VariablePrefs.openPanel({
-                    surface: 'timeline',
-                    title: 'Customize timeline variables',
-                    allOrder: data.all_variables_order,
-                    globalList: data.variables_global || [],
-                    schemaMap: data.schema_map_lite || {},
-                    coveredSet: data.variables_covered || null,
-                    onApply: () => {
-                        const sel = document.getElementById('timelines-collection-select');
-                        if (sel && sel.value) timelines.selectDonation(sel.value);
-                    },
+            const engDropdown = document.getElementById('timelines-engagement-dropdown');
+            if (engDropdown) {
+                const existing = document.getElementById('timelines-var-gear');
+                if (existing) existing.remove();
+                const gear = VariablePrefs.gearButton('timeline', () => {
+                    VariablePrefs.openPanel({
+                        surface: 'timeline',
+                        title: 'Customize timeline variables',
+                        allOrder: data.all_variables_order,
+                        globalList: data.variables_global || [],
+                        schemaMap: data.schema_map_lite || {},
+                        coveredSet: data.variables_covered || null,
+                        onApply: () => {
+                            const sel = document.getElementById('timelines-collection-select');
+                            if (sel && sel.value) timelines.selectDonation(sel.value);
+                        },
+                    });
                 });
-            }));
-            container.appendChild(gearWrap);
+                gear.id = 'timelines-var-gear';
+                engDropdown.insertAdjacentElement('beforebegin', gear);
+            }
         }
 
         // Iterate over variables

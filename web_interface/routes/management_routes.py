@@ -2830,6 +2830,12 @@ def get_annotation_version(version):
         info = registry.get("versions", {}).get(version)
         if info is None:
             return jsonify({"error": "unknown version"}), 404
+        # The legacy version predates per-version prompt snapshots; surface the
+        # historical file-based prompt so "View" isn't empty for it.
+        if version == annotation_versioning.LEGACY_VERSION and not info.get("prompt_text"):
+            legacy_prompt = annotation_versioning.legacy_prompt_text()
+            if legacy_prompt:
+                info = {**info, "prompt_text": legacy_prompt}
         return jsonify({
             "version": version,
             "active": registry.get("active") == version,
@@ -2860,6 +2866,8 @@ def promote_annotation_version():
             annotation_versioning.promote_version(version)
         except KeyError:
             return jsonify({"error": f"unknown version: {version}"}), 404
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
 
         rebuilt = rebuild_active_annotations_from_archive(verbose=False)
         with study_cache.lock:

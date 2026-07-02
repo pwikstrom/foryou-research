@@ -10,6 +10,10 @@
     "use strict";
 
     const LIST = "/api/manage/annotation-versions";
+    // Matches annotation_versioning.LEGACY_VERSION. The legacy version is a
+    // synthetic, snapshot-less entry that only owns pre-versioning fields, so it
+    // can never be promoted (the backend rejects it too).
+    const LEGACY_VERSION = "v0_legacy";
 
     function _status(msg, isError) {
         const el = document.getElementById("avStatus");
@@ -63,7 +67,8 @@
         const mono = cell + ' font-family: var(--font-mono);';
         tbody.innerHTML = versions.map(function (v) {
             const isActive = !!v.active;
-            const promoteBtn = isActive ? "" :
+            const isLegacy = v.annotation_version === LEGACY_VERSION;
+            const promoteBtn = (isActive || isLegacy) ? "" :
                 '<button class="btn-primary av-promote" data-v="' + _esc(v.annotation_version) + '">Promote</button>';
             return "<tr>" +
                 '<td style="' + cell + '">' + (isActive ? "✓" : "") + "</td>" +
