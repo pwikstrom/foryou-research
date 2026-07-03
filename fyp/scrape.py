@@ -26,7 +26,7 @@ import fyp.scrape_queues as scrape_queues
 from fyp import scrape_contract as sc
 from fyp import scrape_versioning
 from fyp.fyp_config import fyp_cf
-from fyp.platform_scraper import ThrottleController, get_scraper
+from fyp.platform_scraper import SLIDESHOW_SECONDS_PER_IMAGE, ThrottleController, get_scraper
 from fyp.recode_variables import recode_events_df, rename_columns
 from fyp.utils import chunk_list, record_dropped_columns, start_monitor
 
@@ -56,11 +56,29 @@ def make_slideshow(
     codec: str = "libx264",
     crf: int = 18,
     preset: str = "medium",
+    audio_path: str | None = None,
     verbose=False
 ):
-    # Creates a slideshow video from a list of image files.
+    """Create a slideshow video from a list of image files.
 
-    from moviepy import ColorClip, CompositeVideoClip, ImageClip, concatenate_videoclips
+    Args:
+        files: image file paths, in slide order.
+        output: output mp4 path.
+        duration: seconds each image is shown.
+        transition: swipe transition length in seconds (capped at duration).
+        swipe: animate each slide in with a horizontal swipe.
+        canvas_size: output (width, height); inferred from the images when None.
+        bg_color: letterbox background color (name/hex string or RGB tuple).
+        fps: output frame rate.
+        codec: video codec passed to ffmpeg.
+        crf: constant rate factor (quality) passed to ffmpeg.
+        preset: ffmpeg encoder preset.
+        audio_path: optional audio file muxed under the slideshow; trimmed to
+            the video length when longer, ends early when shorter. Any audio
+            problem degrades to a silent slideshow rather than failing.
+        verbose: unused; kept for call-site symmetry.
+    """
+    from moviepy import AudioFileClip, ColorClip, CompositeVideoClip, ImageClip, concatenate_videoclips
     
 
     def _normalize_color(color): 
@@ -170,11 +188,25 @@ def make_slideshow(
 
     final = concatenate_videoclips(slides, method="compose")
 
+    audio_clip = None
+    if audio_path and os.path.exists(audio_path):
+        try:
+            audio_clip = AudioFileClip(audio_path)
+            if audio_clip.duration and audio_clip.duration > final.duration:
+                audio_clip = audio_clip.subclipped(0, final.duration)
+            final = final.with_audio(audio_clip)
+        except Exception:
+            audio_clip = None  # degrade to a silent slideshow
+
     final.write_videofile(
         output,
         fps=fps,
         codec=codec,
-        audio=False,
+        audio=final.audio is not None,
+        audio_codec="aac",
+        # moviepy's default temp-audio filename is not unique per process/thread;
+        # derive it from the (unique) output path to survive concurrent workers.
+        temp_audiofile=f"{output}.TEMP_audio.m4a",
         preset=preset,
         threads=0,
         ffmpeg_params=["-crf", str(crf)],
@@ -183,6 +215,8 @@ def make_slideshow(
 
     for s in slides:
         s.close()
+    if audio_clip is not None:
+        audio_clip.close()
     final.close()
 
 
@@ -250,8 +284,9 @@ def download_single_video(
         col_count = len(scrape_metadata.columns)
         if col_count > 1 and scrape_metadata.loc[0,'video_downloaded']==True:
 
-            # if this is an image post
-            if len(scrape_metadata.loc[0,'image_list'])>0:
+            # if this is an image post (platform-agnostic hook; 0 for platforms
+            # without a carousel concept)
+            if scraper.image_count(scrape_metadata.iloc[0]) > 0:
                 if verbose:
                     print(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
 
@@ -268,33 +303,61 @@ def download_single_video(
 
                         ccc = 1
                         image_files = []
+                        source_blob_names = []
                         blob = bucket.get_blob(f"{media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                         while blob and blob.exists():
                             blob.download_to_filename(os.path.join(temp_dir,f"{video_id}_{ccc:02}.jpeg"))
+                            source_blob_names.append(blob.name)
                             if blob.size >= min_size:
                                 image_files.append(os.path.join(temp_dir,f"{video_id}_{ccc:02}.jpeg"))
                             ccc += 1
                             blob = bucket.get_blob(f"{media_prefix}/{video_id}_{ccc:02}.jpeg")
 
-                        make_slideshow(
-                            image_files,
-                            output=os.path.join(temp_dir,f"{video_id}.mp4"),
-                            duration=2,
-                            swipe=False,
-                            verbose=verbose
-                        )
+                        # Audio is optional: any failure yields a silent slideshow.
+                        try:
+                            audio_path = scraper.fetch_slideshow_audio(video_id, temp_dir)
+                        except Exception:
+                            audio_path = None
 
-                        if os.path.getsize(os.path.join(temp_dir,f"{video_id}.mp4")) > min_size:
+                        temp_mp4 = os.path.join(temp_dir, f"{video_id}.mp4")
+                        try:
+                            make_slideshow(
+                                image_files,
+                                output=temp_mp4,
+                                duration=SLIDESHOW_SECONDS_PER_IMAGE,
+                                swipe=False,
+                                audio_path=audio_path,
+                                verbose=verbose
+                            )
+                        finally:
+                            if audio_path:
+                                try: os.remove(audio_path)
+                                except OSError: pass
+
+                        if os.path.getsize(temp_mp4) > min_size:
                             if verbose:
                                 print("Uploading video file to storage bucket...")
                             blob = bucket.blob(f"{media_prefix}/{video_id}.mp4")
-                            blob.upload_from_filename(os.path.join(temp_dir,f"{video_id}.mp4"))
+                            blob.upload_from_filename(temp_mp4)
                             scrape_metadata.loc[0,'video_downloaded'] = True
+                            # Source jpegs are no longer needed once the mp4 is
+                            # stored (parity with the local branch's cleanup).
+                            for name in source_blob_names:
+                                try: bucket.blob(name).delete()
+                                except Exception: pass
                         else:
                             if verbose:
                                 print("Generated video file is too small, not uploading.")
                             scrape_metadata.loc[0,'video_downloaded'] = False
+
+                        # /tmp is memory-backed on Cloud Run — drop the temp
+                        # jpegs and the temp mp4 either way.
+                        for ttt in range(1, ccc):
+                            try: os.remove(os.path.join(temp_dir, f"{video_id}_{ttt:02}.jpeg"))
+                            except OSError: pass
+                        try: os.remove(temp_mp4)
+                        except OSError: pass
                 else:
                     # Local path: jpegs are in media_dir (written by _download_images).
                     # Assemble the slideshow to a temp file, validate size, then atomically
@@ -318,14 +381,26 @@ def download_single_video(
                                 image_files.append(cand)
                             ccc += 1
 
+                        # Audio is optional: any failure yields a silent slideshow.
+                        try:
+                            audio_path = scraper.fetch_slideshow_audio(video_id, temp_dir)
+                        except Exception:
+                            audio_path = None
+
                         temp_mp4 = os.path.join(temp_dir, f"{video_id}.mp4")
-                        make_slideshow(
-                            image_files,
-                            output=temp_mp4,
-                            duration=2,
-                            swipe=False,
-                            verbose=verbose
-                        )
+                        try:
+                            make_slideshow(
+                                image_files,
+                                output=temp_mp4,
+                                duration=SLIDESHOW_SECONDS_PER_IMAGE,
+                                swipe=False,
+                                audio_path=audio_path,
+                                verbose=verbose
+                            )
+                        finally:
+                            if audio_path:
+                                try: os.remove(audio_path)
+                                except OSError: pass
 
                         if os.path.exists(temp_mp4) and os.path.getsize(temp_mp4) > min_size:
                             if verbose:
@@ -475,11 +550,11 @@ def _canonicalize_recode_save(
     """Fix up, canonicalize, recode, and save a raw scrape batch to parquet.
 
     Shared by ``download_video_threads`` and ``rescue_meta_threads``.
-    Operates on the concatenated raw single-row frames: fixes the slideshow
-    image_list/duration on the RAW names, canonicalizes via the scraper (rename +
-    overflow repair + per-K rates + plays_per_day + scrape_status), stamps
-    storage_link, filters to the var_schema, recodes, and writes
-    ``scrapes_<ts>.parquet``.
+    Operates on the concatenated raw single-row frames: applies the scraper's
+    ``prepare_raw_batch`` fix-ups on the RAW names (e.g. TikTok slideshow
+    image_list/duration), canonicalizes via the scraper (rename + overflow
+    repair + per-K rates + plays_per_day + scrape_status), stamps storage_link,
+    filters to the var_schema, recodes, and writes ``scrapes_<ts>.parquet``.
 
     Args:
         results: concatenated raw single-row scrape frames.
@@ -496,22 +571,13 @@ def _canonicalize_recode_save(
     results.to_parquet(os.path.join(fyp_cf['paths']['temp'], "recovered_" + scrape_filename))
 
     try:
-        # fix up the image_list and durations of slide shows on the RAW names,
-        # before the scraper renames video_duration -> duration.
-        results.set_index('item_id', inplace=True)
-        results['image_list'] = results['image_list'].map(
-            lambda x: len(x.split("|")) if not pd.isna(x) and x != "" and isinstance(x, str) else 0
-        ).astype("int64[pyarrow]")
-        # image posts: set video_duration to image count * 2 seconds (a hunch)
-        results.loc[results[results['image_list'] > 0].index, 'video_duration'] = (
-            results.loc[results[results['image_list'] > 0].index, 'image_list'] * 2
-        )
-        results.reset_index(inplace=True)
         results.drop(["do_not_modify"], axis=1, errors='ignore', inplace=True)
-        # video duration is never zero - set zero durations to pd.NA
-        results.loc[results[results['video_duration'] < 1].index, 'video_duration'] = pd.NA
+        # platform-specific fix-ups on the RAW names (e.g. TikTok: image_list
+        # URL string -> count, slideshow duration override) before the scraper
+        # renames video_duration -> duration.
+        results = scraper.prepare_raw_batch(results)
 
-        # canonicalize: raw TikTok names -> canonical, plus per-K / plays_per_day /
+        # canonicalize: raw platform names -> canonical, plus per-K / plays_per_day /
         # scrape_status, then stamp the media storage_link.
         results = scraper.canonicalize_batch(results, status="ok")
         results = _add_storage_link(results, scraper.platform, storage_link_overrides)

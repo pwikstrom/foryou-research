@@ -23,7 +23,12 @@ from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp.fyp_config import fyp_cf
-from fyp.platform_scraper import _THROTTLE_CATEGORIES, BaseScraper, ThrottleController  # noqa: F401
+from fyp.platform_scraper import (  # noqa: F401
+    _THROTTLE_CATEGORIES,
+    SLIDESHOW_SECONDS_PER_IMAGE,
+    BaseScraper,
+    ThrottleController,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +37,11 @@ logger = logging.getLogger(__name__)
 # Error classification — maps yt-dlp exceptions to actionable categories
 # -------------------------------------------------------------------------
 
-_RETRYABLE = {"rate_limited", "network", "server_error", "unknown"}
+# "carousel" is produced directly by save_tiktok (photo post detected but its
+# images could not be extracted or downloaded), not by _classify_error. It is
+# retryable — the page-JSON fetch behind image extraction fails transiently —
+# and deliberately not a throttle signal.
+_RETRYABLE = {"rate_limited", "network", "server_error", "unknown", "carousel"}
 _PERMANENT = {"removed", "private", "geo_blocked", "ip_blocked", "extraction"}
 
 
@@ -627,6 +636,7 @@ def _download_images(
     }
 
     cookies = _requests_cookies()
+    written: list[str] = []
     try:
         for k, one_image in enumerate(image_urls):
             image_fn = f"{video_id}_{k + 1:02}.jpeg"
@@ -635,6 +645,7 @@ def _download_images(
                                     cookies=cookies, timeout=60)
                 with open(join(save_path, image_fn), 'wb') as f:
                     f.write(resp.content)
+                written.append(join(save_path, image_fn))
             else:
                 resp = requests_get(one_image, headers=headers, cookies=cookies,
                                     stream=True, timeout=60)
@@ -643,10 +654,22 @@ def _download_images(
                     for chunk in resp.iter_content(chunk_size=_CHUNK):
                         if chunk:
                             gcs_file.write(chunk)
+                written.append(blob.name)
         return True
     except Exception as e:
         if verbose:
             print(f"WARNING (yt-dlp): Failed to download images for '{video_id}': {e}")
+        # Remove the partial image set: the orchestrator's slideshow assembly
+        # walks consecutive NN suffixes, so a stale partial set from this
+        # attempt could be concatenated into a later retry's slideshow.
+        for name in written:
+            try:
+                if stream_to_bucket is None:
+                    remove(name)
+                else:
+                    stream_to_bucket.blob(name).delete()
+            except Exception:
+                pass
         sleep(3)
         return False
 
@@ -693,6 +716,11 @@ def save_tiktok(
     or an empty DataFrame on failure. Failed DataFrames carry
     ``attrs['error_type']`` and ``attrs['error_detail']`` for
     downstream retry/queue decisions.
+
+    Photo posts: with ``save_video`` a detected photo post whose images cannot
+    be extracted or downloaded fails with the retryable ``"carousel"`` category
+    instead of storing media. Metadata-only calls (``save_video=False``) still
+    return the metadata row for such posts.
     """
 
     video_id = video_url.rstrip('/').split('/')[-1]
@@ -785,7 +813,21 @@ def save_tiktok(
             stream_to_bucket=stream_to_bucket,
             verbose=verbose,
         )
-        data_row.loc[0, 'video_downloaded'] = ok
+        if not ok:
+            return _empty_fail(
+                "carousel",
+                f"failed downloading {len(image_urls)} carousel images",
+            )
+        data_row.loc[0, 'video_downloaded'] = True
+
+    elif not has_video_format:
+        # Photo post detected but page-JSON extraction produced no image URLs.
+        # Never fall through to the video branch: yt-dlp would download the
+        # audio-only slideshow format and store it as {id}.mp4.
+        return _empty_fail(
+            "carousel",
+            "photo post detected but page-JSON image extraction returned no images",
+        )
 
     else:
         # Download video via yt-dlp to temp, then upload to GCS
@@ -860,6 +902,56 @@ def save_tiktok(
                 break
 
     return data_row
+
+
+
+
+
+def _download_slideshow_audio(
+    video_url: str,
+    video_id: str,
+    temp_dir: str,
+    verbose: bool = False,
+) -> str | None:
+    """Download a photo post's audio track (music/voiceover) to a temp file.
+
+    Photo posts expose exactly one audio-only format in yt-dlp (the slideshow
+    audio), so ``bestaudio/best`` selects it. The ``_audio`` suffix keeps the
+    file out of the ``{video_id}.*`` cleanup glob and away from the
+    orchestrator's temp ``{video_id}.mp4`` / ``{video_id}_NN.jpeg`` names.
+
+    Returns:
+        Path to the downloaded audio file, or ``None`` on any failure — the
+        caller then builds a silent slideshow.
+    """
+    out_template = join(temp_dir, f"{video_id}_audio.%(ext)s")
+    dl_opts: dict = {
+        'quiet': True,
+        'no_warnings': not verbose,
+        **_cookie_opts(),
+        'outtmpl': out_template,
+        'format': 'bestaudio/best',
+        'no_color': True,
+        'overwrites': True,
+        'retries': 2,
+        'socket_timeout': 30,
+    }
+    try:
+        with yt_dlp.YoutubeDL(dl_opts) as ydl:
+            ydl.download([video_url])
+        candidates = glob(join(temp_dir, f"{video_id}_audio.*"))
+        if candidates:
+            return candidates[0]
+        logger.warning("Slideshow audio download for '%s' produced no file", video_id)
+        return None
+    except Exception as e:
+        logger.warning("Slideshow audio download failed for '%s': %s", video_id, e)
+        for f in glob(join(temp_dir, f"{video_id}_audio.*")):
+            try:
+                remove(f)
+            except OSError:
+                pass
+        return None
 
 
 
@@ -945,6 +1037,9 @@ class TikTokScraper(BaseScraper):
 
     platform = "tiktok"
     url_template = "https://www.tiktok.com/@/video/{item_id}/"
+    # Raw " | "-joined image URLs for photo posts; emitted by both the ytdlp
+    # and legacy pyktok backends. Drives the base image_count() default.
+    slideshow_image_column = "image_list"
 
 
     def item_url(self, item_id: str) -> str:
@@ -987,6 +1082,33 @@ class TikTokScraper(BaseScraper):
 
     def map_to_canonical(self, raw: pd.DataFrame) -> pd.DataFrame:
         return raw.rename(columns=_RAW_TO_CANONICAL)
+
+
+    def prepare_raw_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Raw fix-ups: image_list URL string → count, slideshow duration override.
+
+        Image posts get ``video_duration = image_count * SLIDESHOW_SECONDS_PER_IMAGE``
+        (the orchestrator assembles slideshows at that rate); zero/negative
+        durations become NA.
+        """
+        if 'image_list' in df.columns:
+            df['image_list'] = df['image_list'].map(
+                lambda x: len(x.split("|")) if isinstance(x, str) and x else 0
+            ).astype("int64[pyarrow]")
+            mask = (df['image_list'] > 0).fillna(False)
+            if 'video_duration' in df.columns:
+                df.loc[mask, 'video_duration'] = (
+                    df.loc[mask, 'image_list'] * SLIDESHOW_SECONDS_PER_IMAGE
+                )
+        if 'video_duration' in df.columns:
+            df.loc[(df['video_duration'] < 1).fillna(False), 'video_duration'] = pd.NA
+        return df
+
+
+    def fetch_slideshow_audio(self, item_id: str, temp_dir: str) -> str | None:
+        return _download_slideshow_audio(
+            self.item_url(item_id), item_id, temp_dir, verbose=self.verbose
+        )
 
 
     def classify_error(self, error_type: str | None) -> str:

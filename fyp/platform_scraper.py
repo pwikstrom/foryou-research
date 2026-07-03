@@ -33,6 +33,12 @@ logger = logging.getLogger(__name__)
 _SCRAPER_MODULES = ("fyp.tiktok_dl",)
 
 
+# Seconds of slideshow video per carousel image. Shared by the orchestrator's
+# mp4 assembly (fyp.scrape.download_single_video) and the raw duration override
+# in prepare_raw_batch implementations. Int keeps duration columns integral.
+SLIDESHOW_SECONDS_PER_IMAGE: int = 2
+
+
 
 
 class BaseScraper(ABC):
@@ -46,15 +52,29 @@ class BaseScraper(ABC):
     :func:`get_scraper`. Subclasses auto-register via ``__init_subclass__``,
     exactly like ``ForYouBaseCollection`` in :mod:`fyp.ingest`.
 
+    Photo/carousel posts (still-image posts) follow a shared division of labor:
+    :meth:`fetch` downloads the source images as ``{item_id}_{NN:02}.jpeg``
+    (``NN`` 1-based, consecutive) into ``save_path``/the bucket and treats
+    "photo post detected but images unavailable" as a *transient* fetch failure;
+    the orchestrator (:func:`fyp.scrape.download_single_video`) assembles
+    ``{item_id}.mp4`` at :data:`SLIDESHOW_SECONDS_PER_IMAGE` seconds per image,
+    muxes the optional audio from :meth:`fetch_slideshow_audio`, uploads the
+    mp4, and deletes the source images. Platforms without a carousel concept
+    leave ``slideshow_image_column`` as ``None`` and inherit the defaults.
+
     Attributes:
         platform: the platform key a subclass owns (e.g. ``"tiktok"``); matched
             against ``[meta].default_platform`` and the contract's
             ``scope="platform"`` fields.
+        slideshow_image_column: raw column holding the ``" | "``-joined image
+            URLs of a photo/carousel post, or ``None`` when the platform has no
+            carousel concept.
         base_columns: ``{column: pyarrow_dtype}`` for the canonical base fields.
         platform_columns: ``{column: pyarrow_dtype}`` for this platform's fields.
     """
 
     platform: str | None = None
+    slideshow_image_column: str | None = None
     _registry: list[type] = []
 
     def __init_subclass__(cls, **kwargs):
@@ -150,6 +170,42 @@ class BaseScraper(ABC):
         Returns:
             ``{"status": ..., "message": ...}`` for the orchestrator to log,
             or ``None`` when the platform has nothing to report.
+        """
+        return None
+
+
+    def image_count(self, raw_row: pd.Series) -> int:
+        """Number of carousel images in one RAW fetch row (0 = ordinary video).
+
+        The default reads :attr:`slideshow_image_column` — a ``" | "``-joined
+        URL string as emitted by :meth:`fetch` — and returns 0 when the platform
+        has no carousel concept or the row is a plain video.
+        """
+        col = self.slideshow_image_column
+        if col is None or col not in raw_row.index:
+            return 0
+        val = raw_row[col]
+        if not isinstance(val, str) or not val:
+            return 0
+        return len(val.split("|"))
+
+
+    def prepare_raw_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Platform fix-ups on the RAW batch frame before :meth:`canonicalize_batch`.
+
+        E.g. converting the slideshow URL-list column to an image count and
+        overriding the raw duration for image posts. Default: no-op.
+        """
+        return df
+
+
+    def fetch_slideshow_audio(self, item_id: str, temp_dir: str) -> str | None:
+        """Download an image post's audio track to a local temp file.
+
+        Called by the orchestrator only while assembling a slideshow mp4.
+        Must degrade gracefully: return ``None`` on any failure so the
+        orchestrator builds a silent slideshow. The orchestrator deletes the
+        returned file after assembly.
         """
         return None
 
