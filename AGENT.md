@@ -83,8 +83,10 @@ fyp_main_v02/
 │   ├── utils.py                 # Shared utility functions
 │   ├── ingest.py                # Data ingestion pipeline
 │   ├── donations.py             # Donation-level data handling (AIO/AWS fetch, collection metadata)
-│   ├── scrape.py                # Platform-agnostic scrape orchestration (queue, batching, threads, consolidation, legacy-parquet migration)
-│   ├── platform_scraper.py      # BaseScraper ABC + auto-registry + get_scraper() factory; shared per-K / plays_per_day derivations
+│   ├── scrape.py                # Platform-agnostic scrape orchestration (per-platform queue, batching, threads, consolidation, legacy-parquet migration)
+│   ├── scrape_queues.py         # Per-platform scrape queue files (to_scrape_<platform>.json): naming, legacy-queue migration, load/append/prune
+│   ├── media_paths.py           # Platform-aware media object paths ({prefix}/{platform}/{id}.mp4) + reader-side resolve_media() fallback to the legacy flat path
+│   ├── platform_scraper.py      # BaseScraper ABC + auto-registry + get_scraper() factory; ThrottleController; shared per-K / plays_per_day derivations
 │   ├── scrape_contract.py       # Loads/validates config/scrape_contract.toml; the canonical scrape field set + PyArrow dtypes
 │   ├── scrape_versioning.py     # Scrape-contract version registry (sv_ hash) + per-row scrape_contract_version provenance
 │   ├── activity_contract.py     # Loads/validates config/activity_contract.toml; activity field set + required_columns / required_core_fields (hard-drop)
@@ -127,7 +129,7 @@ fyp_main_v02/
 │   ├── static_content.py        # Static page content
 │   ├── mail_utils.py            # Email utilities
 │   ├── run_queue_annotator.py   # Gemini annotation (self-chaining Cloud Task)
-│   ├── run_queue_scraper.py     # TikTok scraping worker
+│   ├── run_queue_scraper.py     # Per-platform scraping worker (queue_scraper_<platform>; --platform / task_args platform)
 │   ├── run_timelines_refresh.py # Timeline updates worker
 │   ├── run_meta_refresh_groups.py  # Group + Video Analysis metadata refresh (Cloud Task)
 │   ├── run_pca_refresh.py       # PCA/correlations refresh (Cloud Task)
@@ -267,7 +269,7 @@ gcloud run deploy fyp-task-runner \
 
 ```bash
 python web_interface/run_queue_annotator.py   # Gemini annotation
-python web_interface/run_queue_scraper.py     # TikTok scraping
+python web_interface/run_queue_scraper.py --platform tiktok   # Scraping worker (per platform)
 python web_interface/run_timelines_refresh.py # Timeline updates
 python web_interface/run_meta_refresh_groups.py  # Group + Video Analysis metadata refresh
 ```
@@ -304,9 +306,13 @@ python web_interface/run_meta_refresh_groups.py  # Group + Video Analysis metada
 ### Scrapers: Base Class + Declarative Contract
 The scraper mirrors the collection-ingestion design in `fyp/ingest.py`. `fyp/platform_scraper.py` defines `BaseScraper` (an ABC with an `__init_subclass__` auto-registry and a `get_scraper(platform)` factory) plus the shared, platform-agnostic derivations (per-K engagement rates, `plays_per_day`, column standardization). `fyp/tiktok_dl.py` holds `TikTokScraper(BaseScraper)` (yt-dlp/pyktok). `fyp/scrape.py` is platform-agnostic orchestration (threading, queue, consolidation) and calls the active scraper through the base interface.
 
-A new platform (Instagram Reels, YouTube Shorts, …) is **one subclass** implementing five hooks — `item_url`, `fetch`, `map_to_canonical`, `classify_error`, `repair_counts` — plus a `scope="platform"` block in the contract. No orchestration changes.
+A new platform (Instagram Reels, YouTube Shorts, …) is **one subclass** implementing five required hooks — `item_url`, `fetch`, `map_to_canonical`, `classify_error`, `repair_counts` (plus optional `throttle_limits`/`health_check` overrides) — registered in `_SCRAPER_MODULES`, plus a `scope="platform"` block in the contract. The orchestration plumbing is then automatic: a per-platform queue (`to_scrape_<platform>.json`), a per-platform worker process (`queue_scraper_<platform>`, its own Cloud Task chain), a scraper UI block on the enrichment tab, and a per-platform media subdirectory all appear with no orchestration edits.
 
-`config/scrape_contract.toml` is the **single declarative source for the canonical, cross-platform scrape schema** — the scraper's analogue of `annotation_contract.toml`. It defines the **base** fields every platform emits (`scrape_status`, `storage_link`, `scrape_ts`, `desc`, `create_time`, `author_id`, `duration`, `play_count`, `comments_per_K_play` / `faves_per_K_play` / `shares_per_K_play` / `saves_per_K_play`, `plays_per_day`, `author_name`) and the per-platform fields, each with its PyArrow dtype + var_schema metadata (role/scale/display_name/description/section). `fyp/scrape_contract.py` loads/validates it. At config load, `fyp_config._apply_contract_scrape_metadata` overlays that metadata onto `var_schema` (self-healing legacy→canonical rename via `LEGACY_COLUMN_ALIASES` + injection of any missing rows), and the admin schema editor renders those cells **read-only** — exactly like the Gemini contract. Engagement per-K ratios and `plays_per_day` are derived at **scrape time**; legacy on-disk scrape parquets are migrated to canonical names by `_canonicalize_legacy_scrape` during consolidation.
+**Per-platform queues & workers.** Each platform has its own scrape queue `to_scrape_<platform>.json` (owned by `fyp/scrape_queues.py`; the legacy single `to_scrape.json` auto-migrates into the default platform's queue on first read) drained by its own `queue_scraper_<platform>` process. The platform rides in `task_args` and is carried through self-chaining; `process_manager.SCRAPER_PROCESS_NAMES` derives the process set from the contract's registered platforms. Every scraped row is stamped with `source_platform` (a `scope="base"` contract field with no var_schema metadata — the **activity** contract owns that var_schema row); it is backfilled to the default platform for pre-column history at consolidation, and the activity↔enrichment merge is composite on `(source_platform, item_id)`.
+
+**Media layout.** New downloads write to `{gcs_media_prefix}/{platform}/{item_id}.mp4`; readers (viewer streaming, Gemini upload) resolve via `fyp/media_paths.resolve_media()` — the row's `storage_link` first, then the platform subpath, then the legacy flat `{item_id}.mp4` path. Existing flat TikTok media is **not** migrated; it keeps working via the fallback. `ThrottleController` lives on `platform_scraper` (generic; TikTok caps concurrency at 6 and reports cookie health via the `health_check` hook). Annotation is TikTok-only for now (queue-entry filters in `management_routes` + a defensive guard in `run_queue_annotator`); the annotation contract is untouched.
+
+`config/scrape_contract.toml` is the **single declarative source for the canonical, cross-platform scrape schema** — the scraper's analogue of `annotation_contract.toml`. It defines the **base** fields every platform emits (`scrape_status`, `storage_link`, `scrape_ts`, `source_platform`, `desc`, `create_time`, `author_id`, `duration`, `play_count`, `comments_per_K_play` / `faves_per_K_play` / `shares_per_K_play` / `saves_per_K_play`, `plays_per_day`, `author_name`) and the per-platform fields, each with its PyArrow dtype + var_schema metadata (role/scale/display_name/description/section). `fyp/scrape_contract.py` loads/validates it. At config load, `fyp_config._apply_contract_scrape_metadata` overlays that metadata onto `var_schema` (self-healing legacy→canonical rename via `LEGACY_COLUMN_ALIASES` + injection of any missing rows), and the admin schema editor renders those cells **read-only** — exactly like the Gemini contract. Engagement per-K ratios and `plays_per_day` are derived at **scrape time**; legacy on-disk scrape parquets are migrated to canonical names by `_canonicalize_legacy_scrape` during consolidation.
 
 ### Parquet & PyArrow
 Data is stored in Parquet. Complex types (dicts, lists) are JSON-stringified before storage. Surrogate characters are escaped. Use `fyp/types.py` helpers for dtype conversion.

@@ -174,6 +174,15 @@ mix collections across platforms.
 > `scrape_ts`) and deployed to prod. Adding a platform = one subclass (five hooks) + a `[platform]`
 > block. Remaining for this thrust: a real second-platform **ingestion** subclass (step 2) and the
 > messy-intake UX (step 4).
+>
+> **✅ Update (2026-07-04):** the **orchestration plumbing** that made "add a platform = one subclass"
+> literally true is shipped and deployed. Per-platform scrape queues (`to_scrape_<platform>.json`,
+> `fyp/scrape_queues.py`) each drained by their own `queue_scraper_<platform>` worker + enrichment-tab
+> UI block; `source_platform` stamped per scraped row (composite activity↔enrichment merge);
+> per-platform media layout (`{prefix}/{platform}/{id}.mp4`, `fyp/media_paths.py`) with legacy-flat
+> fallback; `ThrottleController`/`health_check` generalised onto `BaseScraper`; annotation kept
+> TikTok-only behind a guard. So steps 1–2 (pick the platform + write its `*Collection` and
+> `*Scraper` subclasses) are now the *only* remaining work to onboard a second platform end-to-end.
 
 **Where the TikTok coupling actually lives (the work):**
 - **Scraping/enrichment** (`fyp/tiktok_dl.py`): yt-dlp wrapper, TikTok cookie handling, TikTok error
