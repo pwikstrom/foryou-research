@@ -75,6 +75,15 @@ function buildQuantileSliderRange(info) {
 })();
 
 let previousProcessStates = {};
+
+// Per-platform scraper process names (queue_scraper_<platform>), derived from
+// the toggle buttons the enrichment template renders — one per registered
+// platform. Falls back to the TikTok worker before the tab has rendered.
+function scraperProcessNames() {
+    const names = Array.from(document.querySelectorAll('[id^="queue_scraper_"][id$="-toggle"]'))
+        .map(el => el.id.slice(0, -'-toggle'.length));
+    return names.length ? names : ['queue_scraper_tiktok'];
+}
 let _pendingStopProcess = null;
 let _activeLogModal = null;
 setInterval(updateLogs, 1000);
@@ -378,9 +387,10 @@ async function startProcess(name, extraBody = {}) {
     let batchSize = null;
     let maxBatches = null;
 
-    if (name === 'queue_scraper') {
-        const bsEl = document.getElementById('scrapes-batch-size');
-        const mbEl = document.getElementById('scrapes-max-batches');
+    if (name.startsWith('queue_scraper_')) {
+        const platform = name.slice('queue_scraper_'.length);
+        const bsEl = document.getElementById('scrapes-batch-size-' + platform);
+        const mbEl = document.getElementById('scrapes-max-batches-' + platform);
         batchSize = bsEl ? bsEl.value : null;
         maxBatches = mbEl ? mbEl.value : null;
     } else if (name === 'queue_annotator') {
@@ -421,7 +431,7 @@ async function startProcess(name, extraBody = {}) {
     // Before starting queue_scraper / queue_annotator, offer to auto-arm
     // Consolidate & Refresh so the pipeline fires on completion. Only when
     // (a) not already armed, and (b) the queue has work to do.
-    if (name === 'queue_scraper' || name === 'queue_annotator') {
+    if (name.startsWith('queue_scraper_') || name === 'queue_annotator') {
         try {
             await _maybePromptArmConsolidate(name);
         } catch (e) {
@@ -553,13 +563,13 @@ async function _maybePromptArmConsolidate(name) {
     if (stats.consolidate_auto_armed) return;
 
     // Queue empty → nothing meaningful will happen, skip the prompt.
-    const qLen = name === 'queue_scraper' ? stats.scrape_queue_len : stats.annotate_queue_len;
+    const qLen = name.startsWith('queue_scraper_') ? stats.scrape_queue_len : stats.annotate_queue_len;
     if (!qLen || qLen <= 0) return;
 
     // Show the modal and await user choice.
     const textEl = document.getElementById('arm-prompt-text');
     if (textEl) {
-        const action = name === 'queue_scraper' ? 'scraping' : 'annotation';
+        const action = name.startsWith('queue_scraper_') ? 'scraping' : 'annotation';
         textEl.textContent = `Would you like to automatically consolidate enrichment data and refresh all affected caches once the ${action} finishes?`;
     }
     overlay.classList.add('visible');
@@ -775,7 +785,7 @@ async function updateStatus() {
         setStatus('monitor', data.monitor);
         setStatus('annotator', data.annotator);
         //setStatus('create_subsets', data.create_subsets);
-        setStatus('queue_scraper', data.queue_scraper);
+        scraperProcessNames().forEach(n => setStatus(n, data[n]));
         setStatus('queue_annotator', data.queue_annotator);
         setStatus('queue_annotator_batch', data.queue_annotator_batch);
         setStatus('meta_refresh_groups', data.meta_refresh_groups);
@@ -802,7 +812,7 @@ async function updateStatus() {
         }
 
         // Detect scraper/annotator completion → refresh enrichment stats for consolidation warning
-        ['queue_scraper', 'queue_annotator', 'queue_annotator_batch'].forEach(name => {
+        [...scraperProcessNames(), 'queue_annotator', 'queue_annotator_batch'].forEach(name => {
             const pData = data[name];
             if (pData && previousProcessStates[name] === 'running' && pData.state !== 'running') {
                 if (typeof fetchEnrichmentStats === 'function') {
@@ -930,10 +940,12 @@ function setStatus(name, data) {
     // the running→stopped transition (disabled flips back off); on every
     // other poll tick leave the inputs alone so the user can type freely
     // without every 2s poll clobbering their value back to the default.
-    if (name === 'queue_scraper' || name === 'queue_annotator') {
-        const prefix = name === 'queue_scraper' ? 'scrapes' : 'annotations';
-        const bsEl = document.getElementById(`${prefix}-batch-size`);
-        const mbEl = document.getElementById(`${prefix}-max-batches`);
+    if (name.startsWith('queue_scraper_') || name === 'queue_annotator') {
+        const isScraper = name.startsWith('queue_scraper_');
+        const suffix = isScraper ? '-' + name.slice('queue_scraper_'.length) : '';
+        const prefix = isScraper ? 'scrapes' : 'annotations';
+        const bsEl = document.getElementById(`${prefix}-batch-size${suffix}`);
+        const mbEl = document.getElementById(`${prefix}-max-batches${suffix}`);
         if (status === 'running' && data.task_args) {
             if (bsEl && data.task_args.batch_size) { bsEl.value = data.task_args.batch_size; bsEl.disabled = true; }
             if (mbEl && data.task_args.max_batches) { mbEl.value = data.task_args.max_batches; mbEl.disabled = true; }
@@ -1044,8 +1056,9 @@ function setStatus(name, data) {
     // when idle the management stats endpoint is the source of truth)
     if (data.state === 'running') {
         const procData = data.data || {};
-        if (name === 'queue_scraper' && procData.scrape_queue_len !== undefined) {
-            const el = document.getElementById('enrich_scrape_targets');
+        if (name.startsWith('queue_scraper_') && procData.scrape_queue_len !== undefined) {
+            const platform = name.slice('queue_scraper_'.length);
+            const el = document.getElementById('enrich_scrape_targets_' + platform);
             if (el) el.textContent = procData.scrape_queue_len.toLocaleString();
         }
         if ((name === 'queue_annotator' || name === 'queue_annotator_batch') && procData.annotate_queue_len !== undefined) {
@@ -1055,8 +1068,8 @@ function setStatus(name, data) {
     }
 
     // Thread count for scraper (show while running, hide when idle)
-    if (name === 'queue_scraper') {
-        const threadsEl = document.getElementById('queue_scraper-threads');
+    if (name.startsWith('queue_scraper_')) {
+        const threadsEl = document.getElementById(`${name}-threads`);
         if (threadsEl) {
             const procData = data.data || {};
             if (data.state === 'running' && procData.threads !== undefined) {
@@ -1210,7 +1223,7 @@ async function updateLogs() {
     await fetchLogs('monitor');
     await fetchLogs('annotator');
     //await fetchLogs('create_subsets');
-    await fetchLogs('queue_scraper');
+    for (const n of scraperProcessNames()) { await fetchLogs(n); }
     await fetchLogs('queue_annotator');
     await fetchLogs('meta_refresh_groups');
     await fetchLogs('timelines_refresh');

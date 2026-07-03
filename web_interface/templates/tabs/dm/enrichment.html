@@ -28,55 +28,58 @@
 
 <div style="display: flex; flex-direction: column; gap: 20px;">
 
-    <!-- Scraper Block -->
+    <!-- Scraper Blocks: one per platform registered in the scrape contract -->
+    {% for platform in scrape_platforms %}
+    {% set proc = 'queue_scraper_' ~ platform %}
     <div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <div style="display: flex; align-items: center; gap: 10px;">
-                <span class="text-body font-bold">Scrape Queue:</span>
-                <span id="enrich_scrape_targets"
+                <span class="text-body font-bold">Scrape Queue &mdash; {{ platform|capitalize }}:</span>
+                <span id="enrich_scrape_targets_{{ platform }}"
                     class="font-bold" style="color: var(--color-success-light); margin-left: 5px;">-</span><span>
                     pending</span>
             </div>
-            <button type="button" class="btn-stop text-xs" onclick="emptyQueue('scrape')"
+            <button type="button" class="btn-stop text-xs" onclick="emptyQueue('scrape', '{{ platform }}')"
                 style="padding: 4px 8px;">Empty Queue</button>
         </div>
         <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
-            Downloads each queued video's media and metadata with yt-dlp, working through the Scrape Queue
-            above in batches of the size below. Runs synchronously across many workers; successful and failed
+            Downloads each queued item's media and metadata, working through this platform's Scrape Queue
+            in batches of the size below. Runs synchronously across many workers; successful and failed
             items are pruned from the queue as it goes.
         </p>
 
         <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; flex-direction: column; gap: 2px;">
                 <label class="text-xs" style="color: var(--color-text-tertiary);">BATCH SIZE</label>
-                <input type="number" id="scrapes-batch-size" value="500"
+                <input type="number" id="scrapes-batch-size-{{ platform }}" value="500"
                     style="width: 70px; background: var(--color-bg-input); border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); padding: 3px;">
             </div>
             <div style="display: flex; flex-direction: column; gap: 2px;">
                 <label class="text-xs" style="color: var(--color-text-tertiary);">MAX BATCHES</label>
-                <input type="number" id="scrapes-max-batches" placeholder="Inf"
+                <input type="number" id="scrapes-max-batches-{{ platform }}" placeholder="Inf"
                     style="width: 70px; background: var(--color-bg-input); border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); padding: 3px;">
             </div>
 
             <div style="width: 1px; height: 30px; background: var(--color-border);"></div>
 
             <div class="controls" style="display: flex; gap: 5px; align-items: center;">
-                <span id="queue_scraper-status" class="status-indicator status-stopped"></span>
-                <button id="queue_scraper-toggle" class="btn-primary" data-start-label="Start Scraper"
-                    onclick="startProcess('queue_scraper')" style="padding: 4px 12px;">Start Scraper</button>
+                <span id="{{ proc }}-status" class="status-indicator status-stopped"></span>
+                <button id="{{ proc }}-toggle" class="btn-primary" data-start-label="Start Scraper"
+                    onclick="startProcess('{{ proc }}')" style="padding: 4px 12px;">Start Scraper</button>
             </div>
         </div>
 
         <div class="progress-container">
-            <div class="progress-bar" id="queue_scraper-bar"></div>
-            <div class="progress-text" id="queue_scraper-text">Idle</div>
+            <div class="progress-bar" id="{{ proc }}-bar"></div>
+            <div class="progress-text" id="{{ proc }}-text">Idle</div>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-            <span id="queue_scraper-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
-            <span id="queue_scraper-threads" class="text-xs" style="color: var(--color-text-tertiary); display: none;"></span>
-            <a class="text-xs view-log-link" onclick="openLogModal('queue_scraper', 'Scraper')">View Log</a>
+            <span id="{{ proc }}-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <span id="{{ proc }}-threads" class="text-xs" style="color: var(--color-text-tertiary); display: none;"></span>
+            <a class="text-xs view-log-link" onclick="openLogModal('{{ proc }}', 'Scraper ({{ platform }})')">View Log</a>
         </div>
     </div>
+    {% endfor %}
 
     <!-- Annotator Block -->
     <div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border);">

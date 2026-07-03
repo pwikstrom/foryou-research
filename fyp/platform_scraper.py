@@ -14,11 +14,15 @@ implements the five platform-specific operations — :meth:`~BaseScraper.item_ur
 ``scope="platform"`` block in the contract. No orchestration code changes.
 """
 
+import logging
+import threading
 from abc import ABC, abstractmethod
 
 import pandas as pd
 
 from fyp import scrape_contract as sc
+
+logger = logging.getLogger(__name__)
 
 
 # Platform-scraper subclasses live in their own ``fyp/<platform>_dl.py`` modules
@@ -128,6 +132,29 @@ class BaseScraper(ABC):
 
 
     # -----------------------------------------------------------------
+    # Overridable — sensible defaults, platform-specific when needed.
+    # -----------------------------------------------------------------
+
+    def throttle_limits(self, max_workers: int) -> tuple[int, int, int]:
+        """Return ``(initial, minimum, maximum)`` concurrency for a batch.
+
+        Platforms with stricter rate limits (or a single authenticated
+        session) override this to cap the ceiling.
+        """
+        return (max_workers, 2, max(max_workers, 12))
+
+
+    def health_check(self) -> dict | None:
+        """Optional pre-batch health probe (auth/cookies/API quota).
+
+        Returns:
+            ``{"status": ..., "message": ...}`` for the orchestrator to log,
+            or ``None`` when the platform has nothing to report.
+        """
+        return None
+
+
+    # -----------------------------------------------------------------
     # Concrete — shared by every platform.
     # -----------------------------------------------------------------
 
@@ -204,10 +231,116 @@ class BaseScraper(ABC):
         df = self.derive_engagement_rates(df)
         df = self.derive_plays_per_day(df)
         df["scrape_status"] = pd.Series(status, index=df.index, dtype="string[pyarrow]")
+        df["source_platform"] = pd.Series(self.platform, index=df.index, dtype="string[pyarrow]")
         from fyp import scrape_versioning
         df = scrape_versioning.stamp_version(df)
         df = self.ensure_base_columns(df)
         return df
+
+
+
+
+_THROTTLE_CATEGORIES = {"rate_limited"}
+
+
+class ThrottleController:
+    """Dynamic concurrency controller that reacts to platform rate signals.
+
+    Platform-agnostic: workers call ``acquire()`` before each item and
+    ``report_result()`` after with the scraper's error category. The
+    controller adjusts the semaphore so that fewer workers run concurrently
+    when rate-limit signals arrive, and gradually recovers when things are
+    healthy. Per-platform concurrency bounds come from
+    :meth:`BaseScraper.throttle_limits`.
+
+    Args:
+        initial:  Starting concurrency (default 8).
+        minimum:  Floor — never go below this (default 2).
+        maximum:  Ceiling — never exceed this (default 12).
+        cooldown_successes: How many consecutive clean results before
+            growing concurrency by 1 (default 10).
+    """
+
+    def __init__(
+        self,
+        initial: int = 8,
+        minimum: int = 2,
+        maximum: int = 12,
+        cooldown_successes: int = 10,
+        on_change: "callable | None" = None,
+    ) -> None:
+        self._lock = threading.Lock()
+        self._sem = threading.Semaphore(initial)
+        self._current = initial
+        self._minimum = minimum
+        self._maximum = maximum
+        self._cooldown_successes = cooldown_successes
+        self._consecutive_ok = 0
+        self._total_throttle_events = 0
+        self._on_change = on_change
+
+    # -- public API used by workers --
+
+    def acquire(self) -> None:
+        """Block until a concurrency slot is available."""
+        self._sem.acquire()
+
+    def release(self) -> None:
+        """Return a concurrency slot (call in finally block)."""
+        self._sem.release()
+
+    def report_result(self, error_category: str | None) -> None:
+        """Report the outcome of one item scrape.
+
+        Args:
+            error_category: The error category string from the scraper's
+                error classification, or ``None`` for success.
+        """
+        with self._lock:
+            if error_category in _THROTTLE_CATEGORIES:
+                self._consecutive_ok = 0
+                self._total_throttle_events += 1
+                self._shrink()
+            else:
+                self._consecutive_ok += 1
+                if self._consecutive_ok >= self._cooldown_successes:
+                    self._consecutive_ok = 0
+                    self._grow()
+
+    # -- read-only properties --
+
+    @property
+    def current(self) -> int:
+        with self._lock:
+            return self._current
+
+    @property
+    def total_throttle_events(self) -> int:
+        with self._lock:
+            return self._total_throttle_events
+
+    # -- internal helpers (caller holds _lock) --
+
+    def _shrink(self) -> None:
+        target = max(self._minimum, self._current // 2)
+        drop = self._current - target
+        if drop <= 0:
+            return
+        logger.warning("Throttle: reducing concurrency %d → %d", self._current, target)
+        for _ in range(drop):
+            self._sem.acquire(blocking=False)  # drain permits
+        self._current = target
+        if self._on_change:
+            self._on_change(self._current)
+
+    def _grow(self) -> None:
+        if self._current >= self._maximum:
+            return
+        self._current += 1
+        self._sem.release()  # add one permit
+        logger.info("Throttle: growing concurrency to %d", self._current)
+        if self._on_change:
+            self._on_change(self._current)
 
 
 

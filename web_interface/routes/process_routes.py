@@ -21,6 +21,7 @@ from fyp.fyp_config import (
 
 from ..process_manager import (
     CLOUD_TASK_ELIGIBLE,
+    SCRAPER_PROCESS_NAMES,
     graceful_stop_process,
     load_process_stats,
     process_stats,
@@ -57,11 +58,16 @@ def api_start(name):
     if "study_name" in data:
         args.append(data["study_name"])
 
-    if name in ["downloader", "annotator", "queue_scraper", "queue_annotator", "queue_annotator_batch", "embeddings_refresh"]:
+    if name in ["downloader", "annotator", "queue_annotator", "queue_annotator_batch", "embeddings_refresh"] or name.startswith("queue_scraper_"):
         if data.get("batch_size") and str(data["batch_size"]).strip():
              args.extend(["--batch-size", str(data["batch_size"])])
         if data.get("max_batches") and str(data["max_batches"]).strip():
              args.extend(["--max-batches", str(data["max_batches"])])
+
+    # The platform is encoded in the process name (queue_scraper_<platform>) —
+    # single source of truth for which queue the worker drains.
+    if name.startswith("queue_scraper_"):
+        args.extend(["--platform", name.removeprefix("queue_scraper_")])
 
     if name == "timelines_refresh" and data.get("collections"):
         args.extend(["--collections", str(data["collections"])])
@@ -89,7 +95,7 @@ def api_start(name):
     study_name = data.get("study_name") 
 
     script_map = {
-        "queue_scraper": QUEUE_SCRAPER_SCRIPT,
+        **{scraper_name: QUEUE_SCRAPER_SCRIPT for scraper_name in SCRAPER_PROCESS_NAMES},
         "queue_annotator": QUEUE_ANNOTATOR_SCRIPT,
         "queue_annotator_batch": QUEUE_ANNOTATOR_BATCH_SCRIPT,
         "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
@@ -348,6 +354,10 @@ def _ensure_task_functions_loaded() -> None:
         "study_refresh": run_study_refresh,
         "queue_annotator": run_queue_annotator,
         "queue_annotator_batch": run_queue_annotator_batch,
+        # One entry per platform; the bare name is a transition alias so an
+        # in-flight chain dispatched before the per-platform rename still runs
+        # (it defaults to the contract's default platform).
+        **{scraper_name: run_queue_scraper for scraper_name in SCRAPER_PROCESS_NAMES},
         "queue_scraper": run_queue_scraper,
         "timelines_refresh": run_timelines_refresh,
         "ingest_refresh": run_ingest_refresh,
@@ -625,7 +635,7 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
     # trigger was a browser poll POST — which fails silently when the tab's CSRF
     # token has expired (queues often run >1h) or the tab is closed. Firing here,
     # on the task-runner at terminal worker completion, makes it browser-independent.
-    if name in ("queue_scraper", "queue_annotator"):
+    if name == "queue_annotator" or name.startswith("queue_scraper"):
         _maybe_autofire_armed_consolidate(name)
 
 
@@ -649,9 +659,9 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
     if not entry.get("auto_armed"):
         return
 
-    # The other enrichment worker may still be running on a separate task-runner
-    # instance — read its GCS status (single source of truth across instances).
-    others = [w for w in ("queue_scraper", "queue_annotator") if w != just_finished]
+    # The other enrichment workers may still be running on separate task-runner
+    # instances — read their GCS status (single source of truth across instances).
+    others = [w for w in SCRAPER_PROCESS_NAMES + ["queue_annotator"] if w != just_finished]
     for worker in others:
         st = read_task_status(worker) or {}
         if (st.get("state") or "").lower() == "running":

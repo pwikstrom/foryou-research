@@ -101,6 +101,21 @@ app.register_blueprint(management_bp)
 csrf.exempt(internal_bp)
 
 
+@app.context_processor
+def inject_scrape_platforms():
+    """Expose the registered scrape platforms to every template.
+
+    The enrichment sub-page renders one scraper block per platform; a context
+    processor reaches nested includes without threading the value through
+    every render_template call.
+    """
+    import fyp.scrape_queues as scrape_queues
+    try:
+        return {"scrape_platforms": scrape_queues.registered_platforms()}
+    except Exception:
+        return {"scrape_platforms": ["tiktok"]}
+
+
 @app.errorhandler(403)
 def handle_forbidden(error):
     """Return JSON for API routes so client-side ``res.json()`` doesn't choke.

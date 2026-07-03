@@ -88,6 +88,17 @@ display_name = "Scrape contract version"
 description = "Deterministic sv_<hash> of the scrape-contract field set active when this row was scraped (per-row provenance)."
 derived = true
 
+# No role/scale/display_name on purpose: the activity contract owns the
+# source_platform var_schema row; this entry only adds the column to the
+# scrape dtype set so every scraped row is stamped with its platform.
+[[fields]]
+name = "source_platform"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "backstage"
+description = "Platform this item was scraped from (e.g. 'tiktok'). Stamped by the scraper base class."
+derived = true
+
 [[fields]]
 name = "desc"
 scope = "base"

@@ -21,11 +21,12 @@ import pandas as pd
 from PIL import Image, ImageColor
 
 import fyp.data_io as data_io
-import fyp.tiktok_dl as tiktok_dl
+import fyp.media_paths as media_paths
+import fyp.scrape_queues as scrape_queues
 from fyp import scrape_contract as sc
 from fyp import scrape_versioning
 from fyp.fyp_config import fyp_cf
-from fyp.platform_scraper import get_scraper
+from fyp.platform_scraper import ThrottleController, get_scraper
 from fyp.recode_variables import recode_events_df, rename_columns
 from fyp.utils import chunk_list, record_dropped_columns, start_monitor
 
@@ -197,6 +198,7 @@ def download_single_video(
     save_video = True,
     dry_run: bool = False,
     scraper=None,
+    platform: str | None = None,
     ):
 
 
@@ -213,21 +215,25 @@ def download_single_video(
 
     use_gcs = fyp_cf['data_io']['use_gcs_for_media']
     bucket = fyp_cf['data_io']['bucket']
-    media_dir = fyp_cf['paths']['media']
     min_size = fyp_cf["misc"]["min_media_object_size"]
     temp_dir = fyp_cf["paths"]["temp"]
 
     if use_gcs and bucket is None:
         raise ValueError("No GCS bucket specified")
 
-    gcs_media_prefix = fyp_cf['data_io']['gcs_media_prefix']
+    if scraper is None:
+        scraper = get_scraper(platform, verbose=verbose)
+
+    # Media lives under a per-platform subpath ({prefix}/{platform}/{id}.mp4);
+    # legacy flat files are found by the reader-side fallback, never written.
+    media_prefix = f"{fyp_cf['data_io']['gcs_media_prefix']}/{scraper.platform}"
+    platform_media_dir = (
+        media_paths.ensure_local_platform_dir(scraper.platform) if not use_gcs else ""
+    )
 
     # Routing for fetch: GCS mode -> bucket + gcs prefix; local mode -> local dir, no bucket
-    save_path_arg = gcs_media_prefix if use_gcs else media_dir
+    save_path_arg = media_prefix if use_gcs else platform_media_dir
     stream_to_bucket_arg = bucket if use_gcs else None
-
-    if scraper is None:
-        scraper = get_scraper(verbose=verbose)
 
     # try to scrape metadata and download media via the platform scraper
     # (backend selection + URL construction live in the subclass)
@@ -251,7 +257,7 @@ def download_single_video(
 
                 if use_gcs:
                     # GCS path: check bucket, download jpegs to temp, assemble, upload
-                    blob = bucket.blob(f"{gcs_media_prefix}/{video_id}.mp4")
+                    blob = bucket.blob(f"{media_prefix}/{video_id}.mp4")
                     if blob.exists():
                         if verbose:
                             print("Photo slideshow already in bucket")
@@ -262,14 +268,14 @@ def download_single_video(
 
                         ccc = 1
                         image_files = []
-                        blob = bucket.get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
+                        blob = bucket.get_blob(f"{media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                         while blob and blob.exists():
                             blob.download_to_filename(os.path.join(temp_dir,f"{video_id}_{ccc:02}.jpeg"))
                             if blob.size >= min_size:
                                 image_files.append(os.path.join(temp_dir,f"{video_id}_{ccc:02}.jpeg"))
                             ccc += 1
-                            blob = bucket.get_blob(f"{gcs_media_prefix}/{video_id}_{ccc:02}.jpeg")
+                            blob = bucket.get_blob(f"{media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                         make_slideshow(
                             image_files,
@@ -282,7 +288,7 @@ def download_single_video(
                         if os.path.getsize(os.path.join(temp_dir,f"{video_id}.mp4")) > min_size:
                             if verbose:
                                 print("Uploading video file to storage bucket...")
-                            blob = bucket.blob(f"{gcs_media_prefix}/{video_id}.mp4")
+                            blob = bucket.blob(f"{media_prefix}/{video_id}.mp4")
                             blob.upload_from_filename(os.path.join(temp_dir,f"{video_id}.mp4"))
                             scrape_metadata.loc[0,'video_downloaded'] = True
                         else:
@@ -293,7 +299,7 @@ def download_single_video(
                     # Local path: jpegs are in media_dir (written by _download_images).
                     # Assemble the slideshow to a temp file, validate size, then atomically
                     # move into media_dir and remove source jpegs.
-                    final_mp4 = os.path.join(media_dir, f"{video_id}.mp4")
+                    final_mp4 = os.path.join(platform_media_dir, f"{video_id}.mp4")
                     if os.path.exists(final_mp4):
                         if verbose:
                             print("Photo slideshow already exists locally")
@@ -305,7 +311,7 @@ def download_single_video(
                         ccc = 1
                         image_files = []
                         while True:
-                            cand = os.path.join(media_dir, f"{video_id}_{ccc:02}.jpeg")
+                            cand = os.path.join(platform_media_dir, f"{video_id}_{ccc:02}.jpeg")
                             if not os.path.exists(cand):
                                 break
                             if os.path.getsize(cand) >= min_size:
@@ -348,8 +354,8 @@ def download_single_video(
                     # check if it truly is stored and is big enough
                     if verbose:
                         print("Checking video file in bucket")
-                    if bucket.blob(f"{gcs_media_prefix}/{video_id}.mp4").exists():
-                        blob = bucket.get_blob(f"{gcs_media_prefix}/{video_id}.mp4")
+                    if bucket.blob(f"{media_prefix}/{video_id}.mp4").exists():
+                        blob = bucket.get_blob(f"{media_prefix}/{video_id}.mp4")
                         if blob.size < min_size:
                             if verbose:
                                 print(f"   - Deleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
@@ -364,7 +370,7 @@ def download_single_video(
                 else:
                     if verbose:
                         print("Checking video file in local media folder")
-                    local_mp4 = os.path.join(media_dir, f"{video_id}.mp4")
+                    local_mp4 = os.path.join(platform_media_dir, f"{video_id}.mp4")
                     if os.path.exists(local_mp4):
                         local_size = os.path.getsize(local_mp4)
                         if local_size < min_size:
@@ -411,36 +417,45 @@ def download_single_video(
 
 
 
-def _add_storage_link(results: pd.DataFrame) -> pd.DataFrame:
+def _add_storage_link(
+    results: pd.DataFrame,
+    platform: str,
+    overrides: dict[str, str] | None = None,
+) -> pd.DataFrame:
     """Populate the canonical ``storage_link`` from item_id + video_downloaded.
 
     The media object path mirrors the routing in ``download_single_video``: a
-    ``gs://`` URL when media is stored on GCS, else the local media path. Empty
-    for rows whose media was not downloaded.
+    ``gs://`` URL when media is stored on GCS, else the local media path, under
+    the per-platform subpath. Empty for rows whose media was not downloaded.
 
     Args:
         results: a canonical scrape frame with ``item_id`` / ``video_downloaded``.
+        platform: the platform whose media subpath new downloads were saved to.
+        overrides: ``{item_id: actual_link}`` for items whose media already
+            existed elsewhere (e.g. the legacy flat path) — keeps
+            ``storage_link`` truthful for skip-media items.
 
     Returns:
         The same frame with a ``string[pyarrow]`` ``storage_link`` column.
     """
+    overrides = overrides or {}
     use_gcs = fyp_cf['data_io']['use_gcs_for_media']
     if use_gcs:
         bucket = fyp_cf['data_io'].get('bucket')
         prefix = fyp_cf['data_io']['gcs_media_prefix']
         bucket_name = getattr(bucket, "name", "") if bucket is not None else ""
         def _link(vid: str) -> str:
-            return f"gs://{bucket_name}/{prefix}/{vid}.mp4"
+            return f"gs://{bucket_name}/{prefix}/{media_paths.media_relpath(platform, vid)}"
     else:
         media_dir = fyp_cf['paths']['media']
         def _link(vid: str) -> str:
-            return os.path.join(media_dir, f"{vid}.mp4")
+            return os.path.join(media_dir, media_paths.media_relpath(platform, vid))
     if "video_downloaded" in results.columns:
         downloaded = results["video_downloaded"].fillna(False)
     else:
         downloaded = pd.Series(False, index=results.index)
     results["storage_link"] = pd.Series(
-        [_link(vid) if dl else "" for vid, dl in zip(results["item_id"], downloaded)],
+        [overrides.get(vid) or (_link(vid) if dl else "") for vid, dl in zip(results["item_id"], downloaded)],
         index=results.index,
         dtype="string[pyarrow]",
     )
@@ -455,10 +470,11 @@ def _canonicalize_recode_save(
     fine_ts: str,
     verbose: bool = False,
     reporter=None,
+    storage_link_overrides: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Fix up, canonicalize, recode, and save a raw scrape batch to parquet.
 
-    Shared by ``download_video_threads`` and ``rescue_tiktok_meta_threads``.
+    Shared by ``download_video_threads`` and ``rescue_meta_threads``.
     Operates on the concatenated raw single-row frames: fixes the slideshow
     image_list/duration on the RAW names, canonicalizes via the scraper (rename +
     overflow repair + per-K rates + plays_per_day + scrape_status), stamps
@@ -498,7 +514,7 @@ def _canonicalize_recode_save(
         # canonicalize: raw TikTok names -> canonical, plus per-K / plays_per_day /
         # scrape_status, then stamp the media storage_link.
         results = scraper.canonicalize_batch(results, status="ok")
-        results = _add_storage_link(results)
+        results = _add_storage_link(results, scraper.platform, storage_link_overrides)
 
         # apply prefix renames (no-op for scrape columns; covers annotation prefixes)
         results = rename_columns(results).copy()
@@ -564,7 +580,7 @@ def _canonicalize_recode_save(
 
 
 
-def rescue_tiktok_meta_threads(
+def rescue_meta_threads(
     interesting_videos:list[str] = None,
     max_workers:int = 4,
     verbose:bool = False,
@@ -572,8 +588,9 @@ def rescue_tiktok_meta_threads(
     batch_label: str | None = None,
     cumulative_done: int = 0,
     cumulative_total: int = 0,
-    reporter=None):
-    
+    reporter=None,
+    platform: str | None = None):
+
 
 
     if dry_run:
@@ -586,7 +603,7 @@ def rescue_tiktok_meta_threads(
             return pd.DataFrame()
 
     results_by_index = {}
-    scraper = get_scraper(verbose=verbose)
+    scraper = get_scraper(platform, verbose=verbose)
 
     def worker(idx_video):
         idx, video = idx_video
@@ -673,14 +690,23 @@ def rescue_tiktok_meta_threads(
 
 
 
-def check_existing_media(video_ids: list[str], max_workers: int = 16) -> set[str]:
-    """Return the subset of video_ids whose media file is already stored.
+def check_existing_media(
+    video_ids: list[str],
+    max_workers: int = 16,
+    platform: str | None = None,
+) -> dict[str, str]:
+    """Return the video_ids whose media file is already stored, with its link.
 
-    A video_id qualifies as "already downloaded" when a file named
-    ``{video_id}.mp4`` exists at the configured media location and its size
-    meets ``fyp_cf['misc']['min_media_object_size']``. Under-sized files are
-    treated as invalid (consistent with post-download validation in
-    ``download_single_video``) and are not included in the returned set.
+    A video_id qualifies as "already downloaded" when a media file exists at
+    the platform subpath (``{platform}/{video_id}.mp4``) or the legacy flat
+    path (``{video_id}.mp4``) and its size meets
+    ``fyp_cf['misc']['min_media_object_size']``. Under-sized files are treated
+    as invalid (consistent with post-download validation in
+    ``download_single_video``).
+
+    The returned link is the file's *actual* location (``gs://`` URL or local
+    path) so callers can stamp a truthful ``storage_link`` for items whose
+    media predates the per-platform layout.
 
     Routes between local filesystem and GCS via the same config as
     ``download_single_video`` (``fyp_cf['data_io']['use_gcs_for_media']``).
@@ -692,47 +718,56 @@ def check_existing_media(video_ids: list[str], max_workers: int = 16) -> set[str
     Args:
         video_ids: Video IDs to check.
         max_workers: Parallelism for GCS probes (ignored in local mode).
+        platform: The items' platform (narrows the probe to that platform's
+            subpath plus the legacy flat path).
 
     Returns:
-        Set of video_ids with valid existing media.
+        ``{video_id: storage_link}`` for ids with valid existing media.
     """
     if not video_ids:
-        return set()
+        return {}
 
     use_gcs = fyp_cf['data_io']['use_gcs_for_media']
     min_size = fyp_cf['misc']['min_media_object_size']
+    relpaths = [media_paths.media_relpath(platform, "{vid}")] if platform else []
+    relpaths.append("{vid}.mp4")
 
     if use_gcs:
         bucket = fyp_cf['data_io']['bucket']
         gcs_media_prefix = fyp_cf['data_io']['gcs_media_prefix']
         if bucket is None:
-            return set()
+            return {}
+        bucket_name = getattr(bucket, "name", "")
 
-        def _probe(vid: str) -> str | None:
-            try:
-                blob = bucket.get_blob(f"{gcs_media_prefix}/{vid}.mp4")
-                if blob is not None and blob.size is not None and blob.size >= min_size:
-                    return vid
-            except Exception:
-                return None
+        def _probe(vid: str) -> tuple[str, str] | None:
+            for rel_template in relpaths:
+                try:
+                    blob_name = f"{gcs_media_prefix}/{rel_template.format(vid=vid)}"
+                    blob = bucket.get_blob(blob_name)
+                    if blob is not None and blob.size is not None and blob.size >= min_size:
+                        return vid, f"gs://{bucket_name}/{blob_name}"
+                except Exception:
+                    continue
             return None
 
-        present: set[str] = set()
+        present: dict[str, str] = {}
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             for result in ex.map(_probe, video_ids):
                 if result is not None:
-                    present.add(result)
+                    present[result[0]] = result[1]
         return present
 
     media_dir = fyp_cf['paths']['media']
-    present = set()
+    present = {}
     for vid in video_ids:
-        try:
-            path = os.path.join(media_dir, f"{vid}.mp4")
-            if os.path.exists(path) and os.path.getsize(path) >= min_size:
-                present.add(vid)
-        except Exception:
-            continue
+        for rel_template in relpaths:
+            try:
+                path = os.path.join(media_dir, rel_template.format(vid=vid))
+                if os.path.exists(path) and os.path.getsize(path) >= min_size:
+                    present[vid] = path
+                    break
+            except Exception:
+                continue
     return present
 
 
@@ -751,7 +786,8 @@ def download_video_threads(
     cumulative_fail: int = 0,
     reporter=None,
     on_concurrency_change: "callable | None" = None,
-    on_video_done: "callable | None" = None):
+    on_video_done: "callable | None" = None,
+    platform: str | None = None):
 
 
 
@@ -764,9 +800,14 @@ def download_video_threads(
         if len(interesting_videos) == 0:
             return pd.DataFrame()
 
-    already_have_media: set[str] = set()
+    # One scraper instance for the whole batch (loads the scrape contract once);
+    # the platform-specific fetch/canonicalize/classify live on it. Created
+    # before the media check so the probe knows the platform's media subpath.
+    scraper = get_scraper(platform, verbose=verbose)
+
+    already_have_media: dict[str, str] = {}
     if not dry_run and interesting_videos:
-        already_have_media = check_existing_media(interesting_videos)
+        already_have_media = check_existing_media(interesting_videos, platform=scraper.platform)
         if already_have_media:
             print(
                 f"  {len(already_have_media)}/{len(interesting_videos)} items "
@@ -774,17 +815,13 @@ def download_video_threads(
             )
 
     results_by_index = {}
-    # One scraper instance for the whole batch (loads the scrape contract once);
-    # the platform-specific fetch/canonicalize/classify live on it.
-    scraper = get_scraper(verbose=verbose)
     # Record the active scrape-contract version once per batch (idempotent, non-raising).
     scrape_versioning.ensure_current_version_registered()
-    # Lower ceiling than before (was 12). With a single TikTok session
-    # behind cookies, >6 concurrent requests reliably triggers TikTok's
-    # behavioural flags — keep headroom but don't let the throttle grow
-    # back into the danger zone after a recovery period.
-    throttle = tiktok_dl.ThrottleController(
-        initial=max_workers, minimum=2, maximum=max(max_workers, 6),
+    # Concurrency bounds are platform policy (e.g. TikTok caps at 6: a single
+    # session behind cookies trips behavioural flags beyond that).
+    throttle_initial, throttle_min, throttle_max = scraper.throttle_limits(max_workers)
+    throttle = ThrottleController(
+        initial=throttle_initial, minimum=throttle_min, maximum=throttle_max,
         on_change=on_concurrency_change)
 
     def worker(idx_video):
@@ -915,7 +952,10 @@ def download_video_threads(
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
     if not dry_run and len(results)>0:
-        results = _canonicalize_recode_save(results, scraper, fine_ts, verbose=verbose, reporter=reporter)
+        results = _canonicalize_recode_save(
+            results, scraper, fine_ts, verbose=verbose, reporter=reporter,
+            storage_link_overrides=already_have_media,
+        )
 
     if not dry_run and len(failed_items)>0:
         data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
@@ -942,11 +982,15 @@ def scraper_loop_from_list(
     dry_run = False,
     reporter=None,
     cancellation_check=None,
+    platform: str | None = None,
+    process_name: str | None = None,
     ):
 
 
 
     max_batches = max_batches if max_batches is not None else np.inf
+    platform_resolved = platform or scrape_queues.default_platform()
+    stop_key = process_name or f"queue_scraper_{platform_resolved}"
 
 
 
@@ -992,7 +1036,8 @@ def scraper_loop_from_list(
             cumulative_ok=len(good_scrapes),
             cumulative_fail=len(all_permanent_failed),
             reporter=reporter,
-            on_concurrency_change=_on_threads_change)
+            on_concurrency_change=_on_threads_change,
+            platform=platform_resolved)
 
         if not results_from_scraper.empty and "item_id" in results_from_scraper.columns:
             good_scrapes += results_from_scraper["item_id"].to_list()
@@ -1022,7 +1067,7 @@ def scraper_loop_from_list(
             if cancellation_check():
                 print("  Cancellation requested. Finishing after this batch.")
                 break
-        elif _check_graceful_stop("queue_scraper"):
+        elif _check_graceful_stop(stop_key):
             print("  Graceful stop requested. Finishing after this batch.")
             break
 
@@ -1035,24 +1080,14 @@ def scraper_loop_from_list(
     # Update scrape queue: remove successful + permanently failed items.
     # Transient failures stay in the queue for retry on next run.
     # -----------------
-    target_queue_file = 'to_scrape.json'
-
-    if data_io.exists(storage_location='cache', filename=target_queue_file, verbose=verbose):
-        to_scrape_queue = data_io.load_json(storage_location='cache', filename=target_queue_file, verbose=verbose)
-
-        if isinstance(to_scrape_queue, list):
-            # Only remove items that succeeded or permanently failed
-            items_to_remove = set(good_scrapes + all_permanent_failed)
-
-            original_len = len(to_scrape_queue)
-            updated_queue = [item for item in to_scrape_queue if item not in items_to_remove]
-
-            if len(updated_queue) < original_len:
-                data_io.save_json(data=updated_queue, storage_location='cache', filename=target_queue_file, verbose=verbose)
-                print(f"  Queue update: removed {original_len - len(updated_queue)} "
-                      f"({len(good_scrapes)} OK, {len(all_permanent_failed)} permanent fail). "
-                      f"{len(all_transient_failed)} transient failures remain for retry. "
-                      f"Queue length: {len(updated_queue)}")
+    items_to_remove = set(good_scrapes + all_permanent_failed)
+    if items_to_remove:
+        pruned, remaining = scrape_queues.prune_scrape_queue(platform_resolved, items_to_remove)
+        if pruned:
+            print(f"  Queue update: removed {pruned} "
+                  f"({len(good_scrapes)} OK, {len(all_permanent_failed)} permanent fail). "
+                  f"{len(all_transient_failed)} transient failures remain for retry. "
+                  f"Queue length: {remaining}")
 
 
     print(f"  Loop ended: {datetime.now()}")
@@ -1159,21 +1194,20 @@ def queue_scraper_loop(
     dry_run = False,
     reporter=None,
     cancellation_check=None,
+    platform: str | None = None,
+    process_name: str | None = None,
     ):
 
 
-    # Load queue
-    target_queue_file = 'to_scrape.json'
+    # Load the per-platform queue (migrates a legacy to_scrape.json first)
+    platform_resolved = platform or scrape_queues.default_platform()
+    video_list = scrape_queues.load_scrape_queue(platform_resolved)
 
-    video_list = []
-    if data_io.exists(storage_location='cache', filename=target_queue_file):
-            video_list = data_io.load_json(storage_location='cache', filename=target_queue_file)
-
-    if not video_list or not isinstance(video_list, list) or len(video_list) == 0:
-        print("Queue is empty or invalid. Nothing to scrape.")
+    if not video_list:
+        print(f"Queue for '{platform_resolved}' is empty or invalid. Nothing to scrape.")
         return
 
-    print(f"Found {len(video_list)} items in queue.")
+    print(f"Found {len(video_list)} items in '{platform_resolved}' queue.")
 
     scraper_loop_from_list(
         video_list=video_list,
@@ -1183,6 +1217,8 @@ def queue_scraper_loop(
         dry_run=dry_run,
         reporter=reporter,
         cancellation_check=cancellation_check,
+        platform=platform_resolved,
+        process_name=process_name,
     )
 
 
@@ -1326,6 +1362,16 @@ def consolidate_and_save_scrape_data(
         print(f"Consolidating {len(many_scrape_dfs):,} scrape files (dropping duplicate items)...")
     scrape_df = pd.concat(many_scrape_dfs, ignore_index=True)
 
+    # Backfill source_platform for rows scraped before the column existed.
+    # Canonical-era files skip _canonicalize_legacy_scrape's rename path, so the
+    # fill has to happen here; all pre-column history is TikTok by definition.
+    backfill_platform = sc.default_platform(sc.load_contract()) or "tiktok"
+    if "source_platform" not in scrape_df.columns:
+        scrape_df["source_platform"] = pd.NA
+    scrape_df["source_platform"] = (
+        scrape_df["source_platform"].fillna(backfill_platform).astype("string[pyarrow]")
+    )
+
 
     # -------------------------------------------------
     # There may be some items listed twice - once as video_downloaded and once as not
@@ -1333,7 +1379,7 @@ def consolidate_and_save_scrape_data(
     # -------------------------------------------------
 
     # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both
-    scrape_df = scrape_df.drop_duplicates(subset=["item_id","video_downloaded"]).copy()
+    scrape_df = scrape_df.drop_duplicates(subset=["source_platform","item_id","video_downloaded"]).copy()
     if verbose:
         print(f"    Dropping duplicates based on items and whether the video is downloaded or not: {scrape_df.shape}")
 

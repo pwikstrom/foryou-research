@@ -1092,12 +1092,21 @@ def update_enrichment_status(
     ) -> pd.DataFrame:
     """Rebuild enrichment_status.parquet from collections, scrapes, and annotations."""
 
-    combined_activity_data = all_datasets[COLLECTIONS_LABEL][['item_id', collection_id_column]]
+    activity_columns = ['item_id', collection_id_column]
+    has_platform = 'source_platform' in all_datasets[COLLECTIONS_LABEL].columns
+    if has_platform:
+        activity_columns.append('source_platform')
+    combined_activity_data = all_datasets[COLLECTIONS_LABEL][activity_columns]
 
-    enrichment_status_df = combined_activity_data.groupby("item_id").agg(
-            nunique_collections=pd.NamedAgg(column=collection_id_column, aggfunc="nunique"),
-            total_observations=pd.NamedAgg(column=collection_id_column, aggfunc="count")
-        )
+    named_aggs = {
+        "nunique_collections": pd.NamedAgg(column=collection_id_column, aggfunc="nunique"),
+        "total_observations": pd.NamedAgg(column=collection_id_column, aggfunc="count"),
+    }
+    if has_platform:
+        # Cheap per-item platform lookup for queue builders and the annotation
+        # guard (an item_id never spans platforms, so "first" is exact).
+        named_aggs["source_platform"] = pd.NamedAgg(column='source_platform', aggfunc="first")
+    enrichment_status_df = combined_activity_data.groupby("item_id").agg(**named_aggs)
 
     annotation_votes = pd.DataFrame()
     if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
@@ -1363,6 +1372,9 @@ def new_merge(
     has_annotations = annotations_df is not None and not annotations_df.empty
 
     if has_scrapes and has_annotations:
+        # Annotation rows are keyed by item_id only (and are TikTok-only under
+        # the annotation guard); this join is where they inherit the scrape
+        # side's source_platform.
         enriched_data = pd.merge(left=scrapes_df, right=annotations_df, on='item_id', how='left')
     elif has_scrapes:
         enriched_data = scrapes_df
@@ -1384,11 +1396,17 @@ def new_merge(
         print("No enriched data — caching activity-only dataset")
         shebang = activity_data.copy()
     else:
-        # Biggest join in the pipeline: events × item-metadata, keyed on
-        # item_id. Polars' parallel hash join is substantially faster and
-        # more memory-efficient than pandas at events-scale (tens of
-        # millions of rows). See fyp/polars_ops.py.
-        shebang = fast_join(activity_data, enriched_data, on='item_id', how='left')
+        # Biggest join in the pipeline: events × item-metadata. Composite key
+        # (source_platform, item_id) whenever both sides carry the platform —
+        # item ids are only guaranteed unique within a platform. Polars'
+        # parallel hash join is substantially faster and more memory-efficient
+        # than pandas at events-scale (tens of millions of rows).
+        if 'source_platform' in activity_data.columns and 'source_platform' in enriched_data.columns:
+            join_key = ['source_platform', 'item_id']
+        else:
+            join_key = 'item_id'
+            print("WARNING: source_platform missing on one side of the activity/enrichment join — falling back to item_id only")
+        shebang = fast_join(activity_data, enriched_data, on=join_key, how='left')
 
         # --------------------------------------------------------------------------------------------------
         # adding some calculated columns to this merged dataset

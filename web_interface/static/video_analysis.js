@@ -955,6 +955,16 @@ function cacheMetadata(itemId, data) {
     }
 }
 
+function videoStreamUrl(itemId) {
+    // Append the item's platform when cached metadata knows it — the server
+    // resolves the media path faster with it, and falls back to probing
+    // (platform subpath, then legacy flat path) without it.
+    const base = `/api/video/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`;
+    const meta = getCachedMetadata(itemId);
+    const platform = meta && meta.source_platform;
+    return platform ? `${base}?platform=${encodeURIComponent(platform)}` : base;
+}
+
 function getCachedMetadata(itemId) {
     const entry = viewerData._metadataCache.get(itemId);
     if (!entry) return null;
@@ -1018,7 +1028,7 @@ function prefetchNext() {
     if (preloadEl && viewerData._preloadedVideoIndex !== nextIndex) {
         const autoplay = window.userSettings && window.userSettings.video_autostart;
         preloadEl.preload = autoplay ? "auto" : "metadata";
-        preloadEl.src = `/api/video/${encodeURIComponent(viewerData.activeStudy)}/${nextItemId}`;
+        preloadEl.src = videoStreamUrl(nextItemId);
         viewerData._preloadedVideoIndex = nextIndex;
     }
 }
@@ -1098,7 +1108,7 @@ async function loadViewerItem(index) {
     // -------------------------------------------------------------------
     const videoEl = document.getElementById('viewer-video');
     const preloadEl = document.getElementById('viewer-video-preload');
-    const videoUrl = `/api/video/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`;
+    const videoUrl = videoStreamUrl(itemId);
     const autoplay = window.userSettings && window.userSettings.video_autostart;
 
     if (preloadEl && viewerData._preloadedVideoIndex === index && preloadEl.src) {

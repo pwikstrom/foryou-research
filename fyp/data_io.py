@@ -1373,13 +1373,38 @@ def save_logs_as_csv(
         some_float_cols = [c for c in outdata_for_csv_export.select_dtypes(include=[float, np.float64]).columns if "session" not in c]
         outdata_for_csv_export[some_float_cols] = outdata_for_csv_export[some_float_cols].fillna(value=-1).astype(int)
 
+        # Build item URLs from each row's platform (before the Excel quoting
+        # below mangles item_id). tiktok_url is kept as a back-compat alias
+        # for existing downstream consumers; prefer item_url.
+        def _platform_url_templates() -> dict:
+            from fyp.ingest import ForYouBaseCollection
+            return {
+                cls.source_platform: cls.platform_url_template
+                for cls in ForYouBaseCollection._registry
+                if getattr(cls, "source_platform", None) and getattr(cls, "platform_url_template", None)
+            }
+
+        templates = _platform_url_templates()
+        tiktok_template = templates.get("tiktok", "https://www.tiktok.com/@/video/{item_id}")
+        if "source_platform" in outdata_for_csv_export.columns:
+            outdata_for_csv_export["item_url"] = [
+                templates.get(p, tiktok_template).format(item_id=i)
+                for p, i in zip(
+                    outdata_for_csv_export["source_platform"].fillna("tiktok"),
+                    outdata_for_csv_export["item_id"].astype(str),
+                )
+            ]
+        else:
+            outdata_for_csv_export["item_url"] = [
+                tiktok_template.format(item_id=i)
+                for i in outdata_for_csv_export["item_id"].astype(str)
+            ]
+        outdata_for_csv_export["tiktok_url"] = "https://www.tiktok.com/@/video/" + outdata_for_csv_export["item_id"].astype(str) + "/"
+
         # Convert long numbers to strings for Excel
         for c in ["data_author_id","item_id","music_id","author_id","ts_jiggled"]:
             if c in outdata_for_csv_export.columns:
                 outdata_for_csv_export[c] = "'" + outdata_for_csv_export[c].astype(str) + "'"
-
-        # Build TikTok URLs
-        outdata_for_csv_export["tiktok_url"] = "https://www.tiktok.com/@/video/" + outdata_for_csv_export["item_id"] + "/"
 
         # Export with error handling for any remaining encoding issues
         outdata_for_csv_export.to_csv(os.path.join(_cf()['paths']['exports'],log_as_csv_filename), encoding='utf-8-sig', errors='replace')

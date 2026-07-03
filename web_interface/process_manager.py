@@ -24,6 +24,17 @@ STUCK_STATUS_THRESHOLD_S = 90
 GRACEFUL_STOP_DIR = PROJECT_ROOT / "tmp" / "graceful_stop"
 
 
+def scrape_platforms() -> list[str]:
+    """Platforms registered in the scrape contract (each gets its own worker)."""
+    import fyp.scrape_queues as scrape_queues
+    return scrape_queues.registered_platforms()
+
+
+# One scraper process per platform (queue_scraper_<platform>), each draining
+# its own to_scrape_<platform>.json queue as its own Cloud Task chain.
+SCRAPER_PROCESS_NAMES = [f"queue_scraper_{p}" for p in scrape_platforms()]
+
+
 # Processes eligible for Cloud Tasks dispatch.
 CLOUD_TASK_ELIGIBLE = {
     "consolidate_enrichment",
@@ -33,7 +44,6 @@ CLOUD_TASK_ELIGIBLE = {
     "study_refresh",
     "queue_annotator",
     "queue_annotator_batch",
-    "queue_scraper",
     "timelines_refresh",
     "ingest_refresh",
     "aio_fetch",
@@ -44,12 +54,16 @@ CLOUD_TASK_ELIGIBLE = {
     "embeddings_refresh",
     "video_map_refresh",
 }
+CLOUD_TASK_ELIGIBLE |= set(SCRAPER_PROCESS_NAMES)
 
 
 # --- Global State ---
 # Store process handles and logs
 processes = {
-    "queue_scraper": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    **{
+        name: {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
+        for name in SCRAPER_PROCESS_NAMES
+    },
     "queue_annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "queue_annotator_batch": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "meta_refresh_groups": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
@@ -534,7 +548,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             # Submit + poll phases are short relative to the (async) job itself;
             # poll re-chains on its own wall-clock budget.
             deadline = 1800
-        elif name == "queue_scraper":
+        elif name.startswith("queue_scraper_"):
             deadline = 1800
 
         success, msg = _dispatch_cloud_task(name, task_args,
@@ -550,6 +564,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             placeholder._status["task_args"] = {
                 "batch_size": task_args.get("batch_size"),
                 "max_batches": task_args.get("max_batches"),
+                "platform": task_args.get("platform"),
             }
             placeholder._write_status(force=True)
         return success, msg
@@ -635,6 +650,9 @@ def _cli_args_to_dict(name: str, args: list, study_name: str | None) -> dict:
         elif arg == "--max-batches" and i + 1 < len(args):
             task_args["max_batches"] = args[i + 1]
             i += 2
+        elif arg == "--platform" and i + 1 < len(args):
+            task_args["platform"] = args[i + 1]
+            i += 2
         elif arg == "--collections" and i + 1 < len(args):
             task_args["collections"] = args[i + 1]
             i += 2
@@ -671,6 +689,8 @@ def _task_args_to_cli(name: str, task_args: dict) -> list[str]:
         out += ["--batch-size", str(task_args["batch_size"])]
     if task_args.get("max_batches") is not None:
         out += ["--max-batches", str(task_args["max_batches"])]
+    if task_args.get("platform"):
+        out += ["--platform", str(task_args["platform"])]
     if task_args.get("studies"):
         out += ["--studies", str(task_args["studies"])]
     if task_args.get("collections"):

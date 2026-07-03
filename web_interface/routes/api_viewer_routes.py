@@ -6,8 +6,9 @@ from flask import Blueprint, Response, jsonify, request, send_file, stream_with_
 from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
+import fyp.media_paths as media_paths
 from fyp.fyp_config import fyp_cf
-from fyp.ingest import TikTokDDPCollection
+from fyp.ingest import ForYouBaseCollection
 
 from .. import explorer_backend as explorer
 from ..data_service import (
@@ -21,8 +22,14 @@ from ..security import user_manager
 viewer_bp = Blueprint('viewer_bp', __name__)
 
 
+# Built from the collection registry: every registered collection class that
+# declares both a source_platform and a platform_url_template contributes an
+# "open on platform" link template. Adding a platform = adding its collection
+# subclass; no edit here.
 _PLATFORM_URL_TEMPLATES: dict[str, str] = {
-    "tiktok": TikTokDDPCollection.platform_url_template,
+    cls.source_platform: cls.platform_url_template
+    for cls in ForYouBaseCollection._registry
+    if getattr(cls, "source_platform", None) and getattr(cls, "platform_url_template", None)
 }
 
 
@@ -416,12 +423,20 @@ def api_video_stream(study, item_id):
     chunk_size = 4096 * 16
     range_header = request.headers.get('Range')
 
+    # Media may live at the per-platform subpath or the legacy flat path;
+    # resolve_media owns the fallback order (and caches, so the viewer's
+    # repeated Range requests don't re-probe GCS per chunk).
+    platform = request.args.get('platform') or None
+    resolved = media_paths.resolve_media(item_id, platform=platform)
+    if resolved is None:
+        return f"Video {item_id} not found", 404
+
     if use_gcs:
         bucket = fyp_cf.get("data_io", {}).get("bucket")
         if not bucket:
             return "GCS Bucket not available. Check credentials or internet connection.", 503
 
-        blob_name = f"{fyp_cf['data_io']['gcs_media_prefix']}/{item_id}.mp4"
+        blob_name = resolved["blob_name"]
         blob = bucket.blob(blob_name)
 
         if not blob.exists():
@@ -468,7 +483,7 @@ def api_video_stream(study, item_id):
     # Local filesystem path. send_file(conditional=True) serves HTTP Range requests
     # natively AND manages the file handle via the response lifecycle (closed even on
     # client disconnect), avoiding the fd leak a manual streaming generator has.
-    media_path = os.path.join(fyp_cf['paths']['media'], f"{item_id}.mp4")
+    media_path = resolved["path"]
     if not os.path.exists(media_path):
         return f"Video {item_id}.mp4 not found", 404
     return send_file(

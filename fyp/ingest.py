@@ -273,6 +273,9 @@ def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int = 900) -> pd.DataF
 class ForYouBaseCollection(ABC):
 
     platform_url_template: str | None = None
+    # Class attribute so registries (e.g. the viewer's platform URL map) can
+    # read the platform without instantiating; __init__ mirrors it per instance.
+    source_platform: str | None = None
     ingestion_mode: str = "upload"
     _registry: list[type] = []
 
@@ -298,7 +301,7 @@ class ForYouBaseCollection(ABC):
         self.min_required_rows_per_raw_file = 10
         self.discarded_raw_files = []
         self.discarded_collections_filename = "discarded_collection_files.json"
-        self.source_platform = None
+        self.source_platform = getattr(type(self), "source_platform", None)
         self.data_source = None
         self.collections = []
 
@@ -1237,6 +1240,7 @@ class ForYouCollection(ForYouBaseCollection):
 class TikTokDDPCollection(ForYouBaseCollection):
 
     platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
+    source_platform = "tiktok"
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         # In addition to the required activity variables, this ingester adds one extra variable:
@@ -1582,6 +1586,7 @@ class TikTokAIOCollection(TikTokDDPCollection):
 class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
     platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
+    source_platform = "tiktok"
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         # The extra_data column is used for the timezone name

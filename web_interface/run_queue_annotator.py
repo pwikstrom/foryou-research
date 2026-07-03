@@ -94,6 +94,38 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         initial_total = total_queue
     reporter.log(f"Loaded {total_queue:,} videos from queue (initial_total={initial_total:,}).")
 
+    # ---- Platform guard: the annotation contract is TikTok-only for now ----
+    # Defensive backstop behind the queue-entry filters in management_routes:
+    # with a single registered platform this is a no-op; once a second platform
+    # exists, any non-TikTok id that slipped into the queue is pruned here
+    # (not just skipped — otherwise it would be re-picked every batch).
+    import fyp.scrape_queues as scrape_queues
+    if len(scrape_queues.registered_platforms()) > 1:
+        non_tiktok: set[str] = set()
+        try:
+            if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+                status_df = data_io.load_parquet_selective(
+                    storage_location="recoded", filename="enrichment_status.parquet",
+                    columns=["item_id", "source_platform"],
+                )
+                if "source_platform" in status_df.columns:
+                    plat_map = dict(zip(status_df["item_id"].astype(str), status_df["source_platform"]))
+                    non_tiktok = {
+                        v for v in video_list
+                        if isinstance(plat_map.get(v), str) and plat_map.get(v) not in ("", "tiktok")
+                    }
+        except Exception as e:
+            reporter.log(f"Platform guard lookup failed (continuing unfiltered): {e}")
+        if non_tiktok:
+            video_list = [v for v in video_list if v not in non_tiktok]
+            data_io.save_json(data=video_list, storage_location="cache", filename=target_cache_file)
+            reporter.log(
+                f"Skipped {len(non_tiktok)} non-TikTok item(s): annotation contract is TikTok-only for now."
+            )
+            if not video_list:
+                reporter.log("Annotation queue is empty after the platform guard.")
+                return None
+
     # ---- Slice this batch from the head of the pruned queue ----
     batch = video_list[:batch_size]
     if not batch:

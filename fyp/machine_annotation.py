@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 import fyp.data_io as data_io
+import fyp.media_paths as media_paths
 import fyp.utils as fyp_utils
 import fyp.annotation_versioning as annotation_versioning
 from fyp.fyp_config import fyp_cf
@@ -304,12 +305,32 @@ def call_machine(
     effective_local = use_local_video_file or not fyp_cf['data_io']['use_gcs_for_media']
     effective_local_dir = local_path or fyp_cf['paths']['media']
 
+    # Media may live at the per-platform subpath or the legacy flat path;
+    # media_paths.resolve_media owns that fallback order. Annotation is
+    # TikTok-only until the annotation contract is generalized.
+    annotation_platform = "tiktok"
+    resolved_media = None
+    if local_path:
+        # Explicit dir override (tests / one-offs): probe flat then platform subpath.
+        for candidate in media_paths.candidate_relpaths(video_id, annotation_platform):
+            path = os.path.join(effective_local_dir, candidate)
+            if os.path.exists(path):
+                resolved_media = {"kind": "local", "path": path}
+                break
+    else:
+        resolved_media = media_paths.resolve_media(video_id, platform=annotation_platform)
+
     # initialise the contents for the model
     try:
         if effective_local:
             if verbose:
                 print(f"Using local video file for video id {video_id}")
-            with open(os.path.join(effective_local_dir,f"{video_id}.mp4"),'rb') as f:
+            local_file = (
+                resolved_media["path"]
+                if resolved_media and resolved_media["kind"] == "local"
+                else os.path.join(effective_local_dir, f"{video_id}.mp4")
+            )
+            with open(local_file,'rb') as f:
                 video_bytes = f.read()
             contents = [
                 google.genai.types.Part(
@@ -319,14 +340,18 @@ def call_machine(
                 google.genai.types.Part.from_text(text="Analyze this video")
             ]
         else:
+            if resolved_media and resolved_media["kind"] == "gcs":
+                file_uri = media_paths.media_gs_uri(resolved_media)
+            else:
+                file_uri = f"gs://{fyp_cf['data_io']['GCS_bucket_name']}/{fyp_cf['data_io']['gcs_media_prefix']}/{video_id}.mp4"
             contents = [
                 google.genai.types.Part.from_uri(
-                    file_uri=f"gs://{fyp_cf['data_io']['GCS_bucket_name']}/{fyp_cf['data_io']['gcs_media_prefix']}/{video_id}.mp4",
+                    file_uri=file_uri,
                     mime_type="video/mp4"
                 ),
                 google.genai.types.Part.from_text(text="Analyze this video")
             ]
-    
+
     except Exception as e:
         output["error"] = str(e)
         with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
@@ -347,10 +372,8 @@ def call_machine(
     except Exception as e:
         times += [_dt.datetime.now()]
 
-        if effective_local:
-            video_found = os.path.exists(os.path.join(effective_local_dir, f"{video_id}.mp4"))
-        else:
-            video_found = fyp_cf["data_io"]["bucket"].blob(f"{fyp_cf['data_io']['gcs_media_prefix']}/{video_id}.mp4").exists()
+        # Same resolution order as the upload above (platform subpath + legacy flat).
+        video_found = media_paths.resolve_media(video_id, platform=annotation_platform) is not None
 
         output["error"] = str(e)
         output["inference_duration"] = (times[-1] - times[-2]).total_seconds()

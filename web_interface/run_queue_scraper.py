@@ -1,5 +1,9 @@
 """
-Queue scraper: download TikTok video metadata and media via yt-dlp.
+Queue scraper: download short-video metadata and media for one platform.
+
+Each platform has its own queue (``to_scrape_<platform>.json``) and its own
+worker process (``queue_scraper_<platform>``); the platform rides along in
+``task_args`` and is carried through self-chaining.
 
 On Cloud Run this runs as a single-batch Cloud Task that self-chains to the
 next batch until the queue is exhausted, the user's max_batches limit is
@@ -20,7 +24,7 @@ from web_interface.task_status import TaskStatusReporter
 
 # Upper safety cap on a single Cloud Task batch. The scraper's Cloud Tasks
 # dispatch deadline is fixed at 1800s, and the in-pool batch deadline is also
-# capped at 1800s. At realistic throughput (~1.4 items/s under TikTok
+# capped at 1800s. At realistic throughput (~1.4 items/s under platform
 # throttling) a 1000-item batch clears that window with margin, while larger
 # batches overrun it: pending items pile up and the instance is OOM-killed
 # mid-drain, losing the whole batch under the queue's max-attempts=1. The
@@ -34,20 +38,21 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
 
     Args:
         reporter: Status reporter (GCS or local).
-        task_args: Optional dict with 'batch_size', 'max_batches',
+        task_args: Optional dict with 'platform', 'batch_size', 'max_batches',
                    'chunk_index', 'initial_total'.
 
     Returns:
         dict with ``chain=True`` and ``next_task_args`` if another batch
         should be dispatched, or ``None`` when the work is done.
     """
-    import fyp.data_io as data_io
+    import fyp.scrape_queues as scrape_queues
+    from fyp.platform_scraper import get_scraper
     from fyp.scrape import download_video_threads
-    from fyp.tiktok_dl import cookie_health
 
     if not task_args:
         task_args = {}
 
+    platform: str = str(task_args.get("platform") or "") or scrape_queues.default_platform()
     batch_size: int = min(int(task_args.get("batch_size", 500)), MAX_BATCH_SIZE)
     max_batches: int | None = task_args.get("max_batches")
     if max_batches is not None:
@@ -63,35 +68,34 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     cumulative_ok: int = int(task_args.get("cumulative_ok", 0))
     cumulative_fail: int = int(task_args.get("cumulative_fail", 0))
 
-    # ---- Load the scrape queue ----
-    target_cache_file = "to_scrape.json"
-    if not data_io.exists(storage_location="cache", filename=target_cache_file):
-        reporter.log("No to_scrape.json found in cache. Nothing to do.")
-        return None
-
-    video_list: list[str] = data_io.load_json(storage_location="cache", filename=target_cache_file)
+    # ---- Load the per-platform scrape queue (migrates a legacy queue) ----
+    video_list: list[str] = scrape_queues.load_scrape_queue(platform)
     if not video_list:
-        reporter.log("Scrape queue is empty.")
+        reporter.log(f"Scrape queue for '{platform}' is empty.")
         return None
 
     total_queue = len(video_list)
     if initial_total <= 0:
         initial_total = total_queue
-    reporter.log(f"Loaded {total_queue:,} videos from queue (initial_total={initial_total:,}).")
+    reporter.log(
+        f"Loaded {total_queue:,} items from '{platform}' queue (initial_total={initial_total:,})."
+    )
 
-    # ---- Cookie health check ----
-    # Surface obvious problems with the TikTok cookies file before kicking
-    # off the batch — an expired sessionid or missing file means every
-    # scrape will get a 403 from TikTok's bot wall.
-    health = cookie_health()
-    status = health.get('status')
-    if status in ('expired', 'missing'):
-        reporter.log(f"WARNING: TikTok cookies {status} — {health.get('message')}")
-        reporter.log("Continuing without authentication. Expect elevated 403 rate.")
-    elif status in ('expiring_soon', 'stale'):
-        reporter.log(f"NOTE: TikTok cookies {status} — {health.get('message')}")
-    else:
-        reporter.log(f"TikTok cookies: {health.get('message')}")
+    # ---- Platform health check ----
+    # Surface obvious auth/session problems before kicking off the batch —
+    # e.g. an expired TikTok sessionid means every scrape gets a 403 from the
+    # platform's bot wall. Platforms with nothing to report return None.
+    health = get_scraper(platform).health_check()
+    if health is not None:
+        status = health.get('status')
+        message = health.get('message')
+        if status in ('expired', 'missing'):
+            reporter.log(f"WARNING: {platform} auth/health {status} — {message}")
+            reporter.log("Continuing without authentication. Expect elevated failure rate.")
+        elif status in ('expiring_soon', 'stale'):
+            reporter.log(f"NOTE: {platform} auth/health {status} — {message}")
+        else:
+            reporter.log(f"{platform} health: {message}")
 
     # ---- Slice this batch from the head of the pruned queue ----
     # Prior chains removed completed items, so the queue's head is always the
@@ -145,6 +149,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         cumulative_fail=cumulative_fail,
         reporter=reporter,
         on_concurrency_change=_on_threads_change,
+        platform=platform,
     )
 
     good_ids = []
@@ -157,18 +162,9 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         f"{len(permanent_failed)} permanent fail, {len(transient_failed)} transient")
 
     # ---- Update queue: remove successful + permanently failed items ----
-    # Reload fresh to avoid clobbering concurrent writes.
-    fresh_queue = data_io.load_json(storage_location="cache", filename=target_cache_file)
+    # prune_scrape_queue reloads fresh to avoid clobbering concurrent writes.
     items_to_remove: set[str] = set(good_ids) | set(permanent_failed)
-    pruned_this_batch = 0
-    if isinstance(fresh_queue, list):
-        updated_queue = [v for v in fresh_queue if v not in items_to_remove]
-        pruned_this_batch = len(fresh_queue) - len(updated_queue)
-        if pruned_this_batch > 0:
-            data_io.save_json(data=updated_queue, storage_location="cache", filename=target_cache_file)
-        queue_remaining = len(updated_queue)
-    else:
-        queue_remaining = max(0, total_queue - len(batch))
+    pruned_this_batch, queue_remaining = scrape_queues.prune_scrape_queue(platform, items_to_remove)
 
     reporter.emit_data({"scrape_queue_len": queue_remaining})
     reporter.log(
@@ -204,6 +200,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         return None
 
     next_task_args = {
+        "platform": platform,
         "batch_size": batch_size,
         "max_batches": max_batches,
         "chunk_index": next_chunk,
@@ -224,19 +221,24 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
 if __name__ == "__main__":
     import argparse
 
+    import fyp.scrape_queues as scrape_queues
     from fyp.scrape import queue_scraper_loop
     from web_interface.task_status import LocalStatusReporter
 
     parser = argparse.ArgumentParser(description="Run queue scraper")
     parser.add_argument("--batch-size", type=int, default=5, help="Batch size")
     parser.add_argument("--max-batches", type=int, default=None, help="Max batches (default: unlimited)")
+    parser.add_argument("--platform", type=str, default=None, help="Platform queue to drain (default: contract default)")
 
     args = parser.parse_args()
 
-    print("Starting Queue Scraper")
+    platform = args.platform or scrape_queues.default_platform()
+    process_name = f"queue_scraper_{platform}"
+
+    print(f"Starting Queue Scraper for platform '{platform}'")
     print(f"Batch settings: Size={args.batch_size}, Max={args.max_batches}")
 
-    reporter = LocalStatusReporter("queue_scraper")
+    reporter = LocalStatusReporter(process_name)
     try:
         queue_scraper_loop(
             batch_size=args.batch_size,
@@ -245,6 +247,8 @@ if __name__ == "__main__":
             dry_run=False,
             reporter=reporter,
             cancellation_check=reporter.check_cancelled,
+            platform=platform,
+            process_name=process_name,
         )
         reporter.complete()
         print("Queue scraping process completed.")

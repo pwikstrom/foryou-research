@@ -2240,10 +2240,15 @@ function fetchEnrichmentStats() {
             document.getElementById('enrich_scraped').textContent = (data.scraped_videos !== undefined) ? data.scraped_videos.toLocaleString() : '-';
             document.getElementById('enrich_annotated').textContent = (data.annotated_videos !== undefined) ? data.annotated_videos.toLocaleString() : '-';
 
-            // Queues
-            if (data.scrape_queue_len !== undefined) {
-                document.getElementById('enrich_scrape_targets').textContent = data.scrape_queue_len.toLocaleString();
-                document.getElementById('enrich_scrape_targets').style.color = 'var(--color-success-light)';
+            // Queues (per-platform scrape counters)
+            if (data.scrape_queues) {
+                for (const [platform, len] of Object.entries(data.scrape_queues)) {
+                    const el = document.getElementById('enrich_scrape_targets_' + platform);
+                    if (el) {
+                        el.textContent = len.toLocaleString();
+                        el.style.color = 'var(--color-success-light)';
+                    }
+                }
             }
             if (data.annotate_queue_len !== undefined) {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
@@ -2302,9 +2307,14 @@ function fetchEnrichmentStats() {
         .catch(err => console.error("Error fetching enrichment stats:", err));
 }
 
+// All per-platform scrape-queue counter elements (one per scraper block).
+function scrapeTargetEls() {
+    return Array.from(document.querySelectorAll('[id^="enrich_scrape_targets_"]'));
+}
+
 function queueVideosFromTargetStudy(btnElement) {
     const studyName = document.getElementById('enrichment-study-select').value;
-    const scrapeTargetsDisplay = document.getElementById('enrich_scrape_targets');
+    const scrapeTargets = scrapeTargetEls();
     const annotateTargetsDisplay = document.getElementById('enrich_annotate_targets');
 
     if (!studyName) {
@@ -2320,8 +2330,10 @@ function queueVideosFromTargetStudy(btnElement) {
     btnElement.textContent = "Queueing...";
     btnElement.disabled = true;
 
-    scrapeTargetsDisplay.textContent = "Calc...";
-    scrapeTargetsDisplay.style.color = 'var(--color-text-tertiary)';
+    scrapeTargets.forEach(el => {
+        el.textContent = "Calc...";
+        el.style.color = 'var(--color-text-tertiary)';
+    });
     annotateTargetsDisplay.textContent = "Calc...";
     annotateTargetsDisplay.style.color = 'var(--color-text-tertiary)';
 
@@ -2343,13 +2355,20 @@ function queueVideosFromTargetStudy(btnElement) {
             btnElement.textContent = originalText;
             btnElement.disabled = false;
 
-            // Update scrape display
+            // Update scrape display (per-platform queue lengths)
             if (scrapeData.status === 'success') {
-                scrapeTargetsDisplay.textContent = scrapeData.videos_to_scrape.toLocaleString();
-                scrapeTargetsDisplay.style.color = 'var(--color-success-light)';
+                const byPlatform = scrapeData.videos_to_scrape_by_platform || {};
+                scrapeTargets.forEach(el => {
+                    const platform = el.id.slice('enrich_scrape_targets_'.length);
+                    const len = byPlatform[platform];
+                    el.textContent = (len !== undefined) ? len.toLocaleString() : '0';
+                    el.style.color = 'var(--color-success-light)';
+                });
             } else {
-                scrapeTargetsDisplay.textContent = "Error";
-                scrapeTargetsDisplay.style.color = 'var(--color-danger)';
+                scrapeTargets.forEach(el => {
+                    el.textContent = "Error";
+                    el.style.color = 'var(--color-danger)';
+                });
                 console.error("Scrape Error:", scrapeData.error);
             }
 
@@ -2369,8 +2388,10 @@ function queueVideosFromTargetStudy(btnElement) {
         .catch(err => {
             btnElement.textContent = originalText;
             btnElement.disabled = false;
-            scrapeTargetsDisplay.textContent = "Failed";
-            scrapeTargetsDisplay.style.color = 'var(--color-danger)';
+            scrapeTargets.forEach(el => {
+                el.textContent = "Failed";
+                el.style.color = 'var(--color-danger)';
+            });
             annotateTargetsDisplay.textContent = "Failed";
             annotateTargetsDisplay.style.color = 'var(--color-danger)';
             console.error("Error queueing from target study:", err);
@@ -2378,12 +2399,13 @@ function queueVideosFromTargetStudy(btnElement) {
         });
 }
 
-function emptyQueue(queueType) {
+function emptyQueue(queueType, platform) {
     if (!queueType) return;
 
     fetch(`/api/manage/enrichment/empty_queue/${queueType}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(platform ? { platform: platform } : {})
     })
         .then(res => res.json())
         .then(data => {

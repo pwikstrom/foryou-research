@@ -12,6 +12,7 @@ from flask_login import current_user, login_required
 from werkzeug.utils import secure_filename
 
 import fyp.data_io as data_io
+import fyp.scrape_queues as scrape_queues
 from fyp.fyp_config import (
     fyp_cf,
     load_var_schema,
@@ -2032,17 +2033,16 @@ def get_enrichment_stats():
             unique_collections = int(ddp_metadata.index.nunique())
         
     
-    # 2. Get Queue Lengths
-    scrape_queue_len = 0
+    # 2. Get Queue Lengths (per-platform scrape queues + their total)
+    scrape_queues_by_platform: dict[str, int] = {}
     annotate_queue_len = 0
-    
-    if data_io.exists(storage_location='cache', filename='to_scrape.json'):
-        try:
-            q = data_io.load_json(storage_location='cache', filename='to_scrape.json')
-            if isinstance(q, list): scrape_queue_len = len(q)
-        except Exception:
-            pass
-        
+
+    try:
+        scrape_queues_by_platform = scrape_queues.queue_lengths()
+    except Exception:
+        pass
+    scrape_queue_len = sum(scrape_queues_by_platform.values())
+
     if data_io.exists(storage_location='cache', filename='to_annotate.json'):
         q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
         if isinstance(q, list): annotate_queue_len = len(q)
@@ -2100,6 +2100,7 @@ def get_enrichment_stats():
         "annotated_videos": annotated_videos,
         "unique_collections": unique_collections,
         "scrape_queue_len": scrape_queue_len,
+        "scrape_queues": scrape_queues_by_platform,
         "annotate_queue_len": annotate_queue_len,
         "consolidate_stats": {
             **consolidate_entry,
@@ -2112,7 +2113,15 @@ def get_enrichment_stats():
         "last_pipeline_partial": bool(consolidate_entry.get("last_pipeline_partial")),
         "last_pipeline_failed_at": consolidate_entry.get("last_pipeline_failed_at"),
         "workers_blocking_consolidate": _workers_blocking_consolidate(),
-        "scraper_last_success": process_stats.get("queue_scraper", {}).get("last_success"),
+        "scraper_last_success": max(
+            (
+                process_stats.get(f"queue_scraper_{p}", {}).get("last_success")
+                or process_stats.get("queue_scraper", {}).get("last_success")
+                or ""
+                for p in scrape_queues_by_platform or ["tiktok"]
+            ),
+            default=None,
+        ) or None,
         "annotator_last_success": process_stats.get("queue_annotator", {}).get("last_success"),
     })
 
@@ -2127,11 +2136,25 @@ def get_enrichment_stats():
 def empty_enrichment_queue(queue_type):
     try:
         if queue_type == "scrape":
-            if data_io.exists(storage_location='cache', filename='to_scrape.json'):
-                data_io.remove(storage_location='cache', filename='to_scrape.json')
+            # Optional {"platform": ...} in the body targets one platform's
+            # queue; default empties every registered platform's queue.
+            body = request.get_json(silent=True) or {}
+            requested = body.get("platform")
+            targets = [requested] if requested else scrape_queues.registered_platforms()
+            for platform in targets:
+                scrape_queues.remove_scrape_queue(platform)
             load_process_stats()
+            stats_changed = False
+            for platform in targets:
+                entry = process_stats.get(f"queue_scraper_{platform}", {})
+                if "scrape_queue_len" in entry:
+                    entry["scrape_queue_len"] = 0
+                    stats_changed = True
+            # Legacy pre-rename entry, harmless to zero alongside.
             if "scrape_queue_len" in process_stats.get("queue_scraper", {}):
                 process_stats["queue_scraper"]["scrape_queue_len"] = 0
+                stats_changed = True
+            if stats_changed:
                 save_process_stats()
         elif queue_type == "annotate":
             if data_io.exists(storage_location='cache', filename='to_annotate.json'):
@@ -2214,18 +2237,20 @@ def queue_voted_videos():
         if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
              df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
 
+        default_platform = scrape_queues.default_platform()
         new_scrape = []
         new_annotate = []
+        item_platform: dict[str, str] = {}
 
         if df_status is not None and not df_status.empty:
             if 'item_id' not in df_status.columns:
                 df_status = df_status.reset_index()
                 if 'index' in df_status.columns and 'item_id' not in df_status.columns:
                      df_status = df_status.rename(columns={'index': 'item_id'})
-            
+
             # Convert status ids to set for fast lookup
             status_records = df_status.set_index('item_id').to_dict('index')
-            
+
             for item in target_item_ids:
                 if item in status_records:
                     rec = status_records[item]
@@ -2233,7 +2258,9 @@ def queue_voted_videos():
                     is_annotated = rec.get('annotated_ok', False)
                     scrape_fail = rec.get('scrape_fail', False)
                     annotated_fail = rec.get('annotated_fail', False)
-                    
+                    plat = rec.get('source_platform')
+                    item_platform[item] = plat if isinstance(plat, str) and plat else default_platform
+
                     # Same logic from user request
                     if not is_scraped and not scrape_fail:
                         new_scrape.append(item)
@@ -2249,7 +2276,24 @@ def queue_voted_videos():
         new_scrape = list(set(new_scrape))
         new_annotate = list(set(new_annotate))
 
-        # 4. Append to Queues
+        # Annotation guard: the annotation contract is TikTok-only for now, so
+        # only TikTok items may enter the annotation queue.
+        annotate_tiktok = [v for v in new_annotate if item_platform.get(v, default_platform) == "tiktok"]
+        skipped_non_tiktok = len(new_annotate) - len(annotate_tiktok)
+        if skipped_non_tiktok:
+            print(f"Skipped {skipped_non_tiktok} non-TikTok item(s): annotation contract is TikTok-only for now.")
+        new_annotate = annotate_tiktok
+
+        # 4. Append to Queues (scrape queues are per-platform)
+        added_to_scrape: dict[str, int] = {}
+        if new_scrape:
+            by_platform: dict[str, list[str]] = {}
+            for item in new_scrape:
+                by_platform.setdefault(item_platform.get(item, default_platform), []).append(item)
+            for platform, items in by_platform.items():
+                scrape_queues.append_to_scrape_queue(platform, items)
+                added_to_scrape[platform] = len(items)
+
         def load_queue(fname):
             if data_io.exists(storage_location="cache", filename=fname):
                 try:
@@ -2264,21 +2308,17 @@ def queue_voted_videos():
             q_clean = list(set(q))
             data_io.save_json(data=q_clean, storage_location="cache", filename=fname)
 
-        if new_scrape:
-             # We store scrape targets globally 
-             current_scrape = load_queue("to_scrape.json")
-             current_scrape.extend(new_scrape)
-             save_queue("to_scrape.json", current_scrape)
-
         if new_annotate:
              current_annotate = load_queue("to_annotate.json")
              current_annotate.extend(new_annotate)
              save_queue("to_annotate.json", current_annotate)
 
         return jsonify({
-            "status": "success", 
+            "status": "success",
             "added_to_scrape": len(new_scrape),
-            "added_to_annotate": len(new_annotate)
+            "added_to_scrape_by_platform": added_to_scrape,
+            "added_to_annotate": len(new_annotate),
+            "skipped_non_tiktok": skipped_non_tiktok
         })
 
     except Exception as e:
@@ -2355,25 +2395,34 @@ def calculate_to_scrape():
         # Ensure all values are plain Python strings (not PyArrow scalars)
         unscraped_videos = list({str(v) for v in unscraped_videos})
 
-        # Append target payload to global scrape queue
-        current_queue = []
-        if data_io.exists(storage_location="cache", filename="to_scrape.json"):
-            try:
-                q = data_io.load_json(storage_location="cache", filename="to_scrape.json")
-                if isinstance(q, list): current_queue = q
-            except Exception:
-                pass
-                
-        current_queue.extend(unscraped_videos)
-        current_queue = list(set(current_queue))
-        
-        data_io.save_json(
-            data=current_queue,
-            storage_location="cache",
-            filename="to_scrape.json"
-        )
+        # Append to the per-platform scrape queues. The study frame carries
+        # source_platform per event row; an item never spans platforms.
+        default_platform = scrape_queues.default_platform()
+        item_platform: dict[str, str] = {}
+        if 'source_platform' in df_study.columns:
+            plat_map = (
+                df_study[['item_id', 'source_platform']]
+                .dropna(subset=['item_id'])
+                .drop_duplicates(subset=['item_id'])
+            )
+            item_platform = {
+                str(i): (str(p) if isinstance(p, str) and p else default_platform)
+                for i, p in zip(plat_map['item_id'], plat_map['source_platform'])
+            }
 
-        return jsonify({"status": "success", "videos_to_scrape": len(current_queue)})
+        by_platform: dict[str, list[str]] = {}
+        for vid in unscraped_videos:
+            by_platform.setdefault(item_platform.get(vid, default_platform), []).append(vid)
+
+        queue_len_by_platform: dict[str, int] = {}
+        for platform, items in by_platform.items():
+            queue_len_by_platform[platform] = scrape_queues.append_to_scrape_queue(platform, items)
+
+        return jsonify({
+            "status": "success",
+            "videos_to_scrape": sum(queue_len_by_platform.values()),
+            "videos_to_scrape_by_platform": queue_len_by_platform,
+        })
 
     except Exception as e:
         print(f"Error calculating scrape targets: {e}")
@@ -2454,6 +2503,21 @@ def calculate_to_annotate():
         # Ensure all values are plain Python strings (not PyArrow scalars)
         unannotated_videos = list({str(v) for v in unannotated_videos})
 
+        # Annotation guard: the annotation contract is TikTok-only for now —
+        # non-TikTok items stay out of the queue until it is generalized.
+        skipped_non_tiktok = 0
+        if 'source_platform' in df_study.columns:
+            tiktok_ids = {
+                str(v) for v in df_study.loc[
+                    df_study['source_platform'].fillna("tiktok") == "tiktok", 'item_id'
+                ].dropna()
+            }
+            kept = [v for v in unannotated_videos if v in tiktok_ids]
+            skipped_non_tiktok = len(unannotated_videos) - len(kept)
+            if skipped_non_tiktok:
+                print(f"Skipped {skipped_non_tiktok} non-TikTok item(s): annotation contract is TikTok-only for now.")
+            unannotated_videos = kept
+
         # Append target payload to global annotate queue
         current_queue = []
         if data_io.exists(storage_location="cache", filename="to_annotate.json"):
@@ -2472,7 +2536,11 @@ def calculate_to_annotate():
             filename="to_annotate.json"
         )
 
-        return jsonify({"status": "success", "videos_to_annotate": len(current_queue)})
+        return jsonify({
+            "status": "success",
+            "videos_to_annotate": len(current_queue),
+            "skipped_non_tiktok": skipped_non_tiktok,
+        })
 
     except Exception as e:
         print(f"Error calculating annotate targets: {e}")
