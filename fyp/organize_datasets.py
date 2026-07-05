@@ -1409,7 +1409,11 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
         shebang["plays_per_day"] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
     need_ppd = shebang["plays_per_day"].isna()
     if need_ppd.any() and "play_count" in shebang.columns and "days_since_created" in shebang.columns and not shebang["days_since_created"].isna().all():
-        fallback = _safe_vector_divide(shebang['play_count'], shebang['days_since_created'])
+        # Mask the -1 missing-count sentinel first, or the fallback goes negative
+        # (e.g. Instagram, whose view count is never available). Zero is a real
+        # value (0 plays/day) and is kept. Mirrors derive_plays_per_day.
+        plays = shebang['play_count'].astype("double[pyarrow]").mask(shebang['play_count'] < 0, pd.NA)
+        fallback = _safe_vector_divide(plays, shebang['days_since_created'])
         shebang.loc[need_ppd, "plays_per_day"] = fallback[need_ppd]
 
     # 3. scraped fail

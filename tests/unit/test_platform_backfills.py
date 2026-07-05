@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import pandas as pd
 
 from fyp import ingest
-from fyp.organize_datasets import _backfill_source_platform
+from fyp.organize_datasets import _add_merge_calculated_columns, _backfill_source_platform
 
 
 def test_merge_guard_fills_default_platform():
@@ -107,9 +107,34 @@ def test_ingest_play_duration_self_heal_missing_column():
 
 
 
+def test_plays_per_day_fallback_masks_sentinel():
+    """The merge-time plays_per_day fallback must not turn a -1 play_count sentinel
+    into a negative rate (Instagram has no view count → play_count stays -1)."""
+    shebang = pd.DataFrame({
+        "item_id": pd.array(["ig1", "yt1", "tt1", "z0"], dtype="string[pyarrow]"),
+        # No scrape-time plays_per_day → the fallback path runs for every row.
+        "play_count": pd.array([-1, 5000, 90000, 0], dtype="int64[pyarrow]"),
+        "local_timestamp": pd.to_datetime(["2026-01-10", "2026-01-10", "2026-01-10", "2026-01-10"], utc=True),
+        "create_time": pd.to_datetime(["2026-01-01", "2026-01-01", "2026-01-05", "2026-01-01"], utc=True),
+        "duration": pd.array([10, 30, 15, 12], dtype="double[pyarrow]"),
+        "play_duration": pd.array([5, 15, None, 6], dtype="int64[pyarrow]"),
+    })
+    out = _add_merge_calculated_columns(shebang)
+    ppd = pd.to_numeric(out["plays_per_day"], errors="coerce")
+    assert pd.isna(ppd.iloc[0]), f"IG sentinel should be NA, got {ppd.iloc[0]}"
+    assert ppd.iloc[1] > 0
+    assert ppd.iloc[2] > 0
+    assert ppd.iloc[3] == 0  # a genuine 0-play item is a real value
+    assert (ppd.dropna() >= 0).all(), "no negative plays_per_day may survive"
+    print("PASS: merge-time plays_per_day fallback masks the -1 sentinel")
+
+
+
+
 if __name__ == "__main__":
     test_merge_guard_fills_default_platform()
     test_ingest_source_platform_self_heal()
     test_ingest_play_duration_self_heal()
     test_ingest_play_duration_self_heal_missing_column()
+    test_plays_per_day_fallback_masks_sentinel()
     print("All platform-backfill tests passed.")
