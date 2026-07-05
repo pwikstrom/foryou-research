@@ -414,6 +414,10 @@ class UserManager:
         try:
             data_io.save_json(data=existing_data, storage_location=self.storage_location, filename=filename)
             logger.info(f"Saved user {username}.")
+            # Function-level import: data_service imports parts of the web layer,
+            # so a module-level import here would create a cycle.
+            from .data_service import invalidate_user_json_cache
+            invalidate_user_json_cache(username)
         except Exception as e:
             logger.error(f"Failed to save user {username}: {e}")
 

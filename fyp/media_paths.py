@@ -109,15 +109,21 @@ def _parse_storage_link(storage_link: str) -> dict | None:
 
 
 
-def _gcs_exists(blob_name: str) -> bool:
-    """Probe one blob in the configured media bucket."""
+def _gcs_stat(blob_name: str) -> int | None:
+    """Probe one blob in the configured media bucket; return its size or ``None``.
+
+    A single metadata GET both verifies existence and fetches the size, so
+    callers (the viewer's Range handler) need no follow-up ``exists()`` /
+    ``reload()`` round-trips.
+    """
     bucket = _cf()['data_io'].get('bucket')
     if bucket is None:
-        return False
+        return None
     try:
-        return bucket.blob(blob_name).exists()
+        blob = bucket.get_blob(blob_name)
+        return None if blob is None else blob.size
     except Exception:
-        return False
+        return None
 
 
 
@@ -142,6 +148,8 @@ def resolve_media(
     Returns:
         ``{"kind": "gcs", "bucket_name": ..., "blob_name": ...}`` or
         ``{"kind": "local", "path": ...}``, or ``None`` when nothing resolves.
+        When ``check_exists`` verified the object, a ``"size"`` key carries its
+        byte size so callers can serve Range requests without re-stat'ing.
     """
     fyp_cf = _cf()
     use_gcs = fyp_cf['data_io']['use_gcs_for_media']
@@ -157,10 +165,12 @@ def resolve_media(
     if linked is not None:
         if not check_exists:
             resolved = linked
-        elif linked["kind"] == "gcs" and use_gcs and _gcs_exists(linked["blob_name"]):
-            resolved = linked
+        elif linked["kind"] == "gcs" and use_gcs:
+            size = _gcs_stat(linked["blob_name"])
+            if size is not None:
+                resolved = {**linked, "size": size}
         elif linked["kind"] == "local" and os.path.exists(linked["path"]):
-            resolved = linked
+            resolved = {**linked, "size": os.path.getsize(linked["path"])}
 
     if resolved is None:
         if use_gcs:
@@ -169,15 +179,22 @@ def resolve_media(
             bucket_name = getattr(bucket, "name", "") if bucket is not None else ""
             for rel in candidate_relpaths(item_id, platform):
                 blob_name = f"{prefix}/{rel}"
-                if not check_exists or _gcs_exists(blob_name):
+                if not check_exists:
                     resolved = {"kind": "gcs", "bucket_name": bucket_name, "blob_name": blob_name}
+                    break
+                size = _gcs_stat(blob_name)
+                if size is not None:
+                    resolved = {"kind": "gcs", "bucket_name": bucket_name, "blob_name": blob_name, "size": size}
                     break
         else:
             media_dir = fyp_cf['paths']['media']
             for rel in candidate_relpaths(item_id, platform):
                 path = os.path.join(media_dir, rel)
-                if not check_exists or os.path.exists(path):
+                if not check_exists:
                     resolved = {"kind": "local", "path": path}
+                    break
+                if os.path.exists(path):
+                    resolved = {"kind": "local", "path": path, "size": os.path.getsize(path)}
                     break
 
     if check_exists:
