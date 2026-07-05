@@ -1172,7 +1172,12 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
             result[mask] = the_median
         elif unable_to_detect_policy == "keep":
              mask_na = x.isna()
-             result.loc[mask_na] = pd.Series([[UNABLE_TO_DETECT] for _ in range(mask_na.sum())], index=result.index[mask_na])
+             # The sentinel is a one-element list, which only an object-dtype
+             # column can hold. A typed column (datetime/numeric/bool) rejects the
+             # list cast, and a missing value there has no meaningful sentinel, so
+             # leave it NA.
+             if x.dtype == object and mask_na.any():
+                 result.loc[mask_na] = pd.Series([[UNABLE_TO_DETECT] for _ in range(mask_na.sum())], index=result.index[mask_na])
         elif unable_to_detect_policy == "zero":
              if pd.api.types.is_numeric_dtype(x):
                 val = 0

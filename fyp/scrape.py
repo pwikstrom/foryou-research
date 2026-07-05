@@ -738,7 +738,10 @@ def rescue_meta_threads(
         print("The scrape procedure did not generate any useful results")
         return pd.DataFrame(), permanent_failed_ids, transient_failed_ids
 
-    results = pd.concat(results)
+    # ignore_index=True: each element is a single-row frame indexed 0, so a
+    # plain concat leaves a duplicate index that turns the recode's
+    # concat(axis=1) hashtag fan-out into a cartesian row explosion.
+    results = pd.concat(results, ignore_index=True)
 
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
@@ -1013,7 +1016,10 @@ def download_video_threads(
         print("The scrape procedure did not generate any useful results")
         return pd.DataFrame(), permanent_failed_ids, transient_failed_ids
 
-    results = pd.concat(results)
+    # ignore_index=True: each element is a single-row frame indexed 0, so a
+    # plain concat leaves a duplicate index that turns the recode's
+    # concat(axis=1) hashtag fan-out into a cartesian row explosion.
+    results = pd.concat(results, ignore_index=True)
 
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
     
