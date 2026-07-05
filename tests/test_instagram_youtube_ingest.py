@@ -36,6 +36,7 @@ _REQUIRED_CORE = ["activity_type", "utc_timestamp", "collection_id", "data_sourc
 
 _SRC_IG = "/Users/<user>/Downloads/instagram-example-2026-06-29-EXAMPLE.zip"
 _SRC_YT = "/Users/<user>/Downloads/takeout-20260630T004137Z-3-001.zip"
+_SRC_YT_JSON = "/Users/<user>/Downloads/takeout-20260705T024230Z-3-001.zip"
 
 _YT_CELL = (
     '<div class="outer-cell mdl-cell"><div class="mdl-grid">'
@@ -52,6 +53,38 @@ def _yt_cell(vid: str, title: str, ts: str, channel_id: str = "UCx", channel: st
     channel_html = f'<a href="https://www.youtube.com/channel/{channel_id}">{channel}</a><br>' if channel_id else ""
     details = "<br><b>Details:</b><br>&emsp;From Google Ads" if ad else ""
     return _YT_CELL.format(vid=vid, title=title, channel=channel_html, ts=ts, details=details)
+
+
+def _yt_json_record(vid: str = None, title: str = None, ts: str = "2026-07-01T22:18:23.481Z",
+                    channel_id: str = "UCx", channel: str = "Chan", ad: bool = False) -> dict:
+    """Render one synthetic JSON watch-history record.
+
+    ``vid=None`` yields a non-video event (no titleUrl); ``title=None`` with a
+    vid mimics a removed/private video (the watch URL echoed as the title, no
+    subtitles).
+    """
+    record = {
+        "header": "YouTube",
+        "time": ts,
+        "products": ["YouTube"],
+        "activityControls": ["YouTube watch history"],
+    }
+    if vid is None:
+        record["title"] = title or "Used Shorts creation tools"
+        return record
+    url = f"https://www.youtube.com/watch?v={vid}"
+    record["titleUrl"] = url
+    if title is None:
+        record["title"] = f"Watched {url}"
+    else:
+        record["title"] = f"Watched {title}"
+        if channel_id:
+            record["subtitles"] = [
+                {"name": channel, "url": f"https://www.youtube.com/channel/{channel_id}"}
+            ]
+    if ad:
+        record["details"] = [{"name": "From Google Ads"}]
+    return record
 
 
 def _make_zip(path: str, members: dict[str, str]) -> None:
@@ -77,6 +110,11 @@ def _ensure_fixtures() -> None:
     if not os.path.exists(yt) and os.path.exists(_SRC_YT):
         member = "Takeout/YouTube and YouTube Music/history/watch-history.html"
         with zipfile.ZipFile(_SRC_YT) as zin, zipfile.ZipFile(yt, "w", zipfile.ZIP_DEFLATED) as zout:
+            zout.writestr(member, zin.read(member))
+    yt_json = os.path.join(_FIXTURES, "yt_sample_json.zip")
+    if not os.path.exists(yt_json) and os.path.exists(_SRC_YT_JSON):
+        member = "Takeout/YouTube and YouTube Music/history/watch-history.json"
+        with zipfile.ZipFile(_SRC_YT_JSON) as zin, zipfile.ZipFile(yt_json, "w", zipfile.ZIP_DEFLATED) as zout:
             zout.writestr(member, zin.read(member))
 
 
@@ -258,6 +296,113 @@ def test_youtube_locales_and_ads():
     print("  [PASS] youtube locales + ad detection")
 
 
+def test_youtube_json():
+    """JSON watch history: plays/ads/removed/non-video handled; UTC exact."""
+    records = [
+        # 12 organic watches with channel info, distinct minutes
+        *[_yt_json_record(f"JSONVIDEO{i:02}", f"vid {i}", f"2026-06-01T10:{i:02}:05.123Z",
+                          channel_id=f"UCjson{i}", channel=f"Chan {i}") for i in range(12)],
+        # a served ad
+        _yt_json_record("JSONADVERT1", "ad vid", "2026-06-02T11:00:00.000Z", ad=True),
+        # a removed/private video: URL echoed as title, no subtitles
+        _yt_json_record("JSONREMOVED", None, "2026-06-03T12:00:00.000Z"),
+        # non-video events: no titleUrl -> dropped
+        _yt_json_record(None, "Used Shorts creation tools", "2026-06-04T13:00:00.000Z"),
+        _yt_json_record(None, "Viewed Ads On YouTube Shorts", "2026-06-05T14:00:00.000Z"),
+    ]
+    fixture = os.path.join(_FIXTURES, "yt_json_synth.zip")
+    _make_zip(fixture, {"Takeout/YouTube and YouTube Music/history/watch-history.json":
+                        json.dumps(records)})
+
+    df, seed, _ = _run_collection(YouTubeDDPCollection, fixture, "P009_ytj", tz="Australia/Brisbane")
+    _assert_core(df, "youtube")
+
+    types = df["activity_type"].value_counts().to_dict()
+    assert len(df) == 14, f"expected 14 video rows (2 non-video dropped), got {len(df)}"
+    assert types.get("play", 0) == 13, f"expected 13 plays (12 organic + removed), got {types}"
+    assert types.get("ad_play", 0) == 1, f"expected 1 ad_play, got {types}"
+
+    by_id = df.set_index("item_id")
+    ts = pd.Timestamp(by_id.loc["JSONVIDEO03", "utc_timestamp"])
+    assert (ts.hour, ts.minute, ts.second) == (10, 3, 5), f"ISO-8601 UTC not preserved: {ts}"
+    # Manifest tz only sets tz_offset (timestamps are already UTC): Brisbane = +10.
+    assert (df["tz_offset"] == 10).all(), f"tz_offset not from manifest zone: {sorted(df['tz_offset'].unique())}"
+
+    assert seed is not None and seed["item_id"].is_unique, "youtube json: seed missing or not deduped"
+    seed_by_id = seed.set_index("item_id")
+    assert seed_by_id.loc["JSONVIDEO03", "desc"] == "vid 3", "youtube json: donated title not in seed"
+    assert seed_by_id.loc["JSONVIDEO03", "author_id"] == "UCjson3", "youtube json: channel id not in seed"
+    assert seed_by_id.loc["JSONVIDEO03", "author_name"] == "Chan 3", "youtube json: channel name not in seed"
+    assert pd.isna(seed_by_id.loc["JSONREMOVED", "desc"]), "removed video must carry no donated title"
+    print("  [PASS] youtube json (synthetic)")
+
+
+def test_youtube_json_real():
+    """The real JSON Takeout export parses with the expected play/ad split."""
+    fixture = os.path.join(_FIXTURES, "yt_sample_json.zip")
+    if not os.path.exists(fixture):
+        print("  [SKIP] youtube json real export (fixture yt_sample_json.zip unavailable)")
+        return
+    df, seed, _ = _run_collection(YouTubeDDPCollection, fixture, "P010_ytjr")
+    _assert_core(df, "youtube")
+
+    types = df["activity_type"].value_counts().to_dict()
+    print(f"  youtube json activity_type counts: {types}; total={len(df)}")
+    assert len(df) == 1284, f"expected 1284 video watches (9 non-video dropped), got {len(df)}"
+    assert types.get("play", 0) == 922, f"expected 922 plays, got {types.get('play', 0)}"
+    assert types.get("ad_play", 0) == 362, f"expected 362 ad plays, got {types.get('ad_play', 0)}"
+    assert df["item_id"].str.match(r"^[\w-]{11}$").all(), "youtube json: malformed video id"
+    assert seed is not None and seed["item_id"].is_unique, "youtube json: bad seed"
+    print("  [PASS] youtube json (real export)")
+
+
+def test_youtube_json_preferred_over_html():
+    """When a zip carries both members, the JSON one wins."""
+    json_records = [
+        _yt_json_record(f"JSONWINNER{i:01}", f"json vid {i}", f"2026-06-10T10:00:{i:02}.000Z")
+        for i in range(11)
+    ]
+    html_cells = "".join(
+        _yt_cell(f"HTMLLOSERR{i:01}", f"html vid {i}", f"{i + 1} Jun 2026, 10:00:00 AEST")
+        for i in range(11)
+    )
+    fixture = os.path.join(_FIXTURES, "yt_both_members.zip")
+    _make_zip(fixture, {
+        "Takeout/YouTube and YouTube Music/history/watch-history.json": json.dumps(json_records),
+        "Takeout/YouTube and YouTube Music/history/watch-history.html":
+            f"<html><body>{html_cells}</body></html>",
+    })
+
+    df, _, _ = _run_collection(YouTubeDDPCollection, fixture, "P011_ytb")
+    _assert_core(df, "youtube")
+    assert df["item_id"].str.startswith("JSONWINNER").all(), \
+        f"HTML rows leaked in despite JSON member: {sorted(df['item_id'].unique())[:5]}"
+    assert len(df) == 11, f"expected the 11 JSON rows, got {len(df)}"
+    print("  [PASS] youtube json preferred over html")
+
+
+def test_youtube_invalid_json_stays_pending():
+    """A corrupt watch-history.json raises and the file is left pending."""
+    fixture = os.path.join(_FIXTURES, "yt_badjson.zip")
+    _make_zip(fixture, {"Takeout/YouTube and YouTube Music/history/watch-history.json":
+                        '{"not": "a list", truncated'})
+
+    raw_loc, raw_dir, out_loc, out_dir = _fresh_locations("P012_ytbad")
+    shutil.copy(fixture, os.path.join(raw_dir, "P012.zip"))
+    data_io.save_json(data={"P012.zip": {"collection_id": "P012", "tags": []}},
+                      storage_location=raw_loc, filename="ingestion_manifest.json")
+
+    col = YouTubeDDPCollection(verbose=False)
+    col.raw_path = raw_loc
+    col.processed_storage_location = out_loc
+    col.load_raw()
+
+    assert "P012.zip" not in col.discarded_raw_files, \
+        "invalid-JSON donation was discarded instead of left pending"
+    assert col.state == "empty", "no rows should have loaded from invalid JSON"
+    print("  [PASS] invalid json stays pending")
+
+
 def test_unsupported_locale_stays_pending():
     """A donation whose timestamps can't be parsed is left pending, not discarded."""
     cells = "".join(
@@ -425,6 +570,10 @@ if __name__ == "__main__":
     test_instagram_classic_schema()
     test_youtube()
     test_youtube_locales_and_ads()
+    test_youtube_json()
+    test_youtube_json_real()
+    test_youtube_json_preferred_over_html()
+    test_youtube_invalid_json_stays_pending()
     test_unsupported_locale_stays_pending()
     test_structural_failure_stays_pending()
     test_seed_merges_across_runs()

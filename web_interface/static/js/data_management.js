@@ -2923,6 +2923,14 @@ let ingestionMetadata = { collection_ids: [], tags: [] };
 let uploadSelectedTags = [];
 let uploadPendingFiles = null;
 
+// Client-side donation-zip slimming (zip.js): sources keyed by class so the
+// upload modal knows which zip members its platform's ingester needs.
+let _ingestionSourcesByClass = {};
+let _uploadZipSuffixes = [];
+let _uploadPreprocessing = false;
+let _uploadBlockedFiles = [];
+let _uploadSelectionGen = 0;
+
 function loadIngestionMetadata() {
     return fetch('/api/manage/ingestion/metadata')
         .then(res => res.json())
@@ -3109,6 +3117,9 @@ function clearPendingUploads(btn) {
 window.clearPendingUploads = clearPendingUploads;
 
 function renderIngestionSources(sources) {
+    _ingestionSourcesByClass = {};
+    sources.forEach(source => { _ingestionSourcesByClass[source.class_name] = source; });
+
     const container = document.getElementById('ingestion-sources-container');
     if (!container) return;
 
@@ -3264,6 +3275,10 @@ function openUploadModal(className, rawPath, mode) {
     uploadSelectedTags = [];
     uploadPendingFiles = null;
     _uploadMode = mode;
+    _uploadZipSuffixes = (_ingestionSourcesByClass[className] || {}).zip_member_suffixes || [];
+    _uploadPreprocessing = false;
+    _uploadBlockedFiles = [];
+    _uploadSelectionGen++;  // invalidate any zip scan still running from a previous modal
     const listDiv = document.getElementById('uploadFilesList');
     listDiv.innerHTML = `<div style="text-align: center; padding: 16px; color: var(--color-text-tertiary); cursor: pointer;">Click here to select ${mode === 'folder' ? 'a folder' : 'files'}</div>`;
     document.getElementById('uploadSelectedTags').innerHTML = '';
@@ -3333,24 +3348,175 @@ function triggerFilePicker() {
     input.click();
 }
 
-function handleFilesSelected(files) {
-    if (!files || files.length === 0) return;
-    uploadPendingFiles = files;
-    const listDiv = document.getElementById('uploadFilesList');
-    let filesHtml = '';
-    if (files.length <= 10) {
-        filesHtml = Array.from(files).map(f =>
-            `<div class="text-xs" style="padding: 2px 0;">${f.name}</div>`
-        ).join('');
-    } else {
-        filesHtml = `<div class="text-sm">${files.length} files selected</div>` +
-            Array.from(files).slice(0, 5).map(f =>
-                `<div class="text-xs" style="padding: 2px 0; color: var(--color-text-tertiary);">${f.name}</div>`
-            ).join('') +
-            `<div class="text-xs" style="color: var(--color-text-tertiary);">... and ${files.length - 5} more</div>`;
+// --- Client-side donation-zip slimming (zip.js) ---
+
+let _zipLibPromise = null;
+
+function loadZipLib() {
+    // Lazy one-time injection of the vendored zip.js UMD build — nothing is
+    // loaded for platforms whose uploads are consumed whole (e.g. TikTok).
+    if (window.zip) return Promise.resolve(window.zip);
+    if (!_zipLibPromise) {
+        _zipLibPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = '/static/js/vendor/zip-full.min.js';
+            script.onload = () => {
+                window.zip.configure({ useWebWorkers: false });
+                resolve(window.zip);
+            };
+            script.onerror = () => {
+                _zipLibPromise = null;
+                reject(new Error('zip.js failed to load'));
+            };
+            document.head.appendChild(script);
+        });
     }
-    listDiv.innerHTML = filesHtml +
+    return _zipLibPromise;
+}
+
+function formatBytes(bytes) {
+    if (!(bytes >= 0)) return '?';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+    return `${bytes >= 100 || i === 0 ? Math.round(bytes) : bytes.toFixed(1)} ${units[i]}`;
+}
+
+async function repackDonationZip(file, suffixes, onStatus) {
+    // Rebuild the donation zip with only the members the server ingester
+    // needs, mirroring fyp.utils.read_zip_members semantics: path-suffix
+    // matching, directory entries skipped, first match per suffix wins.
+    // Member paths and the upload filename are preserved so the server-side
+    // ingest path is untouched.
+    let zipLib;
+    try {
+        zipLib = await loadZipLib();
+    } catch (err) {
+        console.warn('zip.js unavailable, uploading original file:', err);
+        return { file, action: 'passthrough' };
+    }
+    let reader = null;
+    try {
+        reader = new zipLib.ZipReader(new zipLib.BlobReader(file));
+        const entries = await reader.getEntries();
+        const remaining = new Set(suffixes);
+        const matches = [];
+        for (const entry of entries) {
+            if (entry.directory || remaining.size === 0) continue;
+            for (const suffix of remaining) {
+                if (entry.filename.endsWith(suffix)) {
+                    matches.push(entry);
+                    remaining.delete(suffix);
+                    break;
+                }
+            }
+        }
+        if (matches.length === 0) return { file, action: 'blocked' };
+
+        const writer = new zipLib.ZipWriter(new zipLib.BlobWriter('application/zip'));
+        for (const entry of matches) {
+            onStatus(`Extracting ${entry.filename}...`);
+            const blob = await entry.getData(new zipLib.BlobWriter());
+            await writer.add(entry.filename, new zipLib.BlobReader(blob));
+        }
+        const outBlob = await writer.close();
+        const outFile = new File([outBlob], file.name,
+            { type: 'application/zip', lastModified: file.lastModified });
+        return { file: outFile, action: 'repacked', originalSize: file.size, newSize: outFile.size };
+    } catch (err) {
+        console.warn(`zip repack failed for ${file.name}, uploading original:`, err);
+        return { file, action: 'passthrough' };
+    } finally {
+        if (reader) { try { await reader.close(); } catch (err) { /* already closed */ } }
+    }
+}
+
+function renderUploadFileList(lines) {
+    const listDiv = document.getElementById('uploadFilesList');
+    listDiv.innerHTML = lines.join('') +
         `<div class="text-xs" style="margin-top: 6px; color: var(--color-accent); cursor: pointer;" onclick="triggerFilePicker()">Change selection...</div>`;
+}
+
+async function handleFilesSelected(files) {
+    if (!files || files.length === 0) return;
+    const fileArray = Array.from(files);
+    const statusDiv = document.getElementById('uploadStatus');
+    const submitBtn = document.getElementById('uploadSubmitBtn');
+    _uploadBlockedFiles = [];
+
+    // Platforms without a member list — and whole folder trees — pass through
+    // untouched; slimming applies only to file-mode .zip selections.
+    const slim = _uploadZipSuffixes.length > 0 && _uploadMode !== 'folder';
+    if (!slim) {
+        uploadPendingFiles = fileArray;
+        let lines;
+        if (fileArray.length <= 10) {
+            lines = fileArray.map(f => `<div class="text-xs" style="padding: 2px 0;">${f.name}</div>`);
+        } else {
+            lines = [`<div class="text-sm">${fileArray.length} files selected</div>`,
+                ...fileArray.slice(0, 5).map(f =>
+                    `<div class="text-xs" style="padding: 2px 0; color: var(--color-text-tertiary);">${f.name}</div>`),
+                `<div class="text-xs" style="color: var(--color-text-tertiary);">... and ${fileArray.length - 5} more</div>`];
+        }
+        renderUploadFileList(lines);
+        return;
+    }
+
+    const generation = ++_uploadSelectionGen;
+    _uploadPreprocessing = true;
+    submitBtn.disabled = true;
+    statusDiv.style.display = 'block';
+    statusDiv.style.color = 'var(--color-text-tertiary)';
+    document.getElementById('uploadFilesList').innerHTML =
+        `<div class="text-xs" style="padding: 2px 0; color: var(--color-text-tertiary);">Scanning selection...</div>`;
+
+    const zipCount = fileArray.filter(f => /\.zip$/i.test(f.name)).length;
+    let zipIndex = 0;
+    const processed = [];
+    const lines = [];
+    for (const file of fileArray) {
+        if (!/\.zip$/i.test(file.name)) {
+            processed.push(file);
+            lines.push(`<div class="text-xs" style="padding: 2px 0;">${file.name} ` +
+                `<span style="color: var(--color-text-tertiary);">(uploaded as-is)</span></div>`);
+            continue;
+        }
+        zipIndex++;
+        statusDiv.textContent = `Scanning donation zip ${zipIndex}/${zipCount}: ${file.name}...`;
+        const result = await repackDonationZip(file, _uploadZipSuffixes,
+            msg => { statusDiv.textContent = `[${zipIndex}/${zipCount}] ${msg}`; });
+        if (generation !== _uploadSelectionGen) return;  // selection changed mid-scan
+        if (result.action === 'blocked') {
+            _uploadBlockedFiles.push(file.name);
+            lines.push(`<div class="text-xs" style="padding: 2px 0; color: var(--color-danger);">${file.name} ` +
+                `— no matching donation files found in this zip</div>`);
+        } else if (result.action === 'repacked') {
+            processed.push(result.file);
+            lines.push(`<div class="text-xs" style="padding: 2px 0;">${file.name} ` +
+                `<span style="color: var(--color-success-light);">(repacked ` +
+                `${formatBytes(result.originalSize)} → ${formatBytes(result.newSize)})</span></div>`);
+        } else {
+            processed.push(result.file);
+            lines.push(`<div class="text-xs" style="padding: 2px 0;">${file.name} ` +
+                `<span style="color: var(--color-text-tertiary);">(uploaded as-is)</span></div>`);
+        }
+    }
+
+    uploadPendingFiles = processed;
+    _uploadPreprocessing = false;
+    renderUploadFileList(lines);
+
+    if (_uploadBlockedFiles.length > 0) {
+        statusDiv.textContent = `Cannot upload: ${_uploadBlockedFiles.join(', ')} ` +
+            `contain${_uploadBlockedFiles.length === 1 ? 's' : ''} none of the files this platform needs. ` +
+            `Change the selection or pick another export.`;
+        statusDiv.style.color = 'var(--color-danger)';
+        submitBtn.disabled = true;
+    } else {
+        statusDiv.textContent = '';
+        statusDiv.style.display = 'none';
+        submitBtn.disabled = false;
+    }
 }
 
 function closeUploadModal() {
@@ -3429,6 +3595,14 @@ function renderUploadTags() {
 // --- Submit Upload ---
 
 function submitUpload() {
+    if (_uploadPreprocessing) {
+        alert('Still scanning the selected donation zip(s) — one moment.');
+        return;
+    }
+    if (_uploadBlockedFiles.length > 0) {
+        alert('Some selected zips contain none of the files this platform needs. Change the selection first.');
+        return;
+    }
     if (!uploadPendingFiles || uploadPendingFiles.length === 0) {
         alert('Please select files first.');
         return;

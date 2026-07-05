@@ -3290,6 +3290,7 @@ def get_ingestion_sources():
                 "pending_files": pending,
                 "files": files,
                 "ingestion_mode": getattr(col, "ingestion_mode", "upload"),
+                "zip_member_suffixes": col.zip_member_suffixes(),
             })
         return jsonify({"status": "success", "sources": sources, "total_pending": total_pending})
     except Exception as e:

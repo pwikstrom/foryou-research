@@ -716,6 +716,23 @@ class ForYouBaseCollection(ABC):
 
 
 
+    @classmethod
+    def zip_member_suffixes(cls) -> list[str]:
+        """Zip-member suffixes the ingester needs from an uploaded donation zip.
+
+        Matched with the same path-suffix semantics as
+        :func:`fyp.utils.read_zip_members`. The web upload UI uses this list to
+        slim large donation zips client-side before upload, keeping only the
+        listed members. Empty for platforms whose uploads are consumed whole.
+
+        Returns:
+            Member-name suffixes, or an empty list when client-side slimming
+            does not apply to this platform.
+        """
+        return []
+
+
+
     def process(self):
 
         if self.state == "empty":
@@ -1996,6 +2013,15 @@ class InstagramDDPCollection(ForYouBaseCollection):
 
 
 
+    @classmethod
+    def zip_member_suffixes(cls) -> list[str]:
+        """The two activity-stream members read from the export zip."""
+        return [suffix for suffix, _ in cls._STREAMS]
+
+
+
+
+
     @staticmethod
     def _records(payload: object) -> list[dict]:
         """Normalise a stream file's JSON into a flat list of activity records.
@@ -2140,23 +2166,28 @@ class InstagramDDPCollection(ForYouBaseCollection):
 class YouTubeDDPCollection(ForYouBaseCollection):
     """YouTube / Google Takeout watch-history ingester.
 
-    Parses ``history/watch-history.html`` from the uploaded Takeout zip. Organic
-    video watches become ``activity_type='play'``; served ad impressions
-    ("From Google Ads") become ``activity_type='ad_play'``; non-video events
-    (Shorts-creation, community-post views) are dropped. The donated title and
-    channel are captured as an enrichment seed via the base ``seed_*`` contract.
+    Parses ``history/watch-history.json`` or ``history/watch-history.html``
+    from the uploaded Takeout zip — Takeout emits one or the other depending on
+    the account's export settings; JSON is preferred when both are present
+    because its timestamps are unambiguous ISO-8601 UTC. Organic video watches
+    become ``activity_type='play'``; served ad impressions ("From Google Ads")
+    become ``activity_type='ad_play'``; non-video events (Shorts-creation,
+    community-post views) are dropped. The donated title and channel are
+    captured as an enrichment seed via the base ``seed_*`` contract.
     """
 
     platform_url_template = "https://www.youtube.com/watch?v={item_id}"
     source_platform = "youtube"
     raw_path = "youtube_raw"
 
-    _MEMBER_SUFFIX = "history/watch-history.html"
+    _MEMBER_SUFFIX_HTML = "history/watch-history.html"
+    _MEMBER_SUFFIX_JSON = "history/watch-history.json"
     _BODY_RE = re.compile(r'body-1[^>]*>(.*?)</div>', re.S)
     _CAPTION_RE = re.compile(r'mdl-typography--caption">(.*?)</div>', re.S)
     _VIDEO_RE = re.compile(r'watch\?v=([\w-]{11})')
     _TITLE_RE = re.compile(r'watch\?v=[\w-]{11}[^"]*">(.*?)</a>', re.S)
     _CHANNEL_RE = re.compile(r'/channel/([\w-]+)"[^>]*>(.*?)</a>', re.S)
+    _CHANNEL_ID_RE = re.compile(r'/channel/([\w-]+)')
     # Takeout renders timestamps in the account's display locale. Supported:
     # day-first ("29 Jun 2026, 21:43:42 AEST", September as "Sept", June/July in
     # full) and US month-first 12-hour ("Apr 4, 2024, 5:36:02 PM PDT"), with an
@@ -2194,6 +2225,15 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         self.source_platform = "youtube"
         self.data_source = "ddp"
         self.min_required_rows_per_raw_file = 10
+
+
+
+
+
+    @classmethod
+    def zip_member_suffixes(cls) -> list[str]:
+        """Both watch-history members; a Takeout zip carries one of the two."""
+        return [cls._MEMBER_SUFFIX_JSON, cls._MEMBER_SUFFIX_HTML]
 
 
 
@@ -2242,6 +2282,53 @@ class YouTubeDDPCollection(ForYouBaseCollection):
                 "seed_desc": title if title else pd.NA,
                 "seed_author_id": channel_id if channel_id else pd.NA,
                 "seed_author_name": channel_name if channel_name else pd.NA,
+            })
+        return rows
+
+
+
+
+
+    @classmethod
+    def _parse_history_json(cls, payload: list) -> list[dict]:
+        """Return one raw row per JSON watch-history record that references a video.
+
+        Records without a ``watch?v=`` video id in ``titleUrl`` (Shorts-creation
+        tools, Shorts-ad views with no target video, community posts) are
+        skipped. Ad impressions carry ``details: [{"name": "From Google Ads"}]``;
+        removed/unavailable videos echo the watch URL as the title and carry no
+        donated title. Timestamps are ISO-8601 UTC strings, emitted verbatim in
+        ``yt_json_time`` and converted in ``load_single_raw``.
+        """
+        rows: list[dict] = []
+        for record in payload:
+            if not isinstance(record, dict):
+                continue
+            video_match = cls._VIDEO_RE.search(record.get("titleUrl") or "")
+            if not video_match:
+                continue
+
+            title = (record.get("title") or "").removeprefix("Watched ").strip()
+            if not title or "watch?v=" in title:
+                title = None  # removed/unavailable video: title is just the URL
+
+            subtitles = record.get("subtitles") or []
+            channel = subtitles[0] if subtitles and isinstance(subtitles[0], dict) else {}
+            channel_match = cls._CHANNEL_ID_RE.search(channel.get("url") or "")
+
+            details = record.get("details") or []
+            is_ad = any(
+                isinstance(detail, dict) and detail.get("name") == "From Google Ads"
+                for detail in details
+            )
+
+            rows.append({
+                "item_id": video_match.group(1),
+                "is_ad": is_ad,
+                "yt_json_time": record.get("time"),
+                "seed_desc": title if title else pd.NA,
+                "seed_author_id": channel_match.group(1) if channel_match else pd.NA,
+                "seed_author_name": channel.get("name") or pd.NA,
             })
         return rows
 
@@ -2321,42 +2408,73 @@ class YouTubeDDPCollection(ForYouBaseCollection):
 
 
     def load_single_raw(self, filename: str) -> pd.DataFrame:
-        """Extract the watch-history HTML from the Takeout zip and parse it.
+        """Extract the watch-history member from the Takeout zip and parse it.
 
-        Timestamps are converted here (not in ``process_single``) so an
-        unsupported locale is detected while the file can still be left
-        pending rather than ledger-blacklisted.
+        Takeout exports the history as JSON or HTML depending on the account's
+        export settings; both members are requested in one archive pass and the
+        JSON one is preferred (unambiguous ISO-8601 UTC timestamps, no display
+        locale involved). Timestamps are converted here (not in
+        ``process_single``) so an unsupported locale is detected while the file
+        can still be left pending rather than ledger-blacklisted.
 
         Raises:
             ValueError: when the zip is unreadable, has no watch-history
-                member, or none of its rows yields a parseable timestamp
-                (unsupported display locale) — structural failures that must
-                stay pending rather than be discarded as too-small.
+                member, holds invalid JSON, or none of its rows yields a
+                parseable timestamp (unsupported display locale) — structural
+                failures that must stay pending rather than be discarded as
+                too-small.
         """
         local_path = data_io.local_copy(storage_location=self.raw_path, filename=filename)
         if not local_path:
             raise ValueError(f"could not fetch '{filename}' from '{self.raw_path}'")
 
         try:
-            raw = read_zip_members(local_path, [self._MEMBER_SUFFIX])[self._MEMBER_SUFFIX]
+            members = read_zip_members(
+                local_path, [self._MEMBER_SUFFIX_JSON, self._MEMBER_SUFFIX_HTML]
+            )
         finally:
             data_io.release_local_copy(local_path)
-        if raw is None:
-            raise ValueError(f"'{filename}' contains no '{self._MEMBER_SUFFIX}' member")
+        raw_json = members[self._MEMBER_SUFFIX_JSON]
+        raw_html = members[self._MEMBER_SUFFIX_HTML]
+        if raw_json is None and raw_html is None:
+            raise ValueError(
+                f"'{filename}' contains no '{self._MEMBER_SUFFIX_JSON}' or "
+                f"'{self._MEMBER_SUFFIX_HTML}' member"
+            )
 
-        rows = self._parse_history(raw.decode("utf-8", errors="replace"))
-        if not rows:
-            return pd.DataFrame()
-
-        df = pd.DataFrame.from_records(rows)
         donor_tz = parse_donor_timezone(self._current_file_tz)
-        df["utc_timestamp"] = self._convert_timestamps(df, donor_tz=donor_tz)
-        if df["utc_timestamp"].isna().all():
+        if raw_json is not None:
+            try:
+                payload = json.loads(raw_json.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError) as exc:
+                raise ValueError(
+                    f"'{filename}': '{self._MEMBER_SUFFIX_JSON}' is not valid JSON: {exc}"
+                ) from exc
+            if not isinstance(payload, list):
+                raise ValueError(
+                    f"'{filename}': '{self._MEMBER_SUFFIX_JSON}' is not a list of records"
+                )
+            rows = self._parse_history_json(payload)
+            if not rows:
+                return pd.DataFrame()
+            df = pd.DataFrame.from_records(rows)
+            df["utc_timestamp"] = pd.to_datetime(
+                df["yt_json_time"], utc=True, format="ISO8601", errors="coerce"
+            )
+            hint = ""
+        else:
+            rows = self._parse_history(raw_html.decode("utf-8", errors="replace"))
+            if not rows:
+                return pd.DataFrame()
+            df = pd.DataFrame.from_records(rows)
+            df["utc_timestamp"] = self._convert_timestamps(df, donor_tz=donor_tz)
             hint = (
                 "" if donor_tz is not None
                 else " — probably an unsupported display locale; set a donor "
                 "timezone in the upload form to bypass the label."
             )
+
+        if df["utc_timestamp"].isna().all():
             raise ValueError(
                 f"'{filename}': {len(df)} watch event(s) found but no timestamp "
                 f"could be parsed{hint}"
