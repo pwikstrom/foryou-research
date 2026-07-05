@@ -20,7 +20,11 @@ from web_interface.process_manager import (
 
 
 def main() -> int:
-    assert SCRAPER_PROCESS_NAMES == ["queue_scraper_tiktok"], SCRAPER_PROCESS_NAMES
+    assert SCRAPER_PROCESS_NAMES == [
+        "queue_scraper_tiktok",
+        "queue_scraper_instagram",
+        "queue_scraper_youtube",
+    ], SCRAPER_PROCESS_NAMES
 
     for name in SCRAPER_PROCESS_NAMES:
         assert name in processes, f"{name} missing from process state registry"

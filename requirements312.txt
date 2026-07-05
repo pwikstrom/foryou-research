@@ -204,3 +204,4 @@ WTForms==3.2.1
 yarl==1.22.0
 curl_cffi==0.14.0
 yt-dlp==2026.3.17
+yt-dlp-ejs==0.8.0

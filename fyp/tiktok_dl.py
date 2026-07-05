@@ -9,8 +9,6 @@ that generate_data_row() produces so downstream code is unchanged.
 
 import logging
 import os
-import threading
-import time
 from datetime import datetime
 from glob import glob
 from os import remove
@@ -22,6 +20,7 @@ import yt_dlp
 from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
+from fyp import scraper_cookies
 from fyp.fyp_config import fyp_cf
 from fyp.platform_scraper import (  # noqa: F401
     _THROTTLE_CATEGORIES,
@@ -125,248 +124,27 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
 
 # -------------------------------------------------------------------------
-# Cookie handling — adapts to local dev vs Cloud Run
+# Cookie handling — generic per-platform plumbing lives in fyp.scraper_cookies;
+# these thin wrappers keep the module-internal call sites unchanged.
 # -------------------------------------------------------------------------
 
-# Local cache path for the cookie file when running on Cloud Run.
-# /tmp is writable in Cloud Run containers and survives within a single
-# container instance (but not across container restarts — which is fine,
-# we just re-pull on next call).
-_COOKIE_LOCAL_PATH = "/tmp/tiktok_cookies.txt"
-
-# How long to trust the locally-cached copy before re-pulling from GCS.
-# Set to 6h so a freshly-uploaded cookies.txt is picked up by all running
-# containers within ~6h without needing a redeploy.
-_COOKIE_CACHE_TTL_SEC = 6 * 3600
-
-# GCS object path for the cookie file (within the configured bucket).
-_COOKIE_GCS_BLOB = "secrets/tiktok_cookies.txt"
-
-# Guard concurrent download attempts so 8+ workers starting at once don't
-# all race to download the same file.
-_COOKIE_DOWNLOAD_LOCK = threading.Lock()
-
-
-def _ensure_cookie_file() -> str | None:
-    """Lazily fetch the TikTok cookies file from GCS to ``/tmp``.
-
-    Only runs on Cloud Run (``K_SERVICE`` env var set). Returns the path
-    to the local cookies file if available, ``None`` if no cookies could
-    be obtained (in which case scraping continues without authentication).
-
-    Caching: the local file is re-used for ``_COOKIE_CACHE_TTL_SEC`` before
-    re-pulling. Concurrent calls are serialised by a module-level lock so
-    only one download happens per refresh cycle.
-    """
-    if not os.environ.get('K_SERVICE'):
-        return None
-
-    # Fast path — local copy is fresh enough.
-    if os.path.exists(_COOKIE_LOCAL_PATH):
-        age = time.time() - os.path.getmtime(_COOKIE_LOCAL_PATH)
-        if age < _COOKIE_CACHE_TTL_SEC:
-            return _COOKIE_LOCAL_PATH
-
-    with _COOKIE_DOWNLOAD_LOCK:
-        # Re-check inside the lock — another thread may have just downloaded.
-        if os.path.exists(_COOKIE_LOCAL_PATH):
-            age = time.time() - os.path.getmtime(_COOKIE_LOCAL_PATH)
-            if age < _COOKIE_CACHE_TTL_SEC:
-                return _COOKIE_LOCAL_PATH
-
-        try:
-            bucket = fyp_cf['data_io'].get('bucket')
-            if bucket is None:
-                logger.warning("No GCS bucket configured; cannot fetch cookies")
-                return None
-
-            blob = bucket.blob(_COOKIE_GCS_BLOB)
-            if not blob.exists():
-                logger.warning(
-                    "Cookie file not found at gs://%s/%s — running without "
-                    "authentication. Upload a Netscape-format cookies.txt "
-                    "to enable session-authenticated scraping.",
-                    bucket.name, _COOKIE_GCS_BLOB,
-                )
-                return None
-
-            # Download to a temp file then atomically rename so concurrent
-            # readers never see a partial file.
-            tmp_path = f"{_COOKIE_LOCAL_PATH}.{os.getpid()}.tmp"
-            blob.download_to_filename(tmp_path)
-            os.replace(tmp_path, _COOKIE_LOCAL_PATH)
-            logger.info("Downloaded TikTok cookies from gs://%s/%s to %s",
-                        bucket.name, _COOKIE_GCS_BLOB, _COOKIE_LOCAL_PATH)
-            return _COOKIE_LOCAL_PATH
-        except Exception as e:
-            logger.warning("Cookie fetch failed: %s — running without cookies", e)
-            return None
-
-
 def _cookie_opts() -> dict:
-    """Return yt-dlp cookie options appropriate for the current environment.
-
-    Local dev (macOS): extract cookies from Chrome browser directly.
-    Cloud Run / Docker: pull cookies.txt from GCS (cached in /tmp). Falls
-    back to ``YTDLP_COOKIE_FILE`` env var if set, then to no cookies.
-    """
-    # Cloud Run sets K_SERVICE; Docker containers won't have a browser
-    if os.environ.get('K_SERVICE') or not os.path.exists('/Applications'):
-        path = _ensure_cookie_file()
-        if path:
-            return {'cookiefile': path}
-        cookie_file = os.environ.get('YTDLP_COOKIE_FILE', '')
-        if cookie_file and os.path.exists(cookie_file):
-            return {'cookiefile': cookie_file}
-        return {}
-
-    return {'cookiesfrombrowser': ('chrome',)}
+    """Return yt-dlp cookie options for TikTok (see :mod:`fyp.scraper_cookies`)."""
+    return scraper_cookies.cookie_opts("tiktok")
 
 
 def _requests_cookies():
-    """Return a ``MozillaCookieJar`` for requests, or ``None`` if unavailable.
+    """Return a ``MozillaCookieJar`` with the TikTok session cookies, or ``None``.
 
     Used to attach the same TikTok session cookies to plain ``requests``
     calls in :func:`_fetch_item_struct` and :func:`_download_images`.
     """
-    path = _ensure_cookie_file() or os.environ.get('YTDLP_COOKIE_FILE', '')
-    if not path or not os.path.exists(path):
-        return None
+    return scraper_cookies.requests_cookiejar("tiktok")
 
-    from http.cookiejar import MozillaCookieJar
-    try:
-        jar = MozillaCookieJar(path)
-        jar.load(ignore_discard=True, ignore_expires=True)
-        return jar
-    except Exception as e:
-        logger.debug("Failed to load cookies for requests: %s", e)
-        return None
-
-
-# -------------------------------------------------------------------------
-# Cookie health — parse sessionid expiry so callers can warn before a
-# stale cookie file causes a queue-wide 403 spike.
-# -------------------------------------------------------------------------
 
 def cookie_health() -> dict:
-    """Return health info for the TikTok cookies file.
-
-    Returns a dict with keys:
-        present (bool):           File found in GCS (or local override path).
-        local_path (str | None):  Path to the locally-cached copy, if any.
-        file_age_days (float | None): Age of the GCS blob (or local file).
-        sessionid_expires_at (int | None): Unix timestamp from the cookie row.
-        sessionid_days_left (float | None): Days until ``sessionid`` expires.
-        status (str): One of 'missing', 'expired', 'expiring_soon', 'stale',
-                      'healthy', 'unknown'.
-        message (str): Human-readable summary.
-
-    Notes:
-        * 'expiring_soon' fires when sessionid has < 14 days left.
-        * 'stale' fires when the file is older than 25 days, even if
-          sessionid hasn't expired yet — msToken/ttwid drift and
-          behavioural flags accumulate, so periodic refresh is healthy.
-    """
-    health = {
-        'present': False,
-        'local_path': None,
-        'file_age_days': None,
-        'sessionid_expires_at': None,
-        'sessionid_days_left': None,
-        'status': 'unknown',
-        'message': '',
-    }
-
-    path = _ensure_cookie_file() or os.environ.get('YTDLP_COOKIE_FILE', '')
-
-    # Local-dev path: cookies come from Chrome, not a file — declare healthy.
-    if not os.environ.get('K_SERVICE') and os.path.exists('/Applications'):
-        health['present'] = True
-        health['status'] = 'healthy'
-        health['message'] = 'Local dev: using cookies from Chrome browser'
-        return health
-
-    if not path or not os.path.exists(path):
-        health['status'] = 'missing'
-        health['message'] = (
-            f"Cookie file missing — upload a Netscape cookies.txt to "
-            f"gs://<bucket>/{_COOKIE_GCS_BLOB} to enable authenticated scraping"
-        )
-        return health
-
-    health['present'] = True
-    health['local_path'] = path
-
-    # File age — use GCS blob mtime if available (more accurate than local
-    # cache mtime, which is just when we last downloaded), else local mtime.
-    try:
-        bucket = fyp_cf['data_io'].get('bucket')
-        if bucket is not None:
-            blob = bucket.blob(_COOKIE_GCS_BLOB)
-            blob.reload()
-            if blob.updated:
-                age_sec = time.time() - blob.updated.timestamp()
-                health['file_age_days'] = age_sec / 86400
-    except Exception:
-        pass
-    if health['file_age_days'] is None:
-        try:
-            health['file_age_days'] = (time.time() - os.path.getmtime(path)) / 86400
-        except OSError:
-            pass
-
-    # Parse sessionid expiry from the Netscape file. Format:
-    #   domain\tflag\tpath\tsecure\texpiry\tname\tvalue
-    sessionid_expiry = None
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.startswith('#') or not line.strip():
-                    continue
-                parts = line.rstrip('\n').split('\t')
-                if len(parts) >= 7 and parts[5] == 'sessionid':
-                    try:
-                        sessionid_expiry = int(parts[4])
-                    except ValueError:
-                        continue
-                    break
-    except OSError as e:
-        logger.warning("Could not read cookie file %s: %s", path, e)
-
-    if sessionid_expiry:
-        health['sessionid_expires_at'] = sessionid_expiry
-        health['sessionid_days_left'] = (sessionid_expiry - time.time()) / 86400
-
-    # Decide status.
-    if sessionid_expiry is None:
-        health['status'] = 'unknown'
-        health['message'] = 'Cookie file present but sessionid row not found'
-    elif health['sessionid_days_left'] <= 0:
-        health['status'] = 'expired'
-        health['message'] = (
-            f"sessionid expired {-health['sessionid_days_left']:.1f} days ago — "
-            f"re-export cookies and re-upload"
-        )
-    elif health['sessionid_days_left'] < 14:
-        health['status'] = 'expiring_soon'
-        health['message'] = (
-            f"sessionid expires in {health['sessionid_days_left']:.1f} days — "
-            f"plan to re-export cookies before then"
-        )
-    elif health['file_age_days'] is not None and health['file_age_days'] > 25:
-        health['status'] = 'stale'
-        health['message'] = (
-            f"cookie file is {health['file_age_days']:.0f} days old — "
-            f"consider re-exporting to refresh msToken/ttwid"
-        )
-    else:
-        days = health['sessionid_days_left']
-        age = health['file_age_days']
-        age_str = f"{age:.0f}d old" if age is not None else "age unknown"
-        health['status'] = 'healthy'
-        health['message'] = f"sessionid valid for {days:.0f} more days ({age_str})"
-
-    return health
+    """Return health info for the TikTok cookies file (sessionid expiry)."""
+    return scraper_cookies.cookie_health("tiktok", session_cookie="sessionid")
 
 
 
@@ -1056,7 +834,7 @@ class TikTokScraper(BaseScraper):
         verbose: bool = False,
     ) -> pd.DataFrame:
         backend = fyp_cf['misc'].get('scraper_backend', 'pyktok')
-        max_duration = fyp_cf['misc']['max_duration_for_download']
+        max_duration = self.media_duration_cap()
         url = self.item_url(item_id)
         if backend == 'ytdlp':
             return save_tiktok(

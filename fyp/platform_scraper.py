@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # imported for ``__init_subclass__`` to register them; ``get_scraper`` imports
 # them lazily so this module never imports a subclass at load time (which would
 # be circular — each subclass imports ``BaseScraper`` from here).
-_SCRAPER_MODULES = ("fyp.tiktok_dl",)
+_SCRAPER_MODULES = ("fyp.tiktok_dl", "fyp.instagram_dl", "fyp.youtube_dl")
 
 
 # Seconds of slideshow video per carousel image. Shared by the orchestrator's
@@ -210,6 +210,35 @@ class BaseScraper(ABC):
         return None
 
 
+    def media_duration_cap(self) -> int:
+        """Maximum item duration (seconds) for which media is downloaded.
+
+        Reads ``[misc] max_duration_for_download_<platform>`` when present,
+        falling back to the global ``max_duration_for_download``. Metadata is
+        always scraped regardless — the cap only gates the media phase.
+        """
+        from fyp.fyp_config import fyp_cf
+        misc = fyp_cf["misc"]
+        return int(misc.get(f"max_duration_for_download_{self.platform}",
+                            misc["max_duration_for_download"]))
+
+
+    def should_download_media(self, duration) -> bool:
+        """Whether an item's media should be downloaded given its duration.
+
+        ``False`` when a known, positive duration exceeds
+        :meth:`media_duration_cap`. An unknown duration (``None``/NA/negative
+        sentinel) returns ``True`` — the media phase decides what to do with
+        it. Skipping for length is not an error: the metadata row is saved
+        with ``scrape_status="ok"`` and ``video_downloaded=False``.
+        """
+        if duration is None or pd.isna(duration):
+            return True
+        if not isinstance(duration, (int, float)):
+            return True
+        return duration <= self.media_duration_cap()
+
+
     # -----------------------------------------------------------------
     # Concrete — shared by every platform.
     # -----------------------------------------------------------------
@@ -296,7 +325,10 @@ class BaseScraper(ABC):
 
 
 
-_THROTTLE_CATEGORIES = {"rate_limited"}
+# Error categories that signal platform-side throttling and shrink concurrency:
+# classic rate limits plus YouTube's datacenter-IP bot wall ("sign in to
+# confirm you're not a bot"), which behaves like a rate limit in practice.
+_THROTTLE_CATEGORIES = {"rate_limited", "bot_check"}
 
 
 class ThrottleController:

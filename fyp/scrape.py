@@ -1368,6 +1368,77 @@ def _canonicalize_legacy_scrape(df: pd.DataFrame, filename: str | None = None, s
 
 
 
+def _load_enrichment_seeds(verbose: bool = False) -> dict[str, pd.DataFrame]:
+    """Load all donated enrichment-seed parquets from the ``recoded`` location.
+
+    The seeds are written per platform by ``fyp.ingest.save_enrichment_seed``
+    (``{platform}_{source}_enrichment_seed.parquet``, canonical scrape base
+    schema, ``scrape_status="donated"``).
+
+    Returns:
+        ``{filename: DataFrame}`` for every non-empty seed file found.
+    """
+    seeds: dict[str, pd.DataFrame] = {}
+    for fn in data_io.listdir(storage_location="recoded"):
+        if fn.endswith("_enrichment_seed.parquet"):
+            df = data_io.load_parquet(storage_location="recoded", filename=fn)
+            if df is not None and len(df) > 0:
+                seeds[fn] = df
+                if verbose:
+                    print(f"    Loaded {len(df):,} donated seed rows from {fn}")
+    return seeds
+
+
+
+
+
+
+def _merge_enrichment_seeds(
+    scrape_df: pd.DataFrame,
+    seed_frames: dict[str, pd.DataFrame],
+    verbose: bool = False,
+) -> pd.DataFrame:
+    """Append donated seed rows for items that have no real scrape row.
+
+    Precedence is a plain anti-join on ``(source_platform, item_id)``: any real
+    scrape row beats a donated one, and re-consolidation after a later real
+    scrape automatically drops the donated row (consolidation rebuilds from all
+    files each run). Donated rows are stamped ``scraped_ok=False`` /
+    ``video_downloaded=False`` so the items stay scrape-eligible while their
+    donated caption/author metadata surfaces downstream.
+    """
+    if not seed_frames:
+        return scrape_df
+
+    seeds = pd.concat(list(seed_frames.values()), ignore_index=True)
+    seeds = seeds[seeds["item_id"].notna()].copy()
+    seeds = seeds.drop_duplicates(subset=["source_platform", "item_id"], keep="first")
+
+    if len(scrape_df) > 0 and {"source_platform", "item_id"}.issubset(scrape_df.columns):
+        real_keys = pd.MultiIndex.from_frame(
+            scrape_df[["source_platform", "item_id"]].astype("string[pyarrow]")
+        )
+        seed_keys = pd.MultiIndex.from_frame(
+            seeds[["source_platform", "item_id"]].astype("string[pyarrow]")
+        )
+        seeds = seeds[~seed_keys.isin(real_keys)].copy()
+
+    if len(seeds) == 0:
+        return scrape_df
+
+    seeds["scraped_ok"] = pd.Series(False, index=seeds.index, dtype="bool[pyarrow]")
+    seeds["video_downloaded"] = pd.Series(False, index=seeds.index, dtype="bool[pyarrow]")
+    seeds["storage_link"] = pd.Series("", index=seeds.index, dtype="string[pyarrow]")
+
+    if verbose:
+        print(f"    Adding {len(seeds):,} donated seed row(s) for items without a real scrape.")
+    return pd.concat([scrape_df, seeds], ignore_index=True)
+
+
+
+
+
+
 def consolidate_and_save_scrape_data(
     force_consolidation: bool = False,
     return_saved_data: bool = True,
@@ -1397,8 +1468,17 @@ def consolidate_and_save_scrape_data(
         if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet"):
             files_to_concatenate.append(fn)
 
+    # Donated enrichment seeds participate in change detection: a fresh ingest
+    # grows a seed file's row count without adding a scrapes_* parquet, and
+    # must still trigger consolidation.
+    seed_frames = _load_enrichment_seeds(verbose=verbose)
+    seed_row_counts = {fn: len(df) for fn, df in seed_frames.items()}
+
     latest_filename_list = dataset_meta.get(SCRAPES_LABEL, {}).get("filenames", [])
-    if not force_consolidation and set(files_to_concatenate) <= set(latest_filename_list):
+    latest_seed_row_counts = dataset_meta.get(SCRAPES_LABEL, {}).get("seed_row_counts", {})
+    if (not force_consolidation
+            and set(files_to_concatenate) <= set(latest_filename_list)
+            and seed_row_counts == latest_seed_row_counts):
         if top_verbose:
             print("No new scrape files found. No need to consolidate.")
         if return_saved_data:
@@ -1426,7 +1506,16 @@ def consolidate_and_save_scrape_data(
 
     if top_verbose:
         print(f"Consolidating {len(many_scrape_dfs):,} scrape files (dropping duplicate items)...")
-    scrape_df = pd.concat(many_scrape_dfs, ignore_index=True)
+    if many_scrape_dfs:
+        scrape_df = pd.concat(many_scrape_dfs, ignore_index=True)
+    else:
+        # No real scrapes yet (e.g. a fresh platform with only donated seeds) —
+        # start from an empty frame with the columns downstream steps touch.
+        scrape_df = pd.DataFrame({
+            "item_id": pd.Series([], dtype="string[pyarrow]"),
+            "source_platform": pd.Series([], dtype="string[pyarrow]"),
+            "video_downloaded": pd.Series([], dtype="bool[pyarrow]"),
+        })
 
     # Backfill source_platform for rows scraped before the column existed.
     # Canonical-era files skip _canonicalize_legacy_scrape's rename path, so the
@@ -1473,6 +1562,13 @@ def consolidate_and_save_scrape_data(
         scrape_df = pd.concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
 
 
+    # ---------------------------------------------------------------
+    # Donated enrichment seeds — lowest-precedence fallback rows for
+    # items with no real scrape (anti-join on source_platform+item_id).
+    # ---------------------------------------------------------------
+    scrape_df = _merge_enrichment_seeds(scrape_df, seed_frames, verbose=top_verbose)
+
+
     memory_per_column = scrape_df.memory_usage(deep=True)
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
@@ -1507,6 +1603,7 @@ def consolidate_and_save_scrape_data(
     if SCRAPES_LABEL not in dataset_meta:
         dataset_meta[SCRAPES_LABEL] = {}
     dataset_meta[SCRAPES_LABEL]["filenames"] = files_to_concatenate
+    dataset_meta[SCRAPES_LABEL]["seed_row_counts"] = seed_row_counts
     _ = data_io.save_json(data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
 
     if top_verbose:

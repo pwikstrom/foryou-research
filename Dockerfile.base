@@ -12,7 +12,17 @@ RUN apt-get update && apt-get install -y \
     cargo \
     rustc \
     ffmpeg \
+    curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# deno — JavaScript runtime for yt-dlp's YouTube n-challenge solver
+# (yt-dlp-ejs in requirements312.txt provides the solver scripts).
+RUN curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip \
+    -o /tmp/deno.zip \
+    && unzip -q /tmp/deno.zip -d /usr/local/bin \
+    && chmod +x /usr/local/bin/deno \
+    && rm /tmp/deno.zip
 
 RUN pip install --upgrade pip
 
