@@ -7,12 +7,16 @@ Date:
 """
 
 
+import functools
+import html
+import json
+import os
 import re
 from abc import ABC, abstractmethod
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 import pandas as pd
@@ -20,14 +24,87 @@ import pandas as pd
 import fyp.data_io as data_io
 from fyp import activity_contract as _activity_contract
 from fyp import activity_versioning as _activity_versioning
+from fyp import scrape_contract as _scrape_contract
+from fyp import scrape_versioning as _scrape_versioning
 from fyp.donations import generate_collection_metadata
+from fyp.fyp_config import fyp_cf
 from fyp.organize_datasets import COLLECTIONS_LABEL
 from fyp.polars_ops import fast_vertical_concat
 from fyp.recode_variables import infer_timezone_offset
 from fyp.types import convert_dtypes_to_pyarrow
-from fyp.utils import clean_url
+from fyp.utils import clean_url, read_zip_members, repair_mojibake
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
+
+# Maps a collection's standard donated-metadata scratch columns to the canonical
+# scrape base fields (config/scrape_contract.toml) written by save_enrichment_seed.
+_SEED_TO_CANONICAL = {
+    "seed_desc": "desc",
+    "seed_author_id": "author_id",
+    "seed_author_name": "author_name",
+    "seed_create_time": "create_time",
+}
+
+# Scratch column carrying the per-file donor timezone from the ingestion manifest
+# (an IANA name like "Asia/Kolkata" or a fixed "+05:30" offset). Stamped in
+# load_raw, consumed by the timezone resolvers, dropped by process()'s filter.
+_MANIFEST_TZ_COLUMN = "manifest_tz"
+
+_FIXED_OFFSET_RE = re.compile(r"^([+-])(\d{1,2})(?::?(\d{2}))?$")
+
+
+def parse_donor_timezone(tz_str: str | None):
+    """Parse a manifest timezone string to a ``tzinfo``, or ``None`` if unusable.
+
+    Accepts an IANA zone name (``"Australia/Brisbane"``, ``"Asia/Kolkata"`` —
+    preferred, since it carries DST history) or a fixed UTC offset
+    (``"+05:30"``, ``"-8"``, ``"+1000"``).
+
+    Args:
+        tz_str: The manifest timezone value.
+
+    Returns:
+        A ``ZoneInfo`` or fixed-offset ``timezone``, or ``None`` when the value
+        is empty or not a recognisable timezone.
+    """
+    if not tz_str or not isinstance(tz_str, str):
+        return None
+    tz_str = tz_str.strip()
+    try:
+        return ZoneInfo(tz_str)
+    except (ZoneInfoNotFoundError, ValueError):
+        pass
+    match = _FIXED_OFFSET_RE.match(tz_str)
+    if match:
+        sign = -1 if match.group(1) == "-" else 1
+        hours = int(match.group(2))
+        minutes = int(match.group(3) or 0)
+        return timezone(sign * timedelta(hours=hours, minutes=minutes))
+    return None
+
+
+def _zone_offset_hours(utc_timestamps: pd.Series, tz) -> pd.Series:
+    """Return the per-row UTC offset in hours of ``tz`` at each UTC instant.
+
+    Vectorised and DST-correct: converts the tz-aware UTC series into ``tz`` and
+    measures the wall-clock difference. ``NaT`` rows stay ``NaN``.
+    """
+    converted = utc_timestamps.dt.tz_convert(tz)
+    return (converted.dt.tz_localize(None) - utc_timestamps.dt.tz_localize(None)) / pd.Timedelta(hours=1)
+
+
+def _first_manifest_tz(df: pd.DataFrame):
+    """Return the parsed manifest timezone for a per-file frame, or ``None``.
+
+    A frame handled by ``process_single`` holds one raw file's rows, so the
+    manifest timezone is constant; the first non-null value is taken.
+    """
+    if _MANIFEST_TZ_COLUMN not in df.columns:
+        return None
+    values = df[_MANIFEST_TZ_COLUMN].dropna()
+    if len(values) == 0:
+        return None
+    return parse_donor_timezone(str(values.iloc[0]))
 
 
 # The activity schema is owned by config/activity_contract.toml (the REQUIRED_COLUMNS /
@@ -273,9 +350,11 @@ def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int = 900) -> pd.DataF
 class ForYouBaseCollection(ABC):
 
     platform_url_template: str | None = None
-    # Class attribute so registries (e.g. the viewer's platform URL map) can
-    # read the platform without instantiating; __init__ mirrors it per instance.
+    # Class attributes so registries (e.g. the viewer's platform URL map, the
+    # raw-upload location list) can read platform facts without instantiating;
+    # __init__ mirrors them per instance.
     source_platform: str | None = None
+    raw_path: str | None = None
     ingestion_mode: str = "upload"
     _registry: list[type] = []
 
@@ -283,10 +362,44 @@ class ForYouBaseCollection(ABC):
         super().__init_subclass__(**kwargs)
         if cls.__name__ != "ForYouCollection":
             ForYouBaseCollection._registry.append(cls)
+            cls._register_class_raw_location()
+
+
+
+
+
+    @classmethod
+    def _register_class_raw_location(cls) -> None:
+        """Register this class's raw-upload storage location by convention.
+
+        Resolves ``activity_data/{source_platform}/{raw_path}`` and registers it
+        through :func:`fyp.data_io.register_location`, so adding a platform needs
+        no static ``fyp_config`` edit. Runs at class definition (import time) so
+        the location exists in every process before any request touches it —
+        upload routes must not depend on a collection having been instantiated
+        first. Locations already present in config (the built-in ddp/aio/
+        zeeschuimer ones) are left untouched; failures are printed loudly but
+        never break the import.
+        """
+        raw_path = cls.__dict__.get("raw_path") or getattr(cls, "raw_path", None)
+        source_platform = getattr(cls, "source_platform", None)
+        if not raw_path or not source_platform:
+            return
+        try:
+            abs_path = os.path.join(fyp_cf["paths"]["activity_data"], source_platform, raw_path)
+            data_io.register_location(raw_path, abs_path)
+        except Exception as exc:
+            print(f"WARNING: could not register raw location '{raw_path}' for {cls.__name__}: {exc}")
 
     # The canonical required columns come from config/activity_contract.toml.
     REQUIRED_COLUMNS = _ACTIVITY_REQUIRED_COLUMNS
-    
+
+    # Standard donated-metadata scratch columns a subclass may populate in
+    # load_single_raw. They are dropped from the activity rows by process()'s
+    # column filter; save_enrichment_seed persists them separately as a scrape
+    # enrichment seed. Keys of _SEED_TO_CANONICAL.
+    SEED_SCRATCH_COLUMNS = list(_SEED_TO_CANONICAL.keys())
+
 
 
 
@@ -296,7 +409,7 @@ class ForYouBaseCollection(ABC):
         self.data = pd.DataFrame()
         self.state: Literal["empty", "raw", "processed"] = "empty"
         self.additional_columns = {}
-        self.raw_path = None
+        self.raw_path = getattr(type(self), "raw_path", None)
         self.processed_storage_location = "recoded"
         self.min_required_rows_per_raw_file = 10
         self.discarded_raw_files = []
@@ -304,6 +417,9 @@ class ForYouBaseCollection(ABC):
         self.source_platform = getattr(type(self), "source_platform", None)
         self.data_source = None
         self.collections = []
+        # Donor timezone for the file currently being loaded (from the manifest);
+        # set per-file in load_raw so load_single_raw can honour it.
+        self._current_file_tz = None
 
 
     def clear(self):
@@ -392,6 +508,106 @@ class ForYouBaseCollection(ABC):
 
 
 
+    @staticmethod
+    def _finalize_activity_frame(df: pd.DataFrame) -> pd.DataFrame:
+        """Apply the shared post-conversion tail every platform's rows go through.
+
+        Drops rows whose ``utc_timestamp`` could not be parsed, sets the donor's
+        ``tz_offset`` (from an explicit manifest timezone when one was supplied,
+        else inferred from the UTC series), and returns the frame in stable
+        chronological order. Called at the end of each platform's
+        ``process_single`` so the tail cannot drift between platforms.
+        """
+        df = df[df["utc_timestamp"].notna()].copy()
+        if len(df) > 0:
+            tz = _first_manifest_tz(df)
+            if tz is not None:
+                df["tz_offset"] = _zone_offset_hours(df["utc_timestamp"], tz)
+            else:
+                df["tz_offset"] = infer_timezone_offset(df["utc_timestamp"])
+        df.sort_values("utc_timestamp", inplace=True, kind="mergesort")
+        df.reset_index(drop=True, inplace=True)
+        return df
+
+
+
+
+
+    def save_enrichment_seed(self) -> None:
+        """Persist donated item metadata as an enrichment seed (platform-agnostic).
+
+        Reads the standard ``seed_*`` scratch columns from this collection's raw
+        data (present before ``process()`` drops them) and merges them into a
+        per-platform parquet whose columns match the canonical scrape base schema
+        (``config/scrape_contract.toml``), keyed by ``(source_platform, item_id)``
+        with ``scrape_status="donated"`` and a per-row ``scrape_contract_version``
+        stamp. Existing seed rows from earlier ingest runs are preserved — new
+        rows only win a key collision when they carry a caption the stored row
+        lacks. A later scrape/consolidation can merge the seed as a
+        lowest-precedence fallback for items that cannot be scraped. This is a
+        no-op for collections that populate no seed columns (e.g. TikTok);
+        platform classes only supply values.
+        """
+        if self.state != "raw" or len(self.data) == 0:
+            return
+        present = [c for c in self.SEED_SCRATCH_COLUMNS if c in self.data.columns]
+        if not present or "item_id" not in self.data.columns:
+            return
+
+        contract = _scrape_contract.load_contract()
+        base_cols = _scrape_contract.base_field_names(contract)
+        base_dtypes = _scrape_contract.field_dtypes(contract)
+
+        src = self.data
+        seed = pd.DataFrame({"item_id": src["item_id"].values})
+        for col in base_cols:
+            seed[col] = pd.NA
+
+        seed["source_platform"] = self.source_platform
+        seed["scrape_status"] = "donated"
+        seed["scrape_ts"] = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        for scratch, canonical in _SEED_TO_CANONICAL.items():
+            if scratch in src.columns and canonical in seed.columns:
+                seed[canonical] = src[scratch].values
+
+        seed = seed[seed["item_id"].notna()].copy()
+        if len(seed) == 0:
+            return
+
+        seed = _scrape_versioning.stamp_version(seed)
+
+        for col, dtype in base_dtypes.items():
+            if col in seed.columns:
+                seed[col] = seed[col].astype(dtype)
+        seed = convert_dtypes_to_pyarrow(seed, verbose=False)
+
+        # Merge with the stored seed so earlier donations survive incremental
+        # ingests. New rows are placed first: with the caption-presence sort
+        # below, a fresh captioned row beats a stored one, and a stored
+        # captioned row beats a fresh caption-less duplicate.
+        fn = f"{self.source_platform}_{self.data_source}_enrichment_seed.parquet"
+        if data_io.exists(storage_location=self.processed_storage_location, filename=fn):
+            existing = data_io.load_parquet(
+                storage_location=self.processed_storage_location, filename=fn
+            )
+            if existing is not None and len(existing) > 0:
+                seed = fast_vertical_concat([seed, existing])
+
+        # One row per item, preferring rows that carry a caption/title. Sorting
+        # on the null mask (stable) keeps insertion order within each group
+        # instead of ordering arbitrarily by caption text.
+        seed = seed.sort_values(by="desc", key=lambda s: s.isna(), kind="mergesort")
+        seed = seed.drop_duplicates(subset=["source_platform", "item_id"], keep="first")
+
+        data_io.save_parquet(
+            df=seed,
+            storage_location=self.processed_storage_location,
+            filename=fn,
+        )
+        if self.verbose:
+            print(f"Saved {len(seed):,} donated enrichment-seed rows to {fn}.")
+
 
 
 
@@ -431,27 +647,45 @@ class ForYouBaseCollection(ABC):
         many_dfs = []
         # load all files in the directory
         for fn in all_the_files:
-            one_df = pd.DataFrame()
-            if True:#try:
+            # The donor timezone from the manifest (if any) is exposed on the
+            # instance so a platform's load_single_raw can use it when producing
+            # UTC (YouTube needs it to interpret local wall-clock times), and is
+            # also stamped as a column below for the offset resolver.
+            file_meta = manifest.get(fn, {}) or {}
+            self._current_file_tz = file_meta.get("tz") or None
 
+            # A parse error is not the same as a legitimately-small donation:
+            # errored files are skipped THIS run but stay pending (not added to
+            # discarded_raw_files, so no ledger skip-outcome is stamped) and are
+            # retried on the next refresh — e.g. after a parser fix for a new
+            # export-format variant.
+            try:
                 one_df = self.load_single_raw(fn)
+            except Exception as exc:
+                print(
+                    f"ERROR: failed to load raw file '{fn}' for "
+                    f"'{self.source_platform}_{self.data_source}': {exc}. "
+                    f"Leaving it pending for retry."
+                )
+                continue
 
-                if len(one_df) > 0:
-                    mtime = data_io.getmtime(storage_location=self.raw_path, filename = fn)
-                    one_df["ts_added_to_dataset"] = pd.to_datetime(mtime, unit="s")
-                    one_df["raw_file"] = fn
+            if len(one_df) > 0:
+                mtime = data_io.getmtime(storage_location=self.raw_path, filename = fn)
+                one_df["ts_added_to_dataset"] = pd.to_datetime(mtime, unit="s")
+                one_df["raw_file"] = fn
 
-                    # Apply manifest-based collection_id if available. Must be written
-                    # directly to `collection_id` (not a scratch column) because
-                    # `process()` filters columns down to REQUIRED_COLUMNS before
-                    # `_standardize()` runs — any scratch column would be dropped.
-                    file_meta = manifest.get(fn, {})
-                    if file_meta.get("collection_id"):
-                        one_df["collection_id"] = file_meta["collection_id"]
+                # Apply manifest-based collection_id if available. Must be written
+                # directly to `collection_id` (not a scratch column) because
+                # `process()` filters columns down to REQUIRED_COLUMNS before
+                # `_standardize()` runs — any scratch column would be dropped.
+                if file_meta.get("collection_id"):
+                    one_df["collection_id"] = file_meta["collection_id"]
 
-                    if self.verbose: print(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
-            if False:#except Exception as e:
-                if self.verbose: print(f"Cannot load file: {fn}")
+                # Per-file donor timezone for the offset resolver (scratch column,
+                # dropped by process()'s filter before _standardize()).
+                one_df[_MANIFEST_TZ_COLUMN] = self._current_file_tz if self._current_file_tz else pd.NA
+
+                if self.verbose: print(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
 
             # I will keep data from this file if there are at least 10 activities. (just an arbitrary number)
             if len(one_df) >= self.min_required_rows_per_raw_file:
@@ -459,7 +693,7 @@ class ForYouBaseCollection(ABC):
             else:
                 if self.verbose: print(f"Discarding file: {fn}. Too few rows: {len(one_df):,}")
                 self.discarded_raw_files.append(fn)
-            
+
 
         if len(many_dfs) > 1:
             # Vertical concat via polars — fast multi-frame stack of per-file
@@ -1241,11 +1475,12 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
     platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
     source_platform = "tiktok"
+    raw_path = "ddp_raw"
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         # In addition to the required activity variables, this ingester adds one extra variable:
         # play_duration [int64[pyarrow]] - the duration of the play in seconds
-        # 
+        #
         # The extra_data column is used for the comment string, the account name that was just followed, etc...
         super().__init__(collection_id, verbose)
         self.source_platform = "tiktok"
@@ -1546,6 +1781,7 @@ class TikTokAIOCollection(TikTokDDPCollection):
     """
 
     ingestion_mode = "fetch"
+    raw_path = "aio_raw"
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         super().__init__(collection_id, verbose)
@@ -1587,6 +1823,8 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
     platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
     source_platform = "tiktok"
+
+    raw_path = "zeeschuimer_raw"
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         # The extra_data column is used for the timezone name
@@ -1699,6 +1937,446 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
 
 
+@functools.lru_cache(maxsize=1)
+def _config_timezone_offset() -> float:
+    """Return the project timezone's current UTC offset in hours (fallback only).
+
+    Used when a YouTube Takeout timestamp carries an unrecognised timezone
+    abbreviation; the row is still converted to UTC using this offset, and the
+    per-donor ``tz_offset`` is re-inferred downstream from the UTC series.
+    Cached — the offset cannot meaningfully change within one process run.
+    """
+    tzname = fyp_cf["misc"].get("TIME_ZONE", "UTC")
+    try:
+        now = datetime.now(ZoneInfo(tzname))
+    except ZoneInfoNotFoundError:
+        return 0.0
+    off = now.utcoffset()
+    return off.total_seconds() / 3600 if off is not None else 0.0
+
+
+
+
+
+class InstagramDDPCollection(ForYouBaseCollection):
+    """Instagram "Download Your Information" export ingester.
+
+    Parses the two activity streams we care about from the uploaded zip: viewed
+    reels (``story_interactions/stories_viewed.json`` → ``activity_type='play'``)
+    and liked posts (``likes/liked_posts.json`` → ``activity_type='fave'``).
+    Both the current ``label_values`` record schema and the classic
+    ``string_list_data`` / ``string_map_data`` schema are supported. The donated
+    caption and owner are captured as an enrichment seed via the base ``seed_*``
+    contract. Structural failures (unreadable zip, missing members, invalid
+    JSON) raise so the file stays pending instead of being silently discarded.
+    """
+
+    platform_url_template = "https://www.instagram.com/reel/{item_id}/"
+    source_platform = "instagram"
+    raw_path = "instagram_raw"
+
+    # (inner zip-member suffix, activity_type) for each stream we ingest.
+    _STREAMS = [
+        ("story_interactions/stories_viewed.json", "play"),
+        ("likes/liked_posts.json", "fave"),
+    ]
+    _SHORTCODE_RE = re.compile(r"instagram\.com/(?:reel|p|tv)/([\w-]+)")
+
+
+
+
+
+    def __init__(self, collection_id: str = None, verbose: bool = False):
+        super().__init__(collection_id, verbose)
+        self.source_platform = "instagram"
+        self.data_source = "ddp"
+        self.min_required_rows_per_raw_file = 10
+
+
+
+
+
+    @staticmethod
+    def _records(payload: object) -> list[dict]:
+        """Normalise a stream file's JSON into a flat list of activity records.
+
+        Handles a bare list, a bare dict holding a single record, and wrapper
+        dicts like ``{"likes_media_likes": [...]}`` (classic exports).
+        """
+        if payload is None:
+            return []
+        if isinstance(payload, list):
+            return [r for r in payload if isinstance(r, dict)]
+        if isinstance(payload, dict):
+            if "label_values" in payload or "string_list_data" in payload:
+                return [payload]
+            for value in payload.values():
+                if isinstance(value, list) and value and isinstance(value[0], dict):
+                    return value
+        return []
+
+
+
+
+
+    @classmethod
+    def _extract(cls, record: dict) -> tuple[str | None, str | None, str | None, str | None, int | None]:
+        """Return ``(item_id, desc, author_id, author_name, timestamp)`` for one record.
+
+        Supports both Instagram export record schemas: the current
+        ``label_values`` list (URL/Caption labels + doubly-nested ``Owner``
+        block) and the classic ``string_list_data`` / ``string_map_data`` shape
+        (record-level ``title`` is the media owner's username; the href and
+        timestamp live in the first ``string_list_data`` entry).
+        """
+        url = desc = author_id = author_name = None
+        timestamp = record.get("timestamp")
+
+        if "label_values" in record:
+            for lv in record.get("label_values", []):
+                label = lv.get("label")
+                if label == "URL" and not url:
+                    url = lv.get("value") or lv.get("href")
+                elif label == "Caption" and not desc:
+                    desc = lv.get("value")
+                elif lv.get("title") == "Owner":
+                    for outer in lv.get("dict", []):
+                        for inner in outer.get("dict", []):
+                            if inner.get("label") == "Name" and not author_name:
+                                author_name = inner.get("value")
+                            elif inner.get("label") == "Username" and not author_id:
+                                author_id = inner.get("value")
+        else:
+            author_id = record.get("title") or None
+            entries = record.get("string_list_data") or []
+            first = entries[0] if entries and isinstance(entries[0], dict) else {}
+            url = first.get("href")
+            if timestamp is None:
+                timestamp = first.get("timestamp")
+            if timestamp is None:
+                smd = record.get("string_map_data") or {}
+                for entry in smd.values():
+                    if isinstance(entry, dict) and entry.get("timestamp"):
+                        timestamp = entry["timestamp"]
+                        break
+
+        item_id = None
+        if url:
+            match = cls._SHORTCODE_RE.search(url)
+            if match:
+                item_id = match.group(1)
+        return item_id, desc, author_id, author_name, timestamp
+
+
+
+
+
+    def load_single_raw(self, filename: str) -> pd.DataFrame:
+        """Extract the viewed-reels and liked-posts streams from the upload zip.
+
+        Raises:
+            ValueError: when the zip is unreadable, holds none of the expected
+                members, or a member is not valid JSON — structural failures
+                that must stay pending rather than be discarded as too-small.
+        """
+        local_path = data_io.local_copy(storage_location=self.raw_path, filename=filename)
+        if not local_path:
+            raise ValueError(f"could not fetch '{filename}' from '{self.raw_path}'")
+
+        try:
+            members = read_zip_members(local_path, [s for s, _ in self._STREAMS])
+        finally:
+            data_io.release_local_copy(local_path)
+        if all(raw is None for raw in members.values()):
+            raise ValueError(
+                f"'{filename}' contains none of the expected Instagram activity "
+                f"files ({', '.join(s for s, _ in self._STREAMS)})"
+            )
+
+        rows = []
+        for suffix, activity_type in self._STREAMS:
+            raw = members[suffix]
+            if raw is None:
+                continue
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError) as exc:
+                raise ValueError(f"'{filename}' member '{suffix}' is not valid JSON: {exc}") from exc
+            for record in self._records(payload):
+                item_id, desc, author_id, author_name, timestamp = self._extract(record)
+                # item_id is nullable in the activity contract (classic story
+                # views carry no URL); a row without a timestamp is useless.
+                if timestamp is None:
+                    continue
+                rows.append({
+                    "item_id": item_id if item_id else pd.NA,
+                    "activity_type": activity_type,
+                    "ig_timestamp": timestamp,
+                    "seed_desc": repair_mojibake(desc) if desc else pd.NA,
+                    "seed_author_id": author_id if author_id else pd.NA,
+                    "seed_author_name": repair_mojibake(author_name) if author_name else pd.NA,
+                })
+
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame.from_records(rows)
+
+
+
+
+
+    def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Convert the unix view/like timestamps to UTC and finalize the frame."""
+        df = df.copy()
+        df["utc_timestamp"] = pd.to_datetime(
+            df["ig_timestamp"], unit="s", utc=True, errors="coerce"
+        )
+        return self._finalize_activity_frame(df)
+
+
+
+
+
+class YouTubeDDPCollection(ForYouBaseCollection):
+    """YouTube / Google Takeout watch-history ingester.
+
+    Parses ``history/watch-history.html`` from the uploaded Takeout zip. Organic
+    video watches become ``activity_type='play'``; served ad impressions
+    ("From Google Ads") become ``activity_type='ad_play'``; non-video events
+    (Shorts-creation, community-post views) are dropped. The donated title and
+    channel are captured as an enrichment seed via the base ``seed_*`` contract.
+    """
+
+    platform_url_template = "https://www.youtube.com/watch?v={item_id}"
+    source_platform = "youtube"
+    raw_path = "youtube_raw"
+
+    _MEMBER_SUFFIX = "history/watch-history.html"
+    _BODY_RE = re.compile(r'body-1[^>]*>(.*?)</div>', re.S)
+    _CAPTION_RE = re.compile(r'mdl-typography--caption">(.*?)</div>', re.S)
+    _VIDEO_RE = re.compile(r'watch\?v=([\w-]{11})')
+    _TITLE_RE = re.compile(r'watch\?v=[\w-]{11}[^"]*">(.*?)</a>', re.S)
+    _CHANNEL_RE = re.compile(r'/channel/([\w-]+)"[^>]*>(.*?)</a>', re.S)
+    # Takeout renders timestamps in the account's display locale. Supported:
+    # day-first ("29 Jun 2026, 21:43:42 AEST", September as "Sept", June/July in
+    # full) and US month-first 12-hour ("Apr 4, 2024, 5:36:02 PM PDT"), with an
+    # abbreviated zone or a "GMT+05:30"-style offset. AM/PM may be preceded by
+    # a narrow/regular no-break space in newer exports.
+    _TS_RE = re.compile(
+        r'(\d{1,2} [A-Za-z]{3,9} \d{4}|[A-Za-z]{3,9} \d{1,2}, \d{4}), '
+        r'(\d{1,2}:\d{2}:\d{2})'
+        r'(?:[\s\u202f\u00a0]*([APap][Mm]))?'
+        r'[\s\u202f\u00a0]+([A-Z]{2,5}(?:[+-]\d{1,2}:?\d{2})?)'
+    )
+    _GMT_OFFSET_RE = re.compile(r'^(?:GMT|UTC)([+-])(\d{1,2}):?(\d{2})$')
+    _MONTH_NORM_RE = re.compile(r'([A-Za-z]{3})[A-Za-z]*')
+
+    # Timezone abbreviation -> UTC offset (hours). Some abbreviations are
+    # ambiguous across regions; those get the interpretation most common in
+    # Takeout exports (IST: India, not Ireland/Israel; CST/EST/PST: US) and are
+    # reported per file so mislabelled donations stay auditable. Unknown
+    # abbreviations fall back to the project timezone's offset.
+    _TZ_OFFSETS = {
+        "AEST": 10, "AEDT": 11, "ACST": 9.5, "ACDT": 10.5, "AWST": 8,
+        "NZST": 12, "NZDT": 13, "GMT": 0, "UTC": 0, "BST": 1, "IST": 5.5,
+        "CET": 1, "CEST": 2, "EET": 2, "EEST": 3, "WET": 0, "WEST": 1,
+        "EST": -5, "EDT": -4, "CST": -6, "CDT": -5, "MST": -7, "MDT": -6,
+        "PST": -8, "PDT": -7, "HKT": 8, "JST": 9, "KST": 9, "SGT": 8,
+    }
+    _AMBIGUOUS_TZ = {"IST", "CST", "BST", "EST"}
+
+
+
+
+
+    def __init__(self, collection_id: str = None, verbose: bool = False):
+        super().__init__(collection_id, verbose)
+        self.source_platform = "youtube"
+        self.data_source = "ddp"
+        self.min_required_rows_per_raw_file = 10
+
+
+
+
+
+    @classmethod
+    def _parse_history(cls, html_text: str) -> list[dict]:
+        """Return one raw row per watch-history cell that references a video.
+
+        Cells without a ``watch?v=`` link (Shorts-creation, community-post views)
+        are skipped. Ad impressions are flagged from the details/caption cell
+        (not the whole block, whose title text could contain the marker
+        phrase); removed/unavailable videos keep their id but carry no donated
+        title.
+        """
+        rows: list[dict] = []
+        for block in html_text.split('<div class="outer-cell')[1:]:
+            body_match = cls._BODY_RE.search(block)
+            body = body_match.group(1) if body_match else ""
+
+            video_match = cls._VIDEO_RE.search(body)
+            if not video_match:
+                continue
+            item_id = video_match.group(1)
+
+            title_match = cls._TITLE_RE.search(body)
+            title = html.unescape(title_match.group(1)) if title_match else None
+            if title and "watch?v=" in title:
+                title = None  # removed/unavailable video: title is just the URL
+
+            channel_match = cls._CHANNEL_RE.search(body)
+            channel_id = channel_match.group(1) if channel_match else None
+            channel_name = html.unescape(channel_match.group(2)) if channel_match else None
+
+            caption_match = cls._CAPTION_RE.search(block)
+            caption = caption_match.group(1) if caption_match else ""
+
+            ts_match = cls._TS_RE.search(body)
+            rows.append({
+                "item_id": item_id,
+                "is_ad": "From Google Ads" in caption,
+                "yt_date": ts_match.group(1) if ts_match else None,
+                "yt_time": ts_match.group(2) if ts_match else None,
+                "yt_ampm": ts_match.group(3) if ts_match else None,
+                "yt_tz": ts_match.group(4) if ts_match else None,
+                "seed_desc": title if title else pd.NA,
+                "seed_author_id": channel_id if channel_id else pd.NA,
+                "seed_author_name": channel_name if channel_name else pd.NA,
+            })
+        return rows
+
+
+
+
+
+    @classmethod
+    def _convert_timestamps(cls, df: pd.DataFrame, donor_tz=None) -> pd.Series:
+        """Vectorised conversion of the parsed timestamp components to UTC.
+
+        Normalises the month token to its 3-letter form (Takeout renders
+        "Sept"/"June"/"July"), tries the day-first then the US month-first date
+        format, and applies 12-hour AM/PM arithmetic to build each row's naive
+        local wall-clock. The local time is then turned into UTC either by
+        localising to an authoritative ``donor_tz`` (from the manifest —
+        DST-correct and unambiguous) or, when none was supplied, by subtracting
+        the offset read from the row's own timezone label (abbreviation map or
+        an explicit GMT±HH:MM). Rows whose components did not parse come back NaT.
+
+        Args:
+            df: Frame with ``yt_date`` / ``yt_time`` / ``yt_ampm`` / ``yt_tz``.
+            donor_tz: A ``tzinfo`` from the ingestion manifest, or ``None``.
+        """
+        dates_raw = df["yt_date"].astype("string").str.replace(cls._MONTH_NORM_RE, r"\1", regex=True)
+        dates = pd.to_datetime(dates_raw, format="%d %b %Y", errors="coerce")
+        dates = dates.fillna(pd.to_datetime(dates_raw, format="%b %d, %Y", errors="coerce"))
+
+        times = pd.to_timedelta(df["yt_time"].astype("string").fillna(""), errors="coerce")
+        ampm = df["yt_ampm"].astype("string").str.upper().fillna("")
+        hours = times.dt.components["hours"]
+        pm_shift = ((ampm == "PM") & (hours < 12)).astype("int64") * 12
+        am_shift = ((ampm == "AM") & (hours == 12)).astype("int64") * -12
+        times = times + pd.to_timedelta(pm_shift + am_shift, unit="h")
+
+        naive = dates + times
+
+        # Authoritative donor timezone from the manifest overrides the (sometimes
+        # ambiguous) display label entirely.
+        if donor_tz is not None:
+            return naive.dt.tz_localize(
+                donor_tz, ambiguous="NaT", nonexistent="shift_forward"
+            ).dt.tz_convert("UTC")
+
+        tz = df["yt_tz"].astype("string").fillna("")
+        offsets = tz.map(cls._TZ_OFFSETS).astype("float64")
+        gmt_parts = tz.str.extract(cls._GMT_OFFSET_RE)
+        gmt_known = gmt_parts[1].notna()
+        gmt_sign = np.where((gmt_parts[0] == "-").fillna(False), -1.0, 1.0)
+        gmt_hours = pd.to_numeric(gmt_parts[1], errors="coerce").fillna(0)
+        gmt_minutes = pd.to_numeric(gmt_parts[2], errors="coerce").fillna(0)
+        gmt_offsets = gmt_sign * (gmt_hours + gmt_minutes / 60)
+        offsets = offsets.where(~(offsets.isna() & gmt_known), pd.Series(gmt_offsets, index=df.index))
+
+        unknown = offsets.isna() & (tz != "")
+        ambiguous = tz.isin(cls._AMBIGUOUS_TZ)
+        if unknown.any():
+            print(
+                f"WARNING: {int(unknown.sum())} YouTube row(s) carry an unrecognised "
+                f"timezone label ({sorted(tz[unknown].unique().tolist())}); "
+                f"falling back to the project timezone offset. Set a donor timezone "
+                f"in the upload form to resolve this exactly."
+            )
+        if ambiguous.any():
+            print(
+                f"NOTE: {int(ambiguous.sum())} YouTube row(s) use an ambiguous timezone "
+                f"abbreviation ({sorted(tz[ambiguous].unique().tolist())}); using the "
+                f"most common Takeout interpretation. Set a donor timezone in the "
+                f"upload form to resolve this exactly."
+            )
+        offsets = offsets.fillna(_config_timezone_offset())
+
+        return (naive - pd.to_timedelta(offsets, unit="h")).dt.tz_localize("UTC")
+
+
+
+
+
+    def load_single_raw(self, filename: str) -> pd.DataFrame:
+        """Extract the watch-history HTML from the Takeout zip and parse it.
+
+        Timestamps are converted here (not in ``process_single``) so an
+        unsupported locale is detected while the file can still be left
+        pending rather than ledger-blacklisted.
+
+        Raises:
+            ValueError: when the zip is unreadable, has no watch-history
+                member, or none of its rows yields a parseable timestamp
+                (unsupported display locale) — structural failures that must
+                stay pending rather than be discarded as too-small.
+        """
+        local_path = data_io.local_copy(storage_location=self.raw_path, filename=filename)
+        if not local_path:
+            raise ValueError(f"could not fetch '{filename}' from '{self.raw_path}'")
+
+        try:
+            raw = read_zip_members(local_path, [self._MEMBER_SUFFIX])[self._MEMBER_SUFFIX]
+        finally:
+            data_io.release_local_copy(local_path)
+        if raw is None:
+            raise ValueError(f"'{filename}' contains no '{self._MEMBER_SUFFIX}' member")
+
+        rows = self._parse_history(raw.decode("utf-8", errors="replace"))
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame.from_records(rows)
+        donor_tz = parse_donor_timezone(self._current_file_tz)
+        df["utc_timestamp"] = self._convert_timestamps(df, donor_tz=donor_tz)
+        if df["utc_timestamp"].isna().all():
+            hint = (
+                "" if donor_tz is not None
+                else " — probably an unsupported display locale; set a donor "
+                "timezone in the upload form to bypass the label."
+            )
+            raise ValueError(
+                f"'{filename}': {len(df)} watch event(s) found but no timestamp "
+                f"could be parsed{hint}"
+            )
+        return df
+
+
+
+
+
+    def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Flag ads vs organic watches and finalize the frame."""
+        df = df.copy()
+        df["activity_type"] = np.where(df["is_ad"].fillna(False), "ad_play", "play")
+        return self._finalize_activity_frame(df)
+
+
+
+
+
 def get_main_collection(verbose: bool = False) -> ForYouCollection:
     """Factory function to initialize and configure the main collection.
 
@@ -1710,3 +2388,21 @@ def get_main_collection(verbose: bool = False) -> ForYouCollection:
     for cls in ForYouBaseCollection._registry:
         main_collection.register_collection_class(cls)
     return main_collection
+
+
+
+
+
+def registered_raw_locations() -> tuple[str, ...]:
+    """Return every registered collection class's raw-upload storage location.
+
+    Read from class attributes (no instantiation), in registry order. This is
+    the single source for code that must probe all upload locations (e.g.
+    collection deletion), so a new platform class is covered automatically.
+    """
+    locations: list[str] = []
+    for cls in ForYouBaseCollection._registry:
+        raw_path = getattr(cls, "raw_path", None)
+        if isinstance(raw_path, str) and raw_path and raw_path not in locations:
+            locations.append(raw_path)
+    return tuple(locations)

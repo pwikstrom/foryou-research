@@ -120,6 +120,58 @@ def _get_bucket():
 
 
 
+def register_location(name: str, abs_path: str, verbose: bool = False) -> None:
+    """Register a storage location at runtime so ``_resolve_paths`` accepts it.
+
+    Lets a component (e.g. a new ingestion collection class) declare its own
+    storage location without a static edit to ``fyp_config``. Mirrors the
+    GCS-path derivation done at config load: when data is served from GCS the
+    matching ``gcs_paths`` entry is derived from ``abs_path``'s position under
+    ``local_data``; in local mode the directory is created. A location that is
+    already registered is left untouched.
+
+    Args:
+        name: The storage-location key (e.g. ``"instagram_raw"``).
+        abs_path: The absolute local path the key resolves to. Must live under
+            ``paths.local_data`` so the GCS path stays derivable.
+        verbose: When True, print a one-line registration notice.
+
+    Raises:
+        ValueError: if ``abs_path`` does not live under ``paths.local_data`` —
+            registering it anyway would leave the location resolvable locally
+            but broken in GCS mode.
+    """
+    cf = _cf()
+    if name in cf['paths']:
+        return
+
+    local_data = cf['paths'].get('local_data', "")
+    rel = os.path.relpath(abs_path, local_data) if local_data else ".."
+    if rel.startswith(".."):
+        raise ValueError(
+            f"Storage location '{name}' path '{abs_path}' is not under "
+            f"paths.local_data ('{local_data}') — no GCS path is derivable."
+        )
+
+    cf['paths'][name] = abs_path
+
+    if cf['data_io'].get('use_gcs_for_data'):
+        gcs_prefix = cf['data_io'].get('gcs_data_prefix', "")
+        if rel == ".":
+            gcs_path = gcs_prefix
+        else:
+            gcs_path = f"{gcs_prefix}/{rel}" if gcs_prefix else rel
+        cf.setdefault('gcs_paths', {})[name] = gcs_path
+    else:
+        os.makedirs(abs_path, exist_ok=True)
+
+    if verbose:
+        print(f"    [DATA_IO] Registered storage location '{name}' -> {abs_path}")
+
+
+
+
+
 
 
 
@@ -717,6 +769,92 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
 
     # If we are here, things haven't gone very well have they
     return None
+
+
+
+
+
+def local_copy(storage_location: str = "cache", filename: str = "", verbose: bool = False) -> str | None:
+    """Return a local filesystem path to a raw file, downloading it if needed.
+
+    A generic binary accessor for readers that need a real file on disk (e.g.
+    ``zipfile``) rather than decoded text. In GCS mode the blob is downloaded to
+    the temp directory and that path returned; in local mode the resolved local
+    path is returned as-is. Only members the caller opens are read, so the large
+    archive never has to be held in memory.
+
+    Args:
+        storage_location: The storage-location key to resolve.
+        filename: The file to make locally available.
+        verbose: When True, print diagnostic notices.
+
+    Returns:
+        An absolute local path to the file, or ``None`` when it cannot be found.
+    """
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+
+    _t_io = _time.perf_counter()
+    if mode == 'gcs':
+        bucket = _get_bucket()
+        if not bucket:
+            if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized.")
+            return None
+        blob = bucket.blob(blob_name)
+        if not blob.exists():
+            if verbose: print(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+            return None
+        temp_dir = _cf()['paths']['temp']
+        os.makedirs(temp_dir, exist_ok=True)
+        # Prefix with the storage location so identically-named files from
+        # different locations cannot clobber each other's temp copies.
+        local_path = os.path.join(temp_dir, f"{storage_location}__{os.path.basename(filename)}")
+        blob.download_to_filename(local_path)
+        _io_log(
+            op="local_copy",
+            loc=storage_location,
+            filename=filename,
+            mode=mode,
+            bytes_=os.path.getsize(local_path) if os.path.exists(local_path) else 0,
+            t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+        )
+        return local_path
+
+    if os.path.exists(primary):
+        return primary
+    if verbose: print(f"    [DATA_IO] WARN: Local file not found: {primary}.")
+    return None
+
+
+
+
+
+def release_local_copy(path: str | None, verbose: bool = False) -> None:
+    """Delete a temp copy produced by :func:`local_copy`; no-op otherwise.
+
+    Only paths inside the configured temp directory are removed, so callers can
+    call this unconditionally: in local mode ``local_copy`` returns the real
+    raw-file path, which must never be deleted. On Cloud Run the temp directory
+    is memory-backed, so releasing large downloads promptly matters.
+
+    Args:
+        path: The path returned by ``local_copy`` (may be ``None``).
+        verbose: When True, print a one-line removal notice.
+    """
+    if not path:
+        return
+    temp_dir = os.path.abspath(_cf()['paths']['temp'])
+    abs_path = os.path.abspath(path)
+    if not abs_path.startswith(temp_dir + os.sep):
+        return
+    try:
+        os.remove(abs_path)
+        if verbose:
+            print(f"    [DATA_IO] Released temp copy: {abs_path}")
+    except FileNotFoundError:
+        pass
 
 
 

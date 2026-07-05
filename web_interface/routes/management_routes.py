@@ -24,7 +24,7 @@ from fyp.recode_variables import (
     compute_var_schema_hash,
 )
 import fyp.annotation_versioning as annotation_versioning
-from fyp.ingest import get_main_collection
+from fyp.ingest import get_main_collection, parse_donor_timezone, registered_raw_locations
 from fyp.machine_annotation import rebuild_active_annotations_from_archive
 from fyp.organize_datasets import (
     COLLECTIONS_LABEL,
@@ -1761,29 +1761,25 @@ def delete_study():
 
 
 
-# Storage locations that hold raw uploaded files. Order matters only for the
-# disambiguation probe in _find_raw_file_locations.
-RAW_UPLOAD_LOCATIONS = ("ddp_raw", "aio_raw", "zeeschuimer_raw")
-
-
-
-
 def _find_raw_file_locations(raw_files: list[str]) -> list[tuple[str, str]]:
     """Return [(storage_location, filename), ...] for each raw file that still
     exists in any of the registered upload locations.
 
-    Probes each upload location's ingestion_manifest.json first (fast path) and
-    falls back to data_io.exists when the manifest is missing or out of sync.
-    Files not found in any location are silently skipped — they were already
-    moved or deleted previously.
+    The location list is derived from the collection-class registry
+    (fyp.ingest.registered_raw_locations), so a new platform's upload location
+    is probed automatically. Probes each location's ingestion_manifest.json
+    first (fast path) and falls back to data_io.exists when the manifest is
+    missing or out of sync. Files not found in any location are silently
+    skipped — they were already moved or deleted previously.
     """
     found: list[tuple[str, str]] = []
     raw_files_set = set(raw_files)
     if not raw_files_set:
         return found
 
+    upload_locations = registered_raw_locations()
     manifests: dict[str, dict] = {}
-    for loc in RAW_UPLOAD_LOCATIONS:
+    for loc in upload_locations:
         if data_io.exists(storage_location=loc, filename="ingestion_manifest.json"):
             manifests[loc] = data_io.load_json(
                 storage_location=loc, filename="ingestion_manifest.json", verbose=False
@@ -1792,7 +1788,7 @@ def _find_raw_file_locations(raw_files: list[str]) -> list[tuple[str, str]]:
             manifests[loc] = {}
 
     for fn in raw_files_set:
-        for loc in RAW_UPLOAD_LOCATIONS:
+        for loc in upload_locations:
             if fn in manifests[loc] or data_io.exists(storage_location=loc, filename=fn):
                 found.append((loc, fn))
                 break
@@ -2284,13 +2280,19 @@ def queue_voted_videos():
             print(f"Skipped {skipped_non_tiktok} non-TikTok item(s): annotation contract is TikTok-only for now.")
         new_annotate = annotate_tiktok
 
-        # 4. Append to Queues (scrape queues are per-platform)
+        # 4. Append to Queues (scrape queues are per-platform). Platforms
+        # without a scrape-contract block have no worker to drain a queue, so
+        # their items are skipped instead of stranded in an orphan file.
         added_to_scrape: dict[str, int] = {}
         if new_scrape:
+            scrapeable = set(scrape_queues.registered_platforms())
             by_platform: dict[str, list[str]] = {}
             for item in new_scrape:
                 by_platform.setdefault(item_platform.get(item, default_platform), []).append(item)
             for platform, items in by_platform.items():
+                if platform not in scrapeable:
+                    print(f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet.")
+                    continue
                 scrape_queues.append_to_scrape_queue(platform, items)
                 added_to_scrape[platform] = len(items)
 
@@ -2414,14 +2416,23 @@ def calculate_to_scrape():
         for vid in unscraped_videos:
             by_platform.setdefault(item_platform.get(vid, default_platform), []).append(vid)
 
+        # Platforms without a scrape-contract block have no worker to drain a
+        # queue, so their items are skipped instead of stranded in an orphan file.
+        scrapeable = set(scrape_queues.registered_platforms())
         queue_len_by_platform: dict[str, int] = {}
+        skipped_by_platform: dict[str, int] = {}
         for platform, items in by_platform.items():
+            if platform not in scrapeable:
+                skipped_by_platform[platform] = len(items)
+                print(f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet.")
+                continue
             queue_len_by_platform[platform] = scrape_queues.append_to_scrape_queue(platform, items)
 
         return jsonify({
             "status": "success",
             "videos_to_scrape": sum(queue_len_by_platform.values()),
             "videos_to_scrape_by_platform": queue_len_by_platform,
+            "skipped_unscrapeable_by_platform": skipped_by_platform,
         })
 
     except Exception as e:
@@ -3266,6 +3277,7 @@ def get_ingestion_sources():
                         "filename": fn,
                         "collection_id": (meta or {}).get("collection_id"),
                         "tags": (meta or {}).get("tags") or [],
+                        "tz": (meta or {}).get("tz"),
                     })
             files.sort(key=lambda f: f["filename"])
             pending = len(files)
@@ -3316,6 +3328,9 @@ def upload_ingestion_file():
         collection_id: explicit collection ID (used when collection_id_mode is 'single')
         collection_id_mode: 'single' | 'per_file' (default 'per_file')
         tags: JSON-encoded list of tag strings
+        tz: optional donor timezone (IANA name like 'Asia/Kolkata' or a fixed
+            offset like '+05:30') — the authoritative source for local-time
+            conversion, overriding any ambiguous timezone label in the export.
     """
     # Accept both multi-file ('files') and legacy single-file ('file') keys
     files = request.files.getlist('files')
@@ -3343,6 +3358,15 @@ def upload_ingestion_file():
         tags = json.loads(tags_json) if tags_json else []
     except json.JSONDecodeError:
         tags = []
+
+    # Optional donor timezone (IANA name or fixed offset). Validated here so a
+    # typo is rejected at upload rather than silently ignored at ingest time.
+    donor_tz = request.form.get('tz', '').strip()
+    if donor_tz and parse_donor_timezone(donor_tz) is None:
+        return jsonify({
+            "error": f"Unrecognised timezone '{donor_tz}'. Use an IANA name "
+                     f"(e.g. 'Asia/Kolkata') or a fixed offset (e.g. '+05:30').",
+        }), 400
 
     # Load or create the ingestion manifest for this raw_path
     manifest_fn = "ingestion_manifest.json"
@@ -3383,6 +3407,8 @@ def upload_ingestion_file():
                 "collection_id": file_collection_id,
                 "tags": tags,
             }
+            if donor_tz:
+                manifest[filename]["tz"] = donor_tz
             uploaded.append(filename)
 
         # Save updated manifest
@@ -3406,6 +3432,7 @@ def upload_ingestion_file():
                 "files": uploaded,
                 "tags": tags,
                 "collection_id_mode": collection_id_mode,
+                "tz": donor_tz or None,
             },
         )
         return jsonify({

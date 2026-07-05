@@ -1118,8 +1118,19 @@ def update_enrichment_status(
 
     enrichment_status_df.reset_index(inplace=True)
 
-    most_common_item_id_length = enrichment_status_df["item_id"].str.len().value_counts().index[0]
-    enrichment_status_df = enrichment_status_df[enrichment_status_df["item_id"].str.len()==most_common_item_id_length].copy()
+    # Drop malformed item_ids by keeping only the modal id-length. Item-id length
+    # differs by platform (TikTok ~19 digits, Instagram/YouTube ~11 chars), so a
+    # single global modal length would drop every shorter-id platform's items;
+    # compute the modal length per source_platform when the column is present.
+    if len(enrichment_status_df):
+        id_len = enrichment_status_df["item_id"].str.len()
+        if "source_platform" in enrichment_status_df.columns:
+            modal_len = enrichment_status_df.groupby("source_platform")["item_id"].transform(
+                lambda s: s.str.len().mode().iloc[0]
+            )
+        else:
+            modal_len = id_len.mode().iloc[0]
+        enrichment_status_df = enrichment_status_df[id_len == modal_len].copy()
 
     scrapes_for_merge = all_datasets.get(SCRAPES_LABEL)
     if scrapes_for_merge is not None and not scrapes_for_merge.empty and {'item_id', 'scraped_ok', 'video_downloaded'}.issubset(scrapes_for_merge.columns):
@@ -1338,6 +1349,90 @@ def _annotations_for_study(study_name, annotations_df):
 
 
 
+def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
+    """Add days_since_created / plays_per_day / scraped_fail / completion_rate.
+
+    Each column guards on its input columns, so a study frame with no scrape
+    enrichment (item-metadata like create_time / duration / play_count is
+    absent) receives NA/False defaults rather than being skipped — the merged
+    dataset then always carries these derived columns regardless of enrichment.
+
+    Args:
+        shebang: The merged (or activity-only) study frame.
+        verbose: When True, print the columns added and the resulting shape.
+
+    Returns:
+        The frame with the four calculated columns present.
+    """
+    def _safe_vector_divide(x, y):
+        return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
+
+    # 1. days since created (activity-local time minus upload time)
+    calc_col = ["days_since_created"]
+    if "local_timestamp" in shebang.columns and "create_time" in shebang.columns:
+        shebang[calc_col[-1]] = shebang["local_timestamp"] - shebang["create_time"]
+        shebang[calc_col[-1]] = shebang[calc_col[-1]].map(lambda x: x.days if x is not pd.NA else pd.NA).astype("int64[pyarrow]")
+        shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0)
+    else:
+        shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="int64[pyarrow]")
+
+    # 2. plays per day — produced at scrape time (BaseScraper.derive_plays_per_day,
+    # using scrape_ts); fall back to an activity-time estimate only for rows that
+    # lack it (e.g. items merged in without scrape enrichment).
+    calc_col += ["plays_per_day"]
+    if "plays_per_day" not in shebang.columns:
+        shebang["plays_per_day"] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
+    need_ppd = shebang["plays_per_day"].isna()
+    if need_ppd.any() and "play_count" in shebang.columns and "days_since_created" in shebang.columns and not shebang["days_since_created"].isna().all():
+        fallback = _safe_vector_divide(shebang['play_count'], shebang['days_since_created'])
+        shebang.loc[need_ppd, "plays_per_day"] = fallback[need_ppd]
+
+    # 3. scraped fail
+    failed_scrapes = set(load_failed_scrapes(verbose=verbose))
+    calc_col += ["scraped_fail"]
+    shebang[calc_col[-1]] = shebang["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
+
+    # 4. completion rate
+    calc_col += ["completion_rate"]
+    if "play_duration" in shebang.columns and "duration" in shebang.columns:
+        shebang[calc_col[-1]] = shebang["play_duration"] / shebang["duration"]
+        shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0, upper=1).astype("double[pyarrow]")
+    else:
+        shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
+
+    if verbose:
+        print(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
+    return shebang
+
+
+
+
+def _ensure_enrichment_status_columns(shebang: pd.DataFrame) -> pd.DataFrame:
+    """Guarantee the per-item enrichment status flags exist, defaulting to False.
+
+    ``scraped_ok`` / ``annotated_ok`` / ``annotated_fail`` / ``video_downloaded``
+    normally arrive from the scrape/annotation merge. When a study has no such
+    enrichment yet (e.g. a freshly ingested platform before its scraper runs),
+    defaulting them lets the explore / video-analysis tabs — which gate on these
+    flags — render a clean empty result (nothing scraped yet) instead of erroring
+    on a missing column. When enrichment later lands, the incremental-refresh
+    patch drops these (they live in the scrape/annotation schema) and re-merges
+    the real values, so the defaults never mask true enrichment.
+
+    Args:
+        shebang: The merged (or activity-only) study frame.
+
+    Returns:
+        The frame with the four status flags present.
+    """
+    for col in ("scraped_ok", "annotated_ok", "annotated_fail", "video_downloaded"):
+        if col not in shebang.columns:
+            shebang[col] = pd.Series(False, index=shebang.index, dtype="bool[pyarrow]")
+    return shebang
+
+
+
+
 def new_merge(
     study_name: str = None,
     all_datasets: dict = {},
@@ -1393,7 +1488,7 @@ def new_merge(
         return enriched_data
 
     if len(enriched_data) == 0:
-        print("No enriched data — caching activity-only dataset")
+        print("No enriched data — caching activity-only dataset (no scrape/annotation enrichment yet)")
         shebang = activity_data.copy()
     else:
         # Biggest join in the pipeline: events × item-metadata. Composite key
@@ -1408,47 +1503,13 @@ def new_merge(
             print("WARNING: source_platform missing on one side of the activity/enrichment join — falling back to item_id only")
         shebang = fast_join(activity_data, enriched_data, on=join_key, how='left')
 
-        # --------------------------------------------------------------------------------------------------
-        # adding some calculated columns to this merged dataset
-        # --------------------------------------------------------------------------------------------------
-
-        # 1. days since created (activity-local time minus upload time)
-        calc_col = ["days_since_created"]
-        if "local_timestamp" in shebang.columns and "create_time" in shebang.columns:
-            shebang[calc_col[-1]] = shebang["local_timestamp"] - shebang["create_time"]
-            shebang[calc_col[-1]] = shebang[calc_col[-1]].map(lambda x: x.days if x is not pd.NA else pd.NA).astype("int64[pyarrow]")
-            shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0)
-        else:
-            shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="int64[pyarrow]")
-
-        # 2. plays per day — produced at scrape time (BaseScraper.derive_plays_per_day,
-        # using scrape_ts); fall back to an activity-time estimate only for rows that
-        # lack it (e.g. items merged in without scrape enrichment).
-        calc_col += ["plays_per_day"]
-        def _safe_vector_divide(x, y):
-            return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
-        if "plays_per_day" not in shebang.columns:
-            shebang["plays_per_day"] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
-        need_ppd = shebang["plays_per_day"].isna()
-        if need_ppd.any() and "play_count" in shebang.columns and "days_since_created" in shebang.columns and not shebang["days_since_created"].isna().all():
-            fallback = _safe_vector_divide(shebang['play_count'], shebang['days_since_created'])
-            shebang.loc[need_ppd, "plays_per_day"] = fallback[need_ppd]
-
-        # 3. scraped fail
-        failed_scrapes = set(load_failed_scrapes(verbose=verbose))
-        calc_col += ["scraped_fail"]
-        shebang[calc_col[-1]] = shebang["item_id"].isin(failed_scrapes).astype("bool[pyarrow]")
-
-        # 4. completion rate
-        calc_col += ["completion_rate"]
-        if "play_duration" in shebang.columns and "duration" in shebang.columns:
-            shebang[calc_col[-1]] = shebang["play_duration"] / shebang["duration"]
-            shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0,upper=1).astype("double[pyarrow]")
-        else:
-            shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
-
-        if verbose:
-            print(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
+    # Calculated + enrichment-status columns run for BOTH branches so a study
+    # with no scrape/annotation enrichment yet (e.g. a freshly ingested platform
+    # before its scraper exists) still carries the columns the explore /
+    # video-analysis / timeline tabs expect. Each column defaults to NA/False
+    # and is populated once enrichment lands.
+    shebang = _add_merge_calculated_columns(shebang, verbose=verbose)
+    shebang = _ensure_enrichment_status_columns(shebang)
     # --------------------------------------------------------------------------------------------------
 
     # Backfill australian_relevance from primary_country for rows annotated under

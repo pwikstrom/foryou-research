@@ -162,12 +162,23 @@ def append_to_scrape_queue(platform: str, items: list[str]) -> int:
     """Append items to one platform's queue.
 
     Args:
-        platform: Platform whose queue to extend.
+        platform: Platform whose queue to extend. Must be registered in the
+            scrape contract — an unregistered platform has no worker to drain
+            its queue, so appending would strand the items in an orphan file
+            invisible to the queue UI.
         items: Item ids to add (duplicates are dropped).
 
     Returns:
         The queue length after the append.
+
+    Raises:
+        ValueError: if ``platform`` is not registered in the scrape contract.
     """
+    if platform not in registered_platforms():
+        raise ValueError(
+            f"Platform '{platform}' is not registered in the scrape contract — "
+            f"no queue worker exists to drain its queue."
+        )
     merged = _dedup(load_scrape_queue(platform) + list(items))
     save_scrape_queue(platform, merged)
     return len(merged)

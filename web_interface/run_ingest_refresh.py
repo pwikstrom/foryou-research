@@ -159,6 +159,16 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         f"{len(discarded_at_load)} skipped as too-few-rows ({_t_raw:.1f}s)"
     )
 
+    # Persist donated item metadata (caption/title/author) as a per-platform
+    # scrape enrichment seed while the raw seed_* columns are still present (they
+    # are dropped by process()). Generic: a no-op for collections that supply no
+    # seed columns (e.g. TikTok).
+    for sub in main_collection.collections:
+        try:
+            sub.save_enrichment_seed()
+        except Exception as exc:
+            reporter.log(f"Enrichment-seed capture failed for {sub.source_platform}_{sub.data_source}: {exc}")
+
     reporter.update_progress(40, "Processing raw activities...")
     _t_phase = time.perf_counter()
     main_collection.process()

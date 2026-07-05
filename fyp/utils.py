@@ -5,6 +5,7 @@ import shutil
 import sys
 import threading
 import time
+import zipfile
 from collections.abc import Callable, Iterable
 from difflib import SequenceMatcher
 from urllib.parse import unquote
@@ -469,3 +470,91 @@ def parse_extra_data_tokens(s) -> set:
         if mapped:
             out.add(mapped)
     return out
+
+
+
+
+
+def repair_mojibake(text: str) -> str:
+    """Repair text that was UTF-8 bytes mis-decoded as Latin-1 ("mojibake").
+
+    Data-donation exports (notably Meta's) frequently serialise UTF-8 bytes as
+    if they were Latin-1, so ``é`` arrives as ``Ã©`` and an em dash as ``â``.
+    Re-encoding to Latin-1 and decoding as UTF-8 reverses that. The round-trip
+    is attempted defensively: any string that is not mangled this way (or cannot
+    be cleanly re-decoded) is returned unchanged.
+
+    Args:
+        text: The possibly-mangled string.
+
+    Returns:
+        The repaired string, or the original when no clean repair is possible.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    try:
+        return text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+
+
+
+
+
+def read_zip_members(local_path: str, suffixes: list[str]) -> dict[str, bytes | None]:
+    """Read several zip members by name suffix in a single archive pass.
+
+    Matching on a path suffix rather than a full name makes lookups robust to the
+    archive's top-level folder varying between exports (e.g. ``Takeout/…`` or
+    ``your_instagram_activity/…``). Directory entries are ignored; the first
+    match per suffix wins. The archive is opened and its directory scanned once
+    regardless of how many suffixes are requested.
+
+    Args:
+        local_path: Path to a zip archive on the local filesystem.
+        suffixes: Member-name suffixes to match (e.g.
+            ``["history/watch-history.html"]``).
+
+    Returns:
+        ``{suffix: bytes | None}`` — ``None`` for suffixes with no match.
+
+    Raises:
+        zipfile.BadZipFile: if the file is not a readable zip archive.
+        OSError: if the file cannot be opened.
+    """
+    out: dict[str, bytes | None] = {s: None for s in suffixes}
+    remaining = set(suffixes)
+    with zipfile.ZipFile(local_path) as zf:
+        for name in zf.namelist():
+            if not remaining:
+                break
+            if name.endswith("/"):
+                continue
+            for suffix in list(remaining):
+                if name.endswith(suffix):
+                    out[suffix] = zf.read(name)
+                    remaining.discard(suffix)
+    return out
+
+
+
+
+
+def read_zip_member(local_path: str, suffix: str) -> bytes | None:
+    """Return the bytes of the first zip member whose name ends with ``suffix``.
+
+    Convenience wrapper around :func:`read_zip_members` that swallows archive
+    errors — use the plural form when a broken archive should raise instead.
+
+    Args:
+        local_path: Path to a zip archive on the local filesystem.
+        suffix: The member-name suffix to match.
+
+    Returns:
+        The member's raw bytes, or ``None`` when the archive has no match or is
+        not a readable zip.
+    """
+    try:
+        return read_zip_members(local_path, [suffix])[suffix]
+    except (zipfile.BadZipFile, FileNotFoundError, OSError):
+        return None

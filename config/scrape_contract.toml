@@ -52,7 +52,7 @@ dtype = "string[pyarrow]"
 section = "backstage"
 scale = "categorical"
 display_name = "Scrape status"
-description = "Outcome of the scrape: 'ok', 'permanent:<reason>', or 'transient:<reason>'."
+description = "Outcome of the scrape: 'ok', 'permanent:<reason>', or 'transient:<reason>'. Enrichment-seed rows built from donated metadata (fyp.ingest.save_enrichment_seed) carry 'donated' — not yet scraped, eligible for scraping, and lowest-precedence in any merge with real scrapes."
 derived = true
 
 [[fields]]

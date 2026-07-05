@@ -3276,6 +3276,7 @@ function openUploadModal(className, rawPath, mode) {
     document.getElementById('uploadNewCollectionId').value = '';
     document.getElementById('uploadNewCollectionId').style.display = 'none';
     document.getElementById('uploadExistingCollectionId').style.display = 'none';
+    document.getElementById('uploadDonorTz').value = '';
     document.getElementById('uploadModalTitle').textContent = `Add to ${className}`;
 
     // Reset radio to default
@@ -3464,6 +3465,7 @@ function submitUpload() {
     formData.append('collection_id', collectionId);
     formData.append('collection_id_mode', collectionIdMode);
     formData.append('tags', JSON.stringify(uploadSelectedTags));
+    formData.append('tz', document.getElementById('uploadDonorTz').value.trim());
 
     const statusDiv = document.getElementById('uploadStatus');
     const submitBtn = document.getElementById('uploadSubmitBtn');
