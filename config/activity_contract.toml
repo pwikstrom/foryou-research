@@ -118,11 +118,11 @@ description = "Filename of the source raw donation file."
 name = "source_platform"
 scope = "base"
 dtype = "string[pyarrow]"
-section = "backstage"
-role = "skip"
-scale = "text"
-display_name = "Source platform"
-description = "The platform this activity was donated from (tiktok, ...)."
+section = "Activity"
+role = "factor"
+scale = "categorical"
+display_name = "Platform"
+description = "The platform this activity was donated from (tiktok, instagram, youtube)."
 
 [[fields]]
 name = "ts_added_to_dataset"
@@ -224,16 +224,14 @@ display_name = "Activity contract version"
 description = "Deterministic acv_<hash> of the activity-contract field set active when this row was ingested (per-row provenance)."
 derived = true
 
-# ===========================================================================
-# PLATFORM fields. Only emitted by specific platform subclasses.
-# ===========================================================================
-
+# play_duration was a TikTok-only platform field until the forward-delta
+# derivation (fyp.ingest.derive_play_duration) was generalized to every DDP
+# platform; it is now a base column (NA where a platform can't derive it).
 [[fields]]
 name = "play_duration"
-scope = "platform"
-platform = "tiktok"
+scope = "base"
 dtype = "int64[pyarrow]"
 section = "Activity"
 scale = "numeric"
 display_name = "Play duration"
-description = "How long the item was played, in seconds (TikTok DDP only)."
+description = "How long the item was played, in seconds: the forward time-delta to the next recorded activity, attributed to play events and capped at 600 s."

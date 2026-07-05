@@ -10,6 +10,7 @@ from fyp import activity_contract as ac
 _EXPECTED_REQUIRED_COLUMNS = {
     "item_id", "activity_type", "utc_timestamp", "collection_id", "data_source",
     "extra_data", "tz_offset", "raw_file", "source_platform", "ts_added_to_dataset",
+    "play_duration",
 }
 _EXPECTED_CORE = {"activity_type", "utc_timestamp", "collection_id", "data_source", "tz_offset"}
 _EXPECTED_DERIVED = {
@@ -36,8 +37,9 @@ def test_required_columns() -> None:
     assert set(req) == _EXPECTED_REQUIRED_COLUMNS, set(req) ^ _EXPECTED_REQUIRED_COLUMNS
     assert req["utc_timestamp"] == "timestamp[ns][pyarrow]"
     assert req["tz_offset"] == "int64[pyarrow]"
-    # derived + platform fields are NOT ingested required columns
-    for absent in ("session_id", "local_hour", "activity_contract_version", "play_duration"):
+    assert req["play_duration"] == "int64[pyarrow]"
+    # derived fields are NOT ingested required columns
+    for absent in ("session_id", "local_hour", "activity_contract_version"):
         assert absent not in req, absent
     print("test_required_columns PASSED")
 
@@ -57,13 +59,11 @@ def test_required_core_fields() -> None:
 
 
 def test_platform_columns() -> None:
-    """play_duration is a TikTok platform field, not a base column."""
+    """No platform-scoped fields remain — play_duration was promoted to base."""
     contract = ac.load_contract()
-    tik = ac.platform_columns(contract, "tiktok")
-    assert "play_duration" in tik and tik["play_duration"] == "int64[pyarrow]"
-    assert "item_id" not in tik
+    assert ac.platform_columns(contract, "tiktok") == {}
     assert ac.platform_columns(contract, None) == {}
-    assert ac.platforms(contract) == ["tiktok"]
+    assert ac.platforms(contract) == []
     print("test_platform_columns PASSED")
 
 
@@ -98,7 +98,7 @@ def test_field_digest_stable() -> None:
     contract = ac.load_contract()
     digest = ac.contract_field_digest(contract)
     assert "item_id" in digest["fields"]
-    assert digest["fields"]["play_duration"]["platform"] == "tiktok"
+    assert digest["fields"]["play_duration"]["scope"] == "base"
     print("test_field_digest_stable PASSED")
 
 

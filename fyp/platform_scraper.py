@@ -278,6 +278,9 @@ class BaseScraper(ABC):
         scraped = pd.to_datetime(df["scrape_ts"], errors="coerce")
         days = (scraped - created).dt.days.clip(lower=0)
         plays = df["play_count"].astype("double[pyarrow]")
+        # A negative play_count is the missing-count sentinel (-1) — mask it or the
+        # ratio goes negative. Zero is kept: 0 plays/day is a real value.
+        plays = plays.mask(plays < 0, pd.NA)
         denom = days.clip(lower=1).mask(plays.isna() | days.isna(), pd.NA)
         df["plays_per_day"] = (plays / denom).astype("double[pyarrow]")
         return df

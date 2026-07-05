@@ -85,7 +85,19 @@ def test_canonicalize_batch():
     assert abs(out.loc[0, 'comments_per_K_play'] - expected_comments) < 1e-9
     assert pd.isna(out.loc[0, 'shares_per_K_play'])
     assert pd.isna(out.loc[0, 'saves_per_K_play'])
+    assert out.loc[0, 'plays_per_day'] > 0
     print("PASS: YouTube canonicalize_batch")
+
+
+
+
+def test_plays_per_day_sentinel_masked():
+    scraper = YouTubeScraper()
+    info = dict(_INFO)
+    info['view_count'] = None
+    out = scraper.canonicalize_batch(scraper.prepare_raw_batch(_info_to_row(info, "pKOOk7f6FHk")), status="ok")
+    assert pd.isna(out.loc[0, 'plays_per_day']), f"expected NA, got {out.loc[0, 'plays_per_day']}"
+    print("PASS: YouTube plays_per_day masks the -1 sentinel")
 
 
 
@@ -152,6 +164,7 @@ if __name__ == "__main__":
     test_info_to_row()
     test_create_time_upload_date_fallback()
     test_canonicalize_batch()
+    test_plays_per_day_sentinel_masked()
     test_classify_error_truth_table()
     test_bot_check_is_throttle_signal()
     test_duration_cap_gates_longform()

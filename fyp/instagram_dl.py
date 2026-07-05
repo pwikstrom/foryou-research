@@ -16,8 +16,10 @@ extraction. Their donated enrichment-seed metadata still surfaces downstream.
 
 import logging
 import os
+import re
 from datetime import datetime
 from glob import glob
+from json import loads as json_loads
 from os import remove
 from os.path import exists, join
 from time import sleep
@@ -278,6 +280,119 @@ def _download_media(
 
 
 
+# -------------------------------------------------------------------------
+# Page-JSON count supplementation (the TikTok _fetch_item_struct analogue)
+# -------------------------------------------------------------------------
+
+_PAGE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                  'AppleWebKit/537.36 (KHTML, like Gecko) '
+                  'Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+}
+
+# Keys Instagram has used for the reel/video view counter, in preference order.
+_PLAY_COUNT_KEYS = ('play_count', 'ig_play_count', 'video_view_count', 'view_count')
+
+
+def _walk_for_media_node(node, item_id: str) -> dict | None:
+    """Depth-first search of a parsed JSON blob for the media node of ``item_id``.
+
+    Instagram's relay payloads nest the media info at varying depths; the stable
+    anchor is a dict whose ``code`` equals the post shortcode and that carries at
+    least one view-count key.
+    """
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            if cur.get('code') == item_id and any(k in cur for k in _PLAY_COUNT_KEYS):
+                return cur
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+    return None
+
+
+
+
+def _fetch_page_counts(url: str, item_id: str) -> dict | None:
+    """Fetch the post page and extract engagement counts yt-dlp doesn't return.
+
+    yt-dlp's Instagram extractor usually returns no ``view_count`` (and
+    occasionally no like/comment counts); the numbers are present in the
+    page-embedded relay JSON for the logged-in session. Never raises —
+    supplementation must not fail a scrape. Returns
+    ``{"play_count": int|None, "like_count": int|None, "comment_count": int|None}``
+    or None when nothing could be extracted.
+    """
+    from requests import get as requests_get
+
+    try:
+        resp = requests_get(
+            url,
+            headers=_PAGE_HEADERS,
+            cookies=scraper_cookies.requests_cookiejar("instagram"),
+            timeout=20,
+        )
+        html_text = resp.text
+    except Exception as e:
+        logger.warning("Page fetch for counts failed for %s: %s", item_id, e)
+        return None
+
+    return _parse_page_counts(html_text, item_id)
+
+
+
+
+def _parse_page_counts(html_text: str, item_id: str) -> dict | None:
+    """Extract engagement counts from a post page's HTML (pure, no network).
+
+    Primary path: parse every embedded JSON blob mentioning the shortcode and
+    walk it for the media node. Fallback: regex over the raw HTML.
+    """
+    from bs4 import BeautifulSoup
+
+    try:
+        soup = BeautifulSoup(html_text, 'html.parser')
+        for script in soup.find_all('script', attrs={'type': 'application/json'}):
+            blob = script.string
+            if not blob or item_id not in blob:
+                continue
+            try:
+                data = json_loads(blob)
+            except Exception:
+                continue
+            node = _walk_for_media_node(data, item_id)
+            if node is None:
+                continue
+            play = next((node[k] for k in _PLAY_COUNT_KEYS if node.get(k) is not None), None)
+            counts = {
+                'play_count': int(play) if play is not None else None,
+                'like_count': int(node['like_count']) if node.get('like_count') is not None else None,
+                'comment_count': int(node['comment_count']) if node.get('comment_count') is not None else None,
+            }
+            if any(v is not None for v in counts.values()):
+                logger.info("Page JSON counts extracted for %s: %s", item_id, counts)
+                return counts
+    except Exception as e:
+        logger.debug("Page JSON count walk failed for %s: %s", item_id, e)
+
+    # Fallback: raw regex over the HTML (first play-count occurrence).
+    try:
+        m = re.search(r'"(?:ig_play_count|play_count|video_view_count)"\s*:\s*(\d+)', html_text)
+        if m:
+            logger.info("Page regex play_count extracted for %s: %s", item_id, m.group(1))
+            return {'play_count': int(m.group(1)), 'like_count': None, 'comment_count': None}
+    except Exception:
+        pass
+
+    logger.info("No page counts found for %s", item_id)
+    return None
+
+
+
+
 # Raw column names → canonical base names. Contract-named ig_* columns pass
 # through unchanged.
 _RAW_TO_CANONICAL: dict[str, str] = {
@@ -328,6 +443,20 @@ class InstagramScraper(BaseScraper):
             return _empty_fail("extraction", "No info returned by yt-dlp")
 
         data_row = _info_to_row(info, item_id)
+
+        # yt-dlp's Instagram extractor usually returns no view count (and sometimes
+        # no like/comment counts) — supplement the -1 sentinels from the page JSON.
+        if (data_row.loc[0, 'play_count_raw'] == -1
+                or data_row.loc[0, 'ig_like_count'] == -1
+                or data_row.loc[0, 'ig_comment_count'] == -1):
+            counts = _fetch_page_counts(url, item_id)
+            if counts:
+                if counts.get('play_count') is not None and data_row.loc[0, 'play_count_raw'] == -1:
+                    data_row.loc[0, 'play_count_raw'] = counts['play_count']
+                if counts.get('like_count') is not None and data_row.loc[0, 'ig_like_count'] == -1:
+                    data_row.loc[0, 'ig_like_count'] = counts['like_count']
+                if counts.get('comment_count') is not None and data_row.loc[0, 'ig_comment_count'] == -1:
+                    data_row.loc[0, 'ig_comment_count'] = counts['comment_count']
 
         if not save_media:
             return data_row

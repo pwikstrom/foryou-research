@@ -1533,13 +1533,29 @@ def consolidate_and_save_scrape_data(
         scrape_df["source_platform"].fillna(backfill_platform).astype("string[pyarrow]")
     )
 
+    # Repair rows scraped before derive_plays_per_day masked the -1 missing-count
+    # sentinel: a negative plays_per_day is impossible by construction, so mask to
+    # NA. Per-file parquets keep the bad values but are re-masked on every load,
+    # exactly like the legacy-column migration.
+    if "plays_per_day" in scrape_df.columns:
+        scrape_df["plays_per_day"] = scrape_df["plays_per_day"].mask(
+            scrape_df["plays_per_day"] < 0, pd.NA
+        )
+
 
     # -------------------------------------------------
     # There may be some items listed twice - once as video_downloaded and once as not
     # This code addresses that issue
     # -------------------------------------------------
 
-    # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both
+    # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both.
+    # Sort newest scrape first so a re-scrape supersedes the older row (file order
+    # is lexicographic ≈ oldest-first, and keep="first" would otherwise pin the
+    # stale row forever).
+    if "scrape_ts" in scrape_df.columns:
+        scrape_df = scrape_df.sort_values(
+            "scrape_ts", ascending=False, kind="mergesort", na_position="last"
+        )
     scrape_df = scrape_df.drop_duplicates(subset=["source_platform","item_id","video_downloaded"]).copy()
     if verbose:
         print(f"    Dropping duplicates based on items and whether the video is downloaded or not: {scrape_df.shape}")

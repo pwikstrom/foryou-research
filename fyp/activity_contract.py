@@ -16,7 +16,7 @@ It is to ingestion what ``config/scrape_contract.toml`` is to the scraper and
     field set in, so a contract edit invalidates cached study parquets.
 
 Field scopes: ``base`` (every platform emits it) vs ``platform`` (a single
-platform's extra, e.g. TikTok's ``play_duration``). A ``derived`` field is
+platform's extra; currently empty — play_duration went base). A ``derived`` field is
 computed after ingestion (``session_id`` / the ``local_*`` features /
 ``activity_contract_version``) and so is owned for metadata but is not part of
 the required-column set. A ``required`` field is one whose null value makes a row
@@ -91,7 +91,7 @@ def required_columns(contract: dict) -> dict[str, str]:
 def platform_columns(contract: dict, platform: str | None) -> dict[str, str]:
     """Return ``{column: pyarrow_dtype}`` for a single platform's extra fields.
 
-    The ``additional_columns`` analogue (e.g. TikTok's ``play_duration``). Returns
+    The ``additional_columns`` analogue (currently no platform-scoped fields). Returns
     an empty dict when ``platform`` is None.
     """
     out: dict[str, str] = {}

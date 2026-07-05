@@ -67,6 +67,12 @@ OVERLAY_CATEGORICAL = [
 SCRAPE_OVERLAY_NUMERIC = [
     "comments_per_K_play", "faves_per_K_play", "shares_per_K_play", "saves_per_K_play",
 ]
+# Scrape-side categorical overlays (discrete legend). source_platform is
+# single-valued while annotation/embeddings stay TikTok-only, but the overlay is
+# wired so additional platforms surface automatically once they are embedded.
+SCRAPE_OVERLAY_CATEGORICAL = [
+    "source_platform",
+]
 
 # Cached Vertex client for niche naming. Distinct from the embeddings client
 # (embeddings._get_client), which is pinned to the embedding endpoint location
@@ -506,10 +512,11 @@ def build_niche_map(
         storage_location=embeddings.STORE_LOCATION, filename=embeddings.SCRAPES_FILE,
     ) or []
     scrape_numeric = [c for c in SCRAPE_OVERLAY_NUMERIC if c in scr_available]
+    scrape_categorical = [c for c in SCRAPE_OVERLAY_CATEGORICAL if c in scr_available]
     scr = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION,
         filename=embeddings.SCRAPES_FILE,
-        columns=["item_id", "play_count"] + scrape_numeric,
+        columns=["item_id", "play_count"] + scrape_numeric + scrape_categorical,
     )
     scr["item_id"] = scr["item_id"].astype("string")
     scr_by_item = scr.drop_duplicates("item_id").set_index("item_id")
@@ -536,6 +543,12 @@ def build_niche_map(
         overlay_cols[col] = pd.array(
             pd.to_numeric(scr_by_item[col].reindex(item_index), errors="coerce").reset_index(drop=True),
             dtype="double[pyarrow]",
+        )
+    # Categorical scrape overlays joined the same way.
+    for col in scrape_categorical:
+        overlay_cols[col] = pd.array(
+            scr_by_item[col].reindex(item_index).astype("string").fillna("unknown").reset_index(drop=True),
+            dtype="string[pyarrow]",
         )
 
     if reporter is not None:

@@ -16,6 +16,7 @@ import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 import fyp.annotation_versioning as annotation_versioning
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
+from fyp import scrape_contract as _scrape_contract
 from fyp.polars_ops import fast_join
 from fyp.recode_variables import compute_var_schema_hash, derive_australian_relevance, get_grouping_factors_from_var_schema
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
@@ -1085,6 +1086,25 @@ def select_videos_from_study_dataset(
 # ============================================================================
 
 
+def _backfill_source_platform(series: pd.Series) -> pd.Series:
+    """Fill missing ``source_platform`` values with the default platform.
+
+    Activity rows ingested before the column existed carry NA, which breaks the
+    composite ``(source_platform, item_id)`` join and silently drops the rows
+    from the per-platform groupbys below. All pre-column history is TikTok by
+    definition — the same argument as the scrape-side backfill in
+    ``fyp.scrape.consolidate_and_save_scrape_data``. The persisted parquet is
+    healed by ``fyp.ingest.ForYouCollection._backfill_source_platform``; this
+    guard keeps merges correct before that refresh has run.
+    """
+    if not series.isna().any():
+        return series
+    default = _scrape_contract.default_platform(_scrape_contract.load_contract()) or "tiktok"
+    return series.fillna(default).astype("string[pyarrow]")
+
+
+
+
 def update_enrichment_status(
     all_datasets: dict = {},
     save_to_disk: bool = True,
@@ -1097,6 +1117,11 @@ def update_enrichment_status(
     if has_platform:
         activity_columns.append('source_platform')
     combined_activity_data = all_datasets[COLLECTIONS_LABEL][activity_columns]
+    if has_platform:
+        combined_activity_data = combined_activity_data.copy()
+        combined_activity_data['source_platform'] = _backfill_source_platform(
+            combined_activity_data['source_platform']
+        )
 
     named_aggs = {
         "nunique_collections": pd.NamedAgg(column=collection_id_column, aggfunc="nunique"),
@@ -1486,6 +1511,13 @@ def new_merge(
     if len(activity_data) == 0:
         print("No activity data")
         return enriched_data
+
+    if 'source_platform' in activity_data.columns and activity_data['source_platform'].isna().any():
+        # Pre-column activity rows carry NA and would match no enrichment under
+        # the composite key below (and leave holes in the Platform factor) —
+        # backfill on a copy (activity_data is a reference into all_datasets).
+        activity_data = activity_data.copy()
+        activity_data['source_platform'] = _backfill_source_platform(activity_data['source_platform'])
 
     if len(enriched_data) == 0:
         print("No enriched data — caching activity-only dataset (no scrape/annotation enrichment yet)")

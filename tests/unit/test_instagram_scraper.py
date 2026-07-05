@@ -18,8 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import pandas as pd
 
+import fyp.instagram_dl as instagram_dl
 from fyp.fyp_config import fyp_cf
-from fyp.instagram_dl import _classify_error, _info_to_row, InstagramScraper
+from fyp.instagram_dl import _classify_error, _info_to_row, _parse_page_counts, InstagramScraper
 
 
 # A trimmed yt-dlp Instagram info dict. 'id' is the numeric media pk — the
@@ -109,6 +110,99 @@ def test_sentinel_counts_yield_na_rates():
 
 
 
+def test_plays_per_day_sentinel_masked():
+    scraper = InstagramScraper()
+
+    # Missing view count (-1 sentinel) must yield NA, never a negative rate.
+    info = dict(_INFO)
+    info['view_count'] = None
+    out = scraper.canonicalize_batch(scraper.prepare_raw_batch(_info_to_row(info, "DY1zHU_xQM2")), status="ok")
+    assert pd.isna(out.loc[0, 'plays_per_day']), f"expected NA, got {out.loc[0, 'plays_per_day']}"
+
+    # A genuine zero-play item is a real value: 0 plays/day.
+    info = dict(_INFO)
+    info['view_count'] = 0
+    out = scraper.canonicalize_batch(scraper.prepare_raw_batch(_info_to_row(info, "DY1zHU_xQM2")), status="ok")
+    assert out.loc[0, 'plays_per_day'] == 0
+
+    # And a real count still yields a positive rate.
+    out = scraper.canonicalize_batch(scraper.prepare_raw_batch(_info_to_row(_INFO, "DY1zHU_xQM2")), status="ok")
+    assert out.loc[0, 'plays_per_day'] > 0
+    print("PASS: plays_per_day masks the -1 sentinel (NA), keeps 0 and positive counts")
+
+
+
+
+_RELAY_HTML = (
+    '<html><head></head><body>'
+    '<script type="application/json">{"require": [{"data": {'
+    '"xdt_api__v1__media__shortcode__web_info": {"items": [{'
+    '"code": "DY1zHU_xQM2", "play_count": 98765, "ig_play_count": 98765, '
+    '"like_count": 432, "comment_count": 21}]}}}]}</script>'
+    '</body></html>'
+)
+
+
+
+
+def test_parse_page_counts_relay_json():
+    counts = _parse_page_counts(_RELAY_HTML, "DY1zHU_xQM2")
+    assert counts == {'play_count': 98765, 'like_count': 432, 'comment_count': 21}
+    # A different shortcode in the same payload finds nothing structured and no
+    # window-scoped fallback match either... the regex fallback is page-global,
+    # so it still returns the play count.
+    counts_other = _parse_page_counts(_RELAY_HTML, "ZZZZZZZZZZZ")
+    assert counts_other == {'play_count': 98765, 'like_count': None, 'comment_count': None}
+    print("PASS: page relay JSON counts extracted")
+
+
+
+
+def test_parse_page_counts_regex_fallback():
+    html = '<html><script>window.__data = {"media": {"ig_play_count": 5555}};</script></html>'
+    counts = _parse_page_counts(html, "DY1zHU_xQM2")
+    assert counts == {'play_count': 5555, 'like_count': None, 'comment_count': None}
+    print("PASS: page regex fallback extracts play count")
+
+
+
+
+def test_parse_page_counts_garbage():
+    assert _parse_page_counts("<html><body>login wall</body></html>", "DY1zHU_xQM2") is None
+    assert _parse_page_counts("", "DY1zHU_xQM2") is None
+    print("PASS: garbage page yields None (never raises)")
+
+
+
+
+def test_fetch_supplements_sentinels(monkeypatch=None):
+    """A -1 sentinel row is supplemented from the page counts; failures keep -1."""
+    scraper = InstagramScraper()
+    info = dict(_INFO)
+    info['view_count'] = None
+
+    orig_extract = instagram_dl._extract_metadata
+    orig_fetch_counts = instagram_dl._fetch_page_counts
+    instagram_dl._extract_metadata = lambda url, item_id, verbose=False: (info, None)
+    try:
+        instagram_dl._fetch_page_counts = lambda url, item_id: {
+            'play_count': 98765, 'like_count': None, 'comment_count': None}
+        row = scraper.fetch("DY1zHU_xQM2", save_media=False, save_path="")
+        assert row.loc[0, 'play_count_raw'] == 98765
+        # like/comment came from yt-dlp and must not be overwritten.
+        assert row.loc[0, 'ig_like_count'] == _INFO['like_count']
+
+        instagram_dl._fetch_page_counts = lambda url, item_id: None
+        row = scraper.fetch("DY1zHU_xQM2", save_media=False, save_path="")
+        assert row.loc[0, 'play_count_raw'] == -1
+    finally:
+        instagram_dl._extract_metadata = orig_extract
+        instagram_dl._fetch_page_counts = orig_fetch_counts
+    print("PASS: fetch supplements -1 sentinels from page counts and degrades to -1")
+
+
+
+
 def test_duration_sentinel_becomes_na():
     scraper = InstagramScraper()
     info = dict(_INFO)
@@ -180,6 +274,11 @@ if __name__ == "__main__":
     test_missing_counts_use_sentinel()
     test_canonicalize_batch()
     test_sentinel_counts_yield_na_rates()
+    test_plays_per_day_sentinel_masked()
+    test_parse_page_counts_relay_json()
+    test_parse_page_counts_regex_fallback()
+    test_parse_page_counts_garbage()
+    test_fetch_supplements_sentinels()
     test_duration_sentinel_becomes_na()
     test_classify_error_truth_table()
     test_duration_cap_and_override()

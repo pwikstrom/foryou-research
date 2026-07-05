@@ -36,6 +36,7 @@ _MAP_CACHE: dict = {"fingerprint": None, "payload": None}
 # values live well below 1, e.g. per-play engagement rates.
 _OVERLAYS = [
     {"key": "category", "label": "Content category", "kind": "categorical", "field": "category"},
+    {"key": "platform", "label": "Platform", "kind": "categorical", "field": "source_platform"},
     {"key": "popularity", "label": "Popularity (plays)", "kind": "numeric", "field": "log_plays"},
     {"key": "faves_per_K_play", "label": "Faves per 1K plays", "kind": "numeric", "field": "faves_per_K_play", "decimals": 3},
     {"key": "comments_per_K_play", "label": "Comments per 1K plays", "kind": "numeric", "field": "comments_per_K_play", "decimals": 3},

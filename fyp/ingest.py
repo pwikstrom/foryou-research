@@ -346,6 +346,109 @@ def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int = 900) -> pd.DataF
 
 
 
+def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFrame:
+    """Derive per-play dwell time from forward time-deltas between activities.
+
+    ``play_duration`` is assigned only to ``play`` activities: the time elapsed
+    until the *next* recorded event serves as a proxy for how long the user
+    spent on the item. When a play is directly followed by other activities on
+    the same ``item_id`` (e.g. a fave or comment on the same video), those
+    deltas represent time spent on the same item and are attributed to the
+    first play in the run; the non-lead activity types are folded into the lead
+    play's ``extra_data``. Non-play activities always get NA, as does the last
+    activity of the frame (no forward delta) and anything above ``cap_seconds``.
+
+    Args:
+        df: A single-donor activity frame in chronological order with
+            ``utc_timestamp``, ``activity_type`` and ``item_id`` columns
+            (every platform's ``process_single`` frame qualifies).
+        cap_seconds: Durations above this are considered idle time → NA.
+
+    Returns:
+        The same frame with a ``play_duration`` [int64[pyarrow]] column added.
+    """
+    df = df.reset_index(drop=True)
+    if "extra_data" not in df.columns:
+        df["extra_data"] = pd.NA
+
+    if df.empty:
+        df["play_duration"] = pd.Series([], dtype="int64[pyarrow]")
+        return df
+
+    # 1. Forward delta on the full frame: for each row, the time until the *next*
+    # event. This is the correct attribution of dwell time to an activity.
+    delta = df["utc_timestamp"].diff().dt.total_seconds()
+    forward_delta = delta.shift(-1)
+
+    # Default assignment: play activities get forward_delta, everything else gets NA.
+    df["play_duration"] = forward_delta.where(df["activity_type"] == "play")
+
+    # 2. Detect consecutive same-item_id runs of length > 1. A row is a non-first member
+    # of a run when its item_id equals the previous row's item_id (and item_id is not null).
+    # Such runs are vanishingly rare (~1/10,000 activities are non-play), so we iterate.
+    is_continuation = df["item_id"].notna() & (df["item_id"] == df["item_id"].shift(1))
+
+    if is_continuation.any():
+        # Walk each continuation backward to find the full run, then aggregate.
+        continuation_idxs = df.index[is_continuation].tolist()
+        visited: set[int] = set()
+        for idx in continuation_idxs:
+            if idx in visited:
+                continue
+            # Find the start of this run by walking back
+            run_item = df.at[idx, "item_id"]
+            run_start = idx
+            while run_start - 1 in df.index and pd.notna(df.at[run_start - 1, "item_id"]) and df.at[run_start - 1, "item_id"] == run_item:
+                run_start -= 1
+            # Find the end of the run by walking forward
+            run_end = idx
+            while run_end + 1 in df.index and pd.notna(df.at[run_end + 1, "item_id"]) and df.at[run_end + 1, "item_id"] == run_item:
+                run_end += 1
+            run_slice = list(range(run_start, run_end + 1))
+            visited.update(run_slice)
+
+            # Find the first play activity in the run
+            play_rows = [i for i in run_slice if df.at[i, "activity_type"] is not pd.NA and df.at[i, "activity_type"] == "play"]
+            if not play_rows:
+                df.loc[run_slice, "play_duration"] = pd.NA
+                continue
+
+            # Sum forward_delta across all rows in the run using the full-df precomputed
+            # series, so the last row's contribution (gap to the row after the run) is
+            # correctly included — slicing before shifting would lose it.
+            first_play = play_rows[0]
+            total_delta = forward_delta.loc[run_slice].sum()
+            df.loc[run_slice, "play_duration"] = pd.NA
+            df.at[first_play, "play_duration"] = total_delta
+
+            # Record the activity types of the non-lead rows in the run on the lead play's
+            # extra_data column, as a comma-separated string (e.g. "fave" or "fave,comment").
+            other_parts = []
+            for i in run_slice:
+                if i == first_play:
+                    continue
+                atype = df.at[i, "activity_type"]
+                if atype is pd.NA:
+                    continue
+                edata = df.at[i, "extra_data"]
+                if edata is not pd.NA:
+                    edata_clean = re.sub(r"[\s,]+", " ", str(edata)).strip()
+                    other_parts.append(f"{atype}:{edata_clean}")
+                else:
+                    other_parts.append(atype)
+            if other_parts:
+                df.at[first_play, "extra_data"] = ",".join(other_parts)
+
+    # 3. Cap play_duration at cap_seconds and cast to the project dtype.
+    df["play_duration"] = df["play_duration"].map(
+        lambda x: x if pd.notna(x) and x <= cap_seconds else pd.NA
+    ).astype("int64[pyarrow]")
+
+    return df
+
+
+
+
 
 class ForYouBaseCollection(ABC):
 
@@ -1261,12 +1364,73 @@ class ForYouCollection(ForYouBaseCollection):
             self.data.drop(columns=stale_cols, inplace=True)
 
         if len(self.data) > 0:
+            # Self-healing backfills for pre-column history; both are no-ops on
+            # healed data and are persisted by the next save_processed().
+            self._backfill_source_platform()
+            self._backfill_play_duration()
             self.state = "processed"
             if self.verbose:
                 print(f"Loaded {len(self.data):,} processed activities from {fn}.")
         else:
             if self.verbose:
                 print("Processed collection file was empty.")
+
+
+
+
+    def _backfill_source_platform(self) -> None:
+        """Fill missing ``source_platform`` with the default platform (self-heal).
+
+        Rows ingested before the column existed carry NA, which silently breaks
+        the composite ``(source_platform, item_id)`` activity↔enrichment join and
+        drops the rows from the per-platform enrichment-status filters. All
+        pre-column history is TikTok by definition (same argument as the
+        scrape-side backfill in ``fyp.scrape.consolidate_and_save_scrape_data``).
+        """
+        default_platform = _scrape_contract.default_platform(_scrape_contract.load_contract()) or "tiktok"
+        if "source_platform" not in self.data.columns:
+            self.data["source_platform"] = pd.NA
+        n_missing = int(self.data["source_platform"].isna().sum())
+        if n_missing:
+            print(f"Backfilling source_platform='{default_platform}' on {n_missing:,} pre-column activity row(s).")
+        self.data["source_platform"] = (
+            self.data["source_platform"].fillna(default_platform).astype("string[pyarrow]")
+        )
+
+
+
+
+    def _backfill_play_duration(self) -> None:
+        """Recompute ``play_duration`` for platforms ingested before it went base (self-heal).
+
+        IG/YT rows ingested while ``play_duration`` was TikTok-only carry all-NA
+        values, yet the forward-delta derivation needs nothing beyond the
+        persisted ``utc_timestamp`` / ``activity_type`` / ``item_id`` per
+        ``raw_file`` (dedup drops whole files, never rows, so per-file sequences
+        are intact). Recomputes only platform groups whose play rows are ALL NA —
+        already-derived platforms (TikTok) are untouched and repeat runs are
+        no-ops.
+        """
+        if "raw_file" not in self.data.columns or "activity_type" not in self.data.columns:
+            return
+        if "play_duration" not in self.data.columns:
+            self.data["play_duration"] = pd.Series(pd.NA, index=self.data.index, dtype="int64[pyarrow]")
+
+        for platform, grp in self.data.groupby("source_platform", dropna=False):
+            grp_plays = grp[grp["activity_type"] == "play"]
+            if len(grp_plays) == 0 or grp_plays["play_duration"].notna().any():
+                continue
+            print(f"Backfilling play_duration for {len(grp):,} '{platform}' activity row(s).")
+            for _, file_grp in grp.groupby("raw_file", dropna=False):
+                ordered = file_grp.sort_values("utc_timestamp", kind="mergesort")
+                recomputed = derive_play_duration(ordered)
+                self.data.loc[ordered.index, "play_duration"] = (
+                    recomputed["play_duration"].set_axis(ordered.index)
+                )
+                self.data.loc[ordered.index, "extra_data"] = (
+                    recomputed["extra_data"].set_axis(ordered.index)
+                )
+        self.data["play_duration"] = self.data["play_duration"].astype("int64[pyarrow]")
 
 
 
@@ -1495,19 +1659,13 @@ class TikTokDDPCollection(ForYouBaseCollection):
     raw_path = "ddp_raw"
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
-        # In addition to the required activity variables, this ingester adds one extra variable:
-        # play_duration [int64[pyarrow]] - the duration of the play in seconds
-        #
         # The extra_data column is used for the comment string, the account name that was just followed, etc...
+        # play_duration is a base activity-contract column (derive_play_duration), no extras needed here.
         super().__init__(collection_id, verbose)
         self.source_platform = "tiktok"
         self.data_source = "ddp"
         self.raw_path = "ddp_raw" #"/Users/<user>/fyp_local/activity_data/ddp/ddp_raw"
         self.min_required_rows_per_raw_file = 10
-
-        self.additional_columns = {
-            "play_duration": "int64[pyarrow]"
-        }
 
 
 
@@ -1692,91 +1850,14 @@ class TikTokDDPCollection(ForYouBaseCollection):
         comment_missing = (df['activity_type'] == 'comment') & df['item_id'].isna()
         df.loc[comment_missing, 'item_id'] = ffilled_item_id[comment_missing]
 
-        df.drop(columns=['_assoc_break', '_assoc_session'], inplace=True)
+        df.drop(columns=['_assoc_break', '_assoc_session', 'delta'], inplace=True)
 
 
         # -----------------------------------------------------
-        # play_duration: assigned only to 'play' activities, derived from delta (time elapsed
-        # since the previous activity). Delta serves as a proxy for how long the user spent
-        # on the video before the next recorded event.
-        #
-        # When a play activity is directly preceded by other activities sharing the same
-        # item_id (e.g. a comment on the same video), those deltas represent time spent on
-        # the same item and should be attributed to the first play in the run. All other
-        # rows in such a run get play_duration = NA. Non-play activities always get NA.
-        # Durations > 600 seconds are capped to NA (10 min max assumed per video).
+        # play_duration: forward time-delta to the next recorded activity, attributed
+        # to play events (shared, platform-agnostic derivation — see derive_play_duration).
 
-        # 4. Precompute forward_delta once on the full dataframe: for each row, the time
-        # until the *next* event. This is the correct attribution of dwell time to an activity.
-        forward_delta = df['delta'].shift(-1)
-
-        # Default assignment: play activities get forward_delta, everything else gets NA.
-        df['play_duration'] = forward_delta.where(df['activity_type'] == 'play')
-
-        # 5. Detect consecutive same-item_id runs of length > 1. A row is a non-first member
-        # of a run when its item_id equals the previous row's item_id (and item_id is not null).
-        # Such runs are vanishingly rare (~1/10,000 activities are non-play), so we iterate.
-        is_continuation = df['item_id'].notna() & (df['item_id'] == df['item_id'].shift(1))
-
-        if is_continuation.any():
-            # Walk each continuation backward to find the full run, then aggregate.
-            continuation_idxs = df.index[is_continuation].tolist()
-            visited: set[int] = set()
-            for idx in continuation_idxs:
-                if idx in visited:
-                    continue
-                # Find the start of this run by walking back
-                run_item = df.at[idx, 'item_id']
-                run_start = idx
-                while run_start - 1 in df.index and pd.notna(df.at[run_start - 1, 'item_id']) and df.at[run_start - 1, 'item_id'] == run_item:
-                    run_start -= 1
-                # Find the end of the run by walking forward
-                run_end = idx
-                while run_end + 1 in df.index and pd.notna(df.at[run_end + 1, 'item_id']) and df.at[run_end + 1, 'item_id'] == run_item:
-                    run_end += 1
-                run_slice = list(range(run_start, run_end + 1))
-                visited.update(run_slice)
-
-                # Find the first play activity in the run
-                play_rows = [i for i in run_slice if df.at[i, 'activity_type'] is not pd.NA and df.at[i, 'activity_type'] == 'play']
-                if not play_rows:
-                    df.loc[run_slice, 'play_duration'] = pd.NA
-                    continue
-
-                # Sum forward_delta across all rows in the run using the full-df precomputed
-                # series, so the last row's contribution (gap to the row after the run) is
-                # correctly included — slicing before shifting would lose it.
-                first_play = play_rows[0]
-                total_delta = forward_delta.loc[run_slice].sum()
-                df.loc[run_slice, 'play_duration'] = pd.NA
-                df.at[first_play, 'play_duration'] = total_delta
-
-                # Record the activity types of the non-lead rows in the run on the lead play's
-                # extra_data column, as a comma-separated string (e.g. "fave" or "fave,comment").
-                other_parts = []
-                for i in run_slice:
-                    if i == first_play:
-                        continue
-                    atype = df.at[i, 'activity_type']
-                    if atype is pd.NA:
-                        continue
-                    edata = df.at[i, 'extra_data']
-                    if edata is not pd.NA:
-                        edata_clean = re.sub(r'[\s,]+', ' ', str(edata)).strip()
-                        other_parts.append(f"{atype}:{edata_clean}")
-                    else:
-                        other_parts.append(atype)
-                if other_parts:
-                    df.at[first_play, 'extra_data'] = ",".join(other_parts)
-
-        df.drop(columns=['delta'], inplace=True)
-
-        # 6. Cap play_duration at 600 seconds and cast to the project dtype.
-        df["play_duration"] = df["play_duration"].map(
-            lambda x: x if pd.notna(x) and x <= 600 else pd.NA
-        ).astype("int64[pyarrow]")
-
-        return df
+        return derive_play_duration(df)
 
 
 
@@ -2157,7 +2238,7 @@ class InstagramDDPCollection(ForYouBaseCollection):
         df["utc_timestamp"] = pd.to_datetime(
             df["ig_timestamp"], unit="s", utc=True, errors="coerce"
         )
-        return self._finalize_activity_frame(df)
+        return derive_play_duration(self._finalize_activity_frame(df))
 
 
 
@@ -2489,7 +2570,7 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         """Flag ads vs organic watches and finalize the frame."""
         df = df.copy()
         df["activity_type"] = np.where(df["is_ad"].fillna(False), "ad_play", "play")
-        return self._finalize_activity_frame(df)
+        return derive_play_duration(self._finalize_activity_frame(df))
 
 
 

@@ -539,11 +539,14 @@ def test_generic_structure():
     yt_df, yt_seed, _ = _run_collection(
         YouTubeDDPCollection, os.path.join(_FIXTURES, "yt_sample.zip"), "P002_yt")
 
-    ig_cols = set(ig_df.columns) - {"play_duration"}
-    yt_cols = set(yt_df.columns) - {"play_duration"}
+    ig_cols = set(ig_df.columns)
+    yt_cols = set(yt_df.columns)
     assert ig_cols == yt_cols, (
         f"activity schemas diverge: only-ig={ig_cols - yt_cols}, only-yt={yt_cols - ig_cols}"
     )
+    # play_duration is a base column now — the forward-delta derivation runs for
+    # every DDP platform (values may be NA when fixture events are >600s apart).
+    assert "play_duration" in ig_cols and "play_duration" in yt_cols
     assert set(ig_seed.columns) == set(yt_seed.columns), "seed schemas diverge"
     assert "instagram_raw" in registered_raw_locations(), "instagram_raw not in registry locations"
     assert "youtube_raw" in registered_raw_locations(), "youtube_raw not in registry locations"
