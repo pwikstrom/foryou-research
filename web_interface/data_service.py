@@ -1,6 +1,7 @@
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -56,6 +57,85 @@ class StudyCache:
 study_cache = StudyCache(maxsize=2)
 
 
+# --- Per-user JSON cache -----------------------------------------------------
+# The viewer/explorer item endpoints read user JSON files (own tags + every
+# sharing user's annotations) on each request. On Cloud Run each read is a GCS
+# round-trip; with ~60 sharing users that serialized into multi-second request
+# latencies. Cache the parsed files in-process with a short TTL and invalidate
+# a user's entry whenever their file is written (tag/vote/settings saves).
+
+_USER_JSON_TTL = 60.0
+_user_json_cache: dict[str, tuple[float, dict | None]] = {}
+_user_json_lock = threading.Lock()
+
+
+
+
+def invalidate_user_json_cache(username: str | None = None) -> None:
+    """Drop the cached JSON for one user (or all users when ``None``).
+
+    Call after writing a user's JSON file so their own next request sees the
+    change immediately; other users pick it up within ``_USER_JSON_TTL``.
+    """
+    with _user_json_lock:
+        if username is None:
+            _user_json_cache.clear()
+        else:
+            _user_json_cache.pop(username, None)
+            _user_json_cache.pop(username.lower(), None)
+
+
+
+
+def _read_user_json_uncached(username: str) -> dict | None:
+    """Load one user's JSON file (exact-case, then lowercase fallback)."""
+    filename = f"{username}.json"
+    if data_io.exists(storage_location="users", filename=filename):
+        return data_io.load_json(storage_location="users", filename=filename) or None
+    filename_lower = f"{username.lower()}.json"
+    if filename_lower != filename and data_io.exists(storage_location="users", filename=filename_lower):
+        return data_io.load_json(storage_location="users", filename=filename_lower) or None
+    return None
+
+
+
+
+def get_user_json_cached(username: str) -> dict | None:
+    """Return one user's parsed JSON file through the TTL cache."""
+    now = time.time()
+    with _user_json_lock:
+        entry = _user_json_cache.get(username)
+        if entry is not None and entry[0] > now:
+            return entry[1]
+    try:
+        blob = _read_user_json_uncached(username)
+    except Exception as e:
+        print(f"Error loading user file for {username}: {e}")
+        return None
+    with _user_json_lock:
+        _user_json_cache[username] = (now + _USER_JSON_TTL, blob)
+    return blob
+
+
+
+
+def _prefetch_user_jsons(usernames: list[str]) -> None:
+    """Warm the user-JSON cache for many users with parallel reads.
+
+    A cold cache would otherwise fetch each file sequentially (one GCS
+    round-trip per user); fetching in parallel bounds the cold-path cost at
+    roughly one round-trip total.
+    """
+    now = time.time()
+    with _user_json_lock:
+        missing = [u for u in usernames
+                   if (e := _user_json_cache.get(u)) is None or e[0] <= now]
+    if not missing:
+        return
+    with ThreadPoolExecutor(max_workers=min(16, len(missing))) as pool:
+        list(pool.map(get_user_json_cached, missing))
+
+
 # Hard-coded display order of UI sections. Variables in sections not listed here
 # sort after these, alphabetically. Used by ``load_schema_metadata`` to order
 # every web variable list and exposed to the frontend as ``section_order``.
@@ -75,10 +155,9 @@ def _get_recoded_mtime(study):
     if the file is missing / unreadable. Used to detect stale RAM cache
     entries when the parquet is refreshed by a worker subprocess."""
     try:
-        filename = f"{study}_recoded.parquet"
-        if not data_io.exists(storage_location="cache", filename=filename):
-            return None
-        return data_io.getmtime(storage_location="cache", filename=filename)
+        # getmtime raises FileNotFoundError for a missing file/blob — no
+        # separate exists() probe needed (saves a GCS round-trip per request).
+        return data_io.getmtime(storage_location="cache", filename=f"{study}_recoded.parquet")
     except Exception:
         return None
 
@@ -96,10 +175,7 @@ _sidecar_cache_lock = threading.Lock()
 def _get_sidecar_mtime(study):
     """Return the mtime of a study's sidecar JSON, or ``None`` if missing."""
     try:
-        filename = f"{study}_recoded.meta.json"
-        if not data_io.exists(storage_location="cache", filename=filename):
-            return None
-        return data_io.getmtime(storage_location="cache", filename=filename)
+        return data_io.getmtime(storage_location="cache", filename=f"{study}_recoded.meta.json")
     except Exception:
         return None
 
@@ -274,18 +350,8 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     Returns (enriched_df, enriched_col_types).
     If no tags found, returns original.
     """
-    filename = f"{username}.json"
-    user_data = {}
+    user_data = get_user_json_cached(username) or {}
     user_tags = {}
-    
-    # Try loading exact match first
-    if data_io.exists(storage_location="users", filename=filename):
-        user_data = data_io.load_json(storage_location="users", filename=filename) or {}
-    else:
-        # Fallback to lowercase
-        filename_lower = f"{username.lower()}.json"
-        if data_io.exists(storage_location="users", filename=filename_lower):
-             user_data = data_io.load_json(storage_location="users", filename=filename_lower) or {}
 
     if user_data:
         user_tags = user_data.get('annotations', {})
@@ -386,20 +452,13 @@ def load_shared_tags(allowed_usernames):
     if not allowed_usernames:
         return simple_map, detailed_map
 
+    # Warm the per-user cache with parallel reads; a cold cache would
+    # otherwise serialize one GCS round-trip per sharing user.
+    _prefetch_user_jsons(list(allowed_usernames))
+
     for user in allowed_usernames:
         try:
-            filename = f"{user}.json"
-            
-            # Check exist
-            user_blob = None
-            if data_io.exists(storage_location="users", filename=filename):
-                user_blob = data_io.load_json(storage_location="users", filename=filename)
-            else:
-                 # Check lowercase
-                 filename_lower = f"{user.lower()}.json"
-                 if data_io.exists(storage_location="users", filename=filename_lower):
-                     user_blob = data_io.load_json(storage_location="users", filename=filename_lower)
-            
+            user_blob = get_user_json_cached(user)
             if not user_blob:
                 continue
                 

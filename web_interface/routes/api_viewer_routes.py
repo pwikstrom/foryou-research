@@ -14,6 +14,7 @@ from .. import explorer_backend as explorer
 from ..data_service import (
     enrich_with_user_tags,
     get_explorer_data,
+    invalidate_user_json_cache,
     load_display_id_map,
     load_shared_tags,
 )
@@ -232,6 +233,7 @@ def api_save_tags():
 
     # print(f"[TAGS] User data after update: {user_data}")
     data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
+    invalidate_user_json_cache(username)
 
     return jsonify({"status": "success", "tags": tags, "notes": notes, "closed_tagging": closed_tagging})
 
@@ -288,6 +290,7 @@ def api_delete_tag(tag_name):
     if modified:
         user_file_data['annotations'] = user_data # Update annotations block
         data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
+        invalidate_user_json_cache(username)
         return jsonify({"status": "success", "message": f"Tag '{tag_name}' deleted"})
         return jsonify({"status": "success", "message": "Tag not found in any item"}), 200
 
@@ -328,6 +331,7 @@ def api_save_vote():
         votes.append(item_id)
         user_file_data['votes'] = votes
         data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
+        invalidate_user_json_cache(username)
 
     return jsonify({"status": "success", "votes": votes})
 
@@ -439,11 +443,12 @@ def api_video_stream(study, item_id):
         blob_name = resolved["blob_name"]
         blob = bucket.blob(blob_name)
 
-        if not blob.exists():
-             return f"Video {blob_name} not found", 404
-
-        blob.reload()
-        total_size = blob.size
+        # resolve_media already verified existence and captured the size (and
+        # caches both), so no per-request exists()/reload() round-trips.
+        total_size = resolved.get("size")
+        if total_size is None:
+            blob.reload()
+            total_size = blob.size
 
         if range_header:
             range_spec = range_header.replace('bytes=', '').strip()

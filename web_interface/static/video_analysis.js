@@ -26,7 +26,7 @@ let viewerData = {
     // Prefetch / caching infrastructure
     _metadataCache: new Map(),       // itemId -> {data, timestamp}
     _metadataCacheMax: 50,           // LRU eviction threshold
-    _prefetchAbort: null,            // AbortController for in-flight prefetch
+    _inflightItem: null,             // { itemId, promise, abort } for the in-flight metadata prefetch
     _itemFetchAbort: null,           // AbortController for in-flight item-metadata fetch
     _preloadedVideoIndex: null       // Index whose video is preloaded in the hidden element
 };
@@ -981,6 +981,10 @@ function getCachedMetadata(itemId) {
 
 function clearMetadataCache() {
     viewerData._metadataCache.clear();
+    if (viewerData._inflightItem) {
+        viewerData._inflightItem.abort.abort();
+        viewerData._inflightItem = null;
+    }
     viewerData._preloadedVideoIndex = null;
     const preloadEl = document.getElementById('viewer-video-preload');
     if (preloadEl) preloadEl.removeAttribute('src');
@@ -1002,13 +1006,23 @@ function prefetchNext() {
     const nextItemId = viewerData.filteredIds[relIdx];
     const nextRowIdx = viewerData.rowIdxs ? viewerData.rowIdxs[relIdx] : undefined;
 
-    // Cancel any in-flight prefetch
-    if (viewerData._prefetchAbort) viewerData._prefetchAbort.abort();
-    viewerData._prefetchAbort = new AbortController();
+    // Cancel a stale in-flight prefetch — but never one that is for the item
+    // currently on screen (loadViewerItem may be awaiting it) or already for
+    // the target item.
+    const currentRel = viewerData.currentIndex - (viewerData.currentOffset || 0);
+    const currentItemId = viewerData.filteredIds ? viewerData.filteredIds[currentRel] : undefined;
+    const inflight = viewerData._inflightItem;
+    if (inflight && inflight.itemId !== nextItemId && inflight.itemId !== currentItemId) {
+        inflight.abort.abort();
+        viewerData._inflightItem = null;
+    }
 
-    // Prefetch metadata (if not already cached)
-    if (!getCachedMetadata(nextItemId)) {
-        fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${nextItemId}`, {
+    // Prefetch metadata (if not already cached or being fetched). The promise
+    // is kept so loadViewerItem can await this request instead of issuing a
+    // duplicate — the server pays the full item cost per request.
+    if (!getCachedMetadata(nextItemId) && !(inflight && inflight.itemId === nextItemId)) {
+        const abort = new AbortController();
+        const promise = fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${nextItemId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1016,11 +1030,12 @@ function prefetchNext() {
                 filters: viewerData.filters,
                 search_query: viewerData.searchQuery
             }),
-            signal: viewerData._prefetchAbort.signal
+            signal: abort.signal
         })
             .then(r => r.json())
-            .then(data => { if (!data.error) cacheMetadata(nextItemId, data); })
-            .catch(() => {}); // silently ignore aborts / errors
+            .then(data => { if (!data.error) cacheMetadata(nextItemId, data); return data; })
+            .catch(() => null); // silently ignore aborts / errors
+        viewerData._inflightItem = { itemId: nextItemId, promise, abort };
     }
 
     // Preload next video in hidden element
@@ -1094,9 +1109,15 @@ async function loadViewerItem(index) {
     const rowIdx = viewerData.rowIdxs ? viewerData.rowIdxs[relativeIndex] : undefined;
     const displayId = viewerData.displayIds[itemId] || itemId;
 
-    // Cancel any in-flight prefetch and any stale item-metadata fetch so
-    // they don't race with this new load.
-    if (viewerData._prefetchAbort) viewerData._prefetchAbort.abort();
+    // Reuse an in-flight prefetch when it is already fetching this item's
+    // metadata (each item request is expensive server-side); abort it only
+    // when it is for some other item. Also cancel any stale item fetch.
+    const inflightItem = (viewerData._inflightItem && viewerData._inflightItem.itemId === itemId)
+        ? viewerData._inflightItem : null;
+    if (!inflightItem && viewerData._inflightItem) {
+        viewerData._inflightItem.abort.abort();
+        viewerData._inflightItem = null;
+    }
     if (viewerData._itemFetchAbort) viewerData._itemFetchAbort.abort();
 
     document.getElementById('viewer-status').innerText = `Loading ${displayId}...`;
@@ -1157,6 +1178,32 @@ async function loadViewerItem(index) {
     if (voteContainer) voteContainer.innerHTML = '';
 
     const requestedIndex = index;
+
+    const handleItem = (item) => {
+        // Always cache a successful response — useful for back-navigation
+        // even if the user has moved on from this index.
+        if (item && !item.error) cacheMetadata(itemId, item);
+
+        // Race guard: only update the panel if the user is still on this index.
+        if (viewerData.currentIndex !== requestedIndex) return;
+
+        if (!item || item.error) {
+            tbody.innerHTML = '<tr><td colspan="2" style="color: var(--color-danger); padding: 12px; text-align: center;">Error loading details</td></tr>';
+            document.getElementById('viewer-status').innerText = "Error loading item";
+            return;
+        }
+
+        renderMetadata(item);
+        document.getElementById('viewer-status').innerText = "";
+    };
+
+    // The prefetch is already fetching this item — render its result when it
+    // lands instead of issuing a duplicate request.
+    if (inflightItem) {
+        inflightItem.promise.then(handleItem);
+        return;
+    }
+
     const abort = new AbortController();
     viewerData._itemFetchAbort = abort;
 
@@ -1171,23 +1218,7 @@ async function loadViewerItem(index) {
         signal: abort.signal
     })
         .then(r => r.json())
-        .then(item => {
-            // Always cache a successful response — useful for back-navigation
-            // even if the user has moved on from this index.
-            if (!item.error) cacheMetadata(itemId, item);
-
-            // Race guard: only update the panel if the user is still on this index.
-            if (viewerData.currentIndex !== requestedIndex) return;
-
-            if (item.error) {
-                tbody.innerHTML = '<tr><td colspan="2" style="color: var(--color-danger); padding: 12px; text-align: center;">Error loading details</td></tr>';
-                document.getElementById('viewer-status').innerText = "Error loading item";
-                return;
-            }
-
-            renderMetadata(item);
-            document.getElementById('viewer-status').innerText = "";
-        })
+        .then(handleItem)
         .catch(e => {
             if (e.name === 'AbortError') return; // superseded by a newer load
             console.error(e);

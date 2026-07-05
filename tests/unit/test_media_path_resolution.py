@@ -46,13 +46,13 @@ def main() -> int:
             (Path(tmp) / f"{VID_BOTH}.mp4").write_bytes(b"x")
             (Path(platform_dir) / f"{VID_BOTH}.mp4").write_bytes(b"x")
 
-            # Legacy flat file found via fallback
+            # Legacy flat file found via fallback (verified → size included)
             r = media_paths.resolve_media(VID_FLAT, platform="tiktok")
-            assert r == {"kind": "local", "path": os.path.join(tmp, f"{VID_FLAT}.mp4")}, r
+            assert r == {"kind": "local", "path": os.path.join(tmp, f"{VID_FLAT}.mp4"), "size": 1}, r
 
             # Platform subpath found first
             r = media_paths.resolve_media(VID_PLAT, platform="tiktok")
-            assert r == {"kind": "local", "path": os.path.join(platform_dir, f"{VID_PLAT}.mp4")}, r
+            assert r == {"kind": "local", "path": os.path.join(platform_dir, f"{VID_PLAT}.mp4"), "size": 1}, r
 
             # Both present → platform subpath wins
             r = media_paths.resolve_media(VID_BOTH, platform="tiktok")
@@ -61,7 +61,7 @@ def main() -> int:
             # A valid storage_link short-circuits the probe entirely
             link = os.path.join(tmp, f"{VID_FLAT}.mp4")
             r = media_paths.resolve_media(VID_BOTH, platform="tiktok", storage_link=link)
-            assert r == {"kind": "local", "path": link}, r
+            assert r == {"kind": "local", "path": link, "size": 1}, r
 
             # An invalid storage_link falls back to probing
             r = media_paths.resolve_media(VID_PLAT, platform="tiktok", storage_link="/nope/missing.mp4")
