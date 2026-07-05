@@ -198,8 +198,25 @@ mix collections across platforms.
 > authoritatively resolves ambiguous export tz labels. Parse failures raise and leave the file
 > pending for retry rather than being discarded. `organize_datasets.new_merge` now always emits the
 > enrichment-status/derived columns (so a pre-scraper study doesn't error), and its id-length filter
-> is per-`source_platform`. **Remaining: the IG/YT `*Scraper` subclasses (step 3) and the
-> messy-intake UX (step 4).** Annotation stays TikTok-only.
+> is per-`source_platform`. Annotation stays TikTok-only.
+>
+> **✅ Update (2026-07-05, later same day):** the **IG/YT scrapers** (step 3) are shipped and deployed
+> (f004e3c; revs 00206-lf4/00128-fqd). `fyp/instagram_dl.py` + `fyp/youtube_dl.py` (both yt-dlp,
+> `BaseScraper` subclasses), authenticated via the new `fyp/scraper_cookies.py` (per-platform
+> `secrets/{platform}_cookies.txt` on GCS, Chrome cookies locally, generalised `cookie_health`);
+> `fyp/tiktok_dl.py` delegates to it. A **generic media-duration cap**
+> (`BaseScraper.media_duration_cap`/`should_download_media`, global 300s + optional
+> `max_duration_for_download_<platform>` key) gates every platform's media phase — long-form YouTube
+> deliberately stays metadata-only; skip-for-length is `ok`+`video_downloaded=False`, not an error.
+> The donated **enrichment-seed fallback** is wired into consolidation (`_merge_enrichment_seeds`
+> anti-join; donated rows surface in Explore but stay scrape-eligible). Contract gained `ig_*`/`yt_*`
+> fields (+`video_downloaded` → base scope) → hash bump → full Consolidate & Refresh required.
+> YouTube format extraction needs the EJS n-challenge solver (`yt-dlp-ejs` + deno in the base image);
+> metadata is solver-independent. Known limits: IG image posts fail `permanent:no_video` (carousel
+> follow-up), IG extractor currently flaky upstream ("empty media response", yt-dlp #17074 — errors
+> stay transient/queued), YT datacenter bot-checks may need a PO-token provider later.
+> **Remaining: upload IG/YT cookie files + Consolidate & Refresh + first live batches; then the
+> messy-intake UX (step 4).**
 
 **Where the TikTok coupling actually lives (the work):**
 - **Scraping/enrichment** (`fyp/tiktok_dl.py`): yt-dlp wrapper, TikTok cookie handling, TikTok error
@@ -221,9 +238,11 @@ mix collections across platforms.
    zipped export formats; the raw-path entry is now auto-registered by the base class. Real exports
    ingest end-to-end into a study *without touching the analysis layer*, validating the "messy data →
    schema" promise. Donor-timezone override + parse-failure-stays-pending robustness landed with it.
-3. **Generalise enrichment** (the remaining scraping work): the scraper ABC/contract already exists;
-   what's left is the IG/YT `*Scraper` subclasses so donated items can be scraped/annotated (today
-   IG/YT ingest activity + an enrichment seed, but there is no scraper for them yet).
+3. ✅ **Done (2026-07-05):** IG/YT `*Scraper` subclasses shipped + deployed (see update above).
+   Operational follow-ups tracked there (cookie uploads, Consolidate & Refresh, live batch
+   validation); deeper follow-ups: IG carousel→slideshow support, IG retry-count demotion for the
+   ambiguous rate-limit error, PO-token provider if YT bot-checks persist. Annotation stays
+   TikTok-only for now.
 4. **Harden the "messy intake" UX** — the audience promise is *messy* data. Improve the Data
    Management ingestion path to report what was parsed/dropped/malformed per file (builds on the
    existing pending-uploads panel), so a researcher uploading an unfamiliar export sees why rows
