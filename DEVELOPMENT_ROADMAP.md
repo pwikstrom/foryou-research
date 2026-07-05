@@ -183,13 +183,31 @@ mix collections across platforms.
 > fallback; `ThrottleController`/`health_check` generalised onto `BaseScraper`; annotation kept
 > TikTok-only behind a guard. So steps 1–2 (pick the platform + write its `*Collection` and
 > `*Scraper` subclasses) are now the *only* remaining work to onboard a second platform end-to-end.
+>
+> **✅ Update (2026-07-05):** the **second-platform ingestion** (step 2) is shipped for **two**
+> platforms at once — `InstagramDDPCollection` and `YouTubeDDPCollection` (`fyp/ingest.py`) parse
+> zipped data-donation exports into the platform-agnostic activity schema (IG: viewed reels →
+> `play` + liked posts → `fave`, both export schemas; YT/Takeout: watch-history HTML, ads →
+> `ad_play`, multi-locale timestamps). The "one class, nothing else" promise is now literally true
+> on the ingestion side: `ForYouBaseCollection.__init_subclass__` self-registers the raw-upload
+> location at import (no `fyp_config` edit — the "hardcoded raw paths" coupling below is gone),
+> `registered_raw_locations()` derives the upload-location list from the registry, and the base
+> class owns a `save_enrichment_seed()` + `seed_*` contract that persists donated captions/owners as
+> a per-platform enrichment seed (canonical scrape-base schema, `scrape_status="donated"`). An
+> optional donor-timezone (`tz`) manifest field (validated by `ingest.parse_donor_timezone`)
+> authoritatively resolves ambiguous export tz labels. Parse failures raise and leave the file
+> pending for retry rather than being discarded. `organize_datasets.new_merge` now always emits the
+> enrichment-status/derived columns (so a pre-scraper study doesn't error), and its id-length filter
+> is per-`source_platform`. **Remaining: the IG/YT `*Scraper` subclasses (step 3) and the
+> messy-intake UX (step 4).** Annotation stays TikTok-only.
 
 **Where the TikTok coupling actually lives (the work):**
 - **Scraping/enrichment** (`fyp/tiktok_dl.py`): yt-dlp wrapper, TikTok cookie handling, TikTok error
   codes, TikTok page-JSON extraction, TikTok URL template. This is the biggest platform-specific
   surface — but it's *orthogonal* to ingestion (separate queue) and yt-dlp already supports many
   platforms.
-- **Hardcoded raw paths** in `fyp_config.py` (`zeeschuimer_raw`, `ddp_raw`, `aio_raw`).
+- ~~**Hardcoded raw paths** in `fyp_config.py` (`zeeschuimer_raw`, `ddp_raw`, `aio_raw`).~~ ✅ Gone —
+  classes self-register their raw location at import via `__init_subclass__` (2026-07-05).
 - **Activity-type semantics** `("play","observe")` in `organize_datasets.py` — semantic, easily
   extended.
 
@@ -198,11 +216,14 @@ mix collections across platforms.
    (watch history), Facebook. Choose by (a) does it carry a *sequence + a dwell/engagement proxy*?
    and (b) which platform do your researchers actually need? A platform with no dwell signal still
    benefits the timelines/PCA/correlations analyses even if it can't join the linger feature.
-2. **Spike: one new `*Collection` subclass** implementing `load_single_raw` + `process_single` for
-   that platform's export format, plus a raw-path entry. Target: ingest a real export end-to-end into
-   a study, *without touching the analysis layer*. This validates the "messy data → schema" promise.
-3. **Generalise enrichment** only if needed: factor the scraper toward a small strategy interface
-   (`platform_dl` with a TikTok and a second implementation) rather than forking `tiktok_dl.py`.
+2. ✅ **Done (2026-07-05):** two new `*Collection` subclasses (`InstagramDDPCollection`,
+   `YouTubeDDPCollection`) implementing `load_single_raw` + `process_single` for the platforms'
+   zipped export formats; the raw-path entry is now auto-registered by the base class. Real exports
+   ingest end-to-end into a study *without touching the analysis layer*, validating the "messy data →
+   schema" promise. Donor-timezone override + parse-failure-stays-pending robustness landed with it.
+3. **Generalise enrichment** (the remaining scraping work): the scraper ABC/contract already exists;
+   what's left is the IG/YT `*Scraper` subclasses so donated items can be scraped/annotated (today
+   IG/YT ingest activity + an enrichment seed, but there is no scraper for them yet).
 4. **Harden the "messy intake" UX** — the audience promise is *messy* data. Improve the Data
    Management ingestion path to report what was parsed/dropped/malformed per file (builds on the
    existing pending-uploads panel), so a researcher uploading an unfamiliar export sees why rows
