@@ -132,6 +132,8 @@ var_schema_admin = true
 # The name of the GCS bucket - set by environment variable FYP_GCS_BUCKET_NAME.
 GCS_bucket_name = "" 
 
+# On Cloud Run (K_SERVICE) all three flags are forced true; the env var
+# FYP_FORCE_GCS=1 does the same for a local process (e.g. a local scrape-queue drain).
 use_gcs_for_data = false
 use_gcs_for_media = true
 use_gcs_for_cache = false

@@ -278,6 +278,46 @@ python web_interface/run_timelines_refresh.py # Timeline updates
 python web_interface/run_meta_refresh_groups.py  # Group + Video Analysis metadata refresh
 ```
 
+### Local Scrape-Queue Drain Against Prod GCS (Residential IP)
+
+YouTube's bot wall blocks most media downloads from Cloud Run's datacenter IPs; a
+laptop on a residential IP is not affected. Setting `FYP_FORCE_GCS=1` makes a local
+process resolve **all** storage (`data`/`cache`/`media`) against the prod GCS bucket —
+the same code path Cloud Run uses — while keeping local behavior for everything gated
+on `K_SERVICE` (Chrome-profile cookies, stdout status reporting, no Cloud Tasks
+dispatch, no `task_status/` or `process_stats.json` writes).
+
+**Prerequisites (once):**
+1. Run from the **deployed commit** — the scrape contract and var-schema synthesis are
+   code-baked; a drifted branch would stamp mismatched versions/columns.
+2. `gcloud auth application-default login` with write access to the prod bucket
+   (plain ADC — no service-account key needed).
+3. `ffmpeg` (DASH merge) and `node` or `deno` (n-challenge solver) on PATH.
+4. Chrome logged into the research YouTube account; approve the macOS Keychain prompt
+   on first cookie extraction (run interactively).
+5. In the web UI: make sure `queue_scraper_youtube` is **not** running, and don't
+   start it or Consolidate while the drain runs (the queue prune is an unlocked
+   read-modify-write — a concurrent worker means duplicate work, not corruption).
+
+**Run:**
+
+```bash
+export FYP_FORCE_GCS=1
+export FYP_GCS_BUCKET_NAME=<prod-bucket>
+caffeinate -i python web_interface/run_queue_scraper.py --platform youtube --batch-size 200
+```
+
+The boot log must show `FYP_FORCE_GCS set. Forcing all storage to GCS.` (the
+`__main__` default batch size is 5 — pass a real value; `caffeinate -i` prevents
+sleep mid-drain). Interrupting mid-batch is safe: unpruned items are re-scraped and
+already-uploaded media is skipped by `check_existing_media`.
+
+**Verify / finish:** check `gs://<bucket>/media/youtube/` for new mp4s and
+`gs://<bucket>/data/scrape/` for new `scrapes_*.parquet`; the queue JSON at
+`gs://<bucket>/data/cache/to_scrape_youtube.json` shrinks per batch. Close the shell
+(drops `FYP_FORCE_GCS`), then run **Consolidate & Refresh** from the web UI — it
+folds in the locally-written parquets automatically.
+
 ---
 
 ## Configuration

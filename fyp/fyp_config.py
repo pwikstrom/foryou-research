@@ -166,9 +166,13 @@ def initialize(
     # This is not set by the config so I'm setting it to None
     cf["data_io"]["bucket"] = None
 
-    # If running on Cloud Run, force all storage to GCS
-    if os.environ.get("K_SERVICE"):
-        print("Cloud Run detected. Forcing all storage to GCS.")
+    # If running on Cloud Run, force all storage to GCS. FYP_FORCE_GCS allows a
+    # local process (e.g. a residential-IP scrape-queue drain) to opt into the
+    # same prod-GCS storage resolution without setting K_SERVICE, which would
+    # also flip cookie sourcing, task-status and Cloud Tasks dispatch.
+    if os.environ.get("K_SERVICE") or os.environ.get("FYP_FORCE_GCS"):
+        source = "Cloud Run detected." if os.environ.get("K_SERVICE") else "FYP_FORCE_GCS set."
+        print(f"{source} Forcing all storage to GCS.")
         cf['data_io']['use_gcs_for_data'] = True
         cf['data_io']['use_gcs_for_cache'] = True
         cf['data_io']['use_gcs_for_media'] = True
@@ -277,7 +281,12 @@ def _connect_to_google(cf, verbose=False):
     else:
         print("No internet connection. Running local mode.")
         cf['misc']['local_mode'] = True
-    
+
+    # FYP_FORCE_GCS means the process must operate on GCS data (e.g. a local
+    # scrape-queue drain against prod) — silently degrading to local storage
+    # would make it read/write the wrong data, so fail hard instead.
+    if os.environ.get("FYP_FORCE_GCS"):
+        raise RuntimeError("FYP_FORCE_GCS is set but the GCS connection failed - refusing local fallback.")
 
     cf['data_io']['use_gcs_for_data'] = False
     cf['data_io']['use_gcs_for_cache'] = False
