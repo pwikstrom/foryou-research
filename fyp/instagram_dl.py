@@ -16,7 +16,9 @@ extraction. Their donated enrichment-seed metadata still surfaces downstream.
 
 import logging
 import os
+import random
 import re
+import threading
 from datetime import datetime
 from glob import glob
 from json import loads as json_loads
@@ -400,6 +402,194 @@ def _parse_page_counts(html_text: str, item_id: str) -> dict | None:
 
 
 
+# -------------------------------------------------------------------------
+# Authenticated media-info count supplementation (api/v1/media/{pk}/info/)
+# -------------------------------------------------------------------------
+#
+# yt-dlp's Instagram extractor returns no view/play count for reels, and the
+# post page HTML embeds none either (_fetch_page_counts is a no-op for reels).
+# Instagram's authenticated web API does return them: an item's numeric media pk
+# (a base64 decode of the shortcode) fetched from
+# https://www.instagram.com/api/v1/media/{pk}/info/ with the session cookies and
+# the web X-IG-App-ID carries play_count / ig_play_count / like_count /
+# comment_count. This is the same private endpoint instaloader/instagrapi wrap,
+# hit directly with the cookie jar we already manage — no extra dependency.
+#
+# It is the authenticated private API, so it runs under a throttle-hard posture:
+# a randomized inter-call delay plus a process-wide circuit breaker that pauses
+# supplementation for the rest of a batch after repeated rate-limit/challenge
+# responses (so a flagged account is not hammered).
+
+# Instagram's public web app id (the value the web client sends).
+_IG_WEB_APP_ID = "936619743392459"
+
+_MEDIA_INFO_URL = "https://www.instagram.com/api/v1/media/{pk}/info/"
+
+# base64 alphabet Instagram uses to encode the numeric media pk as a shortcode.
+_SHORTCODE_ALPHABET = (
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
+
+# Media-info play-count keys in preference order: play_count is the "views"
+# Instagram now shows, ig_play_count is the reels-plays variant, view_count is
+# the legacy field.
+_MEDIA_INFO_PLAY_KEYS = ("play_count", "ig_play_count", "view_count")
+
+# After this many consecutive rate-limit/challenge responses, stop calling the
+# endpoint for the rest of the batch (throttle-hard).
+_MEDIA_INFO_MAX_CONSECUTIVE_BLOCKS = 3
+
+_MEDIA_INFO_LOCK = threading.Lock()
+_MEDIA_INFO_CONSECUTIVE_BLOCKS = 0
+_MEDIA_INFO_CIRCUIT_OPEN = False
+
+
+def _shortcode_to_mediaid(shortcode: str) -> int | None:
+    """Decode an Instagram shortcode to its numeric media pk (base64).
+
+    Returns None when the shortcode carries a character outside Instagram's
+    alphabet, so the caller skips supplementation rather than raising.
+    """
+    mediaid = 0
+    for ch in shortcode:
+        pos = _SHORTCODE_ALPHABET.find(ch)
+        if pos < 0:
+            return None
+        mediaid = mediaid * 64 + pos
+    return mediaid
+
+
+
+
+def _csrftoken_from_jar(jar) -> str | None:
+    """Return the '.instagram.com' csrftoken value from a cookie jar.
+
+    Picks the domain-specific row explicitly: the jar can carry more than one
+    'csrftoken' (different domains), which would raise CookieConflictError on a
+    plain name lookup.
+    """
+    values = {c.domain: c.value for c in jar if c.name == "csrftoken"}
+    return values.get(".instagram.com") or next(iter(values.values()), None)
+
+
+
+
+def _media_info_circuit_open() -> bool:
+    """Whether the circuit breaker has paused count supplementation."""
+    with _MEDIA_INFO_LOCK:
+        return _MEDIA_INFO_CIRCUIT_OPEN
+
+
+
+
+def _note_media_info_block(item_id: str, status) -> None:
+    """Record a rate-limit/challenge response; open the breaker past the limit."""
+    global _MEDIA_INFO_CONSECUTIVE_BLOCKS, _MEDIA_INFO_CIRCUIT_OPEN
+    with _MEDIA_INFO_LOCK:
+        _MEDIA_INFO_CONSECUTIVE_BLOCKS += 1
+        count = _MEDIA_INFO_CONSECUTIVE_BLOCKS
+        if count >= _MEDIA_INFO_MAX_CONSECUTIVE_BLOCKS and not _MEDIA_INFO_CIRCUIT_OPEN:
+            _MEDIA_INFO_CIRCUIT_OPEN = True
+            logger.warning(
+                "IG media-info: %d consecutive blocks (last HTTP %s on %s) — pausing "
+                "count supplementation for the rest of this batch.",
+                count, status, item_id)
+        else:
+            logger.warning("IG media-info blocked (HTTP %s) for %s [%d/%d]",
+                           status, item_id, count, _MEDIA_INFO_MAX_CONSECUTIVE_BLOCKS)
+
+
+
+
+def _reset_media_info_blocks() -> None:
+    """Clear the consecutive-block counter after a clean response."""
+    global _MEDIA_INFO_CONSECUTIVE_BLOCKS
+    if _MEDIA_INFO_CONSECUTIVE_BLOCKS:
+        with _MEDIA_INFO_LOCK:
+            _MEDIA_INFO_CONSECUTIVE_BLOCKS = 0
+
+
+
+
+def _parse_media_info_counts(payload: dict, item_id: str) -> dict | None:
+    """Extract counts from a media-info JSON payload (pure, no network)."""
+    items = payload.get("items") or []
+    if not items:
+        return None
+    media = items[0]
+    play = next((media[k] for k in _MEDIA_INFO_PLAY_KEYS if media.get(k) is not None), None)
+    counts = {
+        "play_count": int(play) if play is not None else None,
+        "like_count": int(media["like_count"]) if media.get("like_count") is not None else None,
+        "comment_count": int(media["comment_count"]) if media.get("comment_count") is not None else None,
+    }
+    if any(v is not None for v in counts.values()):
+        logger.info("IG media-info counts for %s: %s", item_id, counts)
+        return counts
+    return None
+
+
+
+
+def _fetch_media_info_counts(item_id: str) -> dict | None:
+    """Fetch play/like/comment counts from the authenticated media-info endpoint.
+
+    Returns ``{"play_count": int|None, "like_count": int|None,
+    "comment_count": int|None}`` or None. Never raises — supplementation must
+    not fail a scrape. Honors the config gate ``[misc] ig_fetch_view_counts``,
+    a randomized inter-call delay, and the module circuit breaker.
+    """
+    if not fyp_cf["misc"].get("ig_fetch_view_counts", True):
+        return None
+    if _media_info_circuit_open():
+        return None
+
+    pk = _shortcode_to_mediaid(item_id)
+    if pk is None:
+        return None
+
+    jar = scraper_cookies.requests_cookiejar("instagram")
+    if jar is None:
+        return None
+
+    from requests import get as requests_get
+
+    headers = {
+        "User-Agent": _PAGE_HEADERS["User-Agent"],
+        "X-IG-App-ID": _IG_WEB_APP_ID,
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRFToken": _csrftoken_from_jar(jar) or "",
+        "Accept": "*/*",
+        "Referer": f"https://www.instagram.com/p/{item_id}/",
+    }
+
+    try:
+        # Randomized delay before each authenticated call (throttle-hard).
+        sleep(random.uniform(1.5, 4.0))
+        resp = requests_get(_MEDIA_INFO_URL.format(pk=pk), headers=headers,
+                            cookies=jar, timeout=20)
+    except Exception as e:
+        logger.debug("IG media-info fetch failed for %s: %s", item_id, e)
+        return None
+
+    if resp.status_code in (401, 403, 429):
+        _note_media_info_block(item_id, resp.status_code)
+        return None
+    if resp.status_code != 200:
+        logger.debug("IG media-info %s → HTTP %s", item_id, resp.status_code)
+        return None
+
+    _reset_media_info_blocks()
+    try:
+        payload = resp.json()
+    except Exception as e:
+        logger.debug("IG media-info JSON parse failed for %s: %s", item_id, e)
+        return None
+    return _parse_media_info_counts(payload, item_id)
+
+
+
+
 # Raw column names → canonical base names. Contract-named ig_* columns pass
 # through unchanged.
 _RAW_TO_CANONICAL: dict[str, str] = {
@@ -451,12 +641,14 @@ class InstagramScraper(BaseScraper):
 
         data_row = _info_to_row(info, item_id)
 
-        # yt-dlp's Instagram extractor usually returns no view count (and sometimes
-        # no like/comment counts) — supplement the -1 sentinels from the page JSON.
+        # yt-dlp's Instagram extractor returns no view count for reels (and
+        # sometimes no like/comment counts). Supplement the -1 sentinels from the
+        # authenticated media-info endpoint first (it carries play_count), falling
+        # back to the page-JSON walk when that yields nothing.
         if (data_row.loc[0, 'play_count_raw'] == -1
                 or data_row.loc[0, 'ig_like_count'] == -1
                 or data_row.loc[0, 'ig_comment_count'] == -1):
-            counts = _fetch_page_counts(url, item_id)
+            counts = _fetch_media_info_counts(item_id) or _fetch_page_counts(url, item_id)
             if counts:
                 if counts.get('play_count') is not None and data_row.loc[0, 'play_count_raw'] == -1:
                     data_row.loc[0, 'play_count_raw'] = counts['play_count']

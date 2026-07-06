@@ -20,7 +20,14 @@ import pandas as pd
 
 import fyp.instagram_dl as instagram_dl
 from fyp.fyp_config import fyp_cf
-from fyp.instagram_dl import _classify_error, _info_to_row, _parse_page_counts, InstagramScraper
+from fyp.instagram_dl import (
+    _classify_error,
+    _info_to_row,
+    _parse_media_info_counts,
+    _parse_page_counts,
+    _shortcode_to_mediaid,
+    InstagramScraper,
+)
 
 
 # A trimmed yt-dlp Instagram info dict. 'id' is the numeric media pk — the
@@ -175,15 +182,63 @@ def test_parse_page_counts_garbage():
 
 
 
+def test_shortcode_to_mediaid_roundtrip():
+    # Known base64 decode: each shortcode char is a base-64 digit.
+    assert _shortcode_to_mediaid("B") == 1
+    assert _shortcode_to_mediaid("BA") == 64
+    # Real shortcode → a stable large pk (regression-anchored to the live value).
+    assert _shortcode_to_mediaid("DW9rrgZy6nH") == 3872443360338487751
+    # A character outside Instagram's alphabet yields None (caller skips).
+    assert _shortcode_to_mediaid("bad*code") is None
+    print("PASS: _shortcode_to_mediaid decodes and rejects invalid chars")
+
+
+
+
+def test_parse_media_info_counts():
+    payload = {"items": [{
+        "play_count": 135190510, "ig_play_count": 135180109,
+        "like_count": 3398765, "comment_count": 39771, "media_type": 2}]}
+    assert _parse_media_info_counts(payload, "DW9rrgZy6nH") == {
+        "play_count": 135190510, "like_count": 3398765, "comment_count": 39771}
+
+    # play_count absent → falls back to ig_play_count.
+    payload2 = {"items": [{"ig_play_count": 500, "like_count": 5, "comment_count": 1}]}
+    assert _parse_media_info_counts(payload2, "x")["play_count"] == 500
+
+    # Empty / countless payloads yield None (never raises).
+    assert _parse_media_info_counts({"items": []}, "x") is None
+    assert _parse_media_info_counts({}, "x") is None
+    assert _parse_media_info_counts({"items": [{"media_type": 1}]}, "x") is None
+    print("PASS: _parse_media_info_counts prefers play_count, handles gaps")
+
+
+
+
+def test_media_info_gated_off():
+    """The config gate short-circuits the endpoint call (returns None, no network)."""
+    fyp_cf['misc']['ig_fetch_view_counts'] = False
+    try:
+        assert instagram_dl._fetch_media_info_counts("DW9rrgZy6nH") is None
+    finally:
+        del fyp_cf['misc']['ig_fetch_view_counts']
+    print("PASS: ig_fetch_view_counts=false disables media-info supplementation")
+
+
+
+
 def test_fetch_supplements_sentinels(monkeypatch=None):
-    """A -1 sentinel row is supplemented from the page counts; failures keep -1."""
+    """A -1 sentinel row is supplemented (page-JSON fallback path); failures keep -1."""
     scraper = InstagramScraper()
     info = dict(_INFO)
     info['view_count'] = None
 
     orig_extract = instagram_dl._extract_metadata
+    orig_media = instagram_dl._fetch_media_info_counts
     orig_fetch_counts = instagram_dl._fetch_page_counts
     instagram_dl._extract_metadata = lambda url, item_id, verbose=False: (info, None)
+    # Force the media-info path to miss so the page-JSON fallback is exercised.
+    instagram_dl._fetch_media_info_counts = lambda item_id: None
     try:
         instagram_dl._fetch_page_counts = lambda url, item_id: {
             'play_count': 98765, 'like_count': None, 'comment_count': None}
@@ -197,8 +252,38 @@ def test_fetch_supplements_sentinels(monkeypatch=None):
         assert row.loc[0, 'play_count_raw'] == -1
     finally:
         instagram_dl._extract_metadata = orig_extract
+        instagram_dl._fetch_media_info_counts = orig_media
         instagram_dl._fetch_page_counts = orig_fetch_counts
     print("PASS: fetch supplements -1 sentinels from page counts and degrades to -1")
+
+
+
+
+def test_fetch_prefers_media_info(monkeypatch=None):
+    """The authenticated media-info counts take precedence over the page-JSON walk."""
+    scraper = InstagramScraper()
+    info = dict(_INFO)
+    info['view_count'] = None
+
+    orig_extract = instagram_dl._extract_metadata
+    orig_media = instagram_dl._fetch_media_info_counts
+    orig_page = instagram_dl._fetch_page_counts
+    instagram_dl._extract_metadata = lambda url, item_id, verbose=False: (info, None)
+    page_called = []
+    try:
+        instagram_dl._fetch_media_info_counts = lambda item_id: {
+            'play_count': 111111, 'like_count': None, 'comment_count': None}
+        instagram_dl._fetch_page_counts = lambda url, item_id: page_called.append(1) or {
+            'play_count': 222222, 'like_count': None, 'comment_count': None}
+        row = scraper.fetch("DY1zHU_xQM2", save_media=False, save_path="")
+        assert row.loc[0, 'play_count_raw'] == 111111
+        # media-info succeeded, so the page-JSON fallback must not be called.
+        assert not page_called
+    finally:
+        instagram_dl._extract_metadata = orig_extract
+        instagram_dl._fetch_media_info_counts = orig_media
+        instagram_dl._fetch_page_counts = orig_page
+    print("PASS: fetch prefers media-info counts and skips the page-JSON fallback")
 
 
 
@@ -278,7 +363,11 @@ if __name__ == "__main__":
     test_parse_page_counts_relay_json()
     test_parse_page_counts_regex_fallback()
     test_parse_page_counts_garbage()
+    test_shortcode_to_mediaid_roundtrip()
+    test_parse_media_info_counts()
+    test_media_info_gated_off()
     test_fetch_supplements_sentinels()
+    test_fetch_prefers_media_info()
     test_duration_sentinel_becomes_na()
     test_classify_error_truth_table()
     test_duration_cap_and_override()

@@ -110,6 +110,12 @@ local_mode = false
 max_duration_for_download = 300
 min_media_object_size = 8_000
 scraper_backend = "ytdlp"
+# Supplement Instagram scrapes with play/like/comment counts from Instagram's
+# authenticated media-info endpoint (fyp.instagram_dl._fetch_media_info_counts).
+# It is the private authenticated web API; set false to disable instantly if the
+# research account is challenged. A module circuit breaker also pauses it on
+# repeated rate-limit responses within a batch.
+ig_fetch_view_counts = true
 
 
 ##########################################################################################
