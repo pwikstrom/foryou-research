@@ -210,8 +210,14 @@ def _download_media(
     save_path: str,
     stream_to_bucket=None,
     verbose: bool = False,
-) -> bool:
-    """Download the post's video to temp and move/upload it. Returns success."""
+) -> tuple[bool, str | None, str]:
+    """Download the post's video to temp and move/upload it.
+
+    Returns:
+        ``(ok, error_category, error_detail)`` — category/detail are ``None``/""
+        on success, otherwise the :func:`_classify_error` result of the last
+        failure so the caller can distinguish transient from permanent.
+    """
     temp_dir = fyp_cf['paths']['temp']
     out_template = join(temp_dir, f"{item_id}.%(ext)s")
     dl_opts: dict = {
@@ -240,7 +246,7 @@ def _download_media(
 
             if not downloaded or not exists(downloaded):
                 logger.warning("Download succeeded but file not found for '%s'", item_id)
-                return False
+                return False, "unknown", "download finished but no output file found"
 
             video_fn = f"{item_id}.mp4"
             if stream_to_bucket is not None:
@@ -256,7 +262,7 @@ def _download_media(
                     # Atomic rename when src and dst share a filesystem —
                     # avoids partial-file reads by concurrent consumers.
                     os.replace(downloaded, target)
-            return True
+            return True, None, ""
 
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             category, detail = _classify_error(e)
@@ -268,14 +274,14 @@ def _download_media(
                 logger.info("Retrying download %s in %ds...", item_id, backoff)
                 sleep(backoff)
                 continue
-            return False
+            return False, category, detail
 
         except Exception as e:
             logger.error("Scrape %s download unexpected error: %s", item_id, e)
             _cleanup_temp_files(temp_dir, item_id)
-            return False
+            return False, "unknown", str(e)
 
-    return False
+    return False, "unknown", "download retries exhausted"
 
 
 
@@ -467,10 +473,17 @@ class InstagramScraper(BaseScraper):
                         item_id, duration, self.media_duration_cap())
             return data_row
 
-        ok = _download_media(url, item_id, save_path,
-                             stream_to_bucket=stream_to_bucket, verbose=verbose)
+        ok, media_category, media_detail = _download_media(
+            url, item_id, save_path,
+            stream_to_bucket=stream_to_bucket, verbose=verbose)
         if ok:
             data_row.loc[0, 'video_downloaded'] = True
+        else:
+            # Metadata row is still saved; the orchestrator uses these attrs
+            # to keep transient media failures queued for retry (see
+            # BaseScraper.fetch contract).
+            data_row.attrs['media_error_type'] = media_category
+            data_row.attrs['media_error_detail'] = media_detail
         return data_row
 
 

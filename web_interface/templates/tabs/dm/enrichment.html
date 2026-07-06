@@ -22,6 +22,11 @@
         <input type="checkbox" id="retry-failed-attempts">
         Include previously failed attempts
     </label>
+    <label class="text-sm meta-tooltip" style="display: flex; align-items: center; gap: 6px; color: var(--color-text-tertiary);"
+        data-tooltip="Re-queue items whose metadata scraped OK but whose media never downloaded (within the platform's duration cap)">
+        <input type="checkbox" id="retry-missing-media">
+        Retry missing media
+    </label>
     <button type="button" id="btn-queue-voted" class="action-btn" style="display: none;"
         onclick="queueVotedVideos(this)">Queue User Voted Videos</button>
 </div>

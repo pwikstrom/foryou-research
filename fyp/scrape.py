@@ -10,6 +10,7 @@ Date:
 
 import json
 import os
+import threading
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,12 +27,21 @@ import fyp.scrape_queues as scrape_queues
 from fyp import scrape_contract as sc
 from fyp import scrape_versioning
 from fyp.fyp_config import fyp_cf
-from fyp.platform_scraper import SLIDESHOW_SECONDS_PER_IMAGE, ThrottleController, get_scraper
+from fyp.platform_scraper import (
+    SLIDESHOW_SECONDS_PER_IMAGE,
+    THROTTLE_CATEGORIES,
+    ThrottleController,
+    get_scraper,
+)
 from fyp.recode_variables import recode_events_df, rename_columns
 from fyp.utils import chunk_list, record_dropped_columns, start_monitor
 
 SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
 FAILED_SCRAPES_LABEL = fyp_cf["labels"]["FAILED_SCRAPES_LABEL"]
+
+# Consecutive throttle-category failures (across all workers) that trip the
+# batch circuit breaker in download_video_threads.
+CIRCUIT_BREAKER_THRESHOLD = 15
 
 
 
@@ -893,10 +903,37 @@ def download_video_threads(
         initial=throttle_initial, minimum=throttle_min, maximum=throttle_max,
         on_change=on_concurrency_change)
 
+    # Circuit breaker: a run of consecutive throttle-category outcomes (fetch
+    # OR media phase) means the session is rate-limited/bot-walled — e.g.
+    # YouTube blocks the whole session for up to an hour. Grinding on burns
+    # the queue for nothing, so the batch aborts; unprocessed items return as
+    # "batch_aborted" (transient) and stay queued.
+    breaker_lock = threading.Lock()
+    breaker_state = {"consecutive": 0}
+    abort_event = threading.Event()
+    inter_delay = scraper.inter_request_delay()
+
+    def _breaker_track(category) -> None:
+        with breaker_lock:
+            if category in THROTTLE_CATEGORIES:
+                breaker_state["consecutive"] += 1
+                if breaker_state["consecutive"] >= CIRCUIT_BREAKER_THRESHOLD and not abort_event.is_set():
+                    abort_event.set()
+                    print(f"  [scrape] Circuit breaker: {breaker_state['consecutive']} "
+                          f"consecutive {sorted(THROTTLE_CATEGORIES)} results — "
+                          f"aborting batch; remaining items stay queued.", flush=True)
+            else:
+                breaker_state["consecutive"] = 0
+
     def worker(idx_video):
         idx, video = idx_video
         throttle.acquire()
         try:
+            if abort_event.is_set():
+                aborted = pd.DataFrame()
+                aborted.attrs['error_type'] = 'batch_aborted'
+                aborted.attrs['error_detail'] = 'batch aborted by rate-limit circuit breaker'
+                return idx, aborted
             skip_media = video in already_have_media
             res = download_single_video(
                 video_id=video,
@@ -912,12 +949,21 @@ def download_video_threads(
                     res.loc[res.index[0], 'video_downloaded'] = True
                 except Exception:
                     pass
-            # Report outcome to throttle controller
+            # Report outcome to throttle controller. A metadata success whose
+            # media phase failed still carries a throttle-relevant category
+            # (attrs['media_error_type'], see BaseScraper.fetch contract).
             if isinstance(res, pd.DataFrame) and res.empty:
                 error_cat = res.attrs.get('error_type')
+            elif isinstance(res, pd.DataFrame):
+                error_cat = res.attrs.get('media_error_type')
             else:
                 error_cat = None
             throttle.report_result(error_cat)
+            _breaker_track(error_cat)
+            if inter_delay > 0:
+                # Sleep while holding the throttle slot: paces the whole
+                # session, not just this thread.
+                time.sleep(inter_delay)
             if on_video_done:
                 ok = isinstance(res, pd.DataFrame) and not res.empty
                 on_video_done(idx, ok, error_cat)
@@ -994,10 +1040,18 @@ def download_video_threads(
     failed_items = []
     permanent_failed_ids: list[str] = []
     transient_failed_ids: list[str] = []
+    media_retry_ids: list[str] = []
     for idx in range(len(interesting_videos)):
         res = results_by_index.get(idx)
         if isinstance(res, pd.DataFrame) and res.shape[1] > 10:
             results += [res]
+            # Metadata succeeded but the media phase failed transiently:
+            # the row is saved (fresh metadata) AND the id stays queued so
+            # media is retried next run. attrs don't survive pd.concat, so
+            # this is the last place they're visible.
+            media_error = res.attrs.get('media_error_type')
+            if media_error is not None and not scraper.classify_error(media_error).startswith('permanent'):
+                media_retry_ids.append(interesting_videos[idx])
         else:
             vid = interesting_videos[idx]
             failed_items += [vid]
@@ -1008,13 +1062,20 @@ def download_video_threads(
             else:
                 transient_failed_ids.append(vid)
 
+    if media_retry_ids:
+        print(f"  Media retries: {len(media_retry_ids)} items scraped metadata-only "
+              f"(transient media failure) — kept in queue for media retry")
+        transient_failed_ids += media_retry_ids
+
     if permanent_failed_ids or transient_failed_ids:
         print(f"  Failures: {len(permanent_failed_ids)} permanent, "
               f"{len(transient_failed_ids)} transient (will retry)")
 
     if len(results)==0:
         print("The scrape procedure did not generate any useful results")
-        return pd.DataFrame(), permanent_failed_ids, transient_failed_ids
+        empty_results = pd.DataFrame()
+        empty_results.attrs['circuit_breaker_tripped'] = abort_event.is_set()
+        return empty_results, permanent_failed_ids, transient_failed_ids
 
     # ignore_index=True: each element is a single-row frame indexed 0, so a
     # plain concat leaves a duplicate index that turns the recode's
@@ -1022,7 +1083,7 @@ def download_video_threads(
     results = pd.concat(results, ignore_index=True)
 
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-    
+
     if not dry_run and len(results)>0:
         results = _canonicalize_recode_save(
             results, scraper, fine_ts, verbose=verbose, reporter=reporter,
@@ -1032,6 +1093,11 @@ def download_video_threads(
     if not dry_run and len(failed_items)>0:
         data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
         print(f"Saved {len(failed_items)} failed items")
+
+    # Signal upward (batch loop / queue-scraper chaining) that this batch was
+    # aborted by the rate-limit circuit breaker. Set post-save so pipeline
+    # transforms can't have dropped the attr.
+    results.attrs['circuit_breaker_tripped'] = abort_event.is_set()
 
     return results, permanent_failed_ids, transient_failed_ids
 
@@ -1117,6 +1183,13 @@ def scraper_loop_from_list(
         all_permanent_failed += perm_failed
         all_transient_failed += trans_failed
 
+        if results_from_scraper.attrs.get('circuit_breaker_tripped'):
+            print("  Rate-limit circuit breaker tripped — stopping the batch loop. "
+                  "Unfinished items stay in the queue; re-run the scraper later.")
+            if reporter is not None:
+                reporter.emit_data({"rate_limit_abort": True})
+            break
+
         with open(os.path.join(fyp_cf['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
             json.dump(all_permanent_failed + all_transient_failed, f)
         with open(os.path.join(fyp_cf['paths']['temp'], "temp_good_scrapes.json"), "w") as f:
@@ -1152,7 +1225,10 @@ def scraper_loop_from_list(
     # Update scrape queue: remove successful + permanently failed items.
     # Transient failures stay in the queue for retry on next run.
     # -----------------
-    items_to_remove = set(good_scrapes + all_permanent_failed)
+    # Transient failures include metadata-only rows whose media phase failed
+    # transiently — those ids are also in good_scrapes (the metadata row was
+    # saved) but must stay queued for a media retry.
+    items_to_remove = set(good_scrapes + all_permanent_failed) - set(all_transient_failed)
     if items_to_remove:
         pruned, remaining = scrape_queues.prune_scrape_queue(platform_resolved, items_to_remove)
         if pruned:

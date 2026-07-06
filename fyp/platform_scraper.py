@@ -121,6 +121,14 @@ class BaseScraper(ABC):
         Returns a single-row DataFrame in the platform's native column names. On
         failure returns an empty DataFrame carrying ``attrs['error_type']`` and
         ``attrs['error_detail']`` for retry/queue decisions.
+
+        Media-phase failure contract: when metadata succeeds but the media
+        download fails, the returned (non-empty) row must carry
+        ``attrs['media_error_type']`` / ``attrs['media_error_detail']`` and
+        ``video_downloaded=False``. The orchestrator saves the metadata row
+        either way, but keeps the item queued for a media retry when
+        :meth:`classify_error` buckets the media error as transient, and
+        feeds the category to the throttle controller.
         """
 
 
@@ -162,6 +170,16 @@ class BaseScraper(ABC):
         session) override this to cap the ceiling.
         """
         return (max_workers, 2, max(max_workers, 12))
+
+
+    def inter_request_delay(self) -> float:
+        """Seconds each worker sleeps after finishing one item (default 0).
+
+        Platforms with session-level rate limits (e.g. YouTube's hour-long
+        "current session has been rate-limited") override this to pace
+        requests instead of relying on the throttle controller alone.
+        """
+        return 0.0
 
 
     def health_check(self) -> dict | None:
@@ -331,7 +349,9 @@ class BaseScraper(ABC):
 # Error categories that signal platform-side throttling and shrink concurrency:
 # classic rate limits plus YouTube's datacenter-IP bot wall ("sign in to
 # confirm you're not a bot"), which behaves like a rate limit in practice.
-_THROTTLE_CATEGORIES = {"rate_limited", "bot_check"}
+# Public: the orchestrator's circuit breaker keys off the same set.
+THROTTLE_CATEGORIES = {"rate_limited", "bot_check"}
+_THROTTLE_CATEGORIES = THROTTLE_CATEGORIES
 
 
 class ThrottleController:

@@ -658,6 +658,11 @@ def save_tiktok(
                             pass
                 else:
                     logger.warning("Download succeeded but file not found for '%s'", video_id)
+                    # Metadata row is still saved; the orchestrator uses these
+                    # attrs to keep transient media failures queued for retry
+                    # (see BaseScraper.fetch contract).
+                    data_row.attrs['media_error_type'] = 'unknown'
+                    data_row.attrs['media_error_detail'] = 'download finished but no output file found'
 
                 break
 
@@ -672,11 +677,15 @@ def save_tiktok(
                     logger.info("Retrying download %s in %ds...", video_id, backoff)
                     sleep(backoff)
                     continue
+                data_row.attrs['media_error_type'] = category
+                data_row.attrs['media_error_detail'] = detail
                 break
 
             except Exception as e:
                 logger.error("Scrape %s download unexpected error: %s", video_id, e)
                 _cleanup_temp_files(temp_dir, video_id)
+                data_row.attrs['media_error_type'] = 'unknown'
+                data_row.attrs['media_error_detail'] = str(e)
                 break
 
     return data_row
