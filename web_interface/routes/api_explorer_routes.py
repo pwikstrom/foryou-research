@@ -151,13 +151,14 @@ def _get_shared_simple_map(username, user_settings):
     Extracted for reuse between the legacy and overlay endpoints.
     """
     user_settings = user_settings or {}
-    if not user_settings.get('share_annotations', True):
+    # Sharing is opt-in: an unset value reads as off (matches the viewer route).
+    if not user_settings.get('share_annotations'):
         return None
     sharing_users = []
     for u_name, u_obj in user_manager.get_all_users().items():
         if u_name == username:
             continue
-        if u_obj.settings and u_obj.settings.get('share_annotations', True):
+        if u_obj.settings and u_obj.settings.get('share_annotations'):
             sharing_users.append(u_name)
     if not sharing_users:
         return None

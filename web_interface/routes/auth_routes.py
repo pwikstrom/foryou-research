@@ -419,7 +419,8 @@ def api_user_settings():
     if request.method == 'GET':
         s = current_user.settings or {}
         if 'share_annotations' not in s:
-            s['share_annotations'] = True
+            # Annotation sharing is opt-in: an unset value reads as off.
+            s['share_annotations'] = False
         return jsonify(s)
     
     elif request.method == 'POST':

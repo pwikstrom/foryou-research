@@ -348,9 +348,9 @@ class UserManager:
                         "settings": user_data.get('settings', {})
                     }
                     
-                    # Ensure defaults for settings
+                    # Ensure defaults for settings (annotation sharing is opt-in)
                     default_settings = {
-                        "share_annotations": True,
+                        "share_annotations": False,
                         "video_autostart": False
                     }
                     # Update defaults with existing settings (existing override defaults)
@@ -529,9 +529,9 @@ class UserManager:
 
         password_hash = hash_password(password)
         new_user = User(username, role, password_hash, approved=approved)
-        # Fix Default Settings for New Users
+        # Default Settings for New Users (annotation sharing is opt-in)
         new_user.settings = {
-            "share_annotations": True,
+            "share_annotations": False,
             "video_autostart": False
         }
         

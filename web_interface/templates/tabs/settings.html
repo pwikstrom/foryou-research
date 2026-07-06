@@ -112,11 +112,10 @@
                 loadAndRenderUserTags();
             }
 
-            // Share Annotations
+            // Share Annotations (opt-in: unset reads as off)
             const shareAnnotations = document.getElementById('setting-share-annotations');
             if (shareAnnotations) {
-                // Default to true if not set (or if explicitly true)
-                shareAnnotations.checked = (window.userSettings && window.userSettings.share_annotations !== undefined) ? window.userSettings.share_annotations : true;
+                shareAnnotations.checked = !!(window.userSettings && window.userSettings.share_annotations);
             }
 
             // Big dots in correlations
