@@ -163,7 +163,10 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
 
     # ---- Update queue: remove successful + permanently failed items ----
     # prune_scrape_queue reloads fresh to avoid clobbering concurrent writes.
-    items_to_remove: set[str] = set(good_ids) | set(permanent_failed)
+    # Transient failures are excluded: they include metadata-only rows whose
+    # media phase failed transiently (also present in good_ids) — those must
+    # stay queued for a media retry.
+    items_to_remove: set[str] = (set(good_ids) | set(permanent_failed)) - set(transient_failed)
     pruned_this_batch, queue_remaining = scrape_queues.prune_scrape_queue(platform, items_to_remove)
 
     reporter.emit_data({"scrape_queue_len": queue_remaining})
@@ -175,6 +178,15 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     )
 
     # ---- Check whether to chain ----
+    if results_df.attrs.get('circuit_breaker_tripped'):
+        reporter.log(
+            "Rate-limit circuit breaker tripped — the platform is throttling "
+            "this session. Stopping the chain; unfinished items stay in the "
+            "queue. Re-run the scraper later."
+        )
+        reporter.emit_data({"rate_limit_abort": True})
+        return None
+
     if reporter.check_cancelled():
         reporter.log("Cancellation requested. Stopping after this batch.")
         return None

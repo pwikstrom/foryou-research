@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 
 import fyp.data_io as data_io
 import fyp.scrape_queues as scrape_queues
+from fyp.platform_scraper import get_scraper
 from fyp.fyp_config import (
     fyp_cf,
     load_var_schema,
@@ -2335,6 +2336,7 @@ def calculate_to_scrape():
     data = request.json or {}
     study_name = data.get("study_name")
     retry_failed = bool(data.get("retry_failed", False))
+    retry_missing_media = bool(data.get("retry_missing_media", False))
     if not study_name:
         return jsonify({"error": "No study name provided"}), 400
 
@@ -2396,6 +2398,38 @@ def calculate_to_scrape():
 
         # Ensure all values are plain Python strings (not PyArrow scalars)
         unscraped_videos = list({str(v) for v in unscraped_videos})
+
+        # Media-gap backfill: items scraped OK but whose media never landed
+        # (e.g. a rate-limited media phase saved metadata-only) can't be found
+        # via scraped_ok — pick them straight from the study frame. Items over
+        # the platform's media duration cap are metadata-only by design and
+        # excluded; unknown durations pass (the media phase decides).
+        if retry_missing_media and {'scraped_ok', 'video_downloaded', 'item_id'} <= set(df_study.columns):
+            per_item = df_study.drop_duplicates(subset=['item_id'])
+            gap_mask = (
+                (per_item['scraped_ok'].fillna(False) == True)
+                & ~(per_item['video_downloaded'].fillna(False) == True)
+            )
+            gap = per_item[gap_mask]
+            gap_platforms = (
+                gap['source_platform'].fillna(scrape_queues.default_platform())
+                if 'source_platform' in gap.columns
+                else pd.Series(scrape_queues.default_platform(), index=gap.index)
+            )
+            media_gap_videos: set[str] = set()
+            for gap_platform, grp in gap.groupby(gap_platforms):
+                try:
+                    cap = get_scraper(str(gap_platform)).media_duration_cap()
+                except Exception:
+                    continue  # no scraper registered for this platform
+                if 'duration' in grp.columns:
+                    dur = pd.to_numeric(grp['duration'], errors='coerce')
+                    grp = grp[dur.isna() | (dur <= cap)]
+                media_gap_videos |= {str(v) for v in grp['item_id'].dropna()}
+            if media_gap_videos:
+                print(f"Retry-missing-media: adding {len(media_gap_videos)} scraped-ok "
+                      f"items without media to the queue(s).")
+            unscraped_videos = list(set(unscraped_videos) | media_gap_videos)
 
         # Append to the per-platform scrape queues. The study frame carries
         # source_platform per event row; an item never spans platforms.

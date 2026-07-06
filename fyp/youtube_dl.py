@@ -13,6 +13,11 @@ provider (bgutil-ytdlp-pot-provider) is the known follow-up mitigation.
 
 Most watch-history items are long-form and exceed the media duration cap —
 they are deliberately scraped metadata-only; Shorts and clips get media.
+
+Gotcha: YouTube's session rate-limit response is phrased as a removal
+("Video unavailable. This content isn't available, try again later. The
+current session has been rate-limited…"). Classification checks rate-limit
+keywords before the removal keywords so it stays transient + throttled.
 """
 
 
@@ -99,6 +104,15 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     if "confirm you're not a bot" in msg_lower or 'not a robot' in msg_lower:
         return "bot_check", msg
 
+    # Rate-limit detection must precede the "removed" keywords: YouTube's
+    # session rate-limit response reads "Video unavailable. This content isn't
+    # available, try again later. The current session has been rate-limited…"
+    # — it contains the removal phrasing, but the item is fine and retryable.
+    if ('rate-limited' in msg_lower or 'rate limit' in msg_lower
+            or 'too many requests' in msg_lower
+            or 'http error 403' in msg_lower or 'http error 429' in msg_lower):
+        return "rate_limited", msg
+
     if 'private video' in msg_lower or 'video is private' in msg_lower:
         return "private", msg
 
@@ -113,14 +127,12 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     if 'in your country' in msg_lower or 'geo restriction' in msg_lower:
         return "geo_blocked", msg
 
+    # "This content isn't available, try again later" without the rate-limit
+    # sentence is YouTube's soft-block/removal phrasing — kept as removed.
     if any(kw in msg_lower for kw in ('video unavailable', 'has been removed',
                                        'no longer available', 'account associated',
                                        'terminated', 'does not exist', 'not available')):
         return "removed", msg
-
-    if ('http error 403' in msg_lower or 'http error 429' in msg_lower
-            or 'too many requests' in msg_lower or 'rate limit' in msg_lower):
-        return "rate_limited", msg
 
     if any(kw in msg_lower for kw in ('timed out', 'timeout', 'connection', 'network',
                                        'ssl', 'certificate', 'dns', 'reset by peer')):
@@ -248,8 +260,14 @@ def _download_media(
     save_path: str,
     stream_to_bucket=None,
     verbose: bool = False,
-) -> bool:
-    """Download the video to temp and move/upload it. Returns success."""
+) -> tuple[bool, str | None, str]:
+    """Download the video to temp and move/upload it.
+
+    Returns:
+        ``(ok, error_category, error_detail)`` — category/detail are ``None``/""
+        on success, otherwise the :func:`_classify_error` result of the last
+        failure so the caller can distinguish transient from permanent.
+    """
     temp_dir = fyp_cf['paths']['temp']
     out_template = join(temp_dir, f"{item_id}.%(ext)s")
     dl_opts: dict = {
@@ -280,7 +298,7 @@ def _download_media(
 
             if not downloaded or not exists(downloaded):
                 logger.warning("Download succeeded but file not found for '%s'", item_id)
-                return False
+                return False, "unknown", "download finished but no output file found"
 
             video_fn = f"{item_id}.mp4"
             if stream_to_bucket is not None:
@@ -296,7 +314,7 @@ def _download_media(
                     # Atomic rename when src and dst share a filesystem —
                     # avoids partial-file reads by concurrent consumers.
                     os.replace(downloaded, target)
-            return True
+            return True, None, ""
 
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             category, detail = _classify_error(e)
@@ -308,14 +326,14 @@ def _download_media(
                 logger.info("Retrying download %s in %ds...", item_id, backoff)
                 sleep(backoff)
                 continue
-            return False
+            return False, category, detail
 
         except Exception as e:
             logger.error("Scrape %s download unexpected error: %s", item_id, e)
             _cleanup_temp_files(temp_dir, item_id)
-            return False
+            return False, "unknown", str(e)
 
-    return False
+    return False, "unknown", "download retries exhausted"
 
 
 
@@ -378,10 +396,17 @@ class YouTubeScraper(BaseScraper):
                         item_id, duration, self.media_duration_cap())
             return data_row
 
-        ok = _download_media(url, item_id, save_path,
-                             stream_to_bucket=stream_to_bucket, verbose=verbose)
+        ok, media_category, media_detail = _download_media(
+            url, item_id, save_path,
+            stream_to_bucket=stream_to_bucket, verbose=verbose)
         if ok:
             data_row.loc[0, 'video_downloaded'] = True
+        else:
+            # Metadata row is still saved; the orchestrator uses these attrs
+            # to keep transient media failures queued for retry (see
+            # BaseScraper.fetch contract).
+            data_row.attrs['media_error_type'] = media_category
+            data_row.attrs['media_error_detail'] = media_detail
         return data_row
 
 
@@ -411,6 +436,12 @@ class YouTubeScraper(BaseScraper):
         # One authenticated session shared by all threads; bot_check events
         # shrink concurrency via the throttle controller.
         return (min(max_workers, 2), 1, 4)
+
+
+    def inter_request_delay(self) -> float:
+        # YouTube rate-limits the whole session for up to an hour when hit
+        # too fast; pacing is cheaper than tripping that wall.
+        return 1.5
 
 
     def health_check(self) -> dict | None:
