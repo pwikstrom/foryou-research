@@ -81,7 +81,8 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
         return "network", f"Transport error: {msg}"
 
     # String-based classification from TikTok extractor messages
-    msg_lower = msg.lower()
+    # Normalize typographic apostrophes so ASCII keyword matching works.
+    msg_lower = msg.lower().replace('\u2019', "'")
 
     # yt-dlp often wraps the HTTPError inside DownloadError and flattens the
     # cause into the message ("...HTTP Error 403: Forbidden (caused by

@@ -83,7 +83,8 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     if isinstance(cause, TransportError):
         return "network", f"Transport error: {msg}"
 
-    msg_lower = msg.lower()
+    # Normalize typographic apostrophes so ASCII keyword matching works.
+    msg_lower = msg.lower().replace('\u2019', "'")
 
     if 'there is no video in this post' in msg_lower:
         return "no_video", msg
