@@ -2,6 +2,7 @@ import binascii
 import hashlib
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
@@ -152,7 +153,7 @@ class RoleManager:
         if role_name not in self.roles:
             return False, "Role not found"
 
-        for u in user_manager_instance.users.values():
+        for u in user_manager_instance.get_all_users().values():
             if u.role == role_name:
                 return False, f"Cannot delete role '{role_name}' because it is assigned to user '{u.username}'"
 
@@ -231,30 +232,35 @@ class User(UserMixin):
 # --- User Manager ---
 
 class UserManager:
-    def __init__(self, storage_location="users", bulk_load=True):
+    def __init__(self, storage_location="users", bootstrap=True):
         """Initialize the user manager.
+
+        The full user roster is never eagerly loaded — cold start stays O(1) in
+        the number of users on every service. ``get_user()`` lazily loads a
+        single user file on demand (the auth/login hot path); the full roster is
+        loaded once, on first access, by ``get_all_users()`` / ``_ensure_loaded``
+        (admin pages, role checks, admin-count guards).
 
         Args:
             storage_location: Named storage bucket / local dir in data_io.
-            bulk_load: If True (default), eagerly migrate legacy data and
-                load every user JSON into memory at startup — needed on the
-                web service that authenticates browser traffic via
-                Flask-Login. If False, skip both the migration and the
-                initial fan-out; users are loaded on demand by
-                ``get_user()``. Services that don't authenticate (e.g.
-                task-runner serving only Cloud Tasks internal routes)
-                should pass ``bulk_load=False`` so their cold-start cost
-                stays O(1) in the number of users.
+            bootstrap: If True (default), run the one-time legacy-data migration
+                and ensure a default admin exists — the responsibility of the
+                web service that owns the user store. Both checks are O(1) (a
+                single ``exists`` / ``listdir``), not an O(N) roster load. The
+                task-runner, which only serves Cloud Tasks internal routes and
+                never authenticates browser traffic, passes ``bootstrap=False``
+                to skip them entirely.
         """
         self.storage_location = storage_location
+        self.bootstrap = bootstrap
         self.users = {}
-        self.bulk_load = bulk_load
+        self._loaded = False
+        self._load_lock = threading.Lock()
 
-        if not bulk_load:
-            # Lazy mode: no migration, no preload, no default admin. The
-            # service that owns user data (web) handles migration and
-            # bootstrap; task-runner just needs `get_user()` to work
-            # on-demand when something (unexpectedly) asks for one.
+        if not bootstrap:
+            # Task-runner: no migration, no preload, no default admin. The web
+            # service owns user data; the task-runner just needs `get_user()` to
+            # work on-demand if something (unexpectedly) asks for one.
             print(
                 f"[AUTH] UserManager initialized in lazy mode "
                 f"(storage={self.storage_location}) — users loaded on demand",
@@ -262,16 +268,54 @@ class UserManager:
             )
             return
 
-        # Migration from legacy monolithic files
+        # Web service owns the user store: run the one-time migration and make
+        # sure an admin exists, but do NOT preload the roster — that is deferred
+        # to the first `get_all_users()` so cold start stays O(1) in user count.
         self.migrate_legacy_data()
+        self._ensure_default_admin()
 
-        # Initial Load
-        self.load_users()
+    def _ensure_default_admin(self):
+        """Create the default admin iff the store holds no user files.
 
-        # Create default admin if empty
-        if not self.users:
+        Uses a single ``listdir`` (not an O(N) roster load) so a fresh
+        deployment still gets a working admin login without preloading users.
+        """
+        try:
+            files = data_io.listdir(storage_location=self.storage_location, return_absolute_path=False)
+            has_user = any(
+                f.endswith('.json') and not f.endswith('_tags.json') and f != "roles.json"
+                for f in files
+            )
+        except Exception as e:
+            # Be conservative: never fabricate an admin when the listing failed.
+            logger.error(f"Default-admin check could not list users: {e}")
+            return
+        if not has_user:
             logger.info("No users found. Creating default admin.")
             self.add_user("admin@admin.net", "admin", ROLE_ADMIN, approved=True)
+
+    def _ensure_loaded(self):
+        """Populate the full in-memory roster once, on first roster access."""
+        if self._loaded:
+            return
+        with self._load_lock:
+            if self._loaded:
+                return
+            # Only latch as loaded on a successful listing; a transient storage
+            # failure should retry on the next roster access, not cache empty.
+            if self.load_users():
+                self._loaded = True
+
+    def get_all_users(self):
+        """Return the full ``{username: User}`` roster, loading it once on demand.
+
+        The first call fans out one read per user file (parallelised); later
+        calls hit the in-memory cache. Consumers that need every user (admin
+        pages, role-usage checks, last-admin guards) go through here so the
+        roster is never preloaded at cold start.
+        """
+        self._ensure_loaded()
+        return self.users
     
     def migrate_legacy_data(self):
         """Migrates legacy users.json and _tags.json to individual {username}.json files."""
@@ -349,13 +393,21 @@ class UserManager:
                 logger.error(f"Migration failed: {e}")
 
     def load_users(self):
-        """Loads users from individual JSON files in the storage location.
+        """Load every user's JSON into the in-memory roster.
 
         GCS reads are per-file round-trips (~50ms each) so we fan them out
         across a thread pool — turning ~3.4s serial into ~0.2s for 60+ users.
+        The roster is built into a local dict and swapped in atomically so a
+        concurrent ``get_user`` never observes a half-populated roster.
+
+        Returns:
+            True if the storage listing succeeded (the roster is authoritative),
+            False if it failed (roster left as-is — caller should not treat it
+            as fully loaded).
         """
-        self.users = {}
         _t_start = time.perf_counter()
+        loaded = {}
+        max_workers = 0
         try:
             # 1. List all .json files in storage location
             files = data_io.listdir(storage_location=self.storage_location, return_absolute_path=False)
@@ -377,7 +429,7 @@ class UserManager:
             for fname, user_data in results:
                 if user_data and 'username' in user_data:
                     username = user_data['username']
-                    self.users[username] = User(
+                    loaded[username] = User(
                         username=username,
                         role=user_data.get('role', 'viewer'),
                         password_hash=user_data.get('password_hash'),
@@ -387,13 +439,15 @@ class UserManager:
                         machine_annotation_votes=user_data.get('machine_annotation_votes', {})
                     )
 
+            self.users = loaded
             elapsed = time.perf_counter() - _t_start
             # Use print() so the timing line reliably surfaces in Cloud Logging
             # (default root logger level is WARNING, which drops logger.info).
             print(f"[AUTH] Loaded {len(self.users)} users from {self.storage_location} in {elapsed:.2f}s (workers={max_workers})")
+            return True
         except Exception as e:
             logger.error(f"Failed to list user directory: {e}")
-            self.users = {}
+            return False
 
     def save_user(self, username):
         """Saves a specific user to their individual JSON file."""
@@ -424,17 +478,16 @@ class UserManager:
     def get_user(self, user_id):
         """Return the User for ``user_id``, or None.
 
-        In bulk-load mode the lookup is a simple dict hit against the
-        in-memory cache populated at startup. In lazy mode we fall back
-        to reading ``{user_id}.json`` from the storage location on cache
-        miss, then cache the result — keeping cold-start cost O(1) while
-        still returning the right object if something unexpectedly asks.
+        A cache hit is a simple dict lookup. On a miss we read
+        ``{user_id}.json`` from the storage location and cache the result —
+        this is the auth/login hot path, so it loads exactly one user file,
+        never the whole roster.
         """
         user = self.users.get(user_id)
         if user is not None:
             return user
 
-        if not self.bulk_load and isinstance(user_id, str) and user_id:
+        if isinstance(user_id, str) and user_id:
             filename = f"{user_id}.json"
             try:
                 if not data_io.exists(
@@ -468,10 +521,12 @@ class UserManager:
     def add_user(self, username, password, role, approved=False):
         if not role_manager.role_exists(role):
             return False, "Invalid role"
-        
-        if username in self.users:
+
+        # Single-user existence check (loads just this file on a cache miss) —
+        # avoids preloading the whole roster just to detect a duplicate.
+        if self.get_user(username) is not None:
             return False, "User already exists"
-            
+
         password_hash = hash_password(password)
         new_user = User(username, role, password_hash, approved=approved)
         # Fix Default Settings for New Users
@@ -485,9 +540,11 @@ class UserManager:
         return True, "User created"
 
     def delete_user(self, username):
+        # The last-admin guard counts every admin, so load the full roster once.
+        self._ensure_loaded()
         if username not in self.users:
             return False, "User not found"
-        
+
         # Prevent deleting the last admin
         admins = [u for u in self.users.values() if u.role == ROLE_ADMIN and u.approved]
         if self.users[username].role == ROLE_ADMIN and len(admins) <= 1:
@@ -506,15 +563,26 @@ class UserManager:
                 logger.info(f"Removed user file {filename}")
         except Exception as e:
             logger.error(f"Failed to remove user file {filename}: {e}")
-            
+
+        # Drop the deleted user from the data_service per-user JSON cache so a
+        # stale copy can't resurface in shared-annotation reads. Function-level
+        # import to respect the auth<->data_service import cycle.
+        try:
+            from .data_service import invalidate_user_json_cache
+            invalidate_user_json_cache(username)
+        except Exception as e:
+            logger.error(f"Failed to invalidate user cache for {username}: {e}")
+
         return True, "User deleted"
     
     def update_user_role(self, username, new_role):
+        # The last-admin demotion guard counts every admin — load the full roster.
+        self._ensure_loaded()
         if username not in self.users:
             return False, "User not found"
         if not role_manager.role_exists(new_role):
             return False, "Invalid role"
-            
+
         # Prevent demoting the last admin
         admins = [u for u in self.users.values() if u.role == ROLE_ADMIN and u.approved]
         if self.users[username].role == ROLE_ADMIN and len(admins) <= 1 and new_role != ROLE_ADMIN:
@@ -525,47 +593,50 @@ class UserManager:
         return True, "Role updated"
         
     def approve_user(self, username):
-        if username not in self.users:
+        user = self.get_user(username)
+        if user is None:
             return False, "User not found"
-        
-        self.users[username].approved = True
+
+        user.approved = True
         self.save_user(username)
         return True, "User approved"
 
     def update_password(self, username, new_password):
-        if username not in self.users:
-             return False, "User not found"
-             
-        password_hash = hash_password(new_password)
-        self.users[username].password_hash = password_hash
+        user = self.get_user(username)
+        if user is None:
+            return False, "User not found"
+
+        user.password_hash = hash_password(new_password)
         self.save_user(username)
         return True, "Password updated"
 
     def update_last_login(self, username):
-        if username in self.users:
+        user = self.get_user(username)
+        if user is not None:
             import datetime
-            self.users[username].last_login = datetime.datetime.now().isoformat()
+            user.last_login = datetime.datetime.now().isoformat()
             self.save_user(username)
 
     def update_user_settings(self, username, settings):
-        if username not in self.users:
+        user = self.get_user(username)
+        if user is None:
             return False, "User not found"
-        
+
         # Merge or replace? Let's generic replace for top-level keys, but maybe merge is safer?
         # For now, strict replacement of the settings dict provided
         # Or better: update existing dict with new keys
-        if self.users[username].settings is None:
-             self.users[username].settings = {}
-             
-        self.users[username].settings.update(settings)
+        if user.settings is None:
+            user.settings = {}
+
+        user.settings.update(settings)
         self.save_user(username)
         return True, "Settings updated"
 
     def register_annotation_vote(self, username, collection_id, period):
-        if username not in self.users:
+        user = self.get_user(username)
+        if user is None:
             return False, "User not found"
-            
-        user = self.users[username]
+
         votes = user.machine_annotation_votes
         
         # Initialize list for this collection if missing
@@ -581,7 +652,7 @@ class UserManager:
         return True, "Already voted"
 
     def verify_user(self, username, password):
-        user = self.users.get(username)
+        user = self.get_user(username)
         if user and verify_password(user.password_hash, password):
             if not user.approved:
                 return None # Or handle differently in calling code

@@ -2175,7 +2175,7 @@ def queue_voted_videos():
         
         # 1. Gather all votes across all users
         all_votes = {} # dict of collection_id -> set of periods
-        for user in user_manager.users.values():
+        for user in user_manager.get_all_users().values():
             if not user.machine_annotation_votes:
                 continue
             for coll_id, periods in user.machine_annotation_votes.items():

@@ -154,7 +154,7 @@ def _get_shared_simple_map(username, user_settings):
     if not user_settings.get('share_annotations', True):
         return None
     sharing_users = []
-    for u_name, u_obj in user_manager.users.items():
+    for u_name, u_obj in user_manager.get_all_users().items():
         if u_name == username:
             continue
         if u_obj.settings and u_obj.settings.get('share_annotations', True):

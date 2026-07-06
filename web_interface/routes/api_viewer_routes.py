@@ -372,7 +372,7 @@ def api_viewer_item(study, item_id):
     user_settings = current_user.settings or {}
     if user_settings.get('share_annotations'):
         sharing_users = []
-        for u_name, u_obj in user_manager.users.items():
+        for u_name, u_obj in user_manager.get_all_users().items():
             if u_name == username: continue
             if u_obj.settings and u_obj.settings.get('share_annotations'):
                 sharing_users.append(u_name)
