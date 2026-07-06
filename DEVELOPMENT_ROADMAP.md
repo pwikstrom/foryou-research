@@ -214,9 +214,21 @@ mix collections across platforms.
 > YouTube format extraction needs the EJS n-challenge solver (`yt-dlp-ejs` + deno in the base image);
 > metadata is solver-independent. Known limits: IG image posts fail `permanent:no_video` (carousel
 > follow-up), IG extractor currently flaky upstream ("empty media response", yt-dlp #17074 — errors
-> stay transient/queued), YT datacenter bot-checks may need a PO-token provider later.
-> **Remaining: upload IG/YT cookie files + Consolidate & Refresh + first live batches; then the
-> messy-intake UX (step 4).**
+> stay transient/queued).
+>
+> **Update 2026-07-06 (YouTube media-gap fix):** YouTube's session rate-limit response ("Video
+> unavailable … rate-limited for up to an hour") was misclassified as permanent `removed`, so media
+> failures were silently saved as scrape-ok metadata-only rows and dequeued forever. Fixed
+> generically: rate-limit/apostrophe-safe classification, `attrs['media_error_type']` contract on
+> `BaseScraper.fetch` (transient media failures stay queued + feed the throttle), a batch circuit
+> breaker that stops Cloud-Task self-chaining, `inter_request_delay()` pacing, a "Retry missing
+> media" queue-builder option, and the **bgutil PO-token provider** (pip plugin + Node-built script
+> in `Dockerfile.base`, script mode via `_pot_extractor_args()`). Live validation: safeguards all
+> engage in prod, but the bot wall persists on the 2026-07-05 cookie file — next step is a fresh
+> cookie export from a closed incognito session; fallback is draining the YT queue from a
+> residential IP.
+> **Remaining: fresh YT cookie export (+ fix malformed IG cookie file) + drain queues +
+> Consolidate & Refresh; then the messy-intake UX (step 4).**
 
 **Where the TikTok coupling actually lives (the work):**
 - **Scraping/enrichment** (`fyp/tiktok_dl.py`): yt-dlp wrapper, TikTok cookie handling, TikTok error
@@ -241,7 +253,7 @@ mix collections across platforms.
 3. ✅ **Done (2026-07-05):** IG/YT `*Scraper` subclasses shipped + deployed (see update above).
    Operational follow-ups tracked there (cookie uploads, Consolidate & Refresh, live batch
    validation); deeper follow-ups: IG carousel→slideshow support, IG retry-count demotion for the
-   ambiguous rate-limit error, PO-token provider if YT bot-checks persist. Annotation stays
+   ambiguous rate-limit error (PO-token provider for YT shipped 2026-07-06). Annotation stays
    TikTok-only for now.
 4. **Harden the "messy intake" UX** — the audience promise is *messy* data. Improve the Data
    Management ingestion path to report what was parsed/dropped/malformed per file (builds on the
