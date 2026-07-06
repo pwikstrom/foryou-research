@@ -26,6 +26,7 @@ from fyp import activity_contract as _activity_contract
 from fyp import activity_versioning as _activity_versioning
 from fyp import scrape_contract as _scrape_contract
 from fyp import scrape_versioning as _scrape_versioning
+from fyp import structure_sentinel as _structure_sentinel
 from fyp.donations import generate_collection_metadata
 from fyp.fyp_config import fyp_cf
 from fyp.organize_datasets import COLLECTIONS_LABEL
@@ -169,6 +170,7 @@ LEDGER_SKIP_OUTCOMES: set[str] = {
     "fully_deduped",
     "discarded_at_load",
     "manually_excluded",
+    "quarantined_structure",
 }
 
 
@@ -523,6 +525,13 @@ class ForYouBaseCollection(ABC):
         # Donor timezone for the file currently being loaded (from the manifest);
         # set per-file in load_raw so load_single_raw can honour it.
         self._current_file_tz = None
+        # Structure-drift detector for this run (fyp.structure_sentinel.
+        # StructureSentinel), injected by run_ingest_refresh. When None, no
+        # structure checks run and load_raw behaves exactly as before.
+        self.sentinel = None
+        # Files withheld from this run because their structure deviated from
+        # the learned baseline: {filename: verdict dict}.
+        self.quarantined_this_run: dict[str, dict] = {}
 
 
     def clear(self):
@@ -792,7 +801,21 @@ class ForYouBaseCollection(ABC):
 
             # I will keep data from this file if there are at least 10 activities. (just an arbitrary number)
             if len(one_df) >= self.min_required_rows_per_raw_file:
-                many_dfs.append(one_df)
+                # Structure-drift check (Phase A): a quarantined verdict
+                # withholds the file's rows from this run; the file is reviewed
+                # in the Data Management UI. A sentinel failure must never
+                # block ingestion, so it degrades to ingest-with-warning.
+                verdict = None
+                if self.sentinel is not None:
+                    try:
+                        verdict = self.sentinel.check_raw(self, fn, one_df)
+                    except Exception as exc:
+                        print(f"WARNING: structure check failed for '{fn}': {exc}. Ingesting anyway.")
+                if verdict is not None and verdict["status"] == "quarantined":
+                    self.quarantined_this_run[fn] = verdict
+                    if self.verbose: print(f"Quarantining file: {fn} (structure drift).")
+                else:
+                    many_dfs.append(one_df)
             else:
                 if self.verbose: print(f"Discarding file: {fn}. Too few rows: {len(one_df):,}")
                 self.discarded_raw_files.append(fn)
@@ -833,6 +856,43 @@ class ForYouBaseCollection(ABC):
             does not apply to this platform.
         """
         return []
+
+
+
+
+    def fingerprint_raw(self, filename: str) -> dict:
+        """Extract a structure fingerprint from one raw upload (drift detection).
+
+        Generic default dispatching on the file extension: ``.json`` files are
+        fingerprinted as a single JSON document (TikTok DDP/AIO), ``.ndjson``
+        as sampled NDJSON records (Zeeschuimer), and ``.zip`` via the class's
+        :meth:`zip_member_suffixes` members (Instagram, YouTube — HTML members
+        get structural-marker fingerprints). Unknown extensions return a
+        minimal fingerprint that disables the structure layer for the file.
+
+        Args:
+            filename: The raw file's name within ``self.raw_path``.
+
+        Returns:
+            A fingerprint dict (see :mod:`fyp.structure_sentinel`).
+        """
+        lowered = filename.lower()
+        if lowered.endswith(".json"):
+            payload = data_io.load_json(storage_location=self.raw_path, filename=filename)
+            return _structure_sentinel.fingerprint_json_payload(payload)
+        if lowered.endswith(".ndjson"):
+            records = data_io.read_ndjson_file(storage_location=self.raw_path, filename=filename)
+            return _structure_sentinel.fingerprint_ndjson_lines(records or [])
+        if lowered.endswith(".zip") and type(self).zip_member_suffixes():
+            local_path = data_io.local_copy(storage_location=self.raw_path, filename=filename)
+            if not local_path:
+                raise ValueError(f"could not fetch '{filename}' from '{self.raw_path}'")
+            try:
+                return _structure_sentinel.fingerprint_zip(local_path, type(self).zip_member_suffixes())
+            finally:
+                data_io.release_local_copy(local_path)
+        return {"kind": "unknown", "member_paths": [], "key_paths": [], "stats": {}}
+
 
 
 
@@ -1290,7 +1350,7 @@ class ForYouCollection(ForYouBaseCollection):
                 "source": entry.get("source"),
                 "ts_first_seen": existing.get("ts_first_seen") or now,
                 "ts_last_seen": now,
-                "notes": existing.get("notes"),
+                "notes": entry.get("notes") or existing.get("notes"),
             }
         self._refresh_discarded_from_ledger()
 
@@ -1321,6 +1381,26 @@ class ForYouCollection(ForYouBaseCollection):
             self._refresh_discarded_from_ledger()
             return True
         return False
+
+
+
+
+    def set_ledger_outcome(self, filename: str, outcome: str, note: str | None = None) -> bool:
+        """Overwrite a single file's ledger outcome (e.g. a structure-review
+        reject rewrites ``quarantined_structure`` → ``manually_excluded``).
+        Returns True if the entry existed, False otherwise. Caller is
+        responsible for calling ``save_ledger`` to persist the change.
+        """
+        files = self.ledger.setdefault("files", {})
+        entry = files.get(filename)
+        if entry is None:
+            return False
+        entry["outcome"] = outcome
+        entry["ts_last_seen"] = datetime.now(timezone.utc).isoformat()
+        if note:
+            entry["notes"] = note
+        self._refresh_discarded_from_ledger()
+        return True
 
 
     def load_single_raw(self, fn: str) -> pd.DataFrame:

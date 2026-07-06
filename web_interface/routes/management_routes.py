@@ -3543,6 +3543,113 @@ def unskip_ingestion_ledger_entry():
     })
 
 
+
+
+@management_bp.route('/api/manage/ingestion/structure/warnings', methods=['GET'])
+@permission_required('tab.data_management.ingestion')
+@login_required
+def structure_warnings():
+    """List structure-drift verdicts awaiting review (quarantined + warned files)."""
+    from fyp import structure_sentinel
+
+    try:
+        return jsonify(structure_sentinel.review_queue())
+    except Exception as e:
+        print(f"Error loading structure warnings: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ingestion/structure/approve', methods=['POST'])
+@permission_required('tab.data_management.ingestion')
+@login_required
+def structure_approve():
+    """Approve a quarantined file: fold its structure into the learned baseline
+    and drop its ledger entry so the next ingestion run ingests it.
+    """
+    from fyp import structure_sentinel
+
+    payload = request.get_json(silent=True) or {}
+    filename = (payload.get("filename") or "").strip()
+    if not filename:
+        return jsonify({"error": "filename missing"}), 400
+
+    try:
+        entry = structure_sentinel.approve_file(filename, reviewed_by=_actor())
+    except KeyError:
+        return jsonify({"error": f"no structure verdict for '{filename}'"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 409
+
+    main_collection = get_main_collection(verbose=False)
+    main_collection.remove_from_ledger(filename)
+    main_collection.save_ledger()
+
+    activity_log.record(
+        actor=_actor(),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="ingestion.structure_approve",
+        target=filename,
+        details={"platform": entry.get("platform"), "source": entry.get("source")},
+    )
+    return jsonify({
+        "status": "success",
+        "message": f"'{filename}' approved — its structure is now part of the baseline and it will be ingested on the next refresh.",
+    })
+
+
+
+
+@management_bp.route('/api/manage/ingestion/structure/reject', methods=['POST'])
+@permission_required('tab.data_management.ingestion')
+@login_required
+def structure_reject():
+    """Reject a quarantined file: mark it manually excluded so it never ingests."""
+    from fyp import structure_sentinel
+
+    payload = request.get_json(silent=True) or {}
+    filename = (payload.get("filename") or "").strip()
+    if not filename:
+        return jsonify({"error": "filename missing"}), 400
+
+    try:
+        entry = structure_sentinel.reject_file(filename, reviewed_by=_actor())
+    except KeyError:
+        return jsonify({"error": f"no structure verdict for '{filename}'"}), 404
+
+    main_collection = get_main_collection(verbose=False)
+    if not main_collection.set_ledger_outcome(
+        filename, "manually_excluded", note="rejected via structure review"
+    ):
+        # No ledger entry yet (e.g. the refresh that quarantined it failed
+        # before saving) — stamp one directly so the file is still excluded.
+        main_collection.update_ledger([{
+            "filename": filename,
+            "outcome": "manually_excluded",
+            "raw_rows": (entry.get("raw_stats") or {}).get("raw_rows") or 0,
+            "final_rows": 0,
+            "canonical_collection_id": None,
+            "merged_with_siblings": [],
+            "platform": entry.get("platform"),
+            "source": entry.get("source"),
+            "notes": "rejected via structure review",
+        }])
+    main_collection.save_ledger()
+
+    activity_log.record(
+        actor=_actor(),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="ingestion.structure_reject",
+        target=filename,
+        details={"platform": entry.get("platform"), "source": entry.get("source")},
+    )
+    return jsonify({
+        "status": "success",
+        "message": f"'{filename}' rejected — it is excluded from future ingestion runs.",
+    })
+
+
 @management_bp.route('/api/manage/ingestion/clear_pending', methods=['POST'])
 @permission_required('tab.data_management.ingestion')
 @login_required

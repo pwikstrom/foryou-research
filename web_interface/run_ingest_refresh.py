@@ -8,6 +8,7 @@ sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
 from fyp.ingest import LEDGER_SKIP_OUTCOMES
+from fyp.structure_sentinel import StructureSentinel, findings_digest
 
 
 # Outcomes whose files we want to *show* as "previously skipped" in the UI.
@@ -43,19 +44,23 @@ def _build_per_file_summary(
     processed_counts: dict[str, dict],
     discarded_at_load: set[str],
     existing_raw_files: set[str],
+    quarantined: dict[str, dict] | None = None,
 ) -> list[dict]:
     """For each new raw_file, produce a row describing what happened.
 
     Outcomes:
       - ``discarded_at_load``: file failed the min-row check in load_raw.
+      - ``quarantined_structure``: the file's structure or parse-output stats
+        deviated from the learned baseline; withheld pending admin review.
       - ``fully_deduped``: every row collided with an existing collection.
       - ``merged_with_existing``: this file's rows joined an existing
         collection that also contains one or more prior raw_files; the
         canonical collection_id may now point at this file.
       - ``added_as_new``: standalone collection, no overlap with anything.
     """
+    quarantined = quarantined or {}
     final_df = main_collection.data
-    candidate_files = set(raw_counts) | discarded_at_load
+    candidate_files = set(raw_counts) | discarded_at_load | set(quarantined)
     summary: list[dict] = []
 
     for rf in sorted(candidate_files):
@@ -64,6 +69,23 @@ def _build_per_file_summary(
         source = info.get("source")
         raw_rows = raw_counts.get(rf, {}).get("rows", 0)
         processed_rows = processed_counts.get(rf, {}).get("rows", 0)
+
+        if rf in quarantined:
+            verdict = quarantined[rf]
+            summary.append({
+                "filename": rf,
+                "platform": platform or verdict.get("platform"),
+                "source": source or verdict.get("source"),
+                "raw_rows": raw_rows or int(verdict.get("raw_stats", {}).get("raw_rows") or 0),
+                "processed_rows": processed_rows,
+                "final_rows": 0,
+                "outcome": "quarantined_structure",
+                "canonical_collection_id": None,
+                "merged_with_siblings": [],
+                "deduped_rows": 0,
+                "notes": findings_digest(verdict.get("findings") or []),
+            })
+            continue
 
         if rf in discarded_at_load:
             summary.append({
@@ -134,6 +156,12 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
 
     reporter.update_progress(0, "Loading existing processed activity data...")
     main_collection = get_main_collection(verbose=True)
+    # Structure-drift sentinel: fingerprints every new file against the learned
+    # per-(platform, source) baseline and quarantines deviants (Phase A inside
+    # load_raw, Phase B on the processed frames below).
+    sentinel = StructureSentinel()
+    for sub in main_collection.collections:
+        sub.sentinel = sentinel
     main_collection.load_processed()
     rows_before = len(main_collection.data)
     existing_raw_files = (
@@ -176,6 +204,33 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     _t_process = time.perf_counter() - _t_phase
     reporter.log(f"Processed sub collections ({_t_process:.1f}s)")
 
+    # Structure-drift Phase B: parse-output sanity + cross-upload drift checks
+    # on each file's processed rows. A stat-outlier verdict drops the file's
+    # rows before migration so they never reach the main parquet. Sentinel
+    # failures never block ingestion.
+    for sub in main_collection.collections:
+        if sub.data is None or len(sub.data) == 0 or "raw_file" not in sub.data.columns:
+            continue
+        drop_files: list[str] = []
+        try:
+            for rf, df_file in sub.data.groupby("raw_file", observed=True):
+                verdict = sentinel.check_processed(sub, str(rf), df_file)
+                if verdict["status"] == "quarantined":
+                    drop_files.append(str(rf))
+                    sub.quarantined_this_run[str(rf)] = verdict
+        except Exception as exc:
+            reporter.log(f"Structure Phase-B check failed for {sub.source_platform}_{sub.data_source}: {exc}")
+        if drop_files:
+            sub.data = sub.data[~sub.data["raw_file"].isin(drop_files)].copy()
+            reporter.log(
+                f"Quarantined {len(drop_files)} file(s) from "
+                f"{sub.source_platform}_{sub.data_source} for structure drift."
+            )
+
+    quarantined_files: dict[str, dict] = {}
+    for sub in main_collection.collections:
+        quarantined_files.update(sub.quarantined_this_run)
+
     reporter.update_progress(60, "Merging into main collection...")
     _t_phase = time.perf_counter()
     main_collection.migrate_sub_collections()
@@ -192,6 +247,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         processed_counts=processed_counts,
         discarded_at_load=discarded_at_load,
         existing_raw_files=existing_raw_files,
+        quarantined=quarantined_files,
     )
 
     # Record the active activity-contract version once per ingest run (idempotent,
@@ -216,6 +272,16 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     # discarded_at_load, manually_excluded) will be skipped on future ingest
     # runs without being reloaded.
     main_collection.update_ledger(per_file_summary)
+
+    # Learn the ingested files' fingerprints/stats into the baselines and
+    # persist every verdict for the review UI. Never blocks the refresh.
+    try:
+        sentinel.commit(ingested_filenames={
+            e["filename"] for e in per_file_summary
+            if e.get("outcome") in ("added_as_new", "merged_with_existing")
+        })
+    except Exception as exc:
+        reporter.log(f"Structure-sentinel commit failed: {exc}")
 
     reporter.update_progress(85, "Regenerating metadata and saving...")
     _t_phase = time.perf_counter()
@@ -272,6 +338,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         "files_merged_with_existing": sum(1 for e in per_file_summary if e.get("outcome") == "merged_with_existing"),
         "files_fully_deduped": sum(1 for e in per_file_summary if e.get("outcome") == "fully_deduped"),
         "files_discarded_at_load": sum(1 for e in per_file_summary if e.get("outcome") == "discarded_at_load"),
+        "files_quarantined": sum(1 for e in per_file_summary if e.get("outcome") == "quarantined_structure"),
         "files_skipped_previously": len(skipped_previously),
         "per_file_summary": per_file_summary,
         "skipped_previously": skipped_previously,

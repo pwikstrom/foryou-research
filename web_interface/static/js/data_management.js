@@ -2961,6 +2961,197 @@ function loadIngestionSources() {
             }
         })
         .catch(err => console.error("Error loading ingestion sources:", err));
+    loadStructureWarnings();
+}
+
+function loadStructureWarnings() {
+    if (!document.getElementById('structure-warnings-panel')) return;
+    fetch('/api/manage/ingestion/structure/warnings')
+        .then(res => res.json())
+        .then(data => renderStructureWarnings(data))
+        .catch(err => console.error('Error loading structure warnings:', err));
+}
+
+function renderStructureWarnings(data) {
+    const panel = document.getElementById('structure-warnings-panel');
+    const listEl = document.getElementById('structure-warnings-list');
+    const countEl = document.getElementById('structure-warnings-count');
+    if (!panel || !listEl) return;
+
+    const files = Array.isArray(data.files) ? data.files : [];
+    if (files.length === 0) {
+        panel.style.display = 'none';
+        listEl.innerHTML = '';
+        return;
+    }
+
+    panel.style.display = '';
+    if (countEl) {
+        const bits = [];
+        if (data.n_quarantined > 0) bits.push(`${data.n_quarantined} quarantined`);
+        if (data.n_warn > 0) bits.push(`${data.n_warn} warning${data.n_warn === 1 ? '' : 's'}`);
+        countEl.textContent = bits.join(' · ');
+    }
+
+    listEl.innerHTML = '';
+    files.forEach(f => {
+        const isQuarantined = f.status === 'quarantined';
+        const badgeColor = isQuarantined ? 'var(--color-danger)' : 'var(--color-warning)';
+        const badgeLabel = isQuarantined ? 'quarantined' : 'warning';
+        const provenance = [f.platform, f.source].filter(Boolean).join(' · ');
+        const nFindings = (f.findings || []).length;
+
+        const row = document.createElement('div');
+        row.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--color-bg-elevated); border-left: 3px solid ' + badgeColor + '; border-radius: 4px;';
+        row.innerHTML = `
+            <div style="flex: 1; min-width: 0;">
+                <div class="text-sm" style="word-break: break-all;">
+                    ${_escapeHtml(f.filename)}
+                    <span class="text-xxs font-bold" style="color: ${badgeColor}; margin-left: 8px; text-transform: uppercase;">${badgeLabel}</span>
+                </div>
+                <div class="text-xxs" style="color: var(--color-text-tertiary);">
+                    ${_escapeHtml(provenance)} · ${nFindings} finding${nFindings === 1 ? '' : 's'}
+                </div>
+            </div>
+            <button type="button" class="action-btn text-xs" style="padding: 4px 10px;" data-role="review">Review</button>
+            <button type="button" class="action-btn text-xs" style="padding: 4px 10px;" data-role="approve">Approve</button>
+            <button type="button" class="btn-discreet text-xs" style="padding: 4px 10px;" data-role="reject">Reject</button>
+        `;
+        row.querySelector('[data-role="review"]').addEventListener('click', () => openStructureReviewModal(f));
+        row.querySelector('[data-role="approve"]').addEventListener('click', (e) => approveStructureWarning(e.target, f.filename));
+        row.querySelector('[data-role="reject"]').addEventListener('click', (e) => rejectStructureWarning(e.target, f.filename));
+        listEl.appendChild(row);
+    });
+}
+
+function _structureFindingHtml(finding) {
+    const sevColor = finding.severity === 'quarantine' ? 'var(--color-danger)' : 'var(--color-warning)';
+    const items = (finding.items || []).slice(0, 30);
+    const itemsHtml = items.length
+        ? `<ul class="text-xxs" style="margin: 4px 0 0 0; padding-left: 18px; color: var(--color-text-secondary); font-family: var(--font-mono); word-break: break-all;">
+               ${items.map(i => `<li>${_escapeHtml(i)}</li>`).join('')}
+           </ul>`
+        : '';
+    const statLine = finding.metric !== undefined
+        ? `<div class="text-xxs" style="color: var(--color-text-secondary); margin-top: 2px;">
+               value ${_escapeHtml(finding.value)} vs baseline mean ${_escapeHtml(finding.baseline_mean)}
+               (range ${_escapeHtml(finding.baseline_min)}–${_escapeHtml(finding.baseline_max)}, z = ${_escapeHtml(finding.z)})
+           </div>`
+        : '';
+    return `
+        <div style="padding: 8px 10px; border-left: 3px solid ${sevColor}; background: var(--color-bg-input); border-radius: 4px;">
+            <div class="text-sm">
+                <span class="text-xxs font-bold" style="color: ${sevColor}; text-transform: uppercase; margin-right: 8px;">${_escapeHtml(finding.severity)}</span>
+                ${_escapeHtml(finding.detail || finding.code)}
+            </div>
+            ${statLine}
+            ${itemsHtml}
+        </div>
+    `;
+}
+
+function openStructureReviewModal(verdict) {
+    const existing = document.getElementById('structureReviewModal');
+    if (existing) existing.remove();
+
+    const structureFindings = (verdict.findings || []).filter(f => f.layer === 'structure');
+    const statFindings = (verdict.findings || []).filter(f => f.layer === 'stats');
+    const raw = verdict.raw_stats || {};
+    const processed = verdict.processed_stats || {};
+
+    const section = (title, bodyHtml) => `
+        <div style="margin-bottom: 16px;">
+            <div class="text-sm font-semibold" style="margin-bottom: 6px; color: var(--color-text-secondary);">${title}</div>
+            ${bodyHtml}
+        </div>
+    `;
+    const none = '<div class="text-xs" style="color: var(--color-text-tertiary);">No findings.</div>';
+    const statsSummary = [
+        raw.raw_rows !== undefined ? `${Number(raw.raw_rows).toLocaleString()} raw rows` : null,
+        raw.file_size_mb !== undefined ? `${raw.file_size_mb} MB` : null,
+        processed.kept_ratio !== undefined ? `kept ratio ${processed.kept_ratio}` : null,
+        processed.null_item_id_frac !== undefined ? `null item_id ${processed.null_item_id_frac}` : null,
+    ].filter(Boolean).join(' · ');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'structureReviewModal';
+    overlay.className = 'upload-modal-overlay';
+    overlay.innerHTML = `
+        <div class="upload-modal" style="max-width: 640px; max-height: 80vh; overflow-y: auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h3 style="margin: 0; word-break: break-all;">Structure review — ${_escapeHtml(verdict.filename)}</h3>
+                <button type="button" class="btn-discreet" data-role="close">&times;</button>
+            </div>
+            <div class="text-xs" style="color: var(--color-text-tertiary); margin-bottom: 16px;">
+                ${_escapeHtml([verdict.platform, verdict.source].filter(Boolean).join(' · '))}
+                · evaluated ${_escapeHtml((verdict.ts_evaluated || '').slice(0, 19))}
+                ${statsSummary ? ' · ' + _escapeHtml(statsSummary) : ''}
+            </div>
+            ${section('Structure changes', structureFindings.length ? structureFindings.map(_structureFindingHtml).join('') : none)}
+            ${section('Parse sanity & drift', statFindings.length ? statFindings.map(_structureFindingHtml).join('') : none)}
+            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+                <button type="button" class="action-btn" data-role="approve">Approve — accept structure</button>
+                <button type="button" class="btn-discreet" data-role="reject">Reject — exclude file</button>
+            </div>
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.querySelector('[data-role="close"]').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-role="approve"]').addEventListener('click', (e) => {
+        approveStructureWarning(e.target, verdict.filename, () => overlay.remove());
+    });
+    overlay.querySelector('[data-role="reject"]').addEventListener('click', (e) => {
+        rejectStructureWarning(e.target, verdict.filename, () => overlay.remove());
+    });
+    document.body.appendChild(overlay);
+    overlay.style.display = 'flex';
+}
+
+function _postStructureReview(btn, endpoint, filename, confirmMessage, done) {
+    if (!confirm(confirmMessage)) return;
+    btn.disabled = true;
+    fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ filename: filename }),
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast(data.message, 'success', 7000);
+                if (done) done();
+                loadStructureWarnings();
+                loadIngestionSources();
+            } else {
+                btn.disabled = false;
+                showToast('Structure review failed: ' + (data.error || data.message || 'Unknown error'), 'error', 7000);
+            }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            console.error('Structure review error:', err);
+            showToast('Structure review request failed.', 'error', 7000);
+        });
+}
+
+function approveStructureWarning(btn, filename, done) {
+    _postStructureReview(
+        btn,
+        '/api/manage/ingestion/structure/approve',
+        filename,
+        `Approve '${filename}'?\n\nIts structure becomes part of the accepted baseline and the file will be ingested on the next refresh.`,
+        done
+    );
+}
+
+function rejectStructureWarning(btn, filename, done) {
+    _postStructureReview(
+        btn,
+        '/api/manage/ingestion/structure/reject',
+        filename,
+        `Reject '${filename}'?\n\nThe file is marked manually excluded and will never be ingested (you can un-skip it later from the ledger).`,
+        done
+    );
 }
 
 function updateProcessButton(totalPending) {
@@ -3725,6 +3916,7 @@ const _ingestOutcomeLabels = {
     fully_deduped: { label: 'Skipped — already in dataset', color: 'var(--color-text-tertiary)' },
     discarded_at_load: { label: 'Skipped — too few rows', color: 'var(--color-text-tertiary)' },
     manually_excluded: { label: 'Manually excluded', color: 'var(--color-text-tertiary)' },
+    quarantined_structure: { label: 'Quarantined — structure drift (review above)', color: 'var(--color-danger)' },
 };
 
 function _formatSiblings(siblings) {
@@ -3816,6 +4008,8 @@ function renderIngestResultsPanel(data) {
     if (filesMerged > 0) groupBits.push(`${filesMerged} merged into existing collection`);
     if (filesDeduped > 0) groupBits.push(`${filesDeduped} fully deduped`);
     if (filesDiscarded > 0) groupBits.push(`${filesDiscarded} discarded (too few rows)`);
+    const filesQuarantined = data.files_quarantined ?? perFile.filter(r => r.outcome === 'quarantined_structure').length;
+    if (filesQuarantined > 0) groupBits.push(`${filesQuarantined} quarantined (structure drift)`);
     if (scanned > 0) {
         summaryBits.push(`Scanned ${scanned} file${scanned === 1 ? '' : 's'}${groupBits.length ? ': ' + groupBits.join(', ') : ''}`);
     }
@@ -3843,6 +4037,9 @@ function renderIngestResultsPanel(data) {
             const siblingsLine = (r.outcome === 'merged_with_existing' && r.merged_with_siblings && r.merged_with_siblings.length)
                 ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">joined with: ${_escapeHtml(_formatSiblings(r.merged_with_siblings))}</div>`
                 : '';
+            const notesLine = (r.outcome === 'quarantined_structure' && r.notes)
+                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(r.notes)}</div>`
+                : '';
             return `
                 <tr>
                     <td style="${tdStyle}">
@@ -3853,6 +4050,7 @@ function renderIngestResultsPanel(data) {
                         <div class="text-sm">${meta.label}</div>
                         ${siblingsLine}
                         ${cidLine}
+                        ${notesLine}
                     </td>
                     <td style="${numStyle}">${(r.raw_rows ?? 0).toLocaleString()}</td>
                     <td style="${numStyle}">${(r.processed_rows ?? 0).toLocaleString()}</td>

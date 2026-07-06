@@ -18,6 +18,19 @@
     No new collections to process.
 </div>
 
+<div id="structure-warnings-panel" style="margin-top: 24px; display: none;">
+    <div class="text-sm font-semibold" style="margin-bottom: 4px; color: var(--color-text-secondary);">
+        Structure review
+        <span id="structure-warnings-count" class="text-xxs" style="color: var(--color-text-tertiary); font-weight: var(--weight-normal); margin-left: 6px;"></span>
+    </div>
+    <div class="text-xxs" style="color: var(--color-text-tertiary); margin-bottom: 8px;">
+        These uploads deviate from the learned structure of past donations for their platform.
+        Quarantined files are withheld from the activity data until you approve them; approving
+        folds the new structure into the baseline and the next refresh ingests the file.
+    </div>
+    <div id="structure-warnings-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+</div>
+
 <div style="margin-top: 16px; display: flex; gap: 8px; align-items: center;">
     <button type="button" class="action-btn" id="processRawFilesBtn"
         onclick="refreshIngestionCollection(this)"
