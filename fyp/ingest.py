@@ -891,6 +891,14 @@ class ForYouBaseCollection(ABC):
                 return _structure_sentinel.fingerprint_zip(local_path, type(self).zip_member_suffixes())
             finally:
                 data_io.release_local_copy(local_path)
+        # Extensionless uploads (e.g. AIO donations fetched from S3 are bare
+        # UUIDs holding DDP JSON) — try JSON before giving up on the layer.
+        try:
+            payload = data_io.load_json(storage_location=self.raw_path, filename=filename)
+            if payload is not None:
+                return _structure_sentinel.fingerprint_json_payload(payload)
+        except Exception:
+            pass
         return {"kind": "unknown", "member_paths": [], "key_paths": [], "stats": {}}
 
 
