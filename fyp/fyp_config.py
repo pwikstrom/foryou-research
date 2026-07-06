@@ -2,6 +2,7 @@ import http.client
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -208,7 +209,7 @@ def initialize(
 
 # check internet connectivity
 def _online_ok(url="www.qut.edu.au",
-                        timeout=3):
+                        timeout=1):
     connection = http.client.HTTPConnection(url,
                                         timeout=timeout)
     try:
@@ -235,19 +236,23 @@ def _connect_to_google(cf, verbose=False):
     if cf['misc']['local_mode'] or not (cf['data_io']['use_gcs_for_data'] or cf['data_io']['use_gcs_for_cache'] or cf['data_io']['use_gcs_for_media']):
         return cf
 
-    if _online_ok():
+    # On Cloud Run (K_SERVICE set) connectivity and GCS creds are guaranteed, so
+    # skip the external HTTP HEAD probe — it only adds latency (and up to a full
+    # timeout on a slow response) to every cold start.
+    if os.environ.get("K_SERVICE") or _online_ok():
 
         # Initialize a GCS storage client
         try:
             bucket_client = gcs_storage.Client()
 
-            # Get the GCS bucket
-            bucket = bucket_client.get_bucket(cf["data_io"]["GCS_bucket_name"])
-
-            # Try to access the GCS bucket's metadata
-            bucket.reload()
+            # Lightweight bucket handle — bucket() makes no network call (unlike
+            # get_bucket()). Bucket metadata (and any access error) resolves
+            # lazily on first real object I/O, so we avoid a GCS round-trip at
+            # import on every cold start. Missing credentials still raise from
+            # Client() above and fall through to the local-mode fallback below.
+            bucket = bucket_client.bucket(cf["data_io"]["GCS_bucket_name"])
             cf["data_io"]["bucket"] = bucket
-            print(f"Access to GCS bucket '{bucket.name}' ({bucket.location}) is authorized.")
+            print(f"GCS bucket '{bucket.name}' handle ready (metadata resolved lazily).")
             if verbose:
                 if cf['data_io']['use_gcs_for_data']:
                     print("Data is stored in GCS")
@@ -1052,10 +1057,22 @@ def reload_var_schema_if_changed(cf=None, verbose: bool = False) -> bool:
 PROJECT_ROOT = Path(abs_project_root_path)
 
 
-# Initialize things
+# Initialize things. Time each phase so the real cold-start bottleneck is
+# provable from a single grep of the boot logs (Cloud Run and local).
+_boot_t0 = time.perf_counter()
 fyp_cf = initialize()
+_boot_t1 = time.perf_counter()
 fyp_cf = _connect_to_google(fyp_cf, verbose = True)
+_boot_t2 = time.perf_counter()
 fyp_cf = load_var_schema(fyp_cf, verbose=True)
+_boot_t3 = time.perf_counter()
+print(
+    f"[BOOT] fyp_config init: initialize={_boot_t1 - _boot_t0:.3f}s "
+    f"connect_google={_boot_t2 - _boot_t1:.3f}s "
+    f"load_var_schema={_boot_t3 - _boot_t2:.3f}s "
+    f"total={_boot_t3 - _boot_t0:.3f}s",
+    flush=True,
+)
 
 
 QUEUE_SCRAPER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_queue_scraper.py"

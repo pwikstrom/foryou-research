@@ -119,7 +119,7 @@ def api_admin_users():
         # We iterate through active users and attempt to load their data file directly
         # This avoids potential issues with listdir filenames vs user.username casing
         
-        for u in user_manager.users.values():
+        for u in user_manager.get_all_users().values():
             ud = u.to_dict()
             del ud['password_hash']
             
@@ -261,7 +261,7 @@ def api_admin_users():
              new_role = data.get('role')
              # Capture the previous role before mutation so the log can show
              # both old and new values.
-             prev_user = user_manager.users.get(username)
+             prev_user = user_manager.get_user(username)
              old_role = prev_user.role if prev_user else None
              success, msg = user_manager.update_user_role(username, new_role)
              if success:
@@ -474,7 +474,7 @@ def api_admin_annotations():
     master_index = {}
 
     # Iterate through all known users instead of listing files to avoid casing/sync issues
-    for u in user_manager.users.values():
+    for u in user_manager.get_all_users().values():
         username = u.username
         user_filename = f"{username}.json"
         

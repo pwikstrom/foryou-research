@@ -10,29 +10,29 @@ login_manager = LoginManager()
 login_manager.login_view = 'auth_bp.login' # Updated to point to blueprint view
 login_manager.anonymous_user = auth.AnonymousUser
 
-# Skip the user-bulk-load at startup on services that don't authenticate
-# browser traffic. The task-runner receives Cloud Tasks HTTP requests on
-# /internal/run-task/<name> and never consults Flask-Login, so loading every
-# user JSON at cold start is pure overhead that scales linearly with N.
-# Web service (fyp-data-hub) keeps the eager load so sign-in latency stays
-# low once the instance is warm.
+# Neither service preloads the full user roster anymore — it is loaded lazily on
+# first access (get_all_users), so cold start is O(1) in the number of users on
+# both. The `bootstrap` flag only decides whether this instance runs the one-time
+# legacy-data migration and ensures a default admin exists: the web service owns
+# the user store (bootstrap=True); the task-runner serves only Cloud Tasks
+# internal routes, never authenticates browser traffic, and does not own user
+# data, so it skips both (bootstrap=False).
 _K_SERVICE = os.environ.get("K_SERVICE", "")
 _IS_TASK_RUNNER = _K_SERVICE == "fyp-task-runner"
 
-# Always log the decision so "is lazy mode actually engaged on this
-# instance?" is provable from a single grep, independent of whether
-# downstream prints get buffered.
+# Always log the decision so "does this instance bootstrap the user store?" is
+# provable from a single grep, independent of whether downstream prints buffer.
 print(
     f"[AUTH] boot K_SERVICE={_K_SERVICE!r} "
     f"is_task_runner={_IS_TASK_RUNNER} "
-    f"bulk_load={not _IS_TASK_RUNNER}",
+    f"bootstrap={not _IS_TASK_RUNNER}",
     flush=True,
 )
 
 # Initialize User Manager
 user_manager = auth.UserManager(
     storage_location="users",
-    bulk_load=not _IS_TASK_RUNNER,
+    bootstrap=not _IS_TASK_RUNNER,
 )
 
 @login_manager.unauthorized_handler
