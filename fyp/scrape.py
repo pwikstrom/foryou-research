@@ -1443,6 +1443,116 @@ def _merge_enrichment_seeds(
 
 
 
+# Backstage/provenance columns that change on every (re-)scrape without altering
+# any analysis variable. They are excluded from the consolidation value diff so a
+# value-preserving re-scrape (or a plain force re-consolidation) flags nothing,
+# while a real backfill — e.g. play_count -1 sentinel → a real count — is caught.
+_SCRAPE_PROVENANCE_COLS = frozenset({
+    "scrape_ts",
+    "scrape_contract_version",
+    "storage_link",
+})
+
+
+
+
+def _scrape_value_signatures(df: pd.DataFrame, value_cols: list[str]) -> dict[str, str]:
+    """Per-item content signature over the given value columns.
+
+    Normalises every cell to a string (so pyarrow/int/bool/datetime dtypes and
+    NA hash identically across the freshly-built frame and the frame loaded back
+    from parquet), hashes each row, and combines the (order-independent) set of
+    row hashes per ``item_id`` into a comparable signature string. Rows with a
+    null ``item_id`` are ignored.
+
+    Args:
+        df: Consolidated scrape frame (existing or new).
+        value_cols: Columns whose values define "changed"; provenance columns
+            must already be excluded by the caller.
+
+    Returns:
+        ``{item_id: signature}`` — two frames agree on an item iff its signature
+        matches.
+    """
+    if df is None or df.empty or "item_id" not in df.columns:
+        return {}
+
+    sub = df.loc[df["item_id"].notna(), ["item_id", *value_cols]]
+    if sub.empty:
+        return {}
+
+    normalised = sub[value_cols].astype("string").fillna("\x00")
+    row_hashes = pd.util.hash_pandas_object(normalised, index=False).to_numpy()
+    frame = pd.DataFrame({
+        "item_id": sub["item_id"].astype("string").to_numpy(),
+        "row_hash": [format(int(h), "x") for h in row_hashes],
+    })
+    combined = frame.groupby("item_id", sort=False)["row_hash"].agg(
+        lambda hashes: ",".join(sorted(hashes))
+    )
+    return {str(item): sig for item, sig in combined.items()}
+
+
+
+
+def _compute_changed_scrape_ids(
+    existing_df: pd.DataFrame | None,
+    new_df: pd.DataFrame,
+    verbose: bool = False,
+) -> set[str]:
+    """Item_ids whose consolidated scrape row changed vs the previous output.
+
+    Returns the union of brand-new item_ids (present in ``new_df``, absent from
+    ``existing_df``) and item_ids present in both whose value columns differ —
+    the re-scrape backfill case (updating stale/missing scraped fields for items
+    already consolidated) that a pure new-id set-difference silently misses. The
+    result drives the consolidation impact analysis, so any study whose member
+    items had their enrichment *values* updated is refreshed, not only studies
+    that gained or lost members.
+
+    Args:
+        existing_df: The previously consolidated scrape frame (``None`` on the
+            first-ever consolidation).
+        new_df: The freshly consolidated scrape frame about to be saved.
+        verbose: Print a one-line changed/new/updated breakdown.
+
+    Returns:
+        The set of changed item_ids.
+    """
+    if new_df is None or new_df.empty or "item_id" not in new_df.columns:
+        return set()
+
+    if existing_df is None or existing_df.empty or "item_id" not in existing_df.columns:
+        return {str(i) for i in new_df.loc[new_df["item_id"].notna(), "item_id"]}
+
+    value_cols = [
+        c for c in new_df.columns
+        if c != "item_id"
+        and c not in _SCRAPE_PROVENANCE_COLS
+        and c in existing_df.columns
+    ]
+    if not value_cols:
+        existing_ids = {str(i) for i in existing_df["item_id"] if pd.notna(i)}
+        return {
+            str(i) for i in new_df["item_id"]
+            if pd.notna(i) and str(i) not in existing_ids
+        }
+
+    old_sig = _scrape_value_signatures(existing_df, value_cols)
+    new_sig = _scrape_value_signatures(new_df, value_cols)
+    changed = {item for item, sig in new_sig.items() if old_sig.get(item) != sig}
+
+    if verbose:
+        new_count = sum(1 for item in changed if item not in old_sig)
+        print(
+            f"Found {len(changed):,} changed scrape item_id(s) "
+            f"({new_count:,} new, {len(changed) - new_count:,} re-scraped/updated)."
+        )
+    return changed
+
+
+
+
 
 
 def consolidate_and_save_scrape_data(
@@ -1603,18 +1713,19 @@ def consolidate_and_save_scrape_data(
     # any legacy parquet by _canonicalize_legacy_scrape at load, so consolidation
     # only needs to concatenate and deduplicate.
 
-    # Compute new item_ids by comparing against existing consolidated data
-    new_item_ids: set[str] = set()
+    # Compute changed item_ids by diffing against the existing consolidated data.
+    # A set-difference on item_id alone only sees brand-new items; a re-scrape
+    # that updates the VALUES of an item already consolidated (e.g. an Instagram
+    # play_count going from the -1 sentinel to a real count) keeps the same
+    # item_id and would be missed, so the study/collection impact analysis would
+    # never refresh the studies that item belongs to. Compare the actual row
+    # values instead, so any enrichment-value backfill surfaces as a change.
     existing_recoded_fn = f"{SCRAPES_LABEL}_recoded.parquet"
+    existing_df = None
     if data_io.exists(storage_location="recoded", filename=existing_recoded_fn):
         existing_df = data_io.load_parquet(storage_location="recoded", filename=existing_recoded_fn)
-        existing_ids = set(existing_df["item_id"]) if existing_df is not None else set()
-        new_item_ids = set(scrape_df["item_id"]) - existing_ids
-    else:
-        new_item_ids = set(scrape_df["item_id"])
 
-    if top_verbose and new_item_ids:
-        print(f"Found {len(new_item_ids):,} newly scraped item_ids.")
+    new_item_ids = _compute_changed_scrape_ids(existing_df, scrape_df, verbose=top_verbose)
 
     if top_verbose:
         print("Saving consolidated scrape data...")
