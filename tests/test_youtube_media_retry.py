@@ -43,6 +43,13 @@ def test_classification() -> None:
         Exception("Sign in to confirm you're not a bot"))
     assert category == "bot_check", f"bot wall message → {category}"
 
+    # YouTube uses a typographic apostrophe in the real message (seen in prod
+    # 2026-07-06 — the ASCII pattern alone classified it as unknown).
+    category, _ = _classify_error(
+        Exception("ERROR: [youtube] xyz: Sign in to confirm you’re not a bot. "
+                  "Use --cookies-from-browser or --cookies for the authentication."))
+    assert category == "bot_check", f"curly-apostrophe bot wall → {category}"
+
     scraper = YouTubeScraper()
     assert scraper.classify_error("rate_limited") == "transient:rate_limited"
     assert scraper.classify_error("removed") == "permanent:removed"

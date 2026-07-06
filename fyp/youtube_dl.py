@@ -8,8 +8,10 @@ video id (the ``item_id`` produced by :class:`fyp.ingest.YouTubeDDPCollection`).
 Datacenter IPs (Cloud Run) frequently hit YouTube's bot wall ("Sign in to
 confirm you're not a bot"); research-account cookies partially mitigate it
 (see :mod:`fyp.scraper_cookies`) and the distinct ``bot_check`` category is a
-throttle signal so concurrency backs off. If bot-checks persist, a PO-token
-provider (bgutil-ytdlp-pot-provider) is the known follow-up mitigation.
+throttle signal so concurrency backs off. Media streams additionally require
+proof-of-origin (PO) tokens from datacenter IPs: the bgutil provider
+(pip plugin + script built in Dockerfile.base, wired via
+:func:`_pot_extractor_args`) supplies them in production.
 
 Most watch-history items are long-form and exceed the media duration cap —
 they are deliberately scraped metadata-only; Shorts and clips get media.
@@ -66,6 +68,27 @@ _FORMAT = ('bv*[height<=720][ext=mp4]+ba[ext=m4a]'
 # not used, so enabling both is safe everywhere.
 _JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
 
+# The bgutil PO-token provider's script directory (Dockerfile.base builds it
+# and sets this env var). YouTube requires proof-of-origin tokens for media
+# streams from datacenter IPs — cookies alone don't pass the bot wall.
+_POT_SERVER_HOME_ENV = 'BGUTIL_POT_SERVER_HOME'
+
+
+
+
+def _pot_extractor_args() -> dict:
+    """yt-dlp opts wiring the bgutil PO-token provider (script mode).
+
+    Returns an ``extractor_args`` fragment pointing the bgutil plugin
+    (``bgutil-ytdlp-pot-provider`` in requirements312.txt) at the provider
+    script, or ``{}`` when the script isn't present (e.g. local dev, where a
+    residential IP passes the bot wall without PO tokens).
+    """
+    server_home = os.environ.get(_POT_SERVER_HOME_ENV, '')
+    if server_home and exists(join(server_home, 'build', 'generate_once.js')):
+        return {'extractor_args': {'youtubepot-bgutilscript': {'server_home': [server_home]}}}
+    return {}
+
 
 def _classify_error(exc: Exception) -> tuple[str, str]:
     """Classify a yt-dlp error into (category, detail) for retry decisions.
@@ -99,7 +122,9 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     if isinstance(cause, TransportError):
         return "network", f"Transport error: {msg}"
 
-    msg_lower = msg.lower()
+    # YouTube uses typographic apostrophes ("confirm you’re not a bot") —
+    # normalize so ASCII keyword matching works.
+    msg_lower = msg.lower().replace('’', "'")
 
     if "confirm you're not a bot" in msg_lower or 'not a robot' in msg_lower:
         return "bot_check", msg
@@ -224,6 +249,7 @@ def _extract_metadata(url: str, item_id: str, verbose: bool = False):
         'extractor_retries': 3,
         'socket_timeout': 30,
         'js_runtimes': _JS_RUNTIMES,
+        **_pot_extractor_args(),
         # Metadata must never depend on the n-challenge solver: without a JS
         # runtime + yt-dlp-ejs, format extraction fails ("No video formats
         # found") even though all metadata fields are present. The media phase
@@ -283,6 +309,7 @@ def _download_media(
         'retries': 3,
         'socket_timeout': 30,
         'js_runtimes': _JS_RUNTIMES,
+        **_pot_extractor_args(),
     }
 
     for attempt in range(_DL_MAX_RETRIES):
