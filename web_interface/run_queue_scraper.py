@@ -22,14 +22,18 @@ sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
 
-# Upper safety cap on a single Cloud Task batch. The scraper's Cloud Tasks
-# dispatch deadline is fixed at 1800s, and the in-pool batch deadline is also
-# capped at 1800s. At realistic throughput (~1.4 items/s under platform
-# throttling) a 1000-item batch clears that window with margin, while larger
-# batches overrun it: pending items pile up and the instance is OOM-killed
-# mid-drain, losing the whole batch under the queue's max-attempts=1. The
-# remainder of the queue is processed by self-chaining to the next batch.
-MAX_BATCH_SIZE = 1000
+# Upper safety cap on a single Cloud Task batch. yt-dlp/ffmpeg accumulate
+# native memory across the many per-item invocations in one long-lived worker,
+# so a single large batch climbs toward the container's memory limit and is
+# OOM-killed mid-drain — losing the whole batch under the queue's
+# max-attempts=1 (observed: a 500-item TikTok batch died at ~215 items, ~32 GiB).
+# Keeping a batch well under that ceiling lets each fresh worker (the
+# task-runner recycles its worker per request — see gunicorn.conf.py) finish
+# within bounded memory; the remainder of the queue is drained by self-chaining
+# to the next batch. download_video_threads also has a runtime memory safety
+# valve as a backstop. Tunable up once the ``[mem]`` log curve confirms the
+# per-item growth rate is gentler than the conservative estimate.
+MAX_BATCH_SIZE = 100
 _DISPATCH_DEADLINE = 1800
 
 
@@ -151,6 +155,17 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         on_concurrency_change=_on_threads_change,
         platform=platform,
     )
+
+    # The memory safety valve stopped this batch early (container memory near
+    # the limit). The completed rows below are still saved and pruned; the
+    # deferred items stay queued and are picked up by the next chain, which
+    # runs in a freshly recycled worker with reset memory. This is NOT a
+    # circuit-breaker abort — chaining continues normally.
+    if results_df.attrs.get('memory_stop'):
+        reporter.log(
+            "Batch stopped early by the memory safety valve — completed items "
+            "saved; remaining items deferred to the next (fresh) batch."
+        )
 
     good_ids = []
     if not results_df.empty and "item_id" in results_df.columns:

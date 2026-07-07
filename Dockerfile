@@ -9,5 +9,7 @@ WORKDIR /app
 # Copy application code only
 COPY . .
 
-# The Launch Command
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 web_interface.fyp_data_hub:app
+# The Launch Command. gunicorn.conf.py adds max_requests=1 on the task-runner
+# only (recycles the worker per request so native memory can't accumulate
+# across chained Cloud Tasks); the web server keeps its long-lived worker.
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 -c gunicorn.conf.py web_interface.fyp_data_hub:app

@@ -43,6 +43,58 @@ FAILED_SCRAPES_LABEL = fyp_cf["labels"]["FAILED_SCRAPES_LABEL"]
 # batch circuit breaker in download_video_threads.
 CIRCUIT_BREAKER_THRESHOLD = 15
 
+# Fraction of the container memory limit at which a batch stops launching new
+# downloads, drains in-flight work, saves what completed, and defers the rest
+# back to the queue (see the memory safety valve in download_video_threads).
+# yt-dlp/ffmpeg accumulate native memory across the many per-item invocations
+# in one long-lived worker; without this guard a large batch is OOM-killed
+# mid-drain and the whole batch is lost under the queue's max-attempts=1.
+try:
+    MEMORY_STOP_FRACTION = float(fyp_cf["misc"].get("scraper_memory_stop_fraction", 0.80))
+except (KeyError, TypeError, ValueError):
+    MEMORY_STOP_FRACTION = 0.80
+
+
+
+
+
+def _container_memory_fraction() -> "tuple[float, float] | None":
+    """Return ``(used_fraction, used_gib)`` for the container's memory cgroup.
+
+    Reads the cgroup's own accounting (cgroup v2 ``memory.current`` /
+    ``memory.max``, falling back to v1), which is exactly what the Cloud Run
+    OOM-killer watches — it includes the ``/tmp`` tmpfs and child processes
+    (ffmpeg), unlike process RSS. Returns ``None`` when the files are absent
+    (local dev) or the limit is unset, which disables the memory guard.
+
+    Returns:
+        ``(used_fraction, used_gib)`` where ``used_fraction`` is usage / limit
+        in ``[0, 1]`` and ``used_gib`` is absolute usage in GiB, or ``None``.
+    """
+    _gib = float(1 << 30)
+    try:
+        with open("/sys/fs/cgroup/memory.max") as fh:
+            raw = fh.read().strip()
+        if raw != "max":
+            limit = int(raw)
+            with open("/sys/fs/cgroup/memory.current") as fh:
+                usage = int(fh.read().strip())
+            if limit > 0:
+                return usage / limit, usage / _gib
+    except (OSError, ValueError):
+        pass
+    try:
+        with open("/sys/fs/cgroup/memory/memory.limit_in_bytes") as fh:
+            limit = int(fh.read().strip())
+        with open("/sys/fs/cgroup/memory/memory.usage_in_bytes") as fh:
+            usage = int(fh.read().strip())
+        # cgroup v1 reports a near-INT64_MAX sentinel when the limit is unset.
+        if 0 < limit < (1 << 62):
+            return usage / limit, usage / _gib
+    except (OSError, ValueError):
+        pass
+    return None
+
 
 
 
@@ -911,6 +963,11 @@ def download_video_threads(
     breaker_lock = threading.Lock()
     breaker_state = {"consecutive": 0}
     abort_event = threading.Event()
+    # Memory safety valve: set once the container's memory cgroup crosses
+    # MEMORY_STOP_FRACTION. Workers that have not started downloading yet defer
+    # their item back to the queue (transient) rather than push the container
+    # into an OOM kill; in-flight downloads finish and are saved.
+    mem_stop_event = threading.Event()
     inter_delay = scraper.inter_request_delay()
 
     def _breaker_track(category) -> None:
@@ -934,6 +991,11 @@ def download_video_threads(
                 aborted.attrs['error_type'] = 'batch_aborted'
                 aborted.attrs['error_detail'] = 'batch aborted by rate-limit circuit breaker'
                 return idx, aborted
+            if mem_stop_event.is_set():
+                deferred = pd.DataFrame()
+                deferred.attrs['error_type'] = 'batch_aborted'
+                deferred.attrs['error_detail'] = 'deferred: container memory near limit'
+                return idx, deferred
             skip_media = video in already_have_media
             res = download_single_video(
                 video_id=video,
@@ -1011,10 +1073,30 @@ def download_video_threads(
         _waves = max(1, (len(interesting_videos) + pool_size - 1) // pool_size)
         batch_deadline = min(int(_waves * _per_item_ceiling * 1.5 + 60), 1800)
 
+        # Memory watch: sample the container memory cgroup as items complete.
+        # Log the curve periodically (diagnostics for tuning batch size) and,
+        # once usage crosses MEMORY_STOP_FRACTION, trip the safety valve so
+        # not-yet-started workers defer their items instead of OOM-killing the
+        # container mid-drain (which loses the whole batch under max-attempts=1).
+        _completed = 0
         try:
             for fut in as_completed(futures, timeout=batch_deadline):
                 idx, res = fut.result()
                 results_by_index[idx] = res
+                _completed += 1
+                mem = _container_memory_fraction()
+                if mem is not None:
+                    frac, used_gib = mem
+                    if _completed % 25 == 0 and not mem_stop_event.is_set():
+                        print(f"  [mem] {used_gib:.1f} GiB ({frac:.0%} of limit) "
+                              f"after {_completed}/{len(interesting_videos)} items",
+                              flush=True)
+                    if frac >= MEMORY_STOP_FRACTION and not mem_stop_event.is_set():
+                        mem_stop_event.set()
+                        print(f"  [scrape] Memory safety valve: {used_gib:.1f} GiB "
+                              f"({frac:.0%} of limit) after {_completed} items — "
+                              f"stopping new downloads; remaining items stay queued "
+                              f"for the next (fresh) batch.", flush=True)
         except TimeoutError:
             stuck = [interesting_videos[i] for i, f in enumerate(futures) if not f.done()]
             print(
@@ -1075,6 +1157,7 @@ def download_video_threads(
         print("The scrape procedure did not generate any useful results")
         empty_results = pd.DataFrame()
         empty_results.attrs['circuit_breaker_tripped'] = abort_event.is_set()
+        empty_results.attrs['memory_stop'] = mem_stop_event.is_set()
         return empty_results, permanent_failed_ids, transient_failed_ids
 
     # ignore_index=True: each element is a single-row frame indexed 0, so a
@@ -1096,8 +1179,12 @@ def download_video_threads(
 
     # Signal upward (batch loop / queue-scraper chaining) that this batch was
     # aborted by the rate-limit circuit breaker. Set post-save so pipeline
-    # transforms can't have dropped the attr.
+    # transforms can't have dropped the attr. ``memory_stop`` is distinct from
+    # the circuit breaker: it does NOT stop chaining — the completed rows are
+    # saved and pruned, and the deferred items are picked up by the next
+    # (fresh-process) chain.
     results.attrs['circuit_breaker_tripped'] = abort_event.is_set()
+    results.attrs['memory_stop'] = mem_stop_event.is_set()
 
     return results, permanent_failed_ids, transient_failed_ids
 
