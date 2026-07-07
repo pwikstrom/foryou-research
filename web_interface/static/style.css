@@ -2508,6 +2508,18 @@ button.meta-tooltip:disabled {
     to { opacity: 1; }
 }
 
+/* Explanatory notice shown in place of the video player when an item has no
+   downloaded media (e.g. YouTube long-form past the download duration cap). */
+.viewer-video-notice {
+    max-width: 360px;
+    margin: 0 auto;
+    padding: 24px;
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: var(--text-body);
+    line-height: var(--leading-relaxed);
+}
+
 
 /* ============================================================
    Accessibility: Reduced Motion

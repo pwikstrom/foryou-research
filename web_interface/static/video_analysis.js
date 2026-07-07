@@ -31,6 +31,65 @@ let viewerData = {
     _preloadedVideoIndex: null       // Index whose video is preloaded in the hidden element
 };
 
+// Shared player-overlay loader markup (viewer-video-msg).
+const VIEWER_LOADER_HTML = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading video...</div></div>';
+
+// The global [misc] max_duration_for_download default (seconds). Used ONLY to
+// choose the wording of the no-media notice (too-long vs failed download) —
+// the authoritative cap lives server-side in the scraper.
+const MAX_DOWNLOAD_SECONDS_HINT = 300;
+
+
+function formatVideoDuration(seconds) {
+    // "45s" / "14m 32s" / "1h 02m"
+    const s = Math.round(seconds);
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+    return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+}
+
+
+function videoNoticeText(item) {
+    // Returns the explanatory no-media notice for an item, or null when the
+    // item should have playable media. Strict === false: an absent/unknown
+    // flag falls through to the reactive player-error handler instead.
+    if (!item || item.video_downloaded !== false) return null;
+    const dur = Number(item.duration);
+    if (Number.isFinite(dur) && dur >= MAX_DOWNLOAD_SECONDS_HINT) {
+        return `This video is ${formatVideoDuration(dur)} long — it exceeds the maximum download duration, so only its metadata was collected. No media is available.`;
+    }
+    return "No media was downloaded for this item (the video may have been removed or the download failed). Its metadata is shown on the right.";
+}
+
+
+function showVideoNotice(text) {
+    // Replace the player with an explanatory message and stop the stream.
+    const videoEl = document.getElementById('viewer-video');
+    const msgEl = document.getElementById('viewer-video-msg');
+    if (!videoEl || !msgEl) return;
+    msgEl.dataset.notice = "1";
+    msgEl.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'viewer-video-notice';
+    box.textContent = text;
+    msgEl.appendChild(box);
+    msgEl.style.display = "block";
+    videoEl.pause();
+    videoEl.removeAttribute('src');
+    videoEl.load();
+}
+
+
+function maybeShowNoMediaNotice(item) {
+    // Proactive layer: when the item's metadata says there is no media, swap
+    // the player for the notice (unless the stream already delivered frames —
+    // then the flag is stale and playback wins).
+    const videoEl = document.getElementById('viewer-video');
+    if (videoEl && videoEl.readyState >= 2) return;
+    const text = videoNoticeText(item);
+    if (text) showVideoNotice(text);
+}
+
 
 window.vaToggleLeft = function () {
     viewerData.leftPanelVisible = !viewerData.leftPanelVisible;
@@ -79,7 +138,8 @@ async function checkPendingDrillDown() {
         document.getElementById('viewer-video').src = "";
         document.getElementById('viewer-metadata').querySelector('tbody').innerHTML = "";
         const msgEl = document.getElementById('viewer-video-msg');
-        msgEl.innerHTML = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading video...</div></div>';
+        delete msgEl.dataset.notice;
+        msgEl.innerHTML = VIEWER_LOADER_HTML;
         msgEl.style.display = "block";
         updateNavUI();
 
@@ -253,7 +313,8 @@ async function applyViewerActiveStudy(studyName, options = {}) {
 
     const msgEl = document.getElementById('viewer-video-msg');
     if (msgEl) {
-        msgEl.innerHTML = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading video...</div></div>';
+        delete msgEl.dataset.notice;
+        msgEl.innerHTML = VIEWER_LOADER_HTML;
         msgEl.style.display = "block";
     }
     if (typeof updateNavUI === 'function') updateNavUI();
@@ -1038,9 +1099,12 @@ function prefetchNext() {
         viewerData._inflightItem = { itemId: nextItemId, promise, abort };
     }
 
-    // Preload next video in hidden element
+    // Preload next video in hidden element — skipped when its metadata is
+    // already known to say there is no media to stream.
+    const nextMeta = getCachedMetadata(nextItemId);
+    const nextHasNoMedia = nextMeta && nextMeta.video_downloaded === false;
     const preloadEl = document.getElementById('viewer-video-preload');
-    if (preloadEl && viewerData._preloadedVideoIndex !== nextIndex) {
+    if (preloadEl && viewerData._preloadedVideoIndex !== nextIndex && !nextHasNoMedia) {
         const autoplay = window.userSettings && window.userSettings.video_autostart;
         preloadEl.preload = autoplay ? "auto" : "metadata";
         preloadEl.src = videoStreamUrl(nextItemId);
@@ -1132,6 +1196,15 @@ async function loadViewerItem(index) {
     const videoUrl = videoStreamUrl(itemId);
     const autoplay = window.userSettings && window.userSettings.video_autostart;
 
+    // A notice from the previous item must not linger over this one — restore
+    // the loader until this item's stream (or its own notice) takes over.
+    const msgEl = document.getElementById('viewer-video-msg');
+    if (msgEl.dataset.notice) {
+        delete msgEl.dataset.notice;
+        msgEl.innerHTML = VIEWER_LOADER_HTML;
+        msgEl.style.display = "block";
+    }
+
     if (preloadEl && viewerData._preloadedVideoIndex === index && preloadEl.src) {
         // The hidden element already has this video buffered — swap src
         videoEl.preload = autoplay ? "auto" : "metadata";
@@ -1143,10 +1216,22 @@ async function loadViewerItem(index) {
         videoEl.src = videoUrl;
     }
 
-    // Hide loading message once the first frame is available
-    const msgEl = document.getElementById('viewer-video-msg');
-    videoEl.addEventListener('loadeddata', () => { msgEl.style.display = "none"; }, { once: true });
-    setTimeout(() => { msgEl.style.display = "none"; }, 5000);
+    // Hide loading message once the first frame is available (an explanatory
+    // notice is never timeout-hidden — only the loader is).
+    videoEl.addEventListener('loadeddata', () => {
+        if (!msgEl.dataset.notice) msgEl.style.display = "none";
+    }, { once: true });
+    setTimeout(() => { if (!msgEl.dataset.notice) msgEl.style.display = "none"; }, 5000);
+
+    // Reactive layer: the stream failed (e.g. 404 — media never downloaded).
+    // Prefer the metadata-driven explanation when it is available; fall back
+    // to a generic message so the player never dies silently.
+    videoEl.addEventListener('error', () => {
+        if (viewerData.currentIndex !== index) return;   // stale listener
+        if (msgEl.dataset.notice) return;                // notice already shown
+        const meta = getCachedMetadata(itemId);
+        showVideoNotice(videoNoticeText(meta) || "Video could not be loaded.");
+    }, { once: true });
 
     // Check if tab is visible before playing
     const viewerTab = document.getElementById('video_analysis');
@@ -1166,6 +1251,7 @@ async function loadViewerItem(index) {
     if (cached) {
         // Cache hit: render synchronously, no placeholder flash.
         renderMetadata(cached);
+        maybeShowNoMediaNotice(cached);
         document.getElementById('viewer-status').innerText = "";
         return;
     }
@@ -1194,6 +1280,7 @@ async function loadViewerItem(index) {
         }
 
         renderMetadata(item);
+        maybeShowNoMediaNotice(item);
         document.getElementById('viewer-status').innerText = "";
     };
 
