@@ -320,8 +320,21 @@ def _fetch_item_struct(video_url: str) -> dict | None:
             headers=headers,
             cookies=_requests_cookies(),
             timeout=20,
+            stream=True,
         )
-        soup = BeautifulSoup(resp.text, 'html.parser')
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in resp.iter_content(65536):
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > _PAGE_BYTE_CAP:
+                logger.warning(
+                    "Page for %s exceeds %d bytes; skipping page-JSON supplement "
+                    "to bound memory.", video_id, _PAGE_BYTE_CAP)
+                resp.close()
+                return None
+        resp.close()
+        soup = BeautifulSoup(b"".join(chunks), 'html.parser')
     except Exception as e:
         logger.warning("Page fetch failed for %s: %s", video_url, e)
         return None
@@ -490,6 +503,14 @@ try:
     _MAX_MEDIA_BYTES = int(fyp_cf["misc"].get("max_media_download_bytes", 1 << 30))
 except (KeyError, TypeError, ValueError):
     _MAX_MEDIA_BYTES = 1 << 30
+
+# Hard cap on the raw page read in _fetch_item_struct. A normal TikTok page is
+# 1-3 MB; the optional page-JSON supplement loads the whole body into memory and
+# parses it with BeautifulSoup (a multi-x memory multiplier). A pathological
+# page (huge embedded JSON, or a body with no Content-Length) read unbounded
+# across concurrent workers is a prime OOM source, so cap the read and skip the
+# supplement past the cap — yt-dlp's extract_info still supplies core metadata.
+_PAGE_BYTE_CAP = 8 * 1024 * 1024
 
 
 def save_tiktok(
@@ -925,7 +946,10 @@ class TikTokScraper(BaseScraper):
     def throttle_limits(self, max_workers: int) -> tuple[int, int, int]:
         # All threads share a single TikTok session behind the same cookies, so
         # the ceiling stays modest even when the caller asks for more workers.
-        return (max_workers, 2, max(max_workers, 6))
+        # Capped at 4 concurrent: a small subset of items transiently allocate
+        # multiple GiB during the metadata/page phase, and fewer in-flight items
+        # keeps the aggregate working set well under the container memory limit.
+        return (min(max_workers, 4), 2, 4)
 
 
     def health_check(self) -> dict | None:

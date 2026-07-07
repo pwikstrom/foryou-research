@@ -50,9 +50,9 @@ CIRCUIT_BREAKER_THRESHOLD = 15
 # in one long-lived worker; without this guard a large batch is OOM-killed
 # mid-drain and the whole batch is lost under the queue's max-attempts=1.
 try:
-    MEMORY_STOP_FRACTION = float(fyp_cf["misc"].get("scraper_memory_stop_fraction", 0.80))
+    MEMORY_STOP_FRACTION = float(fyp_cf["misc"].get("scraper_memory_stop_fraction", 0.60))
 except (KeyError, TypeError, ValueError):
-    MEMORY_STOP_FRACTION = 0.80
+    MEMORY_STOP_FRACTION = 0.60
 
 
 
