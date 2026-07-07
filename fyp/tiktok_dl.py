@@ -946,10 +946,12 @@ class TikTokScraper(BaseScraper):
     def throttle_limits(self, max_workers: int) -> tuple[int, int, int]:
         # All threads share a single TikTok session behind the same cookies, so
         # the ceiling stays modest even when the caller asks for more workers.
-        # Capped at 4 concurrent: a small subset of items transiently allocate
-        # multiple GiB during the metadata/page phase, and fewer in-flight items
-        # keeps the aggregate working set well under the container memory limit.
-        return (min(max_workers, 4), 2, 4)
+        # Capped at 2 concurrent: a small subset of items transiently allocate
+        # many GiB during the metadata/page phase (one observed holding ~16 GiB
+        # alone), so at most two in-flight — combined with the memory admission
+        # gate in download_video_threads — keeps the aggregate working set below
+        # the container memory limit.
+        return (min(max_workers, 2), 1, 2)
 
 
     def health_check(self) -> dict | None:

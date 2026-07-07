@@ -54,6 +54,21 @@ try:
 except (KeyError, TypeError, ValueError):
     MEMORY_STOP_FRACTION = 0.60
 
+# Memory admission gate: a worker will not *start* a new download while the
+# container memory cgroup is already above this fraction. A small subset of
+# items transiently allocate many GiB (one observed holding ~16 GiB alone);
+# gating new starts on current pressure serialises around such an item — the
+# in-flight heavy item drains and releases before the next one begins — without
+# throttling normal-throughput items (which never approach the gate).
+try:
+    MEMORY_ADMISSION_FRACTION = float(fyp_cf["misc"].get("scraper_memory_admission_fraction", 0.45))
+except (KeyError, TypeError, ValueError):
+    MEMORY_ADMISSION_FRACTION = 0.45
+
+# Max seconds a worker waits at the admission gate before deferring its item to
+# the next batch (bounds worst-case stall if a heavy item never releases).
+MEMORY_ADMISSION_WAIT_MAX = 120.0
+
 
 
 
@@ -996,6 +1011,20 @@ def download_video_threads(
                 deferred.attrs['error_type'] = 'batch_aborted'
                 deferred.attrs['error_detail'] = 'deferred: container memory near limit'
                 return idx, deferred
+            # Admission gate: hold off starting this download while the container
+            # is already under memory pressure, so a rare multi-GiB item drains
+            # before the next one begins (no cgroup locally -> gate is inert).
+            gate_deadline = time.monotonic() + MEMORY_ADMISSION_WAIT_MAX
+            while not (abort_event.is_set() or mem_stop_event.is_set()):
+                mem = _container_memory_fraction()
+                if mem is None or mem[0] < MEMORY_ADMISSION_FRACTION:
+                    break
+                if time.monotonic() > gate_deadline:
+                    deferred = pd.DataFrame()
+                    deferred.attrs['error_type'] = 'batch_aborted'
+                    deferred.attrs['error_detail'] = 'deferred: memory admission gate timeout'
+                    return idx, deferred
+                time.sleep(0.5)
             skip_media = video in already_have_media
             res = download_single_video(
                 video_id=video,
