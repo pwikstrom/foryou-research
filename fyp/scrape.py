@@ -46,28 +46,26 @@ CIRCUIT_BREAKER_THRESHOLD = 15
 # Fraction of the container memory limit at which a batch stops launching new
 # downloads, drains in-flight work, saves what completed, and defers the rest
 # back to the queue (see the memory safety valve in download_video_threads).
-# yt-dlp/ffmpeg accumulate native memory across the many per-item invocations
-# in one long-lived worker; without this guard a large batch is OOM-killed
-# mid-drain and the whole batch is lost under the queue's max-attempts=1.
+# Last-line insurance against any unexpected memory spike: without it the
+# container is OOM-killed mid-drain and the whole batch is lost under the
+# queue's max-attempts=1. (The historical spike source — moviepy slideshow
+# assembly at native photo resolution — is bounded at the root by
+# SLIDESHOW_MAX_DIMENSION in make_slideshow.)
 try:
     MEMORY_STOP_FRACTION = float(fyp_cf["misc"].get("scraper_memory_stop_fraction", 0.60))
 except (KeyError, TypeError, ValueError):
     MEMORY_STOP_FRACTION = 0.60
 
-# Memory admission gate: a worker will not *start* a new download while the
-# container memory cgroup is already above this fraction. A small subset of
-# items transiently allocate many GiB (one observed holding ~16 GiB alone);
-# gating new starts on current pressure serialises around such an item — the
-# in-flight heavy item drains and releases before the next one begins — without
-# throttling normal-throughput items (which never approach the gate).
+# Longest edge of a slideshow canvas, in pixels. TikTok photo-mode source
+# images run up to 2160x3840; rendering the slideshow at that native size makes
+# moviepy hold ~15 GiB for a 20-image post (frame buffers scale with canvas
+# area), which OOM-pressured the task-runner. Slideshows are display media, not
+# archival: capping the longest edge bounds the whole moviepy/ffmpeg pipeline
+# to well under 1 GiB. Overridable via ``[misc] slideshow_max_dimension``.
 try:
-    MEMORY_ADMISSION_FRACTION = float(fyp_cf["misc"].get("scraper_memory_admission_fraction", 0.45))
+    SLIDESHOW_MAX_DIMENSION = int(fyp_cf["misc"].get("slideshow_max_dimension", 1000))
 except (KeyError, TypeError, ValueError):
-    MEMORY_ADMISSION_FRACTION = 0.45
-
-# Max seconds a worker waits at the admission gate before deferring its item to
-# the next batch (bounds worst-case stall if a heavy item never releases).
-MEMORY_ADMISSION_WAIT_MAX = 120.0
+    SLIDESHOW_MAX_DIMENSION = 1000
 
 
 
@@ -145,6 +143,9 @@ def make_slideshow(
         transition: swipe transition length in seconds (capped at duration).
         swipe: animate each slide in with a horizontal swipe.
         canvas_size: output (width, height); inferred from the images when None.
+            Always clamped so the longest edge is at most
+            ``SLIDESHOW_MAX_DIMENSION`` (moviepy frame buffers scale with
+            canvas area — an uncapped 2160x3840 canvas costs ~15 GiB).
         bg_color: letterbox background color (name/hex string or RGB tuple).
         fps: output frame rate.
         codec: video codec passed to ffmpeg.
@@ -174,14 +175,18 @@ def make_slideshow(
 
 
 
-    def _fit_letterbox(img_clip, canvas_size):
+    def _load_fitted(image_path: str, canvas_size: tuple[int, int]) -> np.ndarray:
+        # Decode and downscale with PIL *before* the image enters moviepy, so
+        # ImageClip holds a canvas-sized array instead of the native-resolution
+        # photo and no per-frame Resize effect is needed.
         W, H = canvas_size
-        iw, ih = img_clip.w, img_clip.h
-        if iw / ih >= W / H:
-            scaled = img_clip.resized(width=W)
-        else:
-            scaled = img_clip.resized(height=H)
-        return scaled
+        with Image.open(image_path) as im:
+            im = im.convert("RGB")
+            scale = min(W / im.width, H / im.height)
+            target = (max(1, round(im.width * scale)), max(1, round(im.height * scale)))
+            if target != im.size:
+                im = im.resize(target, Image.LANCZOS)
+            return np.asarray(im)
 
 
 
@@ -207,8 +212,7 @@ def make_slideshow(
         transition: float,
     ):
         bg = ColorClip(size=canvas_size, color=bg_color, duration=duration)
-        img = ImageClip(image_path, duration=duration)
-        boxed = _fit_letterbox(img, canvas_size)
+        boxed = ImageClip(_load_fitted(image_path, canvas_size), duration=duration)
 
         if swipe and transition > 0:
             pos = _make_swipe_pos(canvas_size[0], transition)
@@ -240,6 +244,19 @@ def make_slideshow(
 
 
 
+    def _clamp_canvas(size: tuple[int, int]) -> tuple[int, int]:
+        # Bound the longest edge, then round down to even dimensions
+        # (libx264 with yuv420p rejects odd frame sizes).
+        w, h = size
+        longest = max(w, h)
+        if longest > SLIDESHOW_MAX_DIMENSION:
+            scale = SLIDESHOW_MAX_DIMENSION / longest
+            w = round(w * scale)
+            h = round(h * scale)
+        return (max(2, w - (w % 2)), max(2, h - (h % 2)))
+
+
+
     # Main function logic starts here
     if not files:
         raise ValueError("No input files provided")
@@ -248,6 +265,7 @@ def make_slideshow(
 
     if canvas_size is None:
         canvas_size = _infer_canvas_size(files)
+    canvas_size = _clamp_canvas(canvas_size)
 
     transition = max(0.0, min(transition, duration))
 
@@ -1011,20 +1029,6 @@ def download_video_threads(
                 deferred.attrs['error_type'] = 'batch_aborted'
                 deferred.attrs['error_detail'] = 'deferred: container memory near limit'
                 return idx, deferred
-            # Admission gate: hold off starting this download while the container
-            # is already under memory pressure, so a rare multi-GiB item drains
-            # before the next one begins (no cgroup locally -> gate is inert).
-            gate_deadline = time.monotonic() + MEMORY_ADMISSION_WAIT_MAX
-            while not (abort_event.is_set() or mem_stop_event.is_set()):
-                mem = _container_memory_fraction()
-                if mem is None or mem[0] < MEMORY_ADMISSION_FRACTION:
-                    break
-                if time.monotonic() > gate_deadline:
-                    deferred = pd.DataFrame()
-                    deferred.attrs['error_type'] = 'batch_aborted'
-                    deferred.attrs['error_detail'] = 'deferred: memory admission gate timeout'
-                    return idx, deferred
-                time.sleep(0.5)
             skip_media = video in already_have_media
             res = download_single_video(
                 video_id=video,

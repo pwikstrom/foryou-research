@@ -23,18 +23,15 @@ sys.path.append(str(project_root))
 from web_interface.task_status import TaskStatusReporter
 
 # Upper safety cap on a single Cloud Task batch. Steady-state scrape memory is
-# flat (~0.5 GiB for hundreds of items — there is no per-item leak), but a rare
-# item can spike memory; if that OOM-kills the container mid-drain the whole
-# batch is lost under the queue's max-attempts=1 (observed: a 500-item TikTok
-# batch died at ~215 items). The remainder of the queue is drained by
-# self-chaining to the next batch.
-#
-# The *primary* OOM guards are per-item, not batch-level: download_video_threads
-# runs a memory admission gate + safety valve on a background timer (defers
-# starting/continues a batch as container memory climbs), TikTok concurrency is
-# capped at 2, and tiktok_dl caps a single download's size. This batch cap is a
+# flat (~0.5 GiB for hundreds of items — there is no per-item leak). The
+# historical OOM (a 500-item TikTok batch dying at ~215 items) was moviepy
+# slideshow assembly rendering photo posts at native resolution, now bounded at
+# the root by SLIDESHOW_MAX_DIMENSION in fyp.scrape. Remaining guards:
+# download_video_threads runs a memory safety valve on a background timer
+# (saves completed work and defers the rest if container memory nears the
+# limit), and tiktok_dl caps a single download's size. This batch cap is a
 # secondary blast-radius bound — larger batches just recycle the container less
-# often. Raised back to 1000 by request; the per-item guards remain in force.
+# often; the remainder of the queue drains by self-chaining to the next batch.
 MAX_BATCH_SIZE = 1000
 _DISPATCH_DEADLINE = 1800
 
