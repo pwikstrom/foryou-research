@@ -480,6 +480,17 @@ def _cleanup_temp_files(temp_dir: str, video_id: str) -> None:
 _META_MAX_RETRIES = 3
 _DL_MAX_RETRIES = 2
 
+# Hard ceiling on a single media download. On Cloud Run /tmp is a memory-backed
+# tmpfs, so a runaway download (livestream, a non-video format with no duration
+# to trip the duration cap) writing multi-GB there pushes the container into an
+# OOM kill. No legitimate short-form TikTok video approaches this; yt-dlp aborts
+# the download when the format size exceeds it. Overridable via
+# ``[misc] max_media_download_bytes``.
+try:
+    _MAX_MEDIA_BYTES = int(fyp_cf["misc"].get("max_media_download_bytes", 1 << 30))
+except (KeyError, TypeError, ValueError):
+    _MAX_MEDIA_BYTES = 1 << 30
+
 
 def save_tiktok(
     video_url: str,
@@ -622,6 +633,7 @@ def save_tiktok(
             'merge_output_format': 'mp4',
             'retries': 3,
             'socket_timeout': 30,
+            'max_filesize': _MAX_MEDIA_BYTES,
         }
 
         for attempt in range(_DL_MAX_RETRIES):

@@ -22,18 +22,16 @@ sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
 
-# Upper safety cap on a single Cloud Task batch. yt-dlp/ffmpeg accumulate
-# native memory across the many per-item invocations in one long-lived worker,
-# so a single large batch climbs toward the container's memory limit and is
-# OOM-killed mid-drain — losing the whole batch under the queue's
-# max-attempts=1 (observed: a 500-item TikTok batch died at ~215 items, ~32 GiB).
-# Keeping a batch well under that ceiling lets each fresh worker (the
-# task-runner recycles its worker per request — see gunicorn.conf.py) finish
-# within bounded memory; the remainder of the queue is drained by self-chaining
-# to the next batch. download_video_threads also has a runtime memory safety
-# valve as a backstop. Tunable up once the ``[mem]`` log curve confirms the
-# per-item growth rate is gentler than the conservative estimate.
-MAX_BATCH_SIZE = 100
+# Upper safety cap on a single Cloud Task batch. Steady-state scrape memory is
+# flat (~0.5 GiB for hundreds of items — there is no per-item leak), but a rare
+# item can spike memory; if that OOM-kills the container mid-drain the whole
+# batch is lost under the queue's max-attempts=1 (observed: a 500-item TikTok
+# batch died at ~215 items). Bounding the batch caps that blast radius, and the
+# remainder of the queue is drained by self-chaining to the next batch.
+# download_video_threads samples memory on a background timer and trips a
+# safety valve before the ceiling; tiktok_dl caps a single download's size so a
+# runaway can't balloon the memory-backed /tmp.
+MAX_BATCH_SIZE = 200
 _DISPATCH_DEADLINE = 1800
 
 

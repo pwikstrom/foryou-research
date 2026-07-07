@@ -1073,30 +1073,43 @@ def download_video_threads(
         _waves = max(1, (len(interesting_videos) + pool_size - 1) // pool_size)
         batch_deadline = min(int(_waves * _per_item_ceiling * 1.5 + 60), 1800)
 
-        # Memory watch: sample the container memory cgroup as items complete.
-        # Log the curve periodically (diagnostics for tuning batch size) and,
-        # once usage crosses MEMORY_STOP_FRACTION, trip the safety valve so
+        # Background memory watch: sample the container memory cgroup on a
+        # ~1s timer, independent of item completion, so a fast climb is caught
+        # even while downloads are in flight (the as_completed loop stalls
+        # during a slow download and would miss a spike). Logs the curve for
+        # diagnostics and, past MEMORY_STOP_FRACTION, trips the safety valve so
         # not-yet-started workers defer their items instead of OOM-killing the
         # container mid-drain (which loses the whole batch under max-attempts=1).
-        _completed = 0
+        mem_watch_stop = threading.Event()
+        _mem_progress = {"done": 0}
+
+        def _mem_watch():
+            last_log = 0.0
+            while not mem_watch_stop.wait(1.0):
+                mem = _container_memory_fraction()
+                if mem is None:
+                    continue
+                frac, used_gib = mem
+                now = time.monotonic()
+                if now - last_log >= 10:
+                    print(f"  [mem] {used_gib:.1f} GiB ({frac:.0%} of limit) "
+                          f"after {_mem_progress['done']}/{len(interesting_videos)} items",
+                          flush=True)
+                    last_log = now
+                if frac >= MEMORY_STOP_FRACTION and not mem_stop_event.is_set():
+                    mem_stop_event.set()
+                    print(f"  [scrape] Memory safety valve: {used_gib:.1f} GiB "
+                          f"({frac:.0%} of limit) — stopping new downloads; "
+                          f"remaining items stay queued for the next batch.",
+                          flush=True)
+
+        mem_watch_thread = threading.Thread(target=_mem_watch, daemon=True)
+        mem_watch_thread.start()
         try:
             for fut in as_completed(futures, timeout=batch_deadline):
                 idx, res = fut.result()
                 results_by_index[idx] = res
-                _completed += 1
-                mem = _container_memory_fraction()
-                if mem is not None:
-                    frac, used_gib = mem
-                    if _completed % 25 == 0 and not mem_stop_event.is_set():
-                        print(f"  [mem] {used_gib:.1f} GiB ({frac:.0%} of limit) "
-                              f"after {_completed}/{len(interesting_videos)} items",
-                              flush=True)
-                    if frac >= MEMORY_STOP_FRACTION and not mem_stop_event.is_set():
-                        mem_stop_event.set()
-                        print(f"  [scrape] Memory safety valve: {used_gib:.1f} GiB "
-                              f"({frac:.0%} of limit) after {_completed} items — "
-                              f"stopping new downloads; remaining items stay queued "
-                              f"for the next (fresh) batch.", flush=True)
+                _mem_progress["done"] += 1
         except TimeoutError:
             stuck = [interesting_videos[i] for i, f in enumerate(futures) if not f.done()]
             print(
@@ -1111,6 +1124,9 @@ def download_video_threads(
                     empty = pd.DataFrame()
                     empty.attrs['error_type'] = 'timeout'
                     results_by_index[i] = empty
+        finally:
+            mem_watch_stop.set()
+            mem_watch_thread.join(timeout=3)
 
         monitor_thread.join(timeout=5)
 
