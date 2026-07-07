@@ -4,6 +4,35 @@ Personal scratchpad — things to pick back up when you're back. Add your own it
 
 ---
 
+## 2026-07-07 — before a day off (back 2026-07-09)
+
+State when you left: **prod == main** (`1fc0a39`; fyp-data-hub rev `00224-mrg`,
+fyp-task-runner rev `00146-xgv` — task-runner is one commit behind on purpose,
+`1fc0a39` is UI-only). Repo clean, no worktrees/stashes/branches. Everything below
+is *operational*, not code:
+
+- [ ] **Start the TikTok scraper.** The prod queue holds ~1345 items — the 432
+  deleted audio-only fake slideshows re-queued on 2026-07-05 plus backlog. The
+  slideshow OOM root fix (canvas capped at 1000px, `27706f4`) and the cookie-race
+  fix (`94e8f57`) are both deployed, so the queue should drain safely now.
+- [ ] **YouTube media drain.** Export fresh cookies from a *closed incognito*
+  session (the current file trips the bot wall), upload to
+  `secrets/youtube_cookies.txt`, then run the local residential-IP drain — runbook
+  in AGENT.md ("Local Scrape-Queue Drain Against Prod GCS"). Don't run the prod
+  `queue_scraper_youtube` at the same time.
+- [ ] **Instagram.** Upload fresh IG cookies and re-run the IG scrape (the old
+  "malformed cookie file" theory is dead — it was the write-back race, fixed).
+- [ ] **Annotation.** Queue IG/YT items (eligibility: scraped_ok +
+  video_downloaded + under duration cap). The first batch auto-registers the new
+  contract version `av_8e04fabdfefd`; promote it after checking a sample.
+- [ ] **Consolidate & Refresh** once the scrapes/annotations above have run — owed
+  by the annotation-contract hash bump, the slideshow re-scrapes, IG/YT scrapes,
+  and any locally-written drain parquets (they fold in automatically).
+- [ ] **Admin var-schema editor:** tick **"Platform"** on the 4 surface checkboxes
+  (filter / viz / detail / timeline) so the variable shows up in the UI.
+
+---
+
 ## Things to deploy
 
 - [x] ~~Deploy the consolidate+refresh pipeline work to Cloud Run.~~
@@ -58,12 +87,13 @@ The full cross-task pipeline (`consolidate → recode → meta → pca → timel
   1. **Drop source frames inside `new_merge`.** After the `fast_join` line in `fyp/organize_datasets.py:1205`, `del activity_data` and `del enriched_data` (or zero out the corresponding entries in `all_datasets`) so Python can free them before the calculated-column work runs. Est. ~3–4 GB peak reduction, 30 min of work, safe.
   2. **Bump `fyp-task-runner` memory to 64 GB.** `gcloud run services update fyp-task-runner --region=australia-southeast1 --memory=64Gi --project=<gcp-project>`. Cloud Run bills memory per request-second, so idle cost is unchanged and heavy merges just get more room. Gives ~40 GB of working room for merges. Cheapest way to handle studies 2–3× bigger than `everything_2`.
   3. **Streaming polars on the shebang merge.** Rewrite `new_merge` to use `pl.scan_parquet(activity) → join(pl.scan_parquet(enriched)) → sink_parquet(result)` and read the parquet back for the calculated-column work (or switch those to lazy too). Peak memory becomes "size of one chunk × thread count" regardless of input size — probably 2–4 GB. Medium-sized surgery; do this only if you cross the 15–20 GB final-DF threshold. Recommended order when you come back: do (1)+(2) first, revisit (3) only if a real study pushes past the 64 GB ceiling.
-- **`UserManager` still bulk-loads every user JSON on `fyp-data-hub` cold start.** Task-runner is already lazy (commit `ce9f416`, 2026-04-21 — `K_SERVICE == "fyp-task-runner"` → `bulk_load=False` in `web_interface/security.py`), but the web service still fans out 32 parallel GCS reads for every user at boot. At 63 users it takes ~0.5s and is fine. Revisit when any of these become true:
-  - Cold start on `fyp-data-hub` exceeds ~2s from the user-load step (grep `[AUTH] Loaded`).
-  - Startup probe timeouts start appearing in Cloud Run logs.
-  - Heavy annotators push individual user JSONs past ~100 KB (check `gsutil du -s gs://fyp_bucket_01/data/users/`).
-  - User count approaches ~500.
-  Recommended fix: lazy per-user load with an LRU cache in `UserManager.get_user()` — same code path that task-runner already uses, just apply to web too. The "iterate all users" call sites (`auth.py:91`, `344`, `371` for admin/role checks, `data_service.py:1678` for the Kappa report) need a separate cheap path: maintain a tiny `_users_index.json` with `{username: {role, approved, last_login}}` and rewrite the iterators against that, or keep a `list_users_lite()` that scans the directory without loading bodies. Login (`verify_user`) only touches one file per attempt so it stays fast.
+- ~~**`UserManager` still bulk-loads every user JSON on `fyp-data-hub` cold start.**~~
+  ✅ **Fixed 2026-07-06** (commit `b6ec1f0`, deployed 2026-07-07): the web roster is
+  now fully lazy (`get_user()` = single load on login; `get_all_users()` =
+  load-once-on-demand for admin/role checks), plus a task-runner app factory that
+  registers only `internal_bp`, and fyp_config boot trims (no QUT connectivity
+  probe on Cloud Run, lazy GCS bucket handle). Grep boot logs for `[BOOT]` to see
+  phase timings.
 
 ---
 

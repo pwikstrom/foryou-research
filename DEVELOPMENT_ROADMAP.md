@@ -198,7 +198,7 @@ mix collections across platforms.
 > authoritatively resolves ambiguous export tz labels. Parse failures raise and leave the file
 > pending for retry rather than being discarded. `organize_datasets.new_merge` now always emits the
 > enrichment-status/derived columns (so a pre-scraper study doesn't error), and its id-length filter
-> is per-`source_platform`. Annotation stays TikTok-only.
+> is per-`source_platform`. Annotation stayed TikTok-only until 2026-07-07 (see below).
 >
 > **✅ Update (2026-07-05, later same day):** the **IG/YT scrapers** (step 3) are shipped and deployed
 > (f004e3c; revs 00206-lf4/00128-fqd). `fyp/instagram_dl.py` + `fyp/youtube_dl.py` (both yt-dlp,
@@ -226,9 +226,29 @@ mix collections across platforms.
 > in `Dockerfile.base`, script mode via `_pot_extractor_args()`). Live validation: safeguards all
 > engage in prod, but the bot wall persists on the 2026-07-05 cookie file — next step is a fresh
 > cookie export from a closed incognito session; fallback is draining the YT queue from a
-> residential IP.
-> **Remaining: fresh YT cookie export (+ fix malformed IG cookie file) + drain queues +
-> Consolidate & Refresh; then the messy-intake UX (step 4).**
+> residential IP (that fallback is now BUILT: `FYP_FORCE_GCS` local-drain runbook in AGENT.md,
+> `e79ba7a`, not yet run).
+>
+> **✅ Update (2026-07-07):** three more pieces shipped and deployed (`27706f4`, `94e8f57`,
+> `18b6251`; revs 00223-l2m/00146-xgv + 00224-mrg):
+> - **Slideshow OOM root fix** — the task-runner OOM was `make_slideshow` compositing photo-post
+>   slideshows at native 2160×3840 (~15–18 GiB per 20-image post), not yt-dlp. Canvas now capped
+>   at 1000px with PIL pre-downscale (~1.6 GiB peak); the interim concurrency/admission-gate
+>   workarounds were reverted, the memory valve + download byte-caps kept.
+> - **Cookie-race fix** — the "not a Netscape format cookies file" error was yt-dlp's non-atomic
+>   cookie write-back racing across concurrent scraper threads on the shared /tmp cache; each call
+>   now gets a private validated copy. (So there was never a "malformed IG cookie file" to fix.)
+> - **Annotation generalized to ALL platforms** — TikTok-only guards removed, composite
+>   `(source_platform, item_id)` keying end-to-end, contract wording platform-neutralized → new
+>   version `av_8e04fabdfefd`. Eligibility: scraped_ok + video_downloaded + under duration cap
+>   (long-form YT metadata-only items never queue).
+> Also shipped 2026-07-06: the **DDP structure sentinel** (`fyp/structure_sentinel.py`) —
+> per-(platform,source) learned baselines quarantine silent export-format drift with an
+> approve/reject review panel; a big first bite of the messy-intake UX (step 4).
+>
+> **Remaining (operational, see POST_HOLIDAY_NOTES.md § 2026-07-07): fresh YT cookie export +
+> local drain, IG cookies + re-scrape, drain TikTok queue, queue IG/YT annotation + promote the
+> new av_, Consolidate & Refresh; then the rest of the messy-intake UX (step 4).**
 
 **Where the TikTok coupling actually lives (the work):**
 - **Scraping/enrichment** (`fyp/tiktok_dl.py`): yt-dlp wrapper, TikTok cookie handling, TikTok error
@@ -253,12 +273,14 @@ mix collections across platforms.
 3. ✅ **Done (2026-07-05):** IG/YT `*Scraper` subclasses shipped + deployed (see update above).
    Operational follow-ups tracked there (cookie uploads, Consolidate & Refresh, live batch
    validation); deeper follow-ups: IG carousel→slideshow support, IG retry-count demotion for the
-   ambiguous rate-limit error (PO-token provider for YT shipped 2026-07-06). Annotation stays
-   TikTok-only for now.
+   ambiguous rate-limit error (PO-token provider for YT shipped 2026-07-06). ✅ Annotation
+   generalized to all platforms 2026-07-07 (see update above).
 4. **Harden the "messy intake" UX** — the audience promise is *messy* data. Improve the Data
    Management ingestion path to report what was parsed/dropped/malformed per file (builds on the
    existing pending-uploads panel), so a researcher uploading an unfamiliar export sees why rows
-   didn't land.
+   didn't land. _Partially shipped 2026-07-06:_ the DDP structure sentinel quarantines
+   silently-drifted export formats with a per-file review panel; remaining is the per-file
+   parsed/dropped/malformed reporting for *accepted* files.
 
 ---
 
