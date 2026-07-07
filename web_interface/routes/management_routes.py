@@ -2255,13 +2255,16 @@ def queue_voted_videos():
                     is_annotated = rec.get('annotated_ok', False)
                     scrape_fail = rec.get('scrape_fail', False)
                     annotated_fail = rec.get('annotated_fail', False)
+                    has_media = rec.get('video_downloaded', False)
                     plat = rec.get('source_platform')
                     item_platform[item] = plat if isinstance(plat, str) and plat else default_platform
 
-                    # Same logic from user request
+                    # Annotation needs an mp4: metadata-only items (e.g.
+                    # YouTube long-form past the media duration cap) are not
+                    # annotatable and stay out of the queue.
                     if not is_scraped and not scrape_fail:
                         new_scrape.append(item)
-                    elif is_scraped and not is_annotated and not annotated_fail:
+                    elif is_scraped and has_media and not is_annotated and not annotated_fail:
                         new_annotate.append(item)
                 else:
                     # Item not in enrichment status -> hasn't been scraped yet
@@ -2272,14 +2275,6 @@ def queue_voted_videos():
 
         new_scrape = list(set(new_scrape))
         new_annotate = list(set(new_annotate))
-
-        # Annotation guard: the annotation contract is TikTok-only for now, so
-        # only TikTok items may enter the annotation queue.
-        annotate_tiktok = [v for v in new_annotate if item_platform.get(v, default_platform) == "tiktok"]
-        skipped_non_tiktok = len(new_annotate) - len(annotate_tiktok)
-        if skipped_non_tiktok:
-            print(f"Skipped {skipped_non_tiktok} non-TikTok item(s): annotation contract is TikTok-only for now.")
-        new_annotate = annotate_tiktok
 
         # 4. Append to Queues (scrape queues are per-platform). Platforms
         # without a scrape-contract block have no worker to drain a queue, so
@@ -2320,8 +2315,7 @@ def queue_voted_videos():
             "status": "success",
             "added_to_scrape": len(new_scrape),
             "added_to_scrape_by_platform": added_to_scrape,
-            "added_to_annotate": len(new_annotate),
-            "skipped_non_tiktok": skipped_non_tiktok
+            "added_to_annotate": len(new_annotate)
         })
 
     except Exception as e:
@@ -2535,7 +2529,12 @@ def calculate_to_annotate():
                 not_annotated_fail = True
 
             unannotated_mask = is_scraped_ok & not_annotated_ok & not_annotated_fail
-            
+
+            # Annotation needs an mp4: metadata-only items (e.g. YouTube
+            # long-form past the media duration cap) are not annotatable.
+            if 'video_downloaded' in study_status.columns:
+                unannotated_mask = unannotated_mask & (study_status['video_downloaded'].fillna(False) == True)
+
             if 'duration' in study_status.columns:
                 max_dur = fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600)
                 duration_ok = (study_status['duration'] < max_dur) | pd.isna(study_status['duration'])
@@ -2547,21 +2546,6 @@ def calculate_to_annotate():
 
         # Ensure all values are plain Python strings (not PyArrow scalars)
         unannotated_videos = list({str(v) for v in unannotated_videos})
-
-        # Annotation guard: the annotation contract is TikTok-only for now —
-        # non-TikTok items stay out of the queue until it is generalized.
-        skipped_non_tiktok = 0
-        if 'source_platform' in df_study.columns:
-            tiktok_ids = {
-                str(v) for v in df_study.loc[
-                    df_study['source_platform'].fillna("tiktok") == "tiktok", 'item_id'
-                ].dropna()
-            }
-            kept = [v for v in unannotated_videos if v in tiktok_ids]
-            skipped_non_tiktok = len(unannotated_videos) - len(kept)
-            if skipped_non_tiktok:
-                print(f"Skipped {skipped_non_tiktok} non-TikTok item(s): annotation contract is TikTok-only for now.")
-            unannotated_videos = kept
 
         # Append target payload to global annotate queue
         current_queue = []
@@ -2584,7 +2568,6 @@ def calculate_to_annotate():
         return jsonify({
             "status": "success",
             "videos_to_annotate": len(current_queue),
-            "skipped_non_tiktok": skipped_non_tiktok,
         })
 
     except Exception as e:

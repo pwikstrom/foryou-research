@@ -147,7 +147,7 @@
         ]
       },
       "maxItems": 2,
-      "description": "The TikTok content categories that best capture the video's dominant focus (up to two; list the most central first). Weigh whether the video's primary purpose is entertainment & cultural expression, lifestyle & personal content, or informative & advisory content, then choose the most fitting category."
+      "description": "The content categories that best capture the video's dominant focus (up to two; list the most central first). Weigh whether the video's primary purpose is entertainment & cultural expression, lifestyle & personal content, or informative & advisory content, then choose the most fitting category."
     },
     "primary_country": {
       "type": "string",
@@ -160,7 +160,7 @@
         "No",
         "Unclear"
       ],
-      "description": "Is the video produced primarily for TikTok — vertical/portrait, short (typically under 60 seconds), using TikTok's native features (filters, effects, text overlays, trending sounds) and pacing? Answer No for content clearly made for another platform (e.g. a longer YouTube or TV-style video) and merely reposted to TikTok."
+      "description": "Is the video produced primarily for the short-video platform it appears on — vertical/portrait, short (typically under 60 seconds), using the platform's native features (filters, effects, text overlays, trending sounds) and pacing? Answer No for content clearly made for another platform or medium (e.g. a longer TV-style video) and merely reposted."
     },
     "trend_technical": {
       "type": "string",
@@ -169,7 +169,7 @@
         "No",
         "Unclear"
       ],
-      "description": "Does the video leverage a technical TikTok trend — a trending template, effect, or sound used to make it (e.g. a CapCut 'try this effect' or 'use this sound' template)? A video can be both a technical and a cultural trend."
+      "description": "Does the video leverage a technical short-video trend — a trending template, effect, or sound used to make it (e.g. a CapCut 'try this effect' or 'use this sound' template)? A video can be both a technical and a cultural trend."
     },
     "trend_cultural": {
       "type": "string",
@@ -178,7 +178,7 @@
         "No",
         "Unclear"
       ],
-      "description": "Does the video replicate a cultural TikTok trend — a participatory format meant for other creators to imitate (e.g. a dance challenge, meme, or format like 'candy salad')? A video can be both a technical and a cultural trend."
+      "description": "Does the video replicate a cultural short-video trend — a participatory format meant for other creators to imitate (e.g. a dance challenge, meme, or format like 'candy salad')? A video can be both a technical and a cultural trend."
     },
     "advertising": {
       "type": "string",

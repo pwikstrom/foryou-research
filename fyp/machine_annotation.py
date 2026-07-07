@@ -25,6 +25,7 @@ import pandas as pd
 
 import fyp.data_io as data_io
 import fyp.media_paths as media_paths
+import fyp.scrape_queues as scrape_queues
 import fyp.utils as fyp_utils
 import fyp.annotation_versioning as annotation_versioning
 from fyp.fyp_config import fyp_cf
@@ -263,6 +264,7 @@ def call_machine(
         local_path: str | None = None,
         verbose = False,
         dry_run = False,
+        platform: str | None = None,
     ) -> dict:
 
 
@@ -284,9 +286,15 @@ def call_machine(
 
     use_structured = bool(fyp_cf["machine"].get("use_structured_output", False))
 
+    # Platform of the item being annotated: drives media resolution and is
+    # stamped onto the output row. Unmapped items fall back to the default
+    # platform (resolve_media probes the other platforms' subpaths anyway).
+    annotation_platform = platform or scrape_queues.default_platform()
+
     times = [_dt.datetime.now()]
     output = {
         "item_id" : video_id,
+        "source_platform" : annotation_platform,
         "inference_ts" : int(times[-1].timestamp()),
         "inference_duration" : -1,
         "model" : fyp_cf['machine']['model'],
@@ -306,9 +314,7 @@ def call_machine(
     effective_local_dir = local_path or fyp_cf['paths']['media']
 
     # Media may live at the per-platform subpath or the legacy flat path;
-    # media_paths.resolve_media owns that fallback order. Annotation is
-    # TikTok-only until the annotation contract is generalized.
-    annotation_platform = "tiktok"
+    # media_paths.resolve_media owns that fallback order.
     resolved_media = None
     if local_path:
         # Explicit dir override (tests / one-offs): probe flat then platform subpath.
@@ -452,7 +458,8 @@ def call_machine_threads(
         cumulative_total: int = 0,
         cumulative_ok: int = 0,
         cumulative_fail: int = 0,
-        reporter=None):
+        reporter=None,
+        platform_by_id: dict[str, str] | None = None):
 
     if notebook_mode:
         verbose = True
@@ -477,7 +484,7 @@ def call_machine_threads(
             video_id = video,
             dry_run = dry_run,
             verbose = verbose,
-
+            platform = (platform_by_id or {}).get(str(video)),
         )
 
         return idx, rr
@@ -571,6 +578,8 @@ def call_machine_threads(
         print(f"Items processed: {len(results_by_index)}")
 
 
+    # No raw file is written on a dry run (or an empty batch) — filename stays None.
+    filename = None
     if len(results_by_index)>0 and not dry_run:
 
         fine_ts = "".join([k for k in str(_dt.datetime.now()) if k in "0123456789"])
@@ -1610,14 +1619,24 @@ def refine_one_raw_annotation_batch(
     # the legacy version.
     # ---------------------------------------------------------------
     version_by_item = {}
+    platform_by_item = {}
     for entry in raw_outputs_from_machine.values():
         if isinstance(entry, dict) and entry.get("item_id") is not None:
             version_by_item[str(entry["item_id"])] = entry.get(
                 "annotation_version", annotation_versioning.LEGACY_VERSION
             )
+            if entry.get("source_platform"):
+                platform_by_item[str(entry["item_id"])] = str(entry["source_platform"])
     outputs_from_machine_df["annotation_version"] = (
         outputs_from_machine_df["item_id"].astype(str).map(version_by_item)
         .fillna(annotation_versioning.LEGACY_VERSION)
+    )
+
+    # Stamp source_platform the same way (raw files predating multi-platform
+    # annotation have no such key and default to the default platform).
+    outputs_from_machine_df["source_platform"] = (
+        outputs_from_machine_df["item_id"].astype(str).map(platform_by_item)
+        .fillna(scrape_queues.default_platform())
     )
 
 
@@ -1780,8 +1799,18 @@ def consolidate_and_save_refined_annotations(
         consolidated_annotations["annotation_version"].fillna(annotation_versioning.LEGACY_VERSION)
     )
 
+    # Backfill source_platform: refined files predating multi-platform
+    # annotation carry no platform column (all TikTok-era rows). Item ids are
+    # only guaranteed unique within a platform, so all annotation keying below
+    # is composite (source_platform, item_id).
+    if "source_platform" not in consolidated_annotations.columns:
+        consolidated_annotations["source_platform"] = scrape_queues.default_platform()
+    consolidated_annotations["source_platform"] = (
+        consolidated_annotations["source_platform"].fillna(scrape_queues.default_platform())
+    )
+
     annotation_archive = consolidated_annotations.drop_duplicates(
-        subset=["item_id", "annotation_version"], keep="last"
+        subset=["source_platform", "item_id", "annotation_version"], keep="last"
     ).reset_index(drop=True)
     data_io.save_parquet(
         df=annotation_archive,
@@ -1799,10 +1828,10 @@ def consolidate_and_save_refined_annotations(
 
     active_version = annotation_versioning.get_active_version()
     if active_version is None:
-        # No version promoted yet: keep the most recent annotation per item_id
+        # No version promoted yet: keep the most recent annotation per item
         # (the historical, version-agnostic behaviour — zero migration change).
         consolidated_annotations = consolidated_annotations.drop_duplicates(
-            subset=["item_id"], keep="last"
+            subset=["source_platform", "item_id"], keep="last"
         ).reset_index(drop=True)
     else:
         consolidated_annotations = annotation_versioning.select_active_view(
@@ -1883,8 +1912,11 @@ def rebuild_active_annotations_from_archive(verbose: bool = False):
         return None
 
     active_version = annotation_versioning.get_active_version()
+    dedup_cols = (
+        ["source_platform", "item_id"] if "source_platform" in archive.columns else ["item_id"]
+    )
     if active_version is None:
-        active_df = archive.drop_duplicates(subset=["item_id"], keep="last").reset_index(drop=True)
+        active_df = archive.drop_duplicates(subset=dedup_cols, keep="last").reset_index(drop=True)
     else:
         active_df = annotation_versioning.select_active_view(archive, active_version)
 
@@ -1892,6 +1924,43 @@ def rebuild_active_annotations_from_archive(verbose: bool = False):
         df=active_df, storage_location="recoded", filename=recoded_fn, verbose=verbose
     )
     return len(active_df)
+
+
+
+
+
+
+def platform_map_for(item_ids: list[str]) -> dict[str, str]:
+    """Map item ids to their ``source_platform`` via enrichment_status.parquet.
+
+    Used by the annotation entry points to resolve each queued item's platform
+    (the annotation queue stores bare ids). Ids missing from the status file are
+    simply absent from the map — callers fall back to the default platform, and
+    ``media_paths.resolve_media`` probes the other platforms' subpaths anyway.
+    Never raises.
+
+    Args:
+        item_ids: The item ids to look up.
+
+    Returns:
+        ``{item_id: source_platform}`` for the ids that could be resolved.
+    """
+    try:
+        if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+            return {}
+        status_df = data_io.load_parquet_selective(
+            storage_location="recoded", filename="enrichment_status.parquet",
+            columns=["item_id", "source_platform"],
+        )
+        if "source_platform" not in status_df.columns:
+            return {}
+        wanted = {str(i) for i in item_ids}
+        ids = status_df["item_id"].astype(str)
+        mask = ids.isin(wanted) & status_df["source_platform"].notna()
+        return dict(zip(ids[mask], status_df.loc[mask, "source_platform"].astype(str)))
+    except Exception as e:
+        print(f"WARNING: platform map lookup failed ({e}); falling back to default platform.")
+        return {}
 
 
 
@@ -1910,7 +1979,8 @@ def annotate_from_video_id_list(
     cumulative_total: int = 0,
     cumulative_ok: int = 0,
     cumulative_fail: int = 0,
-    reporter=None):
+    reporter=None,
+    platform_by_id: dict[str, str] | None = None):
 
     if notebook_mode:
         verbose = True
@@ -1928,8 +1998,14 @@ def annotate_from_video_id_list(
 
     if isinstance(fine_list, list) and len(fine_list) > 0:
 
-        if not all(map(lambda video_id:type(video_id)==str and video_id.isnumeric() and len(video_id)==19, fine_list)):
+        # Sanity check against corrupt lists (NaN / paths / URLs) — id shapes
+        # differ per platform (TikTok 19-digit numeric, Instagram shortcode,
+        # YouTube 11-char [A-Za-z0-9_-]), so the check is deliberately permissive.
+        if not all(map(lambda video_id: type(video_id) == str and re.fullmatch(r"[A-Za-z0-9_-]{5,40}", video_id), fine_list)):
             raise ValueError("Some videoIDs in the list were corrupt. Cannot process this list.")
+
+        if platform_by_id is None and not dry_run:
+            platform_by_id = platform_map_for(fine_list)
 
         print("Annotating videos...")
 
@@ -1945,6 +2021,7 @@ def annotate_from_video_id_list(
                 cumulative_ok=cumulative_ok,
                 cumulative_fail=cumulative_fail,
                 reporter=reporter,
+                platform_by_id=platform_by_id,
             )
 
         print("...video annotation completed.")

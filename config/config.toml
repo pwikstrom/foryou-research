@@ -140,9 +140,9 @@ GCS_bucket_name = ""
 
 # On Cloud Run (K_SERVICE) all three flags are forced true; the env var
 # FYP_FORCE_GCS=1 does the same for a local process (e.g. a local scrape-queue drain).
-use_gcs_for_data = false
+use_gcs_for_data = true
 use_gcs_for_media = true
-use_gcs_for_cache = false
+use_gcs_for_cache = true
 
 # path/prefix for GCS bucket
 gcs_data_prefix = "data"
@@ -181,14 +181,6 @@ NEGATIVE_WORDS = ["negative"]
 HIGH_ENERGY_WORDS = ["highenergy","reflective","playful"]
 LOW_ENERGY_WORDS = ["lowenergy","calm","serene"]
 
-#CONTENT_CATEGORIES_FROM_CODEBOOK = ["comedy", "daily life", "film  and  tv", "performance", "drama",
-#       "art  and  creativity", "society", "news",
-#       "interpersonal relationships", "technology design  and  reviews",
-#       "education", "finance", "diy  and  life hacks",
-#       "mental health  and  wellbeing", "fashion  and  beauty", "food",
-#       "travel", "games", "sports", "animals", 
-#       "fitness  and  physical health",
-#       "anime  and  comics"]
 
 IRRELEVANT_WORDS = ["-year-old", "about", "actually", "ad", "add", "after", "all", "also", "always", "am", "an", "and", "any", "are", "as", "at", "back", "be", 
 "been", "before", "being", "best", "better", "bio", "blowthisup", "but", "by", "can", "cant", "come", "comment", "could", "day", "de", 

@@ -45,6 +45,7 @@ MODULES = [
     PROJECT_ROOT / "tests" / "unit" / "test_contract_accepted_labels.py",
     PROJECT_ROOT / "tests" / "unit" / "test_australian_relevance_derivation.py",
     PROJECT_ROOT / "tests" / "unit" / "test_consolidate_rare_columns.py",
+    PROJECT_ROOT / "tests" / "unit" / "test_multiplatform_annotation.py",
 ]
 
 

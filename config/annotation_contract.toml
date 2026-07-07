@@ -34,7 +34,7 @@
 # keyed by the flattened output column name.
 
 [prompt]
-header = "You are a rigorous TikTok video analyst. Input: a single video file. Analyze the video and return exactly one consolidated JSON object containing all of the fields described below. Do not include any extra commentary—only valid JSON. When the video does not give you enough evidence to determine a field with reasonable confidence, use its uncertainty value rather than guessing — '-' (or 'Unclear', where the field offers it) for single-value and free-text fields, and an empty list for list fields. Only commit to a definite value when the evidence clearly supports it."
+header = "You are a rigorous social-media video analyst. Input: a single video file. Analyze the video and return exactly one consolidated JSON object containing all of the fields described below. Do not include any extra commentary—only valid JSON. When the video does not give you enough evidence to determine a field with reasonable confidence, use its uncertainty value rather than guessing — '-' (or 'Unclear', where the field offers it) for single-value and free-text fields, and an empty list for list fields. Only commit to a definite value when the evidence clearly supports it."
 footer = "**Return** the final JSON object with all of the above fields exactly as keys."
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ footer = "**Return** the final JSON object with all of the above fields exactly 
 # ---------------------------------------------------------------------------
 [recode.drop]
 objects = ["woman", "man", "person", "people"]
-symbols_and_brands = ["tiktok", "tiktok logo"]
+symbols_and_brands = ["tiktok", "tiktok logo", "instagram", "instagram logo", "youtube", "youtube logo"]
 notable_sounds = ["speech", "music"]
 
 # ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@ display_name = "Content category"
 description = "AI classification of content (e.g., Comedy, Sports)."
 enum = "content_category"
 array = 2
-desc = "The TikTok content categories that best capture the video's dominant focus (up to two; list the most central first). Weigh whether the video's primary purpose is entertainment & cultural expression, lifestyle & personal content, or informative & advisory content, then choose the most fitting category."
+desc = "The content categories that best capture the video's dominant focus (up to two; list the most central first). Weigh whether the video's primary purpose is entertainment & cultural expression, lifestyle & personal content, or informative & advisory content, then choose the most fitting category."
 
 [[fields]]
 name = "primary_country"
@@ -224,10 +224,10 @@ name = "tiktok_native"
 section = "profile"
 role = "feature"
 scale = "categorical"
-display_name = "TikTok Native"
-description = "Does the video use native TikTok styles/formats? (Yes/No)."
+display_name = "Platform Native"
+description = "Does the video use styles/formats native to the platform it appears on? (Yes/No)."
 enum = "yes_no"
-desc = "Is the video produced primarily for TikTok — vertical/portrait, short (typically under 60 seconds), using TikTok's native features (filters, effects, text overlays, trending sounds) and pacing? Answer No for content clearly made for another platform (e.g. a longer YouTube or TV-style video) and merely reposted to TikTok."
+desc = "Is the video produced primarily for the short-video platform it appears on — vertical/portrait, short (typically under 60 seconds), using the platform's native features (filters, effects, text overlays, trending sounds) and pacing? Answer No for content clearly made for another platform or medium (e.g. a longer TV-style video) and merely reposted."
 
 [[fields]]
 name = "trend_technical"
@@ -235,9 +235,9 @@ section = "profile"
 role = "feature"
 scale = "categorical"
 display_name = "Technical trend"
-description = "Does the video leverage a technical TikTok trend (trending template/effect/sound)? (Yes/No)."
+description = "Does the video leverage a technical short-video trend (trending template/effect/sound)? (Yes/No)."
 enum = "yes_no"
-desc = "Does the video leverage a technical TikTok trend — a trending template, effect, or sound used to make it (e.g. a CapCut 'try this effect' or 'use this sound' template)? A video can be both a technical and a cultural trend."
+desc = "Does the video leverage a technical short-video trend — a trending template, effect, or sound used to make it (e.g. a CapCut 'try this effect' or 'use this sound' template)? A video can be both a technical and a cultural trend."
 
 [[fields]]
 name = "trend_cultural"
@@ -245,9 +245,9 @@ section = "profile"
 role = "feature"
 scale = "categorical"
 display_name = "Cultural trend"
-description = "Does the video replicate a cultural TikTok trend (participatory format like a dance/meme)? (Yes/No)."
+description = "Does the video replicate a cultural short-video trend (participatory format like a dance/meme)? (Yes/No)."
 enum = "yes_no"
-desc = "Does the video replicate a cultural TikTok trend — a participatory format meant for other creators to imitate (e.g. a dance challenge, meme, or format like 'candy salad')? A video can be both a technical and a cultural trend."
+desc = "Does the video replicate a cultural short-video trend — a participatory format meant for other creators to imitate (e.g. a dance challenge, meme, or format like 'candy salad')? A video can be both a technical and a cultural trend."
 
 [[fields]]
 name = "advertising"

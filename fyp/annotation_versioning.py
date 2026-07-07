@@ -508,6 +508,20 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
 
 
 
+def _item_key_cols(df: pd.DataFrame, item_col: str) -> list[str]:
+    """Return the per-item key columns for an annotation frame.
+
+    Item ids are only guaranteed unique within a platform, so the key is
+    composite ``(source_platform, item_col)`` when the frame carries the
+    platform column, and plain ``item_col`` otherwise (legacy frames).
+    """
+    if "source_platform" in df.columns:
+        return ["source_platform", item_col]
+    return [item_col]
+
+
+
+
 def select_active_view(
     df: pd.DataFrame,
     active_version: str,
@@ -519,7 +533,8 @@ def select_active_view(
     Rows of ``active_version`` take precedence per item; items not covered by
     the active version fall back to their latest row from any other version, so
     coverage never drops when a version is promoted. Within a version the last
-    row per item is kept.
+    row per item is kept. Items are keyed composite ``(source_platform,
+    item_col)`` when the platform column is present (see :func:`_item_key_cols`).
 
     Args:
         df: A frame containing ``item_col`` and ``version_col``.
@@ -531,15 +546,20 @@ def select_active_view(
         One row per item: the active version where available, else the latest
         other version.
     """
+    key_cols = _item_key_cols(df, item_col)
     if version_col not in df.columns:
-        return df.drop_duplicates(subset=[item_col], keep="last").reset_index(drop=True)
+        return df.drop_duplicates(subset=key_cols, keep="last").reset_index(drop=True)
     active_rows = df[df[version_col] == active_version].drop_duplicates(
-        subset=[item_col], keep="last"
+        subset=key_cols, keep="last"
     )
-    covered = set(active_rows[item_col])
-    fallback = df[~df[item_col].isin(covered)].drop_duplicates(
-        subset=[item_col], keep="last"
-    )
+    if len(key_cols) == 1:
+        covered_mask = df[item_col].isin(set(active_rows[item_col]))
+    else:
+        covered = set(map(tuple, active_rows[key_cols].itertuples(index=False)))
+        covered_mask = pd.Series(
+            list(map(tuple, df[key_cols].itertuples(index=False))), index=df.index
+        ).isin(covered)
+    fallback = df[~covered_mask].drop_duplicates(subset=key_cols, keep="last")
     combined = pd.concat([active_rows, fallback], ignore_index=True)
     return combined.reset_index(drop=True)
 
@@ -554,13 +574,15 @@ def select_version_view(
 ) -> pd.DataFrame:
     """Build a strict single-version view (for a version-pinned study).
 
-    Only rows of ``version`` are kept (latest per item). Used when a study is
-    pinned to a specific annotation version for reproducibility; coverage is
-    intentionally limited to items annotated under that version.
+    Only rows of ``version`` are kept (latest per item, composite-keyed when
+    ``source_platform`` is present). Used when a study is pinned to a specific
+    annotation version for reproducibility; coverage is intentionally limited
+    to items annotated under that version.
     """
+    key_cols = _item_key_cols(df, item_col)
     if version_col not in df.columns:
-        return df.drop_duplicates(subset=[item_col], keep="last").reset_index(drop=True)
-    rows = df[df[version_col] == version].drop_duplicates(subset=[item_col], keep="last")
+        return df.drop_duplicates(subset=key_cols, keep="last").reset_index(drop=True)
+    rows = df[df[version_col] == version].drop_duplicates(subset=key_cols, keep="last")
     return rows.reset_index(drop=True)
 
 

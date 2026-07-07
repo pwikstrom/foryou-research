@@ -31,9 +31,10 @@ import google.genai
 
 import fyp.annotation_versioning as annotation_versioning
 import fyp.data_io as data_io
+import fyp.media_paths as media_paths
 from fyp.annotation_schema import build_response_schema
 from fyp.fyp_config import fyp_cf
-from fyp.machine_annotation import MACHINE_ANNOTATIONS_LABEL, initialize_machine
+from fyp.machine_annotation import MACHINE_ANNOTATIONS_LABEL, initialize_machine, platform_map_for
 
 # Prefixes (relative to the GCS data prefix) for batch input/output.
 BATCH_INPUT_PREFIX = "machine_annotations_batch_input"
@@ -68,6 +69,7 @@ def build_request_dict(
     system_instruction: str,
     schema_json: dict,
     gen_params: dict,
+    file_uri: str | None = None,
 ) -> dict:
     """Build one JSONL batch-request line for a video (pure).
 
@@ -78,13 +80,16 @@ def build_request_dict(
     against a live spike before bulk use.
 
     Args:
-        video_id: The TikTok item id (the ``<id>.mp4`` in GCS).
+        video_id: The item id (the ``<id>.mp4`` in GCS).
         bucket: GCS bucket name.
         media_prefix: GCS media prefix (e.g. ``"media"``).
         system_instruction: The prompt text.
         schema_json: The portable response-schema dict.
         gen_params: temperature / max_output_tokens / thinking_budget /
             media_resolution.
+        file_uri: Explicit ``gs://`` URI for the video (platform-aware,
+            resolved by the caller). Falls back to the legacy flat
+            ``{media_prefix}/{video_id}.mp4`` path when ``None``.
 
     Returns:
         A dict with a single ``"request"`` key, ready to JSON-serialise as one
@@ -112,7 +117,7 @@ def build_request_dict(
                         {"text": "Analyze this video"},
                         {
                             "fileData": {
-                                "fileUri": f"gs://{bucket}/{media_prefix}/{video_id}.mp4",
+                                "fileUri": file_uri or f"gs://{bucket}/{media_prefix}/{video_id}.mp4",
                                 "mimeType": "video/mp4",
                             }
                         },
@@ -256,11 +261,14 @@ def ingest_records_to_raw(
     model: str,
     prompt_fn: str,
     annotation_version: str,
+    platform_by_id: dict[str, str] | None = None,
 ) -> dict:
     """Map all output records to a raw dict keyed by index; DNF for missing ids.
 
     Any ``submitted_id`` absent from the output is synthesised as a DNF entry so
     the queue prune removes it (mirrors the synchronous worker-timeout DNF).
+    Each entry is stamped with its ``source_platform`` when ``platform_by_id``
+    provides one (mirrors the synchronous ``call_machine`` output shape).
 
     Returns:
         ``{idx: raw_output_dict}`` shaped like a machine_annotations_raw file.
@@ -295,6 +303,9 @@ def ingest_records_to_raw(
                 "finish_reason": "DNF - missing from batch output",
                 "response": "",
             }
+        platform = (platform_by_id or {}).get(sid)
+        if platform:
+            raw[str(idx)]["source_platform"] = platform
         idx += 1
     return raw
 
@@ -341,13 +352,26 @@ def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
             _prop.pop("enum", None)
     gen_params = current_batch_gen_params()
 
+    # Media lives at the per-platform subpath ({media_prefix}/{platform}/{id}.mp4)
+    # for post-multi-platform downloads and the legacy flat path for old TikTok
+    # media; resolve per item so the batch fileUri points at the real object.
+    platform_by_id = platform_map_for([str(v) for v in video_ids])
+
     lines = []
     submitted_ids = []
     for video_id in video_ids:
+        resolved = media_paths.resolve_media(
+            str(video_id), platform=platform_by_id.get(str(video_id))
+        )
+        file_uri = (
+            media_paths.media_gs_uri(resolved)
+            if resolved and resolved.get("kind") == "gcs"
+            else None
+        )
         lines.append(json.dumps(build_request_dict(
             video_id, bucket=bucket_name, media_prefix=media_prefix,
             system_instruction=system_instruction, schema_json=schema_json,
-            gen_params=gen_params,
+            gen_params=gen_params, file_uri=file_uri,
         )))
         submitted_ids.append(str(video_id))
 
@@ -405,6 +429,7 @@ def download_and_ingest(output_uri: str, submitted_ids: list) -> str:
         model=fyp_cf["machine"]["model"],
         prompt_fn=os.path.basename(fyp_cf["machine"]["prompt"]),
         annotation_version=annotation_versioning.current_annotation_version(),
+        platform_by_id=platform_map_for([str(v) for v in submitted_ids]),
     )
     fine_ts = "".join(c for c in str(_dt.datetime.now()) if c in "0123456789")
     filename = f"{MACHINE_ANNOTATIONS_LABEL}_{fine_ts}.json"

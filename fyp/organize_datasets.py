@@ -1496,10 +1496,15 @@ def new_merge(
     has_annotations = annotations_df is not None and not annotations_df.empty
 
     if has_scrapes and has_annotations:
-        # Annotation rows are keyed by item_id only (and are TikTok-only under
-        # the annotation guard); this join is where they inherit the scrape
-        # side's source_platform.
-        enriched_data = pd.merge(left=scrapes_df, right=annotations_df, on='item_id', how='left')
+        # Composite key whenever both sides carry the platform — annotation rows
+        # are stamped with source_platform at annotation time (legacy rows are
+        # backfilled at consolidation). A pre-backfill annotations frame falls
+        # back to item_id and inherits the scrape side's source_platform.
+        if 'source_platform' in scrapes_df.columns and 'source_platform' in annotations_df.columns:
+            annotation_join_key = ['source_platform', 'item_id']
+        else:
+            annotation_join_key = 'item_id'
+        enriched_data = pd.merge(left=scrapes_df, right=annotations_df, on=annotation_join_key, how='left')
     elif has_scrapes:
         enriched_data = scrapes_df
     elif has_annotations:

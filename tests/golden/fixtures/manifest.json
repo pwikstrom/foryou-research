@@ -1,7 +1,7 @@
 {
   "n_raw_responses": 150,
   "n_refined_rows": 150,
-  "n_refined_columns": 26,
+  "n_refined_columns": 27,
   "refined_columns": [
     "advertising",
     "aigc",
@@ -21,6 +21,7 @@
     "objects",
     "political_score",
     "sensitivity_score",
+    "source_platform",
     "speech_vs_music",
     "symbols_and_brands",
     "text_overlays",
@@ -30,9 +31,9 @@
     "type_of_story",
     "video_story"
   ],
-  "var_schema_hash": "v2:236761052cacf426c6ba133d34dd358aa153cad0f7a985e87071df9d60b871ef",
+  "var_schema_hash": "v2:385edf268e86059def43976cdca3dce2a494fb62b67b1300cea8e67b016c4997",
   "var_schema_shape": [
-    91,
+    100,
     12
   ],
   "models": [
