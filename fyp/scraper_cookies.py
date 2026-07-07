@@ -11,6 +11,9 @@ All functions take the platform key (``"tiktok"``, ``"instagram"``,
 
 import logging
 import os
+import re
+import shutil
+import tempfile
 import threading
 import time
 from collections import defaultdict
@@ -30,6 +33,18 @@ _COOKIE_CACHE_TTL_SEC = 6 * 3600
 # download the same file (and platforms never block each other).
 _DOWNLOAD_LOCKS: dict[str, threading.Lock] = defaultdict(threading.Lock)
 _LOCKS_GUARD = threading.Lock()
+
+# Netscape cookie-file magic header. Mirrors the check in Python's
+# ``http.cookiejar.MozillaCookieJar._really_load`` (which yt-dlp inherits), so a
+# file that passes this passes yt-dlp's own loader and one that fails it would
+# have been rejected by yt-dlp anyway. Used to reject a truncated/empty cache.
+_NETSCAPE_MAGIC_RE = re.compile(r"#( Netscape)? HTTP Cookie File")
+
+# Disposable per-yt-dlp-call copies of the cookie file live here (see
+# _private_cookie_copy). Reaped by age so they never accumulate; /tmp on Cloud
+# Run is an in-memory tmpfs, so the copies are kept tiny and short-lived.
+_COOKIE_WORK_DIR = "/tmp/fyp_cookie_work"
+_COPY_TTL_SEC = 300
 
 
 
@@ -64,6 +79,107 @@ def _download_lock(platform: str) -> threading.Lock:
     """Return the per-platform download lock (defaultdict access is guarded)."""
     with _LOCKS_GUARD:
         return _DOWNLOAD_LOCKS[platform]
+
+
+
+
+
+def _looks_like_netscape(path: str) -> bool:
+    """True if ``path``'s first line carries the Netscape cookie-file header.
+
+    Guards against a truncated/empty cache: a valid cookies.txt starts with a
+    ``# Netscape HTTP Cookie File`` (or ``# HTTP Cookie File``) line, and yt-dlp
+    rejects anything else with "does not look like a Netscape format cookies
+    file". A zero-length or half-written file fails this check.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            first_line = f.readline()
+    except OSError:
+        return False
+    return bool(first_line) and bool(_NETSCAPE_MAGIC_RE.search(first_line))
+
+
+
+
+
+def _fresh_and_valid(local_path: str) -> bool:
+    """True if the cached cookie file exists, is within TTL, and is well-formed.
+
+    A file that fails the Netscape-header check (e.g. left truncated by an older
+    code path in a still-warm container) is treated as a miss so the caller
+    re-pulls a clean copy from GCS.
+    """
+    if not os.path.exists(local_path):
+        return False
+    try:
+        age = time.time() - os.path.getmtime(local_path)
+    except OSError:
+        return False
+    if age >= _COOKIE_CACHE_TTL_SEC:
+        return False
+    if not _looks_like_netscape(local_path):
+        logger.warning(
+            "Cached cookie file %s failed Netscape-format validation — refetching",
+            local_path,
+        )
+        return False
+    return True
+
+
+
+
+
+def _reap_stale_copies() -> None:
+    """Delete disposable cookie copies older than ``_COPY_TTL_SEC`` (best effort).
+
+    Deleting a copy mid-flight is safe: yt-dlp reads the cookiefile only at
+    construction and writes it back only at context exit, and that write-back is
+    exactly what we intend to discard.
+    """
+    try:
+        now = time.time()
+        for name in os.listdir(_COOKIE_WORK_DIR):
+            fpath = os.path.join(_COOKIE_WORK_DIR, name)
+            try:
+                if now - os.path.getmtime(fpath) > _COPY_TTL_SEC:
+                    os.remove(fpath)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+
+
+
+def _private_cookie_copy(platform: str, src: str) -> str:
+    """Return a private, disposable copy of ``src`` for a single yt-dlp call.
+
+    yt-dlp rewrites its ``cookiefile`` (non-atomic truncate-then-write) on every
+    ``YoutubeDL`` context exit. Concurrent scraper threads sharing one cookie
+    file therefore race — one thread's save truncates the file while another's
+    ``YoutubeDL()`` construction is loading it, yielding "does not look like a
+    Netscape format cookies file". Handing each call its own copy isolates that
+    write-back so the shared canonical cache is never truncated. The refreshed
+    session cookies yt-dlp would persist are intentionally discarded — GCS is
+    the source of truth and the cache is re-pulled on its own TTL.
+
+    Falls back to the shared path if the copy can't be made (best-effort auth
+    beats dropping to unauthenticated scraping).
+    """
+    try:
+        os.makedirs(_COOKIE_WORK_DIR, exist_ok=True)
+        _reap_stale_copies()
+        fd, dst = tempfile.mkstemp(prefix=f"{platform}_", suffix=".txt",
+                                   dir=_COOKIE_WORK_DIR)
+        with os.fdopen(fd, "wb") as out, open(src, "rb") as f:
+            shutil.copyfileobj(f, out)
+        return dst
+    except OSError as e:
+        logger.warning("Could not make private %s cookie copy (%s) — using shared "
+                       "path; concurrent yt-dlp write-back may race", platform, e)
+        return src
 
 
 
@@ -113,18 +229,14 @@ def ensure_cookie_file(platform: str) -> str | None:
 
     local_path = _local_path(platform)
 
-    # Fast path — local copy is fresh enough.
-    if os.path.exists(local_path):
-        age = time.time() - os.path.getmtime(local_path)
-        if age < _COOKIE_CACHE_TTL_SEC:
-            return local_path
+    # Fast path — local copy is fresh AND well-formed.
+    if _fresh_and_valid(local_path):
+        return local_path
 
     with _download_lock(platform):
         # Re-check inside the lock — another thread may have just downloaded.
-        if os.path.exists(local_path):
-            age = time.time() - os.path.getmtime(local_path)
-            if age < _COOKIE_CACHE_TTL_SEC:
-                return local_path
+        if _fresh_and_valid(local_path):
+            return local_path
 
         blob_name = _gcs_blob_name(platform)
         try:
@@ -147,6 +259,18 @@ def ensure_cookie_file(platform: str) -> str | None:
             # readers never see a partial file.
             tmp_path = f"{local_path}.{os.getpid()}.tmp"
             blob.download_to_filename(tmp_path)
+            if not _looks_like_netscape(tmp_path):
+                logger.warning(
+                    "Downloaded %s cookie file from gs://%s/%s is not "
+                    "Netscape-format (missing header) — not caching; running "
+                    "without authentication until a valid file is uploaded",
+                    platform, bucket.name, blob_name,
+                )
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+                return None
             os.replace(tmp_path, local_path)
             logger.info("Downloaded %s cookies from gs://%s/%s to %s",
                         platform, bucket.name, blob_name, local_path)
@@ -173,12 +297,12 @@ def cookie_opts(platform: str) -> dict:
     """
     # Cloud Run sets K_SERVICE; Docker containers won't have a browser.
     if os.environ.get("K_SERVICE") or not os.path.exists("/Applications"):
-        path = ensure_cookie_file(platform)
+        path = ensure_cookie_file(platform) or _env_cookie_file(platform)
         if path:
-            return {"cookiefile": path}
-        env_path = _env_cookie_file(platform)
-        if env_path:
-            return {"cookiefile": env_path}
+            # Hand yt-dlp a private copy: it rewrites the cookiefile on context
+            # exit, and concurrent scraper threads sharing one file race on that
+            # write, truncating it mid-read (see _private_cookie_copy).
+            return {"cookiefile": _private_cookie_copy(platform, path)}
         return {}
 
     return {"cookiesfrombrowser": ("chrome",)}
