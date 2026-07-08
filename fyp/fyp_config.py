@@ -534,6 +534,8 @@ def _apply_contract_scrape_metadata(cf) -> None:
         print(f"WARNING: legacy scrape metadata union unavailable ({e}); overlay incomplete.")
     # Migrate legacy TikTok-named rows to canonical in-memory, so an un-migrated
     # var_schema.csv (existing local or prod deployment) self-heals at load.
+    # RETIRED_TO_GENERIC names must NOT join this replace: several map to one
+    # target (duplicate rows) and they must stay as read-only legacy-union rows.
     vs["variable_name"] = vs["variable_name"].replace(sc.LEGACY_COLUMN_ALIASES)
     for idx in vs.index:
         owned = meta.get(vs.at[idx, "variable_name"])

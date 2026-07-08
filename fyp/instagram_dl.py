@@ -590,14 +590,18 @@ def _fetch_media_info_counts(item_id: str) -> dict | None:
 
 
 
-# Raw column names → canonical base names. Contract-named ig_* columns pass
-# through unchanged.
+# Raw column names → canonical base names. The raw ig_* counts/handle translate
+# to the generic base fields here (the raw names stay in _info_to_row and the
+# -1 supplementation step, which run pre-canonicalization).
 _RAW_TO_CANONICAL: dict[str, str] = {
     "create_time_raw": "create_time",
     "duration_raw": "duration",
     "play_count_raw": "play_count",
     "author_name_raw": "author_name",
     "last_modified": "scrape_ts",
+    "ig_like_count": "fave_count",
+    "ig_comment_count": "comment_count",
+    "ig_author_handle": "author_handle",
 }
 
 

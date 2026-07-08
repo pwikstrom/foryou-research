@@ -1541,6 +1541,46 @@ def _parse_scrape_filename_ts(filename: str | None) -> "pd.Timestamp":
 
 
 
+def _coalesce_retired_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Fold retired platform-specific columns into their generic base successors.
+
+    Historical scrape parquets carry the pre-retirement per-platform names
+    (``stats_diggCount`` / ``ig_like_count`` / ``yt_author_handle`` / ...); this
+    coalesces each into its generic base column (``fave_count`` /
+    ``author_handle`` / ...) per ``scrape_contract.RETIRED_TO_GENERIC`` and drops
+    the source. A coalesce (not a rename) because several retired columns share
+    one target — a rename would create duplicate labels on a mixed-platform
+    frame. Values are kept verbatim, including the -1 missing-count sentinels
+    (the rate/plays-per-day derivations mask negatives). Per-file parquets on
+    disk keep their old names and are re-coalesced on every consolidation, the
+    same self-healing convention as the legacy rename.
+
+    Args:
+        df: a single raw scrape parquet's frame (mutated and returned).
+
+    Returns:
+        The frame with generic columns populated and retired columns dropped.
+    """
+    present = [c for c in sc.RETIRED_TO_GENERIC if c in df.columns]
+    if not present:
+        return df
+    target_dtypes = sc.field_dtypes(sc.load_contract())
+    for src in present:
+        tgt = sc.RETIRED_TO_GENERIC[src]
+        dtype = target_dtypes.get(tgt)
+        source = df[src].astype(dtype) if dtype else df[src]
+        if tgt in df.columns:
+            df[tgt] = df[tgt].combine_first(source)
+            if dtype:
+                df[tgt] = df[tgt].astype(dtype)
+        else:
+            df[tgt] = source
+        df = df.drop(columns=[src])
+    return df
+
+
+
+
 def _canonicalize_legacy_scrape(df: pd.DataFrame, filename: str | None = None, scraper=None) -> pd.DataFrame:
     """Migrate a legacy (pre-canonical) scrape parquet to the canonical schema.
 
@@ -1825,6 +1865,10 @@ def consolidate_and_save_scrape_data(
     scraper = get_scraper(verbose=False)
     for fn in files_to_concatenate:
         df = data_io.load_parquet(storage_location="scrape", filename=fn)
+        # Fold retired platform-specific columns into their generic successors
+        # BEFORE the legacy migration: its rate re-derivation reads the generic
+        # count names via the flat [perk] map.
+        df = _coalesce_retired_columns(df)
         # Migrate legacy (pre-canonical) parquets to the canonical schema; a no-op
         # for files already saved with canonical names.
         df = _canonicalize_legacy_scrape(df, filename=fn, scraper=scraper)

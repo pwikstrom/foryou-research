@@ -788,25 +788,31 @@ def _download_slideshow_audio(
 # vanishingly rare and indistinguishable from the sentinel).
 _UINT32_RANGE: int = 1 << 32
 
-# Repaired on the CANONICAL frame: play_count is the renamed view count; the four
-# stats_* counts stay platform-specific and feed the per-K engagement rates.
+# Repaired on the CANONICAL frame: repair always runs after the raw stats_* names
+# were renamed to the generic base counts (map_to_canonical in canonicalize_batch,
+# or the retired-column coalesce in consolidation).
 OVERFLOW_REPAIR_COLUMNS: tuple[str, ...] = (
     "play_count",
-    "stats_diggCount",
-    "stats_shareCount",
-    "stats_commentCount",
-    "stats_collectCount",
+    "fave_count",
+    "share_count",
+    "comment_count",
+    "save_count",
 )
 
 
-# Raw yt-dlp / page-JSON column names → canonical base names. Platform-specific
-# fields (music_*, stats_diggCount, challenges, ...) keep their raw names.
+# Raw yt-dlp / page-JSON column names → canonical base names. Genuinely
+# platform-specific fields (music_*, challenges, ...) keep their raw names.
 _RAW_TO_CANONICAL: dict[str, str] = {
     "createTime": "create_time",
     "video_duration": "duration",
     "stats_playCount": "play_count",
     "author_nickname": "author_name",
     "last_modified": "scrape_ts",
+    "stats_diggCount": "fave_count",
+    "stats_commentCount": "comment_count",
+    "stats_shareCount": "share_count",
+    "stats_collectCount": "save_count",
+    "author_uniqueId": "author_handle",
 }
 
 

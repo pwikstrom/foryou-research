@@ -1,8 +1,8 @@
 """Unit test for BaseScraper per-K engagement-rate derivation + the contract map.
 
 The retired ``fyp.scrape._engagement_per_play`` (per-play) is replaced by
-``BaseScraper.derive_engagement_rates`` (per-1K-play), with the rate → raw-count
-mapping sourced from ``[perk.<platform>]`` in the scrape contract.
+``BaseScraper.derive_engagement_rates`` (per-1K-play), with the rate → count
+mapping sourced from the flat ``[perk]`` table in the scrape contract.
 """
 
 import math
@@ -20,7 +20,7 @@ def test_derive_engagement_rates() -> None:
     scraper = get_scraper()
     df = pd.DataFrame({
         "play_count": pd.Series([1000, 0, -1, 500, 200], dtype="int64[pyarrow]"),
-        "stats_commentCount": pd.Series([10, 5, 5, -1, 50], dtype="int64[pyarrow]"),
+        "comment_count": pd.Series([10, 5, 5, -1, 50], dtype="int64[pyarrow]"),
     })
 
     result = scraper.derive_engagement_rates(df.copy())["comments_per_K_play"]
@@ -43,13 +43,13 @@ def test_derive_engagement_rates() -> None:
 
 
 def test_perk_mapping() -> None:
-    """The per-K rate fields map to the expected raw TikTok counts."""
+    """The per-K rate fields map to the generic base counts."""
     contract = sc.load_contract()
-    assert sc.per_k_sources(contract, "tiktok") == {
-        "faves_per_K_play": "stats_diggCount",
-        "comments_per_K_play": "stats_commentCount",
-        "shares_per_K_play": "stats_shareCount",
-        "saves_per_K_play": "stats_collectCount",
+    assert sc.per_k_sources(contract) == {
+        "faves_per_K_play": "fave_count",
+        "comments_per_K_play": "comment_count",
+        "shares_per_K_play": "share_count",
+        "saves_per_K_play": "save_count",
     }
     print("test_perk_mapping PASSED")
 

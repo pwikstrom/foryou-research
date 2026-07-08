@@ -26,30 +26,30 @@
 #   per_k_of    — for an engagement-rate field, the absolute-count denominator base
 #                 field it is normalised against (count / play_count * 1000)
 #
-# A new platform = one new subclass + a block of scope="platform" [[fields]] here
-# (and, for engagement ratios, a [perk.<platform>] map). No other edits required.
+# A new platform = one new subclass + a block of scope="platform" [[fields]] here.
+# The generic popularity counts (fave_count / comment_count / share_count /
+# save_count) and author_handle are BASE fields: the subclass translates its
+# platform-specific names to them in its _RAW_TO_CANONICAL map. No other edits
+# required.
 
 [meta]
 version = "1"
 default_platform = "tiktok"
+# Registered platforms. Explicit (not derived from scope="platform" fields)
+# because a platform whose fields all map to generic base names owns no
+# platform-scoped fields at all (Instagram), yet still needs its scrape queue,
+# worker process, and version-descriptor entry.
+platforms = ["tiktok", "instagram", "youtube"]
 
-# Per-platform raw-absolute-count source for each canonical *_per_K_play ratio.
-# The base class derives  rate = raw_count / play_count * 1000  using this map.
-[perk.tiktok]
-faves_per_K_play = "stats_diggCount"
-comments_per_K_play = "stats_commentCount"
-shares_per_K_play = "stats_shareCount"
-saves_per_K_play = "stats_collectCount"
-
-# Instagram/YouTube expose no share/save counts; those base rates stay NA
-# (ensure_base_columns fills them) — only the mapped rates are derived.
-[perk.instagram]
-faves_per_K_play = "ig_like_count"
-comments_per_K_play = "ig_comment_count"
-
-[perk.youtube]
-faves_per_K_play = "yt_like_count"
-comments_per_K_play = "yt_comment_count"
+# Generic-count source for each canonical *_per_K_play ratio. The base class
+# derives  rate = count / play_count * 1000  using this map; platforms without a
+# given count (e.g. Instagram/YouTube share/save) leave the count NA, so the
+# rate stays NA too.
+[perk]
+faves_per_K_play = "fave_count"
+comments_per_K_play = "comment_count"
+shares_per_K_play = "share_count"
+saves_per_K_play = "save_count"
 
 # ===========================================================================
 # BASE fields. Every platform subclass must emit these canonical names.
@@ -155,6 +155,15 @@ display_name = "Author nickname"
 description = "The display name shown on the creator's profile."
 
 [[fields]]
+name = "author_handle"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Item metadata"
+scale = "text"
+display_name = "Author handle"
+description = "The creator's unique @username handle (author_name holds the display name)."
+
+[[fields]]
 name = "play_count"
 scope = "base"
 dtype = "int64[pyarrow]"
@@ -163,6 +172,42 @@ role = "feature"
 scale = "numeric"
 display_name = "Play count"
 description = "Total plays/views of the item."
+
+[[fields]]
+name = "fave_count"
+scope = "base"
+dtype = "int64[pyarrow]"
+section = "Popularity"
+scale = "numeric"
+display_name = "Fave count"
+description = "Total likes/faves on the item (called likes on Instagram/YouTube; hidden-like items carry no value)."
+
+[[fields]]
+name = "comment_count"
+scope = "base"
+dtype = "int64[pyarrow]"
+section = "Popularity"
+scale = "numeric"
+display_name = "Comment count"
+description = "Total comments on the item (missing when comments are disabled or not extracted)."
+
+[[fields]]
+name = "share_count"
+scope = "base"
+dtype = "int64[pyarrow]"
+section = "Popularity"
+scale = "numeric"
+display_name = "Share count"
+description = "Total shares of the item (NA on platforms that expose no share count, e.g. Instagram/YouTube)."
+
+[[fields]]
+name = "save_count"
+scope = "base"
+dtype = "int64[pyarrow]"
+section = "Popularity"
+scale = "numeric"
+display_name = "Save count"
+description = "Number of times the item was saved/collected (NA on platforms that expose no save count, e.g. Instagram/YouTube)."
 
 [[fields]]
 name = "faves_per_K_play"
@@ -226,19 +271,9 @@ derived = true
 # ===========================================================================
 # TikTok PLATFORM-SPECIFIC fields (the subclass's additional_columns). Metadata
 # copied verbatim from the existing var_schema scrape rows. The absolute counts
-# stay platform-specific raw fields — the cross-platform engagement signal is the
-# base *_per_K_play set above, derived from them via [perk.tiktok].
+# and the author handle are BASE fields (the scraper's _RAW_TO_CANONICAL
+# translates stats_* / author_uniqueId to the generic names).
 # ===========================================================================
-
-[[fields]]
-name = "author_uniqueId"
-scope = "platform"
-platform = "tiktok"
-dtype = "string[pyarrow]"
-section = "Item metadata"
-scale = "text"
-display_name = "Author uniqueId"
-description = "The creator's unique username handle"
 
 [[fields]]
 name = "author_signature"
@@ -372,46 +407,6 @@ display_name = "AIGC - TikTok"
 description = "Platform flag indicating AI-generated content."
 
 [[fields]]
-name = "stats_diggCount"
-scope = "platform"
-platform = "tiktok"
-dtype = "int64[pyarrow]"
-section = "Popularity"
-scale = "numeric"
-display_name = "Fave count"
-description = "Total likes on the video."
-
-[[fields]]
-name = "stats_commentCount"
-scope = "platform"
-platform = "tiktok"
-dtype = "int64[pyarrow]"
-section = "Popularity"
-scale = "numeric"
-display_name = "Comment count"
-description = "Total comments on the video."
-
-[[fields]]
-name = "stats_shareCount"
-scope = "platform"
-platform = "tiktok"
-dtype = "int64[pyarrow]"
-section = "Popularity"
-scale = "numeric"
-display_name = "Share count"
-description = "Total shares of the video."
-
-[[fields]]
-name = "stats_collectCount"
-scope = "platform"
-platform = "tiktok"
-dtype = "int64[pyarrow]"
-section = "Popularity"
-scale = "numeric"
-display_name = "Save count"
-description = "Number of times the video was added to a user's 'Collection'"
-
-[[fields]]
 name = "video_downloaded"
 scope = "base"
 source = "backstage"
@@ -421,65 +416,20 @@ display_name = "Video downloaded"
 description = "Whether the item's media object was downloaded and stored (every platform's raw frame carries it; consolidation dedups on it)."
 
 # ===========================================================================
-# Instagram PLATFORM-SPECIFIC fields. Raw absolute counts feed the base
-# *_per_K_play rates via [perk.instagram]; Instagram exposes no share/save
-# counts, so those base rates stay NA.
+# Instagram PLATFORM-SPECIFIC fields. Instagram has no fields of its own left:
+# its counts and handle map to the generic base fields in the scraper's
+# _RAW_TO_CANONICAL (ig_like_count → fave_count, ig_comment_count →
+# comment_count, ig_author_handle → author_handle). Instagram exposes no
+# share/save counts, so those base counts (and rates) stay NA. Registering the
+# platform is done in fyp/instagram_dl.py; the retired ig_* contract fields
+# live on as read-only "legacy" rows via the sv_ registry snapshots.
 # ===========================================================================
 
-[[fields]]
-name = "ig_like_count"
-scope = "platform"
-platform = "instagram"
-dtype = "int64[pyarrow]"
-section = "Popularity"
-scale = "numeric"
-display_name = "Like count (Instagram)"
-description = "Total likes on the post (hidden-like posts carry no value)."
-
-[[fields]]
-name = "ig_comment_count"
-scope = "platform"
-platform = "instagram"
-dtype = "int64[pyarrow]"
-section = "Popularity"
-scale = "numeric"
-display_name = "Comment count (Instagram)"
-description = "Total comments on the post."
-
-[[fields]]
-name = "ig_author_handle"
-scope = "platform"
-platform = "instagram"
-dtype = "string[pyarrow]"
-section = "Item metadata"
-scale = "text"
-display_name = "Author handle (Instagram)"
-description = "The creator's @username handle (author_name holds the display name)."
-
 # ===========================================================================
-# YouTube PLATFORM-SPECIFIC fields. Raw absolute counts feed the base
-# *_per_K_play rates via [perk.youtube]; YouTube exposes no share/save counts.
+# YouTube PLATFORM-SPECIFIC fields. Counts and handle map to the generic base
+# fields (yt_like_count → fave_count, yt_comment_count → comment_count,
+# yt_author_handle → author_handle); YouTube exposes no share/save counts.
 # ===========================================================================
-
-[[fields]]
-name = "yt_like_count"
-scope = "platform"
-platform = "youtube"
-dtype = "int64[pyarrow]"
-section = "Popularity"
-scale = "numeric"
-display_name = "Like count (YouTube)"
-description = "Total likes on the video (hidden-like videos carry no value)."
-
-[[fields]]
-name = "yt_comment_count"
-scope = "platform"
-platform = "youtube"
-dtype = "int64[pyarrow]"
-section = "Popularity"
-scale = "numeric"
-display_name = "Comment count (YouTube)"
-description = "Total comments on the video (missing when comments are disabled or not extracted)."
 
 [[fields]]
 name = "yt_channel_follower_count"
@@ -501,12 +451,3 @@ scale = "text"
 display_name = "Video categories"
 description = "YouTube's category labels for the video, ' | '-joined."
 
-[[fields]]
-name = "yt_author_handle"
-scope = "platform"
-platform = "youtube"
-dtype = "string[pyarrow]"
-section = "Item metadata"
-scale = "text"
-display_name = "Author handle (YouTube)"
-description = "The channel's @handle (author_name holds the channel display name)."

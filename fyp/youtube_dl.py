@@ -365,14 +365,18 @@ def _download_media(
 
 
 
-# Raw column names → canonical base names. Contract-named yt_* columns pass
-# through unchanged.
+# Raw column names → canonical base names. The raw yt_* counts/handle translate
+# to the generic base fields here; the genuinely platform-specific yt_* columns
+# (yt_channel_follower_count, yt_categories) pass through unchanged.
 _RAW_TO_CANONICAL: dict[str, str] = {
     "create_time_raw": "create_time",
     "duration_raw": "duration",
     "play_count_raw": "play_count",
     "author_name_raw": "author_name",
     "last_modified": "scrape_ts",
+    "yt_like_count": "fave_count",
+    "yt_comment_count": "comment_count",
+    "yt_author_handle": "author_handle",
 }
 
 

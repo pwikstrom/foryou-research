@@ -95,8 +95,8 @@ DEFAULT_TARGETS: tuple[tuple[str, str, str], ...] = (
     ("tiktok_native", "single", "Provenance & intent"),
     ("australian_relevance", "single", "Provenance & intent"),
     ("play_count", "numeric", "Virality & recency"),
-    ("stats_diggCount", "numeric", "Virality & recency"),
-    ("stats_shareCount", "numeric", "Virality & recency"),
+    ("fave_count", "numeric", "Virality & recency"),
+    ("share_count", "numeric", "Virality & recency"),
     ("plays_per_day", "numeric", "Virality & recency"),
     ("days_since_created", "numeric", "Virality & recency"),
 )

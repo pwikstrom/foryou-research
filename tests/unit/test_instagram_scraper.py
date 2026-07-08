@@ -91,7 +91,17 @@ def test_canonicalize_batch():
     assert out.loc[0, 'scrape_status'] == 'ok'
     assert str(out.loc[0, 'scrape_contract_version']).startswith('sv_')
 
-    # Per-K rates from the [perk.instagram] map.
+    # Raw ig_* counts/handle landed in the generic base fields.
+    assert out.loc[0, 'fave_count'] == 12500
+    assert out.loc[0, 'comment_count'] == 250
+    assert out.loc[0, 'author_handle'] == 'someuser'
+    for retired in ('ig_like_count', 'ig_comment_count', 'ig_author_handle'):
+        assert retired not in out.columns, retired
+    # Instagram exposes no share/save counts — the generic counts stay NA.
+    assert pd.isna(out.loc[0, 'share_count'])
+    assert pd.isna(out.loc[0, 'save_count'])
+
+    # Per-K rates from the flat [perk] map.
     expected_faves = 12500 / 250000 * 1000
     assert abs(out.loc[0, 'faves_per_K_play'] - expected_faves) < 1e-9
     expected_comments = 250 / 250000 * 1000

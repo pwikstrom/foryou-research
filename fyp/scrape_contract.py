@@ -47,6 +47,29 @@ LEGACY_COLUMN_ALIASES: dict[str, str] = {
     "shares_per_play": "shares_per_K_play",
 }
 
+# Retired platform-specific column → its generic base-field successor. These
+# columns were removed from the contract when the popularity counts and the
+# author handle became platform-agnostic base fields; historical on-disk scrape
+# parquets self-heal at consolidation via fyp.scrape._coalesce_retired_columns.
+# NEVER merge these into LEGACY_COLUMN_ALIASES: that map is applied as a plain
+# rename (many→one here would create duplicate column labels on a mixed-platform
+# frame) and is also replayed over var_schema variable names at config load,
+# which would collapse the retired rows instead of keeping them as read-only
+# "legacy" entries from the version-registry metadata union.
+RETIRED_TO_GENERIC: dict[str, str] = {
+    "stats_diggCount": "fave_count",
+    "stats_commentCount": "comment_count",
+    "stats_shareCount": "share_count",
+    "stats_collectCount": "save_count",
+    "author_uniqueId": "author_handle",
+    "ig_like_count": "fave_count",
+    "ig_comment_count": "comment_count",
+    "ig_author_handle": "author_handle",
+    "yt_like_count": "fave_count",
+    "yt_comment_count": "comment_count",
+    "yt_author_handle": "author_handle",
+}
+
 # The subset of LEGACY_COLUMN_ALIASES whose stored VALUES are also scaled ×1000
 # (per-play → per-thousand-plays) when migrating legacy parquet values. The
 # column rename alone is in LEGACY_COLUMN_ALIASES; the value conversion lives at
@@ -104,7 +127,17 @@ def default_platform(contract: dict) -> str | None:
 
 
 def platforms(contract: dict) -> list[str]:
-    """Return the distinct platforms that own at least one ``scope="platform"`` field."""
+    """Return the registered platforms.
+
+    Reads the explicit ``[meta].platforms`` list — a platform whose fields all
+    map to the generic base names owns no ``scope="platform"`` fields at all
+    (Instagram), yet still needs its scrape queue, worker process, and
+    version-descriptor entry. Falls back to the field-derived set for a
+    contract without the meta key.
+    """
+    explicit = contract.get("meta", {}).get("platforms")
+    if explicit:
+        return list(explicit)
     seen: list[str] = []
     for field in contract.get("fields", []):
         plat = field.get("platform")
@@ -187,13 +220,15 @@ def derived_fields(contract: dict, platform: str | None = None) -> set[str]:
 
 
 
-def per_k_sources(contract: dict, platform: str) -> dict[str, str]:
-    """Return ``{rate_field: raw_count_column}`` for a platform's per-K ratios.
+def per_k_sources(contract: dict) -> dict[str, str]:
+    """Return ``{rate_field: generic_count_column}`` for the per-K ratios.
 
-    Read from ``[perk.<platform>]``. The base class derives each rate as
-    ``raw_count / play_count * 1000``.
+    Read from the flat ``[perk]`` table (platform-independent since the counts
+    became generic base fields). The base class derives each rate as
+    ``count / play_count * 1000``; a platform without a given count leaves it
+    NA and the rate stays NA.
     """
-    return dict(contract.get("perk", {}).get(platform, {}))
+    return dict(contract.get("perk", {}))
 
 
 
@@ -331,15 +366,25 @@ def validate_contract(contract: dict) -> list[str]:
         if denom is not None and denom not in base_names:
             errors.append(f"field '{field.get('name')}': per_k_of '{denom}' is not a base field")
 
-    # Every [perk.<platform>] entry maps a base rate field to an existing source column.
-    for plat, mapping in contract.get("perk", {}).items():
-        if not isinstance(mapping, dict):
-            errors.append(f"[perk.{plat}] must be a table of rate_field → source_column")
+    # Every platform-scoped field's owner must be a registered platform, and the
+    # default platform must be registered too.
+    registered = set(platforms(contract))
+    default_plat = contract.get("meta", {}).get("default_platform")
+    if default_plat and default_plat not in registered:
+        errors.append(f"[meta].default_platform '{default_plat}' is not in [meta].platforms")
+    for field in fields:
+        plat = field.get("platform")
+        if field.get("scope") == "platform" and plat and plat not in registered:
+            errors.append(f"field '{field.get('name')}': platform '{plat}' is not in [meta].platforms")
+
+    # Every flat [perk] entry maps a base rate field to an existing source column.
+    for rate_field, source_col in contract.get("perk", {}).items():
+        if not isinstance(source_col, str):
+            errors.append(f"[perk].{rate_field} must map to a source column name string")
             continue
-        for rate_field, source_col in mapping.items():
-            if rate_field not in base_names:
-                errors.append(f"[perk.{plat}]: '{rate_field}' is not a base field")
-            if source_col not in field_names:
-                errors.append(f"[perk.{plat}].{rate_field}: source '{source_col}' is not a contract field")
+        if rate_field not in base_names:
+            errors.append(f"[perk]: '{rate_field}' is not a base field")
+        if source_col not in field_names:
+            errors.append(f"[perk].{rate_field}: source '{source_col}' is not a contract field")
 
     return errors

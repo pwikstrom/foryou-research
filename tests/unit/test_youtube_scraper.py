@@ -79,6 +79,13 @@ def test_canonicalize_batch():
     assert out.loc[0, 'source_platform'] == 'youtube'
     assert str(out.loc[0, 'scrape_contract_version']).startswith('sv_')
 
+    # Raw yt_* counts/handle landed in the generic base fields.
+    assert out.loc[0, 'fave_count'] == 50000
+    assert out.loc[0, 'comment_count'] == 2000
+    assert out.loc[0, 'author_handle'] == '@somechannel'
+    for retired in ('yt_like_count', 'yt_comment_count', 'yt_author_handle'):
+        assert retired not in out.columns, retired
+
     expected_faves = 50000 / 1000000 * 1000
     assert abs(out.loc[0, 'faves_per_K_play'] - expected_faves) < 1e-9
     expected_comments = 2000 / 1000000 * 1000

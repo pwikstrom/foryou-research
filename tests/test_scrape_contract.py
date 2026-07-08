@@ -24,16 +24,19 @@ def test_contract_loads_and_validates() -> None:
 
 
 def test_base_and_platform_field_split() -> None:
-    """field_dtypes returns the 15 base fields, plus the TikTok platform set."""
+    """field_dtypes returns the 22 base fields, plus the TikTok platform set."""
     contract = sc.load_contract()
     base = sc.field_dtypes(contract)
-    assert len(base) == 15, base
+    assert len(base) == 22, base
     for expected in ("scrape_status", "storage_link", "scrape_ts", "scrape_contract_version",
-                     "create_time", "play_count", "comments_per_K_play", "plays_per_day", "author_name"):
+                     "create_time", "play_count", "comments_per_K_play", "plays_per_day", "author_name",
+                     "fave_count", "comment_count", "share_count", "save_count", "author_handle"):
         assert expected in base, expected
     full = sc.field_dtypes(contract, "tiktok")
     assert set(base).issubset(full)
-    assert "stats_diggCount" in full and "video_downloaded" in full
+    assert "music_title" in full and "video_downloaded" in full
+    # The retired per-platform count/handle names are no longer contract fields.
+    assert "stats_diggCount" not in full and "author_uniqueId" not in full
     print("test_base_and_platform_field_split PASSED")
 
 
@@ -44,7 +47,7 @@ def test_get_scraper_registry() -> None:
     scraper = get_scraper()
     assert isinstance(scraper, BaseScraper)
     assert scraper.platform == "tiktok"
-    assert len(scraper.base_columns) == 15
+    assert len(scraper.base_columns) == 22
     try:
         get_scraper("no_such_platform")
     except ValueError:
@@ -67,11 +70,17 @@ def test_canonicalize_batch_renames_and_derives() -> None:
     }])
     out = scraper.canonicalize_batch(raw.copy(), status="ok")
 
-    # renames applied, legacy names gone
-    for legacy in ("stats_playCount", "createTime", "video_duration", "author_nickname", "last_modified"):
+    # renames applied, legacy + retired platform names gone
+    for legacy in ("stats_playCount", "createTime", "video_duration", "author_nickname", "last_modified",
+                   "stats_diggCount", "stats_commentCount", "stats_shareCount", "stats_collectCount"):
         assert legacy not in out.columns, legacy
     assert out["play_count"].iloc[0] == 1000
     assert out["author_name"].iloc[0] == "bob"
+    # the raw stats_* counts landed in the generic base fields
+    assert int(out["fave_count"].iloc[0]) == 50
+    assert int(out["comment_count"].iloc[0]) == 10
+    assert int(out["share_count"].iloc[0]) == 5
+    assert int(out["save_count"].iloc[0]) == 2
     assert out["scrape_status"].iloc[0] == "ok"
     # per-K = count / plays * 1000
     assert float(out["faves_per_K_play"].iloc[0]) == 50.0
@@ -88,7 +97,7 @@ def test_canonicalize_batch_renames_and_derives() -> None:
 def test_overflow_repair() -> None:
     """A signed-32-bit-wrapped count is recovered by adding 2**32."""
     scraper = get_scraper()
-    df = pd.DataFrame([{"item_id": "x", "play_count": -1000000, "stats_diggCount": -5}])
+    df = pd.DataFrame([{"item_id": "x", "play_count": -1000000, "fave_count": -5}])
     out = scraper.repair_counts(df.copy())
     assert int(out["play_count"].iloc[0]) == (1 << 32) - 1000000
     # the -1/-5 sentinels below -1 are repaired too; -1 itself would be left alone

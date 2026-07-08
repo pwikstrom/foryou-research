@@ -92,9 +92,7 @@ class BaseScraper(ABC):
             for name, dtype in sc.field_dtypes(self._contract, self.platform).items()
             if name not in self.base_columns
         }
-        self._per_k: dict[str, str] = (
-            sc.per_k_sources(self._contract, self.platform) if self.platform else {}
-        )
+        self._per_k: dict[str, str] = sc.per_k_sources(self._contract)
 
 
     # -----------------------------------------------------------------
@@ -262,12 +260,13 @@ class BaseScraper(ABC):
     # -----------------------------------------------------------------
 
     def derive_engagement_rates(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add each ``*_per_K_play = raw_count / play_count * 1000``.
+        """Add each ``*_per_K_play = count / play_count * 1000``.
 
-        The rate → raw-count mapping comes from ``[perk.<platform>]`` in the
-        contract. A rate is NA where ``play_count <= 0`` or the raw count is
-        missing (negative sentinel). This is the per-thousand-plays form; the
-        ×1000 is the only numeric change from the retired per-play columns.
+        The rate → count mapping comes from the flat ``[perk]`` table in the
+        contract (the counts are generic base fields). A rate is NA where
+        ``play_count <= 0`` or the count is missing (absent column, all-NA, or
+        negative sentinel). This is the per-thousand-plays form; the ×1000 is
+        the only numeric change from the retired per-play columns.
         """
         if "play_count" not in df.columns:
             return df
