@@ -7,6 +7,7 @@ import resource as _resource
 import sys as _sys
 import time as _time
 from copy import deepcopy
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -1194,14 +1195,37 @@ def update_enrichment_status(
 
 
 
-def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool = False) -> dict:
-    """Consolidate annotation and scrape data from raw sources, then rebuild enrichment status."""
+def consolidate_enrichment_data(
+    force_consolidation: bool = False,
+    verbose: bool = False,
+    progress_cb: Callable[[float, str], None] | None = None,
+) -> dict:
+    """Consolidate annotation and scrape data from raw sources, then rebuild enrichment status.
+
+    Args:
+        force_consolidation: Rebuild from all raw files even when nothing new
+            was detected.
+        verbose: Emit verbose per-step logging.
+        progress_cb: Optional ``(percent, message)`` callback invoked at each
+            phase boundary so a caller (the Cloud Task worker) can surface live
+            sub-progress instead of the step sitting frozen at 10%. Kept as a
+            plain callback so this module stays web-agnostic; defaults to a
+            no-op for ad-hoc/CLI callers.
+    """
+    def _progress(pct: float, msg: str) -> None:
+        if progress_cb is not None:
+            try:
+                progress_cb(pct, msg)
+            except Exception:
+                pass
 
     print("\n*** Annotations")
+    _progress(15, "Consolidating annotation files…")
     (new_annotations, annotations, new_annotation_ids) = consolidate_and_save_refined_annotations(
         force_consolidation=force_consolidation, verbose=verbose)
 
     print("\n*** Scrape")
+    _progress(40, "Consolidating scrape files…")
     (new_scrape_data, scrape_data, new_scrape_ids) = consolidate_and_save_scrape_data(
         force_consolidation=force_consolidation, verbose=verbose)
 
@@ -1216,6 +1240,7 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
         }
 
     print("\n*** Updating (and saving) data enrichment status...")
+    _progress(65, "Updating enrichment status…")
     update_enrichment_status(all_datasets=fine_results, verbose=verbose)
     print("...done.")
 
@@ -1226,6 +1251,7 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
     impact = None
 
     if changed_item_ids and collections is not None and not collections.empty:
+        _progress(85, "Computing impact on studies…")
         print(f"\n*** Computing consolidation impact for {len(changed_item_ids):,} changed items...")
 
         # Drop NA collection_ids — legacy raw_files predating the manifest-based
@@ -1265,6 +1291,7 @@ def consolidate_enrichment_data(force_consolidation: bool = False, verbose: bool
         }
         print(f"    {len(affected_collection_ids)} collection(s) and {len(affected_studies)} study/studies affected.")
 
+    _progress(95, "Finalizing…")
     fine_results["impact"] = impact
     return fine_results
 

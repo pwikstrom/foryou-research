@@ -946,10 +946,17 @@ function setStatus(name, data) {
         const prefix = isScraper ? 'scrapes' : 'annotations';
         const bsEl = document.getElementById(`${prefix}-batch-size${suffix}`);
         const mbEl = document.getElementById(`${prefix}-max-batches${suffix}`);
-        if (status === 'running' && data.task_args) {
-            if (bsEl && data.task_args.batch_size) { bsEl.value = data.task_args.batch_size; bsEl.disabled = true; }
-            if (mbEl && data.task_args.max_batches) { mbEl.value = data.task_args.max_batches; mbEl.disabled = true; }
-            else if (mbEl) { mbEl.value = ''; mbEl.disabled = true; }
+        // While running, disable the inputs and reflect the entered values from
+        // the echoed task_args. Only *overwrite* a box when task_args carries a
+        // finite positive number — never blank it. On Cloud Run task_args can be
+        // briefly absent/empty between worker status writes; blanking would flash
+        // the "Inf" placeholder and wipe what the user typed (the "resets to Inf"
+        // bug). Leaving the box untouched keeps the displayed value stable.
+        const ta = (data && data.task_args) || {};
+        const finitePos = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
+        if (status === 'running') {
+            if (bsEl) { if (finitePos(ta.batch_size)) bsEl.value = ta.batch_size; bsEl.disabled = true; }
+            if (mbEl) { if (finitePos(ta.max_batches)) mbEl.value = ta.max_batches; mbEl.disabled = true; }
         } else if (status !== 'running') {
             // Only re-enable + reset when transitioning *out* of running.
             if (bsEl && bsEl.disabled) { bsEl.value = 500; bsEl.disabled = false; }

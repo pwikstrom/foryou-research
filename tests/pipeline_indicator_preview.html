@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrape &amp; Annotate — indicator preview harness</title>
+<!-- Real stylesheet so .cookie-pill / .pipeline-step--* render exactly as in the app.
+     Served from the project root by `python -m http.server`. -->
+<link rel="stylesheet" href="/web_interface/static/style.css">
+<style>
+  /* Minimal page chrome — the real tokens come from style.css. */
+  body { background: var(--color-bg-page, #16181c); color: var(--color-text-primary, #e6e6e6);
+         font-family: var(--font-sans, system-ui); padding: 24px; }
+  h2 { margin: 28px 0 8px; }
+  .card { background: var(--section-bg); border: 1px solid var(--color-border);
+          border-radius: 4px; padding: 16px; margin-bottom: 12px; }
+  .row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .theme-toggle { margin-bottom: 16px; }
+  input[type=number] { width: 70px; background: var(--color-bg-input);
+    border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); padding: 3px; }
+</style>
+</head>
+<body>
+
+<div class="theme-toggle">
+  <button onclick="document.documentElement.setAttribute('data-theme','dark');">Dark</button>
+  <button onclick="document.documentElement.setAttribute('data-theme','light');">Light</button>
+</div>
+
+<h1 class="text-h2">Scrape &amp; Annotate — indicator preview harness</h1>
+<p class="text-sm">Isolated render of the NEW cookie pill + the refresh-pipeline step states. No app / login required.</p>
+
+<!-- ===================== Item 2: cookie pills ===================== -->
+<h2 class="text-h3">Item 2 — cookie-status pills (hover for tooltip)</h2>
+<div class="card">
+  <div class="row"><span class="text-body font-bold" style="width:180px;">TikTok Scraper:</span>
+    <span id="cookie-health-tiktok" class="cookie-pill cookie-pill--unknown meta-tooltip">Cookie: …</span></div>
+  <div class="row"><span class="text-body font-bold" style="width:180px;">Instagram Scraper:</span>
+    <span id="cookie-health-instagram" class="cookie-pill cookie-pill--unknown meta-tooltip">Cookie: …</span></div>
+  <div class="row"><span class="text-body font-bold" style="width:180px;">YouTube Scraper:</span>
+    <span id="cookie-health-youtube" class="cookie-pill cookie-pill--unknown meta-tooltip">Cookie: …</span></div>
+  <div class="row"><span class="text-body font-bold" style="width:180px;">(missing example):</span>
+    <span id="cookie-health-example" class="cookie-pill cookie-pill--unknown meta-tooltip">Cookie: …</span></div>
+</div>
+
+<!-- ===================== Item 3: pipeline step lists ===================== -->
+<h2 class="text-h3">Item 3 — refresh-pipeline step states</h2>
+<div id="scenarios"></div>
+
+<!-- ===================== Item 1: max-batch guard ===================== -->
+<h2 class="text-h3">Item 1 — max-batch guard (type a value, then simulate a poll)</h2>
+<div class="card">
+  <div class="row">
+    <label class="text-xs">MAX BATCHES</label>
+    <input type="number" id="demo-mb" placeholder="Inf">
+    <button onclick="pollRunning({})">poll: running, task_args = {}</button>
+    <button onclick="pollRunning({max_batches: Infinity})">poll: running, max_batches = Infinity</button>
+    <button onclick="pollRunning({max_batches: 3})">poll: running, max_batches = 3</button>
+  </div>
+  <p class="text-xs">Old behavior blanked the box (→ "Inf" placeholder) on the first two. The guard must leave a typed value intact and only overwrite with a finite positive number.</p>
+  <div id="demo-out" class="text-sm"></div>
+</div>
+
+<script>
+// --- escapeHtml (copy of the app helper) ---
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// --- renderPipelineSteps (copy of data_management.js, unchanged logic) ---
+const _PIPELINE_STEP_LABELS = {
+  consolidate_enrichment: "Consolidate enrichment data",
+  embeddings_refresh: "Semantic embeddings", video_map_refresh: "Semantic map",
+  recode_refresh_studies: "Study definitions", meta_refresh_groups: "Explore metadata",
+  pca_refresh: "Correlations", timelines_refresh: "Timelines",
+};
+function renderStepList(container, steps) {
+  container.innerHTML = steps.map(s => {
+    const state = s.state || 'pending';
+    let detail = '';
+    if (state === 'running' && (s.message || s.percent != null)) {
+      const pct = (s.percent != null) ? ` ${Math.round(s.percent)}%` : '';
+      detail = `<span class="pipeline-step-detail text-xxs">${escapeHtml(s.message || '')}${pct}</span>`;
+    }
+    return `<div class="pipeline-step pipeline-step--${state}">`
+      + `<span class="pipeline-step-dot" aria-hidden="true"></span>`
+      + `<span class="pipeline-step-label text-xs">${escapeHtml(s.label || s.step)}</span>`
+      + `<span class="pipeline-step-state text-xxs">${escapeHtml(state)}</span>`
+      + detail + `</div>`;
+  }).join('');
+}
+
+// --- renderCookieHealth (copy of data_management.js addition) ---
+const _COOKIE_STATUS_META = {
+  healthy: { label: 'OK', cls: 'ok' }, expiring_soon: { label: 'Expiring soon', cls: 'warn' },
+  stale: { label: 'Stale', cls: 'warn' }, expired: { label: 'Expired', cls: 'bad' },
+  missing: { label: 'Missing', cls: 'bad' }, unknown: { label: 'Unknown', cls: 'unknown' },
+};
+function renderCookieHealth(healthByPlatform) {
+  for (const [platform, health] of Object.entries(healthByPlatform || {})) {
+    const el = document.getElementById('cookie-health-' + platform);
+    if (!el || !health) continue;
+    const status = health.status || 'unknown';
+    const meta = _COOKIE_STATUS_META[status] || _COOKIE_STATUS_META.unknown;
+    el.className = `cookie-pill cookie-pill--${meta.cls} meta-tooltip`;
+    el.textContent = `Cookie: ${meta.label}`;
+    const parts = [];
+    if (health.message) parts.push(health.message);
+    if (typeof health.file_age_days === 'number') parts.push(`File age: ${health.file_age_days.toFixed(0)}d`);
+    if (typeof health.session_days_left === 'number') {
+      const d = health.session_days_left;
+      parts.push(d >= 0 ? `Expires in: ${d.toFixed(0)}d` : `Expired ${Math.abs(d).toFixed(0)}d ago`);
+    }
+    el.setAttribute('data-tooltip', parts.join(' • ') || 'No cookie detail available');
+  }
+}
+
+// --- setStatus max-batch guard (copy of the guarded main.js block) ---
+const finitePos = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
+function pollRunning(task_args) {
+  const mbEl = document.getElementById('demo-mb');
+  const before = mbEl.value;
+  // running branch:
+  if (finitePos(task_args.max_batches)) mbEl.value = task_args.max_batches;
+  mbEl.disabled = true;
+  document.getElementById('demo-out').textContent =
+    `poll task_args=${JSON.stringify(task_args)} → box was "${before || '(placeholder Inf)'}", now "${mbEl.value || '(placeholder Inf)'}", disabled=${mbEl.disabled}`;
+  setTimeout(() => { mbEl.disabled = false; }, 1200); // re-enable so you can keep testing
+}
+
+// ---- drive the harness ----
+renderCookieHealth({
+  tiktok:    { status: 'healthy',       message: 'sessionid valid for 42 more days (7d old)', file_age_days: 7, session_days_left: 42 },
+  instagram: { status: 'expiring_soon', message: 'sessionid expires in 6.0 days — plan to re-export', session_days_left: 6, file_age_days: 20 },
+  youtube:   { status: 'stale',         message: "cookie file is 30 days old and has no readable '__Secure-3PSID' expiry", file_age_days: 30 },
+  example:   { status: 'missing',       message: 'Cookie file missing — upload a Netscape cookies.txt' },
+});
+
+const scenarios = [
+  ["Consolidate only — during run (list visible immediately)", [
+    { step:'consolidate_enrichment', label:_PIPELINE_STEP_LABELS.consolidate_enrichment, state:'running', percent:40, message:'Consolidating scrape files…' },
+  ]],
+  ["Consolidate & Refresh — downstream running", [
+    { step:'consolidate_enrichment', label:_PIPELINE_STEP_LABELS.consolidate_enrichment, state:'success' },
+    { step:'embeddings_refresh', label:_PIPELINE_STEP_LABELS.embeddings_refresh, state:'running', percent:30, message:'Embedding…' },
+    { step:'video_map_refresh', label:_PIPELINE_STEP_LABELS.video_map_refresh, state:'pending' },
+    { step:'recode_refresh_studies', label:_PIPELINE_STEP_LABELS.recode_refresh_studies, state:'pending' },
+    { step:'meta_refresh_groups', label:_PIPELINE_STEP_LABELS.meta_refresh_groups, state:'pending' },
+    { step:'pca_refresh', label:_PIPELINE_STEP_LABELS.pca_refresh, state:'pending' },
+    { step:'timelines_refresh', label:_PIPELINE_STEP_LABELS.timelines_refresh, state:'pending' },
+  ]],
+  ["Fork leaves (queued / running) + failure → skipped", [
+    { step:'consolidate_enrichment', label:_PIPELINE_STEP_LABELS.consolidate_enrichment, state:'success' },
+    { step:'embeddings_refresh', label:_PIPELINE_STEP_LABELS.embeddings_refresh, state:'success' },
+    { step:'video_map_refresh', label:_PIPELINE_STEP_LABELS.video_map_refresh, state:'failed' },
+    { step:'recode_refresh_studies', label:_PIPELINE_STEP_LABELS.recode_refresh_studies, state:'skipped' },
+    { step:'meta_refresh_groups', label:_PIPELINE_STEP_LABELS.meta_refresh_groups, state:'queued' },
+    { step:'pca_refresh', label:_PIPELINE_STEP_LABELS.pca_refresh, state:'skipped' },
+    { step:'timelines_refresh', label:_PIPELINE_STEP_LABELS.timelines_refresh, state:'skipped' },
+  ]],
+];
+const host = document.getElementById('scenarios');
+for (const [title, steps] of scenarios) {
+  const wrap = document.createElement('div');
+  wrap.className = 'card';
+  wrap.innerHTML = `<div class="text-sm font-bold" style="margin-bottom:8px;">${title}</div>`
+    + `<div class="pipeline-steps"><div class="list"></div></div>`;
+  host.appendChild(wrap);
+  renderStepList(wrap.querySelector('.list'), steps);
+}
+</script>
+</body>
+</html>

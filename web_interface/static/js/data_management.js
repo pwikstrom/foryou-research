@@ -2227,6 +2227,43 @@ function startTargetedRefresh(processName, params) {
         });
 }
 
+// Map a cookie_health status → { label, cls } for the per-card pill. The class
+// selects a semantic-token color in style.css (no hardcoded colors here).
+const _COOKIE_STATUS_META = {
+    healthy: { label: 'OK', cls: 'ok' },
+    expiring_soon: { label: 'Expiring soon', cls: 'warn' },
+    stale: { label: 'Stale', cls: 'warn' },
+    expired: { label: 'Expired', cls: 'bad' },
+    missing: { label: 'Missing', cls: 'bad' },
+    unknown: { label: 'Unknown', cls: 'unknown' },
+};
+
+// Render each platform's cookie-status pill from the enrichment-stats payload.
+// Composes a human tooltip (message + age + expiry) onto the .meta-tooltip pill.
+function renderCookieHealth(healthByPlatform) {
+    for (const [platform, health] of Object.entries(healthByPlatform || {})) {
+        const el = document.getElementById('cookie-health-' + platform);
+        if (!el || !health) continue;
+        const status = health.status || 'unknown';
+        const meta = _COOKIE_STATUS_META[status] || _COOKIE_STATUS_META.unknown;
+
+        el.className = `cookie-pill cookie-pill--${meta.cls} meta-tooltip`;
+        el.textContent = `Cookie: ${meta.label}`;
+
+        // Tooltip: the backend message plus any age / expiry detail it carries.
+        const parts = [];
+        if (health.message) parts.push(health.message);
+        if (typeof health.file_age_days === 'number') {
+            parts.push(`File age: ${health.file_age_days.toFixed(0)}d`);
+        }
+        if (typeof health.session_days_left === 'number') {
+            const d = health.session_days_left;
+            parts.push(d >= 0 ? `Expires in: ${d.toFixed(0)}d` : `Expired ${Math.abs(d).toFixed(0)}d ago`);
+        }
+        el.setAttribute('data-tooltip', parts.join(' • ') || 'No cookie detail available');
+    }
+}
+
 function fetchEnrichmentStats() {
     // The enrichment sub-page only renders for users with
     // 'tab.data_management.enrichment'. Without it the endpoint aborts 403
@@ -2250,6 +2287,9 @@ function fetchEnrichmentStats() {
                     }
                 }
             }
+
+            // Per-platform cookie-health pill (format / age / expiry at a glance)
+            if (data.cookie_health) renderCookieHealth(data.cookie_health);
             if (data.annotate_queue_len !== undefined) {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
                 document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';
