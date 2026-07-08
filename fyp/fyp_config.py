@@ -315,15 +315,19 @@ def _var_schema_path(cf) -> str:
 def _var_schema_source_fingerprint(cf) -> str | None:
     """Cheap fingerprint of the synthesized schema's RUNTIME inputs.
 
-    The schema is synthesized from the contract TOMLs (baked into the deploy —
-    a change means a new process anyway), the presentation store, and the
-    version registries (which change at runtime: registrations, the
-    versions-in-data snapshot, admin presentation edits).
+    The schema is synthesized from the contract TOMLs, the presentation store,
+    and the version registries. Most contract TOMLs are baked into the deploy,
+    but the **annotation** contract can also be uploaded to data storage at
+    runtime (``users/annotation_contract.toml`` — see
+    ``fyp.annotation_contract.refresh_runtime_contract``), so its mtime is folded
+    in here too. The presentation store and version registries also change at
+    runtime (registrations, the versions-in-data snapshot, admin edits).
     ``reload_var_schema_if_changed`` compares this at every Cloud Task entry so
     long-lived containers pick those changes up. Returns None on failure.
     """
     try:
         from fyp import var_presentation as vp
+        from fyp import annotation_contract as ac
         import fyp.data_io as data_io
 
         parts = [f"presentation:{vp.compute_presentation_etag()}"]
@@ -341,6 +345,16 @@ def _var_schema_source_fingerprint(cf) -> str | None:
                     parts.append(f"{fname}:absent")
             except Exception:
                 parts.append(f"{fname}:unknown")
+        # Runtime annotation contract (one getmtime; absent → baked default).
+        try:
+            mtime = data_io.getmtime(
+                storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME
+            )
+            parts.append(f"{ac.RUNTIME_FILENAME}:{mtime}")
+        except FileNotFoundError:
+            parts.append(f"{ac.RUNTIME_FILENAME}:absent")
+        except Exception:
+            parts.append(f"{ac.RUNTIME_FILENAME}:unknown")
         return "|".join(parts)
     except Exception:
         return None
@@ -789,6 +803,14 @@ def load_var_schema(cf, verbose=False):
     unchanged by the retirement.
     """
     from fyp import var_presentation as vp
+    from fyp import annotation_contract as ac
+
+    # 0. Refresh the runtime annotation-contract snapshot BEFORE the overlays, so
+    #    every load_contract() call below (and the accepted_labels overlay) sees
+    #    an uploaded contract. Every rebuild path — boot, ?force_reload=1, Cloud
+    #    Task entry — flows through here, so this is the single refresh point that
+    #    keeps long-lived containers current. Never raises.
+    ac.refresh_runtime_contract()
 
     # 1. Presentation store; seed once from the legacy CSV when absent.
     presentation = vp.load_presentation()

@@ -3063,6 +3063,260 @@ def promote_annotation_version():
 
 
 
+def _annotation_contract_impact(cand_contract: dict) -> dict:
+    """Predict the version impact of activating ``cand_contract``.
+
+    Renders the candidate prompt + response schema exactly the way the annotator
+    would (honoring the ``use_generated_prompt`` / ``use_structured_output``
+    config flags) and compares the resulting ``av_`` descriptor to the current
+    one, so the admin sees "metadata-only — no new version" vs "a new version
+    will be minted" before confirming. Also reports the field-name delta.
+    """
+    from fyp import annotation_contract as ac
+    from fyp import annotation_schema as sch
+
+    machine = fyp_cf["machine"]
+    model = machine.get("model")
+    use_structured = bool(machine.get("use_structured_output", False))
+    use_generated = bool(machine.get("use_generated_prompt", False))
+    gen_params = {k: machine.get(k) for k in annotation_versioning._VERSION_GEN_PARAM_KEYS}
+
+    cur = annotation_versioning.current_version_descriptor(fresh=True)
+    # The contract only drives the prompt when the generated prompt is active;
+    # otherwise the file-based prompt is unaffected by the upload.
+    if use_generated:
+        cand_prompt = sch.build_prompt(cand_contract)
+    else:
+        cand_prompt = annotation_versioning.active_prompt_text()
+    cand_schema = sch.get_annotation_json_schema(cand_contract) if use_structured else None
+    cand = annotation_versioning.build_version_descriptor(model, cand_prompt, cand_schema, gen_params)
+
+    cur_names = {f.get("name") for f in ac.load_contract().get("fields", [])}
+    cand_names = {f.get("name") for f in cand_contract.get("fields", [])}
+    version_changed = cand["annotation_version"] != cur.get("annotation_version")
+    return {
+        "current_version": cur.get("annotation_version"),
+        "candidate_version": cand["annotation_version"],
+        "prompt_changed": cand["prompt_hash"] != cur.get("prompt_hash"),
+        "schema_changed": cand["schema_hash"] != cur.get("schema_hash"),
+        "version_changed": version_changed,
+        "metadata_only": not version_changed,
+        "fields_added": sorted(n for n in (cand_names - cur_names) if n),
+        "fields_removed": sorted(n for n in (cur_names - cand_names) if n),
+        "use_generated_prompt": use_generated,
+        "use_structured_output": use_structured,
+    }
+
+
+
+
+@management_bp.route('/api/manage/annotation-contract', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def get_annotation_contract():
+    """Return the effective-contract status for the admin card."""
+    try:
+        from fyp import annotation_contract as ac
+
+        status = ac.contract_status()
+        return jsonify({
+            **status,
+            "current_version": annotation_versioning.current_annotation_version(),
+            "runtime_filename": ac.RUNTIME_FILENAME,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/annotation-contract/download', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def download_annotation_contract():
+    """Download the effective contract (runtime file if present, else baked)."""
+    try:
+        from flask import Response
+        from fyp import annotation_contract as ac
+
+        text = ac.effective_contract_text()
+        return Response(
+            text,
+            mimetype="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{ac.RUNTIME_FILENAME}"'},
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/annotation-contract', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def upload_annotation_contract():
+    """Validate + (optionally confirm) an uploaded annotation contract.
+
+    Two-step: without ``confirm`` this validates the TOML and returns a
+    version-impact report (dry run); with ``confirm`` it etag-guards, backs up
+    the previous runtime contract, persists the new one, refreshes the snapshot,
+    and rebuilds the in-memory schema. The candidate TOML arrives as a multipart
+    ``file`` or a ``text`` form/JSON field.
+    """
+    global fyp_cf
+    if not _var_schema_admin_enabled():
+        return jsonify({"error": "schema admin disabled"}), 503
+    try:
+        from fyp import annotation_contract as ac
+
+        json_body = request.get_json(silent=True) or {}
+
+        # 1. Candidate TOML text — multipart file wins, else a raw text field.
+        text = None
+        original_filename = None
+        files = [f for f in (request.files.getlist('file') + request.files.getlist('files')) if f and f.filename]
+        if files:
+            original_filename = secure_filename(files[0].filename)
+            try:
+                text = files[0].read().decode('utf-8')
+            except UnicodeDecodeError:
+                return jsonify({"error": "file is not valid UTF-8 text"}), 400
+        else:
+            text = request.form.get('text') or json_body.get('text')
+        if not text or not text.strip():
+            return jsonify({"error": "no contract text provided"}), 400
+
+        # 2. Validate before doing anything else.
+        cand, errors = ac.parse_and_validate(text)
+        if errors:
+            return jsonify({"valid": False, "errors": errors}), 400
+
+        # 3. Version-impact dry-run report.
+        impact = _annotation_contract_impact(cand)
+
+        def _flag(v) -> bool:
+            return str(v).strip().lower() in ('1', 'true', 'yes')
+
+        confirm = _flag(request.form.get('confirm', '')) or bool(json_body.get('confirm'))
+        if not confirm:
+            return jsonify({"valid": True, "confirm_required": True, "impact": impact})
+
+        # 4. Confirm: etag guard against a concurrent change.
+        expected_etag = request.form.get('expected_etag') or json_body.get('expected_etag')
+        current_etag = ac.contract_status().get("etag")
+        if expected_etag and current_etag and expected_etag != current_etag:
+            return jsonify({
+                "error": "conflict",
+                "message": "The contract changed since you loaded it. Reload and retry.",
+                "etag": current_etag,
+            }), 409
+
+        # 5. Back up the existing runtime contract (if any) before overwriting.
+        backup_name = None
+        if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME):
+            prev = data_io.load_text(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
+            if prev is not None:
+                ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+                backup_name = f"{ac.BACKUP_PREFIX}{ts}.toml"
+                data_io.save_text(prev, storage_location=ac.RUNTIME_LOCATION, filename=backup_name)
+
+        # 6. Persist the new contract + audit metadata.
+        data_io.save_text(text, storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
+        data_io.save_json(
+            data={
+                "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "updated_by": _actor(),
+                "original_filename": original_filename,
+            },
+            storage_location=ac.RUNTIME_LOCATION,
+            filename=ac.RUNTIME_META_FILENAME,
+        )
+
+        # 7. Refresh the snapshot + rebuild the schema so overlays pick up new
+        #    metadata; clear the study RAM cache (recode/metadata may change).
+        ac.refresh_runtime_contract()
+        fyp_cf = load_var_schema(fyp_cf, verbose=False)
+        with study_cache.lock:
+            study_cache.cache.clear()
+
+        activity_log.record(
+            actor=_actor(),
+            category="admin",
+            action="annotation_contract.upload",
+            details={
+                "impact": impact,
+                "backup": backup_name,
+                "original_filename": original_filename,
+            },
+        )
+        new_status = ac.contract_status()
+        return jsonify({
+            "ok": True,
+            "source": new_status.get("source"),
+            "etag": new_status.get("etag"),
+            "impact": impact,
+            "backup": backup_name,
+            "note": (
+                "Contract activated. A new annotation version will be minted on the "
+                "next annotation run if the prompt/schema changed; promote it when ready."
+                if impact.get("version_changed")
+                else "Contract activated (metadata-only change — no new annotation version)."
+            ),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/annotation-contract/revert', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def revert_annotation_contract():
+    """Revert to the baked contract by archiving + removing the runtime file."""
+    global fyp_cf
+    if not _var_schema_admin_enabled():
+        return jsonify({"error": "schema admin disabled"}), 503
+    try:
+        from fyp import annotation_contract as ac
+
+        if not data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME):
+            return jsonify({"ok": True, "source": "baked", "note": "Already on the baked contract."})
+
+        backup_name = None
+        prev = data_io.load_text(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
+        if prev is not None:
+            ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            backup_name = f"{ac.BACKUP_PREFIX}{ts}.toml"
+            data_io.save_text(prev, storage_location=ac.RUNTIME_LOCATION, filename=backup_name)
+
+        data_io.remove(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
+        if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME):
+            data_io.remove(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME)
+
+        ac.refresh_runtime_contract()
+        fyp_cf = load_var_schema(fyp_cf, verbose=False)
+        with study_cache.lock:
+            study_cache.cache.clear()
+
+        activity_log.record(
+            actor=_actor(),
+            category="admin",
+            action="annotation_contract.revert",
+            details={"backup": backup_name},
+        )
+        return jsonify({
+            "ok": True,
+            "source": ac.contract_status().get("source"),
+            "backup": backup_name,
+            "note": "Reverted to the baked contract.",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
 @management_bp.route('/api/manage/studies/<study>/annotation-version', methods=['POST'])
 @permission_required('tab.admin.schema')
 @login_required
@@ -3211,12 +3465,20 @@ def get_schema():
     """
     try:
         from fyp import var_presentation as vp
+        from fyp import annotation_contract as ac
 
         if request.args.get("force_reload") in ("1", "true", "yes"):
             global fyp_cf
             fyp_cf = load_var_schema(fyp_cf, verbose=False)
         df = fyp_cf["var_schema"]
         presentation = vp.load_presentation() or vp.empty_presentation()
+        # The annotation contract can be edited at runtime; reflect its live
+        # source so the read-only tooltips point at the right place.
+        ac_source = ac.contract_status().get("source")
+        contract_path = (
+            f"{ac.RUNTIME_FILENAME} (runtime)" if ac_source == "runtime"
+            else "config/annotation_contract.toml (baked)"
+        )
         return jsonify({
             "rows": _df_to_records(df),
             "columns": list(df.columns),
@@ -3226,7 +3488,7 @@ def get_schema():
                 "scale": sorted(VAR_SCHEMA_SCALES),
             },
             "contract_locked": _contract_locked_map(df),
-            "contract_path": "config/annotation_contract.toml",
+            "contract_path": contract_path,
             "scrape_contract_path": "config/scrape_contract.toml",
             # The presentation store is the only admin-editable payload left
             # (the metadata is contract-owned); its etag guards saves.

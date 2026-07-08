@@ -19,9 +19,16 @@ The per-field surface is intentionally small: everything except ``name`` and
     into ``<field>_<key>`` columns.
 """
 
+import hashlib
+import os
 import re
 import tomllib
 from pathlib import Path
+
+# NOTE: fyp.data_io is imported LAZILY inside functions (see _data_io()). A
+# module-level import creates the same fyp_config import cycle documented in
+# fyp/annotation_versioning.py — fyp_config's load-time overlays call
+# load_contract(), so this module must not pull in data_io/fyp_config at import.
 
 # A ``[fields.keys]`` sub-key declared as a bounded integer: ``"int(0,100): desc"``
 # (or ``"int: desc"`` with no bounds). Lets an object sub-key be a clean number
@@ -35,6 +42,43 @@ _DEFAULT_CONTRACT_PATH = (
     Path(__file__).resolve().parent.parent / "config" / "annotation_contract.toml"
 )
 
+# The runtime, admin-editable copy of the contract lives in data storage
+# (location ``users``, alongside var_presentation.json / admin_settings.json).
+# When present and valid it supersedes the baked file above without a redeploy;
+# absent or invalid, the baked file is the factory default. See
+# :func:`refresh_runtime_contract`.
+RUNTIME_LOCATION = "users"
+RUNTIME_FILENAME = "annotation_contract.toml"
+RUNTIME_META_FILENAME = "annotation_contract_meta.json"
+BACKUP_PREFIX = "annotation_contract_backup_"
+
+# Process-local snapshot of the effective contract. NEVER polled per call — it is
+# refreshed only at explicit points (process boot, load_var_schema, Cloud Task
+# entry via reload_var_schema_if_changed, and the upload/revert endpoints), which
+# pins a whole annotation batch to one contract. See the plan's consistency rule.
+_SNAPSHOT: dict = {"loaded": False}
+
+
+
+
+def _data_io():
+    """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
+    import fyp.data_io as data_io
+
+    return data_io
+
+
+
+
+def _baked_only() -> bool:
+    """Return True when ``FYP_BAKED_CONTRACTS_ONLY`` forces the baked contract.
+
+    The golden safety-net runner sets this so a dev machine's local runtime
+    storage can never contaminate the cost-free regression suite; it is also an
+    emergency ops lever to ignore a bad runtime contract without touching storage.
+    """
+    return os.environ.get("FYP_BAKED_CONTRACTS_ONLY", "").strip().lower() in ("1", "true", "yes")
+
 
 
 
@@ -45,32 +89,227 @@ def default_contract_path() -> Path:
 
 
 
-def load_contract(path: str | Path | None = None) -> dict:
-    """Load and validate the annotation contract from a TOML file.
+def parse_and_validate(text: str) -> tuple[dict | None, list[str]]:
+    """Parse TOML text and validate it as an annotation contract.
+
+    Shared by the snapshot loader and the upload endpoint so both agree on what
+    "valid" means.
 
     Args:
-        path: Path to the contract TOML. Defaults to
-            ``config/annotation_contract.toml`` next to the project root.
+        text: The raw TOML text.
+
+    Returns:
+        ``(contract, errors)``. ``contract`` is ``None`` only when the text does
+        not parse as TOML; on a parse success it is the parsed dict even if
+        ``errors`` is non-empty. Callers must treat a non-empty ``errors`` list as
+        a rejection.
+    """
+    try:
+        contract = tomllib.loads(text)
+    except Exception as e:
+        return None, [f"TOML parse error: {e}"]
+    return contract, validate_contract(contract)
+
+
+
+
+def _etag(text: str, source: str) -> str:
+    """Return a source-prefixed content etag (``runtime:``/``baked:`` + sha256)."""
+    return f"{source}:" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
+
+
+
+
+def _read_baked_text() -> str:
+    """Read the baked contract file's raw text."""
+    with open(_DEFAULT_CONTRACT_PATH, encoding="utf-8") as handle:
+        return handle.read()
+
+
+
+
+def _apply_baked_snapshot(error: str | None) -> None:
+    """Load the baked contract into the snapshot (the factory-default state).
+
+    A parse/validate error in the SHIPPED contract is recorded, not raised — the
+    snapshot path must never crash boot (``load_contract(path)`` still raises for
+    tests/tools). ``mtime`` is set by the caller.
+    """
+    text = _read_baked_text()
+    contract, errors = parse_and_validate(text)
+    _SNAPSHOT["contract"] = contract
+    _SNAPSHOT["source"] = "baked"
+    _SNAPSHOT["etag"] = _etag(text, "baked")
+    _SNAPSHOT["error"] = error or ("; ".join(errors) if errors else None)
+
+
+
+
+def refresh_runtime_contract() -> bool:
+    """Refresh the process-local contract snapshot from data storage.
+
+    Probes ``users/annotation_contract.toml`` via a single ``getmtime`` call; when
+    its mtime differs from the last-seen value it reloads and validates. A valid
+    runtime file becomes the effective contract; an absent/unreadable/invalid one
+    degrades to the baked file (with a loud WARNING and the reason recorded in
+    :func:`contract_status` for the admin card). Never raises.
+
+    Returns:
+        True when the effective contract's content changed (etag differs), so
+        callers can bust dependent caches.
+    """
+    old_etag = _SNAPSHOT.get("etag")
+
+    if _baked_only():
+        _apply_baked_snapshot(error=None)
+        _SNAPSHOT["mtime"] = None
+        _SNAPSHOT["loaded"] = True
+        return _SNAPSHOT.get("etag") != old_etag
+
+    try:
+        dio = _data_io()
+        try:
+            mtime = dio.getmtime(storage_location=RUNTIME_LOCATION, filename=RUNTIME_FILENAME)
+        except FileNotFoundError:
+            mtime = None
+
+        # Nothing to do when we have already processed this exact file state
+        # (same mtime, including the "absent" None state) — this is the cheap
+        # steady-state path: one getmtime, no reparse.
+        if _SNAPSHOT.get("loaded") and mtime == _SNAPSHOT.get("mtime"):
+            return False
+
+        if mtime is None:
+            _apply_baked_snapshot(error=None)
+            _SNAPSHOT["mtime"] = None
+        else:
+            text = dio.load_text(storage_location=RUNTIME_LOCATION, filename=RUNTIME_FILENAME)
+            if text is None:
+                print("WARNING: runtime annotation contract present but unreadable; using baked contract.")
+                _apply_baked_snapshot(error="runtime contract unreadable")
+                _SNAPSHOT["mtime"] = mtime
+            else:
+                contract, errors = parse_and_validate(text)
+                if errors:
+                    joined = "; ".join(errors)
+                    print(f"WARNING: runtime annotation contract invalid ({joined}); using baked contract.")
+                    _apply_baked_snapshot(error=joined)
+                    _SNAPSHOT["mtime"] = mtime
+                else:
+                    _SNAPSHOT["contract"] = contract
+                    _SNAPSHOT["source"] = "runtime"
+                    _SNAPSHOT["etag"] = _etag(text, "runtime")
+                    _SNAPSHOT["error"] = None
+                    _SNAPSHOT["mtime"] = mtime
+    except Exception as e:
+        print(f"WARNING: runtime annotation contract probe failed ({e}); using baked contract.")
+        try:
+            _apply_baked_snapshot(error=f"runtime probe failed: {e}")
+            _SNAPSHOT["mtime"] = None
+        except Exception:
+            pass
+
+    _SNAPSHOT["loaded"] = True
+    return _SNAPSHOT.get("etag") != old_etag
+
+
+
+
+def _ensure_loaded() -> None:
+    """Load the snapshot once, lazily, on first access."""
+    if not _SNAPSHOT.get("loaded"):
+        refresh_runtime_contract()
+
+
+
+
+def contract_etag() -> str:
+    """Return the effective contract's content etag (source-prefixed)."""
+    _ensure_loaded()
+    return _SNAPSHOT.get("etag") or "unknown"
+
+
+
+
+def contract_status() -> dict:
+    """Return the effective-contract status for the admin card / status API.
+
+    ``{source, etag, mtime, error, updated_at, updated_by, original_filename}``.
+    The audit fields come from ``annotation_contract_meta.json`` and are only
+    populated for a runtime source. Never raises.
+    """
+    _ensure_loaded()
+    meta: dict = {}
+    if _SNAPSHOT.get("source") == "runtime" and not _baked_only():
+        try:
+            meta = _data_io().load_json(storage_location=RUNTIME_LOCATION, filename=RUNTIME_META_FILENAME) or {}
+        except Exception:
+            meta = {}
+    return {
+        "source": _SNAPSHOT.get("source"),
+        "etag": _SNAPSHOT.get("etag"),
+        "mtime": _SNAPSHOT.get("mtime"),
+        "error": _SNAPSHOT.get("error"),
+        "updated_at": meta.get("updated_at"),
+        "updated_by": meta.get("updated_by"),
+        "original_filename": meta.get("original_filename"),
+    }
+
+
+
+
+def effective_contract_text() -> str:
+    """Return the raw TOML text of the effective contract (runtime or baked).
+
+    Used by the download endpoint. Falls back to the baked text on any error.
+    """
+    _ensure_loaded()
+    if _SNAPSHOT.get("source") == "runtime" and not _baked_only():
+        try:
+            text = _data_io().load_text(storage_location=RUNTIME_LOCATION, filename=RUNTIME_FILENAME)
+            if text is not None:
+                return text
+        except Exception:
+            pass
+    return _read_baked_text()
+
+
+
+
+def load_contract(path: str | Path | None = None) -> dict:
+    """Load and validate the annotation contract.
+
+    Args:
+        path: When given, load and validate that exact TOML file (the historical
+            behavior, raising on error — used by tests and offline tools). When
+            ``None`` (the default and every pipeline call site), return the
+            process-local effective contract snapshot (runtime file if present +
+            valid, else the baked file), loaded lazily on first access and
+            refreshed only at the explicit refresh points.
 
     Returns:
         The parsed contract dict.
 
     Raises:
-        FileNotFoundError: if the contract file does not exist.
-        ValueError: if the contract fails validation.
+        FileNotFoundError: if an explicit ``path`` does not exist.
+        ValueError: if an explicit ``path`` fails validation.
     """
-    contract_path = Path(path) if path is not None else _DEFAULT_CONTRACT_PATH
-    if not contract_path.exists():
-        raise FileNotFoundError(f"Annotation contract not found: {contract_path}")
-    with open(contract_path, "rb") as handle:
-        contract = tomllib.load(handle)
-    errors = validate_contract(contract)
-    if errors:
-        joined = "\n  - ".join(errors)
-        raise ValueError(
-            f"Invalid annotation contract ({contract_path}):\n  - {joined}"
-        )
-    return contract
+    if path is not None:
+        contract_path = Path(path)
+        if not contract_path.exists():
+            raise FileNotFoundError(f"Annotation contract not found: {contract_path}")
+        with open(contract_path, "rb") as handle:
+            contract = tomllib.load(handle)
+        errors = validate_contract(contract)
+        if errors:
+            joined = "\n  - ".join(errors)
+            raise ValueError(
+                f"Invalid annotation contract ({contract_path}):\n  - {joined}"
+            )
+        return contract
+
+    _ensure_loaded()
+    return _SNAPSHOT.get("contract")
 
 
 

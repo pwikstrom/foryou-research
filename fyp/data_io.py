@@ -910,7 +910,124 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
     )
 
     return 0
-            
+
+
+
+
+def load_text(storage_location: str = "cache", filename: str = "", verbose: bool = False) -> str | None:
+    """Load a UTF-8 text file (e.g. a TOML contract) from a storage location.
+
+    The text analogue of :func:`load_json` — used for raw text payloads (TOML,
+    prompts) that must round-trip verbatim without JSON parsing. Handles the GCS
+    read path.
+
+    Args:
+        storage_location: The storage-location key to resolve.
+        filename: The file to read.
+        verbose: When True, print diagnostic notices.
+
+    Returns:
+        The file's text, or ``None`` when it cannot be read.
+    """
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+
+    _t_io = _time.perf_counter()
+    try:
+        if mode == 'gcs':
+            bucket = _get_bucket()
+            if bucket:
+                blob = bucket.blob(blob_name)
+                if blob.exists():
+                    content = blob.download_as_text()
+                    _io_log(
+                        op="load_text",
+                        loc=storage_location,
+                        filename=filename,
+                        mode=mode,
+                        bytes_=len(content),
+                        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+                    )
+                    return content
+                if verbose: print(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+            else:
+                if verbose: print("    [DATA_IO] WARN: GCS bucket not initialized.")
+        else:
+            with open(primary, encoding='utf-8') as file:
+                content = file.read()
+                _io_log(
+                    op="load_text",
+                    loc=storage_location,
+                    filename=filename,
+                    mode=mode,
+                    bytes_=len(content),
+                    t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+                )
+                return content
+    except Exception as e:
+        if verbose: print(f"    [DATA_IO] Loading text failed ({mode}): {e}")
+        if mode == 'local':
+            print(f"    [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
+            return None
+
+    return None
+
+
+
+
+def save_text(data: str = "", storage_location: str = "cache", filename: str = "", verbose: bool = False) -> int:
+    """Save a UTF-8 text string (e.g. a TOML contract) to a storage location.
+
+    The text analogue of :func:`save_json` — the payload is written verbatim
+    (no JSON encoding) with a ``text/plain; charset=utf-8`` content type on GCS.
+
+    Args:
+        data: The text to write.
+        storage_location: The storage-location key to resolve.
+        filename: The destination file.
+        verbose: When True, print diagnostic notices.
+
+    Returns:
+        ``0`` on success.
+    """
+    if data is None:
+        raise ValueError("Data cannot be empty")
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+
+    _t_io = _time.perf_counter()
+    if mode == 'gcs':
+        bucket = _get_bucket()
+        if bucket:
+            blob = bucket.blob(blob_name)
+            blob.upload_from_string(data, content_type="text/plain; charset=utf-8")
+            if verbose: print(f"    [DATA_IO] Saved text to GCS: {blob_name}")
+        else:
+            raise ValueError("GCS bucket not initialized")
+    else:
+        os.makedirs(os.path.dirname(primary), exist_ok=True)
+        with open(primary, 'w', encoding='utf-8') as file:
+            file.write(data)
+
+    _io_log(
+        op="save_text",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=len(data),
+        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+    )
+
+    return 0
+
 
 
 
