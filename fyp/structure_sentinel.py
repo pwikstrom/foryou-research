@@ -303,8 +303,10 @@ def fingerprint_zip(local_path: str, member_suffixes: list[str]) -> dict:
     JSON members contribute typed key paths scoped as ``<suffix>::<path>``;
     HTML members contribute structural markers via
     :func:`fingerprint_html_watch_history` (scoped the same way) plus ratio
-    stats. An unparseable JSON member is recorded as a distinct pseudo path so
-    it both surfaces as drift and removes the member's core paths.
+    stats; CSV members contribute their header columns as
+    ``<suffix>::col:<name>`` paths. An unparseable JSON member is recorded as
+    a distinct pseudo path so it both surfaces as drift and removes the
+    member's core paths.
 
     Args:
         local_path: Local filesystem path to the zip (see ``data_io.local_copy``).
@@ -327,6 +329,12 @@ def fingerprint_zip(local_path: str, member_suffixes: list[str]) -> dict:
             html_fp = fingerprint_html_watch_history(raw)
             key_paths.update(f"{suffix}{MEMBER_SEP}{p}" for p in html_fp["marker_paths"])
             stats.update(html_fp["stats"])
+            continue
+        if suffix.endswith(".csv"):
+            header = raw.split(b"\n", 1)[0].decode("utf-8", errors="replace").strip()
+            key_paths.update(
+                f"{suffix}{MEMBER_SEP}col:{col.strip()}" for col in header.split(",") if col.strip()
+            )
             continue
         try:
             payload = json.loads(raw.decode("utf-8"))

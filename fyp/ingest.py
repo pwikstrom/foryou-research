@@ -9,6 +9,7 @@ Date:
 
 import functools
 import html
+import io
 import json
 import os
 import re
@@ -33,7 +34,7 @@ from fyp.organize_datasets import COLLECTIONS_LABEL
 from fyp.polars_ops import fast_vertical_concat
 from fyp.recode_variables import infer_timezone_offset
 from fyp.types import convert_dtypes_to_pyarrow
-from fyp.utils import clean_url, read_zip_members, repair_mojibake
+from fyp.utils import ACTIVITY_TYPE_MAP, clean_url, read_zip_members, repair_mojibake
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 
@@ -348,6 +349,17 @@ def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int = 900) -> pd.DataF
 
 
 
+def _engagement_token(atype: str, edata) -> str:
+    """Build one folded ``extra_data`` token: ``"<atype>"`` or ``"<atype>:context"``."""
+    if edata is not pd.NA and pd.notna(edata):
+        edata_clean = re.sub(r"[\s,]+", " ", str(edata)).strip()
+        if edata_clean:
+            return f"{atype}:{edata_clean}"
+    return str(atype)
+
+
+
+
 def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFrame:
     """Derive per-play dwell time from forward time-deltas between activities.
 
@@ -359,6 +371,14 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
     first play in the run; the non-lead activity types are folded into the lead
     play's ``extra_data``. Non-play activities always get NA, as does the last
     activity of the frame (no forward delta) and anything above ``cap_seconds``.
+
+    Engagement activities (fave/comment/share/follow/save) that are *not*
+    chronologically adjacent to a play of the same item still get linked: their
+    token is folded into the nearest-in-time play row with the same ``item_id``
+    anywhere in the frame. This matters on platforms whose exports log a view
+    only once per item (e.g. Instagram's ``videos_watched``), so a later like
+    of that item can be days away from its logged play. Only ``extra_data`` is
+    affected — ``play_duration`` stays a strictly adjacency-based measure.
 
     Args:
         df: A single-donor activity frame in chronological order with
@@ -372,6 +392,10 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
     df = df.reset_index(drop=True)
     if "extra_data" not in df.columns:
         df["extra_data"] = pd.NA
+    elif isinstance(df["extra_data"].dtype, pd.ArrowDtype) and df["extra_data"].isna().all():
+        # An all-NA pyarrow column may carry the null type, which rejects the
+        # string tokens the folds below write into it.
+        df["extra_data"] = df["extra_data"].astype("string[pyarrow]")
 
     if df.empty:
         df["play_duration"] = pd.Series([], dtype="int64[pyarrow]")
@@ -389,6 +413,10 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
     # of a run when its item_id equals the previous row's item_id (and item_id is not null).
     # Such runs are vanishingly rare (~1/10,000 activities are non-play), so we iterate.
     is_continuation = df["item_id"].notna() & (df["item_id"] == df["item_id"].shift(1))
+
+    # Non-lead rows whose token was folded into an adjacent lead play. Rows in
+    # here are excluded from the same-item fallback fold below.
+    folded_rows: set[int] = set()
 
     if is_continuation.any():
         # Walk each continuation backward to find the full run, then aggregate.
@@ -432,16 +460,34 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
                 atype = df.at[i, "activity_type"]
                 if atype is pd.NA:
                     continue
-                edata = df.at[i, "extra_data"]
-                if edata is not pd.NA:
-                    edata_clean = re.sub(r"[\s,]+", " ", str(edata)).strip()
-                    other_parts.append(f"{atype}:{edata_clean}")
-                else:
-                    other_parts.append(atype)
+                other_parts.append(_engagement_token(atype, df.at[i, "extra_data"]))
+                folded_rows.add(i)
             if other_parts:
                 df.at[first_play, "extra_data"] = ",".join(other_parts)
 
-    # 3. Cap play_duration at cap_seconds and cast to the project dtype.
+    # 3. Same-item fallback fold: engagement rows that did not fold via
+    # adjacency but whose item was played somewhere in the frame get their
+    # token appended to the nearest-in-time play of that item.
+    is_engagement = df["activity_type"].isin(list(ACTIVITY_TYPE_MAP.keys()))
+    pending = df.index[is_engagement & df["item_id"].notna() & ~df.index.isin(list(folded_rows))]
+    if len(pending) > 0:
+        is_play = df["activity_type"] == "play"
+        plays = df.loc[is_play & df["item_id"].notna(), "item_id"]
+        play_rows_by_item = {k: list(v) for k, v in plays.groupby(plays).groups.items()}
+        for i in pending:
+            candidates = play_rows_by_item.get(df.at[i, "item_id"], [])
+            if not candidates:
+                continue
+            ts = df.at[i, "utc_timestamp"]
+            target = min(candidates, key=lambda p: abs(df.at[p, "utc_timestamp"] - ts))
+            token = _engagement_token(df.at[i, "activity_type"], df.at[i, "extra_data"])
+            existing = df.at[target, "extra_data"]
+            if existing is not pd.NA and pd.notna(existing):
+                df.at[target, "extra_data"] = f"{existing},{token}"
+            else:
+                df.at[target, "extra_data"] = token
+
+    # 4. Cap play_duration at cap_seconds and cast to the project dtype.
     df["play_duration"] = df["play_duration"].map(
         lambda x: x if pd.notna(x) and x <= cap_seconds else pd.NA
     ).astype("int64[pyarrow]")
@@ -2147,11 +2193,15 @@ def _config_timezone_offset() -> float:
 class InstagramDDPCollection(ForYouBaseCollection):
     """Instagram "Download Your Information" export ingester.
 
-    Parses the two activity streams we care about from the uploaded zip: viewed
-    reels (``story_interactions/stories_viewed.json`` → ``activity_type='play'``)
-    and liked posts (``likes/liked_posts.json`` → ``activity_type='fave'``).
-    Both the current ``label_values`` record schema and the classic
-    ``string_list_data`` / ``string_map_data`` schema are supported. The donated
+    Parses the activity streams we care about from the uploaded zip: viewed
+    reels (``story_interactions/stories_viewed.json``), watched feed videos
+    (``ads_and_topics/videos_watched.json``) and viewed feed posts
+    (``ads_and_topics/posts_viewed.json``) → ``activity_type='play'``, plus
+    liked posts (``likes/liked_posts.json`` → ``activity_type='fave'``). The
+    feed-impression streams are what give a liked reel/post a play row to fold
+    onto — likes are mostly on feed items, which never appear in
+    ``stories_viewed``. Both the current ``label_values`` record schema and the
+    classic ``string_list_data`` / ``string_map_data`` schema are supported. The donated
     caption and owner are captured as an enrichment seed via the base ``seed_*``
     contract. Structural failures (unreadable zip, missing members, invalid
     JSON) raise so the file stays pending instead of being silently discarded.
@@ -2164,6 +2214,8 @@ class InstagramDDPCollection(ForYouBaseCollection):
     # (inner zip-member suffix, activity_type) for each stream we ingest.
     _STREAMS = [
         ("story_interactions/stories_viewed.json", "play"),
+        ("ads_and_topics/videos_watched.json", "play"),
+        ("ads_and_topics/posts_viewed.json", "play"),
         ("likes/liked_posts.json", "fave"),
     ]
     _SHORTCODE_RE = re.compile(r"instagram\.com/(?:reel|p|tv)/([\w-]+)")
@@ -2343,6 +2395,13 @@ class YouTubeDDPCollection(ForYouBaseCollection):
     become ``activity_type='ad_play'``; non-video events (Shorts-creation,
     community-post views) are dropped. The donated title and channel are
     captured as an enrichment seed via the base ``seed_*`` contract.
+
+    Engagement is read from the Takeout CSVs alongside the watch history:
+    ``comments/comments.csv`` → ``comment`` rows (comment text in
+    ``extra_data``), ``playlists/Liked videos.csv`` → ``fave`` rows and
+    ``playlists/Favorites videos.csv`` → ``save`` rows. All three carry exact
+    ISO-8601 timestamps and video ids, so ``derive_play_duration`` folds them
+    into the matching watch-history play's ``extra_data``.
     """
 
     platform_url_template = "https://www.youtube.com/watch?v={item_id}"
@@ -2351,6 +2410,14 @@ class YouTubeDDPCollection(ForYouBaseCollection):
 
     _MEMBER_SUFFIX_HTML = "history/watch-history.html"
     _MEMBER_SUFFIX_JSON = "history/watch-history.json"
+    # (zip-member suffix, activity_type, timestamp column) for the engagement
+    # CSVs. Every member is optional — most Takeout accounts have only some.
+    _ENGAGEMENT_MEMBERS = [
+        ("comments/comments.csv", "comment", "Comment create timestamp"),
+        ("playlists/Liked videos.csv", "fave", "Playlist video creation timestamp"),
+        ("playlists/Favorites videos.csv", "save", "Playlist video creation timestamp"),
+    ]
+    _VIDEO_ID_RE = re.compile(r"^[\w-]{11}$")
     _BODY_RE = re.compile(r'body-1[^>]*>(.*?)</div>', re.S)
     _CAPTION_RE = re.compile(r'mdl-typography--caption">(.*?)</div>', re.S)
     _VIDEO_RE = re.compile(r'watch\?v=([\w-]{11})')
@@ -2401,8 +2468,10 @@ class YouTubeDDPCollection(ForYouBaseCollection):
 
     @classmethod
     def zip_member_suffixes(cls) -> list[str]:
-        """Both watch-history members; a Takeout zip carries one of the two."""
-        return [cls._MEMBER_SUFFIX_JSON, cls._MEMBER_SUFFIX_HTML]
+        """Watch-history members (JSON or HTML) plus the engagement CSVs."""
+        return [cls._MEMBER_SUFFIX_JSON, cls._MEMBER_SUFFIX_HTML] + [
+            suffix for suffix, _, _ in cls._ENGAGEMENT_MEMBERS
+        ]
 
 
 
@@ -2506,6 +2575,80 @@ class YouTubeDDPCollection(ForYouBaseCollection):
 
 
     @classmethod
+    def _parse_engagement(cls, members: dict[str, bytes | None], filename: str) -> pd.DataFrame:
+        """Parse the optional engagement CSVs into activity rows.
+
+        Comments become ``comment`` rows with the comment text in
+        ``extra_data`` (Takeout serialises it as ``{"text": "..."}``); liked /
+        favorited videos become ``fave`` / ``save`` rows. Rows without a valid
+        11-char video id or a parseable timestamp are skipped.
+
+        Args:
+            members: The ``read_zip_members`` result for this upload.
+            filename: The upload's name, for error messages.
+
+        Returns:
+            A frame with ``item_id`` / ``activity_type`` / ``utc_timestamp`` /
+            ``extra_data`` columns — empty when no engagement member is present.
+
+        Raises:
+            ValueError: when a present member cannot be parsed as CSV —
+                a structural failure that must leave the file pending.
+        """
+        frames = []
+        for suffix, activity_type, ts_column in cls._ENGAGEMENT_MEMBERS:
+            raw = members.get(suffix)
+            if raw is None:
+                continue
+            try:
+                csv_df = pd.read_csv(io.BytesIO(raw))
+            except Exception as exc:
+                raise ValueError(f"'{filename}' member '{suffix}' is not parseable CSV: {exc}") from exc
+            if "Video ID" not in csv_df.columns or ts_column not in csv_df.columns:
+                raise ValueError(
+                    f"'{filename}' member '{suffix}' lacks the expected "
+                    f"'Video ID' / '{ts_column}' columns"
+                )
+            part = pd.DataFrame({
+                "item_id": csv_df["Video ID"].astype("string").str.strip(),
+                "utc_timestamp": pd.to_datetime(
+                    csv_df[ts_column], utc=True, format="ISO8601", errors="coerce"
+                ),
+                "activity_type": activity_type,
+            })
+            if activity_type == "comment" and "Comment text" in csv_df.columns:
+                part["extra_data"] = csv_df["Comment text"].astype("string").map(cls._comment_text)
+            part = part[
+                part["item_id"].notna()
+                & part["item_id"].str.fullmatch(cls._VIDEO_ID_RE.pattern)
+                & part["utc_timestamp"].notna()
+            ]
+            if not part.empty:
+                frames.append(part)
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
+
+
+
+    @staticmethod
+    def _comment_text(cell) -> object:
+        """Extract the plain text from a Takeout comment cell (``{"text": ...}``)."""
+        if not isinstance(cell, str) or not cell.strip():
+            return pd.NA
+        try:
+            payload = json.loads(cell)
+            if isinstance(payload, dict) and payload.get("text"):
+                return str(payload["text"])
+        except ValueError:
+            pass
+        return cell
+
+
+
+
+    @classmethod
     def _convert_timestamps(cls, df: pd.DataFrame, donor_tz=None) -> pd.Series:
         """Vectorised conversion of the parsed timestamp components to UTC.
 
@@ -2598,9 +2741,7 @@ class YouTubeDDPCollection(ForYouBaseCollection):
             raise ValueError(f"could not fetch '{filename}' from '{self.raw_path}'")
 
         try:
-            members = read_zip_members(
-                local_path, [self._MEMBER_SUFFIX_JSON, self._MEMBER_SUFFIX_HTML]
-            )
+            members = read_zip_members(local_path, type(self).zip_member_suffixes())
         finally:
             data_io.release_local_copy(local_path)
         raw_json = members[self._MEMBER_SUFFIX_JSON]
@@ -2648,6 +2789,10 @@ class YouTubeDDPCollection(ForYouBaseCollection):
                 f"'{filename}': {len(df)} watch event(s) found but no timestamp "
                 f"could be parsed{hint}"
             )
+
+        engagement = self._parse_engagement(members, filename)
+        if not engagement.empty:
+            df = pd.concat([df, engagement], ignore_index=True)
         return df
 
 
@@ -2655,9 +2800,19 @@ class YouTubeDDPCollection(ForYouBaseCollection):
 
 
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Flag ads vs organic watches and finalize the frame."""
+        """Flag ads vs organic watches and finalize the frame.
+
+        Engagement rows (comment/fave/save) arrive with ``activity_type``
+        already set by ``_parse_engagement``; only watch-history rows (where it
+        is absent) get the ad/organic split.
+        """
         df = df.copy()
-        df["activity_type"] = np.where(df["is_ad"].fillna(False), "ad_play", "play")
+        if "activity_type" not in df.columns:
+            df["activity_type"] = pd.NA
+        history = df["activity_type"].isna()
+        df.loc[history, "activity_type"] = np.where(
+            df.loc[history, "is_ad"].eq(True), "ad_play", "play"
+        )
         return derive_play_duration(self._finalize_activity_frame(df))
 
 

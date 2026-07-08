@@ -133,6 +133,61 @@ def test_missing_extra_data_column_is_added():
 
 
 
+def test_fallback_fold_links_distant_engagement():
+    # A fave a week after the (only logged) play of the same item still folds
+    # into that play's extra_data — the IG videos_watched / liked_posts case.
+    out = derive_play_duration(_frame(
+        [0, 20, 7 * 86400], ["play", "play", "fave"], ["a", "b", "a"],
+    ))
+    assert out.loc[0, "extra_data"] == "fave"
+    assert pd.isna(out.loc[1, "extra_data"])
+    # play_duration stays adjacency-based: the distant fave adds no dwell.
+    assert out.loc[0, "play_duration"] == 20
+    print("PASS: fallback fold links distant same-item engagement")
+
+
+
+
+def test_fallback_fold_picks_nearest_play():
+    # The item was played twice; a later non-adjacent fave folds onto the
+    # nearer of the two plays.
+    out = derive_play_duration(_frame(
+        [0, 100000, 100200, 100500],
+        ["play", "play", "play", "fave"],
+        ["a", "a", "b", "a"],
+    ))
+    # Rows 0-1 are an adjacency run (rewatch): the second play's type is
+    # annotated on the lead play, as before.
+    assert out.loc[0, "extra_data"] == "play"
+    # The fave folds onto row 1 — the play of "a" nearest in time.
+    assert out.loc[1, "extra_data"] == "fave"
+    print("PASS: fallback fold picks the nearest play of the item")
+
+
+
+
+def test_fallback_fold_carries_comment_payload():
+    out = derive_play_duration(_frame(
+        [0, 100, 5000], ["play", "play", "comment"], ["a", "b", "a"],
+        extra_data=[None, None, "nice, one"],
+    ))
+    assert out.loc[0, "extra_data"] == "comment:nice one"
+    print("PASS: fallback fold carries the cleaned comment payload")
+
+
+
+
+def test_fallback_fold_without_matching_play_is_noop():
+    out = derive_play_duration(_frame(
+        [0, 3600], ["play", "fave"], ["a", "z"],
+    ))
+    assert pd.isna(out.loc[0, "extra_data"])
+    assert pd.isna(out.loc[1, "extra_data"])
+    print("PASS: engagement without a matching play stays standalone")
+
+
+
+
 if __name__ == "__main__":
     test_forward_delta_on_plays()
     test_non_play_rows_get_na()
@@ -142,4 +197,8 @@ if __name__ == "__main__":
     test_run_without_play_gets_na()
     test_empty_and_single_row()
     test_missing_extra_data_column_is_added()
+    test_fallback_fold_links_distant_engagement()
+    test_fallback_fold_picks_nearest_play()
+    test_fallback_fold_without_matching_play_is_noop()
+    test_fallback_fold_carries_comment_payload()
     print("All derive_play_duration tests passed.")

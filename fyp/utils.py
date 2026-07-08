@@ -444,7 +444,9 @@ def start_monitor(
 # Engagement activity tokens carried inside the folded `extra_data` column.
 # A play row's `extra_data` is a comma-separated list of "<atype>[:context]"
 # tokens (e.g. "fave", "comment:hello", "fave,follow:somebody") recorded
-# when other activities share the same session run as the leading play.
+# when other activities share the same session run as the leading play, or —
+# for engagement that is not adjacent to any play — folded into the
+# nearest-in-time play of the same item (see ingest.derive_play_duration).
 ENGAGEMENT_TYPES = ('fave', 'share', 'comment', 'follow', 'save')
 ACTIVITY_TYPE_MAP = {
     'fave': 'fave',
