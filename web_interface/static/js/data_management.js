@@ -236,15 +236,6 @@ function renderCollectionSelector(container, selectedList) {
     }
 }
 
-function _syncUpdateCountsBtn(formContainer) {
-    const btn = formContainer.querySelector('[onclick*="updateStudyEstimates"]');
-    if (!btn) return;
-    const viz = formContainer.querySelector('.study-set-viz');
-    const needsUpdate = !viz || viz.dataset.state !== 'ready';
-    btn.style.opacity = needsUpdate ? '1' : '0.4';
-    btn.style.pointerEvents = needsUpdate ? '' : 'none';
-}
-
 const _LARGE_STUDY_THRESHOLD = 500000;
 
 function _sumSelectedActivities(formContainer) {
@@ -668,8 +659,8 @@ function populateForm(row, study) {
 
     // 3. Stats Display (seed from saved study; potentials fill on chart fetch).
     // Collections shows in the header; the mosaic viz needs the date-range universe
-    // counts (only from /calculate_stats), so it stays on its placeholder until
-    // "Check study design".
+    // counts (only from /calculate_stats), so it stays on its placeholder until the
+    // auto-estimate runs.
     const stats = study.stats || {};
     const seededPotentialCols = Array.isArray(study.SELECTED_COLLECTIONS) ? study.SELECTED_COLLECTIONS.length : undefined;
     if (stats.unique_collections != null) {
@@ -687,8 +678,6 @@ function populateForm(row, study) {
     } else {
         _resetStudySetViz(row, 'empty');
     }
-
-    _syncUpdateCountsBtn(row);
 
     // Auto-update the mosaic / issues / overlay when sampling or the date window
     // changes — no button. Sampling commits on 'change' (release/blur); the hidden
@@ -812,17 +801,14 @@ function collectSaveSettings(row) {
 
 
 function _showSaveStatusMsg(btn, msg) {
-    // Show a temporary message to the right of the Check enrichment status button
+    // Show a temporary message alongside the button that triggered the action.
     const row = btn.closest('div');
     let span = row.querySelector('.save-status-msg');
     if (!span) {
         span = document.createElement('span');
         span.className = 'save-status-msg text-xs';
         span.style.cssText = 'color: var(--color-text-tertiary); margin-left: 4px;';
-        // Insert after the Check enrichment status button
-        const checkBtn = row.querySelector('[onclick*="updateStudyEstimates"]');
-        if (checkBtn) checkBtn.insertAdjacentElement('afterend', span);
-        else row.appendChild(span);
+        row.appendChild(span);
     }
     span.textContent = msg;
     setTimeout(() => { span.textContent = ''; }, 4000);
@@ -1126,126 +1112,6 @@ function _runStudyEstimate(row) {
         });
 }
 
-window.updateStudyEstimates = async function (btn, event) {
-    if (event) event.preventDefault();
-    const formContainer = btn.closest('.study-edit-form');
-    let studyName = formContainer.dataset.studyName;
-    const isNew = formContainer.dataset.isNew === 'true';
-
-    // For new studies, auto-save the definition first
-    if (isNew) {
-        const nameInput = document.getElementById('newStudyNameInput');
-        const name = nameInput ? nameInput.value.trim() : '';
-        if (!name) {
-            _showSaveStatusMsg(btn, 'Enter a study name');
-            if (nameInput) nameInput.focus();
-            return;
-        }
-        if (allStudies.find(s => s.STUDY_NAME === name)) {
-            _showSaveStatusMsg(btn, 'Study name already exists');
-            if (nameInput) nameInput.focus();
-            return;
-        }
-        studyName = name;
-
-        btn.textContent = "Saving...";
-        btn.disabled = true;
-
-        try {
-            const saveData = collectFormData(formContainer);
-            saveData.STUDY_NAME = studyName;
-            saveData.definition_only = true;
-
-            const saveRes = await fetch('/api/manage/studies/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                body: JSON.stringify(saveData)
-            });
-            const saveResult = await saveRes.json();
-            if (saveResult.status !== 'success') {
-                _showSaveStatusMsg(btn, saveResult.error || 'Save failed');
-                btn.textContent = "Check study design";
-                btn.disabled = false;
-                return;
-            }
-            // Update local state
-            formContainer.dataset.isNew = 'false';
-            formContainer.dataset.studyName = studyName;
-            allStudies.push(saveResult.study);
-            renderStudiesTable();
-
-            // Refresh study dropdowns across all tabs (definition-only save)
-            refreshStudyDropdowns();
-        } catch (err) {
-            console.error(err);
-            _showSaveStatusMsg(btn, 'Save failed');
-            btn.textContent = "Check study design";
-            btn.disabled = false;
-            return;
-        }
-    }
-
-    if (!studyName) {
-        _showSaveStatusMsg(btn, 'No study name');
-        return;
-    }
-
-    try {
-        const formData = collectFormData(formContainer);
-        formData.STUDY_NAME = studyName;
-
-        const proceed = await _checkLargeStudy(formContainer);
-        if (!proceed) return;
-
-        btn.textContent = "Checking...";
-        btn.disabled = true;
-
-        fetch('/api/manage/studies/calculate_stats', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-            body: JSON.stringify(formData)
-        })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    const stats = data.stats || {};
-                    const potentials = data.potentials || {};
-                    _updateCollectionsHeader({ actual: stats.unique_collections, potential: potentials.collections });
-                    _renderStudySetViz(formContainer, {
-                        universe: data.universe,
-                        included: stats,
-                        frame: formData.SAMPLE_FRAME,
-                    });
-                    _syncUpdateCountsBtn(formContainer);
-
-                    // Keep client-side cache in sync so reopening the modal
-                    // shows the full set of metrics without a roundtrip.
-                    const cached = allStudies.find(s => s.STUDY_NAME === studyName);
-                    if (cached) cached.stats = stats;
-
-                    _setDailyChartOverlay(formContainer, data.included_per_day || []);
-                    _renderStudyIssues(formContainer, data.issues || []);
-
-                } else {
-                    alert("Error updating estimates: " + data.error);
-                }
-            })
-            .catch(err => {
-                console.error(err);
-                alert("Update failed.");
-            })
-            .finally(() => {
-                btn.textContent = "Check study design";
-                btn.disabled = false;
-            });
-
-    } catch (e) {
-        console.error("Failed to collect data for estimate update", e);
-        btn.textContent = "Check study design";
-        btn.disabled = false;
-    }
-}
-
 
 function deleteStudy(btn, event) {
     if (event) event.preventDefault();
@@ -1340,10 +1206,10 @@ function _getSelectedCollections(row) {
     catch (e) { return []; }
 }
 
-// Warm the server-side "Check study design" frame for the current collection set so
-// the first button press is fast. Fire-and-forget: the modal calls this on open and on
+// Warm the server-side study-estimate frame for the current collection set so the
+// first auto-estimate is fast. Fire-and-forget: the modal calls this on open and on
 // every collection-selection change (via _fetchDailyChart), so the (possibly slow)
-// build / disk-load happens during the user's think-time rather than on the first press.
+// build / disk-load happens during the user's think-time rather than on the first estimate.
 function _prewarmStudyCheck(selected, studyName) {
     if (!Array.isArray(selected) || selected.length === 0) return;
     fetch('/api/manage/studies/prewarm_check', {
@@ -1772,7 +1638,7 @@ function _resetStudySetViz(row, state) {
     const viz = row.querySelector('.study-set-viz');
     if (!viz) return;
     viz.dataset.state = state || 'stale';
-    viz.innerHTML = '<div class="study-set-viz-empty text-xs">Press “Check study design” to see activity coverage and the sampled share.</div>';
+    viz.innerHTML = '<div class="study-set-viz-empty text-xs">Select collections and a date range to see activity coverage and the sampled share.</div>';
 }
 
 function _renderStudySetViz(row, { universe, included, frame, seeded } = {}) {
@@ -1847,7 +1713,7 @@ function _renderStudySetViz(row, { universe, included, frame, seeded } = {}) {
         `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--eligible"></span>inside frame, not sampled</span>` +
         `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--outframe"></span>outside frame</span>` +
         `</div>` +
-        (seeded ? `<div class="study-viz__seeded-note text-xxs">Showing the last checked result; press Check study design to refresh.</div>` : '');
+        (seeded ? `<div class="study-viz__seeded-note text-xxs">Showing the last saved result; adjust the sampling or date range to refresh.</div>` : '');
     viz.dataset.state = seeded ? 'seeded' : 'ready';
     requestAnimationFrame(() => _fitMosaicLabels(viz));
 }
