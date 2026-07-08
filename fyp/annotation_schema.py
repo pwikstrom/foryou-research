@@ -22,36 +22,81 @@ import google.genai.types as gt
 
 from fyp import annotation_contract as _ac
 
-# The declarative contract is loaded once at import; the prompt, response schema
-# and flattener field specs all derive from it.
-_CONTRACT = _ac.load_contract()
+# The declarative contract is now loaded LAZILY and can change at runtime (an
+# admin can upload a new one — see fyp.annotation_contract). ``_specs`` memoizes
+# the (contract, FIELD_SPECS) pair keyed by the contract's content etag, so the
+# prompt / response schema / flattener rebuild automatically when — and only
+# when — the effective contract changes. No import-time freeze.
+_SPECS_CACHE: dict = {}
 
-# Enum value lists (derived from the contract; kept as module-level aliases for
-# readability and any back-compat reference).
-YES_NO = _ac.enum_values(_CONTRACT, "yes_no")
-GENDER_VALUES = _ac.enum_values(_CONTRACT, "gender")
-ETHNICITY_VALUES = _ac.enum_values(_CONTRACT, "ethnicity")
-TYPE_OF_STORY_VALUES = _ac.enum_values(_CONTRACT, "type_of_story")
-CONTENT_CATEGORY_VALUES = _ac.enum_values(_CONTRACT, "content_category")
-
-# Ordered field contract. Each entry: (gemini_field, json_schema_node, flatten_rule).
-# Built from the TOML; order mirrors the prompt sections and drives propertyOrdering.
-FIELD_SPECS: list[tuple[str, dict, str]] = _ac.build_field_specs(_CONTRACT)
+# Enum aliases historically exposed as module constants. Kept for back-compat via
+# the module ``__getattr__`` below (computed from the live contract on access).
+_ENUM_ALIASES = {
+    "YES_NO": "yes_no",
+    "GENDER_VALUES": "gender",
+    "ETHNICITY_VALUES": "ethnicity",
+    "TYPE_OF_STORY_VALUES": "type_of_story",
+    "CONTENT_CATEGORY_VALUES": "content_category",
+}
 
 
-def get_annotation_json_schema() -> dict:
+def _resolve_contract(contract: dict | None) -> dict:
+    """Return the given contract, or the live effective-contract snapshot."""
+    return contract if contract is not None else _ac.load_contract()
+
+
+def _specs(contract: dict | None = None) -> tuple[dict, list[tuple[str, dict, str]]]:
+    """Return ``(contract, field_specs)`` for the given or live contract.
+
+    With no ``contract`` the live snapshot is used and the result is memoized on
+    ``annotation_contract.contract_etag()`` (an in-memory read — no I/O), so a
+    contract swap busts the cache. An explicit ``contract`` (the upload dry-run)
+    bypasses the cache and never mutates live state.
+    """
+    if contract is not None:
+        return contract, _ac.build_field_specs(contract)
+    etag = _ac.contract_etag()
+    if _SPECS_CACHE.get("etag") != etag:
+        live = _ac.load_contract()
+        _SPECS_CACHE["etag"] = etag
+        _SPECS_CACHE["contract"] = live
+        _SPECS_CACHE["specs"] = _ac.build_field_specs(live)
+    return _SPECS_CACHE["contract"], _SPECS_CACHE["specs"]
+
+
+def __getattr__(name: str):
+    """Back-compat for the module attributes the import-time freeze used to set.
+
+    ``FIELD_SPECS`` / ``_CONTRACT`` and the ``*_VALUES`` enum lists are computed
+    from the live contract on access (PEP 562). Existing importers keep working.
+    """
+    if name == "FIELD_SPECS":
+        return _specs()[1]
+    if name == "_CONTRACT":
+        return _ac.load_contract()
+    if name in _ENUM_ALIASES:
+        return _ac.enum_values(_ac.load_contract(), _ENUM_ALIASES[name])
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def get_annotation_json_schema(contract: dict | None = None) -> dict:
     """Return the full annotation contract as a portable JSON Schema dict.
 
     Every field is required (the contract has no conditional fields).
 
+    Args:
+        contract: When given, render this contract (used by the upload dry-run);
+            otherwise the live effective contract.
+
     Returns:
         A JSON-schema ``object`` whose properties are the Gemini fields in
-        ``FIELD_SPECS`` order, with a ``propertyOrdering`` hint.
+        field-spec order, with a ``propertyOrdering`` hint.
     """
+    _contract, specs = _specs(contract)
     properties: dict = {}
-    for name, node, _rule in FIELD_SPECS:
+    for name, node, _rule in specs:
         properties[name] = dict(node)
-    ordering = [name for name, _node, _rule in FIELD_SPECS]
+    ordering = [name for name, _node, _rule in specs]
     return {
         "type": "object",
         "properties": properties,
@@ -105,12 +150,12 @@ def _json_to_genai_schema(node: dict) -> gt.Schema:
     return schema
 
 
-def build_response_schema() -> gt.Schema:
+def build_response_schema(contract: dict | None = None) -> gt.Schema:
     """Build the ``genai`` response schema for constrained decoding."""
-    return _json_to_genai_schema(get_annotation_json_schema())
+    return _json_to_genai_schema(get_annotation_json_schema(contract))
 
 
-def _bullet_text(field: dict) -> str:
+def _bullet_text(field: dict, contract: dict) -> str:
     """Render a field's prompt bullet: its ``desc`` plus an auto-rendered enum.
 
     A described enum is rendered as a numbered ``value - description`` list on a
@@ -120,8 +165,8 @@ def _bullet_text(field: dict) -> str:
     enum_name = field.get("enum")
     if not enum_name:
         return desc
-    values = _ac.enum_values(_CONTRACT, enum_name)
-    descriptions = _ac.enum_descriptions(_CONTRACT, enum_name)
+    values = _ac.enum_values(contract, enum_name)
+    descriptions = _ac.enum_descriptions(contract, enum_name)
     if descriptions:
         numbered = "\n".join(
             f"     {i}. {v} - {descriptions.get(v, '')}".rstrip(" -")
@@ -133,7 +178,7 @@ def _bullet_text(field: dict) -> str:
     return f"{desc} {clause}" if desc else clause
 
 
-def build_prompt() -> str:
+def build_prompt(contract: dict | None = None) -> str:
     """Render the Gemini system-instruction prompt from the contract.
 
     Pure deterministic templating (no LLM): a global header, then each section's
@@ -141,10 +186,14 @@ def build_prompt() -> str:
     optional footer, then a global footer. Determinism keeps the prompt-text
     version hash stable.
 
+    Args:
+        contract: When given, render this contract (used by the upload dry-run);
+            otherwise the live effective contract.
+
     Returns:
         The full prompt text.
     """
-    contract = _CONTRACT
+    contract = _resolve_contract(contract)
     fields_by_section: dict[str, list[dict]] = {}
     for field in contract.get("fields", []):
         fields_by_section.setdefault(field.get("section"), []).append(field)
@@ -155,7 +204,7 @@ def build_prompt() -> str:
         if section.get("intro"):
             lines.append(f"   {section['intro']}")
         for field in fields_by_section.get(section["name"], []):
-            lines.append(f"   • '{field['name']}': {_bullet_text(field)}")
+            lines.append(f"   • '{field['name']}': {_bullet_text(field, contract)}")
         if section.get("footer"):
             lines.append(f"   {section['footer']}")
         lines.append("")
@@ -168,7 +217,7 @@ def _join_pipe(values: list) -> str:
     return " | ".join(str(v) for v in values)
 
 
-def flatten_structured(response: dict) -> dict:
+def flatten_structured(response: dict, contract: dict | None = None) -> dict:
     """Flatten a structured Gemini response to a flat column shape.
 
     Scalars pass through; arrays are pipe-joined; objects (or arrays of objects)
@@ -177,12 +226,15 @@ def flatten_structured(response: dict) -> dict:
 
     Args:
         response: A response dict conforming to the annotation schema.
+        contract: When given, flatten against this contract; otherwise the live
+            effective contract.
 
     Returns:
         A single-level dict of flattened columns. Missing fields are skipped.
     """
+    _contract, specs = _specs(contract)
     flat: dict = {}
-    for name, _node, rule in FIELD_SPECS:
+    for name, _node, rule in specs:
         if name not in response or response[name] is None:
             continue
         value = response[name]

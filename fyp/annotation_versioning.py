@@ -211,6 +211,15 @@ def current_version_descriptor(fresh: bool = False) -> dict:
     """
     machine = _cf()["machine"]
     use_structured = bool(machine.get("use_structured_output", False))
+    # The contract etag is part of the signature so a runtime contract edit (which
+    # leaves every [machine] config key unchanged) still busts the descriptor
+    # cache — otherwise a long-lived process would keep stamping the old av_.
+    try:
+        from fyp import annotation_contract as _ac
+
+        contract_etag = _ac.contract_etag()
+    except Exception:
+        contract_etag = None
     signature = (
         machine.get("model"),
         machine.get("prompt"),
@@ -220,6 +229,7 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         machine.get("thinking_budget"),
         machine.get("media_resolution"),
         machine.get("max_output_tokens"),
+        contract_etag,
     )
     if not fresh and _DESCRIPTOR_CACHE.get("signature") == signature:
         return _DESCRIPTOR_CACHE["descriptor"]

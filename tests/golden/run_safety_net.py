@@ -18,9 +18,16 @@ Exit code 0 iff every module passes.
 
 from __future__ import annotations
 
+import os
 import runpy
 import sys
 from pathlib import Path
+
+# The safety net is a frozen-fixture regression suite: pin it to the BAKED
+# annotation contract so a developer's local runtime-uploaded contract (in data
+# storage) can never change the generated prompt/schema and break the goldens.
+# Set before any fyp import so the first boot's snapshot is the baked file.
+os.environ.setdefault("FYP_BAKED_CONTRACTS_ONLY", "1")
 
 GOLDEN_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = GOLDEN_DIR.parents[1]

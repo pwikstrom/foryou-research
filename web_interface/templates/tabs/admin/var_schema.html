@@ -1,4 +1,65 @@
 <!-- Variable Schema sub-page -->
+
+<!-- Annotation contract card -->
+<section id="ac-card" class="text-sm" style="margin: 0 0 24px 0; padding: 14px 16px;
+        border: 1px solid var(--color-border-strong); border-radius: 8px;
+        background: var(--color-bg-elevated);">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between;
+            gap: 12px; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 240px;">
+            <h3 style="margin: 0 0 4px 0; color: var(--color-text-heading);">Annotation contract</h3>
+            <div class="text-xs" style="color: var(--color-text-muted);">
+                The Gemini prompt &amp; response schema are generated from this contract.
+                Upload an edited <code>annotation_contract.toml</code> to change them
+                without redeploying. Metadata-only edits (display names, roles, recode
+                drop-words) don&rsquo;t mint a new annotation version.
+            </div>
+        </div>
+        <span id="ac-source-badge" class="text-xxs uppercase font-semibold"
+            style="padding: 3px 10px; border-radius: 10px; border: 1px solid var(--color-border);
+                   color: var(--color-text-muted); white-space: nowrap;">…</span>
+    </div>
+
+    <div id="ac-meta" class="text-xs" style="margin-top: 10px; color: var(--color-text-muted);
+        display: flex; flex-wrap: wrap; gap: 16px;"></div>
+
+    <div id="ac-error" class="text-xs" style="display: none; margin-top: 8px;
+        color: var(--color-danger);"></div>
+
+    <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center;">
+        <button onclick="acDownload()" class="btn-discreet text-sm"
+            style="padding: 6px 12px;">Download current</button>
+        <label class="btn-primary text-sm" style="padding: 6px 12px; cursor: pointer; margin: 0;">
+            Upload new&hellip;
+            <input id="ac-file-input" type="file" accept=".toml,text/plain"
+                style="display: none;" onchange="acOnFileChosen(this)">
+        </label>
+        <button id="ac-revert-btn" onclick="acRevert()" class="btn-discreet text-sm"
+            style="padding: 6px 12px; display: none;">Revert to baked</button>
+        <span id="ac-card-status" class="text-xs" style="color: var(--color-text-muted);"></span>
+    </div>
+</section>
+
+<!-- Annotation contract upload / impact modal -->
+<div id="ac-modal" class="modal" style="display: none; align-items: flex-start;
+        justify-content: center; padding-top: 8vh;" onclick="acCloseModal()">
+    <div class="modal-content" onclick="event.stopPropagation()"
+        style="width: 90%; max-width: 640px; max-height: 80vh; overflow-y: auto; position: relative;">
+        <span class="close" onclick="acCloseModal()"
+            style="position: absolute; top: 12px; right: 16px; cursor: pointer;
+                   font-size: var(--text-h3);">&times;</span>
+        <h3 style="margin: 0 0 12px 0; color: var(--color-text-heading);">Review contract change</h3>
+        <div id="ac-modal-body" class="text-sm"></div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
+                padding-top: 12px; border-top: 1px solid var(--color-border);">
+            <button onclick="acCloseModal()" class="btn-discreet text-sm"
+                style="padding: 6px 12px;">Cancel</button>
+            <button id="ac-confirm-btn" onclick="acConfirmUpload()" class="btn-save text-sm"
+                style="padding: 6px 14px;">Activate contract</button>
+        </div>
+    </div>
+</div>
+
 <h2 style="margin: 0 0 8px 0;">Variable Schema</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
     This table is a <strong>read-only</strong> view of the variable schema. Each
