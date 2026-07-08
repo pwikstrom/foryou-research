@@ -270,7 +270,25 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     _t_phase = time.perf_counter()
 
     force = bool(task_args.get("force_consolidation"))
-    result = consolidate_enrichment_data(force_consolidation=force, verbose=False)
+
+    # Feed the reporter sub-progress from inside consolidation so the UI step
+    # doesn't sit frozen at 10% for the whole run. consolidate_enrichment_data
+    # takes a plain (pct, msg) callback — it stays web-agnostic; we adapt it to
+    # the reporter here, keeping the same stage framing as the 10% emit above.
+    def _consolidate_progress(pct: float, msg: str) -> None:
+        reporter.update_progress(
+            int(pct),
+            msg,
+            stage_index=1,
+            stage_total=1,
+            stage_name="consolidate_enrichment",
+        )
+
+    result = consolidate_enrichment_data(
+        force_consolidation=force,
+        verbose=False,
+        progress_cb=_consolidate_progress,
+    )
     had_new_data = result.get("had_new_data", False) if result else False
     impact = result.get("impact") if result else None
 

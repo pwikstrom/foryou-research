@@ -117,6 +117,48 @@ def _workers_blocking_consolidate() -> list[str]:
     return blocking
 
 
+# Per-platform cookie-health cache. cookie_health() does a GCS blob.reload()
+# (one HTTP round-trip per platform) to read the file age, so we cache the result
+# for a few minutes — the enrichment-stats endpoint is polled every ~2s during a
+# consolidate run and there is no value in re-probing GCS that often.
+_COOKIE_HEALTH_TTL_SEC = 300
+_cookie_health_cache: dict[str, tuple[float, dict]] = {}
+_cookie_health_lock = threading.Lock()
+
+
+def _cached_cookie_health(platform: str) -> dict:
+    """Return a platform's cookie health, cached for ``_COOKIE_HEALTH_TTL_SEC``.
+
+    Delegates to the platform scraper's ``health_check`` hook (which passes the
+    correct per-platform session-cookie name). Never raises: a probe failure
+    degrades to an ``unknown`` status so one bad platform can't 500 the tab.
+
+    Args:
+        platform: platform key, e.g. ``"tiktok"``.
+
+    Returns:
+        The ``cookie_health`` dict (``status``/``message``/``file_age_days``/
+        ``session_days_left``/``session_expires_at``/…), or an ``unknown``-status
+        stub when the probe fails or the scraper exposes no health hook.
+    """
+    now = _time.time()
+    with _cookie_health_lock:
+        cached = _cookie_health_cache.get(platform)
+        if cached and (now - cached[0]) < _COOKIE_HEALTH_TTL_SEC:
+            return cached[1]
+
+    try:
+        health = get_scraper(platform).health_check()
+        if not health:
+            health = {"status": "unknown", "message": "No cookie health available"}
+    except Exception as e:
+        health = {"status": "unknown", "message": f"Cookie health probe failed: {e}"}
+
+    with _cookie_health_lock:
+        _cookie_health_cache[platform] = (now, health)
+    return health
+
+
 def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
     """Build an ordered per-step view of the last/active consolidate pipeline.
 
@@ -143,9 +185,15 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
         **(processes.get("consolidate_enrichment", {}).get("data", {}) or {}),
     }
     plan = entry.get("pipeline_plan") or {}
-    steps = plan.get("steps") or []
-    if not steps:
+    # Show the list whenever a plan record exists — even one with no downstream
+    # steps yet. A marker seeded at dispatch (steps=[]) makes the "Consolidate
+    # enrichment data" step appear immediately (live from its status file) so the
+    # user isn't left staring at a bare "Consolidation running…" text line while
+    # consolidation runs; downstream steps stream in once the worker computes the
+    # real plan. Only a truly absent plan hides the list.
+    if not plan:
         return []
+    steps = plan.get("steps") or []
 
     started_dt = None
     started_ts = plan.get("started_ts")
@@ -2098,6 +2146,10 @@ def get_enrichment_stats():
         "unique_collections": unique_collections,
         "scrape_queue_len": scrape_queue_len,
         "scrape_queues": scrape_queues_by_platform,
+        "cookie_health": {
+            p: _cached_cookie_health(p)
+            for p in scrape_queues.registered_platforms()
+        },
         "annotate_queue_len": annotate_queue_len,
         "consolidate_stats": {
             **consolidate_entry,
@@ -2618,20 +2670,45 @@ def api_consolidate_enrichment():
     if auto_refresh:
         task_args["auto_refresh"] = True
 
-    # Firing now — clear any stale armed flag.
+    # Firing now — clear any stale armed flag and seed a pipeline-plan marker so
+    # the step list shows the live "Consolidate enrichment data" step from the
+    # very first poll (steps=[] until the worker computes the real downstream
+    # plan; _build_pipeline_step_view renders a present-but-empty plan). Without
+    # this the list only appears after consolidation finishes and the user sees
+    # only a text line during the (long) consolidation phase.
+    now_iso = datetime.now(UTC).isoformat()
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
     entry.pop("auto_armed", None)
     entry.pop("auto_armed_force", None)
     entry.pop("auto_armed_auto_refresh", None)
+    entry["pipeline_plan"] = {
+        "steps": [],
+        "started_ts": now_iso,
+        "mode": "refresh" if auto_refresh else "consolidate_only",
+    }
+    entry["last_pipeline_partial"] = False
+    entry["last_pipeline_failed_at"] = None
     process_stats["consolidate_enrichment"] = entry
     save_process_stats()
 
     success, msg = start_process("consolidate_enrichment", CONSOLIDATE_ENRICHMENT_SCRIPT,
                                  task_args=task_args if task_args else None)
     if success:
+        # start_process resets the in-memory ::DATA:: copy; mirror the marker
+        # there too so the local-dev overlay in _build_pipeline_step_view agrees
+        # with process_stats (no-op on Cloud Run, where there is no subprocess).
+        mem = processes.get("consolidate_enrichment", {}).get("data")
+        if isinstance(mem, dict):
+            mem["pipeline_plan"] = entry["pipeline_plan"]
         return jsonify({"status": "started", "message": msg})
     else:
+        # Dispatch failed — don't leave a phantom plan marker behind.
+        load_process_stats()
+        entry = process_stats.get("consolidate_enrichment", {})
+        entry.pop("pipeline_plan", None)
+        process_stats["consolidate_enrichment"] = entry
+        save_process_stats()
         return jsonify({"status": "error", "message": msg}), 409
 
 

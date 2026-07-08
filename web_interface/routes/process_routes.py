@@ -401,6 +401,24 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
     status_key = _get_status_key(name, task_args)
     reporter = GCSStatusReporter(status_key)
 
+    # Echo the caller's batch/platform selections back into the status file so the
+    # UI can repopulate the (disabled) batch inputs while the task runs. Without
+    # this the worker's start()/resume() writes a status with no task_args, so the
+    # scraper/annotator cards blank their max-batches box to the "Inf" placeholder
+    # the moment the real task-runner instance takes over from the dispatch
+    # placeholder — the "resets to Inf" bug seen only on Cloud Run.
+    max_batches = task_args.get("max_batches")
+    # np.inf serializes to invalid JSON ("Infinity") and would break the poll's
+    # response.json(); an unbounded run is best conveyed as null (→ "Inf" placeholder).
+    if isinstance(max_batches, float) and max_batches == float("inf"):
+        max_batches = None
+    surface_task_args = {
+        "batch_size": task_args.get("batch_size"),
+        "max_batches": max_batches,
+        "platform": task_args.get("platform"),
+    }
+    reporter._status["task_args"] = surface_task_args
+
     # Apply pipeline stage framing (forwarded from the consolidate dispatcher).
     # This makes every subsequent update_progress call carry stage_* fields
     # without each worker needing to know it's part of a pipeline.
@@ -418,6 +436,10 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
         reporter.resume()
     else:
         reporter.start()
+    # resume() replaces _status wholesale from the prior chain link, so re-assert
+    # the surface args (a prior link wrote them, but be explicit) — a no-op write
+    # here; the next status write carries them.
+    reporter._status["task_args"] = surface_task_args
 
     start_time = datetime.now(UTC)
     study_name = task_args.get("study_name")

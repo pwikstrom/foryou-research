@@ -44,6 +44,8 @@
                 <span id="enrich_scrape_targets_{{ platform }}"
                     class="font-bold" style="color: var(--color-success-light); margin-left: 5px;">-</span><span>
                     pending</span>
+                <span id="cookie-health-{{ platform }}" class="cookie-pill cookie-pill--unknown meta-tooltip"
+                    data-tooltip="Checking cookie status…">Cookie: …</span>
             </div>
             <button type="button" class="btn-stop text-xs" onclick="emptyQueue('scrape', '{{ platform }}')"
                 style="padding: 4px 8px;">Empty Queue</button>
