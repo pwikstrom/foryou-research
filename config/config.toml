@@ -182,7 +182,11 @@ HIGH_ENERGY_WORDS = ["highenergy","reflective","playful"]
 LOW_ENERGY_WORDS = ["lowenergy","calm","serene"]
 
 
-IRRELEVANT_WORDS = ["-year-old", "about", "actually", "ad", "add", "after", "all", "also", "always", "am", "an", "and", "any", "are", "as", "at", "back", "be", 
+# Seed/fallback only: on first use this list is copied into the admin-editable
+# store irrelevant_words.json (location "users", Admin -> General -> "Hashtag
+# stoplist"), which is authoritative from then on. Edits here only take effect
+# if that store file is deleted.
+IRRELEVANT_WORDS = ["-year-old", "about", "actually", "ad", "add", "after", "all", "also", "always", "am", "an", "and", "any", "are", "as", "at", "back", "be",
 "been", "before", "being", "best", "better", "bio", "blowthisup", "but", "by", "can", "cant", "come", "comment", "could", "day", "de", 
 "dear", "did", "didnt", "do", "doesnt", "dont", "during", "edit", "el", "end", "even", "ever", "every", "evryone", "everyone", "find", "first", "follow", 
 "for", "foryou", "foryoupage", "foryourpage", "free", "from", "full", "funny", "funnyvideos", "fy", "fyp", "fypage", "fyppppppppppppppppppppppp", "fypシ", "fypシ゚", 

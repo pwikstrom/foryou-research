@@ -231,6 +231,7 @@
 
             if (needsRoles) await loadRoles();
             if (needsSettings) loadAdminSettings();
+            if (_hasPerm('tab.admin.general')) loadIrrelevantWords();
 
         } catch (error) {
             console.error('Error:', error);
@@ -341,6 +342,216 @@
             if (status) status.textContent = 'Failed — reverted';
         } finally {
             checkbox.disabled = false;
+        }
+    }
+
+    // --- Hashtag stoplist (irrelevant words) ---
+
+    window._iw = window._iw || { words: [], etag: null, dirty: false };
+
+    // Mirrors fyp/irrelevant_words.squeeze: collapse runs of one code point.
+    function _iwSqueeze(s) {
+        return s.replace(/(.)\1+/gu, '$1');
+    }
+
+    // Returns the stoplist entry a cleaned token matches, or null.
+    function _iwMatch(token) {
+        const t = _iwSqueeze(token);
+        for (const w of window._iw.words) {
+            if (w.endsWith('*')) {
+                if (t.startsWith(_iwSqueeze(w.slice(0, -1)))) return w;
+            } else if (t === _iwSqueeze(w)) {
+                return w;
+            }
+        }
+        return null;
+    }
+
+    function _iwSetDirty(dirty) {
+        window._iw.dirty = dirty;
+        const btn = document.getElementById('iw-save-btn');
+        if (btn) btn.disabled = !dirty;
+        const status = document.getElementById('iw-status');
+        if (status && dirty) status.textContent = 'Unsaved changes';
+    }
+
+    async function loadIrrelevantWords() {
+        const pills = document.getElementById('iw-pills');
+        if (!pills) return;
+        try {
+            const response = await fetch('/api/admin/irrelevant_words');
+            if (!response.ok) throw new Error('Failed to load stoplist');
+            const data = await response.json();
+            window._iw.words = data.words || [];
+            window._iw.etag = data.etag;
+            const input = document.getElementById('iw-add-input');
+            if (input) input.disabled = false;
+            _iwSetDirty(false);
+            const status = document.getElementById('iw-status');
+            if (status) status.textContent = '';
+            renderIrrelevantWords();
+        } catch (e) {
+            console.error('loadIrrelevantWords:', e);
+            pills.innerHTML = '';
+            const err = document.createElement('span');
+            err.className = 'text-xs';
+            err.style.color = 'var(--color-danger)';
+            err.textContent = `Failed to load: ${e.message}`;
+            pills.appendChild(err);
+        }
+    }
+
+    function renderIrrelevantWords() {
+        const pills = document.getElementById('iw-pills');
+        if (!pills) return;
+        const searchEl = document.getElementById('iw-search');
+        const query = (searchEl && searchEl.value.trim().toLowerCase()) || '';
+        const words = window._iw.words.filter(w => !query || w.includes(query));
+
+        const count = document.getElementById('iw-count');
+        if (count) {
+            count.textContent = query
+                ? `— ${words.length} of ${window._iw.words.length} words`
+                : `— ${window._iw.words.length} words`;
+        }
+
+        pills.innerHTML = '';
+        if (words.length === 0) {
+            const empty = document.createElement('span');
+            empty.className = 'text-xs';
+            empty.style.color = 'var(--color-text-muted)';
+            empty.textContent = query ? 'No matching words.' : 'The list is empty.';
+            pills.appendChild(empty);
+            return;
+        }
+        // DOM construction (not innerHTML) — entries are free text.
+        for (const word of words) {
+            const pill = document.createElement('span');
+            pill.className = 'text-xs';
+            pill.style.cssText =
+                'display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px 2px 10px;' +
+                'border-radius: 12px; background: var(--color-border); color: var(--color-text-primary);';
+            const label = document.createElement('span');
+            label.textContent = word;
+            if (word.endsWith('*')) {
+                label.className = 'font-semibold';
+                label.style.color = 'var(--color-accent)';
+                pill.classList.add('meta-tooltip');
+                pill.setAttribute('data-tooltip', 'Wildcard: matches any hashtag starting with this');
+            }
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'btn-discreet text-xs';
+            remove.style.cssText = 'border: none; padding: 0 6px; cursor: pointer; line-height: 1;';
+            remove.textContent = '×';
+            remove.setAttribute('aria-label', `Remove ${word}`);
+            remove.onclick = () => removeIrrelevantWord(word);
+            pill.appendChild(label);
+            pill.appendChild(remove);
+            pills.appendChild(pill);
+        }
+    }
+
+    function addIrrelevantWords() {
+        const input = document.getElementById('iw-add-input');
+        const status = document.getElementById('iw-status');
+        if (!input || !input.value.trim()) return;
+
+        // Bulk paste friendly: split on commas/semicolons/whitespace/newlines,
+        // strip a leading '#', lowercase.
+        const raw = input.value.split(/[\s,;]+/).map(w => w.replace(/^#/, '').trim().toLowerCase()).filter(Boolean);
+        const rejected = [];
+        let added = 0;
+        for (const w of raw) {
+            if (w === '*' || (w.endsWith('*') && _iwSqueeze(w.slice(0, -1)).length < 2)) {
+                rejected.push(w); // bare or too-broad wildcard
+                continue;
+            }
+            // A word already matched by the list is redundant; a wildcard is
+            // redundant only when an existing wildcard already covers its prefix
+            // (a wildcard is broader than the same bare word, so it must be addable).
+            const isWild = w.endsWith('*');
+            const core = _iwSqueeze(isWild ? w.slice(0, -1) : w);
+            const covered = isWild
+                ? window._iw.words.some(x => x.endsWith('*') && core.startsWith(_iwSqueeze(x.slice(0, -1))))
+                : _iwMatch(w) !== null;
+            if (!covered) {
+                window._iw.words.push(w);
+                added++;
+            }
+        }
+        window._iw.words.sort();
+        input.value = '';
+        if (added > 0) _iwSetDirty(true);
+        if (status) {
+            const parts = [];
+            if (added > 0) parts.push(`Added ${added} — unsaved`);
+            if (rejected.length > 0) parts.push(`rejected too-broad wildcard: ${rejected.join(', ')}`);
+            if (added === 0 && rejected.length === 0) parts.push('Already covered by the list');
+            status.textContent = parts.join('; ');
+        }
+        renderIrrelevantWords();
+    }
+
+    function removeIrrelevantWord(word) {
+        window._iw.words = window._iw.words.filter(w => w !== word);
+        _iwSetDirty(true);
+        renderIrrelevantWords();
+        testIrrelevantWord((document.getElementById('iw-test') || {}).value || '');
+    }
+
+    async function saveIrrelevantWords() {
+        const btn = document.getElementById('iw-save-btn');
+        const status = document.getElementById('iw-status');
+        if (btn) btn.disabled = true;
+        if (status) status.textContent = 'Saving…';
+        try {
+            const response = await fetch('/api/admin/irrelevant_words', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ words: window._iw.words, etag: window._iw.etag })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (response.status === 409) {
+                // Concurrent edit — take the server's list and start over.
+                window._iw.words = data.words || [];
+                window._iw.etag = data.etag;
+                _iwSetDirty(false);
+                renderIrrelevantWords();
+                if (status) status.textContent = 'List was changed elsewhere — reloaded, please redo your edit';
+                return;
+            }
+            if (!response.ok) throw new Error(data.error || 'Save failed');
+            window._iw.words = data.words || [];
+            window._iw.etag = data.etag;
+            _iwSetDirty(false);
+            renderIrrelevantWords();
+            if (status) {
+                status.textContent = 'Saved';
+                setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+            }
+        } catch (e) {
+            console.error('saveIrrelevantWords:', e);
+            if (btn) btn.disabled = false;
+            if (status) status.textContent = `Failed: ${e.message}`;
+        }
+    }
+
+    function testIrrelevantWord(value) {
+        const result = document.getElementById('iw-test-result');
+        if (!result) return;
+        const clean = value.trim().toLowerCase().replace(/^#/, '');
+        if (!clean) {
+            result.textContent = '';
+            return;
+        }
+        const hit = _iwMatch(clean);
+        if (hit) {
+            result.style.color = 'var(--color-danger)';
+            result.textContent = `#${clean} would be dropped (matches “${hit}”)`;
+        } else {
+            result.style.color = 'var(--color-success)';
+            result.textContent = `#${clean} would be kept`;
         }
     }
 

@@ -95,6 +95,7 @@ fyp_main_v02/
 │   ├── derived_contract.py      # Loads/validates config/derived_contract.toml; owns var_schema metadata for merge-derived columns
 │   ├── registry_metadata.py     # Shared per-version field_metadata snapshot + union helpers for the three registries
 │   ├── var_presentation.py      # Admin-editable presentation store (users/var_presentation.json) — owns the four web_*_prio surface flags
+│   ├── irrelevant_words.py      # Admin-editable hashtag stoplist (users/irrelevant_words.json, seeded from config.toml) + squeeze/wildcard matcher used by recode_tokenise
 │   ├── tiktok_dl.py             # TikTokScraper(BaseScraper) + yt-dlp helpers (download, retry, error classification, 32-bit overflow repair)
 │   ├── instagram_dl.py          # InstagramScraper(BaseScraper) — yt-dlp, cookie-authenticated; image posts fail permanent:no_video (phase 1)
 │   ├── youtube_dl.py            # YouTubeScraper(BaseScraper) — yt-dlp, 720p DASH-merge media, bot_check throttle category, EJS/deno n-challenge solver
@@ -330,7 +331,7 @@ folds in the locally-written parquets automatically.
 | `[paths]` | `local_data` (default: `/Users/<user>/fyp_local`) |
 | `[data_io]` | GCS bucket, `use_gcs_*` toggles |
 | `[misc]` | Timezone (`Australia/Brisbane`), `local_mode` |
-| `[labels]` | Content categories, irrelevant words, generic mapper |
+| `[labels]` | Content categories, generic mapper, irrelevant-words seed (`IRRELEVANT_WORDS` seeds the admin-editable hashtag stoplist `irrelevant_words.json`, location `users`, managed by `fyp/irrelevant_words.py` — Admin → General; squeeze + trailing-`*` prefix matching, applied at recode time, never hash-affecting) |
 
 **Four declarative TOML contracts** sit alongside it and own their variable schemas (overlaid onto `var_schema` at config load, read-only in the admin editor): `config/annotation_contract.toml` (Gemini annotation fields), `config/scrape_contract.toml` (canonical cross-platform scrape fields), `config/activity_contract.toml` (platform-agnostic activity schema), and `config/derived_contract.toml` (merge-derived columns). `var_schema.csv` is **fully retired**: `fyp_config.load_var_schema` synthesizes the in-memory `var_schema` from the contracts + registries and fills the four `web_*_prio` membership columns from the admin-editable presentation store (`var_presentation.json`, location `users`, managed by `fyp/var_presentation.py`; seeded once from a legacy CSV's prios when missing). Contracts also own each field's `source` (semantic — a `derived:` prefix short-circuits the recode plan). The admin schema editor is read-only for metadata; only the on/off surface checkboxes save (POST `/api/manage/presentation`, etag-guarded, never hash-affecting). Each contract also has a **version registry** (`annotation_versioning`/`scrape_versioning`/`activity_versioning`, id prefixes `av_`/`sv_`/`acv_`) that stamps per-row provenance; the annotation registry additionally snapshots per-version `field_metadata` so **superseded ("legacy") fields stay contract-owned/read-only** — unioned into the overlay and badged "legacy" in the admin editor. See *Scrapers: Base Class + Declarative Contract* below.
 

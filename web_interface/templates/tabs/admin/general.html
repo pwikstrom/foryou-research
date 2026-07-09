@@ -31,3 +31,43 @@
     </div>
 </section>
 
+<!-- Hashtag stoplist (irrelevant words) -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">
+        Hashtag stoplist
+        <span id="iw-count" class="text-xs font-normal" style="color: var(--color-text-muted);"></span>
+    </h3>
+    <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted); max-width: 680px;">
+        Hashtags matching this list are dropped when captions are tokenised during scraping and
+        annotation. Edits apply from the next scrape/annotation run; already-stored hashtags are
+        unchanged. Repeated letters match automatically
+        (<span class="font-mono">fyp</span> also catches <span class="font-mono">fyyyyp</span> and
+        <span class="font-mono">fypp</span>); end an entry with <span class="font-mono">*</span> to
+        match any hashtag starting with it (<span class="font-mono">fyp*</span> catches
+        <span class="font-mono">fypage</span>).
+    </p>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;">
+        <input type="text" id="iw-add-input" placeholder="Add words — paste a list, Enter to add" disabled
+            onkeydown="if (event.key === 'Enter') { event.preventDefault(); addIrrelevantWords(); }"
+            style="flex: 1 1 260px; max-width: 340px; padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);" />
+        <button class="action-btn btn-secondary text-xs" onclick="addIrrelevantWords()">Add</button>
+        <input type="text" id="iw-search" placeholder="Filter list…" oninput="renderIrrelevantWords()"
+            style="flex: 0 1 160px; padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);" />
+        <button id="iw-save-btn" class="action-btn text-xs" onclick="saveIrrelevantWords()" disabled>Save changes</button>
+        <span id="iw-status" class="text-xs" style="color: var(--color-text-muted);"></span>
+    </div>
+
+    <div id="iw-pills"
+        style="display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; max-height: 260px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; padding: 10px; background: var(--color-bg-elevated);">
+        <span class="text-xs" style="color: var(--color-text-muted);">Loading…</span>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px;">
+        <label for="iw-test" class="text-xs" style="color: var(--color-text-primary);">Test a hashtag</label>
+        <input type="text" id="iw-test" placeholder="#fyyyyp" oninput="testIrrelevantWord(this.value)"
+            style="flex: 0 1 180px; padding: 4px 10px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);" />
+        <span id="iw-test-result" class="text-xs" style="color: var(--color-text-muted);"></span>
+    </div>
+</section>
+

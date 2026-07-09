@@ -13,6 +13,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+from fyp import irrelevant_words
 from fyp.fyp_config import fyp_cf
 from fyp.types import convert_dtypes_to_pyarrow
 from fyp.utils import record_dropped_columns
@@ -21,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 GENERIC_MAPPER = fyp_cf["labels"]["GENERIC_MAPPER"]
-IRRELEVANT_WORDS = fyp_cf["labels"]["IRRELEVANT_WORDS"]
 
 NOT_CODED =  fyp_cf["labels"]["NOT_CODED"]
 UNABLE_TO_DETECT = fyp_cf["labels"]["UNABLE_TO_DETECT"]
@@ -225,7 +225,7 @@ def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dic
         value sets it does not touch), normalizing free-text junk.
 
     Per-field stop words come solely from the contract's ``[recode.drop]`` table
-    (keyed by output column name). The global ``IRRELEVANT_WORDS`` stoplist is
+    (keyed by output column name). The global irrelevant-words stoplist is
     *not* applied here — it would delete legitimate short tags like "can" / "us";
     the recode op that needs it (``recode_tokenise``) applies it itself.
 
@@ -782,16 +782,21 @@ def recode_tokenise(
     """Extract the ``hashtags`` from free text (the scrape caption ``desc``).
 
     A token starting with ``#`` is cleaned and kept when it survives the same
-    filter the rest of the pipeline uses — longer than one character and not in
-    the global IRRELEVANT_WORDS stoplist, or a single emoji. Returns a one-key
-    ``{"hashtags": [...]}`` dict so the recode unpacker fans it out into the
-    ``<field>_hashtags`` column. ``desc`` is the only field tokenised; the raw
-    caption itself is kept separately as ``desc_raw``.
+    filter the rest of the pipeline uses — longer than one character and not
+    matched by the admin-editable irrelevant-words stoplist (squeeze + prefix
+    wildcards, see ``fyp.irrelevant_words``), or a single emoji. Returns a
+    one-key ``{"hashtags": [...]}`` dict so the recode unpacker fans it out into
+    the ``<field>_hashtags`` column. ``desc`` is the only field tokenised; the
+    raw caption itself is kept separately as ``desc_raw``.
+
+    The stoplist is loaded per invocation (one store read per recode run), so
+    a long-lived worker picks up admin edits without a restart.
     """
 
     # chars to strip from a token before testing it (keeps letters + emojis)
     remove_chars = ",.:;!)(*/&|^%$#@<>?'`’1234567890"
     trans_table = str.maketrans("", "", remove_chars)
+    _is_irrelevant = irrelevant_words.build_matcher(irrelevant_words.load_words())
 
     def _hashtags(text) -> list:
         if not isinstance(text, str) or not text:
@@ -803,7 +808,7 @@ def recode_tokenise(
             clean_word = w.lower().translate(trans_table)
             if not clean_word:
                 continue
-            if (len(clean_word) > 1 and clean_word not in IRRELEVANT_WORDS) or _is_emoji(clean_word):
+            if (len(clean_word) > 1 and not _is_irrelevant(clean_word)) or _is_emoji(clean_word):
                 out.append(clean_word)
         return out
 
