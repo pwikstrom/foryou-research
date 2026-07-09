@@ -413,6 +413,64 @@ def api_admin_settings():
     return jsonify({"status": "success", "message": "Settings updated", "settings": merged})
 
 
+@auth_bp.route('/api/admin/irrelevant_words', methods=['GET', 'PUT'])
+@permission_required('tab.admin.general')
+def api_irrelevant_words():
+    """The admin-editable hashtag stoplist (see ``fyp.irrelevant_words``).
+
+    GET returns the current list (seeding the store from config.toml on first
+    access). PUT replaces the whole list; body ``{"words": [...], "etag": ...}``
+    — refuses with 409 on a stale etag (concurrent edit) and 400 on invalid
+    entries. Edits apply when hashtags are next extracted (scrape/annotation);
+    already-stored hashtags are unchanged.
+    """
+    from fyp import irrelevant_words as iw
+
+    if request.method == 'GET':
+        words = iw.load_words()
+        payload = iw.load_payload() or {}
+        return jsonify({
+            "words": words,
+            "count": len(words),
+            "etag": iw.compute_words_etag(),
+            "updated_at": payload.get("updated_at"),
+            "updated_by": payload.get("updated_by"),
+        })
+
+    data = request.json or {}
+    if not isinstance(data, dict) or not isinstance(data.get('words'), list):
+        return jsonify({"error": "Body must contain a 'words' list"}), 400
+
+    try:
+        result = iw.save_words(
+            data['words'],
+            expected_etag=data.get('etag'),
+            updated_by=current_user.username,
+        )
+    except iw.IrrelevantWordsConflict as e:
+        return jsonify({
+            "error": "conflict",
+            "message": str(e),
+            "etag": iw.compute_words_etag(),
+            "words": iw.load_words(),
+        }), 409
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    activity_log.record(
+        actor=current_user.username,
+        category="admin",
+        action="irrelevant_words.save",
+        details={"count": len(result["words"])},
+    )
+    return jsonify({
+        "status": "success",
+        "words": result["words"],
+        "count": len(result["words"]),
+        "etag": result["etag"],
+    })
+
+
 @auth_bp.route('/api/user/settings', methods=['GET', 'POST'])
 @login_required
 def api_user_settings():
