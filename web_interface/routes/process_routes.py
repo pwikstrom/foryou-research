@@ -328,6 +328,7 @@ def _ensure_task_functions_loaded() -> None:
         return
     _task_functions_loaded = True
 
+    from web_interface.run_ab_eval import run_ab_eval
     from web_interface.run_aio_fetch import run_aio_fetch
     from web_interface.run_benchmark_parquet_read import run_benchmark_parquet_read
     from web_interface.run_collection_delete import run_collection_delete
@@ -370,6 +371,7 @@ def _ensure_task_functions_loaded() -> None:
         "embeddings_refresh": run_embeddings_refresh,
         "video_map_refresh": run_video_map_refresh,
         "retokenise_hashtags": run_retokenise_hashtags,
+        "ab_eval": run_ab_eval,
     })
 
 

@@ -3151,6 +3151,79 @@ def download_annotation_contract():
 
 
 
+@management_bp.route('/api/manage/annotation-contract/parsed', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def get_annotation_contract_parsed():
+    """Return the effective contract as a parsed dict, for form-editor hydration.
+
+    The dict is exactly the parsed-TOML shape the pipeline consumes, so the
+    editor's model can never diverge from what ``build_prompt`` /
+    ``build_response_schema`` see. ``help`` carries the editor's per-input help
+    texts (``config/annotation_contract_help.toml``).
+    """
+    try:
+        from fyp import annotation_contract as ac
+
+        text = ac.effective_contract_text()
+        contract, errors = ac.parse_and_validate(text)
+        if contract is None:
+            return jsonify({"error": "effective contract does not parse", "errors": errors}), 500
+        status = ac.contract_status()
+        try:
+            from fyp.recode_variables import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+            roles, scales = list(VAR_SCHEMA_ROLES), list(VAR_SCHEMA_SCALES)
+        except Exception:
+            roles, scales = [], []
+        return jsonify({
+            "contract": contract,
+            "etag": status.get("etag"),
+            "source": status.get("source"),
+            "errors": errors,
+            "help": ac.contract_help(),
+            "roles": roles,
+            "scales": scales,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/annotation-contract/preview', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def preview_annotation_contract():
+    """Render a candidate contract's prompt + response schema, without side effects.
+
+    Body: ``{"contract": {...}}`` (the parsed-dict shape). Returns
+    ``{valid, prompt, schema}`` on success or ``{valid: False, errors}`` when
+    the candidate fails validation — always HTTP 200, so the editor's
+    debounced live preview can show errors inline without console noise.
+    Never touches the live snapshot (explicit-contract rendering seam).
+    """
+    try:
+        from fyp import annotation_contract as ac
+        from fyp import annotation_schema as sch
+
+        body = request.get_json(silent=True) or {}
+        cand = body.get('contract')
+        if not isinstance(cand, dict):
+            return jsonify({"error": "body must include a 'contract' object"}), 400
+        errors = ac.validate_contract(cand)
+        if errors:
+            return jsonify({"valid": False, "errors": errors})
+        return jsonify({
+            "valid": True,
+            "prompt": sch.build_prompt(cand),
+            "schema": sch.get_annotation_json_schema(cand),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
 @management_bp.route('/api/manage/annotation-contract', methods=['POST'])
 @permission_required('tab.admin.schema')
 @login_required
@@ -3160,8 +3233,11 @@ def upload_annotation_contract():
     Two-step: without ``confirm`` this validates the TOML and returns a
     version-impact report (dry run); with ``confirm`` it etag-guards, backs up
     the previous runtime contract, persists the new one, refreshes the snapshot,
-    and rebuilds the in-memory schema. The candidate TOML arrives as a multipart
-    ``file`` or a ``text`` form/JSON field.
+    and rebuilds the in-memory schema. The candidate arrives as a multipart
+    ``file``, a ``text`` form/JSON field, or a JSON ``contract`` dict (the form
+    editor) — the latter is serialized to TOML server-side against the current
+    effective text so comments on untouched keys survive, then flows through
+    the exact same validate → impact → confirm pipeline.
     """
     global fyp_cf
     if not _var_schema_admin_enabled():
@@ -3171,7 +3247,8 @@ def upload_annotation_contract():
 
         json_body = request.get_json(silent=True) or {}
 
-        # 1. Candidate TOML text — multipart file wins, else a raw text field.
+        # 1. Candidate TOML text — multipart file wins, else a raw text field,
+        #    else a parsed-dict 'contract' payload serialized server-side.
         text = None
         original_filename = None
         files = [f for f in (request.files.getlist('file') + request.files.getlist('files')) if f and f.filename]
@@ -3183,6 +3260,14 @@ def upload_annotation_contract():
                 return jsonify({"error": "file is not valid UTF-8 text"}), 400
         else:
             text = request.form.get('text') or json_body.get('text')
+            if not text and isinstance(json_body.get('contract'), dict):
+                try:
+                    text = ac.serialize_contract(
+                        json_body['contract'], base_text=ac.effective_contract_text()
+                    )
+                except ValueError as e:
+                    return jsonify({"valid": False, "errors": [str(e)]}), 400
+                original_filename = "(form editor)"
         if not text or not text.strip():
             return jsonify({"error": "no contract text provided"}), 400
 
@@ -3311,6 +3396,378 @@ def revert_annotation_contract():
             "backup": backup_name,
             "note": "Reverted to the baked contract.",
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+# ---------------------------------------------------------------------------
+# A/B contract evaluation (candidates, eval set, runs). See fyp/ab_eval.py.
+# All results live in the isolated 'ab_eval' storage location — never in the
+# machine-annotation archive or studies.
+# ---------------------------------------------------------------------------
+
+
+@management_bp.route('/api/manage/ab-candidates', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def list_ab_candidates():
+    """List stored candidate contracts (metadata only, newest first)."""
+    try:
+        from fyp import ab_eval
+
+        return jsonify({"candidates": ab_eval.list_candidates()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-candidates', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def save_ab_candidate():
+    """Create/overwrite a named candidate contract.
+
+    Body: ``{name, text | contract, note?, overwrite?}`` — ``text`` is raw
+    TOML; a ``contract`` dict is serialized server-side against the current
+    effective text (the form editor's save-as-candidate path). The candidate
+    is validated and stamped with its etag + predicted ``av_`` version.
+    """
+    try:
+        from fyp import ab_eval
+        from fyp import annotation_contract as ac
+
+        body = request.get_json(silent=True) or {}
+        name = str(body.get('name') or "").strip()
+        text = body.get('text')
+        if not text and isinstance(body.get('contract'), dict):
+            try:
+                text = ac.serialize_contract(body['contract'], base_text=ac.effective_contract_text())
+            except ValueError as e:
+                return jsonify({"valid": False, "errors": [str(e)]}), 400
+        if not text or not str(text).strip():
+            return jsonify({"error": "no contract text provided"}), 400
+
+        cand, errors = ac.parse_and_validate(text)
+        if errors:
+            return jsonify({"valid": False, "errors": errors}), 400
+
+        candidate_version = _annotation_contract_impact(cand).get("candidate_version")
+        try:
+            meta = ab_eval.save_candidate(
+                name, text, actor=_actor(), note=str(body.get('note') or ""),
+                overwrite=bool(body.get('overwrite')), candidate_version=candidate_version,
+            )
+        except FileExistsError:
+            return jsonify({"error": f"candidate '{name}' exists — pass overwrite=true"}), 409
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+        activity_log.record(actor=_actor(), category="admin",
+                            action="ab_candidate.save", details={"name": name})
+        return jsonify({"ok": True, "meta": meta})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-candidates/<name>', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def get_ab_candidate(name):
+    """Return one candidate's text + parsed contract + metadata."""
+    try:
+        from fyp import ab_eval
+
+        try:
+            return jsonify(ab_eval.load_candidate(name))
+        except FileNotFoundError:
+            return jsonify({"error": f"candidate '{name}' not found"}), 404
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 422
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-candidates/<name>', methods=['DELETE'])
+@permission_required('tab.admin.schema')
+@login_required
+def delete_ab_candidate(name):
+    """Delete a candidate contract."""
+    try:
+        from fyp import ab_eval
+
+        removed = ab_eval.delete_candidate(name)
+        if removed:
+            activity_log.record(actor=_actor(), category="admin",
+                                action="ab_candidate.delete", details={"name": name})
+        return jsonify({"ok": removed})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-candidates/<name>/activate', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def activate_ab_candidate(name):
+    """Dry-run a candidate for activation (the graduation path).
+
+    Returns the candidate's TOML text + the standard version-impact report;
+    the UI then drives the NORMAL contract-confirm POST with that text, so
+    graduation is exactly the upload flow (etag guard, backup, versioning).
+    """
+    try:
+        from fyp import ab_eval
+        from fyp import annotation_contract as ac
+
+        try:
+            cand = ab_eval.load_candidate(name)
+        except FileNotFoundError:
+            return jsonify({"error": f"candidate '{name}' not found"}), 404
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 422
+
+        impact = _annotation_contract_impact(cand["contract"])
+        return jsonify({
+            "name": name,
+            "text": cand["text"],
+            "impact": impact,
+            "current_etag": ac.contract_status().get("etag"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-eval-set', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def get_ab_eval_set():
+    """Return the curated eval set with per-item platform/downloaded flags."""
+    try:
+        from fyp import ab_eval
+
+        stored = ab_eval.load_eval_set()
+        return jsonify({
+            **stored,
+            "resolved": ab_eval.resolve_items(stored.get("item_ids", [])),
+            "max_items": ab_eval.MAX_EVAL_ITEMS,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-eval-set', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def save_ab_eval_set():
+    """Persist the curated eval set. Body: ``{item_ids, note?}``. Capped."""
+    try:
+        from fyp import ab_eval
+
+        body = request.get_json(silent=True) or {}
+        item_ids = body.get('item_ids')
+        if not isinstance(item_ids, list):
+            return jsonify({"error": "body must include an 'item_ids' list"}), 400
+        try:
+            stored = ab_eval.save_eval_set(item_ids, actor=_actor(),
+                                           note=str(body.get('note') or ""))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        resolved = ab_eval.resolve_items(stored["item_ids"])
+        not_downloaded = [r["item_id"] for r in resolved if r["downloaded"] is False]
+        activity_log.record(actor=_actor(), category="admin", action="ab_eval_set.save",
+                            details={"n_items": len(stored["item_ids"])})
+        return jsonify({**stored, "resolved": resolved, "not_downloaded": not_downloaded})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-eval-set/sample', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def sample_ab_eval_set():
+    """Sample N downloaded item ids (stratified by platform) WITHOUT persisting.
+
+    Body: ``{n, platforms?, seed?}``. The UI merges/edits the returned ids and
+    then saves the set explicitly.
+    """
+    try:
+        from fyp import ab_eval
+
+        body = request.get_json(silent=True) or {}
+        try:
+            n = int(body.get('n') or 10)
+        except (TypeError, ValueError):
+            return jsonify({"error": "'n' must be an integer"}), 400
+        platforms = body.get('platforms') if isinstance(body.get('platforms'), list) else None
+        seed = body.get('seed')
+        item_ids = ab_eval.sample_items(n, platforms=platforms,
+                                        seed=int(seed) if seed is not None else None)
+        return jsonify({"item_ids": item_ids,
+                        "resolved": ab_eval.resolve_items(item_ids)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-eval/estimate', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def estimate_ab_eval():
+    """Estimate a run's Gemini call count for the confirm dialog.
+
+    Body: ``{candidate_names, include_live}``.
+    """
+    try:
+        from fyp import ab_eval
+
+        body = request.get_json(silent=True) or {}
+        names = body.get('candidate_names') or []
+        n_arms = len(names) + (1 if body.get('include_live') else 0)
+        n_items = len(ab_eval.load_eval_set().get("item_ids", []))
+        return jsonify({
+            "n_items": n_items,
+            "n_arms": n_arms,
+            "n_calls": n_items * n_arms,
+            "max_items": ab_eval.MAX_EVAL_ITEMS,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-eval/run', methods=['POST'])
+@permission_required('tab.admin.schema')
+@login_required
+def start_ab_eval_run():
+    """Start an A/B evaluation run as the ``ab_eval`` background task.
+
+    Body: ``{candidate_names, include_live}``. Mints the run id here so the
+    UI can follow the run immediately; the worker snapshots each arm's
+    contract text at start.
+    """
+    try:
+        from fyp import ab_eval
+        from fyp.fyp_config import AB_EVAL_SCRIPT
+
+        body = request.get_json(silent=True) or {}
+        names = body.get('candidate_names') or []
+        if isinstance(names, str):
+            names = [n.strip() for n in names.split(",") if n.strip()]
+        include_live = bool(body.get('include_live'))
+        if not names and not include_live:
+            return jsonify({"error": "select at least one candidate or include the live contract"}), 400
+        for name in names:
+            if not ab_eval.validate_candidate_name(name):
+                return jsonify({"error": f"invalid candidate name '{name}'"}), 400
+        item_ids = ab_eval.load_eval_set().get("item_ids", [])
+        if not item_ids:
+            return jsonify({"error": "the eval set is empty — curate it first"}), 400
+
+        run_id = ab_eval.new_run_id()
+        task_args = {
+            "run_id": run_id,
+            "candidate_names": names,
+            "include_live": include_live,
+            "started_by": _actor(),
+        }
+        success, msg = start_process("ab_eval", AB_EVAL_SCRIPT, task_args=task_args)
+        if not success:
+            return jsonify({"status": "error", "message": msg}), 409
+        activity_log.record(actor=_actor(), category="admin", action="ab_eval.run",
+                            details={"run_id": run_id, "candidates": names,
+                                     "include_live": include_live,
+                                     "n_items": len(item_ids)})
+        return jsonify({"status": "started", "run_id": run_id, "message": msg})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-eval/runs', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def list_ab_eval_runs():
+    """Return the runs index (newest first)."""
+    try:
+        from fyp import ab_eval
+
+        return jsonify({"runs": ab_eval.load_runs_index()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-eval/runs/<run_id>', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def get_ab_eval_run(run_id):
+    """Return one run's manifest + comparison report."""
+    try:
+        from fyp import ab_eval
+
+        run = ab_eval.load_run(run_id)
+        if not run.get("manifest"):
+            return jsonify({"error": f"run '{run_id}' not found"}), 404
+        return jsonify(run)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-eval/runs/<run_id>/rows', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def get_ab_eval_run_rows(run_id):
+    """Return one arm's refined rows (JSON-safe) for the side-by-side view."""
+    try:
+        from fyp import ab_eval
+
+        arm = str(request.args.get('arm') or "").strip()
+        if not arm:
+            return jsonify({"error": "pass ?arm=<arm name>"}), 400
+        try:
+            rows = ab_eval.load_run_rows(run_id, arm)
+        except Exception:
+            return jsonify({"error": f"no rows for run '{run_id}' arm '{arm}'"}), 404
+        return jsonify({"run_id": run_id, "arm": arm, "rows": rows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@management_bp.route('/api/manage/ab-eval/runs/<run_id>', methods=['DELETE'])
+@permission_required('tab.admin.schema')
+@login_required
+def delete_ab_eval_run(run_id):
+    """Delete a run's artifacts."""
+    try:
+        from fyp import ab_eval
+
+        removed = ab_eval.delete_run(run_id)
+        if removed:
+            activity_log.record(actor=_actor(), category="admin",
+                                action="ab_eval.run_delete", details={"run_id": run_id})
+        return jsonify({"ok": removed})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

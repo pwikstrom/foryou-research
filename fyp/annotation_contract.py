@@ -42,6 +42,12 @@ _DEFAULT_CONTRACT_PATH = (
     Path(__file__).resolve().parent.parent / "config" / "annotation_contract.toml"
 )
 
+# UI help texts for the form editor — the servable transcription of the baked
+# contract's explanatory comments (see contract_help()).
+_HELP_PATH = (
+    Path(__file__).resolve().parent.parent / "config" / "annotation_contract_help.toml"
+)
+
 # The runtime, admin-editable copy of the contract lives in data storage
 # (location ``users``, alongside var_presentation.json / admin_settings.json).
 # When present and valid it supersedes the baked file above without a redeploy;
@@ -792,3 +798,335 @@ def validate_contract(contract: dict) -> list[str]:
                 errors.append(f"[recode.drop].{col}: must be a list of strings")
 
     return errors
+
+
+
+
+# ---------------------------------------------------------------------------
+# Form-editor support: help texts, sub-key spec-string round-tripping, and
+# dict → TOML serialization (tomlkit).
+# ---------------------------------------------------------------------------
+
+
+def _tomlkit():
+    """Lazy tomlkit accessor.
+
+    tomlkit is only needed by the form-editor serialization path; importing it
+    lazily keeps app boot resilient when the dependency is missing (e.g. an app
+    image deployed before the base image was rebuilt with the new requirement).
+    """
+    import tomlkit
+
+    return tomlkit
+
+
+
+
+def contract_help() -> dict[str, str]:
+    """Return the form-editor help texts keyed by dotted contract path.
+
+    Loads ``config/annotation_contract_help.toml`` — the UI-servable
+    transcription of the baked contract's explanatory comments. Keys are
+    dotted paths (``"fields.array"``, ``"prompt.header"``, panel-level
+    ``"enums"``, plus ``"overview"``). Never raises; returns ``{}`` on any
+    read/parse failure.
+    """
+    try:
+        with open(_HELP_PATH, "rb") as handle:
+            return {str(k): str(v) for k, v in tomllib.load(handle).get("help", {}).items()}
+    except Exception:
+        return {}
+
+
+
+
+def parse_key_spec(spec: str) -> dict:
+    """Decompose a ``[fields.keys]`` spec string into its structured parts.
+
+    Mirrors :func:`_subkey_node`'s parsing exactly so the form editor and the
+    schema builder always agree. The four forms:
+
+      * ``"enum:NAME"``        → ``{"kind": "enum", "enum": NAME, "desc": ""}``
+      * ``"list: <desc>"``     → ``{"kind": "list", "desc": <desc>}``
+      * ``"int(lo,hi): <d>"`` / ``"int: <d>"``
+                               → ``{"kind": "int", "desc": <d>[, "min", "max"]}``
+      * anything else          → ``{"kind": "text", "desc": <spec>}``
+
+    Args:
+        spec: the compact spec string (NOT the inline-table sub-key form —
+            pass ``spec["spec"]`` for those).
+
+    Returns:
+        The structured parts; :func:`format_key_spec` is the inverse.
+    """
+    spec = spec if isinstance(spec, str) else ""
+    if spec.startswith("enum:"):
+        return {"kind": "enum", "enum": spec[len("enum:"):].strip(), "desc": ""}
+    if spec.startswith("list:"):
+        return {"kind": "list", "desc": spec[len("list:"):].strip()}
+    m = _INT_SUBKEY_RE.match(spec)
+    if m:
+        parts: dict = {"kind": "int", "desc": m.group(3).strip()}
+        if m.group(1) is not None:
+            parts["min"] = int(m.group(1))
+            parts["max"] = int(m.group(2))
+        return parts
+    return {"kind": "text", "desc": spec}
+
+
+
+
+def format_key_spec(parts: dict) -> str:
+    """Format structured sub-key parts back into the compact spec string.
+
+    Inverse of :func:`parse_key_spec` (round-trips every spec form in the
+    baked contract).
+
+    Args:
+        parts: ``{"kind", ...}`` as returned by :func:`parse_key_spec`.
+
+    Returns:
+        The compact spec string.
+    """
+    kind = parts.get("kind", "text")
+    desc = str(parts.get("desc") or "").strip()
+    if kind == "enum":
+        return f"enum:{str(parts.get('enum') or '').strip()}"
+    if kind == "list":
+        return f"list: {desc}" if desc else "list:"
+    if kind == "int":
+        bounds = ""
+        if parts.get("min") is not None and parts.get("max") is not None:
+            bounds = f"({int(parts['min'])},{int(parts['max'])})"
+        return f"int{bounds}: {desc}" if desc else f"int{bounds}:"
+    return desc
+
+
+
+
+def _plain(value):
+    """Return a tomlkit item as its plain-Python equivalent (or as-is)."""
+    unwrap = getattr(value, "unwrap", None)
+    return unwrap() if callable(unwrap) else value
+
+
+
+
+def _keys_table(keys: dict, tk):
+    """Build the ``[fields.keys]`` sub-table (dict sub-keys → inline tables)."""
+    table = tk.table()
+    for sub_key, spec in keys.items():
+        if isinstance(spec, dict):
+            inline = tk.inline_table()
+            for k, v in spec.items():
+                inline[k] = v
+            table[sub_key] = inline
+        else:
+            table[sub_key] = spec
+    return table
+
+
+
+
+def _build_item(key: str, value, tk):
+    """Build the tomlkit item for one contract key (dispatch on shape).
+
+    ``keys`` dicts render as a sub-table of inline tables (the baked file's
+    shape); every other dict renders as a regular sub-table; lists/scalars
+    pass through (tomlkit converts natively).
+    """
+    if key == "keys" and isinstance(value, dict):
+        return _keys_table(value, tk)
+    if isinstance(value, dict):
+        table = tk.table()
+        for k, v in value.items():
+            table[k] = _build_item(k, v, tk)
+        return table
+    return value
+
+
+
+
+def _table_from(entry: dict, tk):
+    """Build a tomlkit table for one ``[[section]]`` / ``[[fields]]`` entry."""
+    table = tk.table()
+    for k, v in entry.items():
+        table[k] = _build_item(k, v, tk)
+    return table
+
+
+
+
+def _update_table_in_place(table, new: dict, tk) -> None:
+    """Mutate a tomlkit table to match ``new``, touching only changed keys.
+
+    Comments attached to untouched keys survive verbatim; a changed key is
+    reassigned (its own trailing comment is lost, nothing else).
+    """
+    for key in list(table.keys()):
+        if key not in new:
+            del table[key]
+    for key, value in new.items():
+        if key not in table or _plain(table[key]) != value:
+            table[key] = _build_item(key, value, tk)
+
+
+
+
+def _sync_table(doc, name: str, new: dict | None, tk) -> None:
+    """Sync one top-level table (``prompt`` / ``enums`` / ``recode``) in place."""
+    if not new:
+        if name in doc:
+            del doc[name]
+        return
+    if name not in doc:
+        doc[name] = tk.table()
+    _update_table_in_place(doc[name], new, tk)
+
+
+
+
+def _sync_aot(doc, name: str, new_list: list, tk) -> None:
+    """Sync a top-level array-of-tables (``section`` / ``fields``) in place.
+
+    When the entry names match pairwise (the common edit-in-place case) each
+    table is mutated key-by-key, preserving all surrounding comments. On an
+    add/remove/reorder the array is rebuilt, reusing unchanged tables (their
+    internal comments survive; free-floating comments between tables may not).
+    """
+    if not new_list:
+        if name in doc:
+            del doc[name]
+        return
+    existing = doc.get(name)
+    existing_tables = list(existing) if existing is not None else []
+    base_names = [_plain(t).get("name") for t in existing_tables]
+    new_names = [entry.get("name") for entry in new_list]
+
+    if base_names == new_names:
+        for table, entry in zip(existing_tables, new_list):
+            if _plain(table) != entry:
+                _update_table_in_place(table, entry, tk)
+        return
+
+    by_name = {n: t for n, t in zip(base_names, existing_tables)}
+    aot = tk.aot()
+    for entry in new_list:
+        table = by_name.get(entry.get("name"))
+        if table is not None and _plain(table) == entry:
+            aot.append(table)
+        else:
+            aot.append(_table_from(entry, tk))
+    doc[name] = aot
+
+
+
+
+# Canonical top-level order for a regenerated contract file.
+_TOP_LEVEL_ORDER = ("prompt", "recode", "enums", "section", "fields")
+
+# Short header comments injected above each part of a regenerated file (the
+# full documentation lives in config/annotation_contract_help.toml).
+_FRESH_COMMENTS = {
+    "prompt": "Fixed prompt text around the generated field bullets.",
+    "recode": "Recode hints: field-specific stop words, keyed by flattened output column.",
+    "enums": "Named closed value sets (bare list, or value -> description table).",
+    "section": "Prompt sections (order = document order).",
+    "fields": "The Gemini output fields, in prompt/schema order.",
+}
+
+
+
+
+def _serialize_fresh(contract: dict) -> str:
+    """Regenerate a contract file from scratch (no base text to round-trip).
+
+    Injects short canonical header comments so even a regenerated file carries
+    orientation pointers; the full guidance lives in the help file.
+    """
+    tk = _tomlkit()
+    doc = tk.document()
+    doc.add(tk.comment("Declarative annotation contract - generated by the form editor."))
+    doc.add(tk.comment("What each key does: config/annotation_contract_help.toml"))
+    doc.add(tk.comment("(and the annotated baked default: config/annotation_contract.toml)"))
+
+    ordered = [k for k in _TOP_LEVEL_ORDER if k in contract]
+    ordered += [k for k in contract if k not in _TOP_LEVEL_ORDER]
+    for key in ordered:
+        value = contract[key]
+        doc.add(tk.nl())
+        if key in _FRESH_COMMENTS:
+            doc.add(tk.comment(_FRESH_COMMENTS[key]))
+        if isinstance(value, list):
+            aot = tk.aot()
+            for entry in value:
+                aot.append(_table_from(entry, tk))
+            doc[key] = aot
+        else:
+            doc[key] = _build_item(key, value, tk)
+    return tk.dumps(doc)
+
+
+
+
+def serialize_contract(contract: dict, base_text: str | None = None) -> str:
+    """Serialize a contract dict to TOML text (the form editor's save path).
+
+    With ``base_text`` (normally the current effective contract's TOML) the
+    serialization round-trips: the base document is parsed with tomlkit and
+    mutated in place, so comments on untouched keys/tables survive verbatim
+    — an unchanged contract returns ``base_text`` byte-identical. Without a
+    base (or when round-tripping fails), the file is regenerated from scratch
+    with canonical header comments.
+
+    The output is verified to re-parse to exactly ``contract`` before it is
+    returned.
+
+    Args:
+        contract: the plain contract dict (the parsed-TOML shape).
+        base_text: the TOML text to round-trip against, if any.
+
+    Returns:
+        TOML text that parses back to ``contract``.
+
+    Raises:
+        ValueError: if no serialization strategy reproduces ``contract``
+            exactly (e.g. a value TOML cannot represent, such as ``None``).
+    """
+    candidates: list[str] = []
+    if base_text is not None:
+        try:
+            if tomllib.loads(base_text) == contract:
+                return base_text
+            tk = _tomlkit()
+            doc = tk.parse(base_text)
+            for name in ("prompt", "recode", "enums"):
+                _sync_table(doc, name, contract.get(name), tk)
+            for name in ("section", "fields"):
+                _sync_aot(doc, name, contract.get(name, []), tk)
+            known = set(_TOP_LEVEL_ORDER)
+            for key in list(doc.keys()):
+                if key not in known and key not in contract:
+                    del doc[key]
+            for key, value in contract.items():
+                if key not in known and (key not in doc or _plain(doc[key]) != value):
+                    doc[key] = _build_item(key, value, tk)
+            candidates.append(tk.dumps(doc))
+        except Exception:
+            pass
+
+    try:
+        candidates.append(_serialize_fresh(contract))
+    except Exception:
+        pass
+
+    for text in candidates:
+        try:
+            if tomllib.loads(text) == contract:
+                return text
+        except Exception:
+            continue
+    raise ValueError(
+        "contract serialization failed: no strategy reproduced the contract "
+        "exactly (does it contain values TOML cannot represent, e.g. null?)"
+    )

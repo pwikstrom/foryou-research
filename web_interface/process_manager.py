@@ -54,6 +54,7 @@ CLOUD_TASK_ELIGIBLE = {
     "embeddings_refresh",
     "video_map_refresh",
     "retokenise_hashtags",
+    "ab_eval",
 }
 CLOUD_TASK_ELIGIBLE |= set(SCRAPER_PROCESS_NAMES)
 
@@ -80,7 +81,8 @@ processes = {
     "sequence_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "embeddings_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "video_map_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "retokenise_hashtags": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
+    "retokenise_hashtags": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "ab_eval": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
 }
 
 process_stats = {}
@@ -707,6 +709,14 @@ def _task_args_to_cli(name: str, task_args: dict) -> list[str]:
         out += ["--hours-back", str(task_args["hours_back"])]
     if task_args.get("collection_id"):
         out += ["--collection-id", str(task_args["collection_id"])]
+    if task_args.get("run_id"):
+        out += ["--run-id", str(task_args["run_id"])]
+    if task_args.get("candidate_names"):
+        names = task_args["candidate_names"]
+        joined = ",".join(names) if isinstance(names, list) else str(names)
+        out += ["--candidates", joined]
+    if task_args.get("include_live"):
+        out += ["--include-live"]
     # study_name is a positional in some scripts (recode/pca) — append last
     if task_args.get("study_name"):
         out += [str(task_args["study_name"])]
