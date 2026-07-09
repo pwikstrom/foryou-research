@@ -200,6 +200,40 @@ def test_run_arm_failed_item_yields_bare_row():
 
 # ------- refine + compare -------
 
+def test_candidate_field_survives_refine():
+    """A candidate-only field must survive refinement (prod bug 2026-07-09).
+
+    ``recode_events_df`` keeps only live-var_schema columns, so a candidate's
+    new field was silently dropped; ``_reattach_contract_columns`` merges the
+    raw flattened values back in.
+    """
+    live = tomllib.loads(ac._read_baked_text())
+    cand = copy.deepcopy(live)
+    cand["fields"].append({"name": "funniness", "section": "scoring",
+                           "scale": "text", "desc": "How funny the video is."})
+    records = []
+    for i, item in enumerate(["11111", "22222"]):
+        flat = {"item_id": item}
+        flat.update(sch.flatten_structured(_fake_parsed(cand, seed=i), cand))
+        records.append(flat)
+    dropped = ab_eval.refine_from_flat_dicts(records)
+    reattached = ab_eval._reattach_contract_columns(dropped, records, cand)
+    ok = ("funniness" not in dropped.columns          # documents the recode drop
+          and "funniness" in reattached.columns
+          and reattached["funniness"].notna().all()
+          and len(reattached) == 2
+          and "transcript_no_repetitions" in reattached.columns)
+    _check("test_candidate_field_survives_refine", bool(ok),
+           f"dropped={'funniness' in dropped.columns} cols={[c for c in reattached.columns if 'funn' in c]}")
+
+
+def test_resolve_items_unknown_ids():
+    resolved = ab_eval.resolve_items(["__definitely_not_an_item__", "also-nope"])
+    ok = (len(resolved) == 2
+          and all(r["platform"] is None and r["downloaded"] is None for r in resolved))
+    _check("test_resolve_items_unknown_ids", ok, f"resolved={resolved}")
+
+
 def test_refine_from_flat_dicts():
     live = tomllib.loads(ac._read_baked_text())
     records = []
@@ -257,9 +291,13 @@ def test_execute_run_isolation():
     live = tomllib.loads(live_text)
     cand = copy.deepcopy(live)
     cand["prompt"]["footer"] = "CANDIDATE FOOTER (ab_eval unit test)"
+    cand["fields"].append({"name": "funniness", "section": "scoring",
+                           "scale": "text", "desc": "How funny the video is."})
     cand_text = ac.serialize_contract(cand, base_text=live_text)
 
-    parsed = {i: _fake_parsed(live, seed=int(i)) for i in ("1", "2", "3")}
+    # Canned responses conform to the CANDIDATE schema (superset of live) —
+    # each arm's flatten then keeps only its own contract's fields.
+    parsed = {i: _fake_parsed(cand, seed=int(i)) for i in ("1", "2", "3")}
     runner = StubRunner(parsed)
 
     # Record every data_io write (location, filename) while delegating to the
@@ -294,6 +332,7 @@ def test_execute_run_isolation():
     report = run.get("report") or {}
     manifest = run.get("manifest") or {}
     rows = ab_eval.load_run_rows(run_id, "cand")
+    live_rows = ab_eval.load_run_rows(run_id, "live")
     index_entry = next((r for r in ab_eval.load_runs_index() if r["run_id"] == run_id), None)
 
     ok = (summary["status"] == "complete"
@@ -304,6 +343,10 @@ def test_execute_run_isolation():
           and report["comparisons"]["live|cand"]["n_items"] == 3
           and report["costs"]["cand"]["total_tokens"] == 45
           and len(rows) == 3
+          # The candidate-only field survives end-to-end (refine reattach)…
+          and all("funniness" in r for r in rows)
+          # …and does not leak into the live arm.
+          and all("funniness" not in r for r in live_rows)
           and index_entry and index_entry["status"] == "complete"
           and {a["source"] for a in manifest["arms"]} == {"live", "candidate"})
 
@@ -429,6 +472,8 @@ def main():
         test_sample_items_seeded,
         test_run_arm_threads_candidate_contract,
         test_run_arm_failed_item_yields_bare_row,
+        test_candidate_field_survives_refine,
+        test_resolve_items_unknown_ids,
         test_refine_from_flat_dicts,
         test_compare_arms_metrics,
         test_adjudication_and_distributions,

@@ -346,7 +346,7 @@
             return;
         }
         for (const id of ids) {
-            const r = resolved[id] || {};
+            const r = resolved[id];   // undefined until the id is saved/resolved
             const pill = document.createElement("span");
             pill.className = "text-xs";
             pill.style.cssText = "display: inline-flex; align-items: center; gap: 5px;" +
@@ -357,8 +357,12 @@
             label.textContent = id;
             const meta = document.createElement("span");
             meta.className = "text-xxs";
-            meta.style.color = r.downloaded === false ? "var(--color-warning)" : "var(--color-text-muted)";
-            meta.textContent = (r.platform || "?") + (r.downloaded === false ? " · no media!" : "");
+            const unknown = r && r.platform == null && r.downloaded == null;
+            meta.style.color = unknown ? "var(--color-danger)"
+                : (r && r.downloaded === false) ? "var(--color-warning)" : "var(--color-text-muted)";
+            meta.textContent = !r ? "new — save to check"
+                : unknown ? "not found!"
+                : (r.platform || "?") + (r.downloaded === false ? " · no media!" : "");
             const remove = document.createElement("button");
             remove.type = "button";
             remove.className = "btn-discreet text-xs";
@@ -398,6 +402,8 @@
     async function abeSample() {
         const n = parseInt((document.getElementById("abe-sample-n") || {}).value, 10) || 10;
         const platform = (document.getElementById("abe-sample-platform") || {}).value;
+        const btn = document.getElementById("abe-sample-btn");
+        if (btn) { btn.disabled = true; btn.textContent = "Sampling…"; }
         _status("Sampling…");
         try {
             const body = await _postJson(`${EVALSET}/sample`,
@@ -419,20 +425,32 @@
             refreshEstimate();
         } catch (e) {
             _status(`Sample failed: ${e.message}`, true);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = "Sample"; }
         }
     }
 
     async function abeSaveEvalSet() {
+        const btn = document.getElementById("abe-set-save");
+        if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+        _status("Saving eval set…");
         try {
             const body = await _postJson(EVALSET, { item_ids: st.evalSet.item_ids || [] });
             st.evalSet = { ...st.evalSet, ...body };
             st.setDirty = false;
-            const warn = (body.not_downloaded || []).length;
-            _status(warn ? `Saved — warning: ${warn} item(s) have no downloaded media.` : "Eval set saved.");
+            const notDownloaded = (body.not_downloaded || []).length;
+            const unknown = (body.resolved || []).filter(r => r.platform == null && r.downloaded == null)
+                .map(r => r.item_id);
+            const warnings = [];
+            if (unknown.length) warnings.push(`${unknown.length} id(s) not found in the dataset: ${unknown.join(", ")}`);
+            if (notDownloaded) warnings.push(`${notDownloaded} item(s) have no downloaded media`);
+            _status(warnings.length ? `Saved — warning: ${warnings.join("; ")}.` : "Eval set saved.", warnings.length > 0);
             renderEvalSet();
             refreshEstimate();
         } catch (e) {
             _status(`Save failed: ${e.message}`, true);
+        } finally {
+            if (btn) { btn.textContent = "Save set"; btn.disabled = !st.setDirty; }
         }
     }
 
@@ -483,22 +501,41 @@
         if (!names.length && !live) { _status("Select at least one arm.", true); return; }
         const runBtn = document.getElementById("abe-run-btn");
         try {
-            const est = await _postJson(`${EVAL}/estimate`, { candidate_names: names, include_live: live });
-            if (!est.n_items) { _status("The saved eval set is empty — save it first.", true); return; }
-            // Two-click cost gate: the first click relabels the button with the
-            // real call count; the second click (within 4s) launches.
-            if (!_armTwoClick(runBtn, `Confirm: ${est.n_calls} Gemini calls?`)) {
-                if (st.setDirty) {
-                    _status("Note: the run uses the last SAVED set — you have unsaved set edits.", true);
+            // First click: fetch the authoritative estimate (visible feedback
+            // while it loads), then arm the button with the real call count.
+            if (!runBtn || runBtn.dataset.armed !== "1") {
+                if (runBtn) { runBtn.disabled = true; runBtn.textContent = "Checking cost…"; }
+                _status("Checking run cost…");
+                let est;
+                try {
+                    est = await _postJson(`${EVAL}/estimate`, { candidate_names: names, include_live: live });
+                } finally {
+                    if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Run…"; }
                 }
+                if (!est.n_items) { _status("The saved eval set is empty — save it first.", true); return; }
+                _armTwoClick(runBtn, `Confirm: ${est.n_calls} Gemini calls?`);
+                _status(st.setDirty
+                    ? "Note: the run uses the last SAVED set — you have unsaved set edits. Click again to start."
+                    : "Click again to start the run.", st.setDirty);
                 return;
             }
+            // Second click (armed): lock the button through the whole start
+            // request so a double-click can never dispatch two runs.
+            _armTwoClick(runBtn, "");
+            _setRunning(true);
+            _status("Starting run…");
             const body = await _postJson(`${EVAL}/run`, { candidate_names: names, include_live: live });
             _status(`Run ${body.run_id} started.`);
-            _setRunning(true);
             _pollRun(body.run_id);
         } catch (e) {
-            _status(`Start failed: ${e.message}`, true);
+            _setRunning(false);
+            if (e.status === 409) {
+                _status(`Not started: ${e.message}`, true);
+                _pollRun("");   // a run is already in flight — follow it instead
+                _setRunning(true);
+            } else {
+                _status(`Start failed: ${e.message}`, true);
+            }
         }
     }
 

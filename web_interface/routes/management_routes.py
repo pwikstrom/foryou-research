@@ -3665,6 +3665,13 @@ def start_ab_eval_run():
         from fyp import ab_eval
         from fyp.fyp_config import AB_EVAL_SCRIPT
 
+        # Explicit gate on top of start_process's own check: one A/B run at a
+        # time (a second concurrent run would double the Gemini spend and race
+        # on the runs index).
+        if _is_worker_running("ab_eval"):
+            return jsonify({"status": "error",
+                            "message": "An A/B evaluation run is already in progress."}), 409
+
         body = request.get_json(silent=True) or {}
         names = body.get('candidate_names') or []
         if isinstance(names, str):

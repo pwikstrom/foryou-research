@@ -25,6 +25,7 @@ import io
 import json
 import os
 import re
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -261,15 +262,36 @@ def save_eval_set(item_ids: list[str], actor: str = "", note: str = "") -> dict:
 
 
 
+# Short-lived in-process cache for the enrichment-status columns. The eval-set
+# UI hits resolve/sample several times in a row (page load, add, sample, save);
+# on Cloud Run each uncached call re-downloads a multi-million-row parquet from
+# GCS, which is what made the buttons feel stuck.
+_STATUS_CACHE: dict = {"ts": 0.0, "frame": None}
+_STATUS_TTL_S = 60.0
+
+
+
+
 def _enrichment_status_frame() -> pd.DataFrame | None:
-    """Load the id/platform/flags columns of enrichment_status.parquet, or None."""
+    """Load the id/platform/flags columns of enrichment_status.parquet, or None.
+
+    Cached in-process for ``_STATUS_TTL_S`` seconds; ``item_id`` is normalised
+    to ``str`` once at load so callers never re-cast the full column.
+    """
+    now = time.monotonic()
+    if _STATUS_CACHE["frame"] is not None and now - _STATUS_CACHE["ts"] < _STATUS_TTL_S:
+        return _STATUS_CACHE["frame"]
     try:
         if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
             return None
-        return data_io.load_parquet_selective(
+        frame = data_io.load_parquet_selective(
             storage_location="recoded", filename="enrichment_status.parquet",
             columns=["item_id", "source_platform", "video_downloaded", "scraped_ok"],
         )
+        frame["item_id"] = frame["item_id"].astype(str)
+        _STATUS_CACHE["frame"] = frame
+        _STATUS_CACHE["ts"] = now
+        return frame
     except Exception:
         return None
 
@@ -279,20 +301,20 @@ def _enrichment_status_frame() -> pd.DataFrame | None:
 def resolve_items(item_ids: list[str]) -> list[dict]:
     """Resolve each id to ``{item_id, platform, downloaded}`` for the UI.
 
-    Ids absent from ``enrichment_status.parquet`` get ``platform=None`` /
-    ``downloaded=None`` (unknown — media may still resolve via the probe
-    fallbacks).
+    Vectorised: filters the status frame down to the requested ids before any
+    per-row work (the frame has millions of rows; the eval set has ≤50). Ids
+    absent from ``enrichment_status.parquet`` get ``platform=None`` /
+    ``downloaded=None`` (unknown — likely a typo, or an item not yet ingested).
     """
-    status = _enrichment_status_frame()
     lookup: dict[str, tuple] = {}
-    if status is not None:
-        ids = status["item_id"].astype(str)
-        platforms = status.get("source_platform")
-        downloaded = status.get("video_downloaded")
-        for idx in range(len(status)):
-            plat = str(platforms.iloc[idx]) if platforms is not None and pd.notna(platforms.iloc[idx]) else None
-            dl = bool(downloaded.iloc[idx]) if downloaded is not None and pd.notna(downloaded.iloc[idx]) else None
-            lookup[ids.iloc[idx]] = (plat, dl)
+    status = _enrichment_status_frame()
+    if status is not None and len(status):
+        wanted = {str(i) for i in item_ids}
+        sub = status[status["item_id"].isin(wanted)]
+        for row in sub.itertuples(index=False):
+            plat = str(row.source_platform) if pd.notna(row.source_platform) else None
+            dl = bool(row.video_downloaded) if pd.notna(row.video_downloaded) else None
+            lookup[row.item_id] = (plat, dl)
     out = []
     for item_id in item_ids:
         plat, dl = lookup.get(str(item_id), (None, None))
@@ -615,6 +637,51 @@ def refine_from_flat_dicts(records: list[dict], quiet: bool = True) -> pd.DataFr
             df["annotated_fail"] = df["type_of_story"].isna()
         df = convert_dtypes_to_pyarrow(df)
     return df
+
+
+
+
+def _reattach_contract_columns(refined: pd.DataFrame, flat_rows: list[dict],
+                               contract: dict) -> pd.DataFrame:
+    """Re-attach contract output columns the production recode dropped.
+
+    ``recode_events_df`` keeps only columns known to the LIVE var_schema, so a
+    candidate contract's NEW fields (the very thing an A/B run exists to
+    evaluate) silently vanish during refinement. For every output column the
+    arm's contract declares that is missing from the refined frame but present
+    in the raw flatten, merge the raw (unrecoded) values back in, keyed on
+    ``item_id`` — new fields stay visible and comparable in the results.
+    """
+    flat_df = pd.DataFrame(flat_rows)
+    if refined.empty or flat_df.empty or "item_id" not in flat_df.columns:
+        return refined
+
+    # Map each flatten-time column to its final (post-rename) column name.
+    final_by_flat: dict[str, str] = {}
+    for field in contract.get("fields", []):
+        name = field.get("name")
+        if not name:
+            continue
+        if field.get("type") == "object":
+            for key in (field.get("keys") or {}):
+                final_by_flat[f"{name}_{key}"] = ac.contract_output_column(name, key)
+        else:
+            final_by_flat[name] = ac.contract_output_column(name)
+
+    missing = {
+        flat_col: final_col
+        for flat_col, final_col in final_by_flat.items()
+        if final_col not in refined.columns and flat_col in flat_df.columns
+    }
+    if not missing:
+        return refined
+
+    add = flat_df[["item_id", *missing.keys()]].rename(columns=missing).copy()
+    add["item_id"] = add["item_id"].astype(str)
+    out = refined.copy()
+    out["item_id"] = out["item_id"].astype(str)
+    out = out.merge(add.drop_duplicates("item_id"), on="item_id", how="left")
+    return convert_dtypes_to_pyarrow(out)
 
 
 
@@ -1020,6 +1087,9 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
             data_io.save_json(data=raw_rows, storage_location=LOCATION,
                               filename=_run_file(run_id, f"raw_{arm['name']}.json"))
             refined = refine_from_flat_dicts(flat_rows)
+            # The recode keeps only live-var_schema columns — bring the arm's
+            # own (e.g. candidate-only) fields back so they show in results.
+            refined = _reattach_contract_columns(refined, flat_rows, arm["contract"])
             data_io.save_parquet(df=refined, storage_location=LOCATION,
                                  filename=_run_file(run_id, f"arm_{arm['name']}.parquet"))
             frames[arm["name"]] = refined
