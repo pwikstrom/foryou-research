@@ -471,6 +471,45 @@ def api_irrelevant_words():
     })
 
 
+@auth_bp.route('/api/admin/irrelevant_words/apply', methods=['POST'])
+@permission_required('tab.admin.general')
+def api_irrelevant_words_apply():
+    """Start the background job that re-applies the stoplist to existing data.
+
+    Re-tokenises the stored ``desc_hashtags`` from the preserved captions across
+    the source scrape parquets with the current stoplist (see
+    ``run_retokenise_hashtags``). Clean-only — the response tells the caller to
+    run a Force Reconsolidate afterward. Refuses (409) while a scraper/annotator/
+    consolidation is running, since it rewrites the same scrape parquets.
+    """
+    from fyp.fyp_config import RETOKENISE_HASHTAGS_SCRIPT
+
+    from ..process_manager import start_process
+    from .management_routes import _is_worker_running, _workers_blocking_consolidate
+
+    if _is_worker_running("retokenise_hashtags"):
+        return jsonify({"status": "error", "message": "Already running"}), 409
+
+    blocking = _workers_blocking_consolidate()
+    if _is_worker_running("consolidate_enrichment"):
+        blocking.append("consolidate_enrichment")
+    if blocking:
+        return jsonify({
+            "status": "error",
+            "message": f"Cannot run while {', '.join(blocking)} running.",
+        }), 409
+
+    success, msg = start_process("retokenise_hashtags", RETOKENISE_HASHTAGS_SCRIPT)
+    if success:
+        activity_log.record(
+            actor=current_user.username,
+            category="admin",
+            action="irrelevant_words.apply",
+        )
+        return jsonify({"status": "started", "message": msg})
+    return jsonify({"status": "error", "message": msg}), 409
+
+
 @auth_bp.route('/api/user/settings', methods=['GET', 'POST'])
 @login_required
 def api_user_settings():

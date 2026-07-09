@@ -555,6 +555,85 @@
         }
     }
 
+    // --- Apply stoplist to existing hashtags (background job) ---
+
+    let _iwApplyPoll = null;
+
+    function _iwApplySetStatus(color, text) {
+        const status = document.getElementById('iw-apply-status');
+        if (!status) return;
+        status.style.color = color;
+        status.textContent = text;
+    }
+
+    async function applyStoplistToExisting() {
+        const btn = document.getElementById('iw-apply-btn');
+        if (btn) btn.disabled = true;
+        _iwApplySetStatus('var(--color-text-muted)', 'Starting…');
+
+        // Baseline the last completion time so we can tell a *fresh* terminal
+        // state (fast job finishing before we ever observe 'running') from the
+        // stale 'stopped' state left over from a previous run.
+        let baselineEnd = null;
+        try {
+            const pre = await fetch('/api/status');
+            if (pre.ok) baselineEnd = ((await pre.json()).retokenise_hashtags || {}).last_run_end_time || null;
+        } catch (_) { /* non-fatal */ }
+
+        try {
+            const response = await fetch('/api/admin/irrelevant_words/apply', { method: 'POST' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.message || 'Failed to start');
+            _pollIrrelevantWordsApply(baselineEnd);
+        } catch (e) {
+            console.error('applyStoplistToExisting:', e);
+            if (btn) btn.disabled = false;
+            _iwApplySetStatus('var(--color-danger)', `Failed: ${e.message}`);
+        }
+    }
+
+    function _pollIrrelevantWordsApply(baselineEnd) {
+        if (_iwApplyPoll) clearInterval(_iwApplyPoll);
+        let sawRunning = false;
+        _iwApplyPoll = setInterval(async () => {
+            try {
+                const r = await fetch('/api/status');
+                if (!r.ok) return;
+                const entry = (await r.json()).retokenise_hashtags;
+                if (!entry) return;
+
+                // In-flight — the process reports state='running' while working.
+                if (entry.state === 'running') {
+                    sawRunning = true;
+                    const pct = (entry.progress && entry.progress.percent != null) ? entry.progress.percent : 0;
+                    const msg = (entry.progress && entry.progress.message) || 'Working…';
+                    _iwApplySetStatus('var(--color-text-muted)', `${pct}% — ${msg}`);
+                    return;
+                }
+
+                // Not running: only terminal once we've either seen it run or a
+                // fresh completion timestamp appeared (guards the startup race).
+                const freshlyDone = entry.last_run_end_time && entry.last_run_end_time !== baselineEnd;
+                if (!sawRunning && !freshlyDone) return; // still spinning up
+
+                clearInterval(_iwApplyPoll); _iwApplyPoll = null;
+                const btn = document.getElementById('iw-apply-btn');
+                if (btn) btn.disabled = false;
+
+                if (entry.last_run_outcome === 'Fail') {
+                    _iwApplySetStatus('var(--color-danger)', `Failed: ${entry.last_message || 'see logs'}`);
+                } else {
+                    const d = entry.data || {};
+                    _iwApplySetStatus('var(--color-success)',
+                        `Updated ${d.rows_changed || 0} hashtag row(s) in ${d.files_changed || 0} file(s). `
+                        + 'Now run Force Reconsolidate (Data Management → Enrichment) to apply to studies.');
+                }
+            } catch (e) {
+                console.error('_pollIrrelevantWordsApply:', e);
+            }
+        }, 2000);
+    }
+
     function renderUsers(users) {
         const pendingContainer = document.getElementById('pendingUserList');
         const tableBody = document.getElementById('userTableBody');

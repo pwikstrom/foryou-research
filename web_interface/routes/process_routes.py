@@ -341,6 +341,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_queue_annotator_batch import run_queue_annotator_batch
     from web_interface.run_queue_scraper import run_queue_scraper
     from web_interface.run_recode_refresh_studies import run_recode_refresh_studies
+    from web_interface.run_retokenise_hashtags import run_retokenise_hashtags
     from web_interface.run_sequence_refresh import run_sequence_refresh
     from web_interface.run_study_refresh import run_study_refresh
     from web_interface.run_timelines_refresh import run_timelines_refresh
@@ -368,6 +369,7 @@ def _ensure_task_functions_loaded() -> None:
         "sequence_refresh": run_sequence_refresh,
         "embeddings_refresh": run_embeddings_refresh,
         "video_map_refresh": run_video_map_refresh,
+        "retokenise_hashtags": run_retokenise_hashtags,
     })
 
 

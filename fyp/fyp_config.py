@@ -1119,6 +1119,7 @@ SEQUENCE_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_sequence_refresh
 EMBEDDINGS_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_embeddings_refresh.py"
 VIDEO_MAP_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_video_map_refresh.py"
 CONSOLIDATE_ENRICHMENT_SCRIPT = PROJECT_ROOT / "web_interface" / "run_consolidate_enrichment.py"
+RETOKENISE_HASHTAGS_SCRIPT = PROJECT_ROOT / "web_interface" / "run_retokenise_hashtags.py"
 INGEST_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_ingest_refresh.py"
 AIO_FETCH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_aio_fetch.py"
 COLLECTION_METADATA_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_collection_metadata_refresh.py"
