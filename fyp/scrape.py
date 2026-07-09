@@ -1762,6 +1762,12 @@ def _compute_changed_scrape_ids(
     items had their enrichment *values* updated is refreshed, not only studies
     that gained or lost members.
 
+    A change in the value-column SET itself (a contract migration renaming or
+    coalescing columns, or a new platform's first columns) marks every item as
+    changed: the per-row signatures only cover the column intersection, so a
+    pure schema change would otherwise diff as "nothing changed" and the
+    downstream study refresh would never pick up the new columns.
+
     Args:
         existing_df: The previously consolidated scrape frame (``None`` on the
             first-ever consolidation).
@@ -1775,6 +1781,16 @@ def _compute_changed_scrape_ids(
         return set()
 
     if existing_df is None or existing_df.empty or "item_id" not in existing_df.columns:
+        return {str(i) for i in new_df.loc[new_df["item_id"].notna(), "item_id"]}
+
+    def _value_col_set(df: pd.DataFrame) -> set[str]:
+        return {c for c in df.columns if c != "item_id" and c not in _SCRAPE_PROVENANCE_COLS}
+
+    if _value_col_set(new_df) != _value_col_set(existing_df):
+        if verbose:
+            added = sorted(_value_col_set(new_df) - _value_col_set(existing_df))
+            removed = sorted(_value_col_set(existing_df) - _value_col_set(new_df))
+            print(f"Scrape column set changed (+{added} / -{removed}) — flagging all items as changed.")
         return {str(i) for i in new_df.loc[new_df["item_id"].notna(), "item_id"]}
 
     value_cols = [
@@ -1844,9 +1860,17 @@ def consolidate_and_save_scrape_data(
 
     latest_filename_list = dataset_meta.get(SCRAPES_LABEL, {}).get("filenames", [])
     latest_seed_row_counts = dataset_meta.get(SCRAPES_LABEL, {}).get("seed_row_counts", {})
+    # A scrape-contract change (new sv_) must rebuild even with no new files:
+    # the per-file self-healing migrations (retired-column coalesce, legacy
+    # renames) only run inside a rebuild, so skipping would leave the
+    # consolidated parquet on the previous contract's column set forever.
+    from fyp import scrape_versioning
+    current_sv = scrape_versioning.current_scrape_version()
+    latest_sv = dataset_meta.get(SCRAPES_LABEL, {}).get("scrape_contract_version")
     if (not force_consolidation
             and set(files_to_concatenate) <= set(latest_filename_list)
-            and seed_row_counts == latest_seed_row_counts):
+            and seed_row_counts == latest_seed_row_counts
+            and latest_sv == current_sv):
         if top_verbose:
             print("No new scrape files found. No need to consolidate.")
         if return_saved_data:
@@ -1993,6 +2017,7 @@ def consolidate_and_save_scrape_data(
         dataset_meta[SCRAPES_LABEL] = {}
     dataset_meta[SCRAPES_LABEL]["filenames"] = files_to_concatenate
     dataset_meta[SCRAPES_LABEL]["seed_row_counts"] = seed_row_counts
+    dataset_meta[SCRAPES_LABEL]["scrape_contract_version"] = current_sv
     _ = data_io.save_json(data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
 
     if top_verbose:

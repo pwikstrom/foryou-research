@@ -108,12 +108,36 @@ def test_identical_frame_flags_nothing() -> None:
     assert _compute_changed_scrape_ids(df, df.copy()) == set()
 
 
+def test_column_set_change_flags_all():
+    """A contract migration (renamed/coalesced columns) marks every item changed.
+
+    Signatures cover only the column intersection, so a pure schema change would
+    otherwise diff as 'nothing changed' and studies would never gain the new
+    columns.
+    """
+    import pandas as pd
+    old = pd.DataFrame([
+        {"item_id": "A", "play_count": 5, "stats_diggCount": 2, "desc": "x"},
+        {"item_id": "B", "play_count": 9, "stats_diggCount": 4, "desc": "y"},
+    ])
+    new = pd.DataFrame([
+        {"item_id": "A", "play_count": 5, "fave_count": 2, "desc": "x"},
+        {"item_id": "B", "play_count": 9, "fave_count": 4, "desc": "y"},
+    ])
+    assert _compute_changed_scrape_ids(old, new) == {"A", "B"}
+    # A provenance-only column difference is NOT a schema change.
+    with_prov = new.copy()
+    with_prov["scrape_contract_version"] = "sv_x"
+    assert _compute_changed_scrape_ids(new, with_prov) == set()
+
+
 _TESTS = [
     test_rescrape_value_backfill_is_flagged,
     test_provenance_only_change_is_ignored,
     test_first_consolidation_flags_all,
     test_na_to_value_and_value_to_na_are_flagged,
     test_identical_frame_flags_nothing,
+    test_column_set_change_flags_all,
 ]
 
 
