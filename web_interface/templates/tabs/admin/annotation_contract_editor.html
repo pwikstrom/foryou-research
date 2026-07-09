@@ -1,0 +1,81 @@
+<!-- Annotation contract form editor (full-screen modal, launched from the
+     contract card on the Annotation versions page). All content is rendered
+     by static/js/admin_contract_editor.js from the /parsed endpoint. -->
+<div id="ace-modal" class="modal" style="display: none; align-items: center;
+        justify-content: center; padding: 3vh 2vw;">
+    <div class="modal-content" onclick="event.stopPropagation()"
+        style="width: 100%; max-width: 1400px; height: 94vh; display: flex;
+               flex-direction: column; position: relative; padding: 16px 20px;">
+
+        <!-- Header -->
+        <div style="display: flex; align-items: center; gap: 12px;
+                padding-bottom: 10px; border-bottom: 1px solid var(--color-border);">
+            <h3 style="margin: 0; color: var(--color-text-heading);">Edit annotation contract</h3>
+            <span id="ace-help-overview" class="meta-tooltip text-xs" data-tooltip=""
+                style="color: var(--color-text-muted); cursor: help;">ⓘ what is this?</span>
+            <span id="ace-dirty" class="text-xs" style="display: none;
+                color: var(--color-warning);">● unsaved changes</span>
+            <span style="flex: 1;"></span>
+            <span id="ace-status" class="text-xs" style="color: var(--color-text-muted);"></span>
+            <button onclick="aceClose()" class="btn-discreet text-sm"
+                style="padding: 4px 10px;">✕ Close</button>
+        </div>
+
+        <!-- Body: form left, live preview right -->
+        <div style="flex: 1; display: flex; gap: 16px; min-height: 0; padding-top: 12px;">
+
+            <div id="ace-form" class="text-sm" style="flex: 11; min-width: 0;
+                    overflow-y: auto; padding-right: 8px;"></div>
+
+            <div style="flex: 9; min-width: 0; display: flex; flex-direction: column;">
+                <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
+                    <button id="ace-tab-prompt" onclick="aceShowPreview('prompt')"
+                        class="btn-discreet text-xs" style="padding: 4px 10px;">Prompt preview</button>
+                    <button id="ace-tab-schema" onclick="aceShowPreview('schema')"
+                        class="btn-discreet text-xs" style="padding: 4px 10px;">Response schema</button>
+                    <span id="ace-preview-status" class="text-xs"
+                        style="color: var(--color-text-muted); margin-left: 8px;"></span>
+                </div>
+                <div id="ace-preview-errors" class="text-xs" style="display: none;
+                        margin-bottom: 6px; padding: 8px 10px; border-radius: 6px;
+                        border: 1px solid var(--btn-danger-bg); color: var(--color-danger);
+                        max-height: 20vh; overflow-y: auto;"></div>
+                <pre id="ace-preview" class="text-xs" style="flex: 1; margin: 0;
+                        overflow: auto; background: var(--color-bg-elevated);
+                        padding: 12px; border-radius: 6px; white-space: pre-wrap;
+                        border: 1px solid var(--color-border);"></pre>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="display: flex; justify-content: flex-end; gap: 8px;
+                padding-top: 12px; border-top: 1px solid var(--color-border);">
+            <span id="ace-footer-note" class="text-xs" style="color: var(--color-text-muted);
+                flex: 1; align-self: center;"></span>
+            <button onclick="aceClose()" class="btn-discreet text-sm"
+                style="padding: 6px 12px;">Cancel</button>
+            <button id="ace-save-btn" onclick="aceSave()" class="btn-save text-sm"
+                style="padding: 6px 14px;">Review &amp; activate…</button>
+        </div>
+    </div>
+</div>
+
+<!-- Editor's own impact/confirm modal (the JSON-contract analogue of #ac-modal) -->
+<div id="ace-impact-modal" class="modal" style="display: none; align-items: flex-start;
+        justify-content: center; padding-top: 8vh; z-index: 1001;" onclick="aceCloseImpact()">
+    <div class="modal-content" onclick="event.stopPropagation()"
+        style="width: 90%; max-width: 640px; max-height: 80vh; overflow-y: auto; position: relative;">
+        <span class="close" onclick="aceCloseImpact()"
+            style="position: absolute; top: 12px; right: 16px; cursor: pointer;
+                   font-size: var(--text-h3);">&times;</span>
+        <h3 style="margin: 0 0 12px 0; color: var(--color-text-heading);">Review contract change</h3>
+        <div id="ace-impact-body" class="text-sm"></div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
+                padding-top: 12px; border-top: 1px solid var(--color-border);">
+            <button onclick="aceCloseImpact()" class="btn-discreet text-sm"
+                style="padding: 6px 12px;">Cancel</button>
+            <button id="ace-impact-confirm-btn" onclick="aceConfirmSave()" class="btn-save text-sm"
+                style="padding: 6px 14px;">Activate contract</button>
+        </div>
+    </div>
+</div>

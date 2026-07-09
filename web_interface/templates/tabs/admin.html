@@ -42,6 +42,11 @@
             Annotation Versions
         </div>
         {% endif %}
+        {% if user.can_access('tab.admin.schema') %}
+        <div class="dm-sidebar-item" data-page="admin-page-abeval" onclick="openAdminPage('admin-page-abeval', this)">
+            Prompt A/B Testing
+        </div>
+        {% endif %}
     </nav>
 
     <!-- Content Area -->
@@ -95,8 +100,22 @@
         </div>
         {% endif %}
 
+        {% if user.can_access('tab.admin.schema') %}
+        <div id="admin-page-abeval" class="dm-page">
+            {% include 'tabs/admin/ab_eval.html' %}
+        </div>
+        {% endif %}
+
     </div>
 </div>
+
+{% if user.can_access('tab.admin.schema') %}
+<!-- Contract form editor (full-screen overlay) — at this level, not inside a
+     .dm-page, so it can be opened from both the Annotation Versions and the
+     Prompt A/B Testing sub-pages. -->
+{% include 'tabs/admin/annotation_contract_editor.html' %}
+<script src="{{ url_for('static', filename='js/admin_contract_editor.js') }}" defer></script>
+{% endif %}
 
 <!-- User detail modal -->
 <div id="userDetailModal" class="modal" style="display: none; align-items: flex-start; justify-content: center; padding-top: 6vh;"
@@ -170,6 +189,7 @@
         'admin-page-general':      'tab.admin.general',
         'admin-page-schema':       'tab.admin.schema',
         'admin-page-versions':     'tab.admin.schema',
+        'admin-page-abeval':       'tab.admin.schema',
     };
 
     function openAdminPage(pageId, clickedItem) {

@@ -39,6 +39,7 @@
         hiddenColumns: new Set(),   // user-hidden via the Columns dropdown
         sort: { col: null, dir: 1 },  // dir: 1 = asc, -1 = desc
         loaded: false,
+        filtersBound: false,  // filter listeners attach once, even on reloads
         // {variable_name: {metadata: bool, section: bool}} — which cells the
         // annotation contract owns (so the editor renders them read-only).
         contractLocked: {},
@@ -596,6 +597,8 @@
     // ---------- wiring ----------
 
     function _bindFilters() {
+        if (state.filtersBound) return;
+        state.filtersBound = true;
         const g = document.getElementById('vs-filter-group');
         const s = document.getElementById('vs-filter-source');
         const r = document.getElementById('vs-filter-role');
@@ -622,210 +625,6 @@
         });
     }
 
-    // ---------- annotation contract card ----------
-
-    const AC_ENDPOINT = '/api/manage/annotation-contract';
-    // Staged upload awaiting confirmation: {text, filename, impact}; etag is the
-    // last-loaded contract etag, sent back on confirm for optimistic concurrency.
-    const acState = { staged: null, etag: null };
-
-    async function _acLoadStatus() {
-        try {
-            const res = await fetch(AC_ENDPOINT);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const s = await res.json();
-            _acRenderStatus(s);
-        } catch (e) {
-            const badge = document.getElementById('ac-source-badge');
-            if (badge) badge.textContent = 'unknown';
-        }
-    }
-
-    function _acRenderStatus(s) {
-        const badge = document.getElementById('ac-source-badge');
-        const meta = document.getElementById('ac-meta');
-        const err = document.getElementById('ac-error');
-        const revert = document.getElementById('ac-revert-btn');
-        const isRuntime = s.source === 'runtime';
-        acState.etag = s.etag || null;
-        if (badge) {
-            badge.textContent = isRuntime ? 'runtime' : 'baked';
-            badge.style.color = isRuntime ? 'var(--color-success)' : 'var(--color-text-muted)';
-            badge.style.borderColor = isRuntime ? 'var(--color-success)' : 'var(--color-border)';
-        }
-        if (meta) {
-            const parts = [];
-            if (s.current_version) parts.push(`Active version: <span class="font-mono">${_esc(s.current_version)}</span>`);
-            if (s.etag) parts.push(`Etag: <span class="font-mono">${_esc(String(s.etag).slice(0, 20))}</span>`);
-            if (isRuntime && s.updated_by) parts.push(`Uploaded by ${_esc(s.updated_by)}`);
-            if (isRuntime && s.updated_at) parts.push(_esc(s.updated_at));
-            meta.innerHTML = parts.join(' · ');
-        }
-        if (err) {
-            if (s.error) {
-                err.style.display = 'block';
-                err.textContent = `⚠ Runtime contract ignored: ${s.error} — using the baked contract.`;
-            } else {
-                err.style.display = 'none';
-                err.textContent = '';
-            }
-        }
-        if (revert) revert.style.display = isRuntime ? 'inline-block' : 'none';
-    }
-
-    function _acStatus(msg, color) {
-        const el = document.getElementById('ac-card-status');
-        if (el) {
-            el.textContent = msg || '';
-            el.style.color = color || 'var(--color-text-muted)';
-        }
-    }
-
-    function _acDownload() {
-        window.location.href = `${AC_ENDPOINT}/download`;
-    }
-
-    async function _acOnFileChosen(input) {
-        const file = input.files && input.files[0];
-        input.value = '';  // allow re-selecting the same file later
-        if (!file) return;
-        _acStatus('Validating…');
-        let text;
-        try {
-            text = await file.text();
-        } catch (e) {
-            _acStatus('Could not read the file.', 'var(--color-danger)');
-            return;
-        }
-        try {
-            const fd = new FormData();
-            fd.append('text', text);
-            const res = await fetch(AC_ENDPOINT, { method: 'POST', body: fd });
-            const body = await res.json();
-            if (res.status === 400 && body.errors) {
-                _acStatus('', 'var(--color-text-muted)');
-                _acShowValidationErrors(file.name, body.errors);
-                return;
-            }
-            if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-            acState.staged = { text, filename: file.name, impact: body.impact };
-            _acStatus('');
-            _acShowImpactModal(file.name, body.impact);
-        } catch (e) {
-            _acStatus(`Error: ${e.message}`, 'var(--color-danger)');
-        }
-    }
-
-    function _acShowValidationErrors(filename, errors) {
-        const body = document.getElementById('ac-modal-body');
-        const confirmBtn = document.getElementById('ac-confirm-btn');
-        if (confirmBtn) confirmBtn.style.display = 'none';
-        if (body) {
-            body.innerHTML = `<div style="color: var(--color-danger); margin-bottom: 8px;">`
-                + `<span class="font-mono">${_esc(filename)}</span> is not a valid contract `
-                + `(${errors.length} error${errors.length === 1 ? '' : 's'}):</div>`
-                + '<ul style="margin: 0 0 0 18px; padding: 0;">'
-                + errors.slice(0, 30).map(e => `<li>${_esc(e)}</li>`).join('')
-                + (errors.length > 30 ? `<li>… and ${errors.length - 30} more</li>` : '')
-                + '</ul>';
-        }
-        _acOpenModal();
-    }
-
-    function _acShowImpactModal(filename, impact) {
-        const body = document.getElementById('ac-modal-body');
-        const confirmBtn = document.getElementById('ac-confirm-btn');
-        if (confirmBtn) confirmBtn.style.display = 'inline-block';
-        if (!body) return;
-        const rows = [];
-        if (impact.metadata_only) {
-            rows.push(`<div style="color: var(--color-success); margin-bottom: 10px;">`
-                + `✓ Metadata-only change — <strong>no new annotation version</strong>. `
-                + `Existing annotations stay valid.</div>`);
-        } else {
-            rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
-                + `⚠ This changes the ${impact.prompt_changed && impact.schema_changed ? 'prompt and response schema'
-                    : impact.prompt_changed ? 'prompt' : 'response schema'}. `
-                + `A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
-                + `will be minted on the next annotation run (current: `
-                + `<span class="font-mono">${_esc(impact.current_version)}</span>). `
-                + `It won&rsquo;t become active until you promote it under `
-                + `<em>Annotation versions</em>.</div>`);
-        }
-        const detail = [];
-        detail.push(`Prompt changed: <strong>${impact.prompt_changed ? 'yes' : 'no'}</strong>`);
-        detail.push(`Schema changed: <strong>${impact.schema_changed ? 'yes' : 'no'}</strong>`);
-        if (impact.fields_added && impact.fields_added.length) {
-            detail.push(`Fields added: <span class="font-mono">${impact.fields_added.map(_esc).join(', ')}</span>`);
-        }
-        if (impact.fields_removed && impact.fields_removed.length) {
-            detail.push(`Fields removed: <span class="font-mono">${impact.fields_removed.map(_esc).join(', ')}</span>`);
-        }
-        body.innerHTML = rows.join('')
-            + `<div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 4px;">`
-            + `Uploading <span class="font-mono">${_esc(filename)}</span></div>`
-            + '<ul style="margin: 6px 0 0 18px; padding: 0;" class="text-sm">'
-            + detail.map(d => `<li>${d}</li>`).join('')
-            + '</ul>';
-        _acOpenModal();
-    }
-
-    async function _acConfirmUpload() {
-        if (!acState.staged) { _acCloseModal(); return; }
-        const confirmBtn = document.getElementById('ac-confirm-btn');
-        if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Activating…'; }
-        try {
-            const fd = new FormData();
-            fd.append('text', acState.staged.text);
-            fd.append('confirm', '1');
-            if (acState.etag) fd.append('expected_etag', acState.etag);
-            const res = await fetch(AC_ENDPOINT, { method: 'POST', body: fd });
-            const body = await res.json();
-            if (res.status === 409) {
-                _acStatus(`Rejected: ${body.message || 'the contract changed'}.`, 'var(--color-danger)');
-                _acCloseModal();
-                await _acLoadStatus();
-                return;
-            }
-            if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-            acState.staged = null;
-            _acCloseModal();
-            _acStatus(body.note || 'Contract activated.', 'var(--color-success)');
-            await _acLoadStatus();
-            // The contract drives var_schema metadata — re-read the table too.
-            await _load();
-        } catch (e) {
-            _acStatus(`Error: ${e.message}`, 'var(--color-danger)');
-        } finally {
-            if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Activate contract'; }
-        }
-    }
-
-    async function _acRevert() {
-        if (!window.confirm('Revert to the baked contract? The current runtime contract will be archived.')) return;
-        _acStatus('Reverting…');
-        try {
-            const res = await fetch(`${AC_ENDPOINT}/revert`, { method: 'POST' });
-            const body = await res.json();
-            if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-            _acStatus(body.note || 'Reverted.', 'var(--color-success)');
-            await _acLoadStatus();
-            await _load();
-        } catch (e) {
-            _acStatus(`Error: ${e.message}`, 'var(--color-danger)');
-        }
-    }
-
-    function _acOpenModal() {
-        const m = document.getElementById('ac-modal');
-        if (m) m.style.display = 'flex';
-    }
-
-    function _acCloseModal() {
-        const m = document.getElementById('ac-modal');
-        if (m) m.style.display = 'none';
-    }
-
     // Defer until the schema page becomes active.  Avoids loading the
     // payload (and the etag) before the admin even opens the tab.
     function _maybeBootstrap() {
@@ -835,7 +634,6 @@
         if (!page.classList.contains('active')) return;
         _bindFilters();
         _load();
-        _acLoadStatus();
     }
 
     // Hook the existing admin sidebar's openAdminPage flow — it just adds
@@ -862,12 +660,15 @@
     window.vsValidate = _validate;
     window.vsSave = _save;
     window.vsCancel = _cancel;
-    // Annotation contract card handlers.
-    window.acDownload = _acDownload;
-    window.acOnFileChosen = _acOnFileChosen;
-    window.acConfirmUpload = _acConfirmUpload;
-    window.acRevert = _acRevert;
-    window.acCloseModal = _acCloseModal;
+
+    // The annotation-contract card (now on the versions page) announces
+    // activations/reverts; the contract drives var_schema metadata, so drop
+    // the cached table and refetch (immediately if this page is active,
+    // otherwise on its next activation).
+    document.addEventListener('fyp:contract-changed', () => {
+        state.loaded = false;
+        _maybeBootstrap();
+    });
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', _watchForActivation);

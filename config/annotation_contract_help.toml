@@ -1,0 +1,42 @@
+# Help texts for the annotation-contract form editor.
+#
+# This file is the UI-servable transcription of the explanatory comments in
+# config/annotation_contract.toml — the editor renders these as per-panel help
+# and per-input tooltips (fyp.annotation_contract.contract_help). Keep it in
+# lockstep with that file's comments: it is the authoritative documentation of
+# how the contract works once a contract is form-edited (tomlkit preserves
+# comments on untouched tables, but a regenerated table loses them).
+#
+# Keys are dotted paths: a bare table name ("fields") documents the editor
+# panel; "fields.<key>" documents one input.
+
+[help]
+overview = """The contract is the single source for the Gemini prompt, the structured-output response_schema, and the flattener. From it the pipeline generates, by pure deterministic templating (no LLM): the text prompt (annotation_schema.build_prompt), the response_schema (annotation_schema.build_response_schema), and the flattener field specs (flatten_structured). A field's schema-affecting attributes (type / enum / array / keys) feed the response_schema; its 'desc' feeds BOTH the schema node description and the prompt bullet. Everything feeds the annotation_version hash, so any prompt/schema change is versioned and promote-gated; metadata-only edits (display names, roles, recode drop-words) don't mint a new annotation version."""
+
+prompt = "The fixed text around the generated field bullets. 'header' opens the prompt (analyst instructions, uncertainty conventions); 'footer' closes it."
+"prompt.header" = "Required. Opens the prompt: the analyst role, the one-JSON-object instruction, and the uncertainty convention ('-' / 'Unclear' / empty list rather than guessing)."
+"prompt.footer" = "Optional. Closes the prompt (e.g. 'Return the final JSON object with all of the above fields exactly as keys.')."
+
+"recode.drop" = "Field-specific stop words dropped (on top of the global irrelevant-words stoplist) when an open-vocabulary field is recoded. Keyed by the flattened output column name, so object sub-keys (e.g. notable_sounds) work too. Metadata-only: never mints a new annotation version."
+
+enums = "Named closed value sets referenced by fields. A bare list has no per-value descriptions; a value → description table documents each value (key order is the canonical order). An enum field is a closed value set: structured output already constrains it, so recode does not fold it through the generic mapper — canonical values (incl. 'Multiple' / '-') stay intact. Every non-enum field is folded through the generic mapper to tidy free-text junk."
+
+section = "Prompt sections, in order. Each field belongs to one section; the prompt renders each section as its title + intro followed by its fields' bullets. Order here = order in the prompt."
+"section.name" = "The internal id fields reference via their 'section' key."
+"section.title" = "The section heading rendered into the prompt."
+"section.intro" = "The lead-in sentence rendered under the heading, before the field bullets."
+
+fields = "The Gemini output fields, in prompt/schema order. Everything except 'name' and 'section' is optional. The flatten rule (scalar / list_join / object_unpack), the full JSON-schema node, enum rendering, and 'required' (= every field) are inferred — never written."
+"fields.name" = "Required. The JSON output key; also the column prefix for object fields (sub-keys flatten to '<name>_<key>')."
+"fields.section" = "Required. Which [[section]] the field's prompt bullet renders under."
+"fields.desc" = "One-line instruction to Gemini; feeds BOTH the prompt bullet and the schema node description. Changing it changes the annotation version."
+"fields.type" = "'string' (default) | 'int' | 'object'. 'int' takes optional min/max bounds; 'object' needs a non-empty keys table."
+"fields.enum" = "Name of an enum in [enums]; constrains the field (or each array item) to that closed value set, auto-rendered into the prompt."
+"fields.array" = "true (uncapped list) or an integer N (maxItems = N). The field becomes a list; scalars pipe-join at flatten time."
+"fields.min" = "Lower bound for type = 'int'. With max, lets the generic numeric recode rescale the value to 0-1."
+"fields.max" = "Upper bound for type = 'int'."
+"fields.keys" = """Sub-keys for type = 'object'. Each value is either a compact spec string — 'enum:NAME' (closed set), 'list: <desc>' (array of strings), 'int(lo,hi): <desc>' or 'int: <desc>' (integer, optional bounds), or plain text (a string sub-key whose description is the text) — or an inline table { spec = "...", role = "...", scale = "...", display_name = "...", description = "..." } that also carries var_schema metadata. Sub-keys flatten to '<field>_<key>' columns."""
+"fields.role" = "var_schema metadata (presentation + recode routing, e.g. 'feature' / 'skip'). Metadata-only: doesn't change the annotation version."
+"fields.scale" = "var_schema scale ('categorical' / 'list' / 'numeric' / 'text'). Drives the generic recode and UI rendering. Metadata-only."
+"fields.display_name" = "Human-readable name shown across the web UI. Metadata-only."
+"fields.description" = "Web-UI description of the recoded column (falls back to 'desc' when unset). Metadata-only."

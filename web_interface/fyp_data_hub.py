@@ -45,6 +45,11 @@ from flask.json.provider import DefaultJSONProvider
 
 
 class CustomJSONProvider(DefaultJSONProvider):
+    # Preserve dict insertion order in responses (Flask's default alphabetizes).
+    # The annotation contract's enum tables encode their canonical value order
+    # as key order — sorting them in /parsed would silently reorder the prompt.
+    sort_keys = False
+
     def default(self, obj):
         if isinstance(obj, (np.integer, int)):
             return int(obj)
