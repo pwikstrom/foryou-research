@@ -237,6 +237,50 @@ def test_validate_contract_rejects_bad_role_scale() -> None:
     assert any("invalid scale" in e for e in errors), f"no scale error: {errors}"
 
 
+def test_list_scale_requires_a_multi_valued_response_schema() -> None:
+    """A ``list`` scale must mean the response schema really yields many values.
+
+    Regression guard. ``audio_summary.background_music`` was declared
+    ``scale = "list"`` while its spec carries no ``list:`` prefix, so Gemini
+    returned ONE prose string. The ``list`` scale then ran the list cleaner over
+    that sentence — stripping punctuation and digits ("a short, upbeat beat (2s)"
+    → "a short upbeat beat s") and wrapping it in a one-element list. Downstream,
+    set-overlap metrics on such a column degenerate to exact-phrase matching.
+
+    A field yields many values iff its own spec is ``list: ...`` / ``array = true``,
+    OR its parent object field is ``array = true`` (one value per array element,
+    pipe-joined by the flattener).
+
+    Only this direction is invariant. The converse does NOT hold: a multi-valued
+    sub-key may legitimately be aggregated to a scalar — ``faces.age_estimate``
+    is ``scale = "numeric"`` under an ``array = true`` parent and recodes
+    ``"60 | 55 | 50"`` to its mean, 55.
+    """
+    contract = ac.load_contract()
+    offenders: list[str] = []
+
+    def _check(column: str, scale: str | None, multi: bool) -> None:
+        if scale == "list" and not multi:
+            offenders.append(
+                f"{column}: scale='list' but the response schema yields a single value"
+            )
+
+    for field in contract.get("fields", []):
+        name = field["name"]
+        if field.get("type") == "object":
+            parent_is_array = bool(field.get("array"))
+            for key, spec in (field.get("keys") or {}).items():
+                raw = spec if isinstance(spec, str) else (spec or {}).get("spec", "")
+                scale = (spec or {}).get("scale") if isinstance(spec, dict) else None
+                multi = parent_is_array or str(raw).startswith("list:")
+                _check(ac.contract_output_column(name, key), scale, multi)
+        else:
+            _check(ac.contract_output_column(name), field.get("scale"),
+                   bool(field.get("array")))
+
+    assert not offenders, "scale/response-schema mismatch:\n  " + "\n  ".join(offenders)
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failures = 0

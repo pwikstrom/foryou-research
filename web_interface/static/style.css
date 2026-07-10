@@ -1067,6 +1067,26 @@ button {
     transition: background 0.2s;
 }
 
+/* Compact row-action button (table "Actions" cells, result-card actions).
+   Declared AFTER .btn-discreet so it wins on source order — .btn-discreet sets
+   its own font-size, which would otherwise beat a `.text-xs` utility class of
+   equal specificity and make View/Edit render larger than their neighbours.
+   The transparent border keeps every variant the same box height: .btn-discreet
+   and .btn-save carry a 1px border, .btn-primary and .btn-danger do not. */
+.btn-compact {
+    padding: 4px 10px;
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+    font-weight: var(--weight-semibold);
+    border: 1px solid transparent;
+}
+
+.btn-discreet.btn-compact,
+.btn-save.btn-compact,
+.btn-secondary.btn-compact {
+    border-color: var(--btn-discreet-border);
+}
+
 .btn-discreet:hover {
     background: var(--btn-discreet-hover);
 }

@@ -33,7 +33,8 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
             follow the run immediately); a missing id is minted here.
         candidate_names: list (or comma-separated string) of candidate names.
         include_live: also run the live effective contract as an arm.
-        item_ids: optional explicit id list; defaults to the persisted set.
+        eval_set: name of the evaluation set to use; defaults to the active one.
+        item_ids: optional explicit id list; overrides the evaluation set.
 
     Returns None (no chain).
     """
@@ -49,7 +50,7 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
         names = [n.strip() for n in names.split(",") if n.strip()]
     include_live = bool(task_args.get("include_live"))
 
-    reporter.update_progress(0, "Loading arms and eval set...")
+    reporter.update_progress(0, "Loading candidate contracts and evaluation set...")
 
     arms: list[dict] = []
     for name in names:
@@ -58,17 +59,20 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
     if include_live:
         arms.append({"name": "live", "source": "live", "text": ac.effective_contract_text()})
     if not arms:
-        raise ValueError("no arms selected (pass candidate_names and/or include_live)")
+        raise ValueError("no contracts selected (pass candidate_names and/or include_live)")
 
-    item_ids = task_args.get("item_ids") or ab_eval.load_eval_set().get("item_ids") or []
+    stored = ab_eval.load_eval_set(task_args.get("eval_set") or None)
+    eval_set = stored.get("name") or ""
+    item_ids = task_args.get("item_ids") or stored.get("item_ids") or []
     if not item_ids:
-        raise ValueError("the eval set is empty — curate it before starting a run")
+        raise ValueError("the evaluation set is empty — curate it before starting a run")
 
     n_calls = len(item_ids) * len(arms)
     reporter.log(
-        f"Run {run_id}: {len(arms)} arm(s) × {len(item_ids)} item(s) = {n_calls} Gemini calls."
+        f"Run {run_id}: {len(arms)} contract(s) × {len(item_ids)} item(s) from set "
+        f"'{eval_set}' = {n_calls} Gemini calls."
     )
-    reporter.emit_data({"run_id": run_id, "n_arms": len(arms),
+    reporter.emit_data({"run_id": run_id, "n_arms": len(arms), "eval_set": eval_set,
                         "n_items": len(item_ids), "n_calls": n_calls})
 
     total_units = max(1, n_calls)
@@ -85,6 +89,7 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
             arms=arms,
             item_ids=list(item_ids),
             started_by=str(task_args.get("started_by") or ""),
+            eval_set=eval_set,
             progress_cb=_progress,
             cancel_cb=reporter.check_cancelled,
         )
@@ -98,9 +103,9 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
                         "costs": summary["costs"]})
     reporter.log(
         f"[TIMING] ab_eval total={_t_total:.2f}s run_id={run_id} "
-        f"arms={','.join(summary['arms'])} items={summary['n_items']}"
+        f"contracts={','.join(summary['arms'])} items={summary['n_items']}"
     )
-    reporter.log("Done. Open the A/B testing page to compare the arms.")
+    reporter.log("Done. Open the Annotation testing page to compare the contracts.")
     return None
 
 
@@ -115,6 +120,8 @@ if __name__ == "__main__":
                         help="comma-separated candidate names")
     parser.add_argument("--include-live", action="store_true",
                         help="also run the live effective contract as an arm")
+    parser.add_argument("--eval-set", default=None,
+                        help="named evaluation set (default: the active one)")
     cli = parser.parse_args()
 
     reporter = LocalStatusReporter("ab_eval")
@@ -123,6 +130,7 @@ if __name__ == "__main__":
             "run_id": cli.run_id,
             "candidate_names": cli.candidates,
             "include_live": cli.include_live,
+            "eval_set": cli.eval_set,
         })
         reporter.complete()
     except Exception as e:

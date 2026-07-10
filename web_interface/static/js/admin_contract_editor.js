@@ -783,7 +783,7 @@
                 + `A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
                 + `will be minted on the next annotation run (current: `
                 + `<span class="font-mono">${_esc(impact.current_version)}</span>). `
-                + `It won&rsquo;t become active until you promote it.</div>`);
+                + `It won&rsquo;t become active until you activate it.</div>`);
         }
         const detail = [];
         detail.push(`Prompt changed: <strong>${impact.prompt_changed ? "yes" : "no"}</strong>`);

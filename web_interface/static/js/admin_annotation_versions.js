@@ -2,8 +2,8 @@
  * Admin "Annotation Versions" panel.
  *
  * Lists recorded annotation versions (GET /api/manage/annotation-versions),
- * shows a version's prompt/schema snapshot, and promotes a version to active
- * (POST .../promote). Also hosts the annotation-contract card (upload /
+ * shows a version's prompt/schema snapshot, and activates a version
+ * (POST .../activate). Also hosts the annotation-contract card (upload /
  * dry-run impact / confirm / revert against /api/manage/annotation-contract)
  * — the contract mints the versions listed below it. The global fetch
  * wrapper in main.js injects the CSRF header, so plain fetch is sufficient
@@ -15,7 +15,7 @@
     const LIST = "/api/manage/annotation-versions";
     // Matches annotation_versioning.LEGACY_VERSION. The legacy version is a
     // synthetic, snapshot-less entry that only owns pre-versioning fields, so it
-    // can never be promoted (the backend rejects it too).
+    // can never be activated (the backend rejects it too).
     const LEGACY_VERSION = "v0_legacy";
 
     function _status(msg, isError) {
@@ -71,8 +71,8 @@
         tbody.innerHTML = versions.map(function (v) {
             const isActive = !!v.active;
             const isLegacy = v.annotation_version === LEGACY_VERSION;
-            const promoteBtn = (isActive || isLegacy) ? "" :
-                '<button class="btn-primary av-promote" data-v="' + _esc(v.annotation_version) + '">Promote</button>';
+            const activateBtn = (isActive || isLegacy) ? "" :
+                '<button class="btn-primary btn-compact av-activate" data-v="' + _esc(v.annotation_version) + '">Activate</button>';
             return "<tr>" +
                 '<td style="' + cell + '">' + (isActive ? "✓" : "") + "</td>" +
                 '<td style="' + mono + '">' + _esc(v.annotation_version) + "</td>" +
@@ -81,8 +81,8 @@
                 '<td style="' + mono + '">' + _esc(v.schema_hash) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.created_at) + "</td>" +
                 '<td style="' + cell + '">' +
-                    '<button class="btn-discreet av-view" data-v="' + _esc(v.annotation_version) + '">View</button> ' +
-                    promoteBtn +
+                    '<button class="btn-discreet btn-compact av-view" data-v="' + _esc(v.annotation_version) + '">View</button> ' +
+                    activateBtn +
                 "</td>" +
                 "</tr>";
         }).join("");
@@ -90,8 +90,8 @@
         tbody.querySelectorAll(".av-view").forEach(function (b) {
             b.addEventListener("click", function () { viewSnapshot(b.dataset.v); });
         });
-        tbody.querySelectorAll(".av-promote").forEach(function (b) {
-            b.addEventListener("click", function () { promote(b.dataset.v, b); });
+        tbody.querySelectorAll(".av-activate").forEach(function (b) {
+            b.addEventListener("click", function () { activate(b.dataset.v, b); });
         });
     }
 
@@ -113,14 +113,14 @@
         }
     }
 
-    async function promote(version, btn) {
+    async function activate(version, btn) {
         // Two-click confirm (native confirm() is blocked in embedded preview
-        // browsers): first click arms the button, second within 4s promotes.
+        // browsers): first click arms the button, second within 4s activates.
         if (btn && btn.dataset.armed !== "1") {
             btn.dataset.armed = "1";
             btn.dataset.prevHtml = btn.innerHTML;
-            btn.innerHTML = "Promote — sure?";
-            _status("Promoting " + version + " rebuilds the global active dataset "
+            btn.innerHTML = "Activate — sure?";
+            _status("Activating " + version + " rebuilds the global active dataset "
                 + "(refresh studies afterwards). Click again to confirm.");
             setTimeout(function () {
                 if (btn.dataset.armed === "1") {
@@ -132,19 +132,19 @@
             return;
         }
         if (btn) btn.dataset.armed = "";
-        _status("Promoting…");
+        _status("Activating…");
         try {
-            const res = await fetch(LIST + "/promote", {
+            const res = await fetch(LIST + "/activate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ version: version }),
             });
             const body = await res.json();
             if (!res.ok) throw new Error(body.error || res.statusText);
-            _status("Promoted " + version + " (active rows: " + (body.active_rows ?? "—") + "). " + (body.note || ""));
+            _status("Activated " + version + " (active rows: " + (body.active_rows ?? "—") + "). " + (body.note || ""));
             load();
         } catch (err) {
-            _status("Promote failed: " + err.message, true);
+            _status("Activate failed: " + err.message, true);
         }
     }
 
@@ -275,7 +275,7 @@
                 + `A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
                 + `will be minted on the next annotation run (current: `
                 + `<span class="font-mono">${_esc(impact.current_version)}</span>). `
-                + `It won&rsquo;t become active until you promote it below.</div>`);
+                + `It won&rsquo;t become active until you activate it below.</div>`);
         }
         const detail = [];
         detail.push(`Prompt changed: <strong>${impact.prompt_changed ? "yes" : "no"}</strong>`);

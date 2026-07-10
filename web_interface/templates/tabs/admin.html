@@ -44,7 +44,7 @@
         {% endif %}
         {% if user.can_access('tab.admin.schema') %}
         <div class="dm-sidebar-item" data-page="admin-page-abeval" onclick="openAdminPage('admin-page-abeval', this)">
-            Prompt A/B Testing
+            Annotation testing
         </div>
         {% endif %}
     </nav>
@@ -112,7 +112,7 @@
 {% if user.can_access('tab.admin.schema') %}
 <!-- Contract form editor (full-screen overlay) — at this level, not inside a
      .dm-page, so it can be opened from both the Annotation Versions and the
-     Prompt A/B Testing sub-pages. -->
+     Annotation testing sub-pages. -->
 {% include 'tabs/admin/annotation_contract_editor.html' %}
 <script src="{{ url_for('static', filename='js/admin_contract_editor.js') }}" defer></script>
 {% endif %}
