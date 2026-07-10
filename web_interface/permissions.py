@@ -28,7 +28,11 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.video_analysis",                   "label": "Video Analysis"},
     {"key": "tab.correlations",                     "label": "Correlations"},
     {"key": "tab.semantic_space",                   "label": "Semantic Space"},
-    {"key": "tab.my_studies",                       "label": "My Studies"},
+    {"key": "tab.my_stuff.my_studies",              "label": "My stuff — My Studies"},
+    {"key": "tab.my_stuff.tasks",                   "label": "My stuff — My Tasks"},
+    {"key": "tab.my_stuff.preferences",             "label": "My stuff — Preferences"},
+    {"key": "tab.my_stuff.video_tags",              "label": "My stuff — My Video Tags"},
+    {"key": "tab.my_stuff.profile",                 "label": "My stuff — Profile"},
     {"key": "tab.data_management.ingestion",        "label": "Data Management — Ingest Collections"},
     {"key": "tab.data_management.edit_collections", "label": "Data Management — Edit Collections"},
     {"key": "tab.data_management.studies",          "label": "Data Management — Define Studies"},
@@ -41,6 +45,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.admin.human_eval",                 "label": "Admin — Human Testing"},
     {"key": "tab.admin.general",                    "label": "Admin — General"},
     {"key": "tab.admin.schema",                     "label": "Admin — Variable Schema"},
+    {"key": "tab.admin.system_info",                "label": "Admin — System Information"},
 ]
 
 
@@ -51,19 +56,37 @@ ALL_PERMISSION_KEYS: set[str] = {entry["key"] for entry in PERMISSION_CATALOG}
 # the matrix UI hides them and only stores sub-page permissions, but server-side
 # checks (Jinja, decorators) still ask about the parent. Keep this list in sync
 # with the sub-page prefixes in PERMISSION_CATALOG above.
-PARENT_TAB_KEYS: set[str] = {"tab.data_management", "tab.admin"}
+PARENT_TAB_KEYS: set[str] = {"tab.data_management", "tab.admin", "tab.my_stuff"}
 
 
 # Default permission set assigned to any non-admin role created in legacy
 # (list-format) roles.json. Preserves the historical "viewer" experience —
-# the four always-on view tabs plus My Studies.
+# the view tabs plus the personal "My stuff" pages.
 DEFAULT_NON_ADMIN_PERMISSIONS: list[str] = [
     "tab.explore",
     "tab.timelines",
     "tab.video_analysis",
     "tab.correlations",
     "tab.semantic_space",
-    "tab.my_studies",
+    "tab.my_stuff.my_studies",
+    "tab.my_stuff.tasks",
+    "tab.my_stuff.preferences",
+    "tab.my_stuff.video_tags",
+    "tab.my_stuff.profile",
+]
+
+
+# Boot-time roles.json migration data (see RoleManager._migrate_permission_keys):
+# renamed keys map old→new; the grant-all list is added to every non-"*" role
+# because those pages were previously ungated (Settings, Coding) for all users.
+PERMISSION_KEY_RENAMES: dict[str, str] = {
+    "tab.my_studies": "tab.my_stuff.my_studies",
+}
+PERMISSION_KEYS_GRANT_ALL: list[str] = [
+    "tab.my_stuff.tasks",
+    "tab.my_stuff.preferences",
+    "tab.my_stuff.video_tags",
+    "tab.my_stuff.profile",
 ]
 
 

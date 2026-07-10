@@ -72,26 +72,32 @@ def signup():
          
     if request.method == 'POST':
         username = request.form.get('username')
+        display_username = request.form.get('display_username')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
-        
+
         if password != confirm_password:
             flash("Passwords do not match")
             return render_template('signup.html')
-            
+
         try:
             validate_email(username, check_deliverability=False)
         except EmailNotValidError as e:
             flash(f"Invalid email: {e!s}")
             return render_template('signup.html')
-            
+
+        cleaned_display, display_err = auth.validate_display_username(display_username)
+        if display_err:
+            flash(display_err)
+            return render_template('signup.html')
+
         # Admin-controlled flag (UI-toggleable, persisted in admin_settings.json).
         require_approval = get_new_user_approval_required()
 
         # If approval is required, approved=False. If not required, approved=True.
         is_approved = not require_approval
-        
-        success, msg = user_manager.add_user(username, password, get_default_new_user_role(), approved=is_approved)
+
+        success, msg = user_manager.add_user(username, password, get_default_new_user_role(), approved=is_approved, display_username=cleaned_display)
         if success:
             if is_approved:
                 flash("Account created! You can now login.")
@@ -195,20 +201,25 @@ def api_admin_users():
     elif request.method == 'POST':
         data = request.json
         username = data.get('username')
+        display_username = data.get('display_username')
         password = data.get('password')
         # Role is no longer admin-selectable per user; the configured default
         # role applies to everyone (signups and admin-created users alike).
         role = get_default_new_user_role()
 
         if not username or not password:
-            return jsonify({"error": "Missing username or password"}), 400
+            return jsonify({"error": "Missing email or password"}), 400
 
         try:
             validate_email(username, check_deliverability=False)
         except EmailNotValidError as e:
             return jsonify({"error": f"Invalid email: {e!s}"}), 400
 
-        success, msg = user_manager.add_user(username, password, role, approved=True)
+        cleaned_display, display_err = auth.validate_display_username(display_username)
+        if display_err:
+            return jsonify({"error": display_err}), 400
+
+        success, msg = user_manager.add_user(username, password, role, approved=True, display_username=cleaned_display)
         if success:
             activity_log.record(
                 actor=current_user.username,
@@ -535,6 +546,27 @@ def api_user_settings():
 
 
 
+
+
+@auth_bp.route('/api/user/profile', methods=['GET', 'POST'])
+@permission_required('tab.my_stuff.profile')
+def api_user_profile():
+    """Read or update the current user's own profile (display username only).
+
+    The email (account id) is immutable and returned read-only.
+    """
+    if request.method == 'GET':
+        return jsonify({
+            "email": current_user.username,
+            "display_username": current_user.display_username,
+        })
+
+    data = request.json or {}
+    success, msg = user_manager.update_display_username(
+        current_user.username, data.get('display_username'))
+    if success:
+        return jsonify({"status": "success", "message": msg})
+    return jsonify({"error": msg}), 400
 
 
 VARIABLE_PREF_SURFACES = ("filter", "display", "timeline", "viz")

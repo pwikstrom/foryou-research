@@ -68,7 +68,38 @@ class RoleManager:
         else:
             self.roles = {}
 
+        self._migrate_permission_keys()
         self._ensure_defaults()
+
+    def _migrate_permission_keys(self):
+        """Migrate renamed/newly-gated permission keys in every stored role.
+
+        The "My stuff" restructure renamed ``tab.my_studies`` and put the
+        previously ungated Settings/Coding pages behind ``tab.my_stuff.*``
+        keys. roles.json stores explicit permission lists, so without this
+        boot-time migration existing roles would silently lose access.
+        Idempotent — saves only when something actually changed.
+        """
+        from web_interface.permissions import PERMISSION_KEY_RENAMES, PERMISSION_KEYS_GRANT_ALL
+        changed = False
+        for name, entry in self.roles.items():
+            perms = entry.get("permissions", [])
+            if "*" in perms:
+                continue
+            new_perms = []
+            for p in perms:
+                mapped = PERMISSION_KEY_RENAMES.get(p, p)
+                if mapped not in new_perms:
+                    new_perms.append(mapped)
+            for key in PERMISSION_KEYS_GRANT_ALL:
+                if key not in new_perms:
+                    new_perms.append(key)
+            if new_perms != perms:
+                entry["permissions"] = new_perms
+                changed = True
+        if changed:
+            logger.info("Migrated role permission keys to the 'My stuff' layout.")
+            self.save_roles()
 
     def _migrate_legacy(self, legacy_list: list) -> dict[str, dict]:
         """Convert a flat list of role names into the dict-with-permissions format.
@@ -190,10 +221,34 @@ def verify_password(stored_password, provided_password):
     pwdhash = binascii.hexlify(pwdhash).decode('ascii')
     return pwdhash == stored_password
 
+
+def validate_display_username(name) -> tuple[str | None, str | None]:
+    """Validate a display username and return ``(cleaned_name, error)``.
+
+    Display usernames are UI-only (login stays email-based) and need not be
+    unique. Rules: 3–15 characters after stripping surrounding whitespace; no
+    control characters; any other characters are allowed.
+
+    Args:
+        name: The raw value submitted by the user.
+
+    Returns:
+        ``(cleaned_name, None)`` on success or ``(None, error_message)``.
+    """
+    if not isinstance(name, str):
+        return None, "Username is required."
+    name = name.strip()
+    if not (3 <= len(name) <= 15):
+        return None, "Username must be 3-15 characters."
+    if any(ord(c) < 32 or ord(c) == 127 for c in name):
+        return None, "Username contains invalid characters."
+    return name, None
+
+
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None):
         self.id = username
         self.username = username
         self.role = role
@@ -202,6 +257,7 @@ class User(UserMixin):
         self.last_login = last_login
         self.settings = settings if settings is not None else {}
         self.machine_annotation_votes = machine_annotation_votes if machine_annotation_votes is not None else {}
+        self.display_username = display_username or ""
 
     def is_admin(self):
         return self.role == ROLE_ADMIN and self.approved
@@ -221,6 +277,7 @@ class User(UserMixin):
     def to_dict(self):
         return {
             "username": self.username,
+            "display_username": self.display_username,
             "role": self.role,
             "password_hash": self.password_hash,
             "approved": self.approved,
@@ -341,6 +398,7 @@ class UserManager:
                     # 2. Build new user object structure
                     new_user_data = {
                         "username": user_data.get('username', username),
+                        "display_username": user_data.get('display_username', ''),
                         "role": user_data.get('role', 'viewer'), # Default to viewer if missing
                         "password_hash": user_data.get('password_hash'),
                         "approved": user_data.get('approved', True),
@@ -436,7 +494,8 @@ class UserManager:
                         approved=user_data.get('approved', True),
                         last_login=user_data.get('last_login'),
                         settings=user_data.get('settings', {}),
-                        machine_annotation_votes=user_data.get('machine_annotation_votes', {})
+                        machine_annotation_votes=user_data.get('machine_annotation_votes', {}),
+                        display_username=user_data.get('display_username')
                     )
 
             self.users = loaded
@@ -512,13 +571,14 @@ class UserManager:
                 last_login=user_data.get("last_login"),
                 settings=user_data.get("settings", {}),
                 machine_annotation_votes=user_data.get("machine_annotation_votes", {}),
+                display_username=user_data.get("display_username"),
             )
             self.users[user_id] = user
             return user
 
         return None
 
-    def add_user(self, username, password, role, approved=False):
+    def add_user(self, username, password, role, approved=False, display_username=None):
         if not role_manager.role_exists(role):
             return False, "Invalid role"
 
@@ -528,7 +588,7 @@ class UserManager:
             return False, "User already exists"
 
         password_hash = hash_password(password)
-        new_user = User(username, role, password_hash, approved=approved)
+        new_user = User(username, role, password_hash, approved=approved, display_username=display_username)
         # Default Settings for New Users (annotation sharing is opt-in)
         new_user.settings = {
             "share_annotations": False,
@@ -616,6 +676,28 @@ class UserManager:
             import datetime
             user.last_login = datetime.datetime.now().isoformat()
             self.save_user(username)
+
+    def update_display_username(self, username, new_name):
+        """Set a user's display username after validation.
+
+        Args:
+            username: The account email (user id).
+            new_name: The requested display username.
+
+        Returns:
+            ``(True, message)`` on success, ``(False, error)`` otherwise.
+        """
+        user = self.get_user(username)
+        if user is None:
+            return False, "User not found"
+
+        cleaned, error = validate_display_username(new_name)
+        if error:
+            return False, error
+
+        user.display_username = cleaned
+        self.save_user(username)
+        return True, "Username updated"
 
     def update_user_settings(self, username, settings):
         user = self.get_user(username)

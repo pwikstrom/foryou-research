@@ -19,9 +19,18 @@
         <form method="POST" action="{{ url_for('auth_bp.signup') }}" class="auth-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
             <div>
-                <label for="username">Username</label>
+                <label for="username">Email</label>
                 <input type="text" id="username" name="username" required
                     style="width: 100%; padding: 8px 12px;">
+            </div>
+
+            <div>
+                <label for="display_username">Username</label>
+                <input type="text" id="display_username" name="display_username" required
+                    minlength="3" maxlength="15" style="width: 100%; padding: 8px 12px;">
+                <div class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;">
+                    3&ndash;15 characters, shown instead of your email.
+                </div>
             </div>
 
             <div>

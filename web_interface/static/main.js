@@ -1321,8 +1321,8 @@ function openTab(evt, tabName) {
 
 
 
-    // Settings Tab Logic
-    if (tabName === 'settings' && typeof renderSettingsUI === 'function') {
+    // My stuff tab logic (preferences / tags / profile forms)
+    if (tabName === 'my_stuff' && typeof renderSettingsUI === 'function') {
         renderSettingsUI();
     }
 
@@ -1359,10 +1359,9 @@ const _TAB_TITLE_MAP = {
     video_analysis: 'Video Analysis',
     correlations: 'Correlations',
     semantic_space: 'Semantic Space',
-    my_studies: 'My Studies',
+    my_stuff: 'My stuff',
     data_management: 'Data Management',
     admin: 'Admin',
-    settings: 'Settings',
     collections: 'Collections'
 };
 
@@ -1437,6 +1436,9 @@ function _buildTabSubnavs() {
         pane.querySelectorAll('.dm-sidebar .dm-sidebar-item').forEach(src => {
             const pageId = src.getAttribute('data-page');
             if (!pageId) return;
+            // Skip items hidden by feature logic (e.g. "My Tasks" until the
+            // user has coding invitations) — rebuilt when they are unhidden.
+            if (src.style.display === 'none') return;
             const li = document.createElement('li');
             li.className = 'tab-subnav-item';
             li.setAttribute('data-target-tab', tabId);
@@ -1444,7 +1446,10 @@ function _buildTabSubnavs() {
             if (src.classList.contains('active')) {
                 li.classList.add('active');
             }
-            li.textContent = src.textContent.trim();
+            // Read the label without any appended badge (e.g. task count).
+            const clone = src.cloneNode(true);
+            clone.querySelectorAll('.hc-tab-badge').forEach(b => b.remove());
+            li.textContent = clone.textContent.trim();
             ul.appendChild(li);
         });
     });

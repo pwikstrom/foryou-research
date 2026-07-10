@@ -1,8 +1,9 @@
 /**
- * Coder-facing "Coding" tab: blind human coding of annotation test runs.
+ * Coder-facing "My Tasks" page (My stuff tab): blind human coding of
+ * annotation test runs.
  *
  * Talks only to the invitation-gated /api/human-eval endpoints; the payload
- * never contains machine annotation values. The tab button (hidden by
+ * never contains machine annotation values. The sidebar item (hidden by
  * default) is unhidden when /api/human-eval/my-tasks returns work — which is
  * also the in-app "you have been invited" surface. Videos stream through the
  * existing /api/video route (the study segment is ignored by the server).
@@ -91,15 +92,17 @@
             return;   // not logged in / endpoint unavailable — keep the tab hidden
         }
         st.tasks = body.tasks || [];
-        const btn = document.querySelector('.tab-button[data-tab="coding"]');
-        if (btn) {
-            btn.style.display = st.tasks.length ? "" : "none";
-            _updateTabBadge(btn);
+        const item = document.querySelector('#my_stuff .dm-sidebar-item[data-page="my-stuff-page-tasks"]');
+        if (item) {
+            item.style.display = st.tasks.length ? "" : "none";
+            _updateTabBadge(item);
+            // Refresh the mobile subnav so the item (dis)appears there too.
+            if (typeof _buildTabSubnavs === 'function') _buildTabSubnavs();
         }
         renderTaskList();
     }
 
-    // Small count pill on the tab button — the in-app "you have pending
+    // Small count pill on the sidebar item — the in-app "you have pending
     // coding work" signal (complements the invitation email).
     function _updateTabBadge(btn) {
         const pending = st.tasks.filter(t => t.my_status !== "submitted").length;

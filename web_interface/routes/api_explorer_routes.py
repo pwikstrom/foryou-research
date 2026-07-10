@@ -22,6 +22,7 @@ from ..data_service import (
     load_shared_tags,
     make_serializable,
 )
+from ..permissions import permission_required
 from ..security import user_manager
 
 explorer_bp = Blueprint('explorer_bp', __name__)
@@ -840,7 +841,7 @@ def api_explorer_filter():
 
 
 @explorer_bp.route('/api/system-info')
-@login_required
+@permission_required('tab.admin.system_info')
 def system_info():
     """Return basic system information for the Information panel."""
 

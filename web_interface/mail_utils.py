@@ -110,7 +110,7 @@ def send_invitation_email(to_email, run_id, task_type, inviter,
                input to an annotation test run on the ForYouResearch Data Hub:
                {n_items} videos, {n_variables} variables.</p>
             <p>Log in at <a href="http://foryouresearch.net">foryouresearch.net</a>
-               and open the <b>Coding</b> tab to start. Your work is saved
+               and open <b>My stuff &rarr; My Tasks</b> to start. Your work is saved
                automatically, so you can pause and come back at any time.</p>
             <br>
             <p>Best regards,<br>The ForYouResearch Team</p>

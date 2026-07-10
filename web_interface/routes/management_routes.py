@@ -1319,7 +1319,7 @@ def _universe_from_prepared(frame: pd.DataFrame | None, study_config: dict) -> t
 
 @management_bp.route('/api/manage/studies', methods=['GET'])
 @login_required
-@permission_required('tab.data_management.studies', 'tab.my_studies')
+@permission_required('tab.data_management.studies', 'tab.my_stuff.my_studies')
 def list_studies():
     # Always reload from disk/GCS to pick up changes made by the task-runner service
     init_study_defs()

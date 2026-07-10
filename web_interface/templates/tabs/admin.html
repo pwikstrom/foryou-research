@@ -47,6 +47,11 @@
             Human testing
         </div>
         {% endif %}
+        {% if user.can_access('tab.admin.system_info') %}
+        <div class="dm-sidebar-item" data-page="admin-page-system-info" onclick="openAdminPage('admin-page-system-info', this)">
+            System Information
+        </div>
+        {% endif %}
     </nav>
 
     <!-- Content Area -->
@@ -103,6 +108,12 @@
         {% if user.can_access('tab.admin.human_eval') %}
         <div id="admin-page-humaneval" class="dm-page">
             {% include 'tabs/admin/human_eval.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.system_info') %}
+        <div id="admin-page-system-info" class="dm-page">
+            {% include 'tabs/admin/system_info.html' %}
         </div>
         {% endif %}
 
@@ -190,6 +201,7 @@
         'admin-page-versions':     'tab.admin.schema',
         'admin-page-abeval':       'tab.admin.schema',
         'admin-page-humaneval':    'tab.admin.human_eval',
+        'admin-page-system-info':  'tab.admin.system_info',
     };
 
     function openAdminPage(pageId, clickedItem) {
@@ -197,6 +209,11 @@
         const requiredPerm = ADMIN_PAGE_PERM_MAP[pageId];
         if (requiredPerm && Array.isArray(window.USER_PERMS) && !window.USER_PERMS.includes(requiredPerm)) {
             return;
+        }
+
+        // System info is fetched lazily, on first open of its sub-page.
+        if (pageId === 'admin-page-system-info' && typeof loadSystemInfo === 'function') {
+            loadSystemInfo();
         }
 
         document.querySelectorAll('#admin .dm-page').forEach(page => {
@@ -697,7 +714,7 @@
         }
 
         if (active.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="3" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="4" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
             window._activeUsersData = [];
             return;
         }
@@ -708,10 +725,14 @@
         tableBody.innerHTML = sorted.map(user => {
             const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
             const safeUser = user.username.replace(/'/g, "\\'");
+            const displayName = user.display_username || '—';
             return `
         <tr style="border-bottom: 1px solid var(--color-border); cursor: pointer;" onclick="openUserModal('${safeUser}')">
             <td style="padding: 12px 16px;">
-                <span class="font-medium" style="color: var(--color-text-primary);">${user.username}</span>
+                <span class="font-medium" style="color: var(--color-text-primary);">${displayName}</span>
+            </td>
+            <td style="padding: 12px 16px;">
+                <span class="text-sm" style="color: var(--color-text-muted);">${user.username}</span>
             </td>
             <td style="padding: 12px 16px;" onclick="event.stopPropagation();">
                 <select onchange="updateRole('${safeUser}', this.value)" onclick="event.stopPropagation();" class="role-select text-xs" data-current-role="${user.role}"
@@ -746,6 +767,7 @@
     function _activeUsersSortValue(user, key) {
         const stats = user.stats || {};
         switch (key) {
+            case 'display_username': return (user.display_username || '').toLowerCase();
             case 'username':   return (user.username || '').toLowerCase();
             case 'role':       return (user.role || '').toLowerCase();
             case 'last_login': return user.last_login ? Date.parse(user.last_login) : -Infinity;
@@ -809,7 +831,8 @@
 
         overlay.dataset.username = username;
 
-        document.getElementById('userModalUsername').textContent = user.username;
+        document.getElementById('userModalUsername').textContent =
+            user.display_username ? `${user.display_username} (${user.username})` : user.username;
         document.getElementById('userModalRole').textContent = user.role;
         document.getElementById('userModalLastLogin').textContent = lastLogin;
         document.getElementById('userModalVideos').textContent = stats.unique_videos || 0;
@@ -977,10 +1000,11 @@
 
     async function addUser() {
         const username = document.getElementById('newUsername').value;
+        const displayUsername = document.getElementById('newDisplayUsername').value;
         const password = document.getElementById('newPassword').value;
 
-        if (!username || !password) {
-            alert('Please enter both username and password');
+        if (!username || !displayUsername || !password) {
+            alert('Please enter email, username and password');
             return;
         }
 
@@ -990,7 +1014,7 @@
             const response = await fetch('/api/admin/users', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, display_username: displayUsername, password })
             });
 
             if (!response.ok) {
@@ -999,6 +1023,7 @@
             }
 
             document.getElementById('newUsername').value = '';
+            document.getElementById('newDisplayUsername').value = '';
             document.getElementById('newPassword').value = '';
             loadUsers();
         } catch (error) {

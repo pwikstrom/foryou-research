@@ -12,7 +12,7 @@
         <span id="global-tasks-count" class="global-tasks-count"></span>
     </span>
     <span class="auth-header-user text-sm">
-        {{ user.username }} ({{ user.role }})
+        <span class="auth-header-user-name">{{ user.display_username or user.username }}</span> ({{ user.role }})
         &middot;
         <a href="/logout">Logout</a>
     </span>
@@ -24,14 +24,20 @@
 
     // If the hardcoded default sub-page is hidden by the permission system,
     // activate the first sub-page the user actually has access to so the
-    // content area isn't blank when they open the tab.
+    // content area isn't blank when they open the tab. Sidebar items hidden
+    // with display:none (e.g. "My Tasks" until an invitation exists) are
+    // skipped so an invisible page is never the default.
     document.addEventListener('DOMContentLoaded', function () {
-        ['admin', 'data_management'].forEach(function (tabId) {
+        ['admin', 'data_management', 'my_stuff'].forEach(function (tabId) {
             const tab = document.getElementById(tabId);
             if (!tab) return;
             if (tab.querySelector('.dm-page.active')) return;
-            const firstPage = tab.querySelector('.dm-page');
-            const firstItem = tab.querySelector('.dm-sidebar-item');
+            const items = Array.from(tab.querySelectorAll('.dm-sidebar-item'))
+                .filter(function (item) { return item.style.display !== 'none'; });
+            const firstItem = items[0];
+            const firstPage = firstItem
+                ? tab.querySelector('#' + firstItem.getAttribute('data-page'))
+                : tab.querySelector('.dm-page');
             if (firstPage) firstPage.classList.add('active');
             if (firstItem) firstItem.classList.add('active');
         });
@@ -59,12 +65,11 @@
         {% if user.can_access('tab.semantic_space') %}
         <button class="tab-button" data-tab="semantic_space" onclick="openTab(event, 'semantic_space')">Semantic Space</button>
         {% endif %}
-        {% if user.can_access('tab.my_studies') %}
-        <button class="tab-button" onclick="openTab(event, 'my_studies')">My Studies</button>
+        {% if user.can_access('tab.my_stuff') %}
+        <button class="tab-button has-subpages" data-subpages-for="my_stuff"
+            onclick="openTab(event, 'my_stuff')">My stuff</button>
+        <ul class="tab-subnav" data-subpages-of="my_stuff" hidden></ul>
         {% endif %}
-        <!-- Unhidden by human_coding.js when the user has coding tasks. -->
-        <button class="tab-button" data-tab="coding" style="display: none;"
-            onclick="openTab(event, 'coding')">Coding</button>
         {% if user.can_access('tab.data_management') %}
         <button class="tab-button has-subpages" data-subpages-for="data_management" onclick="openTab(event, 'data_management')">Data Management</button>
         <ul class="tab-subnav" data-subpages-of="data_management" hidden></ul>
@@ -74,7 +79,6 @@
             onclick="openTab(event, 'admin'); if(typeof loadUsers === 'function') loadUsers();">Admin</button>
         <ul class="tab-subnav" data-subpages-of="admin" hidden></ul>
         {% endif %}
-        <button class="tab-button" onclick="openTab(event, 'settings')">Settings</button>
     </div>
     <button class="help-icon global-help-btn" onclick="showHelpForActiveTab()" aria-label="Help for current tab">?</button>
 </div>
@@ -100,17 +104,15 @@
     {% if user.can_access('tab.timelines') %}
     {% include 'tabs/timelines.html' %}
     {% endif %}
-    {% if user.can_access('tab.my_studies') %}
-    {% include 'tabs/my_studies.html' %}
+    {% if user.can_access('tab.my_stuff') %}
+    {% include 'tabs/my_stuff.html' %}
     {% endif %}
-    {% include 'tabs/coding.html' %}
     {% if user.can_access('tab.data_management') %}
     {% include 'tabs/data_management.html' %}
     {% endif %}
-    {% if user.can_access('tab.data_management') or user.can_access('tab.my_studies') %}
+    {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
     {% include 'tabs/dm/study_modal.html' %}
     {% endif %}
-    {% include 'tabs/settings.html' %}
 
     {% if user.can_access('tab.admin') %}
     {% include 'tabs/admin.html' %}
@@ -127,17 +129,15 @@
 
 <script>
     const helpContent = {
-        'home': "The For You Data Hub is a research platform for analysing TikTok data collected through the For You project. Use the tab bar above to move between sections: Explore compares variable distributions across slices of the data; Timelines shows how a single participant's activity evolves day by day; Video Analysis lets you watch and tag individual videos; Correlations charts relationships between numeric measures; My Studies lists the study datasets you have access to; Data Management is for ingesting, defining and enriching data; Admin manages users and roles; Settings controls your personal preferences. Pick an active study from the dropdown in the header — every analysis tab works against the currently selected study. The help button on the top right always opens the help for the tab you are currently on.",
+        'home': "The For You Data Hub is a research platform for analysing TikTok data collected through the For You project. Use the tab bar above to move between sections: Explore compares variable distributions across slices of the data; Timelines shows how a single participant's activity evolves day by day; Video Analysis lets you watch and tag individual videos; Correlations charts relationships between numeric measures; My stuff holds your personal pages — the study datasets you have access to, your coding tasks, preferences, video tags and profile; Data Management is for ingesting, defining and enriching data; Admin manages users and roles. Pick an active study from the dropdown in the header — every analysis tab works against the currently selected study. The help button on the top right always opens the help for the tab you are currently on.",
         'explore': "Compare variable distributions across the active study, optionally split into two filtered slices. Use the Slice 1 panel on the left to build a selection with checkboxes and range sliders — section headers turn bold when filters are active inside them. Switch the slice toggle from 'One' to 'Two' to define a second slice and run them side by side. Numeric variables render as histograms with the mean shown; categorical variables render as stacked bar charts. In two-slice mode, significance stars (*, **, ***) flag differences between the slices. Click any bar or histogram segment to drill into the matching videos in the Video Analysis tab.",
-        'timelines': "Visualise how a single participant's activity evolves over time. Pick a collection from the dropdown — the participant's tags and basic profile (age, country, timezone, active days, peak day segment, totals) appear in the info tooltip next to it. Each variable becomes a smoothed timeline; tick 'Show daily values' to overlay the raw daily values as faint bars so you can see which day drove a bump. For categorical variables, use the filter chips (Rising, Falling, Spikes, Breaks, Volatile, Stable) to keep only the categories whose pattern matches the chip. Click 'Show Findings' for analysis cards listing detected trends, anomalies and structural breaks. Click any point on a chart for that day's stats. Charts stay synchronised when you zoom or pan. Empty dates and pre-first-play activity can be toggled on in Settings.",
-        'video_analysis': "Browse, watch and tag individual videos in the active study. The left panel filters videos on any metadata variable; the slider and the Previous / Next buttons step through the result set. The right sidebar shows the full metadata for the current video — click any field label to open the tagging modal, where you can apply open-vocabulary tags, choose from closed-tag schemes, and add notes. Other researchers' annotations appear in blue with a team badge when they have opted into sharing in Settings. Use the Sort By dropdown to order the result set and the arrow toggle to flip direction; the 'Hide Duplicate Videos' switch suppresses repeated views. Drill-downs from Explore and Correlations land here with the relevant filter pre-applied.",
-        'correlations': "Explore relationships between numeric variables in two views. The scatter plot places one dot per collection-day on the axes you pick from the dropdowns, coloured by a categorical grouping. Toggle 'ellipses' to overlay 95% group spread, or 'stats' to show a regression line with R². Each axis carries an annotation describing what high and low values mean. Click any dot to drill into the matching videos in the Video Analysis tab. Switch to the heatmap view to see the Pearson correlation matrix across all numeric variables. Use the filter panel on the left to restrict the data to a subset of categorical factors before either view is computed. Dot size can be increased in Settings.",
+        'timelines': "Visualise how a single participant's activity evolves over time. Pick a collection from the dropdown — the participant's tags and basic profile (age, country, timezone, active days, peak day segment, totals) appear in the info tooltip next to it. Each variable becomes a smoothed timeline; tick 'Show daily values' to overlay the raw daily values as faint bars so you can see which day drove a bump. For categorical variables, use the filter chips (Rising, Falling, Spikes, Breaks, Volatile, Stable) to keep only the categories whose pattern matches the chip. Click 'Show Findings' for analysis cards listing detected trends, anomalies and structural breaks. Click any point on a chart for that day's stats. Charts stay synchronised when you zoom or pan. Empty dates and pre-first-play activity can be toggled on under My stuff → Preferences.",
+        'video_analysis': "Browse, watch and tag individual videos in the active study. The left panel filters videos on any metadata variable; the slider and the Previous / Next buttons step through the result set. The right sidebar shows the full metadata for the current video — click any field label to open the tagging modal, where you can apply open-vocabulary tags, choose from closed-tag schemes, and add notes. Other researchers' annotations appear in blue with a team badge when they have opted into sharing under My stuff → Preferences. Use the Sort By dropdown to order the result set and the arrow toggle to flip direction; the 'Hide Duplicate Videos' switch suppresses repeated views. Drill-downs from Explore and Correlations land here with the relevant filter pre-applied.",
+        'correlations': "Explore relationships between numeric variables in two views. The scatter plot places one dot per collection-day on the axes you pick from the dropdowns, coloured by a categorical grouping. Toggle 'ellipses' to overlay 95% group spread, or 'stats' to show a regression line with R². Each axis carries an annotation describing what high and low values mean. Click any dot to drill into the matching videos in the Video Analysis tab. Switch to the heatmap view to see the Pearson correlation matrix across all numeric variables. Use the filter panel on the left to restrict the data to a subset of categorical factors before either view is computed. Dot size can be increased under My stuff → Preferences.",
         'semantic_space': "A map of every annotated video positioned by meaning. Each dot is a video; videos that are semantically similar (same topic, style and content) sit close together, so the map reveals how the corpus relates to itself. Positions come from dense AI embeddings of each video's story, transcript, on-screen text, objects, sounds and hashtags — reduced to 2D — and the videos are grouped into ~150 auto-named 'niches' (micro-genres). Use 'Colour by' to shade dots by niche, by human content category, or by popularity (play count). 'Focus niche' isolates one micro-genre and greys out the rest; 'Niche labels' toggles the niche names on the map. Hover a dot to see its niche, category and a one-line summary; click a dot to open that video on TikTok. This map covers the whole corpus and is independent of the active study.",
-        'my_studies': "Read-only list of the study datasets you have access to. Each row shows the study's date range, sampling parameters, and the build counts: collections, activities, videos, scraped videos and annotated videos. Selecting a row sets the active study in the header — every other tab (Explore, Video Analysis, Correlations, Timelines) then operates on that study's data. To define a new study or edit an existing one, an admin or data manager uses the 'Define Studies' page inside Data Management.",
+        'my_stuff': "Your personal pages, grouped in one place. My Studies is a read-only list of the study datasets you have access to — selecting a row sets the active study in the header, and every analysis tab then operates on that study's data. My Tasks appears when you have been invited to annotation testing: blind-code videos or vote on annotation options; your work saves automatically. Preferences holds your personal settings — theme, video autostart, annotation sharing, correlation dot size, timeline toggles and variable customizations. My Video Tags lists every custom tag you have created — deleting a tag removes it from every video it is applied to. Profile shows your login email and lets you change the username shown across the app.",
         'data_management': "Pipeline for getting raw collections from upload through to fully enriched analysis data. Use the sidebar to step through the stages. Ingest Collections uploads raw files or whole folders, assigns collection IDs and tags, and parses them into the dataset. Edit Collections lets you rename, retag, hide or delete already-ingested collections. Define Studies builds named study datasets by combining sampling parameters with date ranges. Scrape & Annotate runs the yt-dlp scraper to pull TikTok metadata and the Gemini machine-annotation pass over the videos. Refresh Caches rebuilds per-study statistics, PCA and metadata caches once new data has landed. Long-running jobs run as Cloud Tasks in production; their progress bars, stop buttons and log viewers all live on the relevant sub-page, and a global task badge in the header shows how many are active.",
-        'admin': "Manage users, roles and platform-wide settings. New Users approves pending signups; the default role applied on approval is configurable in General. Active Users lists everyone in the system with their annotation stats (videos tagged, notes, closed and open tags) — click a row for a per-user detail modal that includes the full activity log plus password reset and account deletion. User Roles edits the permission matrix that decides which tabs and sub-pages each role can see; you can also add or delete custom roles from this page. User Annotations aggregates every tag and note recorded across the platform, item by item. Human testing invites coders to blind-code the videos of a finished annotation test run and reports inter-coder reliability between human coders and each machine arm. General holds platform-wide settings such as whether new signups require admin approval and which role they receive by default.",
-        'coding': "Blind human coding for annotation testing. Each card is a task you have been invited to: a set of videos from a finished annotation test run and the variables to code. Watch each video and fill in the form as you judge it — machine answers are deliberately hidden so your coding stays independent. Your work is saved automatically as you move between videos, and you can leave and come back at any time. Press Submit when you are done; your coding is then compared against the machine annotations (and other coders) to measure inter-coder reliability.",
-        'settings': "Your personal preferences for the platform. Appearance switches between the dark and light themes. Video Analysis settings control whether videos in that tab start playing automatically and whether your tags are shared anonymously with other researchers (when sharing is off, you can still see others' tags if they have opted in). Correlations has a 'large dots' option for higher-visibility scatter plots. Timelines toggles control whether days with no activity and activity recorded before the first video play are included in your timeline charts. Manage My Video Tags lists every custom tag you have created — deleting a tag removes it from every video it is applied to. System Information at the bottom shows the runtime environment, revision, storage locations and other diagnostics.",
+        'admin': "Manage users, roles and platform-wide settings. New Users approves pending signups; the default role applied on approval is configurable in General. Active Users lists everyone in the system with their annotation stats (videos tagged, notes, closed and open tags) — click a row for a per-user detail modal that includes the full activity log plus password reset and account deletion. User Roles edits the permission matrix that decides which tabs and sub-pages each role can see; you can also add or delete custom roles from this page. User Annotations aggregates every tag and note recorded across the platform, item by item. Human testing invites coders to blind-code the videos of a finished annotation test run and reports inter-coder reliability between human coders and each machine arm. General holds platform-wide settings such as whether new signups require admin approval and which role they receive by default. System Information shows the runtime environment, revision, storage locations and other diagnostics.",
         'collections': "Browse and manage individual data collections. The top table lists all collections with sortable columns for demographic and activity data — click any column header to sort, or use the search box to filter. Below, strip plots show where each collection falls within the population distribution for 30+ metrics across volume, consumption, sessions, time patterns and more. Click any dot in a strip plot to select that collection and see its value and percentile rank highlighted across all metrics. Click the edit icon on a row to rename a collection, add tags or hide it from the study."
     };
 
@@ -189,7 +189,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='main.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='main.js') }}?v=4"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
 <script src="{{ url_for('static', filename='study_state.js') }}"></script>
 <script src="{{ url_for('static', filename='explore.js') }}?v=8"></script>
@@ -198,7 +198,7 @@
 <script src="{{ url_for('static', filename='semantic_space.js') }}?v=2"></script>
 <script src="{{ url_for('static', filename='timelines.js') }}?v=2"></script>
 <script src="{{ url_for('static', filename='collections.js') }}"></script>
-{% if user.can_access('tab.data_management') or user.can_access('tab.my_studies') %}
+{% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
 <script src="{{ url_for('static', filename='js/data_management.js') }}?v=3"></script>
 {% endif %}
 {% endblock %}

@@ -1,0 +1,401 @@
+<div id="my_stuff" class="tab-pane">
+
+    <!-- Sidebar Navigation -->
+    <nav class="dm-sidebar">
+        {% if user.can_access('tab.my_stuff.my_studies') %}
+        <div class="dm-sidebar-item" data-page="my-stuff-page-studies" onclick="openMyStuffPage('my-stuff-page-studies', this)">
+            My Studies
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.my_stuff.tasks') %}
+        <!-- Unhidden by human_coding.js when the user has coding tasks. -->
+        <div class="dm-sidebar-item" data-page="my-stuff-page-tasks" style="display: none;" onclick="openMyStuffPage('my-stuff-page-tasks', this)">
+            My Tasks
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.my_stuff.preferences') %}
+        <div class="dm-sidebar-item" data-page="my-stuff-page-preferences" onclick="openMyStuffPage('my-stuff-page-preferences', this)">
+            Preferences
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.my_stuff.video_tags') %}
+        <div class="dm-sidebar-item" data-page="my-stuff-page-video-tags" onclick="openMyStuffPage('my-stuff-page-video-tags', this)">
+            My Video Tags
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.my_stuff.profile') %}
+        <div class="dm-sidebar-item" data-page="my-stuff-page-profile" onclick="openMyStuffPage('my-stuff-page-profile', this)">
+            Profile
+        </div>
+        {% endif %}
+    </nav>
+
+    <!-- Content Area -->
+    <div class="dm-content">
+
+        {% if user.can_access('tab.my_stuff.my_studies') %}
+        <div id="my-stuff-page-studies" class="dm-page">
+            {% with read_only = True %}
+                {% include 'tabs/dm/studies.html' %}
+            {% endwith %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.my_stuff.tasks') %}
+        <div id="my-stuff-page-tasks" class="dm-page">
+            <!-- Blind human coding of annotation test runs. The sidebar item is
+                 unhidden by static/js/human_coding.js only when
+                 /api/human-eval/my-tasks returns work (invitation-gated server-side). -->
+
+            <!-- Task list view -->
+            <div id="hc-list-view">
+                <h2 style="margin: 0 0 8px 0;">My Tasks</h2>
+                <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
+                    You have been invited to contribute to annotation testing.
+                    In a <strong>coding</strong> task you watch each video and fill
+                    in the variables as you judge them &mdash; blind, with no
+                    machine answers to compare against. In a <strong>preference
+                    vote</strong> task you compare anonymous annotation options for
+                    each video and pick the best one (or a tie). Your work is saved
+                    automatically; submit when you are done.
+                </p>
+                <div id="hc-task-list">
+                    <span class="text-sm" style="color: var(--color-text-muted);">Loading&hellip;</span>
+                </div>
+            </div>
+
+            <!-- Coding work view -->
+            <div id="hc-work-view" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
+                    <button onclick="hcBackToList()" class="btn-discreet btn-compact">&larr; My tasks</button>
+                    <span id="hc-work-title" class="font-semibold"></span>
+                    <span id="hc-progress" class="text-sm" style="color: var(--color-text-muted);"></span>
+                    <span style="flex: 1;"></span>
+                    <span id="hc-save-state" class="text-xs" style="color: var(--color-text-muted); min-width: 60px;"></span>
+                    <button id="hc-submit-btn" onclick="hcSubmit(this)" class="btn-save btn-compact">Submit coding</button>
+                </div>
+
+                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <div style="flex: 1 1 340px; min-width: 300px; max-width: 480px;">
+                        <video id="hc-video" controls playsinline
+                            style="width: 100%; max-height: 70vh; border-radius: 8px;
+                            background: var(--color-bg-elevated);"></video>
+                        <div id="hc-video-note" class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;"></div>
+                    </div>
+                    <div style="flex: 1 1 380px; min-width: 320px;">
+                        <div id="hc-form" class="text-sm"></div>
+                        <div id="hc-vote-form" class="text-sm" style="display: none;"></div>
+                        <div style="margin-top: 14px;">
+                            <div class="text-xs font-semibold" style="color: var(--color-text-muted); margin-bottom: 4px;">
+                                Notes (optional)
+                            </div>
+                            <textarea id="hc-note" rows="2" onchange="hcNoteChanged()"
+                                placeholder="anything worth flagging about this video or your answer"
+                                class="text-sm" style="width: 100%; padding: 6px 10px;
+                                border: 1px solid var(--color-border); border-radius: 4px;
+                                background: var(--color-bg-input); color: var(--color-text-primary);
+                                resize: vertical;"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap;">
+                    <button onclick="hcPrev()" class="btn-discreet btn-compact">&larr; Previous</button>
+                    <span id="hc-item-pos" class="text-sm" style="color: var(--color-text-muted);"></span>
+                    <button onclick="hcNext()" class="btn-primary btn-compact">Next &rarr;</button>
+                    <div id="hc-dots" style="display: flex; gap: 4px; flex-wrap: wrap; margin-left: 8px;"></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.my_stuff.preferences') %}
+        <div id="my-stuff-page-preferences" class="dm-page">
+            <h2 style="margin: 0 0 16px 0;">Preferences</h2>
+
+            <h4 class="text-sm font-semibold" style="margin-top: 15px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Appearance</h4>
+
+            <div class="setting-group" style="margin-bottom: 12px;">
+                <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
+                    <input type="checkbox" id="setting-theme-toggle" style="margin-right: 10px;"
+                        onchange="toggleTheme()">
+                    <span><span class="font-semibold">Dark theme:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, the app uses a dark theme instead of a light theme.</span></span>
+                </label>
+            </div>
+
+            <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Video Analysis</h4>
+
+            <div class="setting-group" style="margin-bottom: 12px;">
+                <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
+                    <input type="checkbox" id="setting-video-autostart" style="margin-right: 10px;"
+                        onchange="autoSaveSettings()">
+                    <span><span class="font-semibold">Video autostart:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, videos in the Video Analysis tab will start playing automatically.</span></span>
+                </label>
+            </div>
+
+            <div class="setting-group" style="margin-bottom: 12px;">
+                <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
+                    <input type="checkbox" id="setting-share-annotations" style="margin-right: 10px;"
+                        onchange="autoSaveSettings()">
+                    <span><span class="font-semibold">Share my annotations:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, my own video tags will be shared anonymously with other researchers.</span></span>
+                </label>
+            </div>
+
+            <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Correlations</h4>
+
+            <div class="setting-group" style="margin-bottom: 12px;">
+                <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
+                    <input type="checkbox" id="setting-big-dots" style="margin-right: 10px;"
+                        onchange="autoSaveSettings()">
+                    <span><span class="font-semibold">Large dots in correlations:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, scatter plots in the Correlations tab use bigger markers for better visibility.</span></span>
+                </label>
+            </div>
+
+            <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Timelines</h4>
+
+            <div class="setting-group" style="margin-bottom: 12px;">
+                <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
+                    <input type="checkbox" id="setting-timelines-include-empty-dates" style="margin-right: 10px;"
+                        onchange="autoSaveSettings()">
+                    <span><span class="font-semibold">Include empty dates:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, dates with no activity are shown in timeline charts.</span></span>
+                </label>
+            </div>
+
+            <div class="setting-group" style="margin-bottom: 12px;">
+                <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
+                    <input type="checkbox" id="setting-timelines-include-pre-activity" style="margin-right: 10px;"
+                        onchange="autoSaveSettings()">
+                    <span><span class="font-semibold">Include activity before first play:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, timeline charts include activity recorded before the first video play.</span></span>
+                </label>
+            </div>
+
+            <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Variable customizations</h4>
+
+            <div class="setting-group" style="margin-bottom: 12px;">
+                <p class="text-sm" style="color: var(--color-text-muted); margin-bottom: 8px;">
+                    Your personal variable selections for filters, visualizations, the video detail panel
+                    and timelines (set via the ⚙ buttons on each tab).
+                    <span id="variable-prefs-status" class="font-semibold"></span>
+                </p>
+                <button class="btn-discreet text-sm" onclick="resetVariablePrefs()">Reset all to defaults</button>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.my_stuff.video_tags') %}
+        <div id="my-stuff-page-video-tags" class="dm-page">
+            <h2 style="margin: 0 0 16px 0;">Manage My Video Tags</h2>
+
+            <div class="setting-group" style="margin-bottom: 20px;">
+                <p class="text-sm" style="color: var(--color-text-muted); margin-bottom: 15px;">
+                    Manage your custom tags. Deleting a tag removes it from all videos where it is applied.
+                    <br><br>
+                    <em style="color: var(--color-text-faint);">Note: Counts displayed here represent the number of unique items (e.g. videos)
+                        tagged. In other views, counts may reflect total event occurrences and thus appear higher.</em>
+                </p>
+                <div id="settings-tags-container"
+                    style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 300px; overflow-y: auto; background: var(--color-bg-primary); padding: 10px; border-radius: 4px; border: 1px solid var(--color-border);">
+                    <span class="italic" style="color: var(--color-text-faint);">Loading tags...</span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.my_stuff.profile') %}
+        <div id="my-stuff-page-profile" class="dm-page">
+            <h2 style="margin: 0 0 16px 0;">Profile</h2>
+
+            <div class="setting-group" style="margin-bottom: 20px; max-width: 480px;">
+                <div style="margin-bottom: 16px;">
+                    <label class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Email</label>
+                    <div id="profile-email" class="text-sm" style="color: var(--color-text-muted); padding: 8px 0;">&hellip;</div>
+                    <p class="text-xs" style="color: var(--color-text-faint); margin: 0;">
+                        You log in with your email address. It cannot be changed.
+                    </p>
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label for="profile-display-username" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Username</label>
+                    <input type="text" id="profile-display-username" minlength="3" maxlength="15"
+                        style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                    <p class="text-xs" style="color: var(--color-text-faint); margin: 4px 0 0 0;">
+                        3&ndash;15 characters, shown instead of your email across the app.
+                    </p>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button onclick="saveProfile()" class="btn-save btn-compact">Save</button>
+                    <span id="profile-status" class="text-sm" style="color: var(--color-text-muted);"></span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+
+{% if user.can_access('tab.my_stuff.tasks') %}
+<script src="{{ url_for('static', filename='js/human_coding.js') }}" defer></script>
+{% endif %}
+
+<script>
+    const MY_STUFF_PAGE_PERM_MAP = {
+        'my-stuff-page-studies':     'tab.my_stuff.my_studies',
+        'my-stuff-page-tasks':       'tab.my_stuff.tasks',
+        'my-stuff-page-preferences': 'tab.my_stuff.preferences',
+        'my-stuff-page-video-tags':  'tab.my_stuff.video_tags',
+        'my-stuff-page-profile':     'tab.my_stuff.profile',
+    };
+
+    function openMyStuffPage(pageId, clickedItem) {
+        // Defense in depth — if the matching permission isn't granted, refuse.
+        const requiredPerm = MY_STUFF_PAGE_PERM_MAP[pageId];
+        if (requiredPerm && Array.isArray(window.USER_PERMS) && !window.USER_PERMS.includes(requiredPerm)) {
+            return;
+        }
+
+        document.querySelectorAll('#my_stuff .dm-page').forEach(page => {
+            page.classList.remove('active');
+        });
+
+        document.querySelectorAll('#my_stuff .dm-sidebar-item').forEach(item => {
+            item.classList.remove('active');
+        });
+
+        const page = document.getElementById(pageId);
+        if (page) {
+            page.classList.add('active');
+        }
+
+        if (clickedItem) {
+            clickedItem.classList.add('active');
+        }
+    }
+
+    // Called when the My stuff tab is opened or user settings are loaded.
+    // The name is a cross-file contract: main.js calls renderSettingsUI() from
+    // loadUserSettings() and openTab().
+    function renderSettingsUI() {
+        const autostart = document.getElementById('setting-video-autostart');
+        if (autostart) {
+            // Default to false if not set
+            autostart.checked = !!(window.userSettings && window.userSettings.video_autostart);
+
+            // Share Annotations (opt-in: unset reads as off)
+            const shareAnnotations = document.getElementById('setting-share-annotations');
+            if (shareAnnotations) {
+                shareAnnotations.checked = !!(window.userSettings && window.userSettings.share_annotations);
+            }
+
+            // Big dots in correlations
+            const bigDots = document.getElementById('setting-big-dots');
+            if (bigDots) {
+                bigDots.checked = !!(window.userSettings && window.userSettings.big_dots);
+            }
+
+            // Timelines: include empty dates (default false)
+            const tlIncludeEmpty = document.getElementById('setting-timelines-include-empty-dates');
+            if (tlIncludeEmpty) {
+                tlIncludeEmpty.checked = !!(window.userSettings && window.userSettings.timelines_include_empty_dates);
+            }
+
+            // Timelines: include pre-activity (default false)
+            const tlIncludePre = document.getElementById('setting-timelines-include-pre-activity');
+            if (tlIncludePre) {
+                tlIncludePre.checked = !!(window.userSettings && window.userSettings.timelines_include_pre_activity);
+            }
+        }
+
+        // Load tags (My Video Tags page may be permission-hidden)
+        if (document.getElementById('settings-tags-container') && typeof loadAndRenderUserTags === 'function') {
+            loadAndRenderUserTags();
+        }
+
+        // Sync theme checkbox with current theme
+        const themeToggle = document.getElementById('setting-theme-toggle');
+        if (themeToggle) {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            themeToggle.checked = currentTheme === 'dark';
+        }
+
+        renderVariablePrefsStatus();
+        loadProfileForm();
+    }
+
+    function renderVariablePrefsStatus() {
+        const el = document.getElementById('variable-prefs-status');
+        if (!el || !window.VariablePrefs) return;
+        const customized = ['filter', 'display', 'timeline', 'viz'].filter(s => VariablePrefs.isCustomized(s));
+        el.textContent = customized.length
+            ? `Active customizations: ${customized.join(', ')}.`
+            : 'No active customizations.';
+    }
+
+    async function resetVariablePrefs() {
+        if (!window.VariablePrefs) return;
+        await VariablePrefs.resetAll();
+        renderVariablePrefsStatus();
+    }
+
+    function autoSaveSettings() {
+        const s = {
+            video_autostart: document.getElementById('setting-video-autostart').checked,
+            share_annotations: document.getElementById('setting-share-annotations').checked,
+            big_dots: document.getElementById('setting-big-dots').checked,
+            timelines_include_empty_dates: document.getElementById('setting-timelines-include-empty-dates').checked,
+            timelines_include_pre_activity: document.getElementById('setting-timelines-include-pre-activity').checked
+        };
+        saveUserSettings(s).then(() => {
+            if (typeof updatePcaPlot === 'function') updatePcaPlot();
+        });
+    }
+
+    // --- Profile page ---
+
+    function loadProfileForm() {
+        const emailEl = document.getElementById('profile-email');
+        const nameEl = document.getElementById('profile-display-username');
+        if (!emailEl || !nameEl) return;
+        fetch('/api/user/profile')
+            .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load profile')))
+            .then(data => {
+                emailEl.textContent = data.email || '';
+                nameEl.value = data.display_username || '';
+            })
+            .catch(() => {
+                emailEl.textContent = 'Unable to load profile.';
+            });
+    }
+
+    async function saveProfile() {
+        const nameEl = document.getElementById('profile-display-username');
+        const status = document.getElementById('profile-status');
+        if (!nameEl) return;
+        if (status) {
+            status.style.color = 'var(--color-text-muted)';
+            status.textContent = 'Saving…';
+        }
+        try {
+            const response = await fetch('/api/user/profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ display_username: nameEl.value })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'Save failed');
+            // Update the header immediately so the change is visible without a reload.
+            const headerUser = document.querySelector('.auth-header-user-name');
+            if (headerUser) headerUser.textContent = nameEl.value.trim();
+            if (status) {
+                status.style.color = 'var(--color-success)';
+                status.textContent = 'Saved';
+                setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+            }
+        } catch (e) {
+            if (status) {
+                status.style.color = 'var(--color-danger)';
+                status.textContent = e.message;
+            }
+        }
+    }
+</script>
