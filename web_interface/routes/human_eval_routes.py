@@ -164,6 +164,7 @@ def create_human_eval_task():
             variables=list(payload.get("variables") or []),
             coders=[str(u) for u in (payload.get("coders") or [])],
             created_by=_actor(),
+            arms=list(payload.get("arms") or []) or None,
         )
         activity_log.record(
             actor=_actor(), category="admin", action="human_eval.create_task",
@@ -384,14 +385,20 @@ def get_coder_task(run_id, task_type):
         payload["n_options"] = len(task.get("arms", []))
         payload["options"] = human_eval.vote_options_payload(task, username)
         payload["responses"] = {
-            item_id: {"choice": human_eval.letter_for_arm(
-                task, item_id, username,
-                (response.get("values") or {}).get("choice", ""))}
+            item_id: {
+                "choice": human_eval.letter_for_arm(
+                    task, item_id, username,
+                    (response.get("values") or {}).get("choice", "")),
+                "note": response.get("note", ""),
+            }
             for item_id, response in (state.get("responses") or {}).items()
         }
     else:
         payload["responses"] = {
-            item_id: response.get("values", {})
+            item_id: {
+                "values": response.get("values", {}),
+                "note": response.get("note", ""),
+            }
             for item_id, response in (state.get("responses") or {}).items()
         }
     return jsonify(payload)
@@ -402,7 +409,12 @@ def get_coder_task(run_id, task_type):
 @human_eval_bp.route('/api/human-eval/tasks/<run_id>/<task_type>/responses', methods=['POST'])
 @login_required
 def save_coder_response(run_id, task_type):
-    """Autosave one item's values. Body: ``{item_id, values: {var: value}}``."""
+    """Autosave one item's values and/or note.
+
+    Body: ``{item_id, values: {var: value}, note: "..."}`` — omit ``values``
+    for a note-only save (keeps the item's recorded values), omit ``note`` to
+    keep the existing note.
+    """
     task, error = _load_invited_task(run_id, task_type)
     if error:
         return error
@@ -416,11 +428,12 @@ def save_coder_response(run_id, task_type):
         state = human_eval.save_response(
             run_id, task_type, username,
             item_id=str(payload.get("item_id") or ""),
-            values=payload.get("values") or {},
+            values=payload.get("values") if "values" in payload else None,
+            note=payload.get("note") if "note" in payload else None,
         )
         return jsonify({
             "saved": True,
-            "n_answered": len(state.get("responses") or {}),
+            "n_answered": human_eval._n_answered(state),
         })
     except ValueError as e:
         return jsonify({"error": str(e)}), 400

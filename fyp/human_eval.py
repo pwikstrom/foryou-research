@@ -45,6 +45,9 @@ from fyp.fyp_config import fyp_cf
 TASK_TYPES = ("coding", "vote")
 TASKS_INDEX_FILENAME = "human_tasks_index.json"
 
+# Per-item free-text coder notes are capped to keep the JSON files small.
+MAX_NOTE_CHARS = 2000
+
 # Minimum paired observations before a Cohen's kappa is worth reporting.
 _MIN_KAPPA_N = 5
 
@@ -210,7 +213,8 @@ def available_variables(run_id: str) -> list[dict]:
 
 
 def create_task(run_id: str, task_type: str, variables: list[str],
-                coders: list[str], created_by: str = "") -> dict:
+                coders: list[str], created_by: str = "",
+                arms: list[str] | None = None) -> dict:
     """Create a human task on a finished run.
 
     Snapshots the run's items (with platforms, for the video player) and each
@@ -226,6 +230,8 @@ def create_task(run_id: str, task_type: str, variables: list[str],
             ``vote`` task these are the DISPLAY fields shown side-by-side;
             an empty selection defaults to every compared column.
         created_by: audit actor.
+        arms: vote tasks only — the contracts humans vote between (a subset
+            of the run's arms, at least two). ``None`` means all of them.
 
     Returns:
         The stored task definition.
@@ -243,8 +249,16 @@ def create_task(run_id: str, task_type: str, variables: list[str],
         raise ValueError(f"run {run_id} already has a {task_type} task — delete it first")
 
     arm_names = [a.get("name") for a in manifest.get("arms", []) if a.get("name")]
-    if task_type == "vote" and len(arm_names) < 2:
-        raise ValueError("a vote task needs a run with at least two arms")
+    if task_type == "vote":
+        if arms:
+            arms = [str(a) for a in arms]
+            foreign = [a for a in arms if a not in arm_names]
+            if foreign:
+                raise ValueError(f"unknown contracts: {', '.join(foreign)}")
+            # Keep the manifest's canonical order regardless of pick order.
+            arm_names = [a for a in arm_names if a in arms]
+        if len(arm_names) < 2:
+            raise ValueError("a vote task needs at least two contracts to vote between")
 
     catalog = {v["name"]: v for v in available_variables(run_id)}
     variables = [str(v) for v in variables]
@@ -649,7 +663,7 @@ def _validate_values(task: dict, values: dict) -> dict:
 
 
 def save_response(run_id: str, task_type: str, username: str,
-                  item_id: str, values: dict) -> dict:
+                  item_id: str, values: dict | None, note: str | None = None) -> dict:
     """Save one coder's response for one item (autosave granularity).
 
     Writes only that coder's own file, so concurrent coders never collide.
@@ -659,7 +673,10 @@ def save_response(run_id: str, task_type: str, username: str,
         task_type: the task's type.
         username: the coder.
         item_id: the coded item (must belong to the task).
-        values: ``{variable: value}`` (validated against the task specs).
+        values: ``{variable: value}`` (validated against the task specs), or
+            ``None`` to keep the item's existing values (a note-only save).
+        note: optional free-text note for the item; ``None`` keeps the
+            existing note, an empty string clears it.
 
     Returns:
         The updated coder state.
@@ -678,7 +695,12 @@ def save_response(run_id: str, task_type: str, username: str,
     if state.get("status") == "submitted":
         raise ValueError("this coding has already been submitted")
 
-    if task_type == "vote":
+    existing = state["responses"].get(str(item_id)) or {}
+    if values is None:
+        # Note-only save: keep whatever values are already recorded (lets a
+        # voter jot a note before — or without — picking an option).
+        cleaned = existing.get("values") or {}
+    elif task_type == "vote":
         # A vote is exactly one key: the option letter (or "tie"), resolved to
         # the underlying arm name here so the client never learns the mapping.
         if set(values or {}) != {"choice"}:
@@ -691,10 +713,15 @@ def save_response(run_id: str, task_type: str, username: str,
     now = _now_iso()
     state["started_at"] = state.get("started_at") or now
     state["updated_at"] = now
-    state["responses"][str(item_id)] = {
+    response = {
         "values": cleaned,
+        "note": (str(note).strip()[:MAX_NOTE_CHARS] if note is not None
+                 else str(existing.get("note") or "")),
         "updated_at": now,
     }
+    if not response["note"]:
+        response.pop("note")
+    state["responses"][str(item_id)] = response
     data_io.save_json(data=state, storage_location=ab.LOCATION,
                       filename=_human_file(run_id, _coder_filename(task_type, username)))
     return state
@@ -720,7 +747,7 @@ def submit(run_id: str, task_type: str, username: str) -> dict:
     if task is None:
         raise ValueError(f"run {run_id} has no {task_type} task")
     state = load_coder_state(run_id, task_type, username)
-    if not state.get("responses"):
+    if not _n_answered(state):
         raise ValueError("nothing to submit — no items answered")
 
     now = _now_iso()
@@ -745,7 +772,17 @@ def submit(run_id: str, task_type: str, username: str) -> dict:
     except Exception as exc:
         print(f"[human_eval] results computation failed for {run_id}/{task_type}: {exc}")
 
-    return {"n_answered": len(state["responses"]), "n_items": len(task.get("item_ids", []))}
+    return {"n_answered": _n_answered(state), "n_items": len(task.get("item_ids", []))}
+
+
+
+
+def _n_answered(state: dict) -> int:
+    """Count the items a coder actually answered (a bare note is not an answer)."""
+    return sum(
+        1 for response in (state.get("responses") or {}).values()
+        if response.get("values")
+    )
 
 
 
@@ -761,6 +798,8 @@ def _coder_frame(task: dict, state: dict) -> pd.DataFrame:
     rows = []
     for item_id, response in (state.get("responses") or {}).items():
         values = response.get("values") or {}
+        if not values:
+            continue   # note-only response — not a coded item
         row: dict = {"item_id": str(item_id)}
         for var in variables:
             row[var] = values.get(var)
@@ -1041,6 +1080,30 @@ def load_results(run_id: str, task_type: str) -> dict | None:
 
 
 
+def coder_rows(run_id: str, task_type: str, username: str) -> list[dict]:
+    """Return one coder's responses as display rows (the human analogue of
+    ``ab_eval.load_run_rows``).
+
+    One row per responded item: ``item_id`` + the coder's values, normalized
+    to strings exactly like machine rows (lists render as ``[a, b]``), plus a
+    ``note`` key when the coder left one. Feeds the run report's per-item
+    modal and the client-side value distributions for human "arms".
+    """
+    state = load_coder_state(run_id, task_type, username)
+    rows = []
+    for item_id, response in (state.get("responses") or {}).items():
+        row = {"item_id": str(item_id)}
+        for var, value in (response.get("values") or {}).items():
+            row[var] = ab._normalize_cell(value)
+        note = str(response.get("note") or "").strip()
+        if note:
+            row["note"] = note
+        rows.append(row)
+    return rows
+
+
+
+
 def coder_status(run_id: str, task_type: str, task: dict | None = None) -> dict:
     """Return per-coder progress for a task's invited coders.
 
@@ -1063,11 +1126,35 @@ def coder_status(run_id: str, task_type: str, task: dict | None = None) -> dict:
             status = "invited"
         out[username] = {
             "status": status,
-            "n_answered": len(state.get("responses") or {}),
+            "n_answered": _n_answered(state),
             "updated_at": state.get("updated_at"),
             "submitted_at": state.get("submitted_at"),
         }
     return out
+
+
+
+
+def collect_notes(run_id: str, task_type: str, task: dict | None = None) -> list[dict]:
+    """Return every coder note on a task, newest first.
+
+    Includes notes from not-yet-submitted coders — a note is context for the
+    admin reading the report, not a metric input.
+    """
+    task = task if task is not None else load_task(run_id, task_type)
+    notes = []
+    for username in (task or {}).get("coders", {}):
+        state = load_coder_state(run_id, task_type, username)
+        for item_id, response in (state.get("responses") or {}).items():
+            note = str(response.get("note") or "").strip()
+            if note:
+                notes.append({
+                    "username": username,
+                    "item_id": str(item_id),
+                    "note": note,
+                    "updated_at": response.get("updated_at"),
+                })
+    return sorted(notes, key=lambda n: n.get("updated_at") or "", reverse=True)
 
 
 
@@ -1091,5 +1178,6 @@ def load_human(run_id: str) -> dict | None:
             "variables": task.get("variables", []),
             "coder_status": coder_status(run_id, task_type, task=task),
             "results": load_results(run_id, task_type),
+            "notes": collect_notes(run_id, task_type, task=task),
         }
     return out or None

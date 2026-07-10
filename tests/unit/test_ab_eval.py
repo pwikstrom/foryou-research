@@ -450,6 +450,7 @@ def test_execute_run_isolation():
             item_ids=["1", "2", "3"],
             started_by="tester",
             runner=runner,
+            name="unit test run",
         )
     finally:
         data_io.save_json, data_io.save_parquet = orig_save_json, orig_save_parquet
@@ -475,6 +476,9 @@ def test_execute_run_isolation():
           # …and does not leak into the live arm.
           and all("funniness" not in r for r in live_rows)
           and index_entry and index_entry["status"] == "complete"
+          # The run name lands on the manifest and the index entry.
+          and manifest.get("name") == "unit test run"
+          and index_entry.get("name") == "unit test run"
           and {a["source"] for a in manifest["arms"]} == {"live", "candidate"})
 
     deleted = ab_eval.delete_run(run_id)

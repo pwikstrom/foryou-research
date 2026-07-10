@@ -3806,8 +3806,10 @@ def start_ab_eval_run():
             return jsonify({"error": "the evaluation set is empty — curate it first"}), 400
 
         run_id = ab_eval.new_run_id()
+        run_name = str(body.get('name') or "").strip()[:60]
         task_args = {
             "run_id": run_id,
+            "name": run_name,
             "candidate_names": names,
             "include_live": include_live,
             "eval_set": stored.get("name"),
@@ -3870,17 +3872,28 @@ def get_ab_eval_run(run_id):
 @permission_required('tab.admin.schema')
 @login_required
 def get_ab_eval_run_rows(run_id):
-    """Return one arm's refined rows (JSON-safe) for the side-by-side view."""
+    """Return one arm's refined rows (JSON-safe) for the side-by-side view.
+
+    ``arm`` may also be ``human:<username>`` — a submitted coder of the run's
+    coding task, served as rows so human input renders like any other arm.
+    """
     try:
-        from fyp import ab_eval
+        from fyp import ab_eval, human_eval
 
         arm = str(request.args.get('arm') or "").strip()
         if not arm:
             return jsonify({"error": "pass ?arm=<arm name>"}), 400
-        try:
-            rows = ab_eval.load_run_rows(run_id, arm)
-        except Exception:
-            return jsonify({"error": f"no rows for run '{run_id}' arm '{arm}'"}), 404
+        if arm.startswith("human:"):
+            username = arm[len("human:"):]
+            task = human_eval.load_task(run_id, "coding")
+            if task is None or username not in task.get("coders", {}):
+                return jsonify({"error": f"no coder '{username}' on run '{run_id}'"}), 404
+            rows = human_eval.coder_rows(run_id, "coding", username)
+        else:
+            try:
+                rows = ab_eval.load_run_rows(run_id, arm)
+            except Exception:
+                return jsonify({"error": f"no rows for run '{run_id}' arm '{arm}'"}), 404
         return jsonify({"run_id": run_id, "arm": arm, "rows": rows})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

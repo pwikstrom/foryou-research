@@ -53,6 +53,21 @@
         return false;
     }
 
+    // Immediate feedback for async buttons: disable + relabel for the whole
+    // request, restore in finally. `btn` may be null (falls through to fn).
+    async function _busy(btn, busyLabel, fn) {
+        if (!btn) return fn();
+        const prev = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = busyLabel;
+        try {
+            return await fn();
+        } finally {
+            btn.disabled = false;
+            btn.textContent = prev;
+        }
+    }
+
     async function _getJson(url) {
         const res = await fetch(url);
         const body = await res.json();
@@ -83,7 +98,8 @@
                 st.runs.map(r => {
                     const arms = (r.arms || []).join(" vs ");
                     const tag = (r.human_tasks || []).length ? " · has human task" : "";
-                    return `<option value="${_esc(r.run_id)}">${_esc(r.run_id)} — ${_esc(arms)}` +
+                    const label = r.name ? `${r.name} · ` : "";
+                    return `<option value="${_esc(r.run_id)}">${_esc(label)}${_esc(r.run_id)} — ${_esc(arms)}` +
                         ` (${r.n_items} items)${tag}</option>`;
                 }).join("");
         } catch (e) {
@@ -121,6 +137,7 @@
             return;
         }
         box.innerHTML = '<span style="color: var(--color-text-muted);">Loading variables…</span>';
+        sel.disabled = true;
         try {
             const body = await _getJson(`${BASE}/runs/${encodeURIComponent(sel.value)}/variables`);
             st.variables = body.variables || [];
@@ -139,6 +156,8 @@
             hevOnTypeChange();
         } catch (e) {
             box.innerHTML = `<span style="color: var(--color-danger);">${_esc(e.message)}</span>`;
+        } finally {
+            sel.disabled = false;
         }
     }
 
@@ -148,7 +167,8 @@
     }
 
     // Vote tasks show admin-selected fields side-by-side, defaulting to all;
-    // coding tasks keep whatever the admin last selected.
+    // coding tasks keep whatever the admin last selected. Vote tasks also get
+    // the contracts-to-vote-between row (all of the run's arms, all checked).
     function hevOnTypeChange() {
         const type = _selectedTaskType();
         const title = document.getElementById("hev-var-title");
@@ -160,9 +180,26 @@
         if (type === "vote") {
             document.querySelectorAll(".hev-var-cb").forEach(c => { c.checked = true; });
         }
+        const armRow = document.getElementById("hev-arm-row");
+        if (armRow) armRow.style.display = type === "vote" ? "" : "none";
+        if (type === "vote") _renderArmList();
     }
 
-    async function hevCreateTask() {
+    function _renderArmList() {
+        const box = document.getElementById("hev-arm-list");
+        if (!box) return;
+        const runId = (document.getElementById("hev-run-select") || {}).value;
+        const run = st.runs.find(r => r.run_id === runId);
+        const arms = (run && run.arms) || [];
+        box.innerHTML = arms.length
+            ? arms.map(a => `<label style="display: flex; align-items: center; gap: 6px;">
+                <input type="checkbox" class="hev-arm-cb" value="${_esc(a)}" checked>
+                <span class="font-mono">${_esc(a)}</span>
+            </label>`).join("")
+            : '<span style="color: var(--color-text-muted);">Select a run first.</span>';
+    }
+
+    async function hevCreateTask(btn) {
         const errEl = document.getElementById("hev-create-error");
         errEl.textContent = "";
         const runId = (document.getElementById("hev-run-select") || {}).value;
@@ -171,12 +208,21 @@
         const taskType = _selectedTaskType();
         if (!runId) { errEl.textContent = "Pick a finished run."; return; }
         if (!variables.length) { errEl.textContent = "Select at least one variable."; return; }
+        const arms = taskType === "vote"
+            ? Array.from(document.querySelectorAll(".hev-arm-cb:checked")).map(c => c.value)
+            : undefined;
+        if (taskType === "vote" && (!arms || arms.length < 2)) {
+            errEl.textContent = "Select at least two contracts to vote between.";
+            return;
+        }
         try {
-            await _postJson(`${BASE}/tasks`, {
-                run_id: runId, task_type: taskType, variables, coders,
+            await _busy(btn, "Creating…", async () => {
+                await _postJson(`${BASE}/tasks`, {
+                    run_id: runId, task_type: taskType, variables, coders, arms,
+                });
+                _status(`${taskType === "vote" ? "Vote" : "Coding"} task created on ${runId}.`);
+                await Promise.all([hevRefreshTasks(), loadRuns()]);
             });
-            _status(`${taskType === "vote" ? "Vote" : "Coding"} task created on ${runId}.`);
-            await Promise.all([hevRefreshTasks(), loadRuns()]);
         } catch (e) {
             errEl.textContent = e.message;
         }
@@ -187,6 +233,11 @@
     const STATUS_LABEL = {
         invited: "invited", in_progress: "in progress", submitted: "submitted",
     };
+
+    function _runName(runId) {
+        const run = st.runs.find(r => r.run_id === runId);
+        return (run && run.name) || "";
+    }
 
     async function hevRefreshTasks() {
         const box = document.getElementById("hev-task-list");
@@ -247,7 +298,7 @@
                     ${inviteOptions}
                 </select>
                 <button class="btn-discreet btn-compact"
-                    onclick="hevInviteCoder('${_esc(t.run_id)}', '${_esc(t.task_type)}', 'hev-invite-${_esc(cardKey)}')"
+                    onclick="hevInviteCoder(this, '${_esc(t.run_id)}', '${_esc(t.task_type)}', 'hev-invite-${_esc(cardKey)}')"
                     >Invite more coders</button>
             </div>` : "";
 
@@ -260,14 +311,15 @@
         return `<div style="border: 1px solid var(--color-border); border-radius: 6px;
                 padding: 10px 12px; margin-bottom: 10px;">
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <span class="font-semibold">${_esc(t.run_id)}</span>
+                <span class="font-semibold">${_esc(_runName(t.run_id) || t.run_id)}</span>
+                ${_runName(t.run_id) ? `<span class="text-xs font-mono" style="color: var(--color-text-muted);">${_esc(t.run_id)}</span>` : ""}
                 <span class="text-xs" style="color: var(--color-text-muted);">
                     ${_esc(t.task_type)} · ${nItems} items · ${t.n_variables} variables ·
                     created ${_esc(t.created_at || "")} by ${_esc(t.created_by || "")}
                 </span>
                 <span style="flex: 1;"></span>
                 <button class="btn-discreet btn-compact"
-                    onclick="hevRecompute('${_esc(t.run_id)}', '${_esc(t.task_type)}')">Recompute</button>
+                    onclick="hevRecompute(this, '${_esc(t.run_id)}', '${_esc(t.task_type)}')">Recompute</button>
                 <button class="btn-danger btn-compact"
                     onclick="hevDeleteTask(this, '${_esc(t.run_id)}', '${_esc(t.task_type)}')">Delete</button>
             </div>
@@ -291,25 +343,29 @@
         }
     }
 
-    async function hevInviteCoder(runId, taskType, selectId) {
+    async function hevInviteCoder(btn, runId, taskType, selectId) {
         const sel = document.getElementById(selectId);
         if (!sel || !sel.value) return;
         try {
-            await _postJson(
-                `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/coders`,
-                { coders: [sel.value] });
-            _status(`${sel.value} invited.`);
-            hevRefreshTasks();
+            await _busy(btn, "Inviting…", async () => {
+                await _postJson(
+                    `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/coders`,
+                    { coders: [sel.value] });
+                _status(`${sel.value} invited.`);
+                await hevRefreshTasks();
+            });
         } catch (e) {
             _status(`Invite failed: ${e.message}`, true);
         }
     }
 
-    async function hevRecompute(runId, taskType) {
+    async function hevRecompute(btn, runId, taskType) {
         try {
-            await _postJson(`${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/recompute`);
-            _status(`Results recomputed for ${runId}.`);
-            hevRefreshTasks();
+            await _busy(btn, "Recomputing…", async () => {
+                await _postJson(`${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/recompute`);
+                _status(`Results recomputed for ${runId}.`);
+                await hevRefreshTasks();
+            });
         } catch (e) {
             _status(`Recompute failed: ${e.message}`, true);
         }
@@ -318,10 +374,12 @@
     async function hevDeleteTask(btn, runId, taskType) {
         if (!_armTwoClick(btn, "Really delete?")) return;
         try {
-            await _postJson(`${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}`,
-                undefined, "DELETE");
-            _status(`Task deleted from ${runId}.`);
-            await Promise.all([hevRefreshTasks(), loadRuns()]);
+            await _busy(btn, "Deleting…", async () => {
+                await _postJson(`${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}`,
+                    undefined, "DELETE");
+                _status(`Task deleted from ${runId}.`);
+                await Promise.all([hevRefreshTasks(), loadRuns()]);
+            });
         } catch (e) {
             _status(`Delete failed: ${e.message}`, true);
         }

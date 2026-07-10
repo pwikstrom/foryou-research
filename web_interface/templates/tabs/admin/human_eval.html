@@ -44,6 +44,15 @@
         </span>
     </div>
 
+    <div id="hev-arm-row" style="display: none; margin-bottom: 12px;">
+        <div class="text-xs font-semibold" style="color: var(--color-text-muted); margin-bottom: 6px;">
+            Contracts humans vote between (at least two)
+        </div>
+        <div id="hev-arm-list" class="text-sm" style="display: flex; gap: 14px; flex-wrap: wrap;
+            border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 10px;">
+        </div>
+    </div>
+
     <div style="display: flex; gap: 20px; flex-wrap: wrap;">
         <div style="flex: 2; min-width: 300px;">
             <div id="hev-var-title" class="text-xs font-semibold"
@@ -67,7 +76,7 @@
     </div>
 
     <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center;">
-        <button onclick="hevCreateTask()" class="btn-primary btn-compact">Create task</button>
+        <button onclick="hevCreateTask(this)" class="btn-primary btn-compact">Create task</button>
         <span id="hev-create-error" class="text-xs" style="color: var(--color-danger);"></span>
     </div>
 </section>

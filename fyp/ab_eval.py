@@ -1365,7 +1365,7 @@ def _arm_cost(raw_rows: list[dict]) -> dict:
 
 def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
                 started_by: str = "", runner=None, progress_cb=None, cancel_cb=None,
-                eval_set: str = "") -> dict:
+                eval_set: str = "", name: str = "") -> dict:
     """Execute a full A/B run and persist its artifacts.
 
     Args:
@@ -1379,6 +1379,8 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
         cancel_cb: zero-arg callable; True aborts with ``RunCancelled``.
         eval_set: name of the evaluation set the ids came from (recorded on the
             manifest so a run stays interpretable after the set is edited).
+        name: optional human-readable run label (shown in run pickers and the
+            report header).
 
     Returns:
         The run summary written to the index.
@@ -1419,6 +1421,7 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
 
     manifest = {
         "run_id": run_id,
+        "name": str(name or "").strip()[:60],
         "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "started_by": started_by,
         "status": "running",
@@ -1433,8 +1436,8 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
     data_io.save_json(data=manifest, storage_location=LOCATION,
                       filename=_run_file(run_id, "manifest.json"))
     _update_runs_index({**{k: manifest[k] for k in
-                           ("run_id", "started_at", "started_by", "status", "n_items",
-                            "eval_set")},
+                           ("run_id", "name", "started_at", "started_by", "status",
+                            "n_items", "eval_set")},
                         "arms": [a["name"] for a in parsed_arms]})
 
     frames: dict[str, pd.DataFrame] = {}
@@ -1513,8 +1516,8 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
         data_io.save_json(data=manifest, storage_location=LOCATION,
                           filename=_run_file(run_id, "manifest.json"))
         _update_runs_index({**{k: manifest[k] for k in
-                               ("run_id", "started_at", "started_by", "status", "n_items",
-                                "eval_set")},
+                               ("run_id", "name", "started_at", "started_by", "status",
+                                "n_items", "eval_set")},
                             "arms": [a["name"] for a in parsed_arms],
                             "error": manifest.get("error")})
 

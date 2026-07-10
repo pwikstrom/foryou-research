@@ -42,6 +42,17 @@
                 <div style="flex: 1 1 380px; min-width: 320px;">
                     <div id="hc-form" class="text-sm"></div>
                     <div id="hc-vote-form" class="text-sm" style="display: none;"></div>
+                    <div style="margin-top: 14px;">
+                        <div class="text-xs font-semibold" style="color: var(--color-text-muted); margin-bottom: 4px;">
+                            Notes (optional)
+                        </div>
+                        <textarea id="hc-note" rows="2" onchange="hcNoteChanged()"
+                            placeholder="anything worth flagging about this video or your answer"
+                            class="text-sm" style="width: 100%; padding: 6px 10px;
+                            border: 1px solid var(--color-border); border-radius: 4px;
+                            background: var(--color-bg-input); color: var(--color-text-primary);
+                            resize: vertical;"></textarea>
+                    </div>
                 </div>
             </div>
 

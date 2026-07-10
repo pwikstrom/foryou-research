@@ -219,6 +219,52 @@ def test_responses_and_validation():
         })
 
 
+def test_notes_and_coder_rows():
+    print("notes + coder rows")
+    state = human_eval.save_response(RUN_ID, "coding", "coder_a@x.com", ITEMS[0],
+                                     values=None, note="check the audio")
+    _check("note-only save keeps values",
+           state["responses"][ITEMS[0]]["values"].get("multilingual") == "Yes"
+           and state["responses"][ITEMS[0]]["note"] == "check the audio")
+    _check("note-only item does not change n_answered",
+           human_eval._n_answered(state) == 6)
+    # A values-save replaces the whole values dict (the UI always sends the
+    # full form) but keeps the note.
+    state = human_eval.save_response(
+        RUN_ID, "coding", "coder_a@x.com", ITEMS[0],
+        values={"multilingual": "Yes", "objects": ["car"], "faces_age_estimate": "20"},
+        note=None)
+    _check("values-save keeps the existing note",
+           state["responses"][ITEMS[0]]["note"] == "check the audio")
+    state = human_eval.save_response(RUN_ID, "coding", "coder_a@x.com", ITEMS[1],
+                                     values=None, note="x" * 3000)
+    _check("oversized note capped",
+           len(state["responses"][ITEMS[1]]["note"]) == human_eval.MAX_NOTE_CHARS)
+    state = human_eval.save_response(RUN_ID, "coding", "coder_a@x.com", ITEMS[1],
+                                     values=None, note="")
+    _check("empty note clears it", "note" not in state["responses"][ITEMS[1]])
+
+    # A note on an item the coder never answered is context, not an answer.
+    state = human_eval.save_response(RUN_ID, "coding", "coder_b@x.com", ITEMS[4],
+                                     values=None, note="could not judge this one")
+    _check("note on unanswered item not counted", human_eval._n_answered(state) == 4)
+
+    rows = human_eval.coder_rows(RUN_ID, "coding", "coder_a@x.com")
+    row0 = next(r for r in rows if r["item_id"] == ITEMS[0])
+    row1 = next(r for r in rows if r["item_id"] == ITEMS[1])
+    _check("coder_rows normalizes values",
+           row0["multilingual"] == "Yes" and row0["objects"] == "[car]",
+           str(row0))
+    _check("coder_rows carries note only when set",
+           row0.get("note") == "check the audio" and "note" not in row1)
+
+    notes = human_eval.collect_notes(RUN_ID, "coding")
+    _check("collect_notes aggregates across coders",
+           {(n["username"], n["item_id"]) for n in notes}
+           == {("coder_a@x.com", ITEMS[0]), ("coder_b@x.com", ITEMS[4])},
+           str(notes))
+
+
 def test_submit_and_metrics():
     print("submit + metrics")
     outcome = human_eval.submit(RUN_ID, "coding", "coder_a@x.com")
@@ -271,8 +317,19 @@ def test_submit_and_metrics():
 
 def test_vote_task_crud():
     print("vote task CRUD")
+    try:
+        human_eval.create_task(RUN_ID, "vote", [], [], "t", arms=["live"])
+        _check("single-arm vote rejected", False)
+    except ValueError:
+        _check("single-arm vote rejected", True)
+    try:
+        human_eval.create_task(RUN_ID, "vote", [], [], "t", arms=["live", "nope"])
+        _check("foreign arm rejected", False)
+    except ValueError:
+        _check("foreign arm rejected", True)
     task = human_eval.create_task(RUN_ID, "vote", [], ["coder_a@x.com", "coder_b@x.com"],
-                                  created_by="admin@x.com")
+                                  created_by="admin@x.com",
+                                  arms=["cand", "live"])   # any order in; canonical order out
     _check("empty variables defaults to all",
            set(task["variables"]) == {"multilingual", "objects",
                                       "faces_age_estimate", "transcript"},
@@ -280,7 +337,8 @@ def test_vote_task_crud():
     _check("order_seed is 32 hex",
            len(task["order_seed"]) == 32
            and all(c in "0123456789abcdef" for c in task["order_seed"]))
-    _check("arms snapshotted", task["arms"] == ["live", "cand"], str(task["arms"]))
+    _check("arms subset stored in canonical order",
+           task["arms"] == ["live", "cand"], str(task["arms"]))
     try:
         human_eval.create_task(RUN_ID, "vote", [], [], "t")
         _check("duplicate vote task rejected", False)
@@ -426,6 +484,7 @@ def main():
     test_available_variables()
     test_task_crud()
     test_responses_and_validation()
+    test_notes_and_coder_rows()
     test_submit_and_metrics()
     test_vote_task_crud()
     test_vote_permutation()

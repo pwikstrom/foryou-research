@@ -35,6 +35,7 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
         include_live: also run the live effective contract as an arm.
         eval_set: name of the evaluation set to use; defaults to the active one.
         item_ids: optional explicit id list; overrides the evaluation set.
+        name: optional human-readable run label (shown in run pickers).
 
     Returns None (no chain).
     """
@@ -90,6 +91,7 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
             item_ids=list(item_ids),
             started_by=str(task_args.get("started_by") or ""),
             eval_set=eval_set,
+            name=str(task_args.get("name") or ""),
             progress_cb=_progress,
             cancel_cb=reporter.check_cancelled,
         )

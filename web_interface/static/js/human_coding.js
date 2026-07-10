@@ -66,6 +66,21 @@
         return false;
     }
 
+    // Immediate feedback for async buttons: disable + relabel for the whole
+    // request, restore in finally. `btn` may be null (falls through to fn).
+    async function _busy(btn, busyLabel, fn) {
+        if (!btn) return fn();
+        const prev = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = busyLabel;
+        try {
+            return await fn();
+        } finally {
+            btn.disabled = false;
+            btn.textContent = prev;
+        }
+    }
+
     // ---------- task list ----------
 
     async function refreshTasks() {
@@ -129,17 +144,17 @@
                     </div>
                 </div>
                 <button class="btn-primary btn-compact"
-                    onclick="hcOpenTask('${_esc(t.run_id)}', '${_esc(t.task_type)}')">${action}</button>
+                    onclick="hcOpenTask('${_esc(t.run_id)}', '${_esc(t.task_type)}', this)">${action}</button>
             </div>`;
         }).join("");
     }
 
     // ---------- coding view ----------
 
-    async function hcOpenTask(runId, taskType) {
+    async function hcOpenTask(runId, taskType, btn) {
         try {
-            const body = await _getJson(
-                `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}`);
+            const body = await _busy(btn, "Opening…", () => _getJson(
+                `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}`));
             st.task = body;
             st.mode = body.task_type || "coding";
             st.responses = body.responses || {};
@@ -147,7 +162,7 @@
             // Resume at the first unanswered item (or the start when reviewing).
             st.idx = 0;
             if (!st.readOnly) {
-                const firstOpen = body.items.findIndex(it => !st.responses[it.item_id]);
+                const firstOpen = body.items.findIndex(it => !_isAnswered(it.item_id));
                 st.idx = firstOpen >= 0 ? firstOpen : 0;
             }
             document.getElementById("hc-list-view").style.display = "none";
@@ -195,9 +210,45 @@
         } else {
             renderForm();
         }
+        const noteEl = document.getElementById("hc-note");
+        if (noteEl) {
+            noteEl.value = (st.responses[item.item_id] || {}).note || "";
+            noteEl.disabled = st.readOnly;
+        }
         renderDots();
         renderProgress();
         _setSaveState("");
+    }
+
+    function _isAnswered(itemId) {
+        const r = st.responses[itemId] || {};
+        if (st.mode === "vote") return !!r.choice;
+        return _hasAnyValue(r.values || {});
+    }
+
+    function _currentNote() {
+        const noteEl = document.getElementById("hc-note");
+        return noteEl ? noteEl.value.trim() : "";
+    }
+
+    // Note edits: votes save immediately (their values save on pick, so the
+    // note needs its own trigger); coding notes ride the normal autosave.
+    async function hcNoteChanged() {
+        if (st.readOnly) return;
+        if (st.mode !== "vote") { hcMarkDirty(); return; }
+        const item = _currentItem();
+        try {
+            await _postJson(
+                `${BASE}/tasks/${encodeURIComponent(st.task.run_id)}/` +
+                `${encodeURIComponent(st.task.task_type)}/responses`,
+                { item_id: item.item_id, note: _currentNote() });
+            st.responses[item.item_id] = {
+                ...(st.responses[item.item_id] || {}), note: _currentNote(),
+            };
+            _setSaveState("Saved");
+        } catch (e) {
+            _setSaveState(`Save failed: ${e.message}`, true);
+        }
     }
 
     // ---------- vote mode ----------
@@ -253,24 +304,27 @@
     async function hcPickOption(value) {
         if (st.readOnly) return;
         const item = _currentItem();
+        const voteButtons = document.querySelectorAll("#hc-vote-form button");
+        voteButtons.forEach(b => { b.disabled = true; });
         try {
             await _postJson(
                 `${BASE}/tasks/${encodeURIComponent(st.task.run_id)}/` +
                 `${encodeURIComponent(st.task.task_type)}/responses`,
-                { item_id: item.item_id, values: { choice: value } });
-            st.responses[item.item_id] = { choice: value };
+                { item_id: item.item_id, values: { choice: value }, note: _currentNote() });
+            st.responses[item.item_id] = { choice: value, note: _currentNote() };
             _setSaveState("Saved");
             renderVoteForm();
             renderDots();
             renderProgress();
         } catch (e) {
             _setSaveState(`Save failed: ${e.message}`, true);
+            voteButtons.forEach(b => { b.disabled = false; });
         }
     }
 
     function renderForm() {
         const box = document.getElementById("hc-form");
-        const values = st.responses[_currentItem().item_id] || {};
+        const values = (st.responses[_currentItem().item_id] || {}).values || {};
         const disabled = st.readOnly ? "disabled" : "";
         box.innerHTML = st.task.variables.map(name => {
             const spec = st.task.field_specs[name] || {};
@@ -401,16 +455,17 @@
         if (st.mode === "vote") return true;   // votes save on pick, not on navigation
         const item = _currentItem();
         const values = collectValues();
+        const note = _currentNote();
         const hadResponse = !!st.responses[item.item_id];
         // Nothing filled in and nothing saved before — nothing to persist.
         if (!st.dirty && !hadResponse) return true;
-        if (!_hasAnyValue(values) && !hadResponse) return true;
+        if (!_hasAnyValue(values) && !note && !hadResponse) return true;
         try {
             await _postJson(
                 `${BASE}/tasks/${encodeURIComponent(st.task.run_id)}/` +
                 `${encodeURIComponent(st.task.task_type)}/responses`,
-                { item_id: item.item_id, values });
-            st.responses[item.item_id] = values;
+                { item_id: item.item_id, values, note });
+            st.responses[item.item_id] = { values, note };
             st.dirty = false;
             _setSaveState("Saved");
             renderDots();
@@ -447,7 +502,7 @@
     function renderDots() {
         const box = document.getElementById("hc-dots");
         box.innerHTML = st.task.items.map((it, i) => {
-            const answered = !!st.responses[it.item_id];
+            const answered = _isAnswered(it.item_id);
             const current = i === st.idx;
             return `<span onclick="hcJump(${i})" title="Video ${i + 1}"
                 style="width: 10px; height: 10px; border-radius: 50%; cursor: pointer;
@@ -458,7 +513,7 @@
     }
 
     function renderProgress() {
-        const answered = st.task.items.filter(it => st.responses[it.item_id]).length;
+        const answered = st.task.items.filter(it => _isAnswered(it.item_id)).length;
         document.getElementById("hc-progress").textContent = st.readOnly
             ? `Submitted — ${answered}/${st.task.items.length} coded (read-only)`
             : `${answered}/${st.task.items.length} coded`;
@@ -466,15 +521,15 @@
 
     async function hcSubmit(btn) {
         if (!(await saveCurrent())) return;
-        const answered = st.task.items.filter(it => st.responses[it.item_id]).length;
+        const answered = st.task.items.filter(it => _isAnswered(it.item_id)).length;
         const total = st.task.items.length;
         const label = answered < total
             ? `Submit with ${total - answered} uncoded?` : "Really submit?";
         if (!_armTwoClick(btn, label)) return;
         try {
-            await _postJson(
+            await _busy(btn, "Submitting…", () => _postJson(
                 `${BASE}/tasks/${encodeURIComponent(st.task.run_id)}/` +
-                `${encodeURIComponent(st.task.task_type)}/submit`, {});
+                `${encodeURIComponent(st.task.task_type)}/submit`, {}));
             st.readOnly = true;
             document.getElementById("hc-submit-btn").style.display = "none";
             renderItem();
@@ -495,6 +550,7 @@
     window.hcSubmit = hcSubmit;
     window.hcMarkDirty = hcMarkDirty;
     window.hcPickOption = hcPickOption;
+    window.hcNoteChanged = hcNoteChanged;
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", refreshTasks);

@@ -22,7 +22,7 @@
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <h3 style="margin: 0; color: var(--color-text-heading); flex: 1;">Candidate contracts</h3>
         <span class="text-sm" style="color: var(--color-text-muted);">Add contract for testing</span>
-        <button onclick="abeSaveLiveAsCandidate()" class="btn-discreet btn-compact"
+        <button onclick="abeSaveLiveAsCandidate(this)" class="btn-discreet btn-compact"
             >Use active</button>
         <label class="btn-primary btn-compact" style="cursor: pointer; margin: 0;">
             Upload new
@@ -41,7 +41,7 @@
             style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 240px;"
             onkeydown="if (event.key === 'Enter') abeConfirmName(); if (event.key === 'Escape') abeCancelName();">
-        <button onclick="abeConfirmName()" class="btn-save btn-compact">Save candidate</button>
+        <button onclick="abeConfirmName(this)" class="btn-save btn-compact">Save candidate</button>
         <button onclick="abeCancelName()" class="btn-discreet btn-compact">Cancel</button>
         <span id="abe-name-error" class="text-xs" style="color: var(--color-danger);"></span>
     </div>
@@ -95,7 +95,7 @@
             style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 240px;"
             onkeydown="if (event.key === 'Enter') abeConfirmSetName(); if (event.key === 'Escape') abeCancelSetName();">
-        <button onclick="abeConfirmSetName()" class="btn-save btn-compact">Save</button>
+        <button onclick="abeConfirmSetName(this)" class="btn-save btn-compact">Save</button>
         <button onclick="abeCancelSetName()" class="btn-discreet btn-compact">Cancel</button>
         <span id="abe-setname-error" class="text-xs" style="color: var(--color-danger);"></span>
     </div>
@@ -142,10 +142,14 @@
                 margin-bottom: 8px;"></div>
             <div id="abe-run-progress" class="text-xs" style="color: var(--color-text-muted);
                 margin-bottom: 8px;"></div>
-            <div style="display: flex; gap: 8px;">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <input id="abe-run-name" type="text" maxlength="60"
+                    placeholder="run name (optional)" class="text-sm"
+                    style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
+                    background: var(--color-bg-input); color: var(--color-text-primary); min-width: 200px;">
                 <button id="abe-run-btn" onclick="abeStartRun()" class="btn-primary btn-compact"
                     >Run&hellip;</button>
-                <button id="abe-cancel-btn" onclick="abeCancelRun()" class="btn-stop btn-compact"
+                <button id="abe-cancel-btn" onclick="abeCancelRun(this)" class="btn-stop btn-compact"
                     style="display: none;">Cancel run</button>
             </div>
         </div>
@@ -163,7 +167,7 @@
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 280px;">
             <option value="">(no runs yet)</option>
         </select>
-        <button onclick="abeRefreshRuns()" class="btn-discreet btn-compact">Refresh</button>
+        <button onclick="abeRefreshRuns(this)" class="btn-discreet btn-compact">Refresh</button>
         <span style="flex: 1;"></span>
         <button id="abe-run-delete" onclick="abeDeleteRun()" class="btn-danger btn-compact"
             style="display: none;">Delete run</button>

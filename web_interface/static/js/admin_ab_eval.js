@@ -132,6 +132,21 @@
         return body;
     }
 
+    // Immediate feedback for async buttons: disable + relabel for the whole
+    // request, restore in finally. `btn` may be null (falls through to fn).
+    async function _busy(btn, busyLabel, fn) {
+        if (!btn) return fn();
+        const prev = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = busyLabel;
+        try {
+            return await fn();
+        } finally {
+            btn.disabled = false;
+            btn.textContent = prev;
+        }
+    }
+
     // ---------- candidates ----------
 
     async function loadCandidates() {
@@ -170,11 +185,11 @@
             </td>
         </tr>`).join("");
         tbody.querySelectorAll(".abe-view").forEach(b =>
-            b.addEventListener("click", () => viewCandidate(b.dataset.n)));
+            b.addEventListener("click", () => viewCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-edit").forEach(b =>
             b.addEventListener("click", () => editCandidate(b.dataset.n)));
         tbody.querySelectorAll(".abe-activate").forEach(b =>
-            b.addEventListener("click", () => activateCandidate(b.dataset.n)));
+            b.addEventListener("click", () => activateCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-del").forEach(b =>
             b.addEventListener("click", () => deleteCandidate(b.dataset.n, b)));
     }
@@ -206,7 +221,7 @@
         if (row) row.style.display = "none";
     }
 
-    async function abeConfirmName() {
+    async function abeConfirmName(btn) {
         const input = document.getElementById("abe-name-input");
         const err = document.getElementById("abe-name-error");
         const name = (input && input.value || "").trim();
@@ -216,7 +231,8 @@
         }
         if (!nameFlow.text) { abeCancelName(); return; }
         try {
-            await _postJson(CAND, { name, text: nameFlow.text, overwrite: nameFlow.overwrite });
+            await _busy(btn, "Saving…", () =>
+                _postJson(CAND, { name, text: nameFlow.text, overwrite: nameFlow.overwrite }));
             abeCancelName();
             _status(`Candidate '${name}' saved.`);
             await loadCandidates();
@@ -232,9 +248,9 @@
         }
     }
 
-    async function abeSaveLiveAsCandidate() {
+    async function abeSaveLiveAsCandidate(btn) {
         try {
-            const dl = await fetch(`${AC}/download`);
+            const dl = await _busy(btn, "Reading…", () => fetch(`${AC}/download`));
             if (!dl.ok) throw new Error("could not read the active contract");
             nameFlow.text = await dl.text();
             _showNameRow("Snapshot the active contract as a candidate:", "active-snapshot");
@@ -257,9 +273,9 @@
         }
     }
 
-    async function viewCandidate(name) {
+    async function viewCandidate(name, btn) {
         try {
-            const body = await _getJson(`${CAND}/${encodeURIComponent(name)}`);
+            const body = await _busy(btn, "…", () => _getJson(`${CAND}/${encodeURIComponent(name)}`));
             const modal = document.getElementById("abe-item-modal");
             document.getElementById("abe-item-id").textContent = name + ".toml";
             document.getElementById("abe-item-body").innerHTML =
@@ -285,9 +301,10 @@
     // modal's confirm click.
     let pendingActivate = null;
 
-    async function activateCandidate(name) {
+    async function activateCandidate(name, btn) {
         try {
-            const body = await _postJson(`${CAND}/${encodeURIComponent(name)}/activate`);
+            const body = await _busy(btn, "Checking…", () =>
+                _postJson(`${CAND}/${encodeURIComponent(name)}/activate`));
             const impact = body.impact || {};
             pendingActivate = { name, text: body.text, etag: body.current_etag };
 
@@ -320,7 +337,7 @@
                 + `<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
                         padding-top: 12px; border-top: 1px solid var(--color-border);">
                     <button onclick="abeCloseItemModal()" class="btn-discreet btn-compact">Cancel</button>
-                    <button onclick="abeConfirmActivate()" class="btn-save btn-compact">Activate contract</button>
+                    <button onclick="abeConfirmActivate(this)" class="btn-save btn-compact">Activate contract</button>
                 </div>`;
             if (modal) modal.style.display = "flex";
         } catch (e) {
@@ -328,11 +345,12 @@
         }
     }
 
-    async function abeConfirmActivate() {
+    async function abeConfirmActivate(btn) {
         if (!pendingActivate) { abeCloseItemModal(); return; }
         const { name, text, etag } = pendingActivate;
         try {
-            const res = await _postJson(AC, { text, confirm: true, expected_etag: etag });
+            const res = await _busy(btn, "Activating…", () =>
+                _postJson(AC, { text, confirm: true, expected_etag: etag }));
             pendingActivate = null;
             abeCloseItemModal();
             _status(res.note || `Candidate '${name}' activated.`);
@@ -350,7 +368,8 @@
     async function deleteCandidate(name, btn) {
         if (!_armTwoClick(btn, "sure?")) return;
         try {
-            await _postJson(`${CAND}/${encodeURIComponent(name)}`, undefined, "DELETE");
+            await _busy(btn, "…", () =>
+                _postJson(`${CAND}/${encodeURIComponent(name)}`, undefined, "DELETE"));
             _status(`Candidate '${name}' deleted.`);
             await loadCandidates();
         } catch (e) {
@@ -460,7 +479,7 @@
         _showSetNameRow("rename", `Rename '${st.evalSet.name}' to:`, st.evalSet.name || "");
     }
 
-    async function abeConfirmSetName() {
+    async function abeConfirmSetName(btn) {
         const input = document.getElementById("abe-setname-input");
         const err = document.getElementById("abe-setname-error");
         const name = (input && input.value || "").trim();
@@ -468,6 +487,7 @@
             if (err) err.textContent = "1-40 chars: lowercase letters, digits, '_' or '-'.";
             return;
         }
+        if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
         try {
             if (setNameFlow.mode === "rename") {
                 await _postJson(`${EVALSETS}/${encodeURIComponent(st.evalSet.name)}/rename`,
@@ -485,6 +505,8 @@
             _status(`Evaluation set '${name}' ready.`);
         } catch (e) {
             if (err) err.textContent = e.message;
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = "Save"; }
         }
     }
 
@@ -493,7 +515,8 @@
         if (!name) return;
         if (!_armTwoClick(btn, "Delete — sure?")) return;
         try {
-            await _postJson(`${EVALSETS}/${encodeURIComponent(name)}`, undefined, "DELETE");
+            await _busy(btn, "Deleting…", () =>
+                _postJson(`${EVALSETS}/${encodeURIComponent(name)}`, undefined, "DELETE"));
             st.setDirty = false;
             await loadEvalSets();
             await loadEvalSet(st.evalSets.active);
@@ -707,9 +730,11 @@
             _armTwoClick(runBtn, "");
             _setRunning(true);
             _status("Starting run…");
+            const nameInput = document.getElementById("abe-run-name");
             const body = await _postJson(`${EVAL}/run`, {
                 candidate_names: names, include_live: live,
                 eval_set: st.evalSet.name || undefined,
+                name: (nameInput && nameInput.value.trim()) || undefined,
             });
             _status(`Run ${body.run_id} started.`);
             _pollRun(body.run_id);
@@ -769,9 +794,9 @@
         }, 3000);
     }
 
-    async function abeCancelRun() {
+    async function abeCancelRun(btn) {
         try {
-            await _postJson("/api/stop/ab_eval", {});
+            await _busy(btn, "Cancelling…", () => _postJson("/api/stop/ab_eval", {}));
             _status("Cancel requested — the run stops after the in-flight items.");
         } catch (e) {
             _status(`Cancel failed: ${e.message}`, true);
@@ -780,16 +805,18 @@
 
     // ---------- results ----------
 
-    async function abeRefreshRuns() {
+    async function abeRefreshRuns(btn) {
         try {
-            const body = await _getJson(`${EVAL}/runs`);
+            const body = await _busy(btn && btn.tagName === "BUTTON" ? btn : null,
+                "Refreshing…", () => _getJson(`${EVAL}/runs`));
             st.runs = body.runs || [];
             const picker = document.getElementById("abe-run-picker");
             if (picker) {
                 picker.innerHTML = st.runs.length
                     ? st.runs.map(r => {
                         const set = r.eval_set ? ` · set ${r.eval_set}` : "";
-                        return `<option value="${_esc(r.run_id)}">${_esc(r.run_id)} · `
+                        const label = r.name ? `${r.name} · ` : "";
+                        return `<option value="${_esc(r.run_id)}">${_esc(label)}${_esc(r.run_id)} · `
                             + `${_esc((r.arms || []).join(" vs "))}${_esc(set)} · ${_esc(r.status)}</option>`;
                     }).join("")
                     : '<option value="">(no runs yet)</option>';
@@ -808,19 +835,25 @@
         if (delBtn) delBtn.style.display = runId ? "inline-block" : "none";
         if (!runId || !container) { if (container) container.innerHTML = ""; return; }
         container.innerHTML = '<span class="text-sm" style="color: var(--color-text-muted);">Loading…</span>';
+        const picker = document.getElementById("abe-run-picker");
+        if (picker) picker.disabled = true;
         try {
             st.currentRun = await _getJson(`${EVAL}/runs/${encodeURIComponent(runId)}`);
             renderRun();
         } catch (e) {
             container.innerHTML = `<span class="text-sm" style="color: var(--color-danger);">${_esc(e.message)}</span>`;
+        } finally {
+            if (picker) picker.disabled = false;
         }
     }
 
     async function abeDeleteRun() {
         if (!st.currentRunId) return;
-        if (!_armTwoClick(document.getElementById("abe-run-delete"), "Delete — sure?")) return;
+        const btn = document.getElementById("abe-run-delete");
+        if (!_armTwoClick(btn, "Delete — sure?")) return;
         try {
-            await _postJson(`${EVAL}/runs/${encodeURIComponent(st.currentRunId)}`, undefined, "DELETE");
+            await _busy(btn, "Deleting…", () =>
+                _postJson(`${EVAL}/runs/${encodeURIComponent(st.currentRunId)}`, undefined, "DELETE"));
             _status("Run deleted.");
             await abeRefreshRuns();
             const picker = document.getElementById("abe-run-picker");
@@ -863,14 +896,27 @@
         const report = st.currentRun.report;
         const arms = (manifest.arms || []).map(a => a.name);
 
+        const human = st.currentRun.human || {};
+        const humanBits = [];
+        for (const [type, label] of [["coding", "coding"], ["vote", "votes"]]) {
+            const entries = Object.values((human[type] || {}).coder_status || {});
+            if (!entries.length) continue;
+            const done = entries.filter(s => s.status === "submitted").length;
+            humanBits.push(`${label}: ${done}/${entries.length} coder(s) submitted`);
+        }
+        const humanLine = humanBits.length
+            ? ` · ${humanBits.join(" · ")}`
+            : " · no human input yet";
+
         let html = `<div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 10px;">
+            ${manifest.name ? `<strong style="color: var(--color-text-primary);">${_esc(manifest.name)}</strong> · ` : ""}
             ${_esc(manifest.run_id)} · started ${_esc((manifest.started_at || "").replace("T", " "))}
             by ${_esc(manifest.started_by || "?")}
-            ${manifest.eval_set ? ` · set <span class="font-mono">${_esc(manifest.eval_set)}</span>` : ""}
+            · set <span class="font-mono">${_esc(manifest.eval_set || "—")}</span>
             · ${_esc(String(manifest.n_items ?? "?"))} videos · status
             <strong style="color: ${manifest.status === "complete" ? "var(--color-success)"
                 : manifest.status === "failed" ? "var(--color-danger)" : "var(--color-warning)"};">
-            ${_esc(manifest.status)}</strong>
+            ${_esc(manifest.status)}</strong>${humanLine}
             ${manifest.error ? ` · ${_esc(manifest.error)}` : ""}</div>`;
 
         if (!report) {
@@ -900,19 +946,11 @@
         }
         html += "</div>";
 
-        // Pairwise aggregate table (pair selector when >1 pair).
-        const pairs = Object.keys(report.comparisons || {});
-        if (pairs.length) {
-            const pairSel = pairs.length > 1
-                ? `<select id="abe-pair-picker" class="text-sm" onchange="abeRenderPair(this.value)"
-                    style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px;
-                    background: var(--color-bg-input); color: var(--color-text-primary);">
-                    ${pairs.map(p => `<option value="${_esc(p)}">${_esc(p.replace("|", " vs "))}</option>`).join("")}
-                   </select>`
-                : `<span class="font-semibold">${_esc(pairs[0].replace("|", " vs "))}</span>`;
-            html += `<div style="margin-bottom: 8px;" class="text-sm">Agreement between: ${pairSel}</div>
-                <div id="abe-pair-summary" style="margin-bottom: 12px;"></div>
-                <div id="abe-pair-table" style="overflow-x: auto; margin-bottom: 14px;"></div>`;
+        // N-way agreement view: cross-pair averages per field, expandable to
+        // the full pairwise matrix. Submitted human coders join as contracts.
+        if (Object.keys(report.comparisons || {}).length) {
+            html += `<div id="abe-nway-summary" style="margin-bottom: 12px;"></div>
+                <div id="abe-nway-table" style="overflow-x: auto; margin-bottom: 14px;"></div>`;
         }
 
         // Adjudication (per-item disagreements).
@@ -934,10 +972,21 @@
 
         container.innerHTML = html;
         container.querySelectorAll(".abe-activate-arm").forEach(b =>
-            b.addEventListener("click", () => activateCandidate(b.dataset.n)));
-        if (pairs.length) abeRenderPair(pairs[0]);
+            b.addEventListener("click", () => activateCandidate(b.dataset.n, b)));
+        // Human value distributions need the coders' rows — render the N-way
+        // view immediately, then once more after the prefetch fills them in.
+        _renderNwayView();
+        _prefetchHumanRows().then(_renderNwayView);
         abeRenderAdjudication();
         abeRenderHuman();
+    }
+
+    function _renderNwayView() {
+        const unified = _unifiedComparisons();
+        if (!Object.keys(unified.pairs).length) return;
+        const cols = _aggregateColumns(unified);
+        _renderRunSummary(unified, cols);
+        abeRenderNway(unified, cols);
     }
 
     // ---------- human input (ICR) ----------
@@ -951,7 +1000,47 @@
         const human = st.currentRun && st.currentRun.human;
         if (!el) return;
         if (!human) { el.innerHTML = ""; return; }
-        el.innerHTML = _renderCodingSection(human.coding) + _renderVoteSection(human.vote);
+        el.innerHTML = _renderCodingSection(human.coding)
+            + _renderVoteSection(human.vote)
+            + _renderNotesSection(human);
+        el.querySelectorAll(".abe-note-item").forEach(a =>
+            a.addEventListener("click", (ev) => { ev.preventDefault(); openItemView(a.dataset.i); }));
+    }
+
+    // Free-text notes coders attached to individual videos, across both task
+    // types — one place to read them all when adjudicating.
+    function _renderNotesSection(human) {
+        const notes = [];
+        for (const [type, label] of [["coding", "coding"], ["vote", "vote"]]) {
+            for (const note of ((human[type] || {}).notes) || []) {
+                notes.push({ ...note, type: label });
+            }
+        }
+        if (!notes.length) return "";
+        const byItem = {};
+        for (const note of notes) (byItem[note.item_id] = byItem[note.item_id] || []).push(note);
+        const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;";
+        const rows = Object.entries(byItem).map(([itemId, itemNotes]) => itemNotes.map((n, i) => `<tr>
+            <td style="${cell}">${i === 0
+                ? `<a href="#" class="abe-note-item font-mono" data-i="${_esc(itemId)}"
+                    style="color: var(--color-accent);">${_esc(itemId)}</a>` : ""}</td>
+            <td style="${cell}">${_esc(n.username)}</td>
+            <td style="${cell}">${_esc(n.type)}</td>
+            <td style="${cell}">${_esc(n.note)}</td>
+        </tr>`).join("")).join("");
+        return `<h3 class="text-sm font-semibold" style="margin: 18px 0 6px 0;
+                color: var(--color-text-heading);">Coder notes (${notes.length})</h3>
+            <details open>
+                <summary class="text-xxs" style="cursor: pointer; color: var(--color-text-muted);">
+                    free-text notes coders attached to individual videos — click an item id for the
+                    full side-by-side view</summary>
+                <div style="overflow-x: auto; margin-top: 6px;">
+                <table style="border-collapse: collapse; width: 100%;" class="text-xs">
+                <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                    <th style="${cell}">item</th><th style="${cell}">coder</th>
+                    <th style="${cell}">task</th><th style="${cell}">note</th>
+                </tr></thead><tbody>${rows}</tbody></table></div>
+            </details>`;
     }
 
     function _renderCodingSection(coding) {
@@ -977,46 +1066,13 @@
         if (!results || (!Object.keys(results.human_vs_machine || {}).length
                 && !Object.keys(results.human_vs_human || {}).length)) {
             return html + `<div class="text-xs" style="color: var(--color-text-muted);">
-                No submitted codings yet — metrics appear here after the first coder submits.</div>`;
+                No submitted codings yet — once a coder submits, they appear as an extra
+                contract in the agreement tables and the per-item view above.</div>`;
         }
-
-        const groups = [
-            ["Coder vs machine arm", results.human_vs_machine || {}],
-            ["Coder vs coder", results.human_vs_human || {}],
-        ];
-        const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border);";
-        for (const [title, comps] of groups) {
-            const keys = Object.keys(comps);
-            if (!keys.length) continue;
-            const rows = keys.map(key => {
-                const comp = comps[key];
-                const s = comp.summary || {};
-                return `<tr>
-                    <td style="${cell}">${_esc(key.replace("|", " vs "))}</td>
-                    <td style="${cell}">${_esc(String(comp.n_items ?? "—"))}</td>
-                    <td style="${cell}">${_fmt(s.mean_enum_agreement)}</td>
-                    <td style="${cell}">${_fmt(s.mean_enum_kappa)}</td>
-                    <td style="${cell}">${_fmt(s.mean_list_jaccard)}</td>
-                    <td style="${cell}">${_fmt(s.mean_numeric_correlation)}</td>
-                </tr>
-                <tr><td colspan="6" style="border-bottom: 1px solid var(--color-border); padding: 0 8px 6px 8px;">
-                    ${_humanPairDetail(comp)}
-                </td></tr>`;
-            }).join("");
-            html += `<div class="text-sm font-semibold" style="margin: 12px 0 4px 0;
-                    color: var(--color-text-heading);">${_esc(title)}</div>
-                <div style="overflow-x: auto;">
-                <table style="border-collapse: collapse; width: 100%;" class="text-xs">
-                <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
-                    <th style="${cell}">pair</th>
-                    <th style="${cell}">items</th>
-                    <th style="${cell}"><span class="meta-tooltip" data-tooltip="Mean exact agreement across categorical fields (both-empty counts as agreement — see the per-field detail).">agreement</span></th>
-                    <th style="${cell}"><span class="meta-tooltip" data-tooltip="Mean Cohen's κ across categorical fields — chance-corrected agreement over the items where both sides gave a real value (needs ≥5 such pairs and ≥2 distinct labels).">Cohen's κ</span></th>
-                    <th style="${cell}"><span class="meta-tooltip" data-tooltip="Mean Jaccard overlap across list fields.">Jaccard</span></th>
-                    <th style="${cell}"><span class="meta-tooltip" data-tooltip="Mean Pearson r across numeric fields.">r</span></th>
-                </tr></thead><tbody>${rows}</tbody></table></div>`;
-        }
-        return html;
+        return html + `<div class="text-xs" style="color: var(--color-text-muted);">
+            Submitted coders are included as contracts in the agreement tables, the
+            pairwise matrices (with Cohen's κ on categorical fields) and the per-item
+            view above.</div>`;
     }
 
     // The "Preference votes" block: per-arm pooled win-rate bars, per-coder
@@ -1092,36 +1148,6 @@
         return html;
     }
 
-    function _humanPairDetail(comp) {
-        const cell = "padding: 3px 8px; border-bottom: 1px solid var(--color-border);";
-        const entries = Object.entries(comp.columns || {});
-        if (!entries.length) return "";
-        const metricText = (m) => {
-            if (m.kind === "numeric") return `r ${_fmt(m.correlation)} · MAD ${_fmt(m.mean_abs_diff, 1)}`;
-            if (m.kind === "enum") {
-                const kappa = m.kappa != null ? ` · κ ${_fmt(m.kappa)}` : "";
-                const f = m.agreement_filled != null
-                    ? ` <span style="color: var(--color-text-muted);">(${_fmt(m.agreement_filled)} where both answered)</span>` : "";
-                return `${_fmt(m.agreement)}${kappa}${f}`;
-            }
-            if (m.kind === "list") return `${_fmt(m.mean_jaccard)}`;
-            return `<span style="color: var(--color-text-muted);">coverage only</span>`;
-        };
-        const rows = entries.map(([name, m]) => `<tr>
-            <td style="${cell}" class="font-mono">${_esc(name)}${_caveatIcon(m.caveat)}</td>
-            <td style="${cell}">${_esc(m.kind)}</td>
-            <td style="${cell}">${metricText(m)}</td>
-            <td style="${cell}">${_pct(m.coverage_a)} / ${_pct(m.coverage_b)}</td>
-        </tr>`).join("");
-        return `<details><summary class="text-xxs" style="cursor: pointer;
-                color: var(--color-text-muted);">per-field detail</summary>
-            <table style="border-collapse: collapse; width: 100%; margin-top: 4px;" class="text-xxs">
-            <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
-                <th style="${cell}">field</th><th style="${cell}">kind</th>
-                <th style="${cell}">metric</th><th style="${cell}">answered</th>
-            </tr></thead><tbody>${rows}</tbody></table></details>`;
-    }
-
     // Runs made before the 2026-07 metric fix stored a summary without per-kind
     // column counts (and classified `text` fields as categorical). Back-fill the
     // counts so the tiles still render, and flag the run as stale.
@@ -1129,29 +1155,81 @@
         return (comp.summary || {}).n_enum_columns === undefined;
     }
 
-    function _summaryOf(comp) {
-        const s = { ...(comp.summary || {}) };
-        if (!_isLegacyReport(comp)) return s;
-        const counts = { enum: 0, list: 0, numeric: 0, freetext: 0 };
-        let correlated = 0;
-        for (const m of Object.values(comp.columns || {})) {
-            if (counts[m.kind] !== undefined) counts[m.kind]++;
-            if (m.kind === "numeric" && m.correlation != null) correlated++;
-        }
-        s.n_enum_columns = counts.enum;
-        s.n_list_columns = counts.list;
-        s.n_numeric_columns = counts.numeric;
-        s.n_freetext_columns = counts.freetext;
-        s.n_numeric_columns_correlated = correlated;
-        return s;
+    // ---------- N-way agreement view ----------
+
+    // Merge the machine pairwise comparisons with the human-coding results:
+    // both share the compare_arms shape, so a submitted coder is literally
+    // just another contract. Human arm rows are fetched as "human:<username>".
+    function _unifiedComparisons() {
+        const report = st.currentRun && st.currentRun.report;
+        if (!report) return { machineArms: [], humanArms: [], pairs: {} };
+        const pairs = { ...(report.comparisons || {}) };
+        const results = (((st.currentRun.human || {}).coding) || {}).results || {};
+        const humanArms = results.coders || [];
+        for (const [key, comp] of Object.entries(results.human_vs_machine || {})) pairs[key] = comp;
+        for (const [key, comp] of Object.entries(results.human_vs_human || {})) pairs[key] = comp;
+        return { machineArms: report.arms || [], humanArms, pairs };
     }
 
-    // Headline tiles. Each kind gets its OWN tile because its metric has its own
-    // scale and its own meaning; there is no single "agreement" number for a run.
-    function _renderPairSummary(comp, armA, armB) {
-        const el = document.getElementById("abe-pair-summary");
+    function _allArms(unified) {
+        return [...unified.machineArms, ...unified.humanArms];
+    }
+
+    // Per-column cross-pair aggregation: kind, per-pair metrics (for the
+    // matrix), the mean over pairs (the collapsed row), per-arm coverage,
+    // and the union of caveats. Human pairs cover only the coded variables —
+    // absent columns are simply skipped for that pair.
+    function _aggregateColumns(unified) {
+        const cols = {};
+        for (const [key, comp] of Object.entries(unified.pairs)) {
+            const [a, b] = key.split("|");
+            for (const [name, m] of Object.entries(comp.columns || {})) {
+                const c = cols[name] || (cols[name] = {
+                    kind: m.kind, pairMeta: {}, coverage: {}, caveats: new Set(),
+                });
+                c.pairMeta[key] = m;
+                if (m.coverage_a != null) c.coverage[a] = m.coverage_a;
+                if (m.coverage_b != null) c.coverage[b] = m.coverage_b;
+                if (m.caveat) c.caveats.add(m.caveat);
+            }
+        }
+        for (const c of Object.values(cols)) {
+            const vals = Object.values(c.pairMeta).map(_metricOf).filter(v => v != null);
+            c.mean = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+            c.nPairs = vals.length;
+        }
+        return cols;
+    }
+
+    // Prefetch each submitted coder's rows once (≤ a few coders × ≤50 items)
+    // and derive their per-column value counts — the human analogue of the
+    // report's stored distributions. Also warms the per-item modal cache.
+    async function _prefetchHumanRows() {
+        st.humanDist = {};
+        const results = (((st.currentRun || {}).human || {}).coding || {}).results;
+        if (!results || !(results.coders || []).length) return;
+        await Promise.all(results.coders.map(async (coder) => {
+            try {
+                const rows = await _armRows(`human:${coder}`);
+                const dist = {};
+                for (const row of rows) {
+                    for (const [col, value] of Object.entries(row)) {
+                        if (col === "item_id" || col === "note") continue;
+                        const v = String(value ?? "");
+                        if (!v) continue;
+                        (dist[col] = dist[col] || {})[v] = (dist[col][v] || 0) + 1;
+                    }
+                }
+                st.humanDist[coder] = dist;
+            } catch (e) { /* rows unavailable — the matrix still renders */ }
+        }));
+    }
+
+    // Headline tiles: cross-pair, cross-column means per kind (each kind keeps
+    // its own tile — r, agreement and Jaccard are not on a common scale).
+    function _renderRunSummary(unified, cols) {
+        const el = document.getElementById("abe-nway-summary");
         if (!el) return;
-        const s = _summaryOf(comp);
         const tile = (title, value, sub, tip) => `
             <div class="meta-tooltip" data-tooltip="${_esc(tip)}"
                 style="border: 1px solid var(--color-border); border-radius: 6px;
@@ -1160,45 +1238,57 @@
                 <div class="text-h3 font-bold" style="color: var(--color-text-primary);">${value}</div>
                 <div class="text-xxs" style="color: var(--color-text-muted);">${sub}</div>
             </div>`;
+        const meanOf = (kind) => {
+            const vals = Object.values(cols).filter(c => c.kind === kind && c.mean != null)
+                .map(c => c.mean);
+            return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+        };
+        const countOf = (kind) => Object.values(cols).filter(c => c.kind === kind).length;
 
         const tiles = [];
-        if (s.n_enum_columns) {
-            const filled = s.mean_enum_agreement_filled;
-            tiles.push(tile("Categorical agreement", _fmt(s.mean_enum_agreement),
-                `${s.n_enum_columns} fields` + (filled != null
-                    ? ` · ${_fmt(filled)} where both answered` : ""),
-                KINDS[0].blurb));
+        if (countOf("enum")) {
+            const kappas = [];
+            for (const c of Object.values(cols)) {
+                if (c.kind !== "enum") continue;
+                for (const m of Object.values(c.pairMeta)) {
+                    if (m.kappa != null) kappas.push(m.kappa);
+                }
+            }
+            const kappaBit = kappas.length
+                ? ` · κ ${_fmt(kappas.reduce((s, v) => s + v, 0) / kappas.length)}` : "";
+            tiles.push(tile("Categorical agreement", _fmt(meanOf("enum")),
+                `${countOf("enum")} fields, all pairs${kappaBit}`, KINDS[0].blurb));
         }
-        if (s.n_list_columns) {
-            const filled = s.mean_list_jaccard_filled;
-            tiles.push(tile("List overlap (Jaccard)", _fmt(s.mean_list_jaccard),
-                `${s.n_list_columns} fields` + (filled != null
-                    ? ` · ${_fmt(filled)} excl. both-empty` : ""),
-                KINDS[1].blurb));
+        if (countOf("list")) {
+            tiles.push(tile("List overlap (Jaccard)", _fmt(meanOf("list")),
+                `${countOf("list")} fields, all pairs`, KINDS[1].blurb));
         }
-        if (s.n_numeric_columns) {
-            const n = s.n_numeric_columns_correlated;
-            tiles.push(tile("Numeric correlation (r)", _fmt(s.mean_numeric_correlation),
-                n != null ? `${n} of ${s.n_numeric_columns} fields defined`
-                    : `${s.n_numeric_columns} fields`,
-                KINDS[2].blurb));
+        if (countOf("numeric")) {
+            tiles.push(tile("Numeric correlation (r)", _fmt(meanOf("numeric")),
+                `${countOf("numeric")} fields, all pairs`, KINDS[2].blurb));
         }
-        if (s.n_freetext_columns) {
-            const d = s.mean_freetext_coverage_delta_b_minus_a;
-            tiles.push(tile("Free-text coverage Δ",
-                d == null ? "—" : `${d >= 0 ? "+" : ""}${_fmt(d)}`,
-                `${s.n_freetext_columns} fields · ${_esc(armB)} minus ${_esc(armA)}`,
-                KINDS[3].blurb));
+        // Annotation success per machine arm (humans have no failure mode here).
+        const okRates = {};
+        for (const [key, comp] of Object.entries(unified.pairs)) {
+            const [a, b] = key.split("|");
+            const s = comp.summary || {};
+            if (s.annotated_ok_rate_a != null && unified.machineArms.includes(a)) okRates[a] = s.annotated_ok_rate_a;
+            if (s.annotated_ok_rate_b != null && unified.machineArms.includes(b)) okRates[b] = s.annotated_ok_rate_b;
         }
-        tiles.push(tile("Annotation succeeded",
-            `${_pct(s.annotated_ok_rate_a)} / ${_pct(s.annotated_ok_rate_b)}`,
-            `${_esc(armA)} / ${_esc(armB)}`,
-            "Share of evaluation-set videos each contract returned a usable annotation for."));
+        if (Object.keys(okRates).length) {
+            tiles.push(tile("Annotation succeeded",
+                Object.values(okRates).map(_pct).join(" / "),
+                Object.keys(okRates).map(_esc).join(" / "),
+                "Share of evaluation-set videos each contract returned a usable annotation for."));
+        }
 
         const legend = KINDS.map(k =>
             `<li><strong>${_esc(k.label)}</strong> — ${_esc(k.blurb)}</li>`).join("");
-
-        const stale = _isLegacyReport(comp)
+        const machinePairs = Object.entries(unified.pairs).filter(([key]) => {
+            const [a, b] = key.split("|");
+            return unified.machineArms.includes(a) && unified.machineArms.includes(b);
+        });
+        const stale = machinePairs.some(([, comp]) => _isLegacyReport(comp))
             ? `<div class="text-xxs" style="color: var(--color-warning); margin-bottom: 8px;">
                 ⚠ This run predates the metric fix: free-text fields were scored with exact-string
                 agreement, list fields joined with “|” were scored as single strings, and “nothing
@@ -1206,12 +1296,15 @@
                 scores.</div>`
             : "";
 
+        const contracts = _allArms(unified);
         el.innerHTML = stale + `
             <div style="display: flex; gap: 10px; flex-wrap: wrap;">${tiles.join("")}</div>
             <div class="text-xxs" style="color: var(--color-text-muted); margin-top: 8px;">
-                Compared on ${_esc(String(comp.n_items))} video(s) annotated by both contracts.
-                Every score is <em>${_esc(armA)} vs ${_esc(armB)} agreement</em> — not a measure of
-                which one is right.
+                ${contracts.length} contracts compared${unified.humanArms.length
+                    ? ` (incl. ${unified.humanArms.length} human coder(s))` : ""}:
+                <span class="font-mono">${contracts.map(_esc).join(", ")}</span>.
+                Every score is pairwise agreement averaged over all pairs — not a measure of
+                which contract is right. Expand a field for the full pairwise matrix.
             </div>
             <details style="margin-top: 6px;">
                 <summary class="text-xxs" style="cursor: pointer; color: var(--color-text-muted);">
@@ -1220,78 +1313,114 @@
                     color: var(--color-text-muted); line-height: var(--leading-relaxed);">
                     ${legend}
                     <li><strong>Answered</strong> — share of items where that contract returned a
-                        substantive value. A field where both contracts answered
+                        substantive value. A field where two contracts both answered
                         &ldquo;no&rdquo; every time shows 1.00 agreement but 0% answered.</li>
+                    <li><strong>κ</strong> — Cohen's kappa (chance-corrected agreement), computed
+                        for pairs involving a human coder over the items where both sides gave a
+                        real value.</li>
                 </ul>
             </details>`;
     }
 
-    function abeRenderPair(pairKey) {
-        const el = document.getElementById("abe-pair-table");
-        const report = st.currentRun && st.currentRun.report;
-        if (!el || !report) return;
-        const comp = report.comparisons[pairKey];
-        if (!comp) return;
-        const [armA, armB] = pairKey.split("|");
-        _renderPairSummary(comp, armA, armB);
+    // The metric of one pair for one column, formatted for a matrix cell.
+    function _pairCellText(m) {
+        if (!m) return `<span style="color: var(--color-text-muted);">—</span>`;
+        if (m.kind === "numeric") return `r ${_fmt(m.correlation)}`;
+        if (m.kind === "enum") {
+            const kappa = m.kappa != null ? ` <span style="color: var(--color-text-muted);">κ ${_fmt(m.kappa)}</span>` : "";
+            return `${_fmt(m.agreement)}${kappa}`;
+        }
+        if (m.kind === "list") return _fmt(m.mean_jaccard);
+        return `<span style="color: var(--color-text-muted);">—</span>`;
+    }
 
+    function _pairMatrix(colAgg, unified) {
+        const arms = _allArms(unified);
+        const cell = "padding: 3px 8px; border-bottom: 1px solid var(--color-border);";
+        const header = arms.map(a => `<th style="${cell}" class="font-mono">${_esc(a)}</th>`).join("");
+        const rows = arms.map((rowArm, i) => {
+            const cells = arms.map((colArm, j) => {
+                if (i === j) return `<td style="${cell}"></td>`;
+                const m = colAgg.pairMeta[`${rowArm}|${colArm}`] || colAgg.pairMeta[`${colArm}|${rowArm}`];
+                return `<td style="${cell}">${_pairCellText(m)}</td>`;
+            }).join("");
+            return `<tr><td style="${cell}" class="font-mono text-xxs">${_esc(rowArm)}</td>${cells}</tr>`;
+        }).join("");
+        return `<table style="border-collapse: collapse;" class="text-xxs">
+            <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                <th style="${cell}"></th>${header}</tr></thead>
+            <tbody>${rows}</tbody></table>`;
+    }
+
+    function _coverageLine(colAgg, unified) {
+        const parts = _allArms(unified)
+            .filter(a => colAgg.coverage[a] != null)
+            .map(a => `<span class="font-mono">${_esc(a)}</span> ${_pct(colAgg.coverage[a])}`);
+        return parts.length
+            ? `<div class="text-xxs" style="color: var(--color-text-muted); margin: 6px 0;">
+                Answered: ${parts.join(" · ")}</div>`
+            : "";
+    }
+
+    function _distBlock(name, unified) {
+        const machine = ((st.currentRun.report || {}).distributions || {})[name];
+        const blocks = [];
+        for (const [arm, counts] of Object.entries((machine || {}).arms || {})) {
+            blocks.push([arm, counts]);
+        }
+        for (const [coder, dist] of Object.entries(st.humanDist || {})) {
+            if (dist[name]) blocks.push([coder, dist[name]]);
+        }
+        if (!blocks.length) return "";
+        const inner = blocks.map(([arm, counts]) =>
+            `<div style="min-width: 160px;"><span class="font-mono font-semibold">${_esc(arm)}</span><br>`
+            + Object.entries(counts).map(([v, n]) => `${_esc(v)}: ${n}`).join("<br>") + "</div>"
+        ).join("");
+        return `<div class="text-xxs" style="color: var(--color-text-muted); margin-top: 6px;">Values</div>
+            <div style="display: flex; gap: 16px; padding: 4px 0; flex-wrap: wrap;" class="text-xxs">${inner}</div>`;
+    }
+
+    // The main per-field table: collapsed row = cross-pair mean; expanded =
+    // pairwise matrix + per-contract answered% + value distributions.
+    function abeRenderNway(unified, cols) {
+        const el = document.getElementById("abe-nway-table");
+        if (!el) return;
         const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border);";
-        const dist = report.distributions || {};
-        const entries = Object.entries(comp.columns || {});
+        const entries = Object.entries(cols);
 
-        const metricText = (m) => {
-            if (m.kind === "numeric") {
-                const n = m.n_compared != null ? ` <span style="color: var(--color-text-muted);">(n=${m.n_compared})</span>` : "";
-                return `r ${_fmt(m.correlation)} · MAD ${_fmt(m.mean_abs_diff, 1)}${n}`;
-            }
-            if (m.kind === "enum") {
-                const f = m.agreement_filled != null
-                    ? ` <span style="color: var(--color-text-muted);">(${_fmt(m.agreement_filled)} where both answered)</span>` : "";
-                return `${_fmt(m.agreement)}${f}`;
-            }
-            if (m.kind === "list") {
-                const f = m.mean_jaccard_filled != null
-                    ? ` <span style="color: var(--color-text-muted);">(${_fmt(m.mean_jaccard_filled)} excl. empty)</span>` : "";
-                return `${_fmt(m.mean_jaccard)}${f}`;
-            }
-            return `<span style="color: var(--color-text-muted);">not scored</span>`;
-        };
-
-        const distCell = (name) => {
-            const d = dist[name];
-            if (!d || !d.arms) return "";
-            const inner = Object.entries(d.arms).map(([arm, counts]) =>
-                `<div style="min-width: 160px;"><span class="font-mono font-semibold">${_esc(arm)}</span><br>`
-                + Object.entries(counts).map(([v, n]) => `${_esc(v)}: ${n}`).join("<br>") + "</div>"
-            ).join("");
-            return `<details><summary class="text-xxs" style="cursor: pointer;
-                color: var(--color-text-muted);">values</summary>
-                <div style="display: flex; gap: 16px; padding: 6px 0;" class="text-xxs">${inner}</div></details>`;
-        };
-
-        // One block per kind: mixing r, agreement and Jaccard in a single sorted
-        // "metric" column made incomparable numbers look comparable.
         const blocks = KINDS.map(kind => {
-            const cols = entries
-                .filter(([, m]) => m.kind === kind.key)
+            const kindCols = entries
+                .filter(([, c]) => c.kind === kind.key)
                 .sort((x, y) => {
-                    const mx = _metricOf(x[1]), my = _metricOf(y[1]);
+                    const mx = x[1].mean, my = y[1].mean;
                     return (mx == null ? 2 : mx) - (my == null ? 2 : my);   // lowest agreement first
                 });
-            if (!cols.length) return "";
-            const rows = cols.map(([name, m]) => `<tr>
-                <td style="${cell}" class="font-mono">${_esc(name)}${_caveatIcon(m.caveat)}</td>
-                <td style="${cell}">${metricText(m)}</td>
-                <td style="${cell}">${_pct(m.coverage_a)}</td>
-                <td style="${cell}">${_pct(m.coverage_b)}</td>
-                <td style="${cell}">${m.n_both_empty != null && m.n_both_empty > 0
-                    ? _esc(String(m.n_both_empty)) : "—"}</td>
-                <td style="${cell}">${distCell(name)}</td>
-            </tr>`).join("");
-            const metricHeader = kind.key === "numeric" ? "Pearson r · mean abs. diff (lowest first)"
-                : kind.key === "enum" ? "Agreement (lowest first)"
-                : kind.key === "list" ? "Jaccard overlap (lowest first)"
-                : "Agreement (prose is never string-equal)";
+            if (!kindCols.length) return "";
+            const rows = kindCols.map(([name, c]) => {
+                const caveats = [...c.caveats].map(_caveatIcon).join("");
+                const meanText = kind.key === "freetext"
+                    ? `<span style="color: var(--color-text-muted);">not scored</span>`
+                    : `${_fmt(c.mean)} <span style="color: var(--color-text-muted);">(${c.nPairs} pair${c.nPairs === 1 ? "" : "s"})</span>`;
+                return `<tr>
+                    <td style="${cell}" class="font-mono">${_esc(name)}${caveats}</td>
+                    <td style="${cell}">${meanText}</td>
+                </tr>
+                <tr><td colspan="2" style="border-bottom: 1px solid var(--color-border); padding: 0 8px 6px 8px;">
+                    <details>
+                        <summary class="text-xxs" style="cursor: pointer; color: var(--color-text-muted);">
+                            pairwise &amp; per-contract detail</summary>
+                        <div style="margin-top: 6px; overflow-x: auto;">${
+                            kind.key === "freetext" ? "" : _pairMatrix(c, unified)
+                        }</div>
+                        ${_coverageLine(c, unified)}
+                        ${_distBlock(name, unified)}
+                    </details>
+                </td></tr>`;
+            }).join("");
+            const metricHeader = kind.key === "numeric" ? "mean Pearson r across pairs (lowest first)"
+                : kind.key === "enum" ? "mean agreement across pairs (lowest first)"
+                : kind.key === "list" ? "mean Jaccard across pairs (lowest first)"
+                : "not scored (prose is never string-equal)";
             return `<div class="text-sm font-semibold" style="margin: 12px 0 4px 0;
                     color: var(--color-text-heading);">
                     ${_esc(kind.label)}
@@ -1302,10 +1431,6 @@
                 <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
                     <th style="${cell}">field</th>
                     <th style="${cell}">${_esc(metricHeader)}</th>
-                    <th style="${cell}">answered ${_esc(armA)}</th>
-                    <th style="${cell}">answered ${_esc(armB)}</th>
-                    <th style="${cell}">both empty</th>
-                    <th style="${cell}"></th>
                 </tr></thead><tbody>${rows}</tbody></table>`;
         }).join("");
 
@@ -1358,7 +1483,13 @@
         body.innerHTML = '<span style="color: var(--color-text-muted);">Loading…</span>';
         modal.style.display = "flex";
         try {
-            const arms = report.arms || [];
+            // Human coders join the side-by-side as extra contract columns.
+            const unified = _unifiedComparisons();
+            const arms = [
+                ...unified.machineArms,
+                ...unified.humanArms.map(u => `human:${u}`),
+            ];
+            const label = (a) => a.startsWith("human:") ? a.slice("human:".length) : a;
             const rowByArm = {};
             for (const arm of arms) {
                 const rows = await _armRows(arm);
@@ -1370,11 +1501,14 @@
             body.innerHTML = `<table style="border-collapse: collapse; width: 100%;">
                 <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
                     <th style="${cell}">field</th>
-                    ${arms.map(a => `<th style="${cell}" class="font-mono">${_esc(a)}</th>`).join("")}
+                    ${arms.map(a => `<th style="${cell}" class="font-mono">${_esc(label(a))}</th>`).join("")}
                 </tr></thead>
                 <tbody>${columns.map(c => {
                     const values = arms.map(a => String(rowByArm[a][c] ?? ""));
-                    const differs = new Set(values).size > 1;
+                    // Blanks (a coder who skipped this field / a note only one
+                    // coder wrote) don't count as disagreement.
+                    const nonEmpty = values.filter(v => v !== "");
+                    const differs = new Set(nonEmpty).size > 1;
                     return `<tr ${differs ? 'style="background: color-mix(in srgb, var(--color-warning) 12%, transparent);"' : ""}>
                         <td style="${cell}" class="font-mono">${_esc(c)}</td>
                         ${values.map(v => `<td style="${cell}">${_esc(v)}</td>`).join("")}
@@ -1453,7 +1587,6 @@
     window.abeRefreshRuns = abeRefreshRuns;
     window.abeLoadRun = abeLoadRun;
     window.abeDeleteRun = abeDeleteRun;
-    window.abeRenderPair = abeRenderPair;
     window.abeRenderAdjudication = abeRenderAdjudication;
     window.abeCloseItemModal = abeCloseItemModal;
     window.abeRefreshEstimate = refreshEstimate;
