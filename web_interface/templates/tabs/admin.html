@@ -22,11 +22,6 @@
             User Annotations
         </div>
         {% endif %}
-        {% if user.can_access('tab.admin.reliability') %}
-        <div class="dm-sidebar-item" data-page="admin-page-reliability" onclick="openAdminPage('admin-page-reliability', this)">
-            Inter-coder Reliability
-        </div>
-        {% endif %}
         {% if user.can_access('tab.admin.general') %}
         <div class="dm-sidebar-item" data-page="admin-page-general" onclick="openAdminPage('admin-page-general', this)">
             General
@@ -45,6 +40,11 @@
         {% if user.can_access('tab.admin.schema') %}
         <div class="dm-sidebar-item" data-page="admin-page-abeval" onclick="openAdminPage('admin-page-abeval', this)">
             Annotation testing
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.human_eval') %}
+        <div class="dm-sidebar-item" data-page="admin-page-humaneval" onclick="openAdminPage('admin-page-humaneval', this)">
+            Human testing
         </div>
         {% endif %}
     </nav>
@@ -76,12 +76,6 @@
         </div>
         {% endif %}
 
-        {% if user.can_access('tab.admin.reliability') %}
-        <div id="admin-page-reliability" class="dm-page">
-            {% include 'tabs/admin/reliability.html' %}
-        </div>
-        {% endif %}
-
         {% if user.can_access('tab.admin.general') %}
         <div id="admin-page-general" class="dm-page">
             {% include 'tabs/admin/general.html' %}
@@ -103,6 +97,12 @@
         {% if user.can_access('tab.admin.schema') %}
         <div id="admin-page-abeval" class="dm-page">
             {% include 'tabs/admin/ab_eval.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.human_eval') %}
+        <div id="admin-page-humaneval" class="dm-page">
+            {% include 'tabs/admin/human_eval.html' %}
         </div>
         {% endif %}
 
@@ -185,11 +185,11 @@
         'admin-page-active-users': 'tab.admin.active_users',
         'admin-page-roles':        'tab.admin.roles',
         'admin-page-annotations':  'tab.admin.annotations',
-        'admin-page-reliability':  'tab.admin.reliability',
         'admin-page-general':      'tab.admin.general',
         'admin-page-schema':       'tab.admin.schema',
         'admin-page-versions':     'tab.admin.schema',
         'admin-page-abeval':       'tab.admin.schema',
+        'admin-page-humaneval':    'tab.admin.human_eval',
     };
 
     function openAdminPage(pageId, clickedItem) {
@@ -1181,46 +1181,6 @@
 
         html += '</div>';
         container.innerHTML = html;
-    }
-
-    async function calculateReliability() {
-        const tableBody = document.getElementById('reliabilityTableBody');
-        tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--color-text-muted);">Calculating...</td></tr>';
-
-        try {
-            const response = await fetch('/api/manage/inter_coder_reliability');
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Failed to calculate reliability');
-            }
-            const data = await response.json();
-
-            if (data.results && data.results.length > 0) {
-                tableBody.innerHTML = data.results.map(row => `
-                    <tr style="border-bottom: 1px solid var(--color-border);">
-                        <td class="font-medium" style="padding: 12px 16px; color: var(--color-text-primary);">${row.variable}</td>
-                        <td style="padding: 12px 16px; color: var(--color-text-primary);">${row.avg_agreement}%</td>
-                        <td class="font-bold" style="padding: 12px 16px; color: ${getKappaColor(row.avg_kappa)};">${row.avg_kappa}</td>
-                        <td style="padding: 12px 16px; color: var(--color-text-primary);">${row.n_raters}</td>
-                        <td style="padding: 12px 16px; color: var(--color-text-primary);">${row.avg_items}</td>
-                    </tr>
-                 `).join('');
-            } else {
-                tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--color-text-muted);">No data found (need at least 2 common items per user).</td></tr>';
-            }
-
-        } catch (error) {
-            console.error('Error:', error);
-            tableBody.innerHTML = `<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--color-danger);">Error: ${error.message}</td></tr>`;
-        }
-    }
-
-    function getKappaColor(k) {
-        if (k >= 0.8) return 'var(--color-accent)'; // Excellent
-        if (k >= 0.6) return 'var(--color-success-light)'; // Good
-        if (k >= 0.4) return 'var(--color-gold)'; // Moderate
-        if (k >= 0.2) return 'var(--color-warning)'; // Fair
-        return 'var(--color-danger)'; // Poor
     }
 
     // --- Role Management ---

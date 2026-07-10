@@ -87,6 +87,7 @@ def _register_web_ui(app):
     from .routes.api_timelines_routes import timelines_bp
     from .routes.api_viewer_routes import viewer_bp
     from .routes.auth_routes import auth_bp
+    from .routes.human_eval_routes import human_eval_bp
     from .routes.management_routes import management_bp
     from .routes.process_routes import process_bp
 
@@ -99,6 +100,7 @@ def _register_web_ui(app):
     app.register_blueprint(semantic_space_bp)
     app.register_blueprint(collections_bp)
     app.register_blueprint(management_bp)
+    app.register_blueprint(human_eval_bp)
 
     @app.context_processor
     def inject_scrape_platforms():

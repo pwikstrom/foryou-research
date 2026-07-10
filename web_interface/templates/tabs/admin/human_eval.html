@@ -1,0 +1,85 @@
+<!-- Human testing sub-page. All content rendered by
+     static/js/admin_human_eval.js from the /api/manage/human-eval/* endpoints. -->
+<h2 style="margin: 0 0 8px 0;">Human testing</h2>
+<p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
+    Add <strong>human input</strong> to a finished annotation test run. Invited
+    coders watch the run's videos <strong>fully blind</strong> (no machine
+    values shown) and code a selected subset of variables; submitted codings
+    are compared against every machine arm &mdash; and against each other when
+    several coders submit &mdash; with agreement, Cohen's &kappa;, Jaccard and
+    correlation metrics. Results appear on the run's report under
+    <em>Annotation testing</em>. Admins can always open their own tasks from
+    the <em>Coding</em> tab.
+</p>
+
+<div id="hev-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;
+    color: var(--color-text-muted);"></div>
+
+<!-- 1. New task setup -->
+<section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
+        border: 1px solid var(--color-border-strong); border-radius: 8px;
+        background: var(--color-bg-elevated);">
+    <h3 style="margin: 0 0 10px 0; color: var(--color-text-heading);">Set up a human task</h3>
+
+    <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-bottom: 12px;">
+        <label class="text-sm" style="display: flex; align-items: center; gap: 8px;">
+            Test run
+            <select id="hev-run-select" class="text-sm" onchange="hevOnRunChange()"
+                style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
+                background: var(--color-bg-input); color: var(--color-text-primary); min-width: 260px;">
+            </select>
+        </label>
+        <span class="text-sm" style="display: flex; align-items: center; gap: 12px;">
+            <label style="display: flex; align-items: center; gap: 5px;">
+                <input type="radio" name="hev-task-type" value="coding" checked>
+                Human coding (inter-coder reliability)
+            </label>
+            <label class="meta-tooltip" data-tooltip="Per-item blind preference votes between arms — coming in a later phase."
+                style="display: flex; align-items: center; gap: 5px; color: var(--color-text-muted); cursor: not-allowed;">
+                <input type="radio" name="hev-task-type" value="vote" disabled>
+                Preference vote (soon)
+            </label>
+        </span>
+    </div>
+
+    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+        <div style="flex: 2; min-width: 300px;">
+            <div class="text-xs font-semibold" style="color: var(--color-text-muted); margin-bottom: 6px;">
+                Variables the coders provide input for
+            </div>
+            <div id="hev-var-list" class="text-sm" style="max-height: 260px; overflow-y: auto;
+                border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 10px;">
+                <span style="color: var(--color-text-muted);">Select a run first.</span>
+            </div>
+        </div>
+        <div style="flex: 1; min-width: 240px;">
+            <div class="text-xs font-semibold" style="color: var(--color-text-muted); margin-bottom: 6px;">
+                Coders to invite
+                <span class="meta-tooltip" data-tooltip="Admins always have access to every task from the Coding tab, invited or not.">&#9432;</span>
+            </div>
+            <div id="hev-user-list" class="text-sm" style="max-height: 260px; overflow-y: auto;
+                border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 10px;">
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center;">
+        <button onclick="hevCreateTask()" class="btn-primary btn-compact">Create task</button>
+        <span id="hev-create-error" class="text-xs" style="color: var(--color-danger);"></span>
+    </div>
+</section>
+
+<!-- 2. Existing tasks -->
+<section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
+        border: 1px solid var(--color-border-strong); border-radius: 8px;
+        background: var(--color-bg-elevated);">
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <h3 style="margin: 0; color: var(--color-text-heading); flex: 1;">Existing tasks</h3>
+        <button onclick="hevRefreshTasks()" class="btn-discreet btn-compact">Refresh</button>
+    </div>
+    <div id="hev-task-list" style="margin-top: 10px;">
+        <span class="text-sm" style="color: var(--color-text-muted);">Loading&hellip;</span>
+    </div>
+</section>
+
+<script src="{{ url_for('static', filename='js/admin_human_eval.js') }}" defer></script>

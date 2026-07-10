@@ -929,13 +929,121 @@
             <span class="text-xxs" style="color: var(--color-text-muted);">— free-text fields differ on
             almost every item by nature; click an item id for the full field-by-field view</span>
         </div>
-        <div id="abe-adj-table" style="overflow-x: auto; max-height: 50vh; overflow-y: auto;"></div>`;
+        <div id="abe-adj-table" style="overflow-x: auto; max-height: 50vh; overflow-y: auto;"></div>
+        <div id="abe-human-section" style="margin-top: 18px;"></div>`;
 
         container.innerHTML = html;
         container.querySelectorAll(".abe-activate-arm").forEach(b =>
             b.addEventListener("click", () => activateCandidate(b.dataset.n)));
         if (pairs.length) abeRenderPair(pairs[0]);
         abeRenderAdjudication();
+        abeRenderHuman();
+    }
+
+    // ---------- human input (ICR) ----------
+
+    // Renders the run's human-coding block (st.currentRun.human, attached by
+    // the run endpoint when a Human testing task exists on the run): task
+    // status, per-coder progress, and — once coders have submitted — the
+    // human-vs-machine and human-vs-human agreement tables with Cohen's κ.
+    function abeRenderHuman() {
+        const el = document.getElementById("abe-human-section");
+        const human = st.currentRun && st.currentRun.human;
+        if (!el) return;
+        const coding = human && human.coding;
+        if (!coding) { el.innerHTML = ""; return; }
+
+        const statusEntries = Object.entries(coding.coder_status || {});
+        const nSubmitted = statusEntries.filter(([, s]) => s.status === "submitted").length;
+        const coderLine = statusEntries.map(([user, s]) =>
+            `${_esc(user)} (${_esc(s.status === "in_progress"
+                ? `${s.n_answered} coded` : s.status)})`).join(", ");
+
+        let html = `<h3 class="text-sm font-semibold" style="margin: 0 0 6px 0;
+                color: var(--color-text-heading);">Human input (ICR)</h3>
+            <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 8px;">
+                Blind coding task on ${_esc(String((coding.variables || []).length))} variable(s)
+                (${(coding.variables || []).map(_esc).join(", ")}) ·
+                ${nSubmitted} of ${statusEntries.length} coder(s) submitted
+                ${coderLine ? ` — ${coderLine}` : ""} ·
+                managed under <em>Admin → Human testing</em>.
+            </div>`;
+
+        const results = coding.results;
+        if (!results || (!Object.keys(results.human_vs_machine || {}).length
+                && !Object.keys(results.human_vs_human || {}).length)) {
+            el.innerHTML = html + `<div class="text-xs" style="color: var(--color-text-muted);">
+                No submitted codings yet — metrics appear here after the first coder submits.</div>`;
+            return;
+        }
+
+        const groups = [
+            ["Coder vs machine arm", results.human_vs_machine || {}],
+            ["Coder vs coder", results.human_vs_human || {}],
+        ];
+        const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border);";
+        for (const [title, comps] of groups) {
+            const keys = Object.keys(comps);
+            if (!keys.length) continue;
+            const rows = keys.map(key => {
+                const comp = comps[key];
+                const s = comp.summary || {};
+                return `<tr>
+                    <td style="${cell}">${_esc(key.replace("|", " vs "))}</td>
+                    <td style="${cell}">${_esc(String(comp.n_items ?? "—"))}</td>
+                    <td style="${cell}">${_fmt(s.mean_enum_agreement)}</td>
+                    <td style="${cell}">${_fmt(s.mean_enum_kappa)}</td>
+                    <td style="${cell}">${_fmt(s.mean_list_jaccard)}</td>
+                    <td style="${cell}">${_fmt(s.mean_numeric_correlation)}</td>
+                </tr>
+                <tr><td colspan="6" style="border-bottom: 1px solid var(--color-border); padding: 0 8px 6px 8px;">
+                    ${_humanPairDetail(comp)}
+                </td></tr>`;
+            }).join("");
+            html += `<div class="text-sm font-semibold" style="margin: 12px 0 4px 0;
+                    color: var(--color-text-heading);">${_esc(title)}</div>
+                <div style="overflow-x: auto;">
+                <table style="border-collapse: collapse; width: 100%;" class="text-xs">
+                <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                    <th style="${cell}">pair</th>
+                    <th style="${cell}">items</th>
+                    <th style="${cell}"><span class="meta-tooltip" data-tooltip="Mean exact agreement across categorical fields (both-empty counts as agreement — see the per-field detail).">agreement</span></th>
+                    <th style="${cell}"><span class="meta-tooltip" data-tooltip="Mean Cohen's κ across categorical fields — chance-corrected agreement over the items where both sides gave a real value (needs ≥5 such pairs and ≥2 distinct labels).">Cohen's κ</span></th>
+                    <th style="${cell}"><span class="meta-tooltip" data-tooltip="Mean Jaccard overlap across list fields.">Jaccard</span></th>
+                    <th style="${cell}"><span class="meta-tooltip" data-tooltip="Mean Pearson r across numeric fields.">r</span></th>
+                </tr></thead><tbody>${rows}</tbody></table></div>`;
+        }
+        el.innerHTML = html;
+    }
+
+    function _humanPairDetail(comp) {
+        const cell = "padding: 3px 8px; border-bottom: 1px solid var(--color-border);";
+        const entries = Object.entries(comp.columns || {});
+        if (!entries.length) return "";
+        const metricText = (m) => {
+            if (m.kind === "numeric") return `r ${_fmt(m.correlation)} · MAD ${_fmt(m.mean_abs_diff, 1)}`;
+            if (m.kind === "enum") {
+                const kappa = m.kappa != null ? ` · κ ${_fmt(m.kappa)}` : "";
+                const f = m.agreement_filled != null
+                    ? ` <span style="color: var(--color-text-muted);">(${_fmt(m.agreement_filled)} where both answered)</span>` : "";
+                return `${_fmt(m.agreement)}${kappa}${f}`;
+            }
+            if (m.kind === "list") return `${_fmt(m.mean_jaccard)}`;
+            return `<span style="color: var(--color-text-muted);">coverage only</span>`;
+        };
+        const rows = entries.map(([name, m]) => `<tr>
+            <td style="${cell}" class="font-mono">${_esc(name)}${_caveatIcon(m.caveat)}</td>
+            <td style="${cell}">${_esc(m.kind)}</td>
+            <td style="${cell}">${metricText(m)}</td>
+            <td style="${cell}">${_pct(m.coverage_a)} / ${_pct(m.coverage_b)}</td>
+        </tr>`).join("");
+        return `<details><summary class="text-xxs" style="cursor: pointer;
+                color: var(--color-text-muted);">per-field detail</summary>
+            <table style="border-collapse: collapse; width: 100%; margin-top: 4px;" class="text-xxs">
+            <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                <th style="${cell}">field</th><th style="${cell}">kind</th>
+                <th style="${cell}">metric</th><th style="${cell}">answered</th>
+            </tr></thead><tbody>${rows}</tbody></table></details>`;
     }
 
     // Runs made before the 2026-07 metric fix stored a summary without per-kind

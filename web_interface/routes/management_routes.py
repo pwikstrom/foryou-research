@@ -37,7 +37,6 @@ from fyp.studies import init_study_defs, save_study_defs
 
 from .. import activity_log
 from ..data_service import (
-    calculate_inter_coder_reliability,
     invalidate_collection_tags_cache,
     load_display_id_map,
     study_cache,
@@ -3849,13 +3848,17 @@ def list_ab_eval_runs():
 @permission_required('tab.admin.schema')
 @login_required
 def get_ab_eval_run(run_id):
-    """Return one run's manifest + comparison report."""
+    """Return one run's manifest + comparison report + human-input block."""
     try:
-        from fyp import ab_eval
+        from fyp import ab_eval, human_eval
 
         run = ab_eval.load_run(run_id)
         if not run.get("manifest"):
             return jsonify({"error": f"run '{run_id}' not found"}), 404
+        try:
+            run["human"] = human_eval.load_human(run_id)
+        except Exception:
+            run["human"] = None
         return jsonify(run)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -4183,20 +4186,6 @@ def save_presentation_endpoint():
         )
         return jsonify({"etag": result["etag"], "hash_changed": hash_changed})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@management_bp.route('/api/manage/inter_coder_reliability', methods=['GET'])
-@permission_required('tab.admin.reliability')
-@login_required
-def get_inter_coder_reliability():
-    try:
-        results = calculate_inter_coder_reliability()
-        if "error" in results:
-             return jsonify(results), 400
-        return jsonify(results)
-    except Exception as e:
-        print(f"Error calculating reliability: {e}")
         return jsonify({"error": str(e)}), 500
 
 
