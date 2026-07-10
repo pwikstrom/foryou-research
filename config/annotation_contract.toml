@@ -170,7 +170,12 @@ type = "object"
 desc = "The video's audio profile: how much of the audio is speech (as a percentage of speech vs music/other), the style/mood of any background music, and any notable sounds or sound effects."
 [fields.keys]
 speech_vs_music = { spec = "int(0,100): the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)", scale = "numeric", display_name = "Speech % (vs music)", description = "Ratio of spoken word to background music." }
-background_music = { spec = "the style or mood of any background music", scale = "list", display_name = "Background music", description = "Description of the style/mood of background music." }
+# `scale` must agree with the response-schema type: this spec has no "list:"
+# prefix, so Gemini returns a single prose string. Declaring it `list` ran the
+# list cleaner over that sentence — stripping punctuation/digits and wrapping it
+# in a one-element list. `text` is the matching kind. Prompt + response schema are
+# untouched, so this is metadata-only (no new annotation version, no re-annotation).
+background_music = { spec = "the style or mood of any background music", scale = "text", display_name = "Background music", description = "Description of the style/mood of background music." }
 notable_sounds = { spec = "list: notable sounds or sound effects", scale = "list", display_name = "Notable sounds", description = "Specific sound effects (e.g., sirens) detected." }
 
 [[fields]]

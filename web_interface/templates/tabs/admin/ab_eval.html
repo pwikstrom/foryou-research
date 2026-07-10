@@ -1,29 +1,31 @@
-<!-- Prompt A/B Testing sub-page. All content rendered by
+<!-- Annotation testing sub-page. All content rendered by
      static/js/admin_ab_eval.js from the /api/manage/ab-* endpoints. -->
-<h2 style="margin: 0 0 8px 0;">Prompt A/B Testing</h2>
+<h2 style="margin: 0 0 8px 0;">Annotation testing</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    Compare annotation-contract <strong>candidates</strong> against each other
-    (and/or the live contract) on a fixed evaluation set of already-downloaded
-    videos. Runs make <strong>real Gemini calls</strong> (arms &times; videos)
-    but results are stored in an isolated location &mdash; they never enter the
-    machine-annotation archive or studies. A winning candidate graduates
-    through the normal contract activation flow (dry-run impact &rarr; confirm
-    &rarr; promote its version under <em>Annotation Versions</em>).
+    Compare annotation-contract <strong>candidate contracts</strong> against
+    each other (and/or the active contract) on a fixed evaluation set of
+    already-downloaded videos. Runs make <strong>real Gemini calls</strong>
+    (candidate contracts &times; videos) but results are stored in an isolated
+    location &mdash; they never enter the machine-annotation archive or studies.
+    A winning candidate graduates through the normal contract activation flow
+    (dry-run impact &rarr; confirm &rarr; activate its version under
+    <em>Annotation Versions</em>).
 </p>
 
 <div id="abe-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;
     color: var(--color-text-muted);"></div>
 
-<!-- 1. Candidates -->
+<!-- 1. Candidate contracts -->
 <section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <h3 style="margin: 0; color: var(--color-text-heading); flex: 1;">Candidate contracts</h3>
-        <button onclick="abeSaveLiveAsCandidate()" class="btn-discreet text-sm"
-            style="padding: 6px 12px;">Save live as candidate&hellip;</button>
-        <label class="btn-primary text-sm" style="padding: 6px 12px; cursor: pointer; margin: 0;">
-            Upload as candidate&hellip;
+        <span class="text-sm" style="color: var(--color-text-muted);">Add contract for testing</span>
+        <button onclick="abeSaveLiveAsCandidate()" class="btn-discreet btn-compact"
+            >Use active</button>
+        <label class="btn-primary btn-compact" style="cursor: pointer; margin: 0;">
+            Upload new
             <input id="abe-cand-file" type="file" accept=".toml,text/plain"
                 style="display: none;" onchange="abeOnCandidateFile(this)">
         </label>
@@ -39,8 +41,8 @@
             style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 240px;"
             onkeydown="if (event.key === 'Enter') abeConfirmName(); if (event.key === 'Escape') abeCancelName();">
-        <button onclick="abeConfirmName()" class="btn-save text-sm" style="padding: 5px 12px;">Save candidate</button>
-        <button onclick="abeCancelName()" class="btn-discreet text-sm" style="padding: 5px 12px;">Cancel</button>
+        <button onclick="abeConfirmName()" class="btn-save btn-compact">Save candidate</button>
+        <button onclick="abeCancelName()" class="btn-discreet btn-compact">Cancel</button>
         <span id="abe-name-error" class="text-xs" style="color: var(--color-danger);"></span>
     </div>
     <div style="overflow-x: auto; margin-top: 10px;">
@@ -63,18 +65,41 @@
     </div>
 </section>
 
-<!-- 2. Eval set -->
+<!-- 2. Evaluation sets -->
 <section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <h3 style="margin: 0; color: var(--color-text-heading);">Evaluation set</h3>
+        <select id="abe-set-picker" class="text-sm" onchange="abeSelectSet(this.value)"
+            style="padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 4px;
+            background: var(--color-bg-input); color: var(--color-text-primary); min-width: 180px;">
+        </select>
+        <button onclick="abeNewSet()" class="btn-discreet btn-compact">New</button>
+        <button onclick="abeRenameSet()" class="btn-discreet btn-compact">Rename</button>
+        <button onclick="abeDuplicateSet()" class="btn-discreet btn-compact">Duplicate</button>
+        <button id="abe-set-delete" onclick="abeDeleteSet(this)" class="btn-danger btn-compact">Delete</button>
         <span id="abe-set-count" class="text-xs" style="color: var(--color-text-muted);"></span>
         <span style="flex: 1;"></span>
-        <span id="abe-set-status" class="text-xs" style="color: var(--color-text-muted);"></span>
-        <button id="abe-set-save" onclick="abeSaveEvalSet()" class="btn-save text-sm"
-            style="padding: 6px 12px;" disabled>Save set</button>
+        <button id="abe-set-save" onclick="abeSaveEvalSet()" class="btn-save btn-compact"
+            disabled>Save set</button>
     </div>
+
+    <!-- Inline naming row for new/rename/duplicate (no native prompt) -->
+    <div id="abe-setname-row" style="display: none; gap: 8px; margin-top: 10px;
+            align-items: center; flex-wrap: wrap; padding: 10px 12px;
+            border: 1px solid var(--color-border); border-radius: 6px;">
+        <span id="abe-setname-purpose" class="text-xs" style="color: var(--color-text-muted);"></span>
+        <input id="abe-setname-input" type="text" maxlength="40"
+            placeholder="set name (a-z, 0-9, - or _)" class="text-sm font-mono"
+            style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
+            background: var(--color-bg-input); color: var(--color-text-primary); min-width: 240px;"
+            onkeydown="if (event.key === 'Enter') abeConfirmSetName(); if (event.key === 'Escape') abeCancelSetName();">
+        <button onclick="abeConfirmSetName()" class="btn-save btn-compact">Save</button>
+        <button onclick="abeCancelSetName()" class="btn-discreet btn-compact">Cancel</button>
+        <span id="abe-setname-error" class="text-xs" style="color: var(--color-danger);"></span>
+    </div>
+
     <div id="abe-set-pills" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
         min-height: 24px;"></div>
     <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center;">
@@ -83,7 +108,7 @@
             border-radius: 4px; background: var(--color-bg-input);
             color: var(--color-text-primary); flex: 1; min-width: 220px;"
             onkeydown="if (event.key === 'Enter') abeAddIds()">
-        <button onclick="abeAddIds()" class="btn-discreet text-sm" style="padding: 6px 12px;">Add</button>
+        <button onclick="abeAddIds()" class="btn-discreet btn-compact">Add</button>
         <span style="border-left: 1px solid var(--color-border); height: 22px;"></span>
         <label class="text-xs" style="color: var(--color-text-muted);">Sample
             <input id="abe-sample-n" type="number" min="1" value="10" class="text-sm"
@@ -97,8 +122,7 @@
             background: var(--color-bg-input); color: var(--color-text-primary);">
             <option value="">all platforms</option>
         </select>
-        <button id="abe-sample-btn" onclick="abeSample()" class="btn-discreet text-sm"
-            style="padding: 6px 12px;">Sample</button>
+        <button id="abe-sample-btn" onclick="abeSample()" class="btn-discreet btn-compact">Sample</button>
     </div>
 </section>
 
@@ -106,10 +130,11 @@
 <section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
-    <h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Run an A/B evaluation</h3>
+    <h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Run an evaluation</h3>
     <div style="display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap;">
         <div>
-            <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 4px;">Arms</div>
+            <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 4px;">
+                Candidate contracts</div>
             <div id="abe-arm-picker" style="display: flex; flex-direction: column; gap: 4px;"></div>
         </div>
         <div style="flex: 1; min-width: 240px;">
@@ -118,10 +143,10 @@
             <div id="abe-run-progress" class="text-xs" style="color: var(--color-text-muted);
                 margin-bottom: 8px;"></div>
             <div style="display: flex; gap: 8px;">
-                <button id="abe-run-btn" onclick="abeStartRun()" class="btn-primary text-sm"
-                    style="padding: 6px 14px;">Run&hellip;</button>
-                <button id="abe-cancel-btn" onclick="abeCancelRun()" class="btn-stop text-sm"
-                    style="padding: 6px 12px; display: none;">Cancel run</button>
+                <button id="abe-run-btn" onclick="abeStartRun()" class="btn-primary btn-compact"
+                    >Run&hellip;</button>
+                <button id="abe-cancel-btn" onclick="abeCancelRun()" class="btn-stop btn-compact"
+                    style="display: none;">Cancel run</button>
             </div>
         </div>
     </div>
@@ -138,11 +163,10 @@
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 280px;">
             <option value="">(no runs yet)</option>
         </select>
-        <button onclick="abeRefreshRuns()" class="btn-discreet text-sm"
-            style="padding: 6px 12px;">Refresh</button>
+        <button onclick="abeRefreshRuns()" class="btn-discreet btn-compact">Refresh</button>
         <span style="flex: 1;"></span>
-        <button id="abe-run-delete" onclick="abeDeleteRun()" class="btn-danger text-sm"
-            style="padding: 6px 12px; display: none;">Delete run</button>
+        <button id="abe-run-delete" onclick="abeDeleteRun()" class="btn-danger btn-compact"
+            style="display: none;">Delete run</button>
     </div>
     <div id="abe-results" style="margin-top: 12px;"></div>
 </section>

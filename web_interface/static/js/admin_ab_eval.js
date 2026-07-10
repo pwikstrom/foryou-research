@@ -1,25 +1,70 @@
 /**
- * Admin "Prompt A/B Testing" sub-page.
+ * Admin "Annotation testing" sub-page.
  *
- * Manages candidate contracts (/api/manage/ab-candidates), the curated eval
- * set (/api/manage/ab-eval-set), run launching (/api/manage/ab-eval/run +
- * /api/status polling), and result comparison (/api/manage/ab-eval/runs).
- * Candidate activation funnels through the NORMAL contract flow: the activate
- * endpoint returns the candidate text + impact, and this module drives the
- * standard confirm POST to /api/manage/annotation-contract. The global fetch
- * wrapper in main.js injects the CSRF header.
+ * Manages candidate contracts (/api/manage/ab-candidates), the named
+ * evaluation sets (/api/manage/ab-eval-sets + /api/manage/ab-eval-set), run
+ * launching (/api/manage/ab-eval/run + /api/status polling), and result
+ * comparison (/api/manage/ab-eval/runs). Candidate activation funnels through
+ * the NORMAL contract flow: the activate endpoint returns the candidate text +
+ * impact, and this module drives the standard confirm POST to
+ * /api/manage/annotation-contract. The global fetch wrapper in main.js injects
+ * the CSRF header.
+ *
+ * On the wire a contract under test is still called an "arm" (report.arms,
+ * manifest.arms) — in the UI it is always a "candidate contract".
  */
 (function () {
     "use strict";
 
     const CAND = "/api/manage/ab-candidates";
     const EVALSET = "/api/manage/ab-eval-set";
+    const EVALSETS = "/api/manage/ab-eval-sets";
     const EVAL = "/api/manage/ab-eval";
     const AC = "/api/manage/annotation-contract";
 
+    // How each column kind is scored, for the results legend + table grouping.
+    // Order = display order (most interpretable metric first).
+    const KINDS = [
+        {
+            key: "enum", label: "Categorical",
+            blurb: "Exact match after lower-casing. Values meaning “nothing found” " +
+                "(no, none, -, unable to detect, blank) are treated as no value.",
+        },
+        {
+            key: "list", label: "List / set",
+            blurb: "Jaccard overlap of the two value sets (|A∩B| / |A∪B|). " +
+                "Two empty sets score 1.0 — see the “both empty” column.",
+        },
+        {
+            key: "numeric", label: "Numeric",
+            blurb: "Pearson r across the items both contracts scored, plus the mean " +
+                "absolute difference. r is undefined when a contract answered the " +
+                "same number every time (see MAD instead) or when n < 3.",
+        },
+        {
+            key: "freetext", label: "Free text",
+            blurb: "Prose is never string-equal, so no agreement score is computed — " +
+                "only how often each contract returned a substantive answer. " +
+                "Use the disagreement table below to read the text side by side.",
+        },
+    ];
+
+    const CAVEATS = {
+        both_arms_empty: "Both contracts returned no value for every item — the 1.00 " +
+            "agreement means they agreed on finding nothing, not on a value.",
+        free_text_elements: "The list elements are free-text phrases, so the Jaccard " +
+            "overlap is exact-phrase matching. A low score here can still mean the " +
+            "two contracts described the same thing in different words.",
+        constant: "Both contracts answered the same constant for every item, so Pearson r " +
+            "is undefined (0/0). The mean absolute difference is the metric to read.",
+        too_few: "Fewer than 3 items were scored by both contracts — too few for a " +
+            "meaningful correlation.",
+    };
+
     const st = {
         candidates: [],
-        evalSet: { item_ids: [], resolved: [], max_items: 50 },
+        evalSet: { item_ids: [], resolved: [], max_items: 50, name: "" },
+        evalSets: { active: "", sets: [] },
         setDirty: false,
         runs: [],
         currentRun: null,        // {manifest, report}
@@ -105,8 +150,8 @@
         if (!tbody) return;
         if (!st.candidates.length) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-sm" style="padding: 10px 8px;' +
-                ' color: var(--color-text-muted);">No candidates yet — save the live contract as a' +
-                " candidate, upload a TOML, or edit one in the form editor.</td></tr>";
+                ' color: var(--color-text-muted);">No candidate contracts yet — add one with' +
+                " “Use active” or “Upload new”, or edit one in the form editor.</td></tr>";
             return;
         }
         const cell = "padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;";
@@ -118,10 +163,10 @@
                 <span style="color: var(--color-text-muted);">${_esc(m.created_by || "")}</span></td>
             <td style="${cell}" class="text-xs">${_esc(m.note || "")}</td>
             <td style="${cell}; white-space: nowrap;">
-                <button class="btn-discreet text-xs abe-view" data-n="${_esc(m.name)}">View</button>
-                <button class="btn-discreet text-xs abe-edit" data-n="${_esc(m.name)}">Edit</button>
-                <button class="btn-primary text-xs abe-activate" data-n="${_esc(m.name)}">Activate</button>
-                <button class="btn-danger text-xs abe-del" data-n="${_esc(m.name)}">✕</button>
+                <button class="btn-discreet btn-compact abe-view" data-n="${_esc(m.name)}">View</button>
+                <button class="btn-discreet btn-compact abe-edit" data-n="${_esc(m.name)}">Edit</button>
+                <button class="btn-primary btn-compact abe-activate" data-n="${_esc(m.name)}">Activate</button>
+                <button class="btn-danger btn-compact abe-del" data-n="${_esc(m.name)}">✕</button>
             </td>
         </tr>`).join("");
         tbody.querySelectorAll(".abe-view").forEach(b =>
@@ -190,9 +235,9 @@
     async function abeSaveLiveAsCandidate() {
         try {
             const dl = await fetch(`${AC}/download`);
-            if (!dl.ok) throw new Error("could not read the live contract");
+            if (!dl.ok) throw new Error("could not read the active contract");
             nameFlow.text = await dl.text();
-            _showNameRow("Snapshot the live contract as candidate:", "live-snapshot");
+            _showNameRow("Snapshot the active contract as a candidate:", "active-snapshot");
         } catch (e) {
             _status(`Save failed: ${e.message}`, true);
         }
@@ -256,7 +301,7 @@
                     + `⚠ A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
                     + `will be minted on the next annotation run (current: `
                     + `<span class="font-mono">${_esc(impact.current_version)}</span>). `
-                    + `It won&rsquo;t become active until promoted under <em>Annotation Versions</em>.</div>`);
+                    + `It won&rsquo;t become active until you activate it under <em>Annotation Versions</em>.</div>`);
             }
             const detail = [];
             detail.push(`Prompt changed: <strong>${impact.prompt_changed ? "yes" : "no"}</strong>`);
@@ -274,10 +319,8 @@
                 + detail.map(d => `<li>${d}</li>`).join("") + "</ul>"
                 + `<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
                         padding-top: 12px; border-top: 1px solid var(--color-border);">
-                    <button onclick="abeCloseItemModal()" class="btn-discreet text-sm"
-                        style="padding: 6px 12px;">Cancel</button>
-                    <button onclick="abeConfirmActivate()" class="btn-save text-sm"
-                        style="padding: 6px 14px;">Activate contract</button>
+                    <button onclick="abeCloseItemModal()" class="btn-discreet btn-compact">Cancel</button>
+                    <button onclick="abeConfirmActivate()" class="btn-save btn-compact">Activate contract</button>
                 </div>`;
             if (modal) modal.style.display = "flex";
         } catch (e) {
@@ -315,16 +358,149 @@
         }
     }
 
-    // ---------- eval set ----------
+    // ---------- evaluation sets ----------
 
-    async function loadEvalSet() {
+    async function loadEvalSets() {
         try {
-            const body = await _getJson(EVALSET);
+            st.evalSets = await _getJson(EVALSETS);
+            renderSetPicker();
+        } catch (e) {
+            _status(`Failed to load evaluation sets: ${e.message}`, true);
+        }
+    }
+
+    function renderSetPicker() {
+        const picker = document.getElementById("abe-set-picker");
+        const del = document.getElementById("abe-set-delete");
+        const sets = st.evalSets.sets || [];
+        if (picker) {
+            picker.innerHTML = sets.map(s =>
+                `<option value="${_esc(s.name)}">${_esc(s.name)} (${s.n_items})</option>`).join("");
+            picker.value = st.evalSets.active || "";
+        }
+        // The last remaining set has nothing to fall back to, so deleting it is
+        // refused server-side; don't offer the button either.
+        if (del) del.disabled = sets.length < 2;
+    }
+
+    async function loadEvalSet(name) {
+        try {
+            const body = await _getJson(name ? `${EVALSET}?name=${encodeURIComponent(name)}` : EVALSET);
             st.evalSet = body;
             st.setDirty = false;
             renderEvalSet();
         } catch (e) {
-            _status(`Failed to load eval set: ${e.message}`, true);
+            _status(`Failed to load evaluation set: ${e.message}`, true);
+        }
+    }
+
+    async function abeSelectSet(name) {
+        if (!name || name === st.evalSet.name) return;
+        if (st.setDirty && !_confirmDiscard()) {
+            const picker = document.getElementById("abe-set-picker");
+            if (picker) picker.value = st.evalSet.name || "";
+            return;
+        }
+        try {
+            // Selecting a set also makes it the one a run will use.
+            st.evalSet = await _postJson(`${EVALSETS}/${encodeURIComponent(name)}/activate`);
+            st.setDirty = false;
+            st.evalSets.active = name;
+            renderEvalSet();
+            refreshEstimate();
+            _status(`Evaluation set '${name}' selected.`);
+        } catch (e) {
+            _status(`Select failed: ${e.message}`, true);
+        }
+    }
+
+    // Two-step guard for discarding unsaved pill edits (no native confirm()).
+    let discardArmed = false;
+    function _confirmDiscard() {
+        if (discardArmed) { discardArmed = false; return true; }
+        discardArmed = true;
+        setTimeout(() => { discardArmed = false; }, 4000);
+        _status("You have unsaved changes to this set. Repeat the action within 4s to discard them.", true);
+        return false;
+    }
+
+    // Inline naming row for the three set-creation flows.
+    const setNameFlow = { mode: null };
+
+    function _showSetNameRow(mode, purpose, defaultName) {
+        setNameFlow.mode = mode;
+        const row = document.getElementById("abe-setname-row");
+        const purposeEl = document.getElementById("abe-setname-purpose");
+        const input = document.getElementById("abe-setname-input");
+        const err = document.getElementById("abe-setname-error");
+        if (purposeEl) purposeEl.textContent = purpose;
+        if (err) err.textContent = "";
+        if (row) row.style.display = "flex";
+        if (input) { input.value = defaultName || ""; input.focus(); input.select(); }
+    }
+
+    function abeCancelSetName() {
+        setNameFlow.mode = null;
+        const row = document.getElementById("abe-setname-row");
+        if (row) row.style.display = "none";
+    }
+
+    function abeNewSet() {
+        if (st.setDirty && !_confirmDiscard()) return;
+        _showSetNameRow("new", "Name the new (empty) evaluation set:", "");
+    }
+
+    function abeDuplicateSet() {
+        if (st.setDirty && !_confirmDiscard()) return;
+        _showSetNameRow("duplicate", `Copy '${st.evalSet.name}' into a new set named:`,
+            `${(st.evalSet.name || "set")}-copy`.slice(0, 40));
+    }
+
+    function abeRenameSet() {
+        _showSetNameRow("rename", `Rename '${st.evalSet.name}' to:`, st.evalSet.name || "");
+    }
+
+    async function abeConfirmSetName() {
+        const input = document.getElementById("abe-setname-input");
+        const err = document.getElementById("abe-setname-error");
+        const name = (input && input.value || "").trim();
+        if (!/^[a-z0-9_\-]{1,40}$/.test(name)) {
+            if (err) err.textContent = "1-40 chars: lowercase letters, digits, '_' or '-'.";
+            return;
+        }
+        try {
+            if (setNameFlow.mode === "rename") {
+                await _postJson(`${EVALSETS}/${encodeURIComponent(st.evalSet.name)}/rename`,
+                    { new_name: name });
+            } else {
+                await _postJson(EVALSETS, {
+                    name,
+                    copy_from: setNameFlow.mode === "duplicate" ? st.evalSet.name : undefined,
+                });
+            }
+            abeCancelSetName();
+            await loadEvalSets();
+            await loadEvalSet(name);
+            refreshEstimate();
+            _status(`Evaluation set '${name}' ready.`);
+        } catch (e) {
+            if (err) err.textContent = e.message;
+        }
+    }
+
+    async function abeDeleteSet(btn) {
+        const name = st.evalSet.name;
+        if (!name) return;
+        if (!_armTwoClick(btn, "Delete — sure?")) return;
+        try {
+            await _postJson(`${EVALSETS}/${encodeURIComponent(name)}`, undefined, "DELETE");
+            st.setDirty = false;
+            await loadEvalSets();
+            await loadEvalSet(st.evalSets.active);
+            refreshEstimate();
+            _status(`Evaluation set '${name}' deleted.`);
+        } catch (e) {
+            _status(`Delete failed: ${e.message}`, true);
         }
     }
 
@@ -332,9 +508,11 @@
         const pills = document.getElementById("abe-set-pills");
         const count = document.getElementById("abe-set-count");
         const save = document.getElementById("abe-set-save");
+        const picker = document.getElementById("abe-set-picker");
         const ids = st.evalSet.item_ids || [];
         const resolved = {};
         (st.evalSet.resolved || []).forEach(r => { resolved[r.item_id] = r; });
+        if (picker && st.evalSet.name) picker.value = st.evalSet.name;
         if (count) count.textContent = `${ids.length} / ${st.evalSet.max_items || 50} videos` +
             (st.setDirty ? " — unsaved" : "");
         if (save) save.disabled = !st.setDirty;
@@ -433,9 +611,11 @@
     async function abeSaveEvalSet() {
         const btn = document.getElementById("abe-set-save");
         if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
-        _status("Saving eval set…");
+        _status("Saving evaluation set…");
         try {
-            const body = await _postJson(EVALSET, { item_ids: st.evalSet.item_ids || [] });
+            const body = await _postJson(EVALSET, {
+                item_ids: st.evalSet.item_ids || [], name: st.evalSet.name || undefined,
+            });
             st.evalSet = { ...st.evalSet, ...body };
             st.setDirty = false;
             const notDownloaded = (body.not_downloaded || []).length;
@@ -444,7 +624,8 @@
             const warnings = [];
             if (unknown.length) warnings.push(`${unknown.length} id(s) not found in the dataset: ${unknown.join(", ")}`);
             if (notDownloaded) warnings.push(`${notDownloaded} item(s) have no downloaded media`);
-            _status(warnings.length ? `Saved — warning: ${warnings.join("; ")}.` : "Eval set saved.", warnings.length > 0);
+            _status(warnings.length ? `Saved — warning: ${warnings.join("; ")}.` : "Evaluation set saved.", warnings.length > 0);
+            await loadEvalSets();
             renderEvalSet();
             refreshEstimate();
         } catch (e) {
@@ -467,7 +648,7 @@
             </label>`);
         rows.push(`<label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
             <input type="checkbox" class="abe-arm" value="__live__" checked onchange="abeRefreshEstimate()">
-            <span>live contract</span>
+            <span>active contract</span>
         </label>`);
         el.innerHTML = rows.join("");
         refreshEstimate();
@@ -491,14 +672,16 @@
         const nArms = names.length + (live ? 1 : 0);
         const nItems = (st.evalSet.item_ids || []).length;
         const unsaved = st.setDirty ? " (using the SAVED set — you have unsaved set edits)" : "";
+        const setName = st.evalSet.name ? ` from set '${st.evalSet.name}'` : "";
         el.textContent = nArms && nItems
-            ? `${nArms} arm(s) × ${nItems} video(s) = ${nArms * nItems} Gemini calls${unsaved}`
-            : "Select at least one arm and curate a non-empty eval set.";
+            ? `${nArms} candidate contract(s) × ${nItems} video(s)${setName} = `
+                + `${nArms * nItems} Gemini calls${unsaved}`
+            : "Select at least one candidate contract and curate a non-empty evaluation set.";
     }
 
     async function abeStartRun() {
         const { names, live } = _selectedArms();
-        if (!names.length && !live) { _status("Select at least one arm.", true); return; }
+        if (!names.length && !live) { _status("Select at least one candidate contract.", true); return; }
         const runBtn = document.getElementById("abe-run-btn");
         try {
             // First click: fetch the authoritative estimate (visible feedback
@@ -512,7 +695,7 @@
                 } finally {
                     if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Run…"; }
                 }
-                if (!est.n_items) { _status("The saved eval set is empty — save it first.", true); return; }
+                if (!est.n_items) { _status("The saved evaluation set is empty — save it first.", true); return; }
                 _armTwoClick(runBtn, `Confirm: ${est.n_calls} Gemini calls?`);
                 _status(st.setDirty
                     ? "Note: the run uses the last SAVED set — you have unsaved set edits. Click again to start."
@@ -524,7 +707,10 @@
             _armTwoClick(runBtn, "");
             _setRunning(true);
             _status("Starting run…");
-            const body = await _postJson(`${EVAL}/run`, { candidate_names: names, include_live: live });
+            const body = await _postJson(`${EVAL}/run`, {
+                candidate_names: names, include_live: live,
+                eval_set: st.evalSet.name || undefined,
+            });
             _status(`Run ${body.run_id} started.`);
             _pollRun(body.run_id);
         } catch (e) {
@@ -601,8 +787,11 @@
             const picker = document.getElementById("abe-run-picker");
             if (picker) {
                 picker.innerHTML = st.runs.length
-                    ? st.runs.map(r =>
-                        `<option value="${_esc(r.run_id)}">${_esc(r.run_id)} · ${_esc((r.arms || []).join(" vs "))} · ${_esc(r.status)}</option>`).join("")
+                    ? st.runs.map(r => {
+                        const set = r.eval_set ? ` · set ${r.eval_set}` : "";
+                        return `<option value="${_esc(r.run_id)}">${_esc(r.run_id)} · `
+                            + `${_esc((r.arms || []).join(" vs "))}${_esc(set)} · ${_esc(r.status)}</option>`;
+                    }).join("")
                     : '<option value="">(no runs yet)</option>';
             }
         } catch (e) {
@@ -646,11 +835,25 @@
         return Number(x).toFixed(digits === undefined ? 2 : digits);
     }
 
+    function _pct(x) {
+        return (x == null || Number.isNaN(x)) ? "—" : `${Math.round(Number(x) * 100)}%`;
+    }
+
+    // The headline metric of a column, used ONLY to sort within its own kind.
+    // Correlation (−1..1), agreement (0..1) and Jaccard (0..1) are not on a
+    // common scale, which is exactly why the table is grouped by kind rather
+    // than sorted across kinds.
     function _metricOf(colMeta) {
         if (colMeta.kind === "numeric") return colMeta.correlation;
         if (colMeta.kind === "enum") return colMeta.agreement;
         if (colMeta.kind === "list") return colMeta.mean_jaccard;
         return null;
+    }
+
+    function _caveatIcon(caveat) {
+        if (!caveat || !CAVEATS[caveat]) return "";
+        return ` <span class="meta-tooltip" data-tooltip="${_esc(CAVEATS[caveat])}"
+            style="color: var(--color-warning); cursor: help;">⚠</span>`;
     }
 
     function renderRun() {
@@ -662,7 +865,9 @@
 
         let html = `<div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 10px;">
             ${_esc(manifest.run_id)} · started ${_esc((manifest.started_at || "").replace("T", " "))}
-            by ${_esc(manifest.started_by || "?")} · status
+            by ${_esc(manifest.started_by || "?")}
+            ${manifest.eval_set ? ` · set <span class="font-mono">${_esc(manifest.eval_set)}</span>` : ""}
+            · ${_esc(String(manifest.n_items ?? "?"))} videos · status
             <strong style="color: ${manifest.status === "complete" ? "var(--color-success)"
                 : manifest.status === "failed" ? "var(--color-danger)" : "var(--color-warning)"};">
             ${_esc(manifest.status)}</strong>
@@ -674,12 +879,12 @@
             return;
         }
 
-        // Headline tiles: per-arm costs.
+        // Per-contract cost cards.
         html += '<div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;">';
         for (const arm of report.arms || arms) {
             const c = (report.costs || {})[arm] || {};
             const meta = (manifest.arms || []).find(a => a.name === arm) || {};
-            const promotable = meta.source === "candidate";
+            const isCandidate = meta.source === "candidate";
             html += `<div style="border: 1px solid var(--color-border); border-radius: 6px;
                     padding: 10px 14px; min-width: 190px;">
                 <div class="font-semibold font-mono">${_esc(arm)}</div>
@@ -687,10 +892,10 @@
                     ${_esc(String(c.total_tokens ?? "—"))} tokens ·
                     ${_esc(String(c.n_errors ?? "—"))} errors ·
                     ${_fmt(c.mean_inference_duration, 1)}s mean</div>
-                ${promotable
-                    ? `<button class="btn-primary text-xs abe-promote" data-n="${_esc(arm)}"
-                        style="margin-top: 6px;">Promote (activate)</button>`
-                    : `<span class="text-xxs" style="color: var(--color-text-muted);">live contract</span>`}
+                ${isCandidate
+                    ? `<button class="btn-primary btn-compact abe-activate-arm" data-n="${_esc(arm)}"
+                        style="margin-top: 6px;">Activate</button>`
+                    : `<span class="text-xxs" style="color: var(--color-text-muted);">active contract</span>`}
             </div>`;
         }
         html += "</div>";
@@ -705,7 +910,8 @@
                     ${pairs.map(p => `<option value="${_esc(p)}">${_esc(p.replace("|", " vs "))}</option>`).join("")}
                    </select>`
                 : `<span class="font-semibold">${_esc(pairs[0].replace("|", " vs "))}</span>`;
-            html += `<div style="margin-bottom: 6px;" class="text-sm">Aggregate metrics: ${pairSel}</div>
+            html += `<div style="margin-bottom: 8px;" class="text-sm">Agreement between: ${pairSel}</div>
+                <div id="abe-pair-summary" style="margin-bottom: 12px;"></div>
                 <div id="abe-pair-table" style="overflow-x: auto; margin-bottom: 14px;"></div>`;
         }
 
@@ -717,18 +923,123 @@
             <select id="abe-adj-filter" class="text-xs" onchange="abeRenderAdjudication()"
                 style="padding: 3px 6px; border: 1px solid var(--color-border); border-radius: 4px;
                 background: var(--color-bg-input); color: var(--color-text-primary);">
-                <option value="">all columns</option>
+                <option value="">all fields</option>
                 ${adjCols.map(c => `<option value="${_esc(c)}">${_esc(c)}</option>`).join("")}
             </select>
-            <span class="text-xxs" style="color: var(--color-text-muted);">— click an item id for the full field-by-field view</span>
+            <span class="text-xxs" style="color: var(--color-text-muted);">— free-text fields differ on
+            almost every item by nature; click an item id for the full field-by-field view</span>
         </div>
         <div id="abe-adj-table" style="overflow-x: auto; max-height: 50vh; overflow-y: auto;"></div>`;
 
         container.innerHTML = html;
-        container.querySelectorAll(".abe-promote").forEach(b =>
+        container.querySelectorAll(".abe-activate-arm").forEach(b =>
             b.addEventListener("click", () => activateCandidate(b.dataset.n)));
         if (pairs.length) abeRenderPair(pairs[0]);
         abeRenderAdjudication();
+    }
+
+    // Runs made before the 2026-07 metric fix stored a summary without per-kind
+    // column counts (and classified `text` fields as categorical). Back-fill the
+    // counts so the tiles still render, and flag the run as stale.
+    function _isLegacyReport(comp) {
+        return (comp.summary || {}).n_enum_columns === undefined;
+    }
+
+    function _summaryOf(comp) {
+        const s = { ...(comp.summary || {}) };
+        if (!_isLegacyReport(comp)) return s;
+        const counts = { enum: 0, list: 0, numeric: 0, freetext: 0 };
+        let correlated = 0;
+        for (const m of Object.values(comp.columns || {})) {
+            if (counts[m.kind] !== undefined) counts[m.kind]++;
+            if (m.kind === "numeric" && m.correlation != null) correlated++;
+        }
+        s.n_enum_columns = counts.enum;
+        s.n_list_columns = counts.list;
+        s.n_numeric_columns = counts.numeric;
+        s.n_freetext_columns = counts.freetext;
+        s.n_numeric_columns_correlated = correlated;
+        return s;
+    }
+
+    // Headline tiles. Each kind gets its OWN tile because its metric has its own
+    // scale and its own meaning; there is no single "agreement" number for a run.
+    function _renderPairSummary(comp, armA, armB) {
+        const el = document.getElementById("abe-pair-summary");
+        if (!el) return;
+        const s = _summaryOf(comp);
+        const tile = (title, value, sub, tip) => `
+            <div class="meta-tooltip" data-tooltip="${_esc(tip)}"
+                style="border: 1px solid var(--color-border); border-radius: 6px;
+                       padding: 8px 12px; min-width: 168px; cursor: help;">
+                <div class="text-xxs" style="color: var(--color-text-muted);">${_esc(title)}</div>
+                <div class="text-h3 font-bold" style="color: var(--color-text-primary);">${value}</div>
+                <div class="text-xxs" style="color: var(--color-text-muted);">${sub}</div>
+            </div>`;
+
+        const tiles = [];
+        if (s.n_enum_columns) {
+            const filled = s.mean_enum_agreement_filled;
+            tiles.push(tile("Categorical agreement", _fmt(s.mean_enum_agreement),
+                `${s.n_enum_columns} fields` + (filled != null
+                    ? ` · ${_fmt(filled)} where both answered` : ""),
+                KINDS[0].blurb));
+        }
+        if (s.n_list_columns) {
+            const filled = s.mean_list_jaccard_filled;
+            tiles.push(tile("List overlap (Jaccard)", _fmt(s.mean_list_jaccard),
+                `${s.n_list_columns} fields` + (filled != null
+                    ? ` · ${_fmt(filled)} excl. both-empty` : ""),
+                KINDS[1].blurb));
+        }
+        if (s.n_numeric_columns) {
+            const n = s.n_numeric_columns_correlated;
+            tiles.push(tile("Numeric correlation (r)", _fmt(s.mean_numeric_correlation),
+                n != null ? `${n} of ${s.n_numeric_columns} fields defined`
+                    : `${s.n_numeric_columns} fields`,
+                KINDS[2].blurb));
+        }
+        if (s.n_freetext_columns) {
+            const d = s.mean_freetext_coverage_delta_b_minus_a;
+            tiles.push(tile("Free-text coverage Δ",
+                d == null ? "—" : `${d >= 0 ? "+" : ""}${_fmt(d)}`,
+                `${s.n_freetext_columns} fields · ${_esc(armB)} minus ${_esc(armA)}`,
+                KINDS[3].blurb));
+        }
+        tiles.push(tile("Annotation succeeded",
+            `${_pct(s.annotated_ok_rate_a)} / ${_pct(s.annotated_ok_rate_b)}`,
+            `${_esc(armA)} / ${_esc(armB)}`,
+            "Share of evaluation-set videos each contract returned a usable annotation for."));
+
+        const legend = KINDS.map(k =>
+            `<li><strong>${_esc(k.label)}</strong> — ${_esc(k.blurb)}</li>`).join("");
+
+        const stale = _isLegacyReport(comp)
+            ? `<div class="text-xxs" style="color: var(--color-warning); margin-bottom: 8px;">
+                ⚠ This run predates the metric fix: free-text fields were scored with exact-string
+                agreement, list fields joined with “|” were scored as single strings, and “nothing
+                found” answers written with an en dash counted as answers. Re-run to get corrected
+                scores.</div>`
+            : "";
+
+        el.innerHTML = stale + `
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">${tiles.join("")}</div>
+            <div class="text-xxs" style="color: var(--color-text-muted); margin-top: 8px;">
+                Compared on ${_esc(String(comp.n_items))} video(s) annotated by both contracts.
+                Every score is <em>${_esc(armA)} vs ${_esc(armB)} agreement</em> — not a measure of
+                which one is right.
+            </div>
+            <details style="margin-top: 6px;">
+                <summary class="text-xxs" style="cursor: pointer; color: var(--color-text-muted);">
+                    How each metric is computed</summary>
+                <ul class="text-xxs" style="margin: 6px 0 0 18px; padding: 0;
+                    color: var(--color-text-muted); line-height: var(--leading-relaxed);">
+                    ${legend}
+                    <li><strong>Answered</strong> — share of items where that contract returned a
+                        substantive value. A field where both contracts answered
+                        &ldquo;no&rdquo; every time shows 1.00 agreement but 0% answered.</li>
+                </ul>
+            </details>`;
     }
 
     function abeRenderPair(pairKey) {
@@ -738,46 +1049,83 @@
         const comp = report.comparisons[pairKey];
         if (!comp) return;
         const [armA, armB] = pairKey.split("|");
-        const cols = Object.entries(comp.columns || {})
-            .sort((x, y) => {
-                const mx = _metricOf(x[1]), my = _metricOf(y[1]);
-                return (mx == null ? 2 : mx) - (my == null ? 2 : my);   // lowest agreement first
-            });
+        _renderPairSummary(comp, armA, armB);
+
         const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border);";
         const dist = report.distributions || {};
-        const rows = cols.map(([name, m]) => {
-            const metric = m.kind === "numeric" ? `corr ${_fmt(m.correlation)} · MAD ${_fmt(m.mean_abs_diff, 1)}`
-                : m.kind === "enum" ? `agreement ${_fmt(m.agreement)}`
-                : m.kind === "list" ? `jaccard ${_fmt(m.mean_jaccard)}`
-                : "—";
-            let distHtml = "";
-            const d = dist[name];
-            if (d && d.arms) {
-                const inner = Object.entries(d.arms).map(([arm, counts]) =>
-                    `<div style="min-width: 160px;"><span class="font-mono font-semibold">${_esc(arm)}</span><br>`
-                    + Object.entries(counts).map(([v, n]) => `${_esc(v)}: ${n}`).join("<br>") + "</div>"
-                ).join("");
-                distHtml = `<details><summary class="text-xxs" style="cursor: pointer;
-                    color: var(--color-text-muted);">values</summary>
-                    <div style="display: flex; gap: 16px; padding: 6px 0;" class="text-xxs">${inner}</div></details>`;
+        const entries = Object.entries(comp.columns || {});
+
+        const metricText = (m) => {
+            if (m.kind === "numeric") {
+                const n = m.n_compared != null ? ` <span style="color: var(--color-text-muted);">(n=${m.n_compared})</span>` : "";
+                return `r ${_fmt(m.correlation)} · MAD ${_fmt(m.mean_abs_diff, 1)}${n}`;
             }
-            return `<tr>
-                <td style="${cell}" class="font-mono">${_esc(name)}</td>
-                <td style="${cell}">${_esc(m.kind)}</td>
-                <td style="${cell}">${metric}</td>
-                <td style="${cell}">${_fmt(m.coverage_a)}</td>
-                <td style="${cell}">${_fmt(m.coverage_b)}</td>
-                <td style="${cell}">${distHtml}</td>
-            </tr>`;
+            if (m.kind === "enum") {
+                const f = m.agreement_filled != null
+                    ? ` <span style="color: var(--color-text-muted);">(${_fmt(m.agreement_filled)} where both answered)</span>` : "";
+                return `${_fmt(m.agreement)}${f}`;
+            }
+            if (m.kind === "list") {
+                const f = m.mean_jaccard_filled != null
+                    ? ` <span style="color: var(--color-text-muted);">(${_fmt(m.mean_jaccard_filled)} excl. empty)</span>` : "";
+                return `${_fmt(m.mean_jaccard)}${f}`;
+            }
+            return `<span style="color: var(--color-text-muted);">not scored</span>`;
+        };
+
+        const distCell = (name) => {
+            const d = dist[name];
+            if (!d || !d.arms) return "";
+            const inner = Object.entries(d.arms).map(([arm, counts]) =>
+                `<div style="min-width: 160px;"><span class="font-mono font-semibold">${_esc(arm)}</span><br>`
+                + Object.entries(counts).map(([v, n]) => `${_esc(v)}: ${n}`).join("<br>") + "</div>"
+            ).join("");
+            return `<details><summary class="text-xxs" style="cursor: pointer;
+                color: var(--color-text-muted);">values</summary>
+                <div style="display: flex; gap: 16px; padding: 6px 0;" class="text-xxs">${inner}</div></details>`;
+        };
+
+        // One block per kind: mixing r, agreement and Jaccard in a single sorted
+        // "metric" column made incomparable numbers look comparable.
+        const blocks = KINDS.map(kind => {
+            const cols = entries
+                .filter(([, m]) => m.kind === kind.key)
+                .sort((x, y) => {
+                    const mx = _metricOf(x[1]), my = _metricOf(y[1]);
+                    return (mx == null ? 2 : mx) - (my == null ? 2 : my);   // lowest agreement first
+                });
+            if (!cols.length) return "";
+            const rows = cols.map(([name, m]) => `<tr>
+                <td style="${cell}" class="font-mono">${_esc(name)}${_caveatIcon(m.caveat)}</td>
+                <td style="${cell}">${metricText(m)}</td>
+                <td style="${cell}">${_pct(m.coverage_a)}</td>
+                <td style="${cell}">${_pct(m.coverage_b)}</td>
+                <td style="${cell}">${m.n_both_empty != null && m.n_both_empty > 0
+                    ? _esc(String(m.n_both_empty)) : "—"}</td>
+                <td style="${cell}">${distCell(name)}</td>
+            </tr>`).join("");
+            const metricHeader = kind.key === "numeric" ? "Pearson r · mean abs. diff (lowest first)"
+                : kind.key === "enum" ? "Agreement (lowest first)"
+                : kind.key === "list" ? "Jaccard overlap (lowest first)"
+                : "Agreement (prose is never string-equal)";
+            return `<div class="text-sm font-semibold" style="margin: 12px 0 4px 0;
+                    color: var(--color-text-heading);">
+                    ${_esc(kind.label)}
+                    <span class="text-xxs font-normal meta-tooltip" data-tooltip="${_esc(kind.blurb)}"
+                        style="color: var(--color-text-muted); cursor: help;">&#9432;</span>
+                </div>
+                <table style="border-collapse: collapse; width: 100%;" class="text-xs">
+                <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                    <th style="${cell}">field</th>
+                    <th style="${cell}">${_esc(metricHeader)}</th>
+                    <th style="${cell}">answered ${_esc(armA)}</th>
+                    <th style="${cell}">answered ${_esc(armB)}</th>
+                    <th style="${cell}">both empty</th>
+                    <th style="${cell}"></th>
+                </tr></thead><tbody>${rows}</tbody></table>`;
         }).join("");
-        el.innerHTML = `<table style="border-collapse: collapse; width: 100%;" class="text-xs">
-            <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
-                <th style="${cell}">column</th><th style="${cell}">kind</th>
-                <th style="${cell}">metric (lowest first)</th>
-                <th style="${cell}">coverage ${_esc(armA)}</th>
-                <th style="${cell}">coverage ${_esc(armB)}</th>
-                <th style="${cell}"></th>
-            </tr></thead><tbody>${rows}</tbody></table>`;
+
+        el.innerHTML = blocks || '<span class="text-xs" style="color: var(--color-text-muted);">No comparable columns.</span>';
     }
 
     function abeRenderAdjudication() {
@@ -867,7 +1215,7 @@
         if (!page || bootstrapped || !page.classList.contains("active")) return;
         bootstrapped = true;
         loadCandidates();
-        loadEvalSet().then(refreshEstimate);
+        loadEvalSets().then(() => loadEvalSet()).then(refreshEstimate);
         abeRefreshRuns();
         // Resume progress display if a run is already in flight.
         fetch("/api/status").then(r => r.ok ? r.json() : null).then(s => {
@@ -909,6 +1257,13 @@
     window.abeAddIds = abeAddIds;
     window.abeSample = abeSample;
     window.abeSaveEvalSet = abeSaveEvalSet;
+    window.abeSelectSet = abeSelectSet;
+    window.abeNewSet = abeNewSet;
+    window.abeRenameSet = abeRenameSet;
+    window.abeDuplicateSet = abeDuplicateSet;
+    window.abeDeleteSet = abeDeleteSet;
+    window.abeConfirmSetName = abeConfirmSetName;
+    window.abeCancelSetName = abeCancelSetName;
     window.abeStartRun = abeStartRun;
     window.abeCancelRun = abeCancelRun;
     window.abeRefreshRuns = abeRefreshRuns;

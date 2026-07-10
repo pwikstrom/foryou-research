@@ -1,8 +1,9 @@
 """Tests for the A/B contract-evaluation harness (``fyp.ab_eval``).
 
 Cost-free: no Gemini calls — arms run through a stub runner. Covers candidate
-CRUD, eval-set cap/sampling, contract-threaded arm rendering + flattening, the
-in-memory production-recode refine, the scale-aware comparison, and — most
+CRUD, named evaluation sets (CRUD + cap/sampling), contract-threaded arm
+rendering + flattening, the in-memory production-recode refine, the scale-aware
+comparison (including the declared-scale-over-length-heuristic rule), and — most
 importantly — the ISOLATION GUARD: every write the harness makes must land in
 the dedicated ``ab_eval`` location (or the two admin config stores), never in
 ``machine_annotations_*`` / ``recoded``.
@@ -152,8 +153,70 @@ def test_eval_set_cap_and_dedupe():
             cap_ok = True
         _check("test_eval_set_cap_and_dedupe", dedupe_ok and cap_ok)
     finally:
-        ab_eval.save_eval_set(snap.get("item_ids", []), actor=snap.get("updated_by") or "",
+        ab_eval.save_eval_set(snap.get("item_ids", []), name=snap.get("name"),
+                              actor=snap.get("updated_by") or "",
                               note=snap.get("note") or "")
+
+
+def test_named_eval_sets_crud():
+    """Create / clone / rename / delete named sets; the last set is undeletable."""
+    scratch, renamed = "unittest-set", "unittest-set2"
+    snap = ab_eval.load_eval_set()
+    snap_active, snap_ids = snap["name"], list(snap.get("item_ids", []))
+    for leftover in (scratch, renamed):
+        try:
+            ab_eval.delete_eval_set(leftover)
+        except (FileNotFoundError, ValueError):
+            pass
+    try:
+        ab_eval.save_eval_set(["a1", "a2"], name=snap_active, actor="tester")
+        ab_eval.create_eval_set(scratch, copy_from=snap_active, actor="tester")
+        cloned = ab_eval.load_eval_set(scratch)["item_ids"] == ["a1", "a2"]
+        active_after_create = ab_eval.list_eval_sets()["active"] == scratch
+
+        ab_eval.rename_eval_set(scratch, renamed)
+        listed = {s["name"] for s in ab_eval.list_eval_sets()["sets"]}
+        renamed_ok = renamed in listed and scratch not in listed
+        # Renaming the active set must carry the active pointer with it.
+        active_follows = ab_eval.list_eval_sets()["active"] == renamed
+
+        # Sets are independent: editing one must not touch another.
+        ab_eval.save_eval_set(["b1"], name=renamed, actor="tester")
+        isolated = ab_eval.load_eval_set(snap_active)["item_ids"] == ["a1", "a2"]
+
+        ab_eval.set_active_eval_set(snap_active)
+        ab_eval.delete_eval_set(renamed)
+        deleted = renamed not in {s["name"] for s in ab_eval.list_eval_sets()["sets"]}
+
+        last_guarded = False
+        if len(ab_eval.list_eval_sets()["sets"]) == 1:
+            try:
+                ab_eval.delete_eval_set(snap_active)
+            except ValueError:
+                last_guarded = True
+        else:
+            last_guarded = True   # other real sets exist; guard tested elsewhere
+
+        name_guarded = False
+        try:
+            ab_eval.create_eval_set("Bad Name!")
+        except ValueError:
+            name_guarded = True
+
+        ok = (cloned and active_after_create and renamed_ok and active_follows
+              and isolated and deleted and last_guarded and name_guarded)
+        _check("test_named_eval_sets_crud", ok,
+               f"clone={cloned} active={active_after_create} rename={renamed_ok} "
+               f"follows={active_follows} isolated={isolated} del={deleted} "
+               f"last={last_guarded} name={name_guarded}")
+    finally:
+        for leftover in (scratch, renamed):
+            try:
+                ab_eval.delete_eval_set(leftover)
+            except (FileNotFoundError, ValueError):
+                pass
+        ab_eval.save_eval_set(snap_ids, name=snap_active, actor="")
+        ab_eval.set_active_eval_set(snap_active)
 
 
 def test_sample_items_seeded():
@@ -271,6 +334,70 @@ def test_compare_arms_metrics():
           and cols["tags"]["kind"] == "list" and 0 < cols["tags"]["mean_jaccard"] < 1
           and cols["essay"]["kind"] == "freetext")
     _check("test_compare_arms_metrics", ok, f"cols={ {k: v['kind'] for k, v in cols.items()} }")
+
+
+def test_declared_scale_beats_length_heuristic():
+    """A `text` field with short answers must NOT be scored as a categorical.
+
+    The regression this guards: ab_eval carried the pre-2026-07 ten-scale
+    vocabulary, so `text` / `list` / `numeric` matched nothing and every
+    non-categorical column fell through to an `avg_len < 25` guess. That scored
+    call_to_action ("Try now" vs "Follow for more") with exact-string agreement.
+    """
+    a = pd.DataFrame({"item_id": ["1", "2"], "cta": ["Try now", "Buy it"],
+                      "n": [1, 2], "tags": ["x | y", "z"]})
+    b = pd.DataFrame({"item_id": ["1", "2"], "cta": ["Try it", "Buy now"],
+                      "n": [1, 3], "tags": ["y | x", "z"]})
+    scales = {"cta": "text", "n": "numeric", "tags": "list"}
+    cols = ab_eval.compare_arms(a, b, scales=scales)["columns"]
+    # `tags` arrives as a SPLITTER-joined string (what the recode leaves behind
+    # for object sub-keys such as faces_gender) and must compare as a set —
+    # order-insensitively, hence jaccard 1.0 for "x | y" vs "y | x".
+    ok = (cols["cta"]["kind"] == "freetext"
+          and cols["n"]["kind"] == "numeric"
+          and cols["tags"]["kind"] == "list"
+          and cols["tags"]["mean_jaccard"] == 1.0)
+    _check("test_declared_scale_beats_length_heuristic", ok,
+           f"kinds={ {k: v['kind'] for k, v in cols.items()} } tags={cols['tags']}")
+
+
+def test_sentinels_and_vacuous_agreement():
+    """Dash variants count as "no value"; agreeing on nothing is reported as such."""
+    a = pd.DataFrame({"item_id": ["1", "2"], "cta": ["-", "Try now"], "flag": ["no", "no"]})
+    b = pd.DataFrame({"item_id": ["1", "2"], "cta": ["–", "try now"], "flag": ["no", "no"]})
+    scales = {"cta": "text", "flag": "categorical"}
+    cols = ab_eval.compare_arms(a, b, scales=scales)["columns"]
+    # The en dash must not be counted as an answer, so coverage stays 1/2.
+    dash_ok = cols["cta"]["coverage_a"] == 0.5 and cols["cta"]["coverage_b"] == 0.5
+    # Both arms said "no" everywhere: agreement is 1.0 but vacuous, and flagged.
+    flag = cols["flag"]
+    vacuous_ok = (flag["agreement"] == 1.0 and flag["agreement_filled"] is None
+                  and flag["coverage_a"] == 0.0 and flag["n_both_empty"] == 2
+                  and flag["caveat"] == "both_arms_empty")
+    # A blank-vs-en-dash cell is not a real disagreement.
+    adj = ab_eval.build_adjudication({"a": a, "b": b}, ["cta"])
+    adj_ok = [r["item_id"] for r in adj] == []
+    _check("test_sentinels_and_vacuous_agreement", dash_ok and vacuous_ok and adj_ok,
+           f"cta={cols['cta']} flag={flag} adj={adj}")
+
+
+def test_contract_scale_map_covers_new_fields():
+    """A candidate's brand-new field is classified from its contract declaration."""
+    live = tomllib.loads(ac._read_baked_text())
+    cand = copy.deepcopy(live)
+    cand["fields"].append({"name": "funniness", "section": "scoring",
+                           "scale": "text", "desc": "How funny the video is."})
+    mapping = ab_eval.contract_scale_map(cand)
+    # Object sub-keys resolve to their flattened output column name. background_music
+    # returns a single prose string (no "list:" spec prefix) so it must be `text`;
+    # notable_sounds really is an array. See test_declared_scales_match_schema_types.
+    ok = (mapping.get("funniness") == "text"
+          and mapping.get("background_music") == "text"
+          and mapping.get("notable_sounds") == "list"
+          and mapping.get("call_to_action") == "text")
+    _check("test_contract_scale_map_covers_new_fields", ok,
+           f"funniness={mapping.get('funniness')} bgm={mapping.get('background_music')} "
+           f"sounds={mapping.get('notable_sounds')}")
 
 
 def test_adjudication_and_distributions():
@@ -432,6 +559,14 @@ def test_api_smoke():
                              json={"candidate_names": ["api-smoke"], "include_live": True})
             r8 = client.get("/api/manage/ab-eval/runs")
 
+            # Named evaluation sets.
+            s1 = client.get("/api/manage/ab-eval-sets")
+            s2 = client.post("/api/manage/ab-eval-sets", json={"name": "api-smoke-set"})
+            s3 = client.post("/api/manage/ab-eval-sets/api-smoke-set/activate")
+            s4 = client.post("/api/manage/ab-eval-sets", json={"name": "api-smoke-set"})
+            s5 = client.post(f"/api/manage/ab-eval-sets/{set_snap['name']}/activate")
+            s6 = client.delete("/api/manage/ab-eval-sets/api-smoke-set")
+
             rdel = client.delete("/api/manage/ab-candidates/api-smoke")
 
             b4 = r4.get_json() or {}
@@ -444,15 +579,26 @@ def test_api_smoke():
                   and bad.status_code == 400
                   and r5.status_code == 200
                   and (r6.get_json() or {}).get("item_ids") == ["111", "222"]
-                  and b7 == {"n_items": 2, "n_arms": 2, "n_calls": 4,
-                             "max_items": ab_eval.MAX_EVAL_ITEMS}
+                  and b7.get("n_items") == 2 and b7.get("n_arms") == 2
+                  and b7.get("n_calls") == 4 and b7.get("eval_set") == set_snap["name"]
+                  and b7.get("max_items") == ab_eval.MAX_EVAL_ITEMS
                   and r8.status_code == 200
+                  and s1.status_code == 200 and "active" in (s1.get_json() or {})
+                  and s2.status_code == 200 and s3.status_code == 200
+                  and s4.status_code == 409          # duplicate name
+                  and s5.status_code == 200 and s6.status_code == 200
                   and rdel.status_code == 200)
             _check("test_api_smoke", bool(ok),
-                   f"codes={[r.status_code for r in (r1, r2, r3, r4, bad, r5, r6, r7, r8, rdel)]}")
+                   f"codes={[r.status_code for r in (r1, r2, r3, r4, bad, r5, r6, r7, r8, s1, s2, s3, s4, s5, s6, rdel)]}"
+                   f" est={b7}")
     finally:
         security.user_manager.get_user = orig
-        ab_eval.save_eval_set(set_snap.get("item_ids", []), actor=set_snap.get("updated_by") or "",
+        try:
+            ab_eval.delete_eval_set("api-smoke-set")
+        except (FileNotFoundError, ValueError):
+            pass
+        ab_eval.save_eval_set(set_snap.get("item_ids", []), name=set_snap.get("name"),
+                              actor=set_snap.get("updated_by") or "",
                               note=set_snap.get("note") or "")
         ab_eval.delete_candidate("api-smoke")
         try:
@@ -469,6 +615,7 @@ def main():
         test_candidate_name_validation,
         test_candidate_crud,
         test_eval_set_cap_and_dedupe,
+        test_named_eval_sets_crud,
         test_sample_items_seeded,
         test_run_arm_threads_candidate_contract,
         test_run_arm_failed_item_yields_bare_row,
@@ -476,6 +623,9 @@ def main():
         test_resolve_items_unknown_ids,
         test_refine_from_flat_dicts,
         test_compare_arms_metrics,
+        test_declared_scale_beats_length_heuristic,
+        test_sentinels_and_vacuous_agreement,
+        test_contract_scale_map_covers_new_fields,
         test_adjudication_and_distributions,
         test_execute_run_isolation,
         test_execute_run_cap,
