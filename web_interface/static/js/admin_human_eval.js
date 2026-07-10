@@ -136,8 +136,29 @@
                     </span>
                 </label>`;
             }).join("") || '<span style="color: var(--color-text-muted);">No compared variables on this run.</span>';
+            hevOnTypeChange();
         } catch (e) {
             box.innerHTML = `<span style="color: var(--color-danger);">${_esc(e.message)}</span>`;
+        }
+    }
+
+    function _selectedTaskType() {
+        const radio = document.querySelector('input[name="hev-task-type"]:checked');
+        return radio ? radio.value : "coding";
+    }
+
+    // Vote tasks show admin-selected fields side-by-side, defaulting to all;
+    // coding tasks keep whatever the admin last selected.
+    function hevOnTypeChange() {
+        const type = _selectedTaskType();
+        const title = document.getElementById("hev-var-title");
+        if (title) {
+            title.textContent = type === "vote"
+                ? "Fields shown to voters (side-by-side, blind)"
+                : "Variables the coders provide input for";
+        }
+        if (type === "vote") {
+            document.querySelectorAll(".hev-var-cb").forEach(c => { c.checked = true; });
         }
     }
 
@@ -147,13 +168,14 @@
         const runId = (document.getElementById("hev-run-select") || {}).value;
         const variables = Array.from(document.querySelectorAll(".hev-var-cb:checked")).map(c => c.value);
         const coders = Array.from(document.querySelectorAll(".hev-user-cb:checked")).map(c => c.value);
+        const taskType = _selectedTaskType();
         if (!runId) { errEl.textContent = "Pick a finished run."; return; }
         if (!variables.length) { errEl.textContent = "Select at least one variable."; return; }
         try {
             await _postJson(`${BASE}/tasks`, {
-                run_id: runId, task_type: "coding", variables, coders,
+                run_id: runId, task_type: taskType, variables, coders,
             });
-            _status(`Coding task created on ${runId}.`);
+            _status(`${taskType === "vote" ? "Vote" : "Coding"} task created on ${runId}.`);
             await Promise.all([hevRefreshTasks(), loadRuns()]);
         } catch (e) {
             errEl.textContent = e.message;
@@ -192,14 +214,42 @@
 
     function _taskCard(t, detail) {
         const status = (detail || {}).coder_status || {};
+        const coderMeta = ((detail || {}).task || {}).coders || {};
         const nItems = t.n_items || 0;
+        const cardKey = `${t.run_id}::${t.task_type}`;
         const coderRows = Object.entries(status).map(([user, s]) => {
             const label = STATUS_LABEL[s.status] || s.status;
             const progress = s.status === "invited" ? "" : ` · ${s.n_answered}/${nItems} items`;
-            return `<div class="text-xs" style="padding: 1px 0; color: var(--color-text-primary);">
-                ${_esc(user)} — <span class="${s.status === "submitted" ? "font-semibold" : ""}">${_esc(label)}</span>${progress}
+            const notified = (coderMeta[user] || {}).notified;
+            const mailBadge = notified
+                ? `<span class="text-xxs" style="color: var(--color-text-muted);">✉ sent</span>`
+                : `<span class="text-xxs" style="color: var(--color-warning);">✉ not sent</span>`;
+            return `<div class="text-xs" style="padding: 1px 0; color: var(--color-text-primary);
+                    display: flex; align-items: center; gap: 8px;">
+                <span>${_esc(user)} — <span class="${s.status === "submitted" ? "font-semibold" : ""}">${_esc(label)}</span>${progress}</span>
+                ${mailBadge}
+                <button class="btn-discreet btn-compact"
+                    onclick="hevResendInvite(this, '${_esc(t.run_id)}', '${_esc(t.task_type)}', '${_esc(user)}')"
+                    >${notified ? "Resend" : "Send invite"}</button>
             </div>`;
         }).join("") || '<div class="text-xs" style="color: var(--color-text-muted);">No coders invited.</div>';
+
+        const invitedSet = new Set(Object.keys(coderMeta));
+        const inviteOptions = st.users
+            .filter(u => !invitedSet.has(u.username))
+            .map(u => `<option value="${_esc(u.username)}">${_esc(u.username)}</option>`)
+            .join("");
+        const inviteControl = inviteOptions
+            ? `<div style="margin-top: 6px; display: flex; gap: 8px; align-items: center;">
+                <select id="hev-invite-${_esc(cardKey)}" class="text-xs"
+                    style="padding: 3px 8px; border: 1px solid var(--color-border); border-radius: 4px;
+                    background: var(--color-bg-input); color: var(--color-text-primary);">
+                    ${inviteOptions}
+                </select>
+                <button class="btn-discreet btn-compact"
+                    onclick="hevInviteCoder('${_esc(t.run_id)}', '${_esc(t.task_type)}', 'hev-invite-${_esc(cardKey)}')"
+                    >Invite more coders</button>
+            </div>` : "";
 
         const results = (detail || {}).results;
         const nSubmitted = Object.values(status).filter(s => s.status === "submitted").length;
@@ -222,8 +272,37 @@
                     onclick="hevDeleteTask(this, '${_esc(t.run_id)}', '${_esc(t.task_type)}')">Delete</button>
             </div>
             <div style="margin-top: 6px;">${coderRows}</div>
+            ${inviteControl}
             <div style="margin-top: 4px;">${resultsLine}</div>
         </div>`;
+    }
+
+    async function hevResendInvite(btn, runId, taskType, username) {
+        try {
+            btn.disabled = true;
+            await _postJson(
+                `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/notify`,
+                { username });
+            _status(`Invitation sent to ${username}.`);
+            hevRefreshTasks();
+        } catch (e) {
+            btn.disabled = false;
+            _status(`Invite failed: ${e.message}`, true);
+        }
+    }
+
+    async function hevInviteCoder(runId, taskType, selectId) {
+        const sel = document.getElementById(selectId);
+        if (!sel || !sel.value) return;
+        try {
+            await _postJson(
+                `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/coders`,
+                { coders: [sel.value] });
+            _status(`${sel.value} invited.`);
+            hevRefreshTasks();
+        } catch (e) {
+            _status(`Invite failed: ${e.message}`, true);
+        }
     }
 
     async function hevRecompute(runId, taskType) {
@@ -270,10 +349,13 @@
     }
 
     window.hevOnRunChange = hevOnRunChange;
+    window.hevOnTypeChange = hevOnTypeChange;
     window.hevCreateTask = hevCreateTask;
     window.hevRefreshTasks = hevRefreshTasks;
     window.hevRecompute = hevRecompute;
     window.hevDeleteTask = hevDeleteTask;
+    window.hevResendInvite = hevResendInvite;
+    window.hevInviteCoder = hevInviteCoder;
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", _watchForActivation);

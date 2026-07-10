@@ -31,20 +31,23 @@
         </label>
         <span class="text-sm" style="display: flex; align-items: center; gap: 12px;">
             <label style="display: flex; align-items: center; gap: 5px;">
-                <input type="radio" name="hev-task-type" value="coding" checked>
+                <input type="radio" name="hev-task-type" value="coding" checked
+                    onchange="hevOnTypeChange()">
                 Human coding (inter-coder reliability)
             </label>
-            <label class="meta-tooltip" data-tooltip="Per-item blind preference votes between arms — coming in a later phase."
-                style="display: flex; align-items: center; gap: 5px; color: var(--color-text-muted); cursor: not-allowed;">
-                <input type="radio" name="hev-task-type" value="vote" disabled>
-                Preference vote (soon)
+            <label class="meta-tooltip" data-tooltip="Coders compare each contract's annotations side-by-side — blind, in randomized order — and pick the best one (or a tie) per video."
+                style="display: flex; align-items: center; gap: 5px;">
+                <input type="radio" name="hev-task-type" value="vote"
+                    onchange="hevOnTypeChange()">
+                Preference vote
             </label>
         </span>
     </div>
 
     <div style="display: flex; gap: 20px; flex-wrap: wrap;">
         <div style="flex: 2; min-width: 300px;">
-            <div class="text-xs font-semibold" style="color: var(--color-text-muted); margin-bottom: 6px;">
+            <div id="hev-var-title" class="text-xs font-semibold"
+                style="color: var(--color-text-muted); margin-bottom: 6px;">
                 Variables the coders provide input for
             </div>
             <div id="hev-var-list" class="text-sm" style="max-height: 260px; overflow-y: auto;

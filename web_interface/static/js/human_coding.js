@@ -16,7 +16,8 @@
     const st = {
         tasks: [],
         task: null,        // the open task's payload
-        responses: {},     // {item_id: {var: value}} — local mirror
+        responses: {},     // coding: {item_id: {var: value}}; vote: {item_id: {choice}}
+        mode: "coding",    // the open task's type
         idx: 0,
         dirty: false,
         readOnly: false,
@@ -76,8 +77,30 @@
         }
         st.tasks = body.tasks || [];
         const btn = document.querySelector('.tab-button[data-tab="coding"]');
-        if (btn) btn.style.display = st.tasks.length ? "" : "none";
+        if (btn) {
+            btn.style.display = st.tasks.length ? "" : "none";
+            _updateTabBadge(btn);
+        }
         renderTaskList();
+    }
+
+    // Small count pill on the tab button — the in-app "you have pending
+    // coding work" signal (complements the invitation email).
+    function _updateTabBadge(btn) {
+        const pending = st.tasks.filter(t => t.my_status !== "submitted").length;
+        let badge = btn.querySelector(".hc-tab-badge");
+        if (!pending) {
+            if (badge) badge.remove();
+            return;
+        }
+        if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "hc-tab-badge text-xxs font-semibold";
+            badge.style.cssText = "margin-left: 6px; padding: 1px 6px; border-radius: 8px;" +
+                "background: var(--color-accent); color: var(--color-bg-primary);";
+            btn.appendChild(badge);
+        }
+        badge.textContent = String(pending);
     }
 
     function renderTaskList() {
@@ -91,13 +114,14 @@
             const done = t.my_status === "submitted";
             const pct = t.n_items ? Math.round(100 * (t.my_n_answered || 0) / t.n_items) : 0;
             const action = done ? "Review" : (t.my_status === "in_progress" ? "Continue" : "Start");
+            const typeLabel = t.task_type === "vote" ? "preference vote" : "coding";
             return `<div style="border: 1px solid var(--color-border); border-radius: 6px;
                     padding: 12px 14px; margin-bottom: 10px; display: flex; gap: 14px;
                     align-items: center; flex-wrap: wrap;">
                 <div style="flex: 1; min-width: 220px;">
                     <div class="font-semibold">${_esc(t.run_id)}</div>
                     <div class="text-xs" style="color: var(--color-text-muted);">
-                        ${t.n_items} videos · ${t.n_variables} variables · ${_esc(t.my_status || "invited")}
+                        ${_esc(typeLabel)} · ${t.n_items} videos · ${t.n_variables} variables · ${_esc(t.my_status || "invited")}
                     </div>
                     <div style="height: 6px; border-radius: 3px; background: var(--color-bg-elevated);
                         margin-top: 6px; overflow: hidden;">
@@ -117,6 +141,7 @@
             const body = await _getJson(
                 `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}`);
             st.task = body;
+            st.mode = body.task_type || "coding";
             st.responses = body.responses || {};
             st.readOnly = body.status === "submitted";
             // Resume at the first unanswered item (or the start when reviewing).
@@ -127,8 +152,11 @@
             }
             document.getElementById("hc-list-view").style.display = "none";
             document.getElementById("hc-work-view").style.display = "";
-            document.getElementById("hc-work-title").textContent = runId;
-            document.getElementById("hc-submit-btn").style.display = st.readOnly ? "none" : "";
+            document.getElementById("hc-work-title").textContent =
+                st.mode === "vote" ? `${runId} — preference vote` : runId;
+            const submitBtn = document.getElementById("hc-submit-btn");
+            submitBtn.style.display = st.readOnly ? "none" : "";
+            submitBtn.textContent = st.mode === "vote" ? "Submit votes" : "Submit coding";
             renderItem();
         } catch (e) {
             alert(`Could not open task: ${e.message}`);
@@ -158,10 +186,86 @@
             `Video ${item.item_id}${item.platform ? ` (${item.platform})` : ""}`;
         document.getElementById("hc-item-pos").textContent =
             `Video ${st.idx + 1} of ${st.task.items.length}`;
-        renderForm();
+        const codingForm = document.getElementById("hc-form");
+        const voteForm = document.getElementById("hc-vote-form");
+        codingForm.style.display = st.mode === "vote" ? "none" : "";
+        voteForm.style.display = st.mode === "vote" ? "" : "none";
+        if (st.mode === "vote") {
+            renderVoteForm();
+        } else {
+            renderForm();
+        }
         renderDots();
         renderProgress();
         _setSaveState("");
+    }
+
+    // ---------- vote mode ----------
+
+    function renderVoteForm() {
+        const box = document.getElementById("hc-vote-form");
+        const item = _currentItem();
+        const options = (st.task.options || {})[item.item_id] || [];
+        const choice = (st.responses[item.item_id] || {}).choice || "";
+        const disabled = st.readOnly ? "disabled" : "";
+
+        const pickBtn = (value, label) => {
+            const active = choice === value;
+            const cls = active ? "btn-primary" : "btn-discreet";
+            return `<button class="${cls} btn-compact" ${disabled}
+                onclick="hcPickOption('${_esc(value)}')"
+                style="min-width: 90px;">${_esc(label)}${active ? " ✓" : ""}</button>`;
+        };
+
+        const cell = "padding: 5px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;";
+        const rows = (st.task.variables || []).map(name => {
+            const spec = (st.task.field_specs || {})[name] || {};
+            const cells = options.map(o =>
+                `<td style="${cell}">${_esc(o.values[name] ?? "")}</td>`).join("");
+            return `<tr>
+                <td style="${cell}" class="text-xs font-medium meta-tooltip"
+                    data-tooltip="${_esc(spec.description || name)}">${_esc(spec.label || name)}</td>
+                ${cells}
+            </tr>`;
+        }).join("");
+
+        box.innerHTML = `
+            <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 8px;">
+                Two or more anonymous annotation options for this video are shown
+                side by side. Watch the video, compare them, and pick the better
+                one — or a tie. Option order is randomized per video.
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                ${options.map(o => pickBtn(o.option, `Option ${o.option}`)).join("")}
+                ${pickBtn("tie", "Tie")}
+            </div>
+            <div style="overflow-x: auto; max-height: 60vh; overflow-y: auto;">
+                <table style="border-collapse: collapse; width: 100%;" class="text-xs">
+                    <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                        <th style="${cell}">field</th>
+                        ${options.map(o => `<th style="${cell}">Option ${_esc(o.option)}</th>`).join("")}
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+    }
+
+    async function hcPickOption(value) {
+        if (st.readOnly) return;
+        const item = _currentItem();
+        try {
+            await _postJson(
+                `${BASE}/tasks/${encodeURIComponent(st.task.run_id)}/` +
+                `${encodeURIComponent(st.task.task_type)}/responses`,
+                { item_id: item.item_id, values: { choice: value } });
+            st.responses[item.item_id] = { choice: value };
+            _setSaveState("Saved");
+            renderVoteForm();
+            renderDots();
+            renderProgress();
+        } catch (e) {
+            _setSaveState(`Save failed: ${e.message}`, true);
+        }
     }
 
     function renderForm() {
@@ -294,6 +398,7 @@
 
     async function saveCurrent() {
         if (st.readOnly) return true;
+        if (st.mode === "vote") return true;   // votes save on pick, not on navigation
         const item = _currentItem();
         const values = collectValues();
         const hadResponse = !!st.responses[item.item_id];
@@ -374,6 +479,7 @@
             document.getElementById("hc-submit-btn").style.display = "none";
             renderItem();
             _setSaveState("Submitted — thank you!");
+            refreshTasks();   // clears the tab badge
         } catch (e) {
             _setSaveState(`Submit failed: ${e.message}`, true);
         }
@@ -388,6 +494,7 @@
     window.hcJump = hcJump;
     window.hcSubmit = hcSubmit;
     window.hcMarkDirty = hcMarkDirty;
+    window.hcPickOption = hcPickOption;
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", refreshTasks);

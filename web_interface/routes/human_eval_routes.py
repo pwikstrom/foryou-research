@@ -20,11 +20,36 @@ from flask_login import current_user, login_required
 import fyp.ab_eval as ab_eval
 import fyp.human_eval as human_eval
 
-from .. import activity_log
+from .. import activity_log, mail_utils
 from ..permissions import permission_required
 from ..security import user_manager
 
 human_eval_bp = Blueprint('human_eval', __name__)
+
+
+
+
+def _notify_coders(task: dict, usernames: list[str], inviter: str) -> None:
+    """Send one invitation email per not-yet-notified coder (fire-and-forget).
+
+    A non-email username (rare — usernames are emails) is skipped with a
+    warning and keeps ``notified: False`` so the admin card flags it. Success
+    flips the flag via a background-thread callback.
+    """
+    run_id, task_type = task["run_id"], task["task_type"]
+    n_items = len(task.get("item_ids", []))
+    n_variables = len(task.get("variables", []))
+    for username in usernames:
+        username = str(username)
+        if (task.get("coders", {}).get(username) or {}).get("notified"):
+            continue
+        if not mail_utils.is_email(username):
+            print(f"[human_eval] not an email address, skipping invite: {username}")
+            continue
+        mail_utils.send_invitation_email_async(
+            username, run_id, task_type, inviter, n_items, n_variables,
+            on_success=lambda u=username: human_eval.set_notified(run_id, task_type, u),
+        )
 
 
 
@@ -147,6 +172,7 @@ def create_human_eval_task():
                      "n_variables": len(task["variables"]),
                      "coders": sorted(task["coders"])},
         )
+        _notify_coders(task, list(task["coders"]), _actor())
         return jsonify({"task": task})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -208,12 +234,55 @@ def add_human_eval_coders(run_id, task_type):
     if not coders:
         return jsonify({"error": "no coders given"}), 400
     try:
+        before = set((human_eval.load_task(run_id, task_type) or {}).get("coders", {}))
         task = human_eval.add_coders(run_id, task_type, coders, invited_by=_actor())
         activity_log.record(
             actor=_actor(), category="admin", action="human_eval.add_coders",
             target=run_id, details={"task_type": task_type, "coders": coders},
         )
+        newly_added = [u for u in coders if u not in before]
+        _notify_coders(task, newly_added, _actor())
         return jsonify({"task": task})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@human_eval_bp.route('/api/manage/human-eval/tasks/<run_id>/<task_type>/notify', methods=['POST'])
+@permission_required('tab.admin.human_eval')
+@login_required
+def resend_human_eval_invite(run_id, task_type):
+    """(Re)send one coder's invitation email synchronously. Body: ``{username}``.
+
+    Synchronous on purpose — the admin clicked Resend and wants immediate
+    feedback (including the local-dev "MAIL_PASSWORD not set" case).
+    """
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username") or "")
+    try:
+        task = human_eval.load_task(run_id, task_type)
+        if task is None:
+            return jsonify({"error": "task not found"}), 404
+        if username not in task.get("coders", {}):
+            return jsonify({"error": f"{username} is not an invited coder"}), 400
+        if not mail_utils.is_email(username):
+            return jsonify({"error": f"{username} is not an email address"}), 400
+        sent = mail_utils.send_invitation_email(
+            username, run_id, task_type, _actor(),
+            len(task.get("item_ids", [])), len(task.get("variables", [])),
+        )
+        if sent:
+            human_eval.set_notified(run_id, task_type, username)
+        else:
+            return jsonify({"error": "email not sent — is MAIL_PASSWORD configured?"}), 400
+        activity_log.record(
+            actor=_actor(), category="admin", action="human_eval.resend_invite",
+            target=run_id, details={"task_type": task_type, "username": username},
+        )
+        return jsonify({"sent": True})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -292,25 +361,40 @@ def my_human_eval_tasks():
 def get_coder_task(run_id, task_type):
     """A coder's working payload: items, field specs, and their own responses.
 
-    Deliberately excludes everything else on the task (machine values are not
-    even stored on it, and other coders' identities/responses stay private).
+    Deliberately excludes everything else on the task (other coders'
+    identities/responses stay private). For a coding task machine values are
+    not even stored on the task; for a vote task the machine values arrive as
+    anonymous options in a per-(item, coder) randomized order — never with an
+    arm name, etag or source — and saved choices come back as option letters.
     """
     task, error = _load_invited_task(run_id, task_type)
     if error:
         return error
-    state = human_eval.load_coder_state(run_id, task_type, _actor())
-    return jsonify({
+    username = _actor()
+    state = human_eval.load_coder_state(run_id, task_type, username)
+    payload = {
         "run_id": task["run_id"],
         "task_type": task["task_type"],
         "items": task["items"],
         "variables": task["variables"],
         "field_specs": task["field_specs"],
         "status": state.get("status", "in_progress"),
-        "responses": {
+    }
+    if task["task_type"] == "vote":
+        payload["n_options"] = len(task.get("arms", []))
+        payload["options"] = human_eval.vote_options_payload(task, username)
+        payload["responses"] = {
+            item_id: {"choice": human_eval.letter_for_arm(
+                task, item_id, username,
+                (response.get("values") or {}).get("choice", ""))}
+            for item_id, response in (state.get("responses") or {}).items()
+        }
+    else:
+        payload["responses"] = {
             item_id: response.get("values", {})
             for item_id, response in (state.get("responses") or {}).items()
-        },
-    })
+        }
+    return jsonify(payload)
 
 
 

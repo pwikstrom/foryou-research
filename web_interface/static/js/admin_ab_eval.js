@@ -950,8 +950,12 @@
         const el = document.getElementById("abe-human-section");
         const human = st.currentRun && st.currentRun.human;
         if (!el) return;
-        const coding = human && human.coding;
-        if (!coding) { el.innerHTML = ""; return; }
+        if (!human) { el.innerHTML = ""; return; }
+        el.innerHTML = _renderCodingSection(human.coding) + _renderVoteSection(human.vote);
+    }
+
+    function _renderCodingSection(coding) {
+        if (!coding) return "";
 
         const statusEntries = Object.entries(coding.coder_status || {});
         const nSubmitted = statusEntries.filter(([, s]) => s.status === "submitted").length;
@@ -972,9 +976,8 @@
         const results = coding.results;
         if (!results || (!Object.keys(results.human_vs_machine || {}).length
                 && !Object.keys(results.human_vs_human || {}).length)) {
-            el.innerHTML = html + `<div class="text-xs" style="color: var(--color-text-muted);">
+            return html + `<div class="text-xs" style="color: var(--color-text-muted);">
                 No submitted codings yet — metrics appear here after the first coder submits.</div>`;
-            return;
         }
 
         const groups = [
@@ -1013,7 +1016,80 @@
                     <th style="${cell}"><span class="meta-tooltip" data-tooltip="Mean Pearson r across numeric fields.">r</span></th>
                 </tr></thead><tbody>${rows}</tbody></table></div>`;
         }
-        el.innerHTML = html;
+        return html;
+    }
+
+    // The "Preference votes" block: per-arm pooled win-rate bars, per-coder
+    // tallies, and (for two-arm runs) a binomial sign test over non-tie votes.
+    function _renderVoteSection(vote) {
+        if (!vote) return "";
+
+        const statusEntries = Object.entries(vote.coder_status || {});
+        const nSubmitted = statusEntries.filter(([, s]) => s.status === "submitted").length;
+        const coderLine = statusEntries.map(([user, s]) =>
+            `${_esc(user)} (${_esc(s.status === "in_progress"
+                ? `${s.n_answered} voted` : s.status)})`).join(", ");
+
+        let html = `<h3 class="text-sm font-semibold" style="margin: 18px 0 6px 0;
+                color: var(--color-text-heading);">Preference votes</h3>
+            <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 8px;">
+                Blind per-video votes over ${_esc(String((vote.variables || []).length))}
+                displayed field(s) · ${nSubmitted} of ${statusEntries.length} coder(s) submitted
+                ${coderLine ? ` — ${coderLine}` : ""} ·
+                managed under <em>Admin → Human testing</em>.
+            </div>`;
+
+        const results = vote.results;
+        if (!results || !Object.keys(results.per_coder || {}).length) {
+            return html + `<div class="text-xs" style="color: var(--color-text-muted);">
+                No submitted votes yet — win rates appear here after the first coder submits.</div>`;
+        }
+
+        const pooled = results.pooled || {};
+        const arms = results.arms || [];
+        const bars = arms.map(arm => {
+            const rate = (pooled.win_rates || {})[arm];
+            const pct = rate == null ? 0 : Math.round(rate * 100);
+            return `<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+                <span class="font-mono text-xs" style="min-width: 120px;">${_esc(arm)}</span>
+                <div style="flex: 1; max-width: 340px; height: 12px; border-radius: 6px;
+                    background: var(--color-bg-elevated); overflow: hidden;">
+                    <div style="height: 100%; width: ${pct}%; background: var(--color-accent);"></div>
+                </div>
+                <span class="text-xs">${(pooled.wins || {})[arm] ?? 0} wins
+                    (${rate == null ? "—" : _fmt(rate)})</span>
+            </div>`;
+        }).join("");
+        html += `<div style="margin-bottom: 6px;">${bars}
+            <div class="text-xxs" style="color: var(--color-text-muted);">
+                ties: ${pooled.ties ?? 0} of ${pooled.n_votes ?? 0} votes
+                ${results.tie_rate != null ? ` (${_fmt(results.tie_rate)})` : ""} ·
+                win rates are over non-tie votes only</div></div>`;
+
+        const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border);";
+        const coderRows = Object.entries(results.per_coder).map(([user, r]) => `<tr>
+            <td style="${cell}">${_esc(user)}</td>
+            ${arms.map(arm => `<td style="${cell}">${(r.wins || {})[arm] ?? 0}</td>`).join("")}
+            <td style="${cell}">${r.ties ?? 0}</td>
+            <td style="${cell}">${r.n_votes ?? 0}</td>
+        </tr>`).join("");
+        html += `<div style="overflow-x: auto;">
+            <table style="border-collapse: collapse; width: 100%;" class="text-xs">
+            <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                <th style="${cell}">coder</th>
+                ${arms.map(arm => `<th style="${cell}" class="font-mono">${_esc(arm)}</th>`).join("")}
+                <th style="${cell}">ties</th>
+                <th style="${cell}">votes</th>
+            </tr></thead><tbody>${coderRows}</tbody></table></div>`;
+
+        if (results.sign_test && results.sign_test.p_value != null) {
+            const t = results.sign_test;
+            html += `<div class="text-xs" style="margin-top: 6px;">
+                <span class="meta-tooltip" data-tooltip="Binomial sign test: under the null that neither contract is preferred, wins split 50/50 over the non-tie votes. A small p suggests a real preference.">
+                Sign test over ${t.n_non_tie} non-tie vote(s):
+                p = ${_fmt(t.p_value, 3)}</span></div>`;
+        }
+        return html;
     }
 
     function _humanPairDetail(comp) {

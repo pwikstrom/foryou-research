@@ -269,8 +269,149 @@ def test_submit_and_metrics():
            and human["coding"]["results"] is not None)
 
 
+def test_vote_task_crud():
+    print("vote task CRUD")
+    task = human_eval.create_task(RUN_ID, "vote", [], ["coder_a@x.com", "coder_b@x.com"],
+                                  created_by="admin@x.com")
+    _check("empty variables defaults to all",
+           set(task["variables"]) == {"multilingual", "objects",
+                                      "faces_age_estimate", "transcript"},
+           str(task["variables"]))
+    _check("order_seed is 32 hex",
+           len(task["order_seed"]) == 32
+           and all(c in "0123456789abcdef" for c in task["order_seed"]))
+    _check("arms snapshotted", task["arms"] == ["live", "cand"], str(task["arms"]))
+    try:
+        human_eval.create_task(RUN_ID, "vote", [], [], "t")
+        _check("duplicate vote task rejected", False)
+    except ValueError:
+        _check("duplicate vote task rejected", True)
+    _check("coding + vote coexist in index",
+           {(t["run_id"], t["task_type"]) for t in human_eval.list_tasks()}
+           == {(RUN_ID, "coding"), (RUN_ID, "vote")})
+
+    payload = human_eval.vote_options_payload(task, "coder_a@x.com")
+    blob = str(payload)
+    _check("blindness: no arm names/etags in options payload",
+           "live" not in blob and "cand" not in blob and "etag" not in blob)
+    first = payload[ITEMS[0]]
+    _check("options carry only option + selected variables",
+           all(set(o) == {"option", "values"}
+               and set(o["values"]) == set(task["variables"]) for o in first),
+           str(first))
+
+
+def test_vote_permutation():
+    print("vote permutation")
+    task = human_eval.load_task(RUN_ID, "vote")
+    p1 = human_eval._vote_permutation(task, ITEMS[0], "coder_a@x.com")
+    p2 = human_eval._vote_permutation(task, ITEMS[0], "coder_a@x.com")
+    _check("deterministic per (item, coder)", p1 == p2)
+    _check("always a permutation of arms", sorted(p1) == sorted(task["arms"]))
+    orders = {
+        tuple(human_eval._vote_permutation(task, item, user))
+        for item in ITEMS for user in ("coder_a@x.com", "coder_b@x.com")
+    }
+    _check("orderings vary across items/coders", len(orders) > 1, str(orders))
+    arm = human_eval.resolve_vote_choice(task, ITEMS[0], "coder_a@x.com", "A")
+    _check("letter A resolves to first permuted arm", arm == p1[0])
+    _check("letter round-trips",
+           human_eval.letter_for_arm(task, ITEMS[0], "coder_a@x.com", arm) == "A")
+    _check("tie passes through",
+           human_eval.resolve_vote_choice(task, ITEMS[0], "coder_a@x.com", "tie") == "tie")
+
+
+def test_vote_responses_and_results():
+    print("vote responses + results")
+    task = human_eval.load_task(RUN_ID, "vote")
+    for bad in ({"choice": "Z"}, {"choice": ""}, {"choice": "A", "extra": 1}, {}):
+        try:
+            human_eval.save_response(RUN_ID, "vote", "coder_a@x.com", ITEMS[0], bad)
+            _check(f"bad vote rejected: {bad}", False)
+        except ValueError:
+            _check(f"bad vote rejected: {bad}", True)
+
+    def vote(user, item, arm_or_tie):
+        letter = ("tie" if arm_or_tie == "tie"
+                  else human_eval.letter_for_arm(task, item, user, arm_or_tie))
+        human_eval.save_response(RUN_ID, "vote", user, item, {"choice": letter})
+
+    # Coder A: cand 4, live 1, tie 1. Coder B (4 items): cand 2, live 1, tie 1.
+    a_pattern = ["cand", "cand", "cand", "cand", "live", "tie"]
+    for item, arm in zip(ITEMS, a_pattern):
+        vote("coder_a@x.com", item, arm)
+    state = human_eval.load_coder_state(RUN_ID, "vote", "coder_a@x.com")
+    _check("votes stored as arm names",
+           state["responses"][ITEMS[0]]["values"] == {"choice": "cand"}
+           and state["responses"][ITEMS[5]]["values"] == {"choice": "tie"},
+           str(state["responses"]))
+    for item, arm in zip(ITEMS[:4], ["cand", "cand", "live", "tie"]):
+        vote("coder_b@x.com", item, arm)
+
+    human_eval.submit(RUN_ID, "vote", "coder_a@x.com")
+    human_eval.submit(RUN_ID, "vote", "coder_b@x.com")
+    results = human_eval.load_results(RUN_ID, "vote")
+    _check("vote results stored", results is not None)
+    _check("per-coder tallies",
+           results["per_coder"]["coder_a@x.com"] == {"wins": {"live": 1, "cand": 4},
+                                                     "ties": 1, "n_votes": 6}
+           and results["per_coder"]["coder_b@x.com"] == {"wins": {"live": 1, "cand": 2},
+                                                         "ties": 1, "n_votes": 4},
+           str(results["per_coder"]))
+    pooled = results["pooled"]
+    _check("pooled wins", pooled["wins"] == {"live": 2, "cand": 6}, str(pooled))
+    _check("win rates over non-tie",
+           abs(pooled["win_rates"]["cand"] - 0.75) < 1e-9
+           and abs(pooled["win_rates"]["live"] - 0.25) < 1e-9)
+    _check("tie rate", abs(results["tie_rate"] - 0.2) < 1e-9, str(results["tie_rate"]))
+    from scipy.stats import binomtest
+    expected_p = float(binomtest(2, 8, 0.5).pvalue)
+    _check("sign test matches direct binomtest",
+           abs(results["sign_test"]["p_value"] - expected_p) < 1e-12,
+           str(results["sign_test"]))
+
+    human = human_eval.load_human(RUN_ID)
+    _check("load_human returns both blocks",
+           set(human) == {"coding", "vote"} and human["vote"]["results"] is not None)
+
+
+def test_notifications():
+    print("notifications")
+    human_eval.set_notified(RUN_ID, "vote", "coder_a@x.com")
+    task = human_eval.load_task(RUN_ID, "vote")
+    _check("set_notified flips + persists",
+           task["coders"]["coder_a@x.com"]["notified"] is True
+           and task["coders"]["coder_a@x.com"].get("notified_at"))
+    _check("other coder untouched",
+           task["coders"]["coder_b@x.com"]["notified"] is False)
+    human_eval.set_notified(RUN_ID, "vote", "stranger@x.com")   # no-op, no raise
+    _check("unknown coder is a no-op",
+           "stranger@x.com" not in human_eval.load_task(RUN_ID, "vote")["coders"])
+
+    import os
+    from web_interface import mail_utils
+    _check("is_email accepts a@b.co", mail_utils.is_email("a@b.co"))
+    _check("is_email rejects bad values",
+           not mail_utils.is_email("admin") and not mail_utils.is_email("a@b")
+           and not mail_utils.is_email("a b@c.d") and not mail_utils.is_email(""))
+    old = os.environ.pop("MAIL_PASSWORD", None)
+    try:
+        sent = mail_utils.send_invitation_email("a@b.co", RUN_ID, "vote", "t", 6, 4)
+        _check("invitation without MAIL_PASSWORD returns False", sent is False)
+    finally:
+        if old is not None:
+            os.environ["MAIL_PASSWORD"] = old
+
+
 def test_delete():
     print("delete")
+    removed = human_eval.delete_task(RUN_ID, "vote")
+    _check("vote delete removed files", removed)
+    _check("vote task gone", human_eval.load_task(RUN_ID, "vote") is None)
+    _check("coding task survives vote delete",
+           human_eval.load_task(RUN_ID, "coding") is not None)
+    _check("no vote artifacts left",
+           not [k for k in _STORE if "/human/" in k[1] and "vote" in k[1]])
     removed = human_eval.delete_task(RUN_ID, "coding")
     _check("delete removed files", removed)
     _check("task gone", human_eval.load_task(RUN_ID, "coding") is None)
@@ -286,6 +427,10 @@ def main():
     test_task_crud()
     test_responses_and_validation()
     test_submit_and_metrics()
+    test_vote_task_crud()
+    test_vote_permutation()
+    test_vote_responses_and_results()
+    test_notifications()
     test_delete()
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0

@@ -17,8 +17,12 @@ Storage (all in the isolated ``ab_eval`` location, next to the run artifacts):
 * ``runs/{run_id}/human/results_{type}.json``— computed ICR metrics.
 
 Cardinality: at most one task per ``(run_id, task_type)``; re-setup requires
-an explicit delete. ``task_type`` is ``"coding"`` now; ``"vote"`` (per-item
-blind preference votes) reuses this layout in a later phase.
+an explicit delete. Two task types share the layout: ``"coding"`` (blind
+coding, above) and ``"vote"`` — per-item blind preference votes, where the
+coder sees each arm's annotation values as anonymous options in a per-(item,
+coder) randomized order (a pure hash of the task's ``order_seed``) and picks
+the best one or a tie; the server resolves option letters back to arm names
+before storing, and results are per-arm win rates plus a two-arm sign test.
 
 METRIC RULE (inherited from ab_eval): a variable's comparison kind comes from
 the scale snapshotted into the task at creation, never from answer length.
@@ -26,6 +30,7 @@ the scale snapshotted into the task at creation, never from answer length.
 
 import hashlib
 import re
+import secrets
 import threading
 from datetime import UTC, datetime
 
@@ -214,9 +219,12 @@ def create_task(run_id: str, task_type: str, variables: list[str],
 
     Args:
         run_id: the run to attach the task to (must be ``complete``).
-        task_type: ``"coding"`` (``"vote"`` reserved for a later phase).
-        variables: the compared columns coders provide input for.
+        task_type: ``"coding"`` (blind coding for ICR) or ``"vote"`` (per-item
+            blind preference votes between the run's arms).
         coders: usernames to invite (admins are always implicitly invited).
+        variables: the compared columns coders provide input for. For a
+            ``vote`` task these are the DISPLAY fields shown side-by-side;
+            an empty selection defaults to every compared column.
         created_by: audit actor.
 
     Returns:
@@ -226,8 +234,6 @@ def create_task(run_id: str, task_type: str, variables: list[str],
         ValueError: unknown type / run not complete / task exists / bad variables.
     """
     _check_task_type(task_type)
-    if task_type != "coding":
-        raise ValueError("only 'coding' tasks are supported in this phase")
 
     run = ab.load_run(run_id)
     manifest = run.get("manifest") or {}
@@ -236,8 +242,14 @@ def create_task(run_id: str, task_type: str, variables: list[str],
     if load_task(run_id, task_type) is not None:
         raise ValueError(f"run {run_id} already has a {task_type} task — delete it first")
 
+    arm_names = [a.get("name") for a in manifest.get("arms", []) if a.get("name")]
+    if task_type == "vote" and len(arm_names) < 2:
+        raise ValueError("a vote task needs a run with at least two arms")
+
     catalog = {v["name"]: v for v in available_variables(run_id)}
     variables = [str(v) for v in variables]
+    if not variables and task_type == "vote":
+        variables = list(catalog)
     if not variables:
         raise ValueError("select at least one variable")
     unknown = [v for v in variables if v not in catalog]
@@ -276,6 +288,12 @@ def create_task(run_id: str, task_type: str, variables: list[str],
             for u in dict.fromkeys(str(u) for u in coders)
         },
     }
+    if task_type == "vote":
+        # Canonical arm order + the seed the per-(item, coder) option
+        # permutation derives from. The task file is admin-only, so carrying
+        # the arm names here does not break coder-side blindness.
+        task["arms"] = arm_names
+        task["order_seed"] = secrets.token_hex(16)
     with _INDEX_LOCK:
         data_io.save_json(data=task, storage_location=ab.LOCATION,
                           filename=_human_file(run_id, _task_filename(task_type)))
@@ -476,6 +494,113 @@ def load_coder_state(run_id: str, task_type: str, username: str) -> dict:
 
 
 
+# ---------------------------------------------------------------------------
+# Vote tasks: blind option permutation + payload.
+# ---------------------------------------------------------------------------
+
+
+def vote_option_letters(n: int) -> list[str]:
+    """Return the option labels for ``n`` arms (``["A", "B", ...]``)."""
+    return [chr(ord("A") + i) for i in range(n)]
+
+
+
+
+def _vote_permutation(task: dict, item_id: str, username: str) -> list[str]:
+    """Return the arm order shown to one coder for one item.
+
+    Deterministic across requests and processes (a pure hash of the task's
+    ``order_seed`` + item + coder + arm), yet effectively random across items
+    and coders — so a voter cannot learn which option is which arm from
+    position, and the same coder always sees a stable order for an item.
+    """
+    seed = task.get("order_seed", "")
+    return sorted(
+        task.get("arms", []),
+        key=lambda arm: hashlib.sha256(
+            f"{seed}|{item_id}|{username}|{arm}".encode()
+        ).hexdigest(),
+    )
+
+
+
+
+def resolve_vote_choice(task: dict, item_id: str, username: str, choice: str) -> str:
+    """Resolve a coder's posted option letter (or ``"tie"``) to an arm name.
+
+    The coder client only ever knows letters; the mapping back to arm names
+    happens here, server-side, so the stored response carries the arm.
+
+    Raises:
+        ValueError: on anything that is not ``"tie"`` or a valid letter.
+    """
+    choice = str(choice).strip()
+    if choice.lower() == "tie":
+        return "tie"
+    order = _vote_permutation(task, str(item_id), str(username))
+    letters = vote_option_letters(len(order))
+    if choice.upper() in letters:
+        return order[letters.index(choice.upper())]
+    raise ValueError(f"invalid vote choice: {choice!r}")
+
+
+
+
+def letter_for_arm(task: dict, item_id: str, username: str, arm: str) -> str:
+    """Inverse of :func:`resolve_vote_choice` for re-serving saved responses."""
+    if arm == "tie":
+        return "tie"
+    order = _vote_permutation(task, str(item_id), str(username))
+    letters = vote_option_letters(len(order))
+    try:
+        return letters[order.index(arm)]
+    except ValueError:
+        return ""
+
+
+
+
+def vote_options_payload(task: dict, username: str) -> dict[str, list[dict]]:
+    """Build the blind per-item option list for one coder.
+
+    Each option carries only its letter and the display-variable values of one
+    arm's refined row — never the arm name, etag or source — in the coder's
+    per-item permuted order. A missing arm row yields empty values (the arm
+    failed that item), which is itself information the voter should see.
+
+    Args:
+        task: the vote task definition.
+        username: the coder (drives the permutation).
+
+    Returns:
+        ``{item_id: [{"option": "A", "values": {var: value}}, ...]}``.
+    """
+    variables = task.get("variables", [])
+    rows_by_arm: dict[str, dict[str, dict]] = {}
+    for arm in task.get("arms", []):
+        try:
+            rows = ab.load_run_rows(task["run_id"], arm)
+        except Exception:
+            rows = []
+        rows_by_arm[arm] = {str(r.get("item_id")): r for r in rows}
+
+    out: dict[str, list[dict]] = {}
+    for item_id in (str(i) for i in task.get("item_ids", [])):
+        order = _vote_permutation(task, item_id, str(username))
+        letters = vote_option_letters(len(order))
+        options = []
+        for letter, arm in zip(letters, order, strict=True):
+            row = rows_by_arm.get(arm, {}).get(item_id, {})
+            options.append({
+                "option": letter,
+                "values": {v: row.get(v, "") for v in variables},
+            })
+        out[item_id] = options
+    return out
+
+
+
+
 def _validate_values(task: dict, values: dict) -> dict:
     """Validate and coerce one item's response values against the task specs.
 
@@ -553,11 +678,21 @@ def save_response(run_id: str, task_type: str, username: str,
     if state.get("status") == "submitted":
         raise ValueError("this coding has already been submitted")
 
+    if task_type == "vote":
+        # A vote is exactly one key: the option letter (or "tie"), resolved to
+        # the underlying arm name here so the client never learns the mapping.
+        if set(values or {}) != {"choice"}:
+            raise ValueError("a vote must be exactly {'choice': <option>}")
+        cleaned = {"choice": resolve_vote_choice(task, item_id, username,
+                                                 values["choice"])}
+    else:
+        cleaned = _validate_values(task, values)
+
     now = _now_iso()
     state["started_at"] = state.get("started_at") or now
     state["updated_at"] = now
     state["responses"][str(item_id)] = {
-        "values": _validate_values(task, values),
+        "values": cleaned,
         "updated_at": now,
     }
     data_io.save_json(data=state, storage_location=ab.LOCATION,
@@ -731,6 +866,8 @@ def compute_results(run_id: str, task_type: str) -> dict:
     task = load_task(run_id, task_type)
     if task is None:
         raise ValueError(f"run {run_id} has no {task_type} task")
+    if task_type == "vote":
+        return _compute_vote_results(run_id, task)
     variables = task.get("variables", [])
     scales = {v: spec.get("scale", "text") for v, spec in task.get("field_specs", {}).items()}
 
@@ -789,6 +926,92 @@ def compute_results(run_id: str, task_type: str) -> dict:
     data_io.save_json(data=results, storage_location=ab.LOCATION,
                       filename=_human_file(run_id, _results_filename(task_type)))
     return results
+
+
+
+
+def _compute_vote_results(run_id: str, task: dict) -> dict:
+    """(Re)compute a vote task's win/tie tallies and persist them.
+
+    Win rates are computed over non-tie votes. For a two-arm task a simple
+    sign test (binomial, null p=0.5 over the non-tie votes) is included; with
+    more arms it is ``None`` (a multinomial test is not obviously the right
+    reading there).
+    """
+    arms = task.get("arms", [])
+    per_coder: dict[str, dict] = {}
+    pooled_wins = {arm: 0 for arm in arms}
+    pooled_ties = 0
+    for username in task.get("coders", {}):
+        state = load_coder_state(run_id, task["task_type"], username)
+        if state.get("status") != "submitted" or not state.get("responses"):
+            continue
+        wins = {arm: 0 for arm in arms}
+        ties = 0
+        for response in state["responses"].values():
+            choice = (response.get("values") or {}).get("choice")
+            if choice == "tie":
+                ties += 1
+            elif choice in wins:
+                wins[choice] += 1
+        per_coder[username] = {
+            "wins": wins, "ties": ties, "n_votes": sum(wins.values()) + ties,
+        }
+        for arm, n in wins.items():
+            pooled_wins[arm] += n
+        pooled_ties += ties
+
+    n_non_tie = sum(pooled_wins.values())
+    n_votes = n_non_tie + pooled_ties
+    win_rates = {
+        arm: (n / n_non_tie if n_non_tie else None) for arm, n in pooled_wins.items()
+    }
+
+    sign_test = None
+    if len(arms) == 2 and n_non_tie > 0:
+        from scipy.stats import binomtest
+
+        k_first = pooled_wins[arms[0]]
+        sign_test = {
+            "arms": arms,
+            "n_non_tie": n_non_tie,
+            "k_wins_first": k_first,
+            "p_value": float(binomtest(k_first, n_non_tie, 0.5).pvalue),
+        }
+
+    results = {
+        "computed_at": _now_iso(),
+        "arms": arms,
+        "coders": sorted(per_coder),
+        "n_items": len(task.get("item_ids", [])),
+        "per_coder": per_coder,
+        "pooled": {"wins": pooled_wins, "ties": pooled_ties, "n_votes": n_votes,
+                   "win_rates": win_rates},
+        "tie_rate": (pooled_ties / n_votes) if n_votes else None,
+        "sign_test": sign_test,
+    }
+    data_io.save_json(data=results, storage_location=ab.LOCATION,
+                      filename=_human_file(run_id, _results_filename(task["task_type"])))
+    return results
+
+
+
+
+def set_notified(run_id: str, task_type: str, username: str) -> None:
+    """Record that a coder's invitation email was sent (tolerant no-op).
+
+    Called from the email sender's success callback, possibly from a
+    background thread and possibly after the task was deleted or the coder
+    uninvited — both cases silently do nothing.
+    """
+    with _INDEX_LOCK:
+        task = load_task(run_id, task_type)
+        if task is None or str(username) not in task.get("coders", {}):
+            return
+        task["coders"][str(username)]["notified"] = True
+        task["coders"][str(username)]["notified_at"] = _now_iso()
+        data_io.save_json(data=task, storage_location=ab.LOCATION,
+                          filename=_human_file(run_id, _task_filename(task_type)))
 
 
 
