@@ -109,6 +109,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["F401", "F841", "E402"]
 "web_interface/run_*.py" = ["E402"]  # path-setup before imports is intentional
+"fyp/*/__init__.py" = ["F401"]  # subpackage __init__s re-export the old module surface
 
 [tool.ruff.lint.isort]
 known-first-party = ["fyp", "web_interface"]
