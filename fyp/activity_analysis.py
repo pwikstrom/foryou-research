@@ -1,6 +1,10 @@
 
 import pandas as pd
 
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 def analyze_activity_peak(df: pd.DataFrame, period_hours: int = 1) -> dict:
     """
@@ -75,7 +79,8 @@ def analyze_activity_peak(df: pd.DataFrame, period_hours: int = 1) -> dict:
            
            # Recursive call with fixed index
            return analyze_activity_peak(df_proc, period_hours)
-        except:
+        except Exception as e:
+           logger.warning(f"analyze_activity_peak: rebuilding a DatetimeIndex from a (date, hour) MultiIndex failed: {e}")
            raise ValueError("Input format not supported. Expect DatetimeIndex or (date, hour) MultiIndex.")
 
 
