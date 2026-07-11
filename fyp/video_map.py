@@ -30,6 +30,9 @@ from sklearn.preprocessing import normalize
 import fyp.data_io as data_io
 import fyp.embeddings as embeddings
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 # Output artifacts in the "recoded" store.
 MAP_FILE = "video_map.parquet"
@@ -321,7 +324,7 @@ def _name_niches(
         if reporter is not None:
             reporter.log(warn)
         else:
-            print(warn)
+            logger.warning(warn)
     if reporter is not None:
         reporter.log(
             f"Named {len(to_name)} niches via {naming_model} "
@@ -425,7 +428,7 @@ def build_niche_map(
         if reporter is not None:
             reporter.log(msg)
         else:
-            print(msg)
+            logger.info(msg)
 
     _log("Loading embedding store...")
     item_ids, matrix = embeddings.load_embeddings(reporter=reporter)

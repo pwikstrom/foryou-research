@@ -41,6 +41,9 @@ import fyp.ab_eval as ab
 import fyp.data_io as data_io
 from fyp import annotation_contract as ac
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 TASK_TYPES = ("coding", "vote")
 TASKS_INDEX_FILENAME = "human_tasks_index.json"
@@ -770,7 +773,7 @@ def submit(run_id: str, task_type: str, username: str) -> dict:
     try:
         compute_results(run_id, task_type)
     except Exception as exc:
-        print(f"[human_eval] results computation failed for {run_id}/{task_type}: {exc}")
+        logger.error(f"[human_eval] results computation failed for {run_id}/{task_type}: {exc}")
 
     return {"n_answered": _n_answered(state), "n_items": len(task.get("item_ids", []))}
 

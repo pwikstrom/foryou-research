@@ -10,6 +10,10 @@ from collections.abc import Callable, Iterable
 from difflib import SequenceMatcher
 from urllib.parse import unquote
 
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 
 # check internet connectivity
@@ -23,7 +27,7 @@ def online_ok(url="www.qut.edu.au",
         connection.close()  # connection closed
         return True
     except Exception as exep:
-        print(exep)
+        logger.warning(exep)
         return False
 
 
@@ -107,7 +111,7 @@ def record_dropped_columns(
 
     if verbose:
         message = f"[{stage}] dropped {len(columns)} column(s) ({reason}): {', '.join(columns)}"
-        print(message)
+        logger.info(message)
         if reporter is not None:
             try:
                 reporter.log(message)
@@ -121,7 +125,7 @@ def record_dropped_columns(
         )
         if guardrail == "raise":
             raise ValueError(warning)
-        print(warning)
+        logger.warning(warning)
         if reporter is not None:
             try:
                 reporter.log(warning)
@@ -168,7 +172,7 @@ def clean_url(the_url: str) -> dict:
         v[1] = unquote(v[1]).replace(",","|")
         try:
             v[1] = int(v[1])
-        except:
+        except Exception:
             pass
         outout.update({"source_url."+v[0]:v[1]})
     return outout
@@ -323,6 +327,8 @@ def start_monitor(
                  }
                  if batch_label:
                      progress_data["batch"] = batch_label
+                 # STDOUT PROTOCOL — MUST stay print(). process_manager.enqueue_output()
+                 # parses subprocess stdout for the ::PROGRESS:: marker; never convert to logging.
                  print(f"::PROGRESS::{json.dumps(progress_data)}", flush=True)
             else:
                  sys.stdout.write("\r" + line)

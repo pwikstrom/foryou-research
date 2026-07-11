@@ -2,6 +2,9 @@
 import pandas as pd
 
 from fyp.activity_analysis import analyze_activity_peak
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 def process_single_collection(df_raw: pd.DataFrame) -> dict:
@@ -338,7 +341,7 @@ def generate_personas(events_df: pd.DataFrame) -> pd.DataFrame:
             if stats:
                 results.append(stats)
         except Exception as e:
-            print(f"Error processing collection {collection_id}: {type(e).__name__}: {e}")
+            logger.error(f"Error processing collection {collection_id}: {type(e).__name__}: {e}")
             traceback.print_exc()
             continue
             

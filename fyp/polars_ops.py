@@ -37,6 +37,9 @@ import polars as pl
 import pyarrow as pa
 
 from fyp.types import downgrade_series_if_large
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 
@@ -153,9 +156,9 @@ def _log_polars_fallback(
         f"{type(exc).__name__}: {exc}"
     )
     warnings.warn(message, RuntimeWarning, stacklevel=3)
-    # Also write to stderr so the trigger is visible in server logs even if
-    # the caller doesn't configure the warnings filter.
-    print(f"[polars_ops] {message}", flush=True)
+    # Also log so the trigger is visible in server logs even if the caller
+    # doesn't configure the warnings filter.
+    logger.warning(f"[polars_ops] {message}")
 
 
 

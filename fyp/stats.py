@@ -1,3 +1,6 @@
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 
@@ -86,7 +89,7 @@ def run_anova(
     #    ("Residual","F"),
     #    ("Residual","PR(>F)")], axis=1).sort_values(((f"C({selected_factor})","PR(>F)")))
 
-    print(f"Rows: {len(all_anova_tables):,} -- Cols: {len(all_anova_tables.columns):,}")
+    logger.info(f"Rows: {len(all_anova_tables):,} -- Cols: {len(all_anova_tables.columns):,}")
 
     return all_anova_tables
 
@@ -110,7 +113,7 @@ def run_permanova(
         for k2 in fyp_features:
             if k2 in k1 and "dominance" not in k1 and "entropy" not in k1:
                 cols_based_on_fyp_features += [k1]
-    print(f"Number of columns based on the features in the pca scores table: {len(cols_based_on_fyp_features)}")
+    logger.info(f"Number of columns based on the features in the pca scores table: {len(cols_based_on_fyp_features)}")
 
 
     feature_matrix = events_pca_scores_scaled[cols_based_on_fyp_features].to_numpy()
@@ -128,7 +131,7 @@ def run_permanova(
         factor = events_pca_scores_scaled[factor_col].tolist()
         result = permanova(dm, factor, permutations=999)
 
-        print(factor_col)
+        logger.info(factor_col)
         #print(result)
         #print()
     
@@ -172,7 +175,7 @@ def run_many_permanova(
         # iterate over the factors
         for factor_col in [selected_factor]:# grouping_factors:
 
-            print(f"{factor_col}-->{one_feature}")
+            logger.info(f"{factor_col}-->{one_feature}")
 
             factor = events_pca_scores_scaled[factor_col].tolist()
             result = permanova(dm, factor, permutations=999)

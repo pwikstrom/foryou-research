@@ -6,6 +6,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 # --- Tuning constants -----------------------------------------------------
 # These are gathered here so future adjustments don't require hunting through
 # the body of analyse_timeline().
@@ -725,7 +729,7 @@ def _analyse_variable(var_data: dict,
         # (e.g. old fixtures, external callers).  Keeps the function from
         # crashing but warns so we notice the cache mismatch.
         if share_series_raw:
-            print(f"WARN: share_series/counts length mismatch "
+            logger.warning(f"WARN: share_series/counts length mismatch "
                   f"({len(parsed_shares)} vs {n_periods}); recomputing from counts.")
         df_counts = pd.DataFrame(parsed_counts).fillna(0)
         if include_other:

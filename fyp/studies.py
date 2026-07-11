@@ -9,6 +9,9 @@ Date:
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 def init_study_defs():
@@ -17,11 +20,11 @@ def init_study_defs():
     if data_io.exists(storage_location="recoded", filename="studies.json"):
         study_defs = data_io.load_json(storage_location="recoded", filename="studies.json")
     else:
-        print("Unable to init study defs from disk. Setting to empty dict.")
+        logger.warning("Unable to init study defs from disk. Setting to empty dict.")
         study_defs = {}
 
     fyp_cf["study_defs"] = study_defs
-    print(f"Loaded {len(study_defs)} study definitions. OK.")
+    logger.info(f"Loaded {len(study_defs)} study definitions. OK.")
     
 
 

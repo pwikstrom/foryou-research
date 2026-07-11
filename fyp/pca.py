@@ -15,6 +15,7 @@ from sklearn.preprocessing import StandardScaler
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
 from fyp.organize_datasets import create_study_recoded_dataset
 from fyp.recode_variables import (
     get_factors_and_features_from_var_schema,
@@ -25,6 +26,8 @@ from fyp.types import (
     convert_index_dtype_pyarrow,
     downgrade_series_if_large,
 )
+
+logger = get_logger(__name__)
 
 Group = Union[dict[str, int], Sequence[str]]
 Metric = Literal["jensen-shannon", "hellinger", "total-variation", "bray-curtis", "chi2"]
@@ -572,8 +575,8 @@ def transform_categories_to_components_and_diversity(
         
 
     if verbose:
-        print(f"Explained variance per component: {', '.join([f'{p:.3f}' for p in explained])}")
-        print(f"Cumulative explained variance: {', '.join([f'{p:.3f}' for p in explained.cumsum()])}")
+        logger.info(f"Explained variance per component: {', '.join([f'{p:.3f}' for p in explained])}")
+        logger.info(f"Cumulative explained variance: {', '.join([f'{p:.3f}' for p in explained.cumsum()])}")
 
     print(f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance", end="", flush=True)
     if required_components != n_components:
@@ -623,7 +626,7 @@ def transform_categories_to_components_and_diversity(
     for yy in xx:
         for zz in xx[yy]:
             if verbose:
-                print(yy,zz,xx[yy][zz])
+                logger.info(f"{yy} {zz} {xx[yy][zz]}")
 
 
     return result_df, pc_df, xx
@@ -645,7 +648,7 @@ def calculate_scaled_pca_scores(
     verbose = False,
     ):
     
-    print(
+    logger.info(
         f"Starting Principal Component Analysis. Now: {_dt.datetime.now()}...")
 
     # Phase timers (for Cloud Run vs local diagnostics). Each phase wall-clock
@@ -658,7 +661,7 @@ def calculate_scaled_pca_scores(
     _t_save = 0.0
 
     if study_name is None and study_recoded_dataset is None:
-        print("    [PCA] ERROR: This process cannot run without a study name or a recoded study dataset as input. Process failed.")
+        logger.error("    [PCA] ERROR: This process cannot run without a study name or a recoded study dataset as input. Process failed.")
         return None
 
 
@@ -684,7 +687,7 @@ def calculate_scaled_pca_scores(
                 verbose=verbose)
 
     if study_name is not None and study_recoded_dataset is None:
-        print("@@ No cached recoded study dataset found. I must create it. Please wait a moment...")
+        logger.info("@@ No cached recoded study dataset found. I must create it. Please wait a moment...")
         study_recoded_dataset = create_study_recoded_dataset(
             study_name = study_name,
             save_to_cache=True,
@@ -692,30 +695,30 @@ def calculate_scaled_pca_scores(
         )
         if study_recoded_dataset is None:
             raise ValueError("No study dataset found for study '{study_name}'")
-        print("@@ Back after created recoded dataset for this study. I will now resume the PCA analysis.")
+        logger.info("@@ Back after created recoded dataset for this study. I will now resume the PCA analysis.")
 
     if study_recoded_dataset is None:
-        print("    [PCA] ERROR: This process cannot run without a study dataset. Process failed.")
+        logger.error("    [PCA] ERROR: This process cannot run without a study dataset. Process failed.")
         return None
 
     _t_load = _time.perf_counter() - _t_phase
     _t_phase = _time.perf_counter()
 
     if verbose:
-        print(f"    [PCA] Starting with a dataset of shape {study_recoded_dataset.shape}")
+        logger.info(f"    [PCA] Starting with a dataset of shape {study_recoded_dataset.shape}")
 
 
     # checking that the groupubg factors are properly defined and present in the dataset
     targeted_grouping_factors = get_grouping_factors_from_var_schema(some_events_df = None, verbose=verbose)
     grouping_factors = get_grouping_factors_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
     if targeted_grouping_factors != grouping_factors:
-        print(f"    [PCA] Targeted grouping factors {targeted_grouping_factors} differ from those available in the dataset {grouping_factors}. Terminating.")
+        logger.error(f"    [PCA] Targeted grouping factors {targeted_grouping_factors} differ from those available in the dataset {grouping_factors}. Terminating.")
         return None, None
     del targeted_grouping_factors
 
     for gf in grouping_factors:
         if study_recoded_dataset[gf].dropna().nunique() <= 1:
-            print(f"    [PCA] Grouping factor {gf} is all NA or has only 1 unique value. Terminating.")
+            logger.error(f"    [PCA] Grouping factor {gf} is all NA or has only 1 unique value. Terminating.")
             return None, None
 
 
@@ -733,10 +736,10 @@ def calculate_scaled_pca_scores(
         study_recoded_dataset = study_recoded_dataset.iloc[0:0]
     post_len = len(study_recoded_dataset)
     if verbose:
-        print(f"    [PCA] Only keeping events that are successfully annotated -> {pre_len - post_len:,} events dropped. Shape: {study_recoded_dataset.shape}")
+        logger.info(f"    [PCA] Only keeping events that are successfully annotated -> {pre_len - post_len:,} events dropped. Shape: {study_recoded_dataset.shape}")
 
     if post_len == 0:
-        print("    [PCA] No annotated events available for this study. Terminating.")
+        logger.error("    [PCA] No annotated events available for this study. Terminating.")
         return None, None
 
 
@@ -744,7 +747,7 @@ def calculate_scaled_pca_scores(
     columns_to_be_dropped = not_na_columns[not_na_columns<=0.9].index
     study_recoded_dataset = study_recoded_dataset.drop(columns=columns_to_be_dropped)
     if verbose:
-        print(f"    [PCA] Dropping features and grouping factors with more than 10% missing values -> {len(columns_to_be_dropped)} columns dropped. Shape: {study_recoded_dataset.shape}")
+        logger.info(f"    [PCA] Dropping features and grouping factors with more than 10% missing values -> {len(columns_to_be_dropped)} columns dropped. Shape: {study_recoded_dataset.shape}")
 
     # I need to do this again in case some factors or features were dropped in the previous step
     fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
@@ -753,7 +756,7 @@ def calculate_scaled_pca_scores(
     study_recoded_dataset = study_recoded_dataset.dropna(subset = fyp_features + grouping_factors)
     post_len = len(study_recoded_dataset)
     if verbose:
-        print(f"    [PCA] Dropping rows with missing values in features and grouping factors -> {(pre_len - post_len):,} rows dropped. Shape: {study_recoded_dataset.shape}")
+        logger.info(f"    [PCA] Dropping rows with missing values in features and grouping factors -> {(pre_len - post_len):,} rows dropped. Shape: {study_recoded_dataset.shape}")
     del pre_len, post_len, columns_to_be_dropped
 
 
@@ -761,16 +764,16 @@ def calculate_scaled_pca_scores(
     # Dropping groups that are too small
     # ----------------------------
     if verbose:
-        print(f"    [PCA] Dropping <{'|'.join(grouping_factors)}> groups that are smaller than {minimum_group_size} rows")
+        logger.info(f"    [PCA] Dropping <{'|'.join(grouping_factors)}> groups that are smaller than {minimum_group_size} rows")
 
     group_sizes = study_recoded_dataset[grouping_factors].groupby(grouping_factors).agg(group_size = pd.NamedAgg(column=grouping_factors[0], aggfunc="count"))
     good_sized_groups = group_sizes[list((group_sizes>=minimum_group_size).to_dict()["group_size"].values())]
 
     if len(good_sized_groups) < 10:
-        print(f"    [PCA] ERROR: Less than 10 groups of {len(group_sizes):,} have at least {minimum_group_size} elements. I refuse to do PCA with soo few groups. Terminating.")
+        logger.error(f"    [PCA] ERROR: Less than 10 groups of {len(group_sizes):,} have at least {minimum_group_size} elements. I refuse to do PCA with soo few groups. Terminating.")
         return None, None
     elif len(good_sized_groups) < 100:
-        print(f"    [PCA] WARNING: Only {len(good_sized_groups):,} groups of {len(group_sizes):,} have at least {minimum_group_size} elements. This is dangerously low. Please check your data.")
+        logger.warning(f"    [PCA] WARNING: Only {len(good_sized_groups):,} groups of {len(group_sizes):,} have at least {minimum_group_size} elements. This is dangerously low. Please check your data.")
     
     too_small_groups = group_sizes[list((group_sizes<minimum_group_size).to_dict()["group_size"].values())]
 
@@ -778,19 +781,19 @@ def calculate_scaled_pca_scores(
 
         n_groups = len(group_sizes)
         if verbose:
-            print(
+            logger.info(
                 f"    [PCA] {len(too_small_groups):,} groups of {n_groups:,} have fewer than {minimum_group_size}"
                 f" elements and will be excluded from the analysis. {len(good_sized_groups):,} groups remain."
             )
-            print(f"    [PCA] This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.")
+            logger.info(f"    [PCA] This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.")
 
         study_recoded_dataset = study_recoded_dataset.set_index(grouping_factors).loc[good_sized_groups.index].reset_index().copy()
 
         if verbose:
-            print(f"    [PCA] Confirming new shape: {study_recoded_dataset.shape}")
+            logger.info(f"    [PCA] Confirming new shape: {study_recoded_dataset.shape}")
     else:
         if verbose:
-            print("    [PCA] No groups were below the threshold")
+            logger.info("    [PCA] No groups were below the threshold")
 
     _t_prep = _time.perf_counter() - _t_phase
     _t_phase = _time.perf_counter()
@@ -799,7 +802,7 @@ def calculate_scaled_pca_scores(
     # PCA transformation
     # ----------------------------
     if verbose:
-        print("    [PCA] Consolidating events into aggregation groups and performing PCA transformation on categorical variables")
+        logger.info("    [PCA] Consolidating events into aggregation groups and performing PCA transformation on categorical variables")
 
     events_pca_scores = []
     comp_interpretations = {}
@@ -855,15 +858,15 @@ def calculate_scaled_pca_scores(
     _t_phase = _time.perf_counter()
 
     if verbose:
-        print(f"    [PCA] Shape of PCA scores table: {events_pca_scores.shape}")
+        logger.info(f"    [PCA] Shape of PCA scores table: {events_pca_scores.shape}")
 
     if not scale_it:
         if verbose:
-            print("    [PCA] Not scaling the scores and not saving them either")
+            logger.info("    [PCA] Not scaling the scores and not saving them either")
 
 
     if verbose:
-        print("    [PCA] Scaling pca scores and concatenating factors into the scaled table")
+        logger.info("    [PCA] Scaling pca scores and concatenating factors into the scaled table")
 
     events_pca_scores_scaled = pd.DataFrame(
         StandardScaler().fit_transform(events_pca_scores),
@@ -906,7 +909,7 @@ def calculate_scaled_pca_scores(
     #events_pca_scores_scaled[local_month"] = events_pca_scores_scaled[local_date"].map(lambda x:x.month)
 
     if verbose:
-        print(f"    [PCA] Shape of scaled PCA scores table: {events_pca_scores_scaled.shape}")
+        logger.info(f"    [PCA] Shape of scaled PCA scores table: {events_pca_scores_scaled.shape}")
 
     for c in events_pca_scores_scaled.columns:
         if c not in comp_interpretations:
@@ -914,7 +917,7 @@ def calculate_scaled_pca_scores(
 
 
     if verbose:
-        print("    [PCA] Converting dtypes to pyarrow")
+        logger.info("    [PCA] Converting dtypes to pyarrow")
     events_pca_scores_scaled = convert_dtypes_to_pyarrow(events_pca_scores_scaled, verbose=verbose)
 
     _t_scale = _time.perf_counter() - _t_phase
@@ -930,7 +933,7 @@ def calculate_scaled_pca_scores(
             verbose=verbose,
             )
         if verbose:
-            print(f"    [PCA] Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'.")
+            logger.info(f"    [PCA] Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'.")
 
 
         comp_inter_filename = f"{study_name}_comp_interpretations.json"
@@ -941,17 +944,17 @@ def calculate_scaled_pca_scores(
             verbose=verbose,
             )
         if verbose:
-            print(f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'.")
+            logger.info(f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'.")
 
     _t_save = _time.perf_counter() - _t_phase
     _t_total = _time.perf_counter() - _t_start
 
-    print(
+    logger.info(
         f"    [PCA][TIMING] study={study_name} "
         f"load={_t_load:.2f}s prep={_t_prep:.2f}s pca={_t_pca:.2f}s "
         f"scale={_t_scale:.2f}s save={_t_save:.2f}s total={_t_total:.2f}s"
     )
-    print(f"...done. PCA completed at {_dt.datetime.now()}")
+    logger.info(f"...done. PCA completed at {_dt.datetime.now()}")
 
 
 

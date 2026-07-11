@@ -30,8 +30,11 @@ import pyarrow as pa
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
 from google import genai
 from google.genai.types import EmbedContentConfig
+
+logger = get_logger(__name__)
 
 # Embedding model configuration. gemini-embedding-001 supports Matryoshka
 # truncation to 768 / 1536 / 3072 dims; 1536 is the quality/size sweet spot.
@@ -360,7 +363,7 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
         if reporter is not None:
             reporter.log(msg)
         else:
-            print(msg)
+            logger.info(msg)
 
     all_ids = annotated_ok_item_ids()
     have = embedded_item_ids()
