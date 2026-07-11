@@ -20,8 +20,12 @@ import-cycle rule in `CONTRIBUTING.md`.
 | `[viz]` | dashboard visuals | palette etc. |
 | `[labels]` | content categories | category lists, generic mapper, `IRRELEVANT_WORDS` (seed for the admin-editable hashtag stoplist) |
 
-For a new collaborator the only required edit is `[paths] local_data` (and
-possibly `[machine]` if you have your own Gemini/Vertex project).
+**Don't edit the committed file for machine-local values.** Copy
+`config/config.local.toml.example` to `config/config.local.toml` (gitignored)
+— it is deep-merged over `config.toml` at load time, so you list only the
+keys you override. For a new collaborator that's `[paths] local_data` (and
+possibly `[machine] project` if you have your own Vertex project). CI uses
+the same mechanism to redirect storage to a scratch directory.
 
 ## The four contracts
 

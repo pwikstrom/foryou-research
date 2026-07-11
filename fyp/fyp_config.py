@@ -52,6 +52,29 @@ def _create_local_dirs(cf: dict, verbose: bool = False):
 
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge ``override`` into ``base`` in place.
+
+    Nested dicts are merged key-by-key; any other value type in ``override``
+    replaces the corresponding value in ``base``.
+
+    Args:
+        base: The dict to update.
+        override: The dict whose values win.
+
+    Returns:
+        ``base``, for convenience.
+    """
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+
+
 def initialize(
     verbose: bool = False,
     abs_project_root_path: str = None
@@ -83,6 +106,17 @@ def initialize(
     # ------------------------------------------------------------------
     config_path = os.path.join(abs_project_root_path,"config","config.toml")
     cf = toml.load(config_path)
+
+    # Optional machine-local overlay: config/config.local.toml (gitignored) is
+    # deep-merged over the committed config, so collaborators can point
+    # paths.local_data etc. at their own machine without editing the tracked
+    # file. Absent file = no change. See config/config.local.toml.example.
+    local_config_path = os.path.join(abs_project_root_path, "config", "config.local.toml")
+    if os.path.exists(local_config_path):
+        _deep_merge(cf, toml.load(local_config_path))
+        if verbose:
+            print(f"Applied local config overlay: {local_config_path}")
+
     cf["paths"]["project_root"] = abs_project_root_path
 
 

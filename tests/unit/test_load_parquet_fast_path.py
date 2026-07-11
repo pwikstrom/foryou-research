@@ -9,6 +9,7 @@ from os.path import abspath, dirname, join
 sys.path.insert(0, abspath(join(dirname(__file__), '..')))
 
 import pandas as pd
+import pytest
 
 from fyp import fyp_config
 
@@ -24,6 +25,7 @@ def _expect(cond, msg):
         sys.exit(1)
 
 
+@pytest.mark.requires_data  # reads live recoded/registry files from local_data
 def test_equivalence_on_arrow_df():
     print("\n[1] Fast-path returns equivalent DataFrame for already-arrow input")
     df0 = pd.read_parquet(
@@ -58,6 +60,7 @@ def test_speedup_on_big_file():
     _expect(med < 2.0, f"median load time below 2.0s (was {med:.3f}s; target <1.5s)")
 
 
+@pytest.mark.requires_data  # reads live recoded/registry files from local_data
 def test_metadata_load_still_works():
     print("\n[3] load_parquet of metadata file (MultiIndex repair) still works")
     from fyp.organize_datasets import COLLECTIONS_LABEL

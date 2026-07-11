@@ -3,7 +3,8 @@
 ## Workflow
 
 1. Branch off `main`; keep branches short-lived and focused.
-2. Install the pre-commit hook once: `pip install pre-commit && pre-commit install`.
+2. Install dev tools (`pip install -r requirements-dev.txt`) and the
+   pre-commit hook once: `pre-commit install`.
    It currently gates only pyflakes-level errors (`ruff --select=F`) while
    pre-existing style debt is worked down; the full ruff rule set in
    `pyproject.toml` is the target bar for new code.

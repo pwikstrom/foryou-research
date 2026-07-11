@@ -36,14 +36,17 @@ plus `ffmpeg` and `node`/`deno` if you run scrapers.
 ```bash
 python3.14 -m venv .fypenv314
 source .fypenv314/bin/activate
-pip install -r requirements312.txt
-pip install pytest            # dev-only, not in the runtime pin file
+pip install -r requirements-dev.txt   # runtime pins + pytest/ruff/pre-commit
 
-# Configure paths: edit [paths] in config/config.toml to point local_data
-# at a writable directory (see docs/configuration.md for every section).
+# Configure your machine-local paths (never edit the committed config):
+cp config/config.local.toml.example config/config.local.toml
+#   ... then edit local_data/local_media in it (see docs/configuration.md)
 
 python web_interface/fyp_data_hub.py    # → http://localhost:5002
 ```
+
+Environment variables (Gemini key, GCS bucket, ...) are documented in
+`.env.example`.
 
 Background workers run as plain subprocesses locally (started from the web
 UI's Data Management tab, or manually):

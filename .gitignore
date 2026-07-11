@@ -158,6 +158,9 @@ patrik_secrets/
 # config/config.toml
 # sandbox/
 
+# Machine-local config overlay (see config/config.local.toml.example)
+config/config.local.toml
+
 # Logs
 logs
 *.log

@@ -64,8 +64,21 @@ def test_hash_is_import_order_independent() -> None:
             f"{name}: hash {got['HASH'][:16]} != baseline {baseline['HASH'][:16]} — "
             "import-order-dependent schema state (legacy overlay lost?)"
         )
-        assert got["ROLE"] == baseline["ROLE"] != "MISSING", (
+        assert got["ROLE"] == baseline["ROLE"], (
             f"{name}: trend role {got['ROLE']!r} != baseline {baseline['ROLE']!r}"
+        )
+    # The legacy field 'trend' only exists when the annotation version
+    # registry is on disk (live data). On a fresh checkout / CI the hash
+    # order-independence above is the whole guard.
+    if baseline["ROLE"] == "MISSING":
+        import os
+
+        from fyp.fyp_config import fyp_cf
+
+        registry = os.path.join(fyp_cf["paths"]["recoded"], "annotation_versions.json")
+        assert not os.path.exists(registry), (
+            "trend role is MISSING although the annotation version registry exists — "
+            "the legacy overlay silently dropped registry metadata"
         )
 
 

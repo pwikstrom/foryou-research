@@ -11,11 +11,16 @@ from os.path import abspath, dirname, join
 
 sys.path.insert(0, abspath(join(dirname(__file__), '..')))
 
+import pytest
+
 from fyp import fyp_config
 
 fyp_config.initialize()
 
 from fyp import data_io
+
+# All tests read live parquets from local_data.
+pytestmark = pytest.mark.requires_data
 from fyp.organize_datasets import COLLECTIONS_LABEL
 
 

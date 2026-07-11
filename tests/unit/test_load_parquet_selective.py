@@ -12,6 +12,7 @@ from os.path import abspath, dirname, join
 sys.path.insert(0, abspath(join(dirname(__file__), '..')))
 
 import pandas as pd
+import pytest
 
 from fyp import fyp_config
 
@@ -28,6 +29,7 @@ def _expect(cond, msg):
         sys.exit(1)
 
 
+@pytest.mark.requires_data  # reads live recoded/registry files from local_data
 def test_metadata_with_multiindex():
     print("\n[1] Metadata file with MultiIndex columns + set_index='collection_id'")
     df = data_io.load_parquet_selective(
@@ -52,6 +54,7 @@ def test_metadata_with_multiindex():
     print(f"      head:\n{df.head(2).to_string()}")
 
 
+@pytest.mark.requires_data  # reads live recoded/registry files from local_data
 def test_recoded_with_filter():
     print("\n[2] Recoded events with column projection + collection_id filter")
     # First find an actual collection_id in the file
@@ -105,6 +108,7 @@ def test_cache_with_list_columns_present():
             f"columns match request (got {set(df.columns)})")
 
 
+@pytest.mark.requires_data  # reads live recoded/registry files from local_data
 def test_missing_column_handled():
     print("\n[4] Missing column in request is silently dropped (with warn)")
     df = data_io.load_parquet_selective(
@@ -118,6 +122,7 @@ def test_missing_column_handled():
             f"only existing column returned (got {set(df.columns)})")
 
 
+@pytest.mark.requires_data  # reads live recoded/registry files from local_data
 def test_all_columns_missing_returns_none():
     print("\n[5] All requested columns missing -> returns None with warning")
     df = data_io.load_parquet_selective(

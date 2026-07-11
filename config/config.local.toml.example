@@ -1,0 +1,27 @@
+# Machine-local config overlay — copy to config/config.local.toml (gitignored).
+#
+# Values here are deep-merged OVER the committed config/config.toml at load
+# time (fyp/fyp_config.py initialize()), so you only list the keys you want
+# to override. Any section/key from config.toml is valid here.
+#
+# The keys below are the ones a new collaborator typically needs.
+
+[paths]
+# Root directory for all project data (parquets, cache, users, uploads).
+# Must be writable; created on first run.
+local_data = "~CHANGE-ME~/fyp_local"
+
+# Where locally-stored media (videos) go. Only used when
+# data_io.use_gcs_for_media = false. Can live on a bigger disk.
+local_media = "~CHANGE-ME~/fyp_local/media"
+
+# [machine]
+# Your own Vertex AI project for Gemini annotation (API key goes in the
+# GEMINI_API_KEY environment variable, never in a config file).
+# project = "your-gcp-project"
+
+# [data_io]
+# Fully local development (no GCS at all):
+# use_gcs_for_data = false
+# use_gcs_for_media = false
+# use_gcs_for_cache = false

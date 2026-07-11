@@ -11,9 +11,8 @@ Two Python versions are in play; this is deliberate but easy to trip over.
   `requirements312.txt` (the pins happen to resolve on 3.14 too). This is a
   convenience, not a support statement: if a behavior differs between
   versions, 3.12 wins.
-- There is no separate dev requirements file yet; dev-only tools (`pytest`,
-  `pre-commit`) are installed ad hoc into the venv. A
-  `requirements-dev.txt` is planned alongside packaging work.
+- Dev-only tools (`pytest`, `ruff`, `pre-commit`) come from
+  `requirements-dev.txt`, which includes the runtime pins.
 
 If you only want to run the app locally with minimum surprise, a 3.12 venv
 built from `requirements312.txt` is the most production-faithful setup.

@@ -42,6 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
+import pytest
 
 import fyp.annotation_contract as ac
 import fyp.annotation_versioning as av
@@ -106,6 +107,7 @@ def test_overlay_injects_contract_rows_on_skeleton() -> None:
         )
 
 
+@pytest.mark.requires_data  # reads live recoded/registry files from local_data
 def test_overlay_injects_legacy_registry_rows() -> None:
     legacy = _legacy_meta()
     assert legacy, (

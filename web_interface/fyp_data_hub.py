@@ -161,6 +161,16 @@ def create_app():
 
     app.json = CustomJSONProvider(app)
     app.secret_key = os.environ.get("FLASK_SECRET_KEY", "local-dev-key")
+    if app.secret_key == "local-dev-key" and os.environ.get("K_SERVICE"):
+        # Deployed without a real session secret: sessions are forgeable.
+        # Warn loudly (but keep booting) so the misconfiguration is visible
+        # in the Cloud Run logs without taking the service down.
+        print(
+            "WARNING: FLASK_SECRET_KEY is not set on a Cloud Run service - "
+            "falling back to the dev-only secret. Set it in the service "
+            "configuration immediately.",
+            flush=True,
+        )
 
     # Init Auth
     login_manager.init_app(app)
