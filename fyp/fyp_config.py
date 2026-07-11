@@ -11,15 +11,23 @@ import toml
 from google.api_core.exceptions import Forbidden as google_Forbidden
 from google.cloud import storage as gcs_storage
 
-# look for the folder that contains the __proj__.py file, which is the root folder for the project structure
-_cwd = Path(os.getcwd())
-_candidates = [_cwd] + list(_cwd.parents)
-for _p in _candidates:
-    if (_p / "__proj__.py").exists():
-        abs_project_root_path = str(_p)
-        break
+# FYP_CONFIG_PATH points directly at a config TOML (normally
+# <root>/config/config.toml) and derives the project root from it — this lets
+# fyp be imported from outside a project tree (reuse in other projects).
+# Absent the env var, behavior is unchanged: look for the folder that contains
+# the __proj__.py file, which is the root folder for the project structure.
+_env_config_path = os.environ.get("FYP_CONFIG_PATH")
+if _env_config_path:
+    abs_project_root_path = str(Path(_env_config_path).resolve().parent.parent)
 else:
-    raise FileNotFoundError("Could not find __proj__.py in any parent directory")
+    _cwd = Path(os.getcwd())
+    _candidates = [_cwd] + list(_cwd.parents)
+    for _p in _candidates:
+        if (_p / "__proj__.py").exists():
+            abs_project_root_path = str(_p)
+            break
+    else:
+        raise FileNotFoundError("Could not find __proj__.py in any parent directory")
 sys.path.append(abs_project_root_path)
 
 
@@ -84,6 +92,20 @@ def initialize(
     # ------------------------------------------------------------------
     # Locate the project root - I don't know what other people do - this works for me
     # ------------------------------------------------------------------
+    env_config_path = os.environ.get("FYP_CONFIG_PATH")
+    if abs_project_root_path is None and env_config_path:
+        # FYP_CONFIG_PATH names the config TOML directly; the project root is
+        # derived from it (normally <root>/config/config.toml), so no
+        # __proj__.py discovery is needed — the reuse path for importing fyp
+        # from another project. Absent env var, behavior is unchanged.
+        env_config_path = str(Path(env_config_path).resolve())
+        abs_project_root_path = str(Path(env_config_path).parent.parent)
+        if verbose:
+            print("Project root (from FYP_CONFIG_PATH):", abs_project_root_path)
+        sys.path.append(abs_project_root_path)
+    else:
+        env_config_path = None
+
     if abs_project_root_path is None:
 
         # I put an empty __proj__.py file in the root folder of the project structure
@@ -101,18 +123,19 @@ def initialize(
         # add project root path to PATH since the modules are located in the project structure
         sys.path.append(abs_project_root_path)
 
-    
+
     # ------------------------------------------------------------------
     # Load essential config - let it blow up if the files aren't found
     # ------------------------------------------------------------------
-    config_path = os.path.join(abs_project_root_path,"config","config.toml")
+    config_path = env_config_path or os.path.join(abs_project_root_path,"config","config.toml")
     cf = toml.load(config_path)
 
     # Optional machine-local overlay: config/config.local.toml (gitignored) is
     # deep-merged over the committed config, so collaborators can point
     # paths.local_data etc. at their own machine without editing the tracked
     # file. Absent file = no change. See config/config.local.toml.example.
-    local_config_path = os.path.join(abs_project_root_path, "config", "config.local.toml")
+    # (With FYP_CONFIG_PATH the overlay is looked up next to the named file.)
+    local_config_path = os.path.join(os.path.dirname(config_path), "config.local.toml")
     if os.path.exists(local_config_path):
         _deep_merge(cf, toml.load(local_config_path))
         if verbose:
