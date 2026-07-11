@@ -15,12 +15,15 @@ import psutil as _psutil
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
 import fyp.annotation_versioning as annotation_versioning
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
 from fyp import scrape_contract as _scrape_contract
 from fyp.polars_ops import fast_join
 from fyp.recode_variables import compute_var_schema_hash, derive_australian_relevance, get_grouping_factors_from_var_schema
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
+
+logger = get_logger(__name__)
 from fyp.studies import init_study_defs
 
 collection_id_column = "collection_id"
@@ -197,7 +200,7 @@ def compute_failed_scrapes_fingerprint() -> dict:
     try:
         items = sorted(str(x) for x in load_failed_scrapes(verbose=False))
     except Exception as exc:
-        print(f"    [FP] Could not load failed_scrapes for fingerprint: {exc}")
+        logger.warning(f"    [FP] Could not load failed_scrapes for fingerprint: {exc}")
         return {"count": 0, "hash": ""}
     digest = hashlib.sha256("\n".join(items).encode("utf-8")).hexdigest()
     return {"count": len(items), "hash": digest}
@@ -293,7 +296,7 @@ def save_sidecar(study_name: str, recoded_df: pd.DataFrame, verbose: bool = Fals
         verbose=verbose,
     )
     if verbose:
-        print(f"    [Sidecar] Wrote {_sidecar_filename(study_name)} (rows={sidecar['row_count']})")
+        logger.info(f"    [Sidecar] Wrote {_sidecar_filename(study_name)} (rows={sidecar['row_count']})")
     return sidecar
 
 
@@ -311,7 +314,7 @@ def load_sidecar(study_name: str, verbose: bool = False) -> dict | None:
             return None
         return payload
     except Exception as exc:
-        print(f"    [Sidecar] Could not load '{filename}': {exc}")
+        logger.warning(f"    [Sidecar] Could not load '{filename}': {exc}")
         return None
 
 
@@ -483,27 +486,27 @@ def _load_cached_core_datasets(verbose: bool = False) -> dict:
                 storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
             if parquet_study_name == 'everything':
                 if verbose:
-                    print(f"    [Core datasets] Loading '{k}' from cache (study: '{parquet_study_name}')...")
+                    logger.info(f"    [Core datasets] Loading '{k}' from cache (study: '{parquet_study_name}')...")
                 tutti_data[k] = data_io.load_parquet(storage_location="cache", filename=f"core_{k}.parquet")
                 continue
 
         # fallback: load from main storage
         if not data_io.exists(storage_location="recoded", filename=f"{k}_recoded.parquet"):
             if verbose:
-                print(f"    [Core datasets] '{k}_recoded.parquet' not present in main storage — treating as empty")
+                logger.info(f"    [Core datasets] '{k}_recoded.parquet' not present in main storage — treating as empty")
             tutti_data[k] = pd.DataFrame()
             tutti_data[k].attrs["study_name"] = 'everything'
             continue
 
         if verbose:
-            print(f"    [Core datasets] Loading '{k}' from main storage...")
+            logger.info(f"    [Core datasets] Loading '{k}' from main storage...")
         tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
         tutti_data[k].attrs["study_name"] = 'everything'
 
         # if main storage is GCS and cache is local, persist to cache for next time
         if fyp_cf['data_io']['use_gcs_for_data'] and not fyp_cf['data_io']['use_gcs_for_cache']:
             if verbose:
-                print(f"    [Core datasets] Saving '{k}' to local cache...")
+                logger.info(f"    [Core datasets] Saving '{k}' to local cache...")
             data_io.save_parquet(df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
 
     return tutti_data
@@ -534,39 +537,39 @@ def _filter_enrichment_data(
     _t_s = _time.perf_counter()
     if tutti_data.get(SCRAPES_LABEL) is None or tutti_data[SCRAPES_LABEL].empty:
         if not data_io.exists(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"):
-            print(f"    [Scrape] '{SCRAPES_LABEL}_recoded.parquet' not present — treating as empty")
+            logger.info(f"    [Scrape] '{SCRAPES_LABEL}_recoded.parquet' not present — treating as empty")
             tutti_data[SCRAPES_LABEL] = pd.DataFrame()
         else:
-            print("    [Scrape] Loading scraped data from main storage...", flush=True)
+            logger.info("    [Scrape] Loading scraped data from main storage...")
             scrapes_df = data_io.load_parquet(
                 storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet", verbose=verbose)
             if scrapes_df is not None and not scrapes_df.empty and study_name != 'everything':
                 scrapes_df = scrapes_df[scrapes_df["item_id"].isin(unique_videos)].copy()
             tutti_data[SCRAPES_LABEL] = scrapes_df if scrapes_df is not None else pd.DataFrame()
-            print(f"    [Scrape] ...done. Kept {len(tutti_data[SCRAPES_LABEL]):,} rows in {_time.perf_counter() - _t_s:.2f}s.")
+            logger.info(f"    [Scrape] ...done. Kept {len(tutti_data[SCRAPES_LABEL]):,} rows in {_time.perf_counter() - _t_s:.2f}s.")
     else:
         cached = tutti_data[SCRAPES_LABEL]
         tutti_data[SCRAPES_LABEL] = cached[cached["item_id"].isin(unique_videos)].copy()
-        print(f"    [Scrape] Cache had {len(cached):,} items; {len(tutti_data[SCRAPES_LABEL]):,} overlap with activity datasets.")
+        logger.info(f"    [Scrape] Cache had {len(cached):,} items; {len(tutti_data[SCRAPES_LABEL]):,} overlap with activity datasets.")
 
     # machine annotations
     _t_a = _time.perf_counter()
     if tutti_data.get(MACHINE_ANNOTATIONS_LABEL) is None or tutti_data[MACHINE_ANNOTATIONS_LABEL].empty:
         if not data_io.exists(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"):
-            print(f"    [Machine annotations] '{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet' not present — treating as empty")
+            logger.info(f"    [Machine annotations] '{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet' not present — treating as empty")
             tutti_data[MACHINE_ANNOTATIONS_LABEL] = pd.DataFrame()
         else:
-            print("    [Machine annotations] Loading machine annotations from main storage...", flush=True)
+            logger.info("    [Machine annotations] Loading machine annotations from main storage...")
             annotations_df = data_io.load_parquet(
                 storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", verbose=verbose)
             if annotations_df is not None and not annotations_df.empty and study_name != 'everything':
                 annotations_df = annotations_df[annotations_df["item_id"].isin(unique_videos)].copy()
             tutti_data[MACHINE_ANNOTATIONS_LABEL] = annotations_df if annotations_df is not None else pd.DataFrame()
-            print(f"    [Machine annotations] ...done. Kept {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} rows in {_time.perf_counter() - _t_a:.2f}s.")
+            logger.info(f"    [Machine annotations] ...done. Kept {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} rows in {_time.perf_counter() - _t_a:.2f}s.")
     else:
         cached = tutti_data[MACHINE_ANNOTATIONS_LABEL]
         tutti_data[MACHINE_ANNOTATIONS_LABEL] = cached[cached["item_id"].isin(unique_videos)].copy()
-        print(f"    [Machine annotations] Cache had {len(cached):,} items; {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} overlap with activity datasets.")
+        logger.info(f"    [Machine annotations] Cache had {len(cached):,} items; {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} overlap with activity datasets.")
 
 
 
@@ -575,12 +578,12 @@ def _filter_enrichment_data(
 def _print_dataset_summary(tutti_data: dict) -> None:
     """Print a summary of the datasets in tutti_data."""
     if tutti_data is None:
-        print("    [Core datasets] - None")
+        logger.info("    [Core datasets] - None")
         return
-    print("    [Core datasets] Datasets:")
+    logger.info("    [Core datasets] Datasets:")
     for k in tutti_data:
         if tutti_data[k] is not None:
-            print(f"    [Core datasets] - '{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size_mb(tutti_data[k]):.1f}MB)")
+            logger.info(f"    [Core datasets] - '{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size_mb(tutti_data[k]):.1f}MB)")
 
 
 
@@ -604,7 +607,7 @@ def load_collection_data(
     if study_name is None:
         raise ValueError("!!! [DDP] study_name must be specified")
 
-    print("    [DDP] Loading data for study...")
+    logger.info("    [DDP] Loading data for study...")
 
     if "study_defs" not in fyp_cf:
         init_study_defs()
@@ -639,22 +642,22 @@ def load_collection_data(
 
     if all_data is None:
         if verbose:
-            print("    [DDP] Loading collection events from main storage")
+            logger.info("    [DDP] Loading collection events from main storage")
         out_df = data_io.load_parquet("recoded", f"{COLLECTIONS_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
 
     else:
         if verbose:
-            print("    [DDP] Selecting date range from cached collection data")
+            logger.info("    [DDP] Selecting date range from cached collection data")
         mask = (all_data[timestamp_column] >= START_DATE) & (all_data[timestamp_column] < END_BOUND)
         if len(the_selected_collections) > 0:
             mask = mask & all_data[collection_id_column].isin(the_selected_collections)
         out_df = all_data[mask].copy()
 
         if collection_id_column not in out_df.columns or timestamp_column not in out_df.columns or len(out_df) == 0:
-            print("!!! [DDP] No events found matching the study filters. Returning None.")
+            logger.warning("!!! [DDP] No events found matching the study filters. Returning None.")
             return None
 
-    print(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique collections: {out_df[collection_id_column].nunique()} | Date range: {out_df[timestamp_column].min():%Y-%m-%d} -- {out_df[timestamp_column].max():%Y-%m-%d}")
+    logger.info(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique collections: {out_df[collection_id_column].nunique()} | Date range: {out_df[timestamp_column].min():%Y-%m-%d} -- {out_df[timestamp_column].max():%Y-%m-%d}")
 
     return out_df
 
@@ -715,7 +718,7 @@ def simple_sample_collection_events(
     grouping_factors = [collection_id_column] + grouping_factors
 
     if verbose:
-        print(f"    [Sampling] Grouping factors: {grouping_factors}")
+        logger.info(f"    [Sampling] Grouping factors: {grouping_factors}")
 
     if "study_defs" not in fyp_cf:
         init_study_defs()
@@ -736,18 +739,18 @@ def simple_sample_collection_events(
 
     if verbose:
         n_dropped = len(the_df) - len(all_viewing_events_df)
-        print(f"    [Sampling] Viewing events (play+observe): {len(all_viewing_events_df):,}  |  Dropped non-viewing events: {n_dropped:,}")
+        logger.info(f"    [Sampling] Viewing events (play+observe): {len(all_viewing_events_df):,}  |  Dropped non-viewing events: {n_dropped:,}")
 
 
     if verbose:
-        print(f"    [Sampling] Dropping aggregation groups with less than {MIN_EVENTS_REQUIRED} events")
-        print(f"    [Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment...")
+        logger.info(f"    [Sampling] Dropping aggregation groups with less than {MIN_EVENTS_REQUIRED} events")
+        logger.info(f"    [Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment...")
     # select agg groups with the required number of events
     viewing_events_within_agg_group_size_limits = _filter_and_sample(all_viewing_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED, rng)
     if verbose:
         sample_size = len(viewing_events_within_agg_group_size_limits)
         if sample_frame_size > 0:
-            print(f"    [Sampling] Viewing events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            logger.info(f"    [Sampling] Viewing events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     # build a df with unique pairs of the two group factors
     unique_group_factor_pairs = viewing_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
@@ -760,12 +763,12 @@ def simple_sample_collection_events(
     n_downsampled_collections = int((cells_per_collection > MAX_GROUP_COUNT_SELECTED_PER_COLLECTION).sum())
 
     if verbose:
-        print(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION} aggregation groups within the limits")
-        print(f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_COLLECTION} aggregation groups from each remaining collection. This might take a moment...")
+        logger.info(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION} aggregation groups within the limits")
+        logger.info(f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_COLLECTION} aggregation groups from each remaining collection. This might take a moment...")
     # select collections with a required number of groups
     collections_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION, MAX_GROUP_COUNT_SELECTED_PER_COLLECTION, rng)
     if verbose:
-        print(f"    [Sampling] Aggregation groups remaining after sampling: {len(collections_within_group_count_limits):,}")
+        logger.info(f"    [Sampling] Aggregation groups remaining after sampling: {len(collections_within_group_count_limits):,}")
 
     selected_pairs_index = collections_within_group_count_limits.set_index(grouping_factors).index
 
@@ -780,11 +783,11 @@ def simple_sample_collection_events(
     if verbose:
         sample_size = len(viewing_events_in_selected_groups)
         if sample_frame_size > 0:
-            print(f"    [Sampling] Viewing events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            logger.info(f"    [Sampling] Viewing events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
 
     combined = viewing_events_in_selected_groups
     if verbose:
-        print(f"    [Sampling] Sampled viewing events: {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+        logger.info(f"    [Sampling] Sampled viewing events: {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     combined.drop("D_id", axis=1, inplace=True, errors='ignore')
 
     # Surface selection effects so callers (pre-check) can show them to the user.
@@ -804,9 +807,9 @@ def simple_sample_collection_events(
     combined_deduped = combined.drop_duplicates(subset="item_id", keep="first")[["item_id"]]
 
     if enrichment_status_df is None:
-        print("    [Sampling] No enrichment_status available — skipping enrichment summary")
-        print(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
-        print(f"    [Sampling] - Unique items: {len(combined_deduped):,}")
+        logger.info("    [Sampling] No enrichment_status available — skipping enrichment summary")
+        logger.info(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+        logger.info(f"    [Sampling] - Unique items: {len(combined_deduped):,}")
         return combined
 
     # Ensure item_id is the index for the merge (callers may pass it as a column)
@@ -819,13 +822,13 @@ def simple_sample_collection_events(
 
     mapper = fyp_cf['var_schema'][['variable_name','display_name']].dropna().set_index('variable_name').to_dict()['display_name']
 
-    print(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
-    print(f"    [Sampling] - Unique items: {len(combined_deduped_enrichment_status):,}")
+    logger.info(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+    logger.info(f"    [Sampling] - Unique items: {len(combined_deduped_enrichment_status):,}")
     for k in enrichment_summary:
         if len(combined_deduped_enrichment_status) > 0:
-            print(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k]/len(combined_deduped_enrichment_status):.0%})")
+            logger.info(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k]/len(combined_deduped_enrichment_status):.0%})")
         else:
-            print(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} (N/A)")
+            logger.info(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} (N/A)")
 
     return combined
 
@@ -859,7 +862,7 @@ def load_study_datasets(
         raise ValueError(f"study_name '{study_name}' not found in config")
 
 
-    print(f"Loading core datasets for study '{study_name}'...")
+    logger.info(f"Loading core datasets for study '{study_name}'...")
 
     # load core datasets from cache or main storage
     if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']:
@@ -868,11 +871,11 @@ def load_study_datasets(
     elif len(all_datasets) > 0:
         tutti_data = deepcopy(all_datasets)
         if verbose:
-            print(f"    [Core datasets] Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
+            logger.info(f"    [Core datasets] Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
     else:
         tutti_data = {}
         if verbose:
-            print("    [Core datasets] Starting without precomputed core datasets. Loading study core datasets from main storage.")
+            logger.info("    [Core datasets] Starting without precomputed core datasets. Loading study core datasets from main storage.")
 
 
     # --------------------------------------------------------------------
@@ -886,7 +889,7 @@ def load_study_datasets(
             tutti_data[k] = pd.DataFrame()
 
     if tutti_data.get("collections", pd.DataFrame()).empty:
-        print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
+        logger.warning(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
         return None
 
 
@@ -896,13 +899,13 @@ def load_study_datasets(
     sample_frame_setting = fyp_cf["study_defs"][study_name].get("SAMPLE_FRAME", "off")
 
     if sample_frame_setting == "off":
-        print("    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data.")
+        logger.info("    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data.")
         sample_frame = None
 
     elif sample_frame_setting in ("events", "activities"):
         # 'activities' (formerly 'events') doesn't need enrichment_status — use all collection events as the frame.
         sample_frame = tutti_data["collections"].copy()
-        print(f"    [DD Sampling] Sample frame setting is '{sample_frame_setting}'. Using all {len(sample_frame):,} collection events as sample frame.")
+        logger.info(f"    [DD Sampling] Sample frame setting is '{sample_frame_setting}'. Using all {len(sample_frame):,} collection events as sample frame.")
 
     else:
         # 'scraped' and 'annotated' require enrichment_status to pick rows.
@@ -910,7 +913,7 @@ def load_study_datasets(
             if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
                 enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
             else:
-                print("    [DD Sampling] 'enrichment_status.parquet' not present — no enrichment data available yet")
+                logger.info("    [DD Sampling] 'enrichment_status.parquet' not present — no enrichment data available yet")
 
         # Callers may pass enrichment_status with item_id as either the index or
         # a column (run_recode_refresh_studies resets it to a column so the same
@@ -923,19 +926,19 @@ def load_study_datasets(
 
         if sample_frame_setting == "scraped":
             if enrichment_status is None:
-                print("!!! [DD Sampling] Sample frame setting is 'scraped' but no enrichment_status is available. Returning None")
+                logger.warning("!!! [DD Sampling] Sample frame setting is 'scraped' but no enrichment_status is available. Returning None")
                 return None
             selected_videos = enrichment_status[enrichment_status["scraped_ok"]].index.tolist()
             sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
-            print(f"    [DD Sampling] Sample frame setting is 'scraped'. Using only {len(sample_frame):,} collection events that are scraped as sample frame.")
+            logger.info(f"    [DD Sampling] Sample frame setting is 'scraped'. Using only {len(sample_frame):,} collection events that are scraped as sample frame.")
 
         elif sample_frame_setting == "annotated":
             if enrichment_status is None:
-                print("!!! [DD Sampling] Sample frame setting is 'annotated' but no enrichment_status is available. Returning None")
+                logger.warning("!!! [DD Sampling] Sample frame setting is 'annotated' but no enrichment_status is available. Returning None")
                 return None
             selected_videos = enrichment_status[enrichment_status["annotated_ok"]].index.tolist()
             sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
-            print(f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} collection events that are annotated as sample frame.")
+            logger.info(f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} collection events that are annotated as sample frame.")
 
     if sample_frame is not None:
         tutti_data["collections"] = simple_sample_collection_events(
@@ -943,7 +946,7 @@ def load_study_datasets(
             enrichment_status=enrichment_status, verbose=verbose)
 
     if tutti_data.get("collections", pd.DataFrame()).empty:
-        print(f"!!! [Core datasets] Sampling resulted in empty datasets for study definition '{study_name}'. Returning None")
+        logger.warning(f"!!! [Core datasets] Sampling resulted in empty datasets for study definition '{study_name}'. Returning None")
         return None
 
 
@@ -951,7 +954,7 @@ def load_study_datasets(
     # load scraped and annotated data
     # --------------------------------------------------------------------
     unique_videos = set(tutti_data["collections"]["item_id"].dropna().values.tolist())
-    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets")
+    logger.info(f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets")
 
     _filter_enrichment_data(tutti_data, unique_videos, study_name=study_name, verbose=verbose)
 
@@ -959,7 +962,7 @@ def load_study_datasets(
     if verbose:
         _print_dataset_summary(tutti_data)
 
-    print(f"...done. Core datasets loaded for study '{study_name}'")
+    logger.info(f"...done. Core datasets loaded for study '{study_name}'")
 
     return tutti_data
 
@@ -978,14 +981,14 @@ def load_collection_datasets(
     No sampling is performed.
     """
 
-    print(f"Loading core datasets for collection '{collection_id}'...")
+    logger.info(f"Loading core datasets for collection '{collection_id}'...")
 
     if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']:
         tutti_data = _load_cached_core_datasets(verbose=verbose)
     else:
         tutti_data = {}
         if verbose:
-            print("    [Core datasets] Loading core datasets from main storage.")
+            logger.info("    [Core datasets] Loading core datasets from main storage.")
         for k in [SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL]:
             tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
 
@@ -996,11 +999,11 @@ def load_collection_datasets(
     if COLLECTIONS_LABEL in tutti_data and isinstance(tutti_data[COLLECTIONS_LABEL], pd.DataFrame):
         tutti_data[COLLECTIONS_LABEL] = tutti_data[COLLECTIONS_LABEL][tutti_data[COLLECTIONS_LABEL]["collection_id"] == collection_id]
         if len(tutti_data[COLLECTIONS_LABEL]) == 0:
-            print(f"    [Core datasets] No collections found for id '{collection_id}'")
+            logger.info(f"    [Core datasets] No collections found for id '{collection_id}'")
             return None
 
     unique_videos = set(tutti_data[COLLECTIONS_LABEL]["item_id"].dropna().values.tolist())
-    print(f"    [Core datasets] Found {len(unique_videos):,} unique videos")
+    logger.info(f"    [Core datasets] Found {len(unique_videos):,} unique videos")
 
 
     # --------------------------------------------------------------------
@@ -1012,7 +1015,7 @@ def load_collection_datasets(
     if verbose:
         _print_dataset_summary(tutti_data)
 
-    print(f"...done. Core datasets loaded for collection '{collection_id}'")
+    logger.info(f"...done. Core datasets loaded for collection '{collection_id}'")
 
     return tutti_data
 
@@ -1219,12 +1222,12 @@ def consolidate_enrichment_data(
             except Exception:
                 pass
 
-    print("\n*** Annotations")
+    logger.info("\n*** Annotations")
     _progress(15, "Consolidating annotation files…")
     (new_annotations, annotations, new_annotation_ids) = consolidate_and_save_refined_annotations(
         force_consolidation=force_consolidation, verbose=verbose)
 
-    print("\n*** Scrape")
+    logger.info("\n*** Scrape")
     _progress(40, "Consolidating scrape files…")
     (new_scrape_data, scrape_data, new_scrape_ids) = consolidate_and_save_scrape_data(
         force_consolidation=force_consolidation, verbose=verbose)
@@ -1239,10 +1242,10 @@ def consolidate_enrichment_data(
         SCRAPES_LABEL: scrape_data
         }
 
-    print("\n*** Updating (and saving) data enrichment status...")
+    logger.info("\n*** Updating (and saving) data enrichment status...")
     _progress(65, "Updating enrichment status…")
     update_enrichment_status(all_datasets=fine_results, verbose=verbose)
-    print("...done.")
+    logger.info("...done.")
 
     fine_results["had_new_data"] = had_new_data
 
@@ -1252,7 +1255,7 @@ def consolidate_enrichment_data(
 
     if changed_item_ids and collections is not None and not collections.empty:
         _progress(85, "Computing impact on studies…")
-        print(f"\n*** Computing consolidation impact for {len(changed_item_ids):,} changed items...")
+        logger.info(f"\n*** Computing consolidation impact for {len(changed_item_ids):,} changed items...")
 
         # Drop NA collection_ids — legacy raw_files predating the manifest-based
         # ingest can leave orphan rows with no cid. They don't belong to any
@@ -1289,7 +1292,7 @@ def consolidate_enrichment_data(
             "affected_study_names": sorted(affected_studies),
             "timestamp": _dt.datetime.now(_dt.UTC).isoformat(),
         }
-        print(f"    {len(affected_collection_ids)} collection(s) and {len(affected_studies)} study/studies affected.")
+        logger.info(f"    {len(affected_collection_ids)} collection(s) and {len(affected_studies)} study/studies affected.")
 
     _progress(95, "Finalizing…")
     fine_results["impact"] = impact
@@ -1358,7 +1361,7 @@ def _join_niche_columns(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame
 
     if verbose:
         mapped = int((df["niche_name"] != _NICHE_UNMAPPED).sum())
-        print(f"  Joined niche columns: {mapped:,}/{n:,} rows mapped to a niche")
+        logger.info(f"  Joined niche columns: {mapped:,}/{n:,} rows mapped to a niche")
     return df
 
 
@@ -1389,13 +1392,13 @@ def _annotations_for_study(study_name, annotations_df):
         return annotations_df
     archive_fn = f"{MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"
     if not data_io.exists(storage_location="recoded", filename=archive_fn):
-        print(f"    [new_merge] study '{study_name}' pinned to {pin} but archive missing; using active annotations.")
+        logger.warning(f"    [new_merge] study '{study_name}' pinned to {pin} but archive missing; using active annotations.")
         return annotations_df
     archive = data_io.load_parquet(storage_location="recoded", filename=archive_fn)
     if archive is None or archive.empty:
         return annotations_df
     pinned = annotation_versioning.select_version_view(archive, pin)
-    print(f"    [new_merge] study '{study_name}' pinned to annotation_version={pin}: {len(pinned):,} annotations.")
+    logger.info(f"    [new_merge] study '{study_name}' pinned to annotation_version={pin}: {len(pinned):,} annotations.")
     return pinned
 
 
@@ -1457,7 +1460,7 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
         shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
 
     if verbose:
-        print(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
+        logger.info(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
     return shebang
 
 
@@ -1497,7 +1500,7 @@ def new_merge(
     ) -> pd.DataFrame:
     """Merge activity data with scrape + annotation data, add calculated columns, and optionally cache."""
 
-    print("Merging all datasets...")
+    logger.info("Merging all datasets...")
 
     if study_name is None and save_to_cache:
         raise ValueError("study_name must be specified")
@@ -1513,7 +1516,7 @@ def new_merge(
 
     for k in all_datasets:
         if all_datasets[k] is None:
-            print(f"all_datasets['{k}'] is None")
+            logger.info(f"all_datasets['{k}'] is None")
 
 
     # merge scrape + annotations into enrichment data
@@ -1545,7 +1548,7 @@ def new_merge(
         activity_data = pd.DataFrame()
 
     if len(activity_data) == 0:
-        print("No activity data")
+        logger.info("No activity data")
         return enriched_data
 
     if 'source_platform' in activity_data.columns and activity_data['source_platform'].isna().any():
@@ -1556,7 +1559,7 @@ def new_merge(
         activity_data['source_platform'] = _backfill_source_platform(activity_data['source_platform'])
 
     if len(enriched_data) == 0:
-        print("No enriched data — caching activity-only dataset (no scrape/annotation enrichment yet)")
+        logger.info("No enriched data — caching activity-only dataset (no scrape/annotation enrichment yet)")
         shebang = activity_data.copy()
     else:
         # Biggest join in the pipeline: events × item-metadata. Composite key
@@ -1568,7 +1571,7 @@ def new_merge(
             join_key = ['source_platform', 'item_id']
         else:
             join_key = 'item_id'
-            print("WARNING: source_platform missing on one side of the activity/enrichment join — falling back to item_id only")
+            logger.warning("WARNING: source_platform missing on one side of the activity/enrichment join — falling back to item_id only")
         shebang = fast_join(activity_data, enriched_data, on=join_key, how='left')
 
     # Calculated + enrichment-status columns run for BOTH branches so a study
@@ -1593,7 +1596,7 @@ def new_merge(
     if save_to_cache:
         t1 = _dt.datetime.now()
         if verbose:
-            print(f"  Saving the '{study_name}' dataset to cache...")
+            logger.info(f"  Saving the '{study_name}' dataset to cache...")
         shebang.attrs['study_name'] = study_name
         data_io.save_parquet(
             df=shebang,
@@ -1602,9 +1605,9 @@ def new_merge(
             asyncronous=True,
             verbose=verbose)
         if verbose:
-            print(f"  ...done. Time taken to save datasets to cache: {(_dt.datetime.now() - t1).total_seconds():.1f} seconds")
+            logger.info(f"  ...done. Time taken to save datasets to cache: {(_dt.datetime.now() - t1).total_seconds():.1f} seconds")
 
-    print(f"...done. Merged all datasets. Shape: {shebang.shape}")
+    logger.info(f"...done. Merged all datasets. Shape: {shebang.shape}")
 
     return shebang
 
@@ -1658,11 +1661,11 @@ def apply_enrichment_only_patch(
         storage_location="cache", filename=cache_filename, verbose=verbose
     )
     if cached_df is None or cached_df.empty:
-        print(f"    [EnrichPatch] Cached '{cache_filename}' missing/empty — aborting patch")
+        logger.warning(f"    [EnrichPatch] Cached '{cache_filename}' missing/empty — aborting patch")
         return None
 
     if "item_id" not in cached_df.columns:
-        print("    [EnrichPatch] Cached dataset missing 'item_id' column — aborting patch")
+        logger.warning("    [EnrichPatch] Cached dataset missing 'item_id' column — aborting patch")
         return None
 
     scrape_filename = f"{SCRAPES_LABEL}_recoded.parquet"
@@ -1678,7 +1681,7 @@ def apply_enrichment_only_patch(
 
     activity_df = cached_df[activity_cols].copy()
     unique_videos = set(activity_df["item_id"].dropna().astype(str).unique().tolist())
-    print(
+    logger.info(
         f"    [EnrichPatch] Reusing {len(activity_df):,} activity rows / "
         f"{len(unique_videos):,} unique items; dropping "
         f"{len(cached_df.columns) - len(activity_cols)} enrichment/calc columns"
@@ -1706,7 +1709,7 @@ def apply_enrichment_only_patch(
     _t_merge = _time.perf_counter() - _t_merge
 
     if result is None or result.empty:
-        print("    [EnrichPatch] Merge returned empty — aborting patch (caller should full-rebuild)")
+        logger.warning("    [EnrichPatch] Merge returned empty — aborting patch (caller should full-rebuild)")
         return None
 
     # Block until the async parquet write in new_merge finishes before writing
@@ -1717,7 +1720,7 @@ def apply_enrichment_only_patch(
             pass
         save_sidecar(study_name=study_name, recoded_df=result, verbose=verbose)
     except Exception as exc:
-        print(f"    [Sidecar] Non-fatal: failed to write sidecar after enrichment patch: {exc}")
+        logger.warning(f"    [Sidecar] Non-fatal: failed to write sidecar after enrichment patch: {exc}")
 
     result.attrs["refresh_action"] = "enrichment_patch"
     result.attrs["study_name"] = study_name
@@ -1725,12 +1728,12 @@ def apply_enrichment_only_patch(
     _t_total = _time.perf_counter() - _t0
     _rss_end = _rss_mb()
     _peak_end = _peak_rss_mb()
-    print(
+    logger.info(
         f"[ENRICH PATCH][TIMING] study={study_name} "
         f"enrichment_load={_t_enrich:.2f}s merge={_t_merge:.2f}s "
         f"total={_t_total:.2f}s rows={len(result):,}"
     )
-    print(
+    logger.info(
         f"[ENRICH PATCH][MEM] study={study_name} "
         f"rss_start={_rss_start:.0f}MB "
         f"rss_end={_rss_end:.0f}MB "
@@ -1780,7 +1783,7 @@ def create_study_recoded_dataset(
     # actually changed" case and for enrichment-only trickle-in updates.
     if save_to_cache and not force_full_rebuild:
         plan = plan_refresh(study_name, verbose=verbose)
-        print(
+        logger.info(
             f"[REFRESH PLAN] study={study_name} action={plan['action']} "
             f"reasons={'; '.join(plan['reasons']) or 'no sidecar or changed inputs'}"
         )
@@ -1797,7 +1800,7 @@ def create_study_recoded_dataset(
                 cached_df.attrs["study_name"] = study_name
                 return cached_df
             # Cache surprisingly unreadable/empty — fall through to full rebuild.
-            print(
+            logger.warning(
                 "    [Sidecar] Short-circuit aborted: cached parquet unreadable/empty. "
                 "Falling through to full rebuild."
             )
@@ -1808,11 +1811,11 @@ def create_study_recoded_dataset(
                 patched_df.attrs["refresh_plan"] = plan
                 return patched_df
             # Patch refused (missing cache, empty merge, etc.) — fall through.
-            print(
+            logger.warning(
                 "    [EnrichPatch] Patch path aborted — falling through to full rebuild."
             )
 
-    print(f"Generating unified dataset for study '{study_name}'")
+    logger.info(f"Generating unified dataset for study '{study_name}'")
 
     # Memory baseline before any heavy lifting. We sample RSS at each phase
     # so the single [RECODE][MEM] log line gives enough resolution to tell
@@ -1832,8 +1835,8 @@ def create_study_recoded_dataset(
     _rss_after_load = _rss_mb()
 
     if all_datasets is None:
-        print(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
-        print(f"[RECODE][TIMING] study={study_name} load={_t_load:.2f}s merge=0.00s total={_t_load:.2f}s")
+        logger.warning(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
+        logger.info(f"[RECODE][TIMING] study={study_name} load={_t_load:.2f}s merge=0.00s total={_t_load:.2f}s")
         return None
 
     _t_phase = _time.perf_counter()
@@ -1868,13 +1871,13 @@ def create_study_recoded_dataset(
                 pass
             save_sidecar(study_name=study_name, recoded_df=study_recoded_dataset, verbose=verbose)
         except Exception as exc:
-            print(f"    [Sidecar] Non-fatal: failed to write sidecar for '{study_name}': {exc}")
+            logger.warning(f"    [Sidecar] Non-fatal: failed to write sidecar for '{study_name}': {exc}")
 
     if study_recoded_dataset is not None:
         study_recoded_dataset.attrs["refresh_action"] = "full_rebuild"
 
-    print(f"...done. Unified dataset for study '{study_name}' generated. Total memory used: {_df_size_mb(study_recoded_dataset):.2f} MB")
-    print(
+    logger.info(f"...done. Unified dataset for study '{study_name}' generated. Total memory used: {_df_size_mb(study_recoded_dataset):.2f} MB")
+    logger.info(
         f"[RECODE][TIMING] study={study_name} "
         f"load={_t_load:.2f}s merge={_t_merge:.2f}s "
         f"total={(_t_load + _t_merge):.2f}s"
@@ -1883,7 +1886,7 @@ def create_study_recoded_dataset(
     # this function relative to when we entered — the number that actually
     # dictates whether the 32 GB task-runner container is enough headroom
     # for this study.
-    print(
+    logger.info(
         f"[RECODE][MEM] study={study_name} "
         f"rss_start={_rss_start:.0f}MB "
         f"rss_after_load={_rss_after_load:.0f}MB "
@@ -1912,7 +1915,7 @@ def create_collection_unified_dataset(
     if collection_id is None:
         raise ValueError("collection_id must be specified")
 
-    print(f"Generating unified dataset for collection '{collection_id}'")
+    logger.info(f"Generating unified dataset for collection '{collection_id}'")
 
     all_datasets = load_collection_datasets(
         collection_id=collection_id,
@@ -1920,7 +1923,7 @@ def create_collection_unified_dataset(
         verbose=verbose)
 
     if all_datasets is None:
-        print(f"!!! [Core datasets] No activity data matched the collection '{collection_id}'. Returning None")
+        logger.warning(f"!!! [Core datasets] No activity data matched the collection '{collection_id}'. Returning None")
         return None
 
     collection_dataset = new_merge(
@@ -1930,7 +1933,7 @@ def create_collection_unified_dataset(
         verbose=verbose
     )
 
-    print(f"...done. Unified dataset for collection '{collection_id}' generated. Total memory used: {_df_size_mb(collection_dataset):.2f} MB")
+    logger.info(f"...done. Unified dataset for collection '{collection_id}' generated. Total memory used: {_df_size_mb(collection_dataset):.2f} MB")
 
     return collection_dataset
 
