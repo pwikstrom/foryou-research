@@ -71,6 +71,12 @@ markers = [
 ]
 addopts = "-q"
 
+# Strict typing ratchet: only new Phase 8 files are checked; extend the list
+# as modules gain full annotations. (mypy is not part of the verify.sh gate.)
+[tool.mypy]
+files = ["fyp/core/paths.py", "fyp/core/__init__.py"]
+strict = true
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
