@@ -29,10 +29,18 @@ from sklearn.preprocessing import normalize
 
 import fyp.data_io as data_io
 import fyp.embeddings as embeddings
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
 
 # Output artifacts in the "recoded" store.
 MAP_FILE = "video_map.parquet"
@@ -95,9 +103,9 @@ def _get_naming_client() -> genai.Client:
     global _naming_client
     if _naming_client is None:
         _naming_client = genai.Client(
-            vertexai=fyp_cf["machine"]["vertexai"],
-            project=fyp_cf["machine"]["project"],
-            location=fyp_cf["machine"]["location"],
+            vertexai=_cf()["machine"]["vertexai"],
+            project=_cf()["machine"]["project"],
+            location=_cf()["machine"]["location"],
         )
     return _naming_client
 
@@ -270,7 +278,7 @@ def _name_niches(
         }
 
     client = _get_naming_client()
-    naming_model = fyp_cf["machine"]["model"]
+    naming_model = _cf()["machine"]["model"]
     naming_errors: list[str] = []
 
     def _exemplars(niche: int) -> str:
@@ -317,8 +325,8 @@ def _name_niches(
     if naming_errors:
         warn = (
             f"WARNING: {len(naming_errors)} niche-naming call(s) failed "
-            f"(model={naming_model}, project={fyp_cf['machine']['project']}, "
-            f"location={fyp_cf['machine']['location']}); affected niches fall "
+            f"(model={naming_model}, project={_cf()['machine']['project']}, "
+            f"location={_cf()['machine']['location']}); affected niches fall "
             f"back to generic 'Niche N' labels. First error: {naming_errors[0][:300]}"
         )
         if reporter is not None:
