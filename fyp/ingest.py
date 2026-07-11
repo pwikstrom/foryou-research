@@ -29,15 +29,34 @@ from fyp import scrape_contract as _scrape_contract
 from fyp import scrape_versioning as _scrape_versioning
 from fyp import structure_sentinel as _structure_sentinel
 from fyp.donations import generate_collection_metadata
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
-from fyp.organize_datasets import COLLECTIONS_LABEL
 from fyp.polars_ops import fast_vertical_concat
 from fyp.recode_variables import infer_timezone_offset
 from fyp.types import convert_dtypes_to_pyarrow
 from fyp.utils import ACTIVITY_TYPE_MAP, clean_url, read_zip_members, repair_mojibake
 
 logger = get_logger(__name__)
+
+
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
+
+
+
+
+def _collections_label() -> str:
+    """Lazy accessor for the config-derived collections label."""
+    from fyp.organize_datasets import COLLECTIONS_LABEL
+
+    return COLLECTIONS_LABEL
+
+
+
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 
@@ -540,7 +559,7 @@ class ForYouBaseCollection(ABC):
         if not raw_path or not source_platform:
             return
         try:
-            abs_path = os.path.join(fyp_cf["paths"]["activity_data"], source_platform, raw_path)
+            abs_path = os.path.join(_cf()["paths"]["activity_data"], source_platform, raw_path)
             data_io.register_location(raw_path, abs_path)
         except Exception as exc:
             logger.warning(f"WARNING: could not register raw location '{raw_path}' for {cls.__name__}: {exc}")
@@ -1484,7 +1503,7 @@ class ForYouCollection(ForYouBaseCollection):
 
     def load_processed(self):
 
-        fn = f"{COLLECTIONS_LABEL}_recoded.parquet"
+        fn = f"{_collections_label()}_recoded.parquet"
         if not data_io.exists(storage_location=self.processed_storage_location, filename=fn):
             if self.verbose:
                 logger.info("No processed collection file found.")
@@ -1682,10 +1701,10 @@ class ForYouCollection(ForYouBaseCollection):
         old_metadata = None
         if data_io.exists(
             storage_location=self.processed_storage_location,
-            filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
+            filename=f"{_collections_label()}_metadata.parquet"):
             old_metadata = data_io.load_parquet(
                 storage_location=self.processed_storage_location,
-                filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
+                filename=f"{_collections_label()}_metadata.parquet",
                 verbose=False)
 
         self.stats = generate_collection_metadata(
@@ -1709,7 +1728,7 @@ class ForYouCollection(ForYouBaseCollection):
         data_io.save_parquet(
             df=self.stats,
             storage_location=self.processed_storage_location,
-            filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
+            filename=f"{_collections_label()}_metadata.parquet",
             asyncronous=False)
 
 
@@ -1717,7 +1736,7 @@ class ForYouCollection(ForYouBaseCollection):
         data_io.save_parquet(
             df=self.data,
             storage_location=self.processed_storage_location,
-            filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
+            filename=f"{_collections_label()}_recoded.parquet",
             asyncronous=False)
 
 
@@ -2182,7 +2201,7 @@ def _config_timezone_offset() -> float:
     per-donor ``tz_offset`` is re-inferred downstream from the UTC series.
     Cached — the offset cannot meaningfully change within one process run.
     """
-    tzname = fyp_cf["misc"].get("TIME_ZONE", "UTC")
+    tzname = _cf()["misc"].get("TIME_ZONE", "UTC")
     try:
         now = datetime.now(ZoneInfo(tzname))
     except ZoneInfoNotFoundError:
