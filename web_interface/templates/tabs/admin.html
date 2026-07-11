@@ -725,11 +725,16 @@
         tableBody.innerHTML = sorted.map(user => {
             const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
             const safeUser = user.username.replace(/'/g, "\\'");
-            const displayName = user.display_username || '—';
+            const safeDisplayName = String(user.display_username || '')
+                .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
             return `
         <tr style="border-bottom: 1px solid var(--color-border); cursor: pointer;" onclick="openUserModal('${safeUser}')">
-            <td style="padding: 12px 16px;">
-                <span class="font-medium" style="color: var(--color-text-primary);">${displayName}</span>
+            <td style="padding: 12px 16px;" onclick="event.stopPropagation();">
+                <input type="text" value="${safeDisplayName}" minlength="3" maxlength="15"
+                    class="font-medium text-sm" data-username="${safeUser}"
+                    onchange="updateDisplayUsername('${safeUser}', this)"
+                    onclick="event.stopPropagation();"
+                    style="width: 130px; padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);">
             </td>
             <td style="padding: 12px 16px;">
                 <span class="text-sm" style="color: var(--color-text-muted);">${user.username}</span>
@@ -1047,6 +1052,36 @@
             loadUsers();
         } catch (error) {
             alert('Error: ' + error.message);
+        }
+    }
+
+    async function updateDisplayUsername(username, input) {
+        const previous = ((window._activeUsersData || []).find(u => u.username === username) || {}).display_username || '';
+        const desired = input.value.trim();
+        if (desired === previous) return;
+
+        input.disabled = true;
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'set_display_username', username, display_username: desired })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to update username');
+            }
+            input.value = desired;
+            // Keep the cached payloads in sync so sorts/re-renders show the new value.
+            [(window._activeUsersData || []), (window._lastUsersPayload || [])].forEach(list => {
+                const u = list.find(x => x.username === username);
+                if (u) u.display_username = desired;
+            });
+        } catch (error) {
+            alert('Error: ' + error.message);
+            input.value = previous; // revert
+        } finally {
+            input.disabled = false;
         }
     }
 

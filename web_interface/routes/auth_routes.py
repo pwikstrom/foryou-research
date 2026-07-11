@@ -268,6 +268,21 @@ def api_admin_users():
                  return jsonify({"status": "success", "message": msg})
              else: return jsonify({"error": msg}), 400
 
+        elif action == 'set_display_username':
+             prev_user = user_manager.get_user(username)
+             old_name = prev_user.display_username if prev_user else None
+             success, msg = user_manager.update_display_username(username, data.get('display_username'))
+             if success:
+                 activity_log.record(
+                     actor=current_user.username,
+                     category=activity_log.CATEGORY_USER_MANAGEMENT,
+                     action="user.set_display_username",
+                     target=username,
+                     details={"from": old_name, "to": data.get('display_username')},
+                 )
+                 return jsonify({"status": "success", "message": msg})
+             else: return jsonify({"error": msg}), 400
+
         elif action == 'change_role':
              new_role = data.get('role')
              # Capture the previous role before mutation so the log can show

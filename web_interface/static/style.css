@@ -503,7 +503,8 @@ a:hover {
 }
 
 #data_management,
-#admin {
+#admin,
+#my_stuff {
     flex-direction: row;
     overflow: hidden;
 }
@@ -3054,9 +3055,10 @@ button.meta-tooltip:disabled {
 
     /* Slice 2 mobile drawer visibility is controlled by JS (setExplorerV2SliceMode) */
 
-    /* Data Management / Admin: sidebar becomes a left drawer */
+    /* Data Management / Admin / My stuff: sidebar becomes a left drawer */
     #data_management,
-    #admin {
+    #admin,
+    #my_stuff {
         flex-direction: column !important;
     }
 
