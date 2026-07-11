@@ -23,8 +23,8 @@ pytestmark = pytest.mark.stale
 
 class TestStudyStats(unittest.TestCase):
 
-    @patch('web_interface.routes.management_routes.create_study_recoded_dataset')
-    @patch('web_interface.routes.management_routes.data_io.load_parquet')
+    @patch('web_interface.services.stats_service.create_study_recoded_dataset')
+    @patch('web_interface.services.stats_service.data_io.load_parquet')
     def test_calculate_stats(self, mock_load_parquet, mock_create_study):
         # 1. Mock Study Dataset (output of create_study_recoded_dataset)
         # 5 items: 1, 2, 3, 4, 5

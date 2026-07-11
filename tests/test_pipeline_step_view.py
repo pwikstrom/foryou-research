@@ -5,7 +5,7 @@ process_stats (local mode, so no GCS reads) across the success / partial /
 in-flight scenarios.
 """
 
-import web_interface.routes.management_routes as mr
+import web_interface.services.worker_status as mr
 
 
 def _stats(plan_steps, started_ts, step_outcomes):

@@ -22,7 +22,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fyp.fyp_config  # noqa: F401  (init config in local mode before importing routes)
-from web_interface.routes import management_routes as m
+from web_interface.services import worker_status as m
 
 
 # Deterministic timestamps (no wall clock — keeps the sim reproducible).

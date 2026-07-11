@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from web_interface.process_manager import process_stats, processes
-from web_interface.routes import management_routes as mr
+from web_interface.services import worker_status as mr
 
 
 def _reset_consolidate_state(ps_entry: dict, mem_data: dict) -> None:
