@@ -23,11 +23,15 @@ from PIL import Image, ImageColor
 
 import fyp.data_io as data_io
 import fyp.media_paths as media_paths
-import fyp.scrape_queues as scrape_queues
-from fyp import scrape_contract as sc
-from fyp import scrape_versioning
 from fyp.logging_setup import get_logger
-from fyp.platform_scraper import (
+
+# Sibling imports go through the package (never the old-path shims): a
+# shim import here could bind a
+# partially-initialized shim during the boot cascade (shim-poisoning rule,
+# docs/fyp-import-graph.md).
+from fyp.scrape import scrape_contract as sc
+from fyp.scrape import scrape_queues, scrape_versioning
+from fyp.scrape.platform_scraper import (
     SLIDESHOW_SECONDS_PER_IMAGE,
     THROTTLE_CATEGORIES,
     ThrottleController,
@@ -1712,7 +1716,7 @@ def consolidate_and_save_scrape_data(
     # the per-file self-healing migrations (retired-column coalesce, legacy
     # renames) only run inside a rebuild, so skipping would leave the
     # consolidated parquet on the previous contract's column set forever.
-    from fyp import scrape_versioning
+    from fyp.scrape import scrape_versioning
     current_sv = scrape_versioning.current_scrape_version()
     latest_sv = dataset_meta.get(_scrapes_label(), {}).get("scrape_contract_version")
     if (not force_consolidation

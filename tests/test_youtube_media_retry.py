@@ -121,7 +121,10 @@ def _fake_metadata_row(item_id: str, media_error: str | None = None) -> pd.DataF
 
 def test_orchestrator_media_retry_and_breaker() -> None:
     """Transient media failures stay retryable; a rate-limit storm aborts the batch."""
-    from fyp import scrape
+    # Patch on the owning module: fyp/scrape.py became the fyp.scrape package
+    # (Phase 8); download_video_threads resolves download_single_video via its
+    # own module globals, so the patch must land on fyp.scrape.scrape.
+    from fyp.scrape import scrape
 
     # --- transient media failure: row returned AND id marked transient ---
     def fake_dl(video_id=None, **kwargs):
