@@ -40,10 +40,18 @@ import pandas as pd
 import fyp.ab_eval as ab
 import fyp.data_io as data_io
 from fyp import annotation_contract as ac
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
 
 TASK_TYPES = ("coding", "vote")
 TASKS_INDEX_FILENAME = "human_tasks_index.json"
@@ -181,7 +189,7 @@ def available_variables(run_id: str) -> list[dict]:
     contract = ac.load_contract()
     enum_map = _contract_enum_values(contract) if contract else {}
     col_meta = ac.contract_column_metadata(contract) if contract else {}
-    vs = fyp_cf.get("var_schema")
+    vs = _cf().get("var_schema")
     vs_meta: dict[str, dict] = {}
     if vs is not None:
         for _, row in vs.iterrows():
