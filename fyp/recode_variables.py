@@ -934,46 +934,6 @@ def recode_long_strings(
 
 
 
-def recode_challenges(
-    challenges : str | pd.Series,
-    recoding_policy : dict = {}) -> list | pd.Series:
-
-    
-    if isinstance(challenges, pd.Series):
-        # Split on the literal " | " separator. Must pass regex=False because the
-        # pipe would otherwise be parsed as a regex alternation operator, splitting
-        # on whitespace instead of the full " | " token.
-        mask_na = challenges.isna()
-        s = challenges.astype(str).str.replace("  ", " ", regex=False).str.split(" | ", regex=False)
-
-        def _clean_list(mod_list):
-            if not isinstance(mod_list, list): return []
-            return [v.strip() for v in mod_list if v.strip()]
-
-        result = s.map(_clean_list)
-        # NA inputs should round-trip to [] to match the scalar branch.
-        if mask_na.any():
-            result.loc[mask_na] = pd.Series(
-                [[] for _ in range(int(mask_na.sum()))],
-                index=result.index[mask_na],
-            )
-        return result
-
-    if isinstance(challenges, str):
-        return [
-            v.strip().replace("  ", " ")
-            for v in challenges.split(" | ")
-            if v.strip()
-        ]
-    else:
-        return []
-
-
-
-
-# making a very rough simplification of main activity, picking the first word that
-# ends with -ing. The assumption is that this is a verb (I know it isn't) and
-# that it captures the video's main activity 
 def recode_stringified_list(
     a_string_representing_a_list, 
     recoding_policy

@@ -80,7 +80,6 @@ def _register_web_ui(app):
     Args:
         app: The Flask application to register the web blueprints and routes on.
     """
-    from .routes.api_collections_routes import collections_bp
     from .routes.api_correlations_routes import correlations_bp
     from .routes.api_explorer_routes import explorer_bp
     from .routes.api_semantic_space_routes import semantic_space_bp
@@ -98,7 +97,6 @@ def _register_web_ui(app):
     app.register_blueprint(timelines_bp)
     app.register_blueprint(correlations_bp)
     app.register_blueprint(semantic_space_bp)
-    app.register_blueprint(collections_bp)
     app.register_blueprint(management_bp)
     app.register_blueprint(human_eval_bp)
 

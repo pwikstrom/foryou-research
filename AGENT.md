@@ -204,7 +204,7 @@ fyp_main_v02/
 - **`fyp/fyp_config.py`**: Config loader. Walks up the directory tree looking for `__proj__.py` to locate the project root. Call `fyp_config.initialize()` to set up.
 - **`fyp/types.py`**: PyArrow-aware dtype conversion helpers. Use these for dtype handling.
 - **`web_interface/`**: Contains the Flask app routes and templates.
-- **`web_interface/task_status.py`**: Status reporting framework. `GCSStatusReporter` for Cloud Tasks (writes to GCS with heartbeat), `LocalStatusReporter` for subprocess mode (stdout). Use `get_reporter(name)` to get the right one.
+- **`web_interface/task_status.py`**: Status reporting framework. `GCSStatusReporter` for Cloud Tasks (writes to GCS with heartbeat), `LocalStatusReporter` for subprocess mode (stdout). Instantiate the one matching the execution environment (Cloud Tasks dispatch uses `GCSStatusReporter`; `__main__` subprocess mode uses `LocalStatusReporter`).
 - **`web_interface/process_manager.py`**: Process lifecycle. `CLOUD_TASK_ELIGIBLE` set controls which processes use Cloud Tasks. `start_process()` auto-selects Cloud Tasks vs subprocess based on `K_SERVICE` env var.
 
 ---

@@ -507,12 +507,3 @@ def stamp_task_status(
 def is_cloud_run() -> bool:
     """Check if running on Cloud Run."""
     return bool(os.environ.get("K_SERVICE"))
-
-
-
-
-def get_reporter(name: str) -> TaskStatusReporter:
-    """Return the appropriate reporter for the current execution environment."""
-    if is_cloud_run():
-        return GCSStatusReporter(name)
-    return LocalStatusReporter(name)

@@ -139,16 +139,6 @@ def fit_niche_model(
 
 
 
-def assign_niches(model: dict, documents: pd.Series) -> np.ndarray:
-    """Assign niche labels to new documents using a fitted model."""
-    tfidf = model["vectorizer"].transform(documents)
-    reduced = model["lsa"].transform(tfidf)
-    return model["kmeans"].predict(reduced)
-
-
-
-
-
 def top_terms_per_niche(model: dict, top_n: int = 8) -> dict[int, list[str]]:
     """Return the most distinctive TF-IDF terms for each niche (centroid terms).
 

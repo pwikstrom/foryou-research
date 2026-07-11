@@ -688,9 +688,6 @@ function _ssTimeColorRGB(t) {
 }
 
 
-function _ssTimeColor(t) { const c = _ssTimeColorRGB(t); return `rgb(${c[0]},${c[1]},${c[2]})`; }
-
-
 function _ssTopNichesStr(top) {
     return (top || []).map(t => `${t.name} ${Math.round(t.share * 100)}%`).join(' · ');
 }

@@ -399,22 +399,6 @@ function filterCollections(inputElement) {
     });
 }
 
-function selectAllCollections(btn, select) {
-    const selectorDiv = btn.closest('.collection-selector');
-    const container = selectorDiv.querySelector('.collection-checklist-container');
-    const items = container.querySelectorAll('.collection-item');
-
-    items.forEach(item => {
-        if (item.style.display !== 'none') {
-            const cb = item.querySelector('input[type="checkbox"]');
-            cb.checked = select;
-        }
-    });
-
-    updateCollectionSelection(selectorDiv);
-}
-
-
 function renderStudiesTable() {
     // The studies partial is included once per tab that wants to show it
     // (Data Management's Studies sub-page + My Studies). Populate every copy.
@@ -2404,49 +2388,6 @@ function _activePipelineStep(statusData) {
         if (p && p.state === 'running') return { name, state: p };
     }
     return null;
-}
-
-function renderPipelineCompletionSummary(statusData, impact) {
-    // Render a one-line summary below the existing consolidate-status text.
-    // Three outcomes are possible:
-    //   - Downstream steps ran    → list what was refreshed
-    //   - No impact / no steps    → confirm "everything up to date"
-    //   - Failure                 → handled by caller (not here)
-    const statusEl = document.getElementById('consolidate-status');
-    if (!statusEl) return;
-
-    const studies = impact ? (impact.affected_study_names || []).length : 0;
-    const collections = impact ? (impact.affected_collection_ids || []).length : 0;
-
-    // A step "ran" if it has a last_run_end_time newer than the consolidate
-    // step's start_time — these are what this pipeline actually touched.
-    const consolidate = statusData.consolidate_enrichment;
-    const consolStart = consolidate && consolidate.start_time
-        ? new Date(consolidate.start_time).getTime() : 0;
-    const stepRanThisPipeline = (name) => {
-        const s = statusData[name];
-        if (!s || s.last_run_outcome !== 'Success') return false;
-        const end = s.last_run_end_time ? new Date(s.last_run_end_time).getTime() : 0;
-        return end >= consolStart;
-    };
-
-    const parts = [];
-    if (stepRanThisPipeline('recode_refresh_studies') && studies)
-        parts.push(`${studies} study definition${studies === 1 ? '' : 's'}`);
-    if (stepRanThisPipeline('meta_refresh_groups') && studies)
-        parts.push(`explore metadata (${studies})`);
-    if (stepRanThisPipeline('pca_refresh') && studies)
-        parts.push(`correlations (${studies})`);
-    if (stepRanThisPipeline('timelines_refresh') && collections)
-        parts.push(`${collections} timeline${collections === 1 ? '' : 's'}`);
-
-    const summary = parts.length
-        ? `✓ Pipeline complete — refreshed ${parts.join(', ')}.`
-        : '✓ Consolidation complete — no cached files needed refreshing. Everything is up to date.';
-
-    const existing = statusEl.innerHTML;
-    const styled = `<span style="color: var(--color-success-light); font-weight: var(--weight-medium);">${summary}</span>`;
-    statusEl.innerHTML = existing ? `${existing}<br>${styled}` : styled;
 }
 
 function _renderStageText(statusEl, stepName, progress) {
@@ -4584,10 +4525,6 @@ function dm_saveAnnotation() {
             loadAvailableCollections();
         })();
     }
-}
-
-function dm_closeEditModal() {
-    document.getElementById('edit-collection-modal').style.display = 'none';
 }
 
 

@@ -867,34 +867,6 @@ def _load_study_raw_window(selected: list, df_window: pd.DataFrame | None = None
 
 
 
-def _count_sparse_cells(df_study: pd.DataFrame) -> tuple[int, int]:
-    """Return (sparse_cells, total_cells) where a cell is (day, collection_id).
-
-    A cell is 'sparse' if it has 1 <= activities < SPARSE_CELL_MIN_ACTIVITIES.
-    Zero-activity cells don't exist in a groupby result, so we only count cells
-    that actually contain at least one activity.
-    """
-
-    if df_study is None or df_study.empty:
-        return 0, 0
-    if 'collection_id' not in df_study.columns or 'local_timestamp' not in df_study.columns:
-        return 0, 0
-
-    ts = pd.to_datetime(df_study['local_timestamp'], errors='coerce')
-    mask = ts.notna()
-    if not mask.any():
-        return 0, 0
-
-    dates = ts[mask].dt.date
-    cids = df_study.loc[mask, 'collection_id'].astype(str)
-    cells = pd.Series(1, index=pd.MultiIndex.from_arrays([dates, cids], names=['date', 'collection_id'])).groupby(level=[0, 1]).sum()
-    total_cells = int(cells.size)
-    sparse_cells = int((cells < SPARSE_CELL_MIN_ACTIVITIES).sum())
-    return sparse_cells, total_cells
-
-
-
-
 def _derive_study_issues(stats: dict, sparse_cells: int, total_cells: int, has_total_days: bool, sampling_report: dict | None = None) -> list[dict]:
     """Produce an inline feedback list for the study design.
 
@@ -2904,19 +2876,6 @@ def api_refresh_staleness():
     })
 
 
-@management_bp.route('/api/manage/schema/reload', methods=['POST'])
-@permission_required('tab.admin.general')
-@login_required
-def reload_schema():
-    try:
-        global fyp_cf
-        fyp_cf = load_var_schema(fyp_cf, verbose=False)
-        return jsonify({"status": "success", "message": "Variable schema reloaded successfully."})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-
 def _df_to_records(df: pd.DataFrame) -> list[dict]:
     """Convert the schema DataFrame to a list of plain-dict records,
     coercing nulls to empty strings so the JSON payload is stable shape.
@@ -2935,32 +2894,6 @@ def _df_to_records(df: pd.DataFrame) -> list[dict]:
             rec[col] = "" if val is None else str(val)
         out.append(rec)
     return out
-
-
-
-def _affected_studies_for_hash(new_hash: str) -> list[str]:
-    """List study names whose sidecar ``var_schema_hash`` differs from ``new_hash``.
-
-    Used by the admin UI to surface "saving will trigger N study rebuilds"
-    before the admin clicks save.  Missing / unreadable sidecars are
-    silently skipped — the regular refresh path will rebuild them anyway.
-    """
-    try:
-        files = data_io.listdir(storage_location="cache")
-    except Exception:
-        return []
-    affected: list[str] = []
-    for fname in files:
-        if not fname.endswith("_recoded.meta.json"):
-            continue
-        study_name = fname[: -len("_recoded.meta.json")]
-        try:
-            sidecar = data_io.load_json(storage_location="cache", filename=fname)
-        except Exception:
-            continue
-        if str(sidecar.get("var_schema_hash") or "") != new_hash:
-            affected.append(study_name)
-    return sorted(affected)
 
 
 
@@ -4094,17 +4027,6 @@ def get_schema():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-
-def _payload_to_df(payload_rows: list[dict]) -> pd.DataFrame:
-    """Convert API rows into a DataFrame shaped like the current schema."""
-    current_columns = list(fyp_cf["var_schema"].columns)
-    # Ensure every incoming row has every column the live schema expects
-    rows = []
-    for r in payload_rows:
-        rows.append({col: r.get(col, "") for col in current_columns})
-    return pd.DataFrame(rows, columns=current_columns)
 
 
 

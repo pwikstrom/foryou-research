@@ -155,17 +155,6 @@ def base_fields(contract: dict) -> list[dict]:
 
 
 
-def platform_fields(contract: dict, platform: str) -> list[dict]:
-    """Return the fields a single platform owns, in document order."""
-    return [
-        f
-        for f in contract.get("fields", [])
-        if f.get("scope") == "platform" and f.get("platform") == platform
-    ]
-
-
-
-
 def base_field_names(contract: dict) -> list[str]:
     """Return the ordered canonical column names of the base fields."""
     return [f["name"] for f in base_fields(contract)]

@@ -72,8 +72,6 @@ def _pick_samples(scale: str, func_name: str) -> list[tuple[str, pd.Series]]:
     # the generic fallbacks.
     if func_name == "recode_numeric_mean":
         return [("age_range_list", SAMPLE_SERIES["age_range_list"])]
-    if func_name == "recode_challenges":
-        return [("pipe_list", SAMPLE_SERIES["pipe_list"])]
     if func_name == "recode_numeric":
         return [("percent", SAMPLE_SERIES["percent"]), ("numeric", SAMPLE_SERIES["numeric"])]
 

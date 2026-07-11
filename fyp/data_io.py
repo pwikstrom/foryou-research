@@ -15,10 +15,8 @@ import tempfile
 import threading
 import time as _time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
 
 import gcsfs
-import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
@@ -167,29 +165,6 @@ def register_location(name: str, abs_path: str, verbose: bool = False) -> None:
 
     if verbose:
         print(f"    [DATA_IO] Registered storage location '{name}' -> {abs_path}")
-
-
-
-
-
-
-
-
-def get_recent_files(storage_location: str = "cache", suffix: str = None, how_recent: int = 10):
-
-    current_time = datetime.now()
-    recent_files = []
-
-    for filename in listdir(storage_location = storage_location):
-        #file_path = join(storage_location, filename)
-        if suffix is None or filename.endswith(suffix):
-            modified_time = datetime.fromtimestamp(getmtime(storage_location = storage_location, filename = filename))
-            created_time = datetime.fromtimestamp(getctime(storage_location = storage_location, filename = filename))
-            time_difference = current_time - max(modified_time, created_time)
-            if time_difference < timedelta(minutes=how_recent):
-                recent_files.append({"filename":filename, "mtime":modified_time, "ctime":created_time})
-
-    return sorted(recent_files,key=lambda x: x["mtime"], reverse=True)
 
 
 
@@ -1557,113 +1532,3 @@ def save_parquet(
 
     return this_df
 
-
-
-
-
-
-
-
-
-
-# ============================================================================
-# CSV export
-# ============================================================================
-
-
-def save_logs_as_csv(
-    study_name: str = None,
-    outdata_filtered: pd.DataFrame = None,
-    file_label: str = "",
-    verbose: bool = False
-    ) -> None:
-    """Export a study dataset to CSV with Excel-safe formatting."""
-
-    if study_name is None:
-        raise ValueError("study_name must be specified")
-    if outdata_filtered is None:
-        raise ValueError("outdata_filtered must be specified")
-
-    def _clean_surrogates(text):
-        """Remove surrogate characters that can't be encoded in UTF-8."""
-        if not isinstance(text, str):
-            return text
-        try:
-            return text.encode('utf-8', 'ignore').decode('utf-8')
-        except:
-            return ''.join(char for char in text if ord(char) < 0xD800 or ord(char) > 0xDFFF)
-
-
-    if len(outdata_filtered) == 0:
-        if verbose:
-            print("A log file has not been generated so a CSV cannot be saved")
-    else:
-        log_as_csv_filename = study_name + "_" + "_LOG.csv"
-        outdata_for_csv_export = outdata_filtered.copy()
-
-        if verbose:
-            print("Cleaning string data...")
-        string_cols = outdata_for_csv_export.select_dtypes(exclude=['number']).columns
-        for col in string_cols:
-            outdata_for_csv_export[col] = (
-                outdata_for_csv_export[col]
-                .astype(str)
-                .str.replace("\n", " ", regex=False)
-                .str.replace(";", " ", regex=False)
-                .str.replace(", ", " ", regex=False)
-                .str.replace(" ,", " ", regex=False)
-                .str.replace("\t", " ", regex=False)
-                .str.replace("|  ", " ", regex=False)
-                .str.replace("،", " ", regex=False)  # arabic comma
-            )
-
-        # Clean surrogate characters from all string columns to prevent Unicode encoding errors
-        if verbose:
-            print("Cleaning surrogate characters from string data...")
-        string_cols = outdata_for_csv_export.select_dtypes(exclude=['number']).columns
-        for col in string_cols:
-            outdata_for_csv_export[col] = outdata_for_csv_export[col].apply(_clean_surrogates)
-
-        # all numbers except for those related to session stats can be integers, so let's retype those
-        some_float_cols = [c for c in outdata_for_csv_export.select_dtypes(include=[float, np.float64]).columns if "session" not in c]
-        outdata_for_csv_export[some_float_cols] = outdata_for_csv_export[some_float_cols].fillna(value=-1).astype(int)
-
-        # Build item URLs from each row's platform (before the Excel quoting
-        # below mangles item_id). tiktok_url is kept as a back-compat alias
-        # for existing downstream consumers; prefer item_url.
-        def _platform_url_templates() -> dict:
-            from fyp.ingest import ForYouBaseCollection
-            return {
-                cls.source_platform: cls.platform_url_template
-                for cls in ForYouBaseCollection._registry
-                if getattr(cls, "source_platform", None) and getattr(cls, "platform_url_template", None)
-            }
-
-        templates = _platform_url_templates()
-        tiktok_template = templates.get("tiktok", "https://www.tiktok.com/@/video/{item_id}")
-        if "source_platform" in outdata_for_csv_export.columns:
-            outdata_for_csv_export["item_url"] = [
-                templates.get(p, tiktok_template).format(item_id=i)
-                for p, i in zip(
-                    outdata_for_csv_export["source_platform"].fillna("tiktok"),
-                    outdata_for_csv_export["item_id"].astype(str),
-                )
-            ]
-        else:
-            outdata_for_csv_export["item_url"] = [
-                tiktok_template.format(item_id=i)
-                for i in outdata_for_csv_export["item_id"].astype(str)
-            ]
-        outdata_for_csv_export["tiktok_url"] = "https://www.tiktok.com/@/video/" + outdata_for_csv_export["item_id"].astype(str) + "/"
-
-        # Convert long numbers to strings for Excel
-        for c in ["data_author_id","item_id","music_id","author_id","ts_jiggled"]:
-            if c in outdata_for_csv_export.columns:
-                outdata_for_csv_export[c] = "'" + outdata_for_csv_export[c].astype(str) + "'"
-
-        # Export with error handling for any remaining encoding issues
-        outdata_for_csv_export.to_csv(os.path.join(_cf()['paths']['exports'],log_as_csv_filename), encoding='utf-8-sig', errors='replace')
-        if verbose:
-            print(f"Exported {len(outdata_for_csv_export):,} observations in {log_as_csv_filename}.")
-            print(f"The date of the observations in the log range from {outdata_filtered['local_timestamp'].min()} -- {outdata_filtered['local_timestamp'].max()}")
-            print(f"Now: {_dt.datetime.now()}")

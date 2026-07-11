@@ -681,30 +681,6 @@ function _showAlreadyRunningDialog(name, extraBody) {
 
 
 
-async function toggleProcess(name, label) {
-    // Check current state inferred from UI or wait for status update
-    // But better to just check the status from the status object if we had it global.
-    // Use the API to check status is safer, but simpler is: just try to start, if 409 (already running) -> stop.
-    // However, the button logic is: "button that is both starting and stopping".
-
-    // Let's fetch status first to be sure
-    try {
-        const res = await fetch('/api/status');
-        const data = await res.json();
-        const pData = data[name];
-
-        if (pData && pData.state === 'running') {
-            await stopProcess(name);
-        } else {
-            await startProcess(name);
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-
-
 function showStopConfirm(name) {
     _pendingStopProcess = name;
     const btn = document.getElementById(`${name}-toggle`);
@@ -1264,21 +1240,6 @@ async function fetchLogs(name) {
 
 
 
-async function clearLogs(name) {
-    try {
-        const res = await fetch(`/api/logs/clear/${name}`, { method: 'POST' });
-        const el = document.getElementById(`${name}-logs`);
-        if (el) {
-            el.textContent = "";
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-
-
-
 function openTab(evt, tabName) {
     // Hide all tab panes
     const tabPanes = document.getElementsByClassName("tab-pane");
@@ -1326,15 +1287,6 @@ function openTab(evt, tabName) {
         renderSettingsUI();
     }
 
-    // Persona Explorer - init on first open
-    if (tabName === 'collections') {
-        if (typeof pe_onShow === 'function') {
-            pe_onShow();
-        } else if (typeof pe_init === 'function' && (!window.pe_data || window.pe_data.length === 0)) {
-            pe_init();
-        }
-    }
-
     // Semantic Space - lazy-load the global video map on first open
     if (tabName === 'semantic_space' && typeof initSemanticSpace === 'function') {
         initSemanticSpace();
@@ -1361,8 +1313,7 @@ const _TAB_TITLE_MAP = {
     semantic_space: 'Semantic Space',
     my_stuff: 'My stuff',
     data_management: 'Data Management',
-    admin: 'Admin',
-    collections: 'Collections'
+    admin: 'Admin'
 };
 
 function _setCurrentTabLabel(tabName, evt) {
@@ -1677,103 +1628,5 @@ async function fetchStudyFiles(studyName) {
     } catch (e) {
         console.error(e);
         container.innerHTML = `<p style="color: var(--color-danger-soft);">Failed to load files.</p>`;
-    }
-}
-
-async function checkDatasets() {
-    const studyName = document.getElementById('build-study-name').value;
-    const container = document.getElementById('dataset-check-results');
-
-    if (!studyName) {
-        alert("Please select a study first.");
-        return;
-    }
-
-    container.innerHTML = '<p>Checking datasets (this may take a moment)...</p>';
-
-    try {
-        const res = await fetch(`/api/check_datasets/${studyName}`);
-        const data = await res.json();
-
-        if (data.error) {
-            container.innerHTML = `<p style="color: var(--color-danger-soft);">Error: ${data.error}</p>`;
-            return;
-        }
-
-        if (data.length === 0) {
-            container.innerHTML = '<p>No datasets found for this study.</p>';
-            return;
-        }
-
-        let html = '<table style="width: 100%; text-align: left; border-collapse: collapse; margin-top: 10px;">';
-        html += '<tr style="border-bottom: 1px solid var(--color-border-strong);">';
-        html += '<th style="padding: 4px 15px 4px 4px;">Filename</th>';
-        html += '<th style="padding: 4px 15px 4px 4px;">Rows</th>';
-        html += '<th style="padding: 4px 15px 4px 4px;">Cols</th>';
-        html += '<th style="padding: 4px 15px 4px 4px;">Nunique Items</th>';
-        html += '<th style="padding: 4px 15px 4px 4px;">Group Size</th>';
-        html += '<th style="padding: 4px 15px 4px 4px;">Size (KB)</th>';
-        html += '</tr>';
-
-        data.forEach(file => {
-            // Handle errors per file
-            if (file.error) {
-                html += `<tr><td>${file.filename}</td><td colspan="3" style="color: var(--color-danger-soft);">${file.error}</td></tr>`;
-            } else {
-                html += `<tr>
-                    <td style="padding: 4px 15px 4px 4px;">${file.filename}</td>
-                    <td style="padding: 4px 15px 4px 4px;">${file.rows.toLocaleString()}</td>
-                    <td style="padding: 4px 15px 4px 4px;">${file.cols.toLocaleString()}</td>
-                    <td style="padding: 4px 15px 4px 4px;">${file.nunique_items.toLocaleString()}</td>
-                    <td style="padding: 4px 15px 4px 4px;">${file.group_factor_counts.toLocaleString()}</td>
-                    <td style="padding: 4px 15px 4px 4px;">${file.size_kb.toLocaleString()}</td>
-                 </tr>`;
-            }
-        });
-
-        html += '</table>';
-        container.innerHTML = html;
-
-    } catch (e) {
-        console.error(e);
-        container.innerHTML = `<p style="color: var(--color-danger-soft);">Failed to check datasets.</p>`;
-    }
-}
-
-async function checkVideoCounts() {
-    const studyName = document.getElementById('global-study-name').value;
-    const display = document.getElementById('video-counts-display');
-
-    if (!studyName) {
-        alert("Please select a study first.");
-        return;
-    }
-
-    display.innerHTML = 'Checking...';
-    display.style.color = 'var(--color-text-tertiary)';
-
-    try {
-        const res = await fetch(`/api/check_video_counts/${studyName}`);
-        const data = await res.json();
-
-        if (data.error) {
-            display.innerHTML = `Error: ${data.error}`;
-            display.style.color = 'var(--color-danger-soft)';
-            return;
-        }
-
-        // data = { "annotate": [rows, cols], "scrape": [rows, cols] }
-        // Tuple usually comes as array in JSON: [rows, cols]
-
-        const scrapeCount = data.scrape ? data.scrape[0] : 0;
-        const annotateCount = data.annotate ? data.annotate[0] : 0;
-
-        display.innerHTML = `Videos to scrape: <b>${scrapeCount.toLocaleString()}</b> | Videos to annotate: <b>${annotateCount.toLocaleString()}</b>`;
-        display.style.color = 'var(--color-text-primary)';
-
-    } catch (e) {
-        console.error(e);
-        display.innerHTML = `Failed to check counts.`;
-        display.style.color = 'var(--color-danger-soft)';
     }
 }

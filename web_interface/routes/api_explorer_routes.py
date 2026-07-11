@@ -167,63 +167,6 @@ def _get_shared_simple_map(username, user_settings):
     return shared_simple_map
 
 
-def _inject_dynamic_priorities(metadata):
-    """
-    Inserts User Tags / Has Annotation / Machine Annotations into filter_priority and
-    display_priority (at the front), and writes their schema_map entries.
-    Idempotent — only inserts columns that exist in `metadata`.
-    """
-    if 'schema_map' not in metadata:
-        metadata['schema_map'] = {}
-    if 'filter_priority' not in metadata:
-        metadata['filter_priority'] = []
-    if 'display_priority' not in metadata:
-        metadata['display_priority'] = []
-
-    fp = metadata['filter_priority']
-    dp = metadata['display_priority']
-    sm = metadata['schema_map']
-
-    if 'User Tags' in metadata:
-        sm['User Tags'] = {
-            "section": "Annotation Status",
-            "display_name": "Tags by Humans",
-            "description": "Tags you have assigned to items.",
-        }
-        if 'User Tags' in fp: fp.remove('User Tags')
-        fp.insert(0, 'User Tags')
-        if 'User Tags' in dp: dp.remove('User Tags')
-        dp.insert(0, 'User Tags')
-
-    if 'Has Annotation' in metadata:
-        sm['Has Annotation'] = {
-            "section": "Annotation Status",
-            "display_name": "Has Human Annotations",
-            "description": "Filter items that have notes, tags, or closed tags.",
-        }
-        if 'Has Annotation' in fp: fp.remove('Has Annotation')
-        idx = 1 if 'User Tags' in metadata else 0
-        fp.insert(idx, 'Has Annotation')
-        if 'Has Annotation' in dp: dp.remove('Has Annotation')
-        dp.insert(idx, 'Has Annotation')
-
-    if 'Machine Annotations' in metadata:
-        sm['Machine Annotations'] = {
-            "section": "Annotation Status",
-            "display_name": "Machine Annotations",
-            "description": "Filter items by their machine annotation status.",
-        }
-        if 'Machine Annotations' in fp: fp.remove('Machine Annotations')
-        idx = 0
-        if 'User Tags' in metadata: idx += 1
-        if 'Has Annotation' in metadata: idx += 1
-        fp.insert(idx, 'Machine Annotations')
-        if 'Machine Annotations' in dp: dp.remove('Machine Annotations')
-        dp.insert(idx, 'Machine Annotations')
-
-    return metadata
-
-
 def _inject_collection_display_ids(metadata):
     """
     Adds `label` to each value in metadata['collection_id']['values'] from the

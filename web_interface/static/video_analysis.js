@@ -265,33 +265,6 @@ async function loadUserVotes() {
     } catch (e) { console.error("Failed to load votes", e); }
 }
 
-async function submitVote(itemId) {
-    if (!itemId) return;
-    try {
-        const res = await fetch('/api/video_analysis/vote', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_id: itemId })
-        });
-        if (res.ok) {
-            const data = await res.json();
-            if (data.votes) {
-                viewerData.userVotes = data.votes;
-                // Re-render just the button text
-                const container = document.getElementById('viewer-vote-container');
-                if (container) {
-                    container.innerHTML = '<span class="italic" style="color: var(--color-text-tertiary);">Voted</span>';
-                }
-            }
-        } else {
-            alert("Failed to record vote.");
-        }
-    } catch (e) {
-        console.error("Failed to submit vote", e);
-        alert("Failed to submit vote");
-    }
-}
-
 async function applyViewerActiveStudy(studyName, options = {}) {
     const { reload = true } = options;
     if (studyName === viewerData.activeStudy && !reload) return;

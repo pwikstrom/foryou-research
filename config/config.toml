@@ -150,11 +150,6 @@ MACHINE_ANNOTATIONS_LABEL = "machine_annotations"
 COLLECTIONS_LABEL = "collections"
 FAILED_SCRAPES_LABEL = "scrape_failed_items"
 
-POSITIVE_WORDS = ["positive"]
-NEGATIVE_WORDS = ["negative"]
-HIGH_ENERGY_WORDS = ["highenergy","reflective","playful"]
-LOW_ENERGY_WORDS = ["lowenergy","calm","serene"]
-
 
 # Seed/fallback only: on first use this list is copied into the admin-editable
 # store irrelevant_words.json (location "users", Admin -> General -> "Hashtag

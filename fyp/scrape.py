@@ -644,7 +644,7 @@ def _canonicalize_recode_save(
 ) -> pd.DataFrame:
     """Fix up, canonicalize, recode, and save a raw scrape batch to parquet.
 
-    Shared by ``download_video_threads`` and ``rescue_meta_threads``.
+    Called by ``download_video_threads``.
     Operates on the concatenated raw single-row frames: applies the scraper's
     ``prepare_raw_batch`` fix-ups on the RAW names (e.g. TikTok slideshow
     image_list/duration), canonicalizes via the scraper (rename + overflow
@@ -737,118 +737,6 @@ def _canonicalize_recode_save(
         )
 
     return results
-
-
-
-
-def rescue_meta_threads(
-    interesting_videos:list[str] = None,
-    max_workers:int = 4,
-    verbose:bool = False,
-    dry_run:bool = False,
-    batch_label: str | None = None,
-    cumulative_done: int = 0,
-    cumulative_total: int = 0,
-    reporter=None,
-    platform: str | None = None):
-
-
-
-    if dry_run:
-        print("********* This is a dry run. It's all fake. No data io action at all. *********")
-    else:
-        if interesting_videos is None:
-            raise ValueError("No interesting videos specified")
-
-        if len(interesting_videos) == 0:
-            return pd.DataFrame()
-
-    results_by_index = {}
-    scraper = get_scraper(platform, verbose=verbose)
-
-    def worker(idx_video):
-        idx, video = idx_video
-        return idx, download_single_video(
-            video_id = video,
-            verbose=verbose,
-            save_video=False,
-            dry_run=dry_run,
-            scraper=scraper)
-
-
-    if verbose:
-        print(f"dry_run: {dry_run}")
-        print(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
-
-
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-
-
-        futures = []
-        submit_times = {}
-        for iv in enumerate(interesting_videos):
-            fut = ex.submit(worker, iv)
-            futures.append(fut)
-            submit_times[fut] = time.time()
-
-
-        monitor_thread = start_monitor(
-            futures, submit_times, interval=5, label="dl", bar_width=32,
-            result_checker=lambda f: isinstance(f.result()[1], pd.DataFrame),
-            batch_label=batch_label,
-            cumulative_done=cumulative_done,
-            cumulative_total=cumulative_total
-        )
-
-
-        for fut in as_completed(futures):
-            idx, res = fut.result()
-            results_by_index[idx] = res
-        
-        monitor_thread.join()
-
-    results = []
-    failed_items = []
-    permanent_failed_ids: list[str] = []
-    transient_failed_ids: list[str] = []
-    for idx in range(len(interesting_videos)):
-        res = results_by_index.get(idx)
-        if isinstance(res, pd.DataFrame) and res.shape[1] > 10:
-            results += [res]
-        else:
-            vid = interesting_videos[idx]
-            failed_items += [vid]
-            error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
-            # The scraper owns its platform's permanent-vs-transient taxonomy.
-            if scraper.classify_error(error_type).startswith('permanent'):
-                permanent_failed_ids.append(vid)
-            else:
-                transient_failed_ids.append(vid)
-
-    if permanent_failed_ids or transient_failed_ids:
-        print(f"  Failures: {len(permanent_failed_ids)} permanent, "
-              f"{len(transient_failed_ids)} transient (will retry)")
-
-    if len(results)==0:
-        print("The scrape procedure did not generate any useful results")
-        return pd.DataFrame(), permanent_failed_ids, transient_failed_ids
-
-    # ignore_index=True: each element is a single-row frame indexed 0, so a
-    # plain concat leaves a duplicate index that turns the recode's
-    # concat(axis=1) hashtag fan-out into a cartesian row explosion.
-    results = pd.concat(results, ignore_index=True)
-
-    fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-    
-    if not dry_run and len(results)>0:
-        results = _canonicalize_recode_save(results, scraper, fine_ts, verbose=verbose, reporter=reporter)
-
-    if not dry_run and len(failed_items)>0:
-        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
-        print(f"Saved {len(failed_items)} failed items")
-
-    return results, permanent_failed_ids, transient_failed_ids
-
 
 
 
@@ -1376,91 +1264,6 @@ def scraper_loop_from_list(
 
     print(f"  Loop ended: {datetime.now()}")
     return good_scrapes, all_permanent_failed, all_transient_failed
-
-
-
-
-
-
-
-
-
-
-def scraper_loop(
-    study_name = None,
-    study_dataset = None,
-    load_from_cache = True,
-    batch_size = 500,
-    max_batches = None,
-    verbose = False,
-    dry_run = False
-    ):
-
-    # Imported inside function to avoid circular import: organize_datasets imports from fyp.scrape
-    from fyp.organize_datasets import create_study_recoded_dataset, select_videos_from_study_dataset
-
-    #max_batches = max_batches if max_batches is not None else np.inf
-
-    if study_name is None and study_dataset is None:
-        print("    ERROR: This process cannot run without a study name or a study dataset as input. Process failed.")
-        return None
-
-
-    if load_from_cache and study_name is not None:
-        if data_io.exists(
-            storage_location="cache",
-            filename=f"{study_name}_recoded.parquet",
-            verbose=verbose
-            ):
-            if verbose:
-                print("    Loading study dataset from cache", end=" ", flush=True)
-            study_dataset = data_io.load_parquet(
-                storage_location="cache",
-                filename=f"{study_name}_recoded.parquet",
-                verbose=verbose
-                )
-            print(study_dataset.attrs['study_name'])
-            if verbose:
-                print(f"  |  Shape: {study_dataset.shape}")
-        else:
-            if verbose:
-                print("    No cached study dataset found. I must run the process to create it. Please wait a moment...")
-            study_dataset = create_study_recoded_dataset(
-                study_name = study_name,
-                load_from_cache = True,
-                save_to_cache = True,
-                verbose = verbose
-            )
-
-
-    if study_dataset is None:
-        print("    ERROR: This process cannot run without a study dataset. Process failed.")
-        return None
-
-
-    selected_videos_df = select_videos_from_study_dataset(
-        study_dataset = study_dataset,
-        query_string = "~scraped_ok & ~scraped_fail",
-        verbose = verbose,
-        notebook_mode = False
-    )
-
-
-    scraper_loop_from_list(
-        video_list = selected_videos_df.index.to_list(),
-        batch_size = batch_size,
-        max_batches = max_batches,
-        verbose = verbose,
-        dry_run = dry_run
-        )
-
-
-    print(f"  Loop ended: {datetime.now()}")
-
-
-
-
-
 
 
 

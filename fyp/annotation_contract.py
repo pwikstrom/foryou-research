@@ -365,22 +365,6 @@ def enum_field_names(contract: dict) -> set[str]:
 
 
 
-def field_numeric_range(contract: dict, name: str) -> tuple[int, int] | None:
-    """Return ``(min, max)`` for an ``int`` field that declares both bounds.
-
-    Used by the generic numeric recode to normalise a bounded integer (e.g. a
-    0-100 score) into a 0-1 ratio, so no per-field parser is needed.
-    """
-    for field in contract.get("fields", []):
-        if field.get("name") == name and field.get("type") == "int":
-            if "min" in field and "max" in field:
-                return (int(field["min"]), int(field["max"]))
-            return None
-    return None
-
-
-
-
 def contract_numeric_ranges(contract: dict) -> dict[str, tuple[int, int]]:
     """Return ``{flattened_column: (min, max)}`` for every bounded numeric field.
 

@@ -81,8 +81,7 @@ functions_to_check = [
     "process_and_combine_logs_for_log_export",
     "merge_all_study_datasets",
     "filter_log_against_sampled__groups",
-    "save_logs",
-    "save_logs_as_csv"
+    "save_logs"
 ]
 
 all_passed = True
