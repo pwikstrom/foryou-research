@@ -37,10 +37,18 @@ from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp import scraper_cookies
-from fyp.fyp_config import fyp_cf
 from fyp.platform_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
+
+
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
 
 
 # -------------------------------------------------------------------------
@@ -294,7 +302,7 @@ def _download_media(
         on success, otherwise the :func:`_classify_error` result of the last
         failure so the caller can distinguish transient from permanent.
     """
-    temp_dir = fyp_cf['paths']['temp']
+    temp_dir = _cf()['paths']['temp']
     out_template = join(temp_dir, f"{item_id}.%(ext)s")
     dl_opts: dict = {
         'quiet': True,
