@@ -1,0 +1,84 @@
+# Contributing to FYP
+
+## Workflow
+
+1. Branch off `main`; keep branches short-lived and focused.
+2. Install the pre-commit hook once: `pip install pre-commit && pre-commit install`.
+   It currently gates only pyflakes-level errors (`ruff --select=F`) while
+   pre-existing style debt is worked down; the full ruff rule set in
+   `pyproject.toml` is the target bar for new code.
+3. Before opening a PR, run the verification gate:
+
+   ```bash
+   source .fypenv314/bin/activate
+   bash scripts/verify.sh
+   ```
+
+4. PRs should be independently deployable — production deploys straight from
+   `main` (Cloud Run, see `AGENT.md`).
+
+## Tests
+
+- `pytest` runs `tests/unit/` (configured in `pyproject.toml`). Markers:
+  - `requires_data` — needs local/production data files not in a fresh checkout
+  - `requires_gcs` — needs live GCS/GCP credentials
+  - `slow` — long-running
+  - `stale` — known-broken against current contracts/data shapes (a to-fix
+    list, not a regression signal)
+  The checkout-only gate is `pytest -m "not requires_data and not requires_gcs and not slow and not stale"`.
+- Nine legacy test files cannot currently be collected at all and are listed
+  (with reasons) in `tests/unit/conftest.py::collect_ignore` — converting one
+  to proper pytest style and removing its entry is a welcome contribution.
+- `tests/golden/` is the annotation safety net: it replays saved raw Gemini
+  responses through the full pipeline, so it is free and offline. Run it with
+  `python tests/golden/run_safety_net.py`. If you touch annotation code, this
+  is your regression suite (see `tests/golden/README.md`).
+- New tests go in `tests/unit/`; ad-hoc debug scripts go in `tests/` top level
+  or `tests/debug/` and are excluded from collection.
+
+## Coding style
+
+The authoritative style rules live in `AGENT.md` §"Coding Style". Highlights:
+
+- Python type hints in signatures; Google-style docstrings; imports at the
+  top of the file; f-strings; PyArrow dtypes for DataFrames.
+- Frontend: never hardcode colors/fonts/sizes — use the CSS custom-property
+  token system in `web_interface/static/style.css` (semantic tokens, type
+  scale, weight utilities). Both dark and light themes must be covered.
+- All file access goes through `fyp/data_io.py` named locations — never raw
+  paths — so code works unchanged against local disk and GCS.
+
+## Invariants you must not break
+
+These are load-bearing conventions; each has a guard, but know them up front:
+
+1. **The config import cycle.** `fyp/fyp_config.py` runs `initialize()` +
+   `load_var_schema()` at module import. Modules that the load-time contract
+   overlays call into (`data_io`, the three `*_versioning` modules,
+   `var_presentation`) must NOT import `fyp_cf` (or `fyp.data_io`) at module
+   level — they use function-level `_cf()` / `_data_io()` accessors. Guard:
+   `tests/unit/test_import_cycle_hash.py`.
+2. **The worker stdout contract.** In subprocess mode,
+   `web_interface/process_manager.py` parses worker stdout line-by-line for
+   `::PROGRESS::` / `::DATA::` markers emitted by `LocalStatusReporter`
+   (`web_interface/task_status.py`); every other stdout line becomes a UI log
+   line. Do not redirect worker output to stderr or alter those marker lines.
+3. **The var-schema hash.** Study caches key on a hash of the synthesized
+   variable schema. Metadata-only changes (display names, descriptions,
+   surface checkboxes) must never change the hash; genuine schema changes
+   must. If your change bumps the hash, every study re-recodes on the next
+   refresh — do it knowingly.
+4. **Contracts own their schemas.** The four TOML contracts in `config/`
+   (annotation, scrape, activity, derived) are the single declarative source
+   for variable metadata; `var_schema` is synthesized from them at config
+   load. Don't hand-edit synthesized outputs.
+5. **Cross-service stats.** Both Cloud Run services share
+   `process_stats.json` on GCS — always call `load_process_stats()` before
+   reading or writing so you don't clobber the other service's data.
+
+## Adding a platform
+
+The codebase is designed so a new platform is two classes and a contract
+block — no orchestration edits. See [docs/pipeline.md](docs/pipeline.md) and
+the docstrings on `ForYouBaseCollection` (`fyp/ingest.py`) and `BaseScraper`
+(`fyp/platform_scraper.py`).

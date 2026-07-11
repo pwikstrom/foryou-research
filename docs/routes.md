@@ -1,0 +1,138 @@
+# HTTP route inventory
+
+All non-static routes of the FYP web app, grouped by blueprint. Generated —
+do not edit by hand; regenerate after adding or removing routes:
+
+```bash
+python scripts/gen_route_inventory.py
+```
+
+
+| Blueprint | Path | Methods | Endpoint |
+|---|---|---|---|
+| (app) | `/` | GET | `index` |
+| auth_bp | `/api/admin/annotations` | GET | `auth_bp.api_admin_annotations` |
+| auth_bp | `/api/admin/irrelevant_words` | GET,PUT | `auth_bp.api_irrelevant_words` |
+| auth_bp | `/api/admin/irrelevant_words/apply` | POST | `auth_bp.api_irrelevant_words_apply` |
+| auth_bp | `/api/admin/permissions/catalog` | GET | `auth_bp.api_admin_permissions_catalog` |
+| auth_bp | `/api/admin/roles` | DELETE,GET,POST | `auth_bp.api_admin_roles` |
+| auth_bp | `/api/admin/roles/<role_name>/permissions` | PUT | `auth_bp.api_admin_role_permissions` |
+| auth_bp | `/api/admin/settings` | GET,PUT | `auth_bp.api_admin_settings` |
+| auth_bp | `/api/admin/users` | DELETE,GET,POST,PUT | `auth_bp.api_admin_users` |
+| auth_bp | `/api/admin/users/<path:username>/log` | GET | `auth_bp.api_admin_user_log` |
+| auth_bp | `/api/user/profile` | GET,POST | `auth_bp.api_user_profile` |
+| auth_bp | `/api/user/settings` | GET,POST | `auth_bp.api_user_settings` |
+| auth_bp | `/login` | GET,POST | `auth_bp.login` |
+| auth_bp | `/logout` | GET | `auth_bp.logout` |
+| auth_bp | `/signup` | GET,POST | `auth_bp.signup` |
+| correlations_bp | `/api/correlations/correlation_matrix` | POST | `correlations_bp.api_pca_correlation_matrix` |
+| correlations_bp | `/api/correlations/data` | POST | `correlations_bp.api_pca_data` |
+| correlations_bp | `/api/correlations/metadata` | POST | `correlations_bp.api_pca_metadata` |
+| explorer_bp | `/api/explore/filter` | POST | `explorer_bp.api_explorer_filter` |
+| explorer_bp | `/api/explore/metadata` | GET | `explorer_bp.api_explorer_metadata` |
+| explorer_bp | `/api/explore/metadata/base` | GET | `explorer_bp.api_explorer_metadata_base` |
+| explorer_bp | `/api/explore/metadata/overlay` | GET | `explorer_bp.api_explorer_metadata_overlay` |
+| explorer_bp | `/api/studies/defined` | GET | `explorer_bp.api_get_study_defs` |
+| explorer_bp | `/api/system-info` | GET | `explorer_bp.system_info` |
+| human_eval | `/api/human-eval/my-tasks` | GET | `human_eval.my_human_eval_tasks` |
+| human_eval | `/api/human-eval/tasks/<run_id>/<task_type>` | GET | `human_eval.get_coder_task` |
+| human_eval | `/api/human-eval/tasks/<run_id>/<task_type>/responses` | POST | `human_eval.save_coder_response` |
+| human_eval | `/api/human-eval/tasks/<run_id>/<task_type>/submit` | POST | `human_eval.submit_coder_task` |
+| human_eval | `/api/manage/human-eval/runs` | GET | `human_eval.list_human_eval_runs` |
+| human_eval | `/api/manage/human-eval/runs/<run_id>/variables` | GET | `human_eval.get_human_eval_variables` |
+| human_eval | `/api/manage/human-eval/tasks` | GET | `human_eval.list_human_eval_tasks` |
+| human_eval | `/api/manage/human-eval/tasks` | POST | `human_eval.create_human_eval_task` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>` | DELETE | `human_eval.delete_human_eval_task` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>` | GET | `human_eval.get_human_eval_task` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/coders` | POST | `human_eval.add_human_eval_coders` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/notify` | POST | `human_eval.resend_human_eval_invite` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/recompute` | POST | `human_eval.recompute_human_eval_results` |
+| human_eval | `/api/manage/human-eval/users` | GET | `human_eval.list_human_eval_users` |
+| internal_bp | `/internal/run-task/<name>` | POST | `internal_bp.internal_run_task` |
+| management_bp | `/api/manage/ab-candidates` | GET | `management_bp.list_ab_candidates` |
+| management_bp | `/api/manage/ab-candidates` | POST | `management_bp.save_ab_candidate` |
+| management_bp | `/api/manage/ab-candidates/<name>` | DELETE | `management_bp.delete_ab_candidate` |
+| management_bp | `/api/manage/ab-candidates/<name>` | GET | `management_bp.get_ab_candidate` |
+| management_bp | `/api/manage/ab-candidates/<name>/activate` | POST | `management_bp.activate_ab_candidate` |
+| management_bp | `/api/manage/ab-eval-set` | GET | `management_bp.get_ab_eval_set` |
+| management_bp | `/api/manage/ab-eval-set` | POST | `management_bp.save_ab_eval_set` |
+| management_bp | `/api/manage/ab-eval-set/sample` | POST | `management_bp.sample_ab_eval_set` |
+| management_bp | `/api/manage/ab-eval-sets` | GET | `management_bp.list_ab_eval_sets` |
+| management_bp | `/api/manage/ab-eval-sets` | POST | `management_bp.create_ab_eval_set` |
+| management_bp | `/api/manage/ab-eval-sets/<name>` | DELETE | `management_bp.delete_ab_eval_set` |
+| management_bp | `/api/manage/ab-eval-sets/<name>/activate` | POST | `management_bp.activate_ab_eval_set` |
+| management_bp | `/api/manage/ab-eval-sets/<name>/rename` | POST | `management_bp.rename_ab_eval_set` |
+| management_bp | `/api/manage/ab-eval/estimate` | POST | `management_bp.estimate_ab_eval` |
+| management_bp | `/api/manage/ab-eval/run` | POST | `management_bp.start_ab_eval_run` |
+| management_bp | `/api/manage/ab-eval/runs` | GET | `management_bp.list_ab_eval_runs` |
+| management_bp | `/api/manage/ab-eval/runs/<run_id>` | DELETE | `management_bp.delete_ab_eval_run` |
+| management_bp | `/api/manage/ab-eval/runs/<run_id>` | GET | `management_bp.get_ab_eval_run` |
+| management_bp | `/api/manage/ab-eval/runs/<run_id>/rows` | GET | `management_bp.get_ab_eval_run_rows` |
+| management_bp | `/api/manage/annotation-contract` | GET | `management_bp.get_annotation_contract` |
+| management_bp | `/api/manage/annotation-contract` | POST | `management_bp.upload_annotation_contract` |
+| management_bp | `/api/manage/annotation-contract/download` | GET | `management_bp.download_annotation_contract` |
+| management_bp | `/api/manage/annotation-contract/parsed` | GET | `management_bp.get_annotation_contract_parsed` |
+| management_bp | `/api/manage/annotation-contract/preview` | POST | `management_bp.preview_annotation_contract` |
+| management_bp | `/api/manage/annotation-contract/revert` | POST | `management_bp.revert_annotation_contract` |
+| management_bp | `/api/manage/annotation-versions` | GET | `management_bp.list_annotation_versions` |
+| management_bp | `/api/manage/annotation-versions/<version>` | GET | `management_bp.get_annotation_version` |
+| management_bp | `/api/manage/annotation-versions/activate` | POST | `management_bp.activate_annotation_version` |
+| management_bp | `/api/manage/collection/save_annotation` | POST | `management_bp.save_collection_annotation` |
+| management_bp | `/api/manage/collections` | GET | `management_bp.list_collections` |
+| management_bp | `/api/manage/collections/affected_studies` | GET | `management_bp.affected_studies_for_collection` |
+| management_bp | `/api/manage/collections/delete` | POST | `management_bp.delete_collection` |
+| management_bp | `/api/manage/enrichment/calculate_to_annotate` | POST | `management_bp.calculate_to_annotate` |
+| management_bp | `/api/manage/enrichment/calculate_to_scrape` | POST | `management_bp.calculate_to_scrape` |
+| management_bp | `/api/manage/enrichment/consolidate` | POST | `management_bp.api_consolidate_enrichment` |
+| management_bp | `/api/manage/enrichment/consolidate/disarm` | POST | `management_bp.api_consolidate_disarm` |
+| management_bp | `/api/manage/enrichment/empty_queue/<queue_type>` | POST | `management_bp.empty_enrichment_queue` |
+| management_bp | `/api/manage/enrichment/queue_voted` | POST | `management_bp.queue_voted_videos` |
+| management_bp | `/api/manage/enrichment/refresh-downstream` | POST | `management_bp.api_refresh_downstream` |
+| management_bp | `/api/manage/enrichment/stats` | GET | `management_bp.get_enrichment_stats` |
+| management_bp | `/api/manage/ingestion/clear_pending` | POST | `management_bp.clear_pending_uploads` |
+| management_bp | `/api/manage/ingestion/fetch_aio` | POST | `management_bp.fetch_aio_data` |
+| management_bp | `/api/manage/ingestion/ledger/unskip` | POST | `management_bp.unskip_ingestion_ledger_entry` |
+| management_bp | `/api/manage/ingestion/metadata` | GET | `management_bp.get_ingestion_metadata` |
+| management_bp | `/api/manage/ingestion/refresh` | POST | `management_bp.refresh_ingestion_collection` |
+| management_bp | `/api/manage/ingestion/sources` | GET | `management_bp.get_ingestion_sources` |
+| management_bp | `/api/manage/ingestion/structure/approve` | POST | `management_bp.structure_approve` |
+| management_bp | `/api/manage/ingestion/structure/reject` | POST | `management_bp.structure_reject` |
+| management_bp | `/api/manage/ingestion/structure/warnings` | GET | `management_bp.structure_warnings` |
+| management_bp | `/api/manage/ingestion/upload` | POST | `management_bp.upload_ingestion_file` |
+| management_bp | `/api/manage/presentation` | POST | `management_bp.save_presentation_endpoint` |
+| management_bp | `/api/manage/refresh-collection-metadata` | POST | `management_bp.refresh_collection_metadata` |
+| management_bp | `/api/manage/refresh/staleness` | GET | `management_bp.api_refresh_staleness` |
+| management_bp | `/api/manage/schema` | GET | `management_bp.get_schema` |
+| management_bp | `/api/manage/schema` | POST | `management_bp.save_schema_endpoint` |
+| management_bp | `/api/manage/schema/validate` | POST | `management_bp.validate_schema_endpoint` |
+| management_bp | `/api/manage/studies` | GET | `management_bp.list_studies` |
+| management_bp | `/api/manage/studies/<study>/annotation-version` | POST | `management_bp.set_study_annotation_version` |
+| management_bp | `/api/manage/studies/calculate_stats` | POST | `management_bp.calculate_study_stats` |
+| management_bp | `/api/manage/studies/daily_activities` | POST | `management_bp.daily_activities` |
+| management_bp | `/api/manage/studies/delete` | POST | `management_bp.delete_study` |
+| management_bp | `/api/manage/studies/prewarm_check` | POST | `management_bp.prewarm_study_check` |
+| management_bp | `/api/manage/studies/save` | POST | `management_bp.save_study` |
+| process_bp | `/api/logs/<name>` | GET | `process_bp.api_logs` |
+| process_bp | `/api/logs/clear/<name>` | POST | `process_bp.api_clear_logs` |
+| process_bp | `/api/start/<name>` | POST | `process_bp.api_start` |
+| process_bp | `/api/status` | GET | `process_bp.api_status` |
+| process_bp | `/api/status/study_refresh/<study_name>` | GET | `process_bp.api_study_refresh_status` |
+| process_bp | `/api/stop/<name>` | POST | `process_bp.api_stop` |
+| process_bp | `/api/stop_graceful/<name>` | POST | `process_bp.api_stop_graceful` |
+| semantic_space_bp | `/api/semantic_space/collections` | GET | `semantic_space_bp.api_semantic_space_collections` |
+| semantic_space_bp | `/api/semantic_space/map` | GET | `semantic_space_bp.api_semantic_space_map` |
+| semantic_space_bp | `/api/semantic_space/status` | GET | `semantic_space_bp.api_semantic_space_status` |
+| semantic_space_bp | `/api/semantic_space/trajectory` | GET | `semantic_space_bp.api_semantic_space_trajectory` |
+| timelines_bp | `/api/timelines/collections` | POST | `timelines_bp.api_timeline_collections` |
+| timelines_bp | `/api/timelines/data` | POST | `timelines_bp.api_timeline_data` |
+| timelines_bp | `/api/timelines/vote_annotation` | POST | `timelines_bp.api_save_annotation_vote` |
+| viewer_bp | `/api/video/<study>/<item_id>` | GET | `viewer_bp.api_video_stream` |
+| viewer_bp | `/api/video_analysis/ids` | POST | `viewer_bp.api_viewer_ids` |
+| viewer_bp | `/api/video_analysis/item/<study>/<item_id>` | GET,POST | `viewer_bp.api_viewer_item` |
+| viewer_bp | `/api/video_analysis/tags` | GET | `viewer_bp.api_get_tags` |
+| viewer_bp | `/api/video_analysis/tags/<path:tag_name>` | DELETE | `viewer_bp.api_delete_tag` |
+| viewer_bp | `/api/video_analysis/tags/save` | POST | `viewer_bp.api_save_tags` |
+| viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
+| viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
+
+124 routes total.
