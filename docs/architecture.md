@@ -46,6 +46,16 @@ Two abstractions make this work:
   Long jobs self-chain: one batch per task, returning
   `{"chain": True, "next_task_args": ...}`.
 
+**Packaging / reuse.** `fyp` is an installable package (`pip install -e .` is
+the recommended dev setup; see `pyproject.toml`), but installation is never
+required — the repo also runs from a plain checkout, and the Docker image
+copies the code without installing it. Reusing `fyp` in another project
+currently still requires a project root containing `__proj__.py` and
+`config/config.toml`: most submodules trigger `fyp_config`'s import-time
+initialization, which locates the root via the `__proj__.py` sentinel.
+Decoupling that (e.g. a `FYP_CONFIG_PATH` override) is planned for a later
+phase.
+
 ## The contract system (variable schema)
 
 Four declarative TOML files in `config/` own the entire variable schema:

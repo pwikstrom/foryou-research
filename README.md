@@ -37,6 +37,7 @@ plus `ffmpeg` and `node`/`deno` if you run scrapers.
 python3.14 -m venv .fypenv314
 source .fypenv314/bin/activate
 pip install -r requirements-dev.txt   # runtime pins + pytest/ruff/pre-commit
+pip install -e .                       # recommended: editable install of the fyp package
 
 # Configure your machine-local paths (never edit the committed config):
 cp config/config.local.toml.example config/config.local.toml
@@ -47,6 +48,14 @@ python web_interface/fyp_data_hub.py    # → http://localhost:5002
 
 Environment variables (Gemini key, GCS bucket, ...) are documented in
 `.env.example`.
+
+The editable install is recommended but never required — the app also runs
+from a plain checkout (cwd imports and the workers' `sys.path` bootstrap keep
+working, and the Docker image installs nothing from `pyproject.toml`). Note
+that reusing `fyp` in *another* project currently still requires a project
+root containing `__proj__.py` and `config/config.toml` — most submodules
+initialize configuration at import time. Decoupling that (e.g. a
+`FYP_CONFIG_PATH` override) is planned for a later phase.
 
 Background workers run as plain subprocesses locally (started from the web
 UI's Data Management tab, or manually):

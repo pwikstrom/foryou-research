@@ -105,6 +105,10 @@ dist
 dist-ssr
 *.local
 
+# Python packaging artifacts (pip install -e . / python -m build)
+build/
+*.egg-info/
+
 
 # Flask stuff:
 instance/

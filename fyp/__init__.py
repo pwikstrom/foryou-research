@@ -1,11 +1,11 @@
-# development version
-import os
-from py_compile import compile
+"""FYP — social-media research data pipeline.
 
-package_dir = os.path.dirname(__file__)
-for fn in os.listdir(package_dir):
-    if fn.endswith(".py"):
-        try:
-            compile(os.path.join(package_dir, fn))
-        except:
-            pass
+Ingestion of TikTok/Instagram/YouTube feed activity and data donations,
+web-scrape and LLM-annotation enrichment, and statistical analysis.
+
+Deliberately import-free: importing fyp submodules here would trigger
+fyp_config's import-time initialization and violate the import-cycle rule
+(see CONTRIBUTING.md; guarded by tests/unit/test_import_cycle_hash.py).
+"""
+
+__version__ = "0.1.0"

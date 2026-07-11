@@ -1,3 +1,57 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fyp-pipeline"
+version = "0.1.0"
+description = "FYP social-media research data pipeline (ingestion, scraping, LLM annotation, analysis)"
+requires-python = ">=3.12"
+# Loose floor pins for the packages fyp/ actually imports. requirements312.txt
+# remains the production lock (used by Dockerfile.base) — keep it authoritative
+# for exact versions. yt-dlp plugin packages (yt-dlp-ejs,
+# bgutil-ytdlp-pot-provider) are loaded implicitly by yt-dlp, never imported,
+# and live only in requirements312.txt. scikit-bio is imported by fyp/stats.py
+# but missing from requirements312.txt (known gap — see Phase 4 notes).
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "boto3>=1.35",
+    "emoji>=2.15",
+    "fuzzy-json>=0.1",
+    "gcsfs>=2025.12",
+    "google-api-core>=2.19",
+    "google-cloud-storage>=3.1",
+    "google-genai>=1.56",
+    "moviepy>=2.2",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pillow>=10.4",
+    "polars>=1.40",
+    "psutil>=6.0",
+    "pyarrow>=22.0",
+    "rapidfuzz>=3.14",
+    "requests>=2.32",
+    "scikit-bio>=0.7",
+    "scikit-learn>=1.8",
+    "scipy>=1.16",
+    "statsmodels>=0.14",
+    "toml>=0.10",
+    "tomlkit>=0.15",
+    "yt-dlp>=2026.3.17",
+]
+
+[project.optional-dependencies]
+# Mirrors requirements-dev.txt, which stays authoritative for pinned dev installs.
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.15",
+    "pre-commit>=3.7",
+]
+
+[tool.setuptools.packages.find]
+# Only the fyp library is packaged; web_interface stays app code.
+include = ["fyp*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
 norecursedirs = [
