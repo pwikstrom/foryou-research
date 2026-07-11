@@ -14,7 +14,6 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
 from fyp.organize_datasets import create_study_recoded_dataset
 from fyp.recode_variables import (
@@ -28,6 +27,18 @@ from fyp.types import (
 )
 
 logger = get_logger(__name__)
+
+
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
+
+
+
 
 Group = Union[dict[str, int], Sequence[str]]
 Metric = Literal["jensen-shannon", "hellinger", "total-variation", "bray-curtis", "chi2"]
@@ -271,13 +282,13 @@ def interpret_axes_with_categories(
         
         # Top Positive
         top_pos = corrs.sort_values(ascending=False).head(top).items()
-        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat not in [fyp_cf["labels"]["OTHER_THINGS"]]]
+        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat not in [_cf()["labels"]["OTHER_THINGS"]]]
         top_pos_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos]) if top_pos else ""
         top_pos_cat = top_pos[0][0] if top_pos else None
 
         # Top Negative
         top_neg = corrs.sort_values(ascending=True).head(top).items()
-        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat not in [fyp_cf["labels"]["OTHER_THINGS"]]]
+        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat not in [_cf()["labels"]["OTHER_THINGS"]]]
         top_neg_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg]) if top_neg else ""
         top_neg_cat = top_neg[0][0] if top_neg else None
 
