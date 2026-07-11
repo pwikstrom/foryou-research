@@ -26,6 +26,8 @@ from fyp.scrape.platform_scraper import (  # noqa: F401
     SLIDESHOW_SECONDS_PER_IMAGE,
     BaseScraper,
     ThrottleController,
+    cleanup_temp_files,
+    empty_fail,
 )
 
 logger = get_logger(__name__)
@@ -474,19 +476,12 @@ def _download_images(
 
 def _empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
     """Return an empty DataFrame tagged with error classification metadata."""
-    df = pd.DataFrame()
-    df.attrs['error_type'] = error_type
-    df.attrs['error_detail'] = error_detail
-    return df
+    return empty_fail(error_type, error_detail)
 
 
 def _cleanup_temp_files(temp_dir: str, video_id: str) -> None:
     """Remove any partial download files for a video from the temp directory."""
-    for f in glob(join(temp_dir, f"{video_id}.*")):
-        try:
-            remove(f)
-        except OSError:
-            pass
+    cleanup_temp_files(temp_dir, video_id)
 
 
 _META_MAX_RETRIES = 3

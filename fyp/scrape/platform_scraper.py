@@ -17,6 +17,9 @@ implements the five platform-specific operations — :meth:`~BaseScraper.item_ur
 import logging
 import threading
 from abc import ABC, abstractmethod
+from glob import glob
+from os import remove
+from os.path import join
 
 import pandas as pd
 
@@ -25,6 +28,40 @@ import pandas as pd
 from fyp.scrape import scrape_contract as sc
 
 logger = logging.getLogger(__name__)
+
+
+def empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
+    """Return an empty DataFrame tagged with error classification metadata.
+
+    Shared by every platform scraper (hoisted from the per-platform copies in
+    Phase 8); each ``*_dl.py`` keeps a thin ``_empty_fail`` delegating here.
+
+    Args:
+        error_type: Scraper error category (e.g. ``"rate_limited"``).
+        error_detail: Free-text detail for the failure row.
+
+    Returns:
+        An empty DataFrame with ``error_type``/``error_detail`` in ``attrs``.
+    """
+    df = pd.DataFrame()
+    df.attrs['error_type'] = error_type
+    df.attrs['error_detail'] = error_detail
+    return df
+
+
+def cleanup_temp_files(temp_dir: str, item_id: str) -> None:
+    """Remove any partial download files for an item from the temp directory.
+
+    Args:
+        temp_dir: Directory holding in-progress downloads.
+        item_id: Platform item id whose ``{item_id}.*`` files are removed.
+    """
+    for f in glob(join(temp_dir, f"{item_id}.*")):
+        try:
+            remove(f)
+        except OSError:
+            pass
+
 
 
 # Platform-scraper subclasses live in their own ``fyp/<platform>_dl.py`` modules

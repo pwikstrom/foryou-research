@@ -32,7 +32,7 @@ from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp.scrape import scraper_cookies
-from fyp.scrape.platform_scraper import BaseScraper
+from fyp.scrape.platform_scraper import BaseScraper, cleanup_temp_files, empty_fail
 
 logger = logging.getLogger(__name__)
 
@@ -130,21 +130,12 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
 def _empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
     """Return an empty DataFrame tagged with error classification metadata."""
-    df = pd.DataFrame()
-    df.attrs['error_type'] = error_type
-    df.attrs['error_detail'] = error_detail
-    return df
-
-
+    return empty_fail(error_type, error_detail)
 
 
 def _cleanup_temp_files(temp_dir: str, item_id: str) -> None:
     """Remove any partial download files for an item from the temp directory."""
-    for f in glob(join(temp_dir, f"{item_id}.*")):
-        try:
-            remove(f)
-        except OSError:
-            pass
+    cleanup_temp_files(temp_dir, item_id)
 
 
 
