@@ -24,8 +24,12 @@ stored ``dtype`` and the per-platform ``per_k_of`` engagement denominator.
 import tomllib
 from pathlib import Path
 
+import fyp
+
+# Anchored on the fyp package (not this file) so the path survives module
+# moves within the package tree.
 _DEFAULT_CONTRACT_PATH = (
-    Path(__file__).resolve().parent.parent / "config" / "scrape_contract.toml"
+    Path(fyp.__file__).resolve().parent.parent / "config" / "scrape_contract.toml"
 )
 
 # The two field scopes: a base field every platform emits, vs a field owned by a

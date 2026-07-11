@@ -25,6 +25,7 @@ import re
 import tomllib
 from pathlib import Path
 
+import fyp
 from fyp.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -42,14 +43,16 @@ _INT_SUBKEY_RE = re.compile(r"^int\s*(?:\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\))?\s*:\s*
 # The leaf/container types a field (or object sub-key) may declare.
 VALID_TYPES = frozenset({"string", "int", "object"})
 
+# Anchored on the fyp package (not this file) so the paths survive module
+# moves within the package tree.
 _DEFAULT_CONTRACT_PATH = (
-    Path(__file__).resolve().parent.parent / "config" / "annotation_contract.toml"
+    Path(fyp.__file__).resolve().parent.parent / "config" / "annotation_contract.toml"
 )
 
 # UI help texts for the form editor — the servable transcription of the baked
 # contract's explanatory comments (see contract_help()).
 _HELP_PATH = (
-    Path(__file__).resolve().parent.parent / "config" / "annotation_contract_help.toml"
+    Path(fyp.__file__).resolve().parent.parent / "config" / "annotation_contract_help.toml"
 )
 
 # The runtime, admin-editable copy of the contract lives in data storage
