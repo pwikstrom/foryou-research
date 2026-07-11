@@ -126,12 +126,6 @@ def _as_list(value) -> list:
 
 
 if __name__ == "__main__":
-    from web_interface.task_status import LocalStatusReporter
+    from web_interface.worker_runner import run_worker
 
-    reporter = LocalStatusReporter("retokenise_hashtags")
-    try:
-        run_retokenise_hashtags(reporter=reporter, task_args={})
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    run_worker(run_retokenise_hashtags, "retokenise_hashtags")

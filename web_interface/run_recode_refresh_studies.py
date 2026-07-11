@@ -138,28 +138,25 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
 
 
 if __name__ == "__main__":
-    import argparse
+    from web_interface.worker_runner import run_worker
 
-    from web_interface.task_status import LocalStatusReporter
+    def _make_task_args(args) -> dict:
+        task_args = {}
+        if args.studies:
+            task_args["studies"] = args.studies
+        if args.force:
+            task_args["force_full_rebuild"] = True
+        return task_args
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--studies', type=str, default=None,
-                        help='Comma-separated study names to refresh (default: all)')
-    parser.add_argument('--force', action='store_true',
-                        help='Force full rebuild of every study, ignoring sidecar fingerprints')
-    parser.add_argument('study_name', nargs='?', default=None)
-    args = parser.parse_args()
-
-    task_args = {}
-    if args.studies:
-        task_args["studies"] = args.studies
-    if args.force:
-        task_args["force_full_rebuild"] = True
-
-    reporter = LocalStatusReporter("recode_refresh_studies")
-    try:
-        run_recode_refresh_studies(reporter=reporter, task_args=task_args)
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    run_worker(
+        run_recode_refresh_studies,
+        "recode_refresh_studies",
+        arg_specs=[
+            (('--studies',), {'type': str, 'default': None,
+                              'help': 'Comma-separated study names to refresh (default: all)'}),
+            (('--force',), {'action': 'store_true',
+                            'help': 'Force full rebuild of every study, ignoring sidecar fingerprints'}),
+            (('study_name',), {'nargs': '?', 'default': None}),
+        ],
+        make_task_args=_make_task_args,
+    )

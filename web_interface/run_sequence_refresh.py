@@ -111,32 +111,29 @@ def run_sequence_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
 
 
 if __name__ == "__main__":
-    import argparse
+    from web_interface.worker_runner import run_worker
 
-    from web_interface.task_status import LocalStatusReporter
+    def _make_task_args(args) -> dict:
+        task_args: dict = {}
+        if args.studies:
+            task_args["studies"] = args.studies
+        elif args.study_name:
+            task_args["studies"] = args.study_name
+        if args.window_n is not None:
+            task_args["window_n"] = args.window_n
+        if args.session_gap_s is not None:
+            task_args["session_gap_s"] = args.session_gap_s
+        return task_args
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--studies", type=str, default=None,
-                        help="Comma-separated study names to refresh (default: all)")
-    parser.add_argument("--window-n", type=int, default=None)
-    parser.add_argument("--session-gap-s", type=int, default=None)
-    parser.add_argument("study_name", nargs="?", default=None)
-    args = parser.parse_args()
-
-    task_args: dict = {}
-    if args.studies:
-        task_args["studies"] = args.studies
-    elif args.study_name:
-        task_args["studies"] = args.study_name
-    if args.window_n is not None:
-        task_args["window_n"] = args.window_n
-    if args.session_gap_s is not None:
-        task_args["session_gap_s"] = args.session_gap_s
-
-    reporter = LocalStatusReporter("sequence_refresh")
-    try:
-        run_sequence_refresh(reporter=reporter, task_args=task_args)
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    run_worker(
+        run_sequence_refresh,
+        "sequence_refresh",
+        arg_specs=[
+            (("--studies",), {"type": str, "default": None,
+                              "help": "Comma-separated study names to refresh (default: all)"}),
+            (("--window-n",), {"type": int, "default": None}),
+            (("--session-gap-s",), {"type": int, "default": None}),
+            (("study_name",), {"nargs": "?", "default": None}),
+        ],
+        make_task_args=_make_task_args,
+    )

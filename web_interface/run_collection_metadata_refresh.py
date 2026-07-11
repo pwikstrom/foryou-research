@@ -102,12 +102,6 @@ def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dic
 
 
 if __name__ == "__main__":
-    from web_interface.task_status import LocalStatusReporter
+    from web_interface.worker_runner import run_worker
 
-    reporter = LocalStatusReporter("collection_metadata_refresh")
-    try:
-        run_collection_metadata_refresh(reporter=reporter, task_args={})
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    run_worker(run_collection_metadata_refresh, "collection_metadata_refresh")

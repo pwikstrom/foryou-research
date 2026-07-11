@@ -99,37 +99,35 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
 
 
 if __name__ == "__main__":
-    import argparse
+    from web_interface.worker_runner import run_worker
 
-    from web_interface.task_status import LocalStatusReporter
+    def _make_task_args(args) -> dict:
+        task_args = {}
+        if args.n_niches is not None:
+            task_args["n_niches"] = args.n_niches
+        if args.map_sample is not None:
+            task_args["map_sample"] = args.map_sample
+        if args.pca_dim is not None:
+            task_args["pca_dim"] = args.pca_dim
+        task_args["auto_refresh"] = bool(args.auto_refresh)
+        task_args["reset_labels"] = bool(args.reset_labels)
+        return task_args
 
-    parser = argparse.ArgumentParser(description="Cluster embeddings into niches + 2D map")
-    parser.add_argument("--n-niches", type=int, default=None, help="Number of niches")
-    parser.add_argument("--map-sample", type=int, default=None, help="Videos projected to 2D")
-    parser.add_argument("--pca-dim", type=int, default=None, help="PCA dimensionality")
-    parser.add_argument("--auto-refresh", action="store_true",
-                        help="After rebuilding, refresh all study caches so the new niches propagate.")
-    parser.add_argument("--reset-labels", action="store_true",
-                        help="Regenerate every niche name from scratch (no carry-over from the previous build).")
-    args = parser.parse_args()
-
-    task_args = {}
-    if args.n_niches is not None:
-        task_args["n_niches"] = args.n_niches
-    if args.map_sample is not None:
-        task_args["map_sample"] = args.map_sample
-    if args.pca_dim is not None:
-        task_args["pca_dim"] = args.pca_dim
-    task_args["auto_refresh"] = bool(args.auto_refresh)
-    task_args["reset_labels"] = bool(args.reset_labels)
-
-    reporter = LocalStatusReporter("video_map_refresh")
-    try:
-        # In subprocess mode the chain-dispatch return value is ignored — the
-        # web service's monitor_process_completion handles downstream
-        # orchestration in local dev. Cloud Tasks uses it in _run_task_with_stats.
-        run_video_map_refresh(reporter=reporter, task_args=task_args)
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    # In subprocess mode the chain-dispatch return value is ignored — the
+    # web service's monitor_process_completion handles downstream
+    # orchestration in local dev. Cloud Tasks uses it in _run_task_with_stats.
+    run_worker(
+        run_video_map_refresh,
+        "video_map_refresh",
+        arg_specs=[
+            (("--n-niches",), {"type": int, "default": None, "help": "Number of niches"}),
+            (("--map-sample",), {"type": int, "default": None, "help": "Videos projected to 2D"}),
+            (("--pca-dim",), {"type": int, "default": None, "help": "PCA dimensionality"}),
+            (("--auto-refresh",), {"action": "store_true",
+                                   "help": "After rebuilding, refresh all study caches so the new niches propagate."}),
+            (("--reset-labels",), {"action": "store_true",
+                                   "help": "Regenerate every niche name from scratch (no carry-over from the previous build)."}),
+        ],
+        make_task_args=_make_task_args,
+        description="Cluster embeddings into niches + 2D map",
+    )

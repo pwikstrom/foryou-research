@@ -356,12 +356,6 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
 
 
 if __name__ == "__main__":
-    from web_interface.task_status import LocalStatusReporter
+    from web_interface.worker_runner import run_worker
 
-    reporter = LocalStatusReporter("ingest_refresh")
-    try:
-        run_ingest_refresh(reporter=reporter, task_args={})
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    run_worker(run_ingest_refresh, "ingest_refresh")

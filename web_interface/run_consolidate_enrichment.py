@@ -384,31 +384,25 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
 
 
 if __name__ == "__main__":
-    import argparse
+    from web_interface.worker_runner import run_worker
 
-    from web_interface.task_status import LocalStatusReporter
-
-    parser = argparse.ArgumentParser(description="Consolidate enrichment data")
-    parser.add_argument('--force-consolidation', action='store_true',
-                        help='Re-consolidate even if no new files detected.')
-    parser.add_argument('--auto-refresh', action='store_true',
-                        help='After consolidation, record the impact so the '
-                             'web service can dispatch downstream refreshes.')
-    args = parser.parse_args()
-
-    task_args = {
-        "force_consolidation": bool(args.force_consolidation),
-        "auto_refresh": bool(args.auto_refresh),
-    }
-
-    reporter = LocalStatusReporter("consolidate_enrichment")
-    try:
-        # In subprocess mode we intentionally ignore the chain-dispatch
-        # return value — the web service's monitor_process_completion
-        # handles the downstream orchestration in local dev. Cloud Tasks
-        # uses the chain result directly in _run_task_with_stats.
-        run_consolidate_enrichment(reporter=reporter, task_args=task_args)
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    # In subprocess mode the chain-dispatch return value is intentionally
+    # ignored — the web service's monitor_process_completion handles the
+    # downstream orchestration in local dev. Cloud Tasks uses the chain
+    # result directly in _run_task_with_stats.
+    run_worker(
+        run_consolidate_enrichment,
+        "consolidate_enrichment",
+        arg_specs=[
+            (('--force-consolidation',), {'action': 'store_true',
+                                          'help': 'Re-consolidate even if no new files detected.'}),
+            (('--auto-refresh',), {'action': 'store_true',
+                                   'help': 'After consolidation, record the impact so the '
+                                           'web service can dispatch downstream refreshes.'}),
+        ],
+        make_task_args=lambda args: {
+            "force_consolidation": bool(args.force_consolidation),
+            "auto_refresh": bool(args.auto_refresh),
+        },
+        description="Consolidate enrichment data",
+    )

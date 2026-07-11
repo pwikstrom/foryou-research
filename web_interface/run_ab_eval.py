@@ -12,7 +12,6 @@ No self-chaining: the eval set is hard-capped at ``ab_eval.MAX_EVAL_ITEMS``
 one arm per task link is the fix.
 """
 
-import argparse
 import sys
 import time
 from pathlib import Path
@@ -114,27 +113,25 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
 
 
 if __name__ == "__main__":
-    from web_interface.task_status import LocalStatusReporter
+    from web_interface.worker_runner import run_worker
 
-    parser = argparse.ArgumentParser(description="A/B contract evaluation run")
-    parser.add_argument("--run-id", default=None, help="pre-minted run id")
-    parser.add_argument("--candidates", default="",
-                        help="comma-separated candidate names")
-    parser.add_argument("--include-live", action="store_true",
-                        help="also run the live effective contract as an arm")
-    parser.add_argument("--eval-set", default=None,
-                        help="named evaluation set (default: the active one)")
-    cli = parser.parse_args()
-
-    reporter = LocalStatusReporter("ab_eval")
-    try:
-        run_ab_eval(reporter=reporter, task_args={
+    run_worker(
+        run_ab_eval,
+        "ab_eval",
+        arg_specs=[
+            (("--run-id",), {"default": None, "help": "pre-minted run id"}),
+            (("--candidates",), {"default": "",
+                                 "help": "comma-separated candidate names"}),
+            (("--include-live",), {"action": "store_true",
+                                   "help": "also run the live effective contract as an arm"}),
+            (("--eval-set",), {"default": None,
+                               "help": "named evaluation set (default: the active one)"}),
+        ],
+        make_task_args=lambda cli: {
             "run_id": cli.run_id,
             "candidate_names": cli.candidates,
             "include_live": cli.include_live,
             "eval_set": cli.eval_set,
-        })
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+        },
+        description="A/B contract evaluation run",
+    )

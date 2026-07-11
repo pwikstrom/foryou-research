@@ -258,22 +258,15 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
 
 
 if __name__ == "__main__":
-    import argparse
+    from web_interface.worker_runner import run_worker
 
-    from web_interface.task_status import LocalStatusReporter
-
-    parser = argparse.ArgumentParser(description="Delete a collection")
-    parser.add_argument('--collection-id', required=True,
-                        help='Collection ID to delete.')
-    args = parser.parse_args()
-
-    reporter = LocalStatusReporter("collection_delete")
-    try:
-        run_collection_delete(
-            reporter=reporter,
-            task_args={"collection_id": args.collection_id},
-        )
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    run_worker(
+        run_collection_delete,
+        "collection_delete",
+        arg_specs=[
+            (('--collection-id',), {'required': True,
+                                    'help': 'Collection ID to delete.'}),
+        ],
+        make_task_args=lambda args: {"collection_id": args.collection_id},
+        description="Delete a collection",
+    )

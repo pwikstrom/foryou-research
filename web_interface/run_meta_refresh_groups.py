@@ -103,12 +103,8 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
 
 
 if __name__ == "__main__":
-    from web_interface.task_status import LocalStatusReporter
+    from web_interface.worker_runner import run_worker
 
-    reporter = LocalStatusReporter("meta_refresh_groups")
-    try:
-        run_meta_refresh_groups(reporter=reporter)
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    # run_meta_refresh_groups never reads task_args; the default empty dict
+    # passed by run_worker is equivalent to the old no-kwarg call.
+    run_worker(run_meta_refresh_groups, "meta_refresh_groups")

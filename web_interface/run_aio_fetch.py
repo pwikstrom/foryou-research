@@ -70,19 +70,15 @@ def run_aio_fetch(reporter: TaskStatusReporter, task_args: dict | None = None) -
 
 
 if __name__ == "__main__":
-    import argparse
+    from web_interface.worker_runner import run_worker
 
-    from web_interface.task_status import LocalStatusReporter
-
-    parser = argparse.ArgumentParser(description="Fetch AIO donations from AWS")
-    parser.add_argument('--hours-back', type=int, default=24,
-                        help='How many hours back to fetch donations from.')
-    args = parser.parse_args()
-
-    reporter = LocalStatusReporter("aio_fetch")
-    try:
-        run_aio_fetch(reporter=reporter, task_args={"hours_back": args.hours_back})
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    run_worker(
+        run_aio_fetch,
+        "aio_fetch",
+        arg_specs=[
+            (('--hours-back',), {'type': int, 'default': 24,
+                                 'help': 'How many hours back to fetch donations from.'}),
+        ],
+        make_task_args=lambda args: {"hours_back": args.hours_back},
+        description="Fetch AIO donations from AWS",
+    )
