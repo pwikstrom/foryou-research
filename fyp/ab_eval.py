@@ -42,12 +42,18 @@ import pandas as pd
 import fyp.data_io as data_io
 from fyp import annotation_contract as ac
 from fyp import annotation_schema as sch
-from fyp.fyp_config import fyp_cf
 from fyp.types import convert_dtypes_to_pyarrow
 
 # NOTE: fyp.machine_annotation, fyp.recode_variables and google.genai are
 # imported lazily inside the functions that need them — they are heavy imports
 # the candidate/eval-set CRUD endpoints should not pay for.
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
 
 LOCATION = "ab_eval"                      # run artifacts (isolated)
 CANDIDATES_LOCATION = "ab_candidates"     # candidate contract TOMLs (admin config)
@@ -108,7 +114,7 @@ def ensure_locations() -> None:
     ``<local_data>/users/ab_candidates`` (admin config, next to the other
     ``users`` stores).
     """
-    local_data = fyp_cf["paths"]["local_data"]
+    local_data = _cf()["paths"]["local_data"]
     data_io.register_location(LOCATION, os.path.join(local_data, "ab_eval"))
     data_io.register_location(
         CANDIDATES_LOCATION, os.path.join(local_data, "users", "ab_candidates")
@@ -634,7 +640,7 @@ def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_
     from fyp.machine_annotation import initialize_machine
 
     initialize_machine()
-    machine = fyp_cf["machine"]
+    machine = _cf()["machine"]
     config = gt.GenerateContentConfig(
         system_instruction=prompt_text,
         temperature=machine["temperature"],
@@ -739,7 +745,7 @@ class SyncThreadedRunner:
                         "item_id": item_id, "parsed": None, "response": "",
                         "finish_reason": "DNF - runner error", "usage": {},
                         "inference_duration": -1.0, "error": str(exc),
-                        "model": fyp_cf["machine"].get("model"),
+                        "model": _cf()["machine"].get("model"),
                     }
                 done += 1
                 if progress_cb:
@@ -898,7 +904,7 @@ def _reattach_contract_columns(refined: pd.DataFrame, flat_rows: list[dict],
 
 def _scale_map() -> dict[str, str]:
     """Return ``{variable_name: scale}`` from the live var_schema."""
-    vs = fyp_cf["var_schema"]
+    vs = _cf()["var_schema"]
     return {
         str(n): str(s)
         for n, s in zip(vs["variable_name"], vs["scale"], strict=False)
@@ -1000,7 +1006,7 @@ def _to_set(value) -> set[str]:
         parts = [_normalize_cell(v) for v in value]
     else:
         norm = _normalize_cell(value)
-        splitter = fyp_cf["labels"]["SPLITTER"]
+        splitter = _cf()["labels"]["SPLITTER"]
         parts = norm.split(splitter) if (splitter and splitter in norm) else [norm]
     return {c for c in (_canon(p) for p in parts) if c}
 
