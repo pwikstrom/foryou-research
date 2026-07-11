@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import contextlib
+import copy
 import sys
 from pathlib import Path
 
@@ -121,7 +122,10 @@ def test_contract_is_the_source() -> None:
     original = ac.load_contract
 
     def _patched(path=None):
-        contract = original(path)
+        # Deep-copy before mutating: load_contract() returns the shared
+        # process-local snapshot dict; an in-place append would leak the fake
+        # enum value into every later test in the same process.
+        contract = copy.deepcopy(original(path))
         contract["enums"]["type_of_story"].append("Satire-Based")
         return contract
 

@@ -1,3 +1,22 @@
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+norecursedirs = [
+    "tests/scratchpads",
+    "tests/debug",
+    "tests/_archive",
+    "sandbox",
+    "tmp",
+    ".fypenv",
+    ".fypenv314",
+]
+markers = [
+    "requires_data: needs local/production data files (parquets, media) not present in a fresh checkout",
+    "requires_gcs: needs live Google Cloud Storage / GCP credentials",
+    "slow: takes noticeably long to run; excluded from the quick gate",
+    "stale: known-broken against current contracts/data shapes; needs updating, not a regression",
+]
+addopts = "-q"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
