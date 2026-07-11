@@ -9,30 +9,13 @@ key = ""
 # The model
 model = "gemini-3-flash-preview"
 
-# The file-based prompt. With use_generated_prompt = true (below) this is NOT
-# used for new annotations — the prompt is generated from the annotation
-# contract. It is retained as the legacy prompt: it is what the pre-versioning
-# "v0_legacy" annotation version was produced with, and it is what the admin
-# Annotation Versions viewer shows for that version. It also serves as the
-# file-based fallback if use_generated_prompt is turned off.
-prompt = "new_prompt_002.txt"
-
-# When true, annotation uses Gemini structured output (response_schema from
-# fyp/annotation_schema.py) instead of free-text JSON. Default false keeps the
-# original free-text path. The output column shape is identical either way;
-# structured output guarantees valid JSON and enforces the variable schema.
-use_structured_output = true
-
-# When true, the prompt (system instruction) is GENERATED from the declarative
+# The annotation prompt (system instruction) is generated from the declarative
 # annotation contract (config/annotation_contract.toml) via
-# annotation_schema.build_prompt() instead of being read from the prompt file
-# above. The generated prompt + response_schema + flattener all derive from that
-# one contract, so they cannot drift. ENABLED: go-forward annotations use the
-# generated prompt and are stamped with the annotation_version derived from the
-# current contract (recompute via annotation_versioning.current_annotation_version).
-# Existing studies stay pinned to their current version until the new version is
-# explicitly promoted.
-use_generated_prompt = true
+# annotation_schema.build_prompt(), and annotation always uses Gemini structured
+# output (response_schema from fyp/annotation_schema.py). The generated prompt +
+# response_schema + flattener all derive from that one contract, so they cannot
+# drift. The pre-versioning "v0_legacy" prompt file is kept at
+# prompts/new_prompt_002.txt purely for the admin Annotation Versions viewer.
 
 # Vertex AI settings
 vertexai = true
@@ -52,14 +35,6 @@ http_options_timeout = 180000
 # not 1.0) — distributed inference adds irreducible non-determinism.
 temperature = 0.0
 max_output_tokens = 65536
-response_mime_type = "application/json"
-# presence/frequency penalties apply ONLY to the free-text path
-# (global_generation_config). The active structured path (use_structured_output =
-# true) does NOT use them: the A/B confirmed they are a no-op under constrained
-# decoding (penalties-on vs -off agreement == the run-to-run floor, ~0.93) and
-# would only discourage legitimate cross-field repetition. Kept for the legacy path.
-presence_penalty = 0.6
-frequency_penalty = 1.2
 thinking_budget = -1
 
 # Transient-failure retry policy for the Gemini call (see machine_annotation.
@@ -109,7 +84,6 @@ TIME_ZONE = "Australia/Brisbane"
 local_mode = false
 max_duration_for_download = 300
 min_media_object_size = 8_000
-scraper_backend = "ytdlp"
 # Supplement Instagram scrapes with play/like/comment counts from Instagram's
 # authenticated media-info endpoint (fyp.instagram_dl._fetch_media_info_counts).
 # It is the private authenticated web API; set false to disable instantly if the
@@ -202,7 +176,3 @@ IRRELEVANT_WORDS = ["-year-old", "about", "actually", "ad", "add", "after", "all
 "fypp", "fyppp", "foryouu", ]
 
 GENERIC_MAPPER = {"" = "unable to detect", "-" = "unable to detect", "/" = "or", "&" = "and", "none" = "unable to detect", "multiple" = "unable to detect", "mixed" = "unable to detect", "undefined" = "unable to detect", "mixed-race" = "unable to detect", "polynesian" = "pacific islander", "middle eastern or caucasian" = "middle eastern", "middle eastern or south asian" = "middle eastern", "polynesian or pacific islander" = "pacific islander", "southeast asian or pacific islander" = "pacific islander", "indigenous australian or pacific islander" = "indigenous australian", "hispanic or latina" = "latinx", "hispanic or latino" = "latinx", "hispanic" = "latinx", "latino" = "latinx", "latina" = "latinx", "indigenous" = "indigenous australian", "no clear positioning" = "unable to detect", "no clear position" = "unable to detect"}
-
-# The `required_key` completeness gate was removed with the contract
-# simplification; structured output guarantees every field is present.
-REQUIRED_KEYS = []

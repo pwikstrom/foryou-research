@@ -48,7 +48,6 @@ MODULES = [
     PROJECT_ROOT / "tests" / "unit" / "test_call_machine_retry.py",
     PROJECT_ROOT / "tests" / "unit" / "test_annotation_versioning.py",
     PROJECT_ROOT / "tests" / "unit" / "test_media_resolution.py",
-    PROJECT_ROOT / "tests" / "unit" / "test_generated_prompt_flag.py",
     PROJECT_ROOT / "tests" / "unit" / "test_contract_accepted_labels.py",
     PROJECT_ROOT / "tests" / "unit" / "test_australian_relevance_derivation.py",
     PROJECT_ROOT / "tests" / "unit" / "test_consolidate_rare_columns.py",

@@ -13,8 +13,6 @@
     "scenes",
     "transcript"
   ],
-  "required_keys_not_in_prompt": [],
-  "required_keys_not_in_schema": [],
   "gemini_schema_vars_not_in_prompt": [
     "australian_relevance",
     "background_music",

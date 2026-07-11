@@ -116,10 +116,6 @@ window.timelines = {
         });
     },
 
-    loadStudies: function () {
-        // Deprecated
-    },
-
     loadDonations: async function () {
         const select = document.getElementById('timelines-collection-select');
 

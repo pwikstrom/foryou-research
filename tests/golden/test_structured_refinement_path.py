@@ -1,7 +1,7 @@
 """Production-path test: structured raw responses refine via the structured path.
 
-When ``use_structured_output`` is on, ``call_machine`` marks each raw output
-``structured=True`` and stores schema-constrained JSON. This test verifies that
+``call_machine`` marks each raw output ``structured=True`` and stores
+schema-constrained JSON. This test verifies that
 ``refine_one_raw_annotation_batch`` (the production refinement) detects that
 marker and routes through ``flatten_structured`` instead of the legacy fuzzy
 flattener — producing a valid annotated dataframe. No API calls.

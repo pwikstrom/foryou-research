@@ -1,5 +1,3 @@
-const USE_FIXED_AXIS_RANGE = true;
-
 let pcaData = {
     activeStudy: null,
     metadata: null,
@@ -422,9 +420,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
         zerolinecolor: getCSSVar('--chart-zeroline')
     };
 
-    if (USE_FIXED_AXIS_RANGE) {
-        axisConfig.range = [-4, 4];
-    }
+    axisConfig.range = [-4, 4];
 
     const layout = {
         xaxis: { ...axisConfig },
@@ -540,7 +536,7 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
     if (showStats && dataPoints.length > 1) {
         const reg = calculateRegression(dataPoints);
         if (reg) {
-            const lineX = USE_FIXED_AXIS_RANGE ? [-4, 4] : [Math.min(...dataPoints.map(d => d.x)), Math.max(...dataPoints.map(d => d.x))];
+            const lineX = [-4, 4];
             const lineY = lineX.map(x => reg.slope * x + reg.intercept);
 
             traces.push({

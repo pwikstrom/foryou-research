@@ -150,14 +150,6 @@ def initialize(
     # prepare gen ai parameters for initialisation
     # ------------------------------------------------------------------
     cf["machine"]["client"] = None
-    cf["machine"]["global_generation_config"] = None
-
-    # I've used different prompts in the config. This allows for some flexibility.
-    # It is expected that the parameter in the config file is a filename to a text file
-    # that is located in a folder named 'prompts' in the project root. 
-    for p in cf["machine"].keys():
-        if "prompt" in p and isinstance(cf["machine"][p], str):
-            cf["machine"][p] = os.path.join(cf["paths"]["project_root"],"prompts",cf["machine"][p])
 
 
     # ------------------------------------------------------------------
@@ -771,23 +763,6 @@ VAR_SCHEMA_COLUMNS = [
 
 
 
-def _load_legacy_var_schema_csv(cf, verbose=False):
-    """Read the retired ``var_schema.csv`` if it still exists, else None.
-
-    Only used to seed ``var_presentation.json`` once (the CSV's prio columns
-    were the last admin-editable payload it carried). Never raises.
-    """
-    try:
-        frame = pd.read_csv(_var_schema_path(cf), dtype_backend="pyarrow", encoding="utf-8")
-        if verbose:
-            print(f"Read legacy var_schema.csv for presentation seeding. Shape: {frame.shape}")
-        return frame
-    except Exception:
-        return None
-
-
-
-
 def load_var_schema(cf, verbose=False):
     """Synthesize the in-memory var_schema — the CSV is retired.
 
@@ -795,7 +770,7 @@ def load_var_schema(cf, verbose=False):
       1. the four contract TOMLs (+ the version registries' legacy snapshots)
          own every row's semantic + display metadata, injected by the overlays;
       2. ``var_presentation.json`` owns the four ``web_*_prio`` membership
-         columns (seeded once from a legacy ``var_schema.csv`` when missing);
+         columns;
       3. ``accepted_labels`` is rebuilt from the annotation contract's enums.
 
     The result is identical (rows / role / scale / accepted_labels / source) to
@@ -812,22 +787,11 @@ def load_var_schema(cf, verbose=False):
     #    keeps long-lived containers current. Never raises.
     ac.refresh_runtime_contract()
 
-    # 1. Presentation store; seed once from the legacy CSV when absent.
+    # 1. Presentation store (a fresh install starts with empty prio surfaces).
     presentation = vp.load_presentation()
     if presentation is None:
-        legacy_frame = _load_legacy_var_schema_csv(cf, verbose=verbose)
-        seeded = vp.seed_from_var_schema_frame(legacy_frame)
-        if seeded is not None:
-            try:
-                vp.save_presentation(seeded["surfaces"], updated_by="csv-seed")
-                presentation = vp.load_presentation() or seeded
-                print("Seeded var_presentation.json from legacy var_schema.csv prios.")
-            except Exception as e:
-                print(f"WARNING: could not persist seeded presentation ({e}); using in-memory seed.")
-                presentation = seeded
-        else:
-            print("WARNING: no presentation store and no legacy var_schema.csv — all prio surfaces start empty.")
-            presentation = vp.empty_presentation()
+        print("WARNING: no presentation store — all prio surfaces start empty.")
+        presentation = vp.empty_presentation()
 
     # 2. Empty typed skeleton; the contract overlays below inject every owned row.
     cf["var_schema"] = pd.DataFrame(

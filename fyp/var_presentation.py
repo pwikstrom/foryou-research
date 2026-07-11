@@ -189,35 +189,3 @@ def save_presentation(
     _data_io().save_json(data=payload, storage_location=LOCATION, filename=FILENAME)
     return {"etag": compute_presentation_etag(payload)}
 
-
-
-
-
-
-def seed_from_var_schema_frame(vs) -> dict | None:
-    """Derive the presentation payload from a legacy var_schema frame's prios.
-
-    Membership = any non-blank numeric value in the corresponding ``web_*_prio``
-    column (the on/off convention). Returns the payload, or None when the frame
-    carries no usable prio columns. Does NOT save — the caller decides.
-    """
-    import pandas as pd
-
-    if vs is None or getattr(vs, "empty", True) or "variable_name" not in vs.columns:
-        return None
-    surfaces: dict = {}
-    found_any = False
-    for surface, col in SURFACE_TO_PRIO_COLUMN.items():
-        if col in vs.columns:
-            found_any = True
-            on = pd.to_numeric(vs[col], errors="coerce").notna()
-            names = vs.loc[on, "variable_name"].astype("string").tolist()
-            # The legacy CSV predates the generic popularity/handle fields —
-            # map retired names to their successors so a fresh seed cannot
-            # reintroduce them.
-            surfaces[surface] = sorted({RETIRED_TO_GENERIC.get(n, n) for n in names})
-        else:
-            surfaces[surface] = []
-    if not found_any:
-        return None
-    return {"version": 1, "surfaces": surfaces}

@@ -2,7 +2,7 @@
 """
 TikTok downloader using yt-dlp as backend.
 
-Drop-in alternative to mypyktok — returns the same single-row DataFrame
+Returns the same single-row DataFrame as the retired PykTok-fork backend (mypyktok)
 that generate_data_row() produces so downstream code is unchanged.
 """
 
@@ -882,25 +882,10 @@ class TikTokScraper(BaseScraper):
         stream_to_bucket=None,
         verbose: bool = False,
     ) -> pd.DataFrame:
-        backend = fyp_cf['misc'].get('scraper_backend', 'pyktok')
-        max_duration = self.media_duration_cap()
-        url = self.item_url(item_id)
-        if backend == 'ytdlp':
-            return save_tiktok(
-                url,
-                save_video=save_media,
-                max_duration_to_save=max_duration,
-                save_path=save_path,
-                stream_to_bucket=stream_to_bucket,
-                verbose=verbose,
-            )
-        import fyp.mypyktok as pyk
-        pyk.specify_browser('chrome')
-        return pyk.save_tiktok(
-            url,
+        return save_tiktok(
+            self.item_url(item_id),
             save_video=save_media,
-            max_duration_to_save=max_duration,
-            browser_name='chrome',
+            max_duration_to_save=self.media_duration_cap(),
             save_path=save_path,
             stream_to_bucket=stream_to_bucket,
             verbose=verbose,

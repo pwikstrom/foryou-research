@@ -1,12 +1,12 @@
-"""Consistency test for the four hand-synced sources of annotation truth.
+"""Consistency test for the hand-synced sources of annotation truth.
 
-Today a variable's definition is duplicated across four places that a human must
+Today a variable's definition is duplicated across places that a human must
 keep in sync by hand:
 
-  1. the Gemini prompt  (prompts/new_prompt_002.txt) — field names + allowed values
+  1. the Gemini prompt (generated from the annotation contract) — field names +
+     allowed values
   2. flatten_one_machine_response()  (fyp/machine_annotation.py) — hardcoded keys
-  3. REQUIRED_KEYS  (config/config.toml)
-  4. var_schema.csv  — variable_name / recode_func / accepted_labels
+  3. the synthesized var_schema — variable_name / recode plan / accepted_labels
 
 This test pins that coupling so it cannot drift silently:
 
@@ -17,8 +17,8 @@ This test pins that coupling so it cannot drift silently:
       - ``variable_name`` values are unique
 
   * DRIFT baseline (fails when the cross-source relationship *changes*):
-      - the set differences between prompt fields, flatten keys, REQUIRED_KEYS
-        and schema variables are snapshotted to ``fixtures/coupling_baseline.json``.
+      - the set differences between prompt fields, flatten keys and schema
+        variables are snapshotted to ``fixtures/coupling_baseline.json``.
         If they move — e.g. a prompt field is added without a schema row — the
         test fails and shows what changed.  Re-bless intentionally with
         ``python tests/golden/test_schema_pipeline_consistency.py --bless``.
@@ -66,10 +66,9 @@ FLATTEN_HANDLED_KEYS = {
 def extract_prompt_fields() -> set[str]:
     """Parse quoted field names from the *active* Gemini prompt.
 
-    Routes through ``active_prompt_text()`` so it reflects whatever the model is
-    actually sent: the contract-generated prompt when ``use_generated_prompt`` is
-    on, otherwise the configured static prompt file. (Reading the static file
-    directly would pin a vestigial prompt that no longer matches the contract.)
+    Routes through ``active_prompt_text()`` so it reflects the contract-generated
+    prompt the model is actually sent. (Reading a static file directly would pin
+    a vestigial prompt that no longer matches the contract.)
     """
     text = annotation_versioning.active_prompt_text()
     # Field lines look like:  • 'transcript': A verbatim transcript ...
@@ -95,14 +94,11 @@ def build_coupling_report() -> dict:
     prompt_fields = extract_prompt_fields()
     schema_vars = schema_variable_names()
     gemini_vars = schema_gemini_sourced()
-    required_keys = {str(k) for k in fyp_cf["labels"]["REQUIRED_KEYS"]}
 
     return {
         "prompt_fields_not_in_schema": sorted(prompt_fields - schema_vars),
         "flatten_keys_not_in_prompt": sorted(FLATTEN_HANDLED_KEYS - prompt_fields),
         "flatten_keys_not_in_schema": sorted(FLATTEN_HANDLED_KEYS - schema_vars),
-        "required_keys_not_in_prompt": sorted(required_keys - prompt_fields),
-        "required_keys_not_in_schema": sorted(required_keys - schema_vars),
         "gemini_schema_vars_not_in_prompt": sorted(gemini_vars - prompt_fields),
     }
 
@@ -159,7 +155,7 @@ def test_coupling_matches_baseline() -> None:
         if baseline.get(k) != report.get(k)
     }
     assert not changed, (
-        "Prompt ↔ flatten ↔ REQUIRED_KEYS ↔ var_schema coupling changed:\n"
+        "Prompt ↔ flatten ↔ var_schema coupling changed:\n"
         + json.dumps(changed, indent=2, ensure_ascii=False)
         + "\n\nIf intentional, re-bless: "
         "python tests/golden/test_schema_pipeline_consistency.py --bless"

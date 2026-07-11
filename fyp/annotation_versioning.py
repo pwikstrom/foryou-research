@@ -53,12 +53,13 @@ LEGACY_VERSION = "v0_legacy"
 # system. Go-forward annotations use the generated contract prompt, so this file
 # is only the historical ("legacy") prompt — it is what the ``v0_legacy``
 # annotation version was produced with, and is shown for that version in the
-# admin viewer. Kept under ``prompts/`` (referenced by ``[machine] prompt`` as
-# the file-based fallback when ``use_generated_prompt`` is off).
+# admin viewer. Kept under ``prompts/``.
 LEGACY_PROMPT_FILENAME = "new_prompt_002.txt"
 
 # Generation parameters that materially change model output and therefore
-# belong in the version identity.
+# belong in the version identity. ``use_structured_output`` is pinned True
+# (structured output is the only annotation path) but stays in the identity
+# so pre-existing ``av_`` hashes remain stable.
 _VERSION_GEN_PARAM_KEYS = (
     "use_structured_output",
     "temperature",
@@ -120,6 +121,9 @@ def build_version_descriptor(
     prompt_hash = _sha256_hex(prompt_text or "", 16)
     schema_hash = compute_schema_hash(schema_json)
     normalized_params = {key: gen_params.get(key) for key in _VERSION_GEN_PARAM_KEYS}
+    # Constant since the free-text path was removed; kept in the identity so
+    # existing av_ hashes do not shift.
+    normalized_params["use_structured_output"] = True
 
     identity = {
         "model": model,
@@ -145,27 +149,21 @@ def build_version_descriptor(
 def active_prompt_text() -> str:
     """Return the active system-instruction prompt text.
 
-    When ``[machine] use_generated_prompt`` is true the prompt is generated from
-    the declarative contract (``annotation_schema.build_prompt``); otherwise the
-    configured prompt file is read. The synchronous, batch and versioning paths
-    all route through this so the prompt can never diverge across them.
+    The prompt is generated from the declarative contract
+    (``annotation_schema.build_prompt``). The synchronous, batch and versioning
+    paths all route through this so the prompt can never diverge across them.
 
     Returns:
         The prompt text the model is (or would be) sent.
     """
-    if bool(_cf()["machine"].get("use_generated_prompt", False)):
-        from fyp.annotation_schema import build_prompt
+    from fyp.annotation_schema import build_prompt
 
-        return build_prompt()
-    with open(_cf()["machine"]["prompt"]) as handle:
-        return handle.read()
+    return build_prompt()
 
 
 def active_prompt_label() -> str:
     """Return a stable ``prompt_fn`` label for the active prompt source."""
-    if bool(_cf()["machine"].get("use_generated_prompt", False)):
-        return "annotation_contract.toml"
-    return os.path.basename(_cf()["machine"]["prompt"])
+    return "annotation_contract.toml"
 
 
 def _read_prompt_text() -> str:
@@ -210,7 +208,6 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         The version descriptor for the active configuration.
     """
     machine = _cf()["machine"]
-    use_structured = bool(machine.get("use_structured_output", False))
     # The contract etag is part of the signature so a runtime contract edit (which
     # leaves every [machine] config key unchanged) still busts the descriptor
     # cache — otherwise a long-lived process would keep stamping the old av_.
@@ -222,9 +219,6 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         contract_etag = None
     signature = (
         machine.get("model"),
-        machine.get("prompt"),
-        bool(machine.get("use_generated_prompt", False)),
-        use_structured,
         machine.get("temperature"),
         machine.get("thinking_budget"),
         machine.get("media_resolution"),
@@ -235,11 +229,9 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         return _DESCRIPTOR_CACHE["descriptor"]
 
     prompt_text = _read_prompt_text()
-    schema_json = None
-    if use_structured:
-        from fyp.annotation_schema import get_annotation_json_schema
+    from fyp.annotation_schema import get_annotation_json_schema
 
-        schema_json = get_annotation_json_schema()
+    schema_json = get_annotation_json_schema()
     gen_params = {key: machine.get(key) for key in _VERSION_GEN_PARAM_KEYS}
     descriptor = build_version_descriptor(
         model=machine.get("model"),

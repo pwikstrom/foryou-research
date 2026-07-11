@@ -3,7 +3,7 @@
 
 Covers the consolidation-time coalesce (``fyp.scrape._coalesce_retired_columns``)
 and the presentation-store surface-flag migration
-(``fyp.var_presentation._migrate_retired_names`` / ``seed_from_var_schema_frame``).
+(``fyp.var_presentation._migrate_retired_names``).
 
 Usage:
     python tests/unit/test_retired_column_migration.py
@@ -145,23 +145,6 @@ def test_presentation_migration_unions_and_persists(monkeypatch=None):
 
 
 
-def test_seed_from_csv_maps_retired_names():
-    """Seeding from the legacy CSV prios cannot reintroduce retired names."""
-    vs = pd.DataFrame({
-        "variable_name": ["stats_diggCount", "author_uniqueId", "play_count"],
-        "web_filter_prio": [None, 1, 1],
-        "web_timeline_prio": [None, None, None],
-        "web_viz_prio": [None, None, None],
-        "web_display_prio": [1, 1, 1],
-    })
-    payload = vp.seed_from_var_schema_frame(vs)
-    assert payload["surfaces"]["filter"] == ["author_handle", "play_count"]
-    assert payload["surfaces"]["display"] == ["author_handle", "fave_count", "play_count"]
-    print("PASS: CSV seed maps retired names")
-
-
-
-
 def test_retirement_map_matches_contract():
     """Every retirement target is a generic base field of the current contract."""
     contract = sc.load_contract()
@@ -180,6 +163,5 @@ if __name__ == "__main__":
     test_coalesce_keeps_existing_generic_values()
     test_coalesce_noop_on_canonical_frame()
     test_presentation_migration_unions_and_persists()
-    test_seed_from_csv_maps_retired_names()
     test_retirement_map_matches_contract()
     print("All retired-column migration tests passed.")

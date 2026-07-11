@@ -3066,28 +3066,20 @@ def _annotation_contract_impact(cand_contract: dict) -> dict:
     """Predict the version impact of activating ``cand_contract``.
 
     Renders the candidate prompt + response schema exactly the way the annotator
-    would (honoring the ``use_generated_prompt`` / ``use_structured_output``
-    config flags) and compares the resulting ``av_`` descriptor to the current
-    one, so the admin sees "metadata-only — no new version" vs "a new version
-    will be minted" before confirming. Also reports the field-name delta.
+    would and compares the resulting ``av_`` descriptor to the current one, so
+    the admin sees "metadata-only — no new version" vs "a new version will be
+    minted" before confirming. Also reports the field-name delta.
     """
     from fyp import annotation_contract as ac
     from fyp import annotation_schema as sch
 
     machine = fyp_cf["machine"]
     model = machine.get("model")
-    use_structured = bool(machine.get("use_structured_output", False))
-    use_generated = bool(machine.get("use_generated_prompt", False))
     gen_params = {k: machine.get(k) for k in annotation_versioning._VERSION_GEN_PARAM_KEYS}
 
     cur = annotation_versioning.current_version_descriptor(fresh=True)
-    # The contract only drives the prompt when the generated prompt is active;
-    # otherwise the file-based prompt is unaffected by the upload.
-    if use_generated:
-        cand_prompt = sch.build_prompt(cand_contract)
-    else:
-        cand_prompt = annotation_versioning.active_prompt_text()
-    cand_schema = sch.get_annotation_json_schema(cand_contract) if use_structured else None
+    cand_prompt = sch.build_prompt(cand_contract)
+    cand_schema = sch.get_annotation_json_schema(cand_contract)
     cand = annotation_versioning.build_version_descriptor(model, cand_prompt, cand_schema, gen_params)
 
     cur_names = {f.get("name") for f in ac.load_contract().get("fields", [])}
@@ -3102,8 +3094,8 @@ def _annotation_contract_impact(cand_contract: dict) -> dict:
         "metadata_only": not version_changed,
         "fields_added": sorted(n for n in (cand_names - cur_names) if n),
         "fields_removed": sorted(n for n in (cur_names - cand_names) if n),
-        "use_generated_prompt": use_generated,
-        "use_structured_output": use_structured,
+        "use_generated_prompt": True,
+        "use_structured_output": True,
     }
 
 

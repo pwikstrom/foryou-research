@@ -46,7 +46,6 @@ def _check_graceful_stop(process_name: str) -> bool:
     return sentinel.exists()
 
 
-REQUIRED_KEYS = fyp_cf["labels"]["REQUIRED_KEYS"]
 MACHINE_ANNOTATIONS_LABEL = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
 
 
@@ -75,8 +74,6 @@ def initialize_machine():
 
     if fyp_utils.online_ok():
         try:
-            machine_prompt = annotation_versioning.active_prompt_text()
-
             fyp_cf["machine"]["client"] = google.genai.Client(
                 vertexai=fyp_cf["machine"]["vertexai"],
                 project=fyp_cf["machine"]["project"],
@@ -85,17 +82,6 @@ def initialize_machine():
                     api_version=fyp_cf["machine"]["http_options_api_version"],
                     timeout=fyp_cf["machine"]["http_options_timeout"]
                 )
-            )
-
-            fyp_cf["machine"]["global_generation_config"] = google.genai.types.GenerateContentConfig(
-                system_instruction=machine_prompt,
-                temperature=fyp_cf["machine"]["temperature"],
-                max_output_tokens=fyp_cf["machine"]["max_output_tokens"],
-                response_mime_type=fyp_cf["machine"]["response_mime_type"],
-                presence_penalty=fyp_cf["machine"]["presence_penalty"],
-                frequency_penalty=fyp_cf["machine"]["frequency_penalty"],
-                media_resolution=_resolve_media_resolution(),
-                thinking_config=google.genai.types.ThinkingConfig(thinking_budget=fyp_cf["machine"]["thinking_budget"]),
             )
 
             print("Google Gemini initialized successfully")
@@ -284,8 +270,6 @@ def call_machine(
 
 
 
-    use_structured = bool(fyp_cf["machine"].get("use_structured_output", False))
-
     # Platform of the item being annotated: drives media resolution and is
     # stamped onto the output row. Unmapped items fall back to the default
     # platform (resolve_media probes the other platforms' subpaths anyway).
@@ -300,7 +284,7 @@ def call_machine(
         "model" : fyp_cf['machine']['model'],
         "prompt_fn" : annotation_versioning.active_prompt_label(),
         "annotation_version" : annotation_versioning.current_annotation_version(),
-        "structured" : use_structured,
+        "structured" : True,
         "usage" : {},
         "error" : "unknown error",
         "finish_reason": "did not even start",
@@ -369,12 +353,7 @@ def call_machine(
     # run the model
     try:
         start_ts = _dt.datetime.now()
-        gen_config = (
-            build_structured_generation_config()
-            if use_structured
-            else fyp_cf["machine"]["global_generation_config"]
-        )
-        resp = _generate_with_retry(contents, gen_config)
+        resp = _generate_with_retry(contents, build_structured_generation_config())
     except Exception as e:
         times += [_dt.datetime.now()]
 
@@ -745,13 +724,6 @@ def flatten_one_machine_response(
         return some_response
 
     flat_response = deepcopy(some_response)
-
-    # check if required keys are present
-    for rk in REQUIRED_KEYS:
-        if rk not in flat_response.keys():
-            if verbose:
-                print(f"WARNING: Required key '{rk}' is missing in response. Returning None")
-            return None
 
     # #######################
     # scenes
@@ -1557,23 +1529,14 @@ def refine_one_raw_annotation_batch(
         return None
 
     # ---------------------------------------------------------------
-    # 2. Check if required keys are present
-    # ---------------------------------------------------------------
-    found_all_required_keys = True
-    for rk in REQUIRED_KEYS:
-        if rk not in outputs_from_machine_df.columns:
-            print(f"WARNING: Essential column '{rk}' is missing in machine output")
-            found_all_required_keys = False
-
-    # ---------------------------------------------------------------
-    # 3. Consolidate rare columns
+    # 2. Consolidate rare columns
     # ---------------------------------------------------------------
     print("Consolidating rare columns from machine annotations.")
     outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose = verbose, notebook_mode = notebook_mode)
     print("...done")
 
     # ---------------------------------------------------------------
-    # 4. Remove repetitions from transcripts
+    # 3. Remove repetitions from transcripts
     # ---------------------------------------------------------------
     if 'transcript' in outputs_from_machine_df.columns:
         print("Removing repetitions from machine annotation transcripts...")
