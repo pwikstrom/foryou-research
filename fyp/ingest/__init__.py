@@ -29,13 +29,16 @@ from fyp.ingest.base import (
     parse_donor_timezone,
     registered_raw_locations,
 )
-from fyp.ingest.base import (
-    InstagramDDPCollection,
+# Platform modules are imported in pinned order (tiktok -> instagram ->
+# youtube) so __init_subclass__ registration order stays byte-identical to
+# the flat module (guarded by tests/unit/test_subpackage_shims.py).
+from fyp.ingest.tiktok import (
     TikTokAIOCollection,
     TikTokDDPCollection,
     TikTokZeeschuimerCollection,
-    YouTubeDDPCollection,
 )
+from fyp.ingest.instagram import InstagramDDPCollection
+from fyp.ingest.youtube import YouTubeDDPCollection
 
 
 
