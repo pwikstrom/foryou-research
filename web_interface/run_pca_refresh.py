@@ -79,24 +79,21 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
 
 
 if __name__ == "__main__":
-    import argparse
+    from web_interface.worker_runner import run_worker
 
-    from web_interface.task_status import LocalStatusReporter
+    def _make_task_args(args) -> dict:
+        task_args = {}
+        if args.studies:
+            task_args["studies"] = args.studies
+        return task_args
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--studies', type=str, default=None,
-                        help='Comma-separated study names to refresh (default: all)')
-    parser.add_argument('study_name', nargs='?', default=None)
-    args = parser.parse_args()
-
-    task_args = {}
-    if args.studies:
-        task_args["studies"] = args.studies
-
-    reporter = LocalStatusReporter("pca_refresh")
-    try:
-        run_pca_refresh(reporter=reporter, task_args=task_args)
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    run_worker(
+        run_pca_refresh,
+        "pca_refresh",
+        arg_specs=[
+            (('--studies',), {'type': str, 'default': None,
+                              'help': 'Comma-separated study names to refresh (default: all)'}),
+            (('study_name',), {'nargs': '?', 'default': None}),
+        ],
+        make_task_args=_make_task_args,
+    )
