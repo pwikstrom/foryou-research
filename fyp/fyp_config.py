@@ -2,6 +2,7 @@ import http.client
 import os
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -890,7 +891,7 @@ def compute_var_schema_etag(cf=None) -> str:
     """SHA-256 of the on-disk schema bytes — opaque concurrency token."""
     import hashlib
     if cf is None:
-        cf = fyp_cf
+        cf = get_config()
     try:
         data = _read_var_schema_bytes(cf)
     except Exception:
@@ -915,7 +916,7 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
     """
     from datetime import datetime, timezone
     if cf is None:
-        cf = fyp_cf
+        cf = get_config()
 
     if expected_etag is not None:
         current = compute_var_schema_etag(cf)
@@ -1068,7 +1069,7 @@ def reload_var_schema_if_changed(cf=None, verbose: bool = False) -> bool:
     Returns True if the schema was reloaded, False otherwise.
     """
     if cf is None:
-        cf = fyp_cf
+        cf = get_config()
     current = _var_schema_source_fingerprint(cf)
     cached = cf.get("_var_schema_fingerprint")
     if current is not None and current == cached:
@@ -1088,22 +1089,65 @@ def reload_var_schema_if_changed(cf=None, verbose: bool = False) -> bool:
 PROJECT_ROOT = Path(abs_project_root_path)
 
 
-# Initialize things. Time each phase so the real cold-start bottleneck is
-# provable from a single grep of the boot logs (Cloud Run and local).
-_boot_t0 = time.perf_counter()
-fyp_cf = initialize()
-_boot_t1 = time.perf_counter()
-fyp_cf = _connect_to_google(fyp_cf, verbose = True)
-_boot_t2 = time.perf_counter()
-fyp_cf = load_var_schema(fyp_cf, verbose=True)
-_boot_t3 = time.perf_counter()
-print(
-    f"[BOOT] fyp_config init: initialize={_boot_t1 - _boot_t0:.3f}s "
-    f"connect_google={_boot_t2 - _boot_t1:.3f}s "
-    f"load_var_schema={_boot_t3 - _boot_t2:.3f}s "
-    f"total={_boot_t3 - _boot_t0:.3f}s",
-    flush=True,
-)
+# The heavy init (config load, GCS connect, var_schema synthesis) is lazy: it
+# runs on first access of ``fyp_cf`` — served by the module ``__getattr__``
+# below (PEP 562) — instead of at module import. ``from fyp.fyp_config import
+# fyp_cf`` therefore still triggers init at the consumer's import time and
+# always binds the same singleton dict.
+_fyp_cf: dict | None = None
+_fyp_cf_lock = threading.Lock()
+
+
+
+
+def get_config() -> dict:
+    """Return the memoized config dict, running the heavy init on first call.
+
+    Performs exactly the three boot steps that used to run at module import
+    (``initialize()`` → ``_connect_to_google()`` → ``load_var_schema()``) and
+    emits the ``[BOOT]`` timing line once, so the real cold-start bottleneck is
+    provable from a single grep of the boot logs (Cloud Run and local).
+
+    Returns:
+        The singleton config dict (the same object on every call).
+    """
+    global _fyp_cf
+    if _fyp_cf is not None:
+        return _fyp_cf
+    with _fyp_cf_lock:
+        if _fyp_cf is not None:
+            return _fyp_cf
+        _boot_t0 = time.perf_counter()
+        cf = initialize()
+        # Publish before the connect/var_schema steps: those call into modules
+        # (data_io, var_presentation, the *_versioning registries) whose lazy
+        # ``_cf()`` accessors re-enter this module's ``fyp_cf`` attribute. The
+        # fast path above serves them the in-progress dict — the exact
+        # mid-init semantics the old module-level ``fyp_cf = initialize()``
+        # binding provided (guarded by tests/unit/test_import_cycle_hash.py).
+        _fyp_cf = cf
+        _boot_t1 = time.perf_counter()
+        cf = _connect_to_google(cf, verbose=True)
+        _boot_t2 = time.perf_counter()
+        cf = load_var_schema(cf, verbose=True)
+        _boot_t3 = time.perf_counter()
+        print(
+            f"[BOOT] fyp_config init: initialize={_boot_t1 - _boot_t0:.3f}s "
+            f"connect_google={_boot_t2 - _boot_t1:.3f}s "
+            f"load_var_schema={_boot_t3 - _boot_t2:.3f}s "
+            f"total={_boot_t3 - _boot_t0:.3f}s",
+            flush=True,
+        )
+    return _fyp_cf
+
+
+
+
+def __getattr__(name: str):
+    """Serve ``fyp_cf`` lazily (PEP 562), triggering the heavy init on first use."""
+    if name == "fyp_cf":
+        return get_config()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 QUEUE_SCRAPER_SCRIPT = PROJECT_ROOT / "web_interface" / "run_queue_scraper.py"
