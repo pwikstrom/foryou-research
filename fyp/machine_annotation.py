@@ -28,7 +28,6 @@ import fyp.media_paths as media_paths
 import fyp.scrape_queues as scrape_queues
 import fyp.utils as fyp_utils
 import fyp.annotation_versioning as annotation_versioning
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
 
 #from fyp.organize_datasets import select_videos_from_study_dataset
@@ -43,13 +42,32 @@ from fyp.utils import start_monitor
 logger = get_logger(__name__)
 
 
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
+
+
+
 def _check_graceful_stop(process_name: str) -> bool:
     """Check if a graceful stop has been requested via sentinel file."""
-    sentinel = Path(fyp_cf['paths']['project_root']) / "tmp" / "graceful_stop" / f"{process_name}.stop"
+    sentinel = Path(_cf()['paths']['project_root']) / "tmp" / "graceful_stop" / f"{process_name}.stop"
     return sentinel.exists()
 
 
-MACHINE_ANNOTATIONS_LABEL = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
+def _machine_annotations_label() -> str:
+    """Lazy accessor for the config-derived machine-annotations label."""
+    return _cf()["labels"]["MACHINE_ANNOTATIONS_LABEL"]
+
+
+
+
+def __getattr__(name: str):
+    """Serve the config-derived module constant lazily (PEP 562)."""
+    if name == "MACHINE_ANNOTATIONS_LABEL":
+        return _machine_annotations_label()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 
@@ -68,22 +86,21 @@ MACHINE_ANNOTATIONS_LABEL = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
 
 
 def initialize_machine():
-    global fyp_cf
 
-    if fyp_cf["machine"].get("client", None) is not None:
-        return fyp_cf
+    if _cf()["machine"].get("client", None) is not None:
+        return _cf()
 
-    fyp_cf["machine"]["client"] = None
+    _cf()["machine"]["client"] = None
 
     if fyp_utils.online_ok():
         try:
-            fyp_cf["machine"]["client"] = google.genai.Client(
-                vertexai=fyp_cf["machine"]["vertexai"],
-                project=fyp_cf["machine"]["project"],
-                location=fyp_cf["machine"]["location"],
+            _cf()["machine"]["client"] = google.genai.Client(
+                vertexai=_cf()["machine"]["vertexai"],
+                project=_cf()["machine"]["project"],
+                location=_cf()["machine"]["location"],
                 http_options=google.genai.types.HttpOptions(
-                    api_version=fyp_cf["machine"]["http_options_api_version"],
-                    timeout=fyp_cf["machine"]["http_options_timeout"]
+                    api_version=_cf()["machine"]["http_options_api_version"],
+                    timeout=_cf()["machine"]["http_options_timeout"]
                 )
             )
 
@@ -112,7 +129,7 @@ def _resolve_media_resolution():
     Returns:
         A ``google.genai.types.MediaResolution`` value, or ``None``.
     """
-    value = str(fyp_cf["machine"].get("media_resolution", "") or "").strip().upper()
+    value = str(_cf()["machine"].get("media_resolution", "") or "").strip().upper()
     if not value:
         return None
     if not value.startswith("MEDIA_RESOLUTION_"):
@@ -134,23 +151,23 @@ def build_structured_generation_config():
     Returns:
         The cached ``GenerateContentConfig`` for structured annotation.
     """
-    if fyp_cf["machine"].get("structured_generation_config") is not None:
-        return fyp_cf["machine"]["structured_generation_config"]
+    if _cf()["machine"].get("structured_generation_config") is not None:
+        return _cf()["machine"]["structured_generation_config"]
 
     machine_prompt = annotation_versioning.active_prompt_text()
 
-    fyp_cf["machine"]["structured_generation_config"] = google.genai.types.GenerateContentConfig(
+    _cf()["machine"]["structured_generation_config"] = google.genai.types.GenerateContentConfig(
         system_instruction=machine_prompt,
-        temperature=fyp_cf["machine"]["temperature"],
-        max_output_tokens=fyp_cf["machine"]["max_output_tokens"],
+        temperature=_cf()["machine"]["temperature"],
+        max_output_tokens=_cf()["machine"]["max_output_tokens"],
         response_mime_type="application/json",
         response_schema=build_response_schema(),
         media_resolution=_resolve_media_resolution(),
         thinking_config=google.genai.types.ThinkingConfig(
-            thinking_budget=fyp_cf["machine"]["thinking_budget"]
+            thinking_budget=_cf()["machine"]["thinking_budget"]
         ),
     )
-    return fyp_cf["machine"]["structured_generation_config"]
+    return _cf()["machine"]["structured_generation_config"]
 
 
 
@@ -225,14 +242,14 @@ def _generate_with_retry(contents, gen_config):
         Exception: The last exception if every attempt fails, or any
             non-transient error on its first occurrence.
     """
-    max_retries = int(fyp_cf["machine"].get("max_retries", 2))
-    base_delay = float(fyp_cf["machine"].get("retry_base_delay", 2.0))
+    max_retries = int(_cf()["machine"].get("max_retries", 2))
+    base_delay = float(_cf()["machine"].get("retry_base_delay", 2.0))
 
     attempt = 0
     while True:
         try:
-            return fyp_cf["machine"]["client"].models.generate_content(
-                model=fyp_cf["machine"]["model"],
+            return _cf()["machine"]["client"].models.generate_content(
+                model=_cf()["machine"]["model"],
                 config=gen_config,
                 contents=contents,
             )
@@ -284,7 +301,7 @@ def call_machine(
         "source_platform" : annotation_platform,
         "inference_ts" : int(times[-1].timestamp()),
         "inference_duration" : -1,
-        "model" : fyp_cf['machine']['model'],
+        "model" : _cf()['machine']['model'],
         "prompt_fn" : annotation_versioning.active_prompt_label(),
         "annotation_version" : annotation_versioning.current_annotation_version(),
         "structured" : True,
@@ -297,8 +314,8 @@ def call_machine(
     temp_fn = f"temp_machine_annotations_{output['item_id']}_{output['inference_ts']}.json"
 
     # The explicit kwarg is an override; otherwise the config flag decides.
-    effective_local = use_local_video_file or not fyp_cf['data_io']['use_gcs_for_media']
-    effective_local_dir = local_path or fyp_cf['paths']['media']
+    effective_local = use_local_video_file or not _cf()['data_io']['use_gcs_for_media']
+    effective_local_dir = local_path or _cf()['paths']['media']
 
     # Media may live at the per-platform subpath or the legacy flat path;
     # media_paths.resolve_media owns that fallback order.
@@ -336,7 +353,7 @@ def call_machine(
             if resolved_media and resolved_media["kind"] == "gcs":
                 file_uri = media_paths.media_gs_uri(resolved_media)
             else:
-                file_uri = f"gs://{fyp_cf['data_io']['GCS_bucket_name']}/{fyp_cf['data_io']['gcs_media_prefix']}/{video_id}.mp4"
+                file_uri = f"gs://{_cf()['data_io']['GCS_bucket_name']}/{_cf()['data_io']['gcs_media_prefix']}/{video_id}.mp4"
             contents = [
                 google.genai.types.Part.from_uri(
                     file_uri=file_uri,
@@ -347,7 +364,7 @@ def call_machine(
 
     except Exception as e:
         output["error"] = str(e)
-        with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
+        with open(os.path.join(_cf()["paths"]["temp"], temp_fn), 'w') as file:
             json.dump(output, file)
 
         return output
@@ -371,7 +388,7 @@ def call_machine(
         else:
             output["finish_reason"] = "DNF - see error msg"
 
-        with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
+        with open(os.path.join(_cf()["paths"]["temp"], temp_fn), 'w') as file:
             json.dump(output, file)
         return output
 
@@ -391,7 +408,7 @@ def call_machine(
         output["finish_reason"] = the_finish_reason
         output["response"] = resp
 
-        with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
+        with open(os.path.join(_cf()["paths"]["temp"], temp_fn), 'w') as file:
             json.dump(output, file)
         return output
 
@@ -409,7 +426,7 @@ def call_machine(
         }
 
     # save the json just in case everything crashes
-    with open(os.path.join(fyp_cf["paths"]["temp"], temp_fn), 'w') as file:
+    with open(os.path.join(_cf()["paths"]["temp"], temp_fn), 'w') as file:
         json.dump(output, file)
 
     return output
@@ -475,7 +492,7 @@ def call_machine_threads(
     if verbose:
         if dry_run:
             print("  [dry run] - ", end="", flush=True)
-        logger.info(f"Calling {fyp_cf['machine']['model']} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
+        logger.info(f"Calling {_cf()['machine']['model']} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
 
     def _annotation_ok(fut):
         try:
@@ -494,8 +511,8 @@ def call_machine_threads(
     _waves = max(1, (len(interesting_videos) + max_workers - 1) // max_workers)
     # Extra headroom for retry backoff sleeps a worker may incur on transient
     # failures (sum of base*2^k for k < max_retries).
-    _max_retries = int(fyp_cf["machine"].get("max_retries", 2))
-    _retry_base_delay = float(fyp_cf["machine"].get("retry_base_delay", 2.0))
+    _max_retries = int(_cf()["machine"].get("max_retries", 2))
+    _retry_base_delay = float(_cf()["machine"].get("retry_base_delay", 2.0))
     _retry_backoff = _retry_base_delay * (2 ** _max_retries - 1)
     batch_deadline = int(
         _waves * _per_call_seconds * _safety_margin + _startup_sleep + 60 + _retry_backoff
@@ -546,7 +563,7 @@ def call_machine_threads(
                 "error": f"worker did not complete within {batch_deadline}s",
                 "finish_reason": "DNF - worker timeout",
                 "response": "",
-                "model": fyp_cf["machine"]["model"],
+                "model": _cf()["machine"]["model"],
             }
 
         monitor_thread.join(timeout=10)
@@ -565,7 +582,7 @@ def call_machine_threads(
 
         fine_ts = "".join([k for k in str(_dt.datetime.now()) if k in "0123456789"])
 
-        filename = f"{MACHINE_ANNOTATIONS_LABEL}_{fine_ts}.json"
+        filename = f"{_machine_annotations_label()}_{fine_ts}.json"
 
         data_io.save_json(data=results_by_index, storage_location="machine_annotations_raw", filename=filename, verbose=verbose)
         if verbose:
@@ -1305,7 +1322,7 @@ def clean_up_machine_annotations(some_events, verbose = False):
     # iterate over all object type columns in the events DF that starts w G_, i.e. are machine annotations
     g_cols = [k for k in some_events.select_dtypes(exclude=["number"]).columns if k not in ["item_id","annotated_ok","annotated_fail"]]
     
-    exclude_set = {fyp_cf['labels']['UNABLE_TO_DETECT'], "", fyp_cf['labels']['OTHER_THINGS']}
+    exclude_set = {_cf()['labels']['UNABLE_TO_DETECT'], "", _cf()['labels']['OTHER_THINGS']}
 
     for c in g_cols:
         # Step 1: Flatten and filter efficiently
@@ -1331,7 +1348,7 @@ def clean_up_machine_annotations(some_events, verbose = False):
         if valid_items.empty:
             continue
 
-        accepted = fyp_cf['var_schema'].set_index('variable_name').loc[c,'accepted_labels']
+        accepted = _cf()['var_schema'].set_index('variable_name').loc[c,'accepted_labels']
         accepted_labels = pd.NA
         if pd.notna(accepted) and accepted.lower() != 'nan' and accepted.startswith('[') and accepted.endswith(']'):
             accepted = accepted[1:-1]
@@ -1451,9 +1468,9 @@ def clean_up_machine_annotations(some_events, verbose = False):
             # keep_set consistent with how keep_set was built.
             def _fast_replace(x):
                 if isinstance(x, (list, np.ndarray)):
-                    return [y if y in keep_set else fyp_cf['labels']['OTHER_THINGS'] for y in x]
+                    return [y if y in keep_set else _cf()['labels']['OTHER_THINGS'] for y in x]
                 if isinstance(x, str):
-                    return x if x in keep_set else fyp_cf['labels']['OTHER_THINGS']
+                    return x if x in keep_set else _cf()['labels']['OTHER_THINGS']
                 return x # keep NA or other
 
             some_cleaned_up_events[c] = series.apply(_fast_replace)
@@ -1636,10 +1653,10 @@ def refine_and_save_all_raw_annotation_files(verbose = False, notebook_mode = Fa
 
     result = {}
 
-    raw_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_raw") if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".json")]
+    raw_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_raw") if fn.startswith(_machine_annotations_label()) and fn.endswith(".json")]
     result["raw_files"] = len(raw_annotation_files)
 
-    refined_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_refined") if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet")]
+    refined_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_refined") if fn.startswith(_machine_annotations_label()) and fn.endswith(".parquet")]
     result["refined_files_before"] = len(refined_annotation_files)
 
     if force:
@@ -1716,7 +1733,7 @@ def consolidate_and_save_refined_annotations(
 
     files_to_concatenate = []
     for fn in data_io.listdir(storage_location="machine_annotations_refined"):
-        if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet"):
+        if fn.startswith(_machine_annotations_label()) and fn.endswith(".parquet"):
             files_to_concatenate.append(fn)
 
     latest_filename_list = dataset_meta.get("machine_annotations", {}).get("filenames", [])
@@ -1726,9 +1743,9 @@ def consolidate_and_save_refined_annotations(
         if top_verbose:
             logger.info("No new refined machine annotations files found. No need to consolidate.")
         if return_saved_data:
-            if data_io.exists(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"):
+            if data_io.exists(storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet"):
                 if verbose: logger.info("Returning existing file.")
-                return False, data_io.load_parquet(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"), set()
+                return False, data_io.load_parquet(storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet"), set()
             if verbose: logger.info("No existing consolidated file — returning empty.")
             return False, pd.DataFrame(), set()
         return False, None, set()
@@ -1780,7 +1797,7 @@ def consolidate_and_save_refined_annotations(
     data_io.save_parquet(
         df=annotation_archive,
         storage_location="recoded",
-        filename=f"{MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet",
+        filename=f"{_machine_annotations_label()}_all_versions.parquet",
         verbose=verbose,
     )
     # Record which annotation versions the archive actually contains, so the
@@ -1813,7 +1830,7 @@ def consolidate_and_save_refined_annotations(
     # Compute changed item_ids: IDs from newly added files that were not in the
     # previous consolidation file list (even re-annotations count as changes).
     # When force_consolidation is True, treat ALL items as changed.
-    existing_recoded_fn = f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"
+    existing_recoded_fn = f"{_machine_annotations_label()}_recoded.parquet"
     new_item_ids: set[str] = set()
     if force_consolidation:
         new_item_ids = set(consolidated_annotations["item_id"])
@@ -1868,8 +1885,8 @@ def rebuild_active_annotations_from_archive(verbose: bool = False):
         The number of rows in the rebuilt active dataset, or ``None`` if the
         archive is missing/empty.
     """
-    archive_fn = f"{MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"
-    recoded_fn = f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"
+    archive_fn = f"{_machine_annotations_label()}_all_versions.parquet"
+    recoded_fn = f"{_machine_annotations_label()}_recoded.parquet"
     if not data_io.exists(storage_location="recoded", filename=archive_fn):
         return None
     archive = data_io.load_parquet(storage_location="recoded", filename=archive_fn)
