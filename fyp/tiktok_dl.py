@@ -20,7 +20,6 @@ from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp import scraper_cookies
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
 from fyp.platform_scraper import (  # noqa: F401
     _THROTTLE_CATEGORIES,
@@ -493,16 +492,28 @@ def _cleanup_temp_files(temp_dir: str, video_id: str) -> None:
 _META_MAX_RETRIES = 3
 _DL_MAX_RETRIES = 2
 
-# Hard ceiling on a single media download. On Cloud Run /tmp is a memory-backed
-# tmpfs, so a runaway download (livestream, a non-video format with no duration
-# to trip the duration cap) writing multi-GB there pushes the container into an
-# OOM kill. No legitimate short-form TikTok video approaches this; yt-dlp aborts
-# the download when the format size exceeds it. Overridable via
-# ``[misc] max_media_download_bytes``.
-try:
-    _MAX_MEDIA_BYTES = int(fyp_cf["misc"].get("max_media_download_bytes", 1 << 30))
-except (KeyError, TypeError, ValueError):
-    _MAX_MEDIA_BYTES = 1 << 30
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
+
+
+
+
+def _max_media_bytes() -> int:
+    """Hard ceiling on a single media download.
+
+    On Cloud Run /tmp is a memory-backed tmpfs, so a runaway download
+    (livestream, a non-video format with no duration to trip the duration cap)
+    writing multi-GB there pushes the container into an OOM kill. No legitimate
+    short-form TikTok video approaches this; yt-dlp aborts the download when the
+    format size exceeds it. Overridable via ``[misc] max_media_download_bytes``.
+    """
+    try:
+        return int(_cf()["misc"].get("max_media_download_bytes", 1 << 30))
+    except (KeyError, TypeError, ValueError):
+        return 1 << 30
 
 # Hard cap on the raw page read in _fetch_item_struct. A normal TikTok page is
 # 1-3 MB; the optional page-JSON supplement loads the whole body into memory and
@@ -535,7 +546,7 @@ def save_tiktok(
     """
 
     video_id = video_url.rstrip('/').split('/')[-1]
-    temp_dir = fyp_cf['paths']['temp']
+    temp_dir = _cf()['paths']['temp']
 
     # -------------------------------------------
     # Step 1: extract metadata (no download yet)
@@ -654,7 +665,7 @@ def save_tiktok(
             'merge_output_format': 'mp4',
             'retries': 3,
             'socket_timeout': 30,
-            'max_filesize': _MAX_MEDIA_BYTES,
+            'max_filesize': _max_media_bytes(),
         }
 
         for attempt in range(_DL_MAX_RETRIES):
