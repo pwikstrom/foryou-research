@@ -18,12 +18,28 @@ import pandas as pd
 
 import fyp.data_io as data_io
 from fyp.calc_collection_stats import generate_personas
-from fyp.fyp_config import fyp_cf
-from fyp.organize_datasets import COLLECTIONS_LABEL
 from fyp.logging_setup import get_logger
 from fyp.recode_variables import *
 
 logger = get_logger(__name__)
+
+
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
+
+
+
+
+def _collections_label() -> str:
+    """Lazy accessor for the config-derived collections label."""
+    from fyp.organize_datasets import COLLECTIONS_LABEL
+
+    return COLLECTIONS_LABEL
 
 collection_id_column = "collection_id"
 timestamp_column = "local_timestamp"
@@ -62,8 +78,8 @@ def get_donation_metadata_from_aio_aws(
 
     # Prepare destination
     filename = f"ddp_metadata_{file_stamp}.json"
-    temp_file = os.path.join(fyp_cf["paths"]["temp"], filename)
-    os.makedirs(fyp_cf["paths"]["temp"], exist_ok=True)
+    temp_file = os.path.join(_cf()["paths"]["temp"], filename)
+    os.makedirs(_cf()["paths"]["temp"], exist_ok=True)
 
     # Scan the metadata table. The previous AWS-CLI implementation produced
     # a JSON object of the shape {"Items": [...], "Count": N, "ScannedCount": N};
@@ -152,7 +168,7 @@ def get_recent_data_donations_from_aio_aws(
     # ------------------------------------------------------------------
     # Use a specific temp folder for this batch
 
-    temp_dir_path = os.path.join(fyp_cf["paths"]["temp"], f"download_batch_{now.strftime('%Y%m%d%H%M%S')}")
+    temp_dir_path = os.path.join(_cf()["paths"]["temp"], f"download_batch_{now.strftime('%Y%m%d%H%M%S')}")
     dest = Path(temp_dir_path).expanduser().resolve()
     dest.mkdir(parents=True, exist_ok=True)
 
@@ -286,8 +302,8 @@ def generate_collection_metadata(
 
     old_metadata_df = pd.DataFrame()
     if load_from_disk:
-        if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
-            old_metadata_df = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet")
+        if data_io.exists(storage_location="recoded", filename=f"{_collections_label()}_metadata.parquet"):
+            old_metadata_df = data_io.load_parquet(storage_location="recoded", filename=f"{_collections_label()}_metadata.parquet")
             if collection_id_column in old_metadata_df.columns:
                 old_metadata_df.set_index(collection_id_column, inplace=True)
             if old_metadata_df.index.name != collection_id_column:
@@ -314,7 +330,7 @@ def generate_collection_metadata(
 
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
             if save_to_disk_ok:
-                data_io.save_parquet(df=new_metadata_df, storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=verbose)
+                data_io.save_parquet(df=new_metadata_df, storage_location="recoded", filename=f"{_collections_label()}_metadata.parquet", verbose=verbose)
                 logger.info(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
             return new_metadata_df
 
@@ -405,7 +421,7 @@ def generate_collection_metadata(
     if save_to_disk_ok:
         if verbose:
             logger.info(f"Saving updated metadata to disk. Shape: {combined_ddp_metadata.shape}")
-        data_io.save_parquet(df=combined_ddp_metadata, storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=verbose)
+        data_io.save_parquet(df=combined_ddp_metadata, storage_location="recoded", filename=f"{_collections_label()}_metadata.parquet", verbose=verbose)
 
     if verbose:
         logger.info(f"Shape of the combined metadata DF: {combined_ddp_metadata.shape}")
