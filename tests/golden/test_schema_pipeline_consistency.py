@@ -82,12 +82,22 @@ def schema_variable_names() -> set[str]:
 
 
 def schema_gemini_sourced() -> set[str]:
-    """Schema variables whose ``source`` mentions Gemini (the model-facing rows)."""
+    """Schema variables whose ``source`` mentions Gemini (the model-facing rows).
+
+    Restricted to columns the *current* contract owns
+    (``contract_column_metadata``): the var_schema also carries legacy rows
+    injected from the on-disk annotation version registry, which is live data
+    state — absent on a fresh checkout / CI — not prompt↔schema coupling.
+    """
+    import fyp.annotation_contract as ac
+
     vs = fyp_cf["var_schema"]
     if "source" not in vs.columns:
         return set()
     mask = vs["source"].astype(str).str.contains("Gemini", case=False, na=False)
-    return {str(v) for v in vs.loc[mask, "variable_name"].dropna().tolist()}
+    gemini_vars = {str(v) for v in vs.loc[mask, "variable_name"].dropna().tolist()}
+    current_columns = set(ac.contract_column_metadata(ac.load_contract()).keys())
+    return gemini_vars & current_columns
 
 
 def build_coupling_report() -> dict:

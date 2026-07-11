@@ -14,14 +14,12 @@
     "transcript"
   ],
   "gemini_schema_vars_not_in_prompt": [
-    "australian_relevance",
     "background_music",
     "faces_age_estimate",
     "faces_ethnicity",
     "faces_gender",
     "notable_sounds",
     "speech_vs_music",
-    "transcript_no_repetitions",
-    "trend"
+    "transcript_no_repetitions"
   ]
 }
