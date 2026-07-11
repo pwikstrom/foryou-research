@@ -124,9 +124,15 @@ class LocalStatusReporter(TaskStatusReporter):
             payload_dict["stage_total"] = stage_total
         if stage_name is not None:
             payload_dict["stage_name"] = stage_name
+        # STDOUT PROTOCOL — MUST stay print(). process_manager.enqueue_output()
+        # parses subprocess stdout line-by-line for the ::PROGRESS:: marker.
+        # Never convert to logging (see tests/unit/test_task_status_stdout_contract.py).
         print(f"::PROGRESS::{json.dumps(payload_dict)}")
 
     def emit_data(self, payload: dict) -> None:
+        # STDOUT PROTOCOL — MUST stay print(). process_manager.enqueue_output()
+        # parses subprocess stdout line-by-line for the ::DATA:: marker.
+        # Never convert to logging (see tests/unit/test_task_status_stdout_contract.py).
         print(f"::DATA::{json.dumps(payload)}")
 
     def complete(self, data: dict | None = None) -> None:
@@ -204,6 +210,7 @@ class LocalThreadStatusReporter(TaskStatusReporter):
         if stage_name is not None:
             payload_dict["stage_name"] = stage_name
         self._update({"progress": payload_dict})
+        # STDOUT PROTOCOL — MUST stay print() (see LocalStatusReporter.update_progress).
         print(f"::PROGRESS::{json.dumps(payload_dict)}")
 
     def emit_data(self, payload: dict) -> None:
@@ -213,6 +220,7 @@ class LocalThreadStatusReporter(TaskStatusReporter):
             current_data.update(payload)
             current["data"] = current_data
             current["updated_at"] = datetime.now(UTC).isoformat()
+        # STDOUT PROTOCOL — MUST stay print() (see LocalStatusReporter.emit_data).
         print(f"::DATA::{json.dumps(payload)}")
 
     def complete(self, data: dict | None = None) -> None:
