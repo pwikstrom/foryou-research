@@ -30,11 +30,14 @@ from fyp import scrape_versioning as _scrape_versioning
 from fyp import structure_sentinel as _structure_sentinel
 from fyp.donations import generate_collection_metadata
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
 from fyp.organize_datasets import COLLECTIONS_LABEL
 from fyp.polars_ops import fast_vertical_concat
 from fyp.recode_variables import infer_timezone_offset
 from fyp.types import convert_dtypes_to_pyarrow
 from fyp.utils import ACTIVITY_TYPE_MAP, clean_url, read_zip_members, repair_mojibake
+
+logger = get_logger(__name__)
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 
@@ -291,7 +294,7 @@ def apply_cid_remap_to_metadata(
         data_io.save_json(data=studies, storage_location=storage_location, filename=STUDIES_FILENAME)
 
     if verbose:
-        print(
+        logger.info(
             f"cid_remap propagated: tags renamed={len(summary['tag_keys_renamed'])}, "
             f"merged={len(summary['tag_keys_merged'])}; studies updated="
             f"{len(summary['studies_updated'])}; unmapped old keys="
@@ -540,7 +543,7 @@ class ForYouBaseCollection(ABC):
             abs_path = os.path.join(fyp_cf["paths"]["activity_data"], source_platform, raw_path)
             data_io.register_location(raw_path, abs_path)
         except Exception as exc:
-            print(f"WARNING: could not register raw location '{raw_path}' for {cls.__name__}: {exc}")
+            logger.warning(f"WARNING: could not register raw location '{raw_path}' for {cls.__name__}: {exc}")
 
     # The canonical required columns come from config/activity_contract.toml.
     REQUIRED_COLUMNS = _ACTIVITY_REQUIRED_COLUMNS
@@ -592,7 +595,7 @@ class ForYouBaseCollection(ABC):
         drop_similar_activity_sequences: bool = True):
         
         if self.verbose:
-            print(f"Loading processed data from {processed_fn}. Data source: {self.source_platform}_{self.data_source}")
+            logger.info(f"Loading processed data from {processed_fn}. Data source: {self.source_platform}_{self.data_source}")
 
         new_processed_data = data_io.load_parquet(
             storage_location=self.processed_storage_location,
@@ -603,30 +606,30 @@ class ForYouBaseCollection(ABC):
         if len(self.data) > 0:
             if self.state != "processed":
                 if self.verbose:
-                    print(f"Warning: There is data in this collection but the state is '{self.state}'. Existing data must be processed. Cannot load new data.")
+                    logger.warning(f"Warning: There is data in this collection but the state is '{self.state}'. Existing data must be processed. Cannot load new data.")
                 return
             if self.verbose:
-                print(f"Adding {len( new_processed_data):,} new processed activities to existing {len(self.data):,} activities.")
+                logger.info(f"Adding {len( new_processed_data):,} new processed activities to existing {len(self.data):,} activities.")
             # Vertical concat via polars: parallel, avoids pandas' O(n) copy
             # on accumulating appends. Matters at events-scale (tens of millions
             # of rows). See fyp/polars_ops.py.
             self.data = fast_vertical_concat([self.data, new_processed_data])
         else:
             if self.verbose:
-                print(f"Loading {len(new_processed_data):,} processed activities.")
+                logger.info(f"Loading {len(new_processed_data):,} processed activities.")
             self.data = new_processed_data.copy()
 
         self.state = "processed"
 
         if drop_similar_activity_sequences:
             if self.verbose:
-                print("Dropping activities from files with overlapping/similar activity sequences")
+                logger.info("Dropping activities from files with overlapping/similar activity sequences")
             cid_remap = self.identify_similar_file_content(drop_them=True)
             if cid_remap:
                 apply_cid_remap_to_metadata(cid_remap, verbose=self.verbose)
 
         if self.verbose:
-            print(f"There are now {len(self.data):,} activities in the collection.")
+            logger.info(f"There are now {len(self.data):,} activities in the collection.")
 
 
 
@@ -634,7 +637,7 @@ class ForYouBaseCollection(ABC):
     def save_processed(self):
 
         if self.state != "processed":
-            print(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first.")
+            logger.warning(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first.")
             return
         
         fn = f"{self.source_platform}_{self.data_source}_processed_activities.parquet"
@@ -642,7 +645,7 @@ class ForYouBaseCollection(ABC):
         if len(self.data) > 0:
             local_time_cols = [c for c in self.data.columns if c.startswith("local_")]
             if len(local_time_cols) > 0:
-                print("This dataset seem to have 'local time features' added. I am dropping these columns when saving.")
+                logger.info("This dataset seem to have 'local time features' added. I am dropping these columns when saving.")
                 self.data.drop(local_time_cols, axis=1, inplace=True)
                 
             _ = data_io.save_parquet(
@@ -764,7 +767,7 @@ class ForYouBaseCollection(ABC):
             filename=fn,
         )
         if self.verbose:
-            print(f"Saved {len(seed):,} donated enrichment-seed rows to {fn}.")
+            logger.info(f"Saved {len(seed):,} donated enrichment-seed rows to {fn}.")
 
 
 
@@ -773,10 +776,10 @@ class ForYouBaseCollection(ABC):
 
     def load_raw(self, skip_these_raw_files: list[str] = []):
         if self.verbose:
-            print(f"Loading raw data for collection '{self.source_platform}_{self.data_source}'.")
+            logger.info(f"Loading raw data for collection '{self.source_platform}_{self.data_source}'.")
 
         if self.state != "empty":
-            print(f"This collection '{self.source_platform}_{self.data_source}' is not empty. The current data will be replaced.")
+            logger.info(f"This collection '{self.source_platform}_{self.data_source}' is not empty. The current data will be replaced.")
 
         if self.raw_path is None:
             raise ValueError("No raw path has been set for this collection.")
@@ -820,7 +823,7 @@ class ForYouBaseCollection(ABC):
             try:
                 one_df = self.load_single_raw(fn)
             except Exception as exc:
-                print(
+                logger.error(
                     f"ERROR: failed to load raw file '{fn}' for "
                     f"'{self.source_platform}_{self.data_source}': {exc}. "
                     f"Leaving it pending for retry."
@@ -843,7 +846,7 @@ class ForYouBaseCollection(ABC):
                 # dropped by process()'s filter before _standardize()).
                 one_df[_MANIFEST_TZ_COLUMN] = self._current_file_tz if self._current_file_tz else pd.NA
 
-                if self.verbose: print(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
+                if self.verbose: logger.info(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
 
             # I will keep data from this file if there are at least 10 activities. (just an arbitrary number)
             if len(one_df) >= self.min_required_rows_per_raw_file:
@@ -856,14 +859,14 @@ class ForYouBaseCollection(ABC):
                     try:
                         verdict = self.sentinel.check_raw(self, fn, one_df)
                     except Exception as exc:
-                        print(f"WARNING: structure check failed for '{fn}': {exc}. Ingesting anyway.")
+                        logger.warning(f"WARNING: structure check failed for '{fn}': {exc}. Ingesting anyway.")
                 if verdict is not None and verdict["status"] == "quarantined":
                     self.quarantined_this_run[fn] = verdict
-                    if self.verbose: print(f"Quarantining file: {fn} (structure drift).")
+                    if self.verbose: logger.info(f"Quarantining file: {fn} (structure drift).")
                 else:
                     many_dfs.append(one_df)
             else:
-                if self.verbose: print(f"Discarding file: {fn}. Too few rows: {len(one_df):,}")
+                if self.verbose: logger.info(f"Discarding file: {fn}. Too few rows: {len(one_df):,}")
                 self.discarded_raw_files.append(fn)
 
 
@@ -954,17 +957,17 @@ class ForYouBaseCollection(ABC):
 
         if self.state == "empty":
             if self.verbose:
-                print(f"There is no data from platform/data_source '{self.source_platform}_{self.data_source}'. Nothing for me to do.")
+                logger.info(f"There is no data from platform/data_source '{self.source_platform}_{self.data_source}'. Nothing for me to do.")
             return
 
 
         if self.state != "raw":
             if self.verbose:
-                print(f"Platform/data_source '{self.source_platform}_{self.data_source}' is not in raw state. Cannot process. Please load raw data first.")
+                logger.warning(f"Platform/data_source '{self.source_platform}_{self.data_source}' is not in raw state. Cannot process. Please load raw data first.")
             return
 
         if self.verbose:
-            print(f"Processing {len(self.data):,} raw rows for platform/data_source '{self.source_platform}_{self.data_source}'...")
+            logger.info(f"Processing {len(self.data):,} raw rows for platform/data_source '{self.source_platform}_{self.data_source}'...")
 
         self.data = self.data.groupby("raw_file", group_keys=False)[self.data.columns].apply(self.process_single)
 
@@ -984,7 +987,7 @@ class ForYouBaseCollection(ABC):
         self.state = "processed"
 
         if self.verbose:
-            print(f"Raw data from platform/data_source '{self.source_platform}_{self.data_source}' is now processed. Number of rows: {len(self.data):,}")        
+            logger.info(f"Raw data from platform/data_source '{self.source_platform}_{self.data_source}' is now processed. Number of rows: {len(self.data):,}")        
 
 
     @abstractmethod
@@ -1052,7 +1055,7 @@ class ForYouBaseCollection(ABC):
         del drop_them  # always treated as True; kept for caller compatibility
 
         if self.state != "processed":
-            print(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot identify similar file content. Please process data first.")
+            logger.warning(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot identify similar file content. Please process data first.")
             return {}
 
         if len(self.data) == 0:
@@ -1140,7 +1143,7 @@ class ForYouBaseCollection(ABC):
 
             if self.verbose:
                 merged_files = sum(len(c) for c in multi_clusters)
-                print(
+                logger.info(
                     f"Clustered {merged_files} raw_files into {len(multi_clusters)} "
                     f"merged collection(s)."
                 )
@@ -1157,7 +1160,7 @@ class ForYouBaseCollection(ABC):
             .copy()
         )
         if self.verbose and rows_before > len(self.data):
-            print(f"Deduped {rows_before - len(self.data):,} overlapping rows within clusters.")
+            logger.info(f"Deduped {rows_before - len(self.data):,} overlapping rows within clusters.")
 
         return cid_remap
 
@@ -1230,7 +1233,7 @@ class ForYouBaseCollection(ABC):
         for col, dtype in self.REQUIRED_COLUMNS.items():
             if col not in df.columns:
                 if self.verbose:
-                    print(f"Warning: Missing column {col}, filling with NA.")
+                    logger.warning(f"Warning: Missing column {col}, filling with NA.")
                 df[col] = pd.NA
 
         # 2. Enforce dtypes
@@ -1242,7 +1245,7 @@ class ForYouBaseCollection(ABC):
                     df[col] = df[col].astype(dtype)
                 except Exception as e:
                     if self.verbose:
-                        print(f"Error casting {col} to {dtype}: {e}. Trying fyp.types.convert_dtypes_to_pyarrow.")
+                        logger.warning(f"Error casting {col} to {dtype}: {e}. Trying fyp.types.convert_dtypes_to_pyarrow.")
                     # Fallback to the robust converter
                     # converting specific column to pyarrow backed using the helper
                     # Note: convert_dtypes_to_pyarrow works on DF, but we can try to apply it to the column or the whole DF later
@@ -1252,7 +1255,7 @@ class ForYouBaseCollection(ABC):
         try:
              df = convert_dtypes_to_pyarrow(df, verbose=False)
         except Exception as e:
-             if self.verbose: print(f"Warning: convert_dtypes_to_pyarrow failed: {e}")
+             if self.verbose: logger.warning(f"Warning: convert_dtypes_to_pyarrow failed: {e}")
 
         # Hard-drop integrity gate: a row missing any required-core STRUCTURAL field
         # is malformed and dropped. Column presence is already ensured above; this
@@ -1264,7 +1267,7 @@ class ForYouBaseCollection(ABC):
             invalid = df[core].isna().any(axis=1)
             n_bad = int(invalid.sum())
             if n_bad:
-                print(
+                logger.info(
                     f"Activity ingest: hard-dropping {n_bad:,} row(s) with a null "
                     f"required-core field ({', '.join(core)})."
                 )
@@ -1470,12 +1473,12 @@ class ForYouCollection(ForYouBaseCollection):
             raise ValueError(f"{collection_class} is not a subclass of ForYouBaseCollection")
         if collection_class in [type(x) for x in self.collections]:
             if self.verbose:
-                print(f"{collection_class} is already registered.")
+                logger.info(f"{collection_class} is already registered.")
             return
         self.collections.append(collection_class(verbose=self.verbose))
         self.collections[-1].discarded_raw_files = self.discarded_raw_files
         if self.verbose:
-            print(f"Registered collection class: {collection_class}")
+            logger.info(f"Registered collection class: {collection_class}")
 
 
 
@@ -1484,7 +1487,7 @@ class ForYouCollection(ForYouBaseCollection):
         fn = f"{COLLECTIONS_LABEL}_recoded.parquet"
         if not data_io.exists(storage_location=self.processed_storage_location, filename=fn):
             if self.verbose:
-                print("No processed collection file found.")
+                logger.info("No processed collection file found.")
             return
 
         self.data = data_io.load_parquet(
@@ -1504,10 +1507,10 @@ class ForYouCollection(ForYouBaseCollection):
             self._backfill_play_duration()
             self.state = "processed"
             if self.verbose:
-                print(f"Loaded {len(self.data):,} processed activities from {fn}.")
+                logger.info(f"Loaded {len(self.data):,} processed activities from {fn}.")
         else:
             if self.verbose:
-                print("Processed collection file was empty.")
+                logger.info("Processed collection file was empty.")
 
 
 
@@ -1526,7 +1529,7 @@ class ForYouCollection(ForYouBaseCollection):
             self.data["source_platform"] = pd.NA
         n_missing = int(self.data["source_platform"].isna().sum())
         if n_missing:
-            print(f"Backfilling source_platform='{default_platform}' on {n_missing:,} pre-column activity row(s).")
+            logger.info(f"Backfilling source_platform='{default_platform}' on {n_missing:,} pre-column activity row(s).")
         self.data["source_platform"] = (
             self.data["source_platform"].fillna(default_platform).astype("string[pyarrow]")
         )
@@ -1554,7 +1557,7 @@ class ForYouCollection(ForYouBaseCollection):
             grp_plays = grp[grp["activity_type"] == "play"]
             if len(grp_plays) == 0 or grp_plays["play_duration"].notna().any():
                 continue
-            print(f"Backfilling play_duration for {len(grp):,} '{platform}' activity row(s).")
+            logger.info(f"Backfilling play_duration for {len(grp):,} '{platform}' activity row(s).")
             for _, file_grp in grp.groupby("raw_file", dropna=False):
                 ordered = file_grp.sort_values("utc_timestamp", kind="mergesort")
                 recomputed = derive_play_duration(ordered)
@@ -1571,16 +1574,16 @@ class ForYouCollection(ForYouBaseCollection):
 
     def process(self):
         if len(self.collections) == 0:
-            print("This ForYouCollection does not have any sub collections. You need to register a collection class first.")
+            logger.warning("This ForYouCollection does not have any sub collections. You need to register a collection class first.")
             return
         if self.verbose:
-            print("Processing the registered sub collections...")
+            logger.info("Processing the registered sub collections...")
 
         for collection in self.collections:
             collection.process()
 
         if self.verbose:
-            print("Done processing the registered sub collections.")
+            logger.info("Done processing the registered sub collections.")
 
 
 
@@ -1588,10 +1591,10 @@ class ForYouCollection(ForYouBaseCollection):
     def load_raw(self):
         if len(self.collections) == 0:
             if self.verbose:
-                print("This ForYouCollection does not have any sub collections. You need to register a collection class first.")
+                logger.warning("This ForYouCollection does not have any sub collections. You need to register a collection class first.")
             return
         if self.verbose:
-            print("Loading new raw data for the registered sub collections...")
+            logger.info("Loading new raw data for the registered sub collections...")
 
         for collection in self.collections:
             self.discarded_raw_files.extend(collection.discarded_raw_files)
@@ -1600,7 +1603,7 @@ class ForYouCollection(ForYouBaseCollection):
         if len(self.data) > 0:
             skip_these_raw_files = self.data['raw_file'].unique().tolist() + self.discarded_raw_files
             if self.verbose:
-                print(f"Skipping {len(skip_these_raw_files):,} raw files that are already discarded or already in the collection.")
+                logger.info(f"Skipping {len(skip_these_raw_files):,} raw files that are already discarded or already in the collection.")
         else:
             skip_these_raw_files = self.discarded_raw_files
 
@@ -1608,7 +1611,7 @@ class ForYouCollection(ForYouBaseCollection):
             collection.load_raw(skip_these_raw_files=skip_these_raw_files)
         
         if self.verbose:
-            print(f"Done loading raw {sum([len(collection.data) for collection in self.collections]):,} rows for the registered sub collections.")
+            logger.info(f"Done loading raw {sum([len(collection.data) for collection in self.collections]):,} rows for the registered sub collections.")
 
 
 
@@ -1619,12 +1622,12 @@ class ForYouCollection(ForYouBaseCollection):
 
         if len(processed_collections) == 0:
             if self.verbose:
-                print("No processed sub collections to migrate. Nothing for me to do.")
+                logger.info("No processed sub collections to migrate. Nothing for me to do.")
             return
 
         if self.verbose:
-            print(f"Migrating {len(processed_collections):,} processed sub collections to the top...")
-            print(f"There are {len(self.data):,} rows in the top collection already.")
+            logger.info(f"Migrating {len(processed_collections):,} processed sub collections to the top...")
+            logger.info(f"There are {len(self.data):,} rows in the top collection already.")
 
         # Vertical concat via polars — stacks all processed sub-collections
         # into the top-level collection in a single parallel pass.
@@ -1649,12 +1652,12 @@ class ForYouCollection(ForYouBaseCollection):
 
 
         for collection in processed_collections:
-            print(f"Migrated {len(collection.data):,} activities from '{collection.source_platform}_{collection.data_source}'.")
+            logger.info(f"Migrated {len(collection.data):,} activities from '{collection.source_platform}_{collection.data_source}'.")
             collection.data = pd.DataFrame()
             collection.state = "empty"
 
         if self.verbose:
-            print(f"Done migrating the sub collections. There are now {len(self.data):,} activities in the top collection. Sub collections are empty.")
+            logger.info(f"Done migrating the sub collections. There are now {len(self.data):,} activities in the top collection. Sub collections are empty.")
 
 
 
@@ -1665,7 +1668,7 @@ class ForYouCollection(ForYouBaseCollection):
     def save_processed(self):
 
         if self.state != "processed":
-            print(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first.")
+            logger.warning(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first.")
             return
 
 
@@ -1766,7 +1769,7 @@ class ForYouCollection(ForYouBaseCollection):
                     verbose=False
                 )
                 if self.verbose:
-                    print(f"Cleaned {len(manifest) - len(trimmed)} processed entries from {collection.raw_path}/{MANIFEST_FILENAME}")
+                    logger.info(f"Cleaned {len(manifest) - len(trimmed)} processed entries from {collection.raw_path}/{MANIFEST_FILENAME}")
 
 
 
@@ -1837,7 +1840,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # play activities are referred to as 'videolist' by TikTok 
         n_play_activities = len(df[df['activity_type'] == 'videolist'])
         if n_play_activities <= 10:
-            if self.verbose: print(f"Discarding {filename} as it only has {n_play_activities} play activities.")
+            if self.verbose: logger.info(f"Discarding {filename} as it only has {n_play_activities} play activities.")
             return pd.DataFrame()
 
         return df
@@ -1871,7 +1874,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
         df = df[df['date'].notna()].copy()
 
         if self.verbose:
-            print(f"   [{df['raw_file'].iloc[0]}] Keeping {len(df):,} rows w OK timestamp.")
+            logger.info(f"   [{df['raw_file'].iloc[0]}] Keeping {len(df):,} rows w OK timestamp.")
 
 
         # get the variable name and the associated value from index 1 and assign them to primary_label and extra_data
@@ -1879,7 +1882,8 @@ class TikTokDDPCollection(ForYouBaseCollection):
         try:
              df['primary_label'] = df['variable_list'].str[1]
              df['extra_data'] = df['value_list'].str[1]
-        except:
+        except Exception as e:
+             logger.warning(f"Could not extract primary_label/extra_data from variable_list/value_list ({e}); filling with NA.")
              df['primary_label'] = pd.NA
              df['extra_data'] = pd.NA
 
@@ -2028,22 +2032,22 @@ class TikTokAIOCollection(TikTokDDPCollection):
             get_recent_data_donations_from_aio_aws,
         )
         if self.verbose:
-            print("Fetching recent AIO donations from AWS...")
+            logger.info("Fetching recent AIO donations from AWS...")
         try:
             get_recent_data_donations_from_aio_aws(
                 storage_location=self.raw_path
             )
         except Exception as e:
             if self.verbose:
-                print(f"AWS data fetch failed: {e}. Processing existing local files.")
+                logger.warning(f"AWS data fetch failed: {e}. Processing existing local files.")
 
         if self.verbose:
-            print("Fetching AIO participant metadata from DynamoDB...")
+            logger.info("Fetching AIO participant metadata from DynamoDB...")
         try:
             get_donation_metadata_from_aio_aws(verbose=self.verbose)
         except Exception as e:
             if self.verbose:
-                print(f"AWS metadata fetch failed: {e}.")
+                logger.warning(f"AWS metadata fetch failed: {e}.")
 
         super().load_raw(skip_these_raw_files=skip_these_raw_files)
 
@@ -2698,14 +2702,14 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         unknown = offsets.isna() & (tz != "")
         ambiguous = tz.isin(cls._AMBIGUOUS_TZ)
         if unknown.any():
-            print(
+            logger.warning(
                 f"WARNING: {int(unknown.sum())} YouTube row(s) carry an unrecognised "
                 f"timezone label ({sorted(tz[unknown].unique().tolist())}); "
                 f"falling back to the project timezone offset. Set a donor timezone "
                 f"in the upload form to resolve this exactly."
             )
         if ambiguous.any():
-            print(
+            logger.info(
                 f"NOTE: {int(ambiguous.sum())} YouTube row(s) use an ambiguous timezone "
                 f"abbreviation ({sorted(tz[ambiguous].unique().tolist())}); using the "
                 f"most common Takeout interpretation. Set a donor timezone in the "
