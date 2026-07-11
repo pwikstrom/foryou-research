@@ -25,6 +25,10 @@ import re
 import tomllib
 from pathlib import Path
 
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 # NOTE: fyp.data_io is imported LAZILY inside functions (see _data_io()). A
 # module-level import creates the same fyp_config import cycle documented in
 # fyp/annotation_versioning.py — fyp_config's load-time overlays call
@@ -191,14 +195,14 @@ def refresh_runtime_contract() -> bool:
         else:
             text = dio.load_text(storage_location=RUNTIME_LOCATION, filename=RUNTIME_FILENAME)
             if text is None:
-                print("WARNING: runtime annotation contract present but unreadable; using baked contract.")
+                logger.warning("WARNING: runtime annotation contract present but unreadable; using baked contract.")
                 _apply_baked_snapshot(error="runtime contract unreadable")
                 _SNAPSHOT["mtime"] = mtime
             else:
                 contract, errors = parse_and_validate(text)
                 if errors:
                     joined = "; ".join(errors)
-                    print(f"WARNING: runtime annotation contract invalid ({joined}); using baked contract.")
+                    logger.warning(f"WARNING: runtime annotation contract invalid ({joined}); using baked contract.")
                     _apply_baked_snapshot(error=joined)
                     _SNAPSHOT["mtime"] = mtime
                 else:
@@ -208,7 +212,7 @@ def refresh_runtime_contract() -> bool:
                     _SNAPSHOT["error"] = None
                     _SNAPSHOT["mtime"] = mtime
     except Exception as e:
-        print(f"WARNING: runtime annotation contract probe failed ({e}); using baked contract.")
+        logger.warning(f"WARNING: runtime annotation contract probe failed ({e}); using baked contract.")
         try:
             _apply_baked_snapshot(error=f"runtime probe failed: {e}")
             _SNAPSHOT["mtime"] = None

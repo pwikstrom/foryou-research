@@ -4,7 +4,6 @@
 import difflib
 import hashlib
 import json
-import logging
 import re
 import traceback
 from copy import copy
@@ -15,10 +14,11 @@ import pandas as pd
 
 from fyp import irrelevant_words
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
 from fyp.types import convert_dtypes_to_pyarrow
 from fyp.utils import record_dropped_columns
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 GENERIC_MAPPER = fyp_cf["labels"]["GENERIC_MAPPER"]
@@ -693,9 +693,9 @@ def get_factors_and_features_from_var_schema(some_events_df = None, verbose = Fa
         the_features = [c for c in the_features if c in some_events_df.columns]
 
     if verbose and len(the_factors) > 0:
-        print("    Factors:",", ".join(the_factors))
+        logger.info(f"    Factors: {', '.join(the_factors)}")
     if verbose and len(the_features) > 0:
-        print("    Features:",", ".join(the_features))
+        logger.info(f"    Features: {', '.join(the_features)}")
 
     return the_factors, the_features
 
@@ -713,7 +713,7 @@ def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False)
         the_grouping_factors = [c for c in the_grouping_factors if c in some_events_df.columns]
     
     if verbose  and len(the_grouping_factors) > 0:
-        print("    Grouping Factors:",", ".join(the_grouping_factors))
+        logger.info(f"    Grouping Factors: {', '.join(the_grouping_factors)}")
 
     return the_grouping_factors
 
@@ -1203,13 +1203,13 @@ def recode_events_df(
             return s.astype(str).nunique()
 
 
-    print("Recoding variables, implementing missing data policy and a whole range of other things...")
+    logger.info("Recoding variables, implementing missing data policy and a whole range of other things...")
 
     # This thing now only works with a study dataset as input
     # It is not used in the web interface but only in the offline data prep
 
     if study_dataset is None:
-        print("  This process cannot run without a study dataset as input. Process failed.")
+        logger.error("  This process cannot run without a study dataset as input. Process failed.")
         return None
 
 
@@ -1265,13 +1265,13 @@ def recode_events_df(
         single_value_columns = [c for c in cool_events.columns if _safe_nunique(cool_events[c])==1 and c not in fyp_factors]
         if verbose:
             join_str = "\n    - "
-            print(f"Step 2. Dropping {len(single_value_columns)} single value columns:\n    - {join_str.join(single_value_columns)}. Shape: {cool_events.shape}")
+            logger.info(f"Step 2. Dropping {len(single_value_columns)} single value columns:\n    - {join_str.join(single_value_columns)}. Shape: {cool_events.shape}")
         cool_events = cool_events.drop(columns=single_value_columns).copy()
 
 
 
     if verbose:
-        print(f"Executing recode policies from variable schema. Shape: {cool_events.shape}")
+        logger.info(f"Executing recode policies from variable schema. Shape: {cool_events.shape}")
 
 
     cool_columns = copy(cool_events.columns)
@@ -1337,7 +1337,7 @@ def recode_events_df(
                     # re-raise with the full traceback visible.
                     try:
                         cool_events[c] = func(cool_events[c], this_var_schema)
-                        if verbose: print(f"Recoded successfully ({this_var_schema.get('scale', 'unknown scale')})")
+                        if verbose: logger.info(f"Recoded successfully ({this_var_schema.get('scale', 'unknown scale')})")
                     except Exception as e:
                         traceback.print_exc()
                         raw_flag = this_var_schema.get("allow_scalar_fallback", False)
@@ -1349,13 +1349,13 @@ def recode_events_df(
                                 f"or set `allow_scalar_fallback=true` in var_schema for this column "
                                 f"if the scalar fallback is intentional."
                             ) from e
-                        print(f"Warning: Vectorized recode failed for '{c}' ({e}). Falling back to map (allow_scalar_fallback=true).")
+                        logger.warning(f"Warning: Vectorized recode failed for '{c}' ({e}). Falling back to map (allow_scalar_fallback=true).")
                         try:
                             cool_events[c] = cool_events[c].map(lambda x: func(x, this_var_schema))
                         except Exception as map_e:
                             raise Exception(f"Error: Map recode also failed for '{c}': ({map_e}).") from map_e
                 else:
-                    if verbose: print(f"Has no recode func, so no change ({this_var_schema.get('scale', 'unknown scale')})")
+                    if verbose: logger.info(f"Has no recode func, so no change ({this_var_schema.get('scale', 'unknown scale')})")
 
 
                 # ------------------------------------------------------
@@ -1434,7 +1434,7 @@ def recode_events_df(
                     new_thing = new_thing.add_prefix(f"{c}_")
                     new_thing.index = cool_events.index
                     if verbose:
-                        print(f"{preamble2}Recoded to new variables {', '.join(new_thing.columns)}")
+                        logger.info(f"{preamble2}Recoded to new variables {', '.join(new_thing.columns)}")
 
                     new_thing_cols = copy(new_thing.columns)
                     for new_thing_c in new_thing_cols:
@@ -1442,7 +1442,7 @@ def recode_events_df(
                         # blank (NA) role compares False rather than raising on ``NA == "skip"``.
                         if new_thing_c not in var_schema.index or str(var_schema.loc[new_thing_c, "role"]) == "skip":
                             if verbose:
-                                print(f"{preamble2}Skipping new variable: {new_thing_c}")
+                                logger.info(f"{preamble2}Skipping new variable: {new_thing_c}")
                             new_thing = new_thing.drop(columns=new_thing_c)
 
                     # Drop the original source column once it has been fanned out.
@@ -1463,12 +1463,12 @@ def recode_events_df(
                         cool_events = pd.concat([cool_events, new_thing], axis=1)
             else:
                 if verbose:
-                    print(f"{preamble}Skipping")
+                    logger.info(f"{preamble}Skipping")
                 skipped_columns.append(c)
                 cool_events = cool_events.drop(columns=[c]).copy()
         else:
             if verbose:
-                print(f"{preamble}Not found in the variable scheme, skipping")
+                logger.info(f"{preamble}Not found in the variable scheme, skipping")
             unknown_columns.append(c)
             cool_events = cool_events.drop(columns=[c]).copy()
 
@@ -1492,7 +1492,7 @@ def recode_events_df(
         cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
     
-    print(f"...done recoding variables at {datetime.now()}")
+    logger.info(f"...done recoding variables at {datetime.now()}")
 
     return cool_events 
 
@@ -1548,14 +1548,14 @@ def recode_fuzzy_match(
         processing_list = list_a.tolist()
     elif not isinstance(list_a, list):
         if verbose:
-            print(f"Warning: list_a is not a list (got {type(list_a)}). Returning empty list.")
+            logger.warning(f"Warning: list_a is not a list (got {type(list_a)}). Returning empty list.")
         return []
     else:
         processing_list = list_a
         
     if not isinstance(list_b, list):
         if verbose:
-            print(f"Warning: list_b is not a list (got {type(list_b)}). Returning {fyp_cf['labels']['OTHER_THINGS']}.")
+            logger.warning(f"Warning: list_b is not a list (got {type(list_b)}). Returning {fyp_cf['labels']['OTHER_THINGS']}.")
         return [fyp_cf['labels']['OTHER_THINGS']] * len(processing_list) # Return list if input was list
 
     refined_list = []

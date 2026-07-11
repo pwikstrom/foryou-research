@@ -30,6 +30,10 @@ import hashlib
 import json
 import re
 
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 FILENAME = "irrelevant_words.json"
 LOCATION = "users"
 
@@ -153,7 +157,7 @@ def _config_words() -> list[str]:
     try:
         return [str(w) for w in _cf()["labels"]["IRRELEVANT_WORDS"]]
     except Exception as e:
-        print(f"WARNING: config IRRELEVANT_WORDS unavailable ({e}).")
+        logger.warning(f"WARNING: config IRRELEVANT_WORDS unavailable ({e}).")
         return []
 
 
@@ -169,7 +173,7 @@ def load_payload() -> dict | None:
             if isinstance(payload, dict) and isinstance(payload.get("words"), list):
                 return payload
     except Exception as e:
-        print(f"WARNING: irrelevant_words store unreadable ({e}).")
+        logger.warning(f"WARNING: irrelevant_words store unreadable ({e}).")
     return None
 
 
@@ -193,7 +197,7 @@ def load_words() -> list[str]:
     try:
         save_words(words, updated_by="config-seed")
     except Exception as e:
-        print(f"WARNING: could not seed irrelevant_words store ({e}).")
+        logger.warning(f"WARNING: could not seed irrelevant_words store ({e}).")
     return words
 
 

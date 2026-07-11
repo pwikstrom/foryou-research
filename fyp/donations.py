@@ -20,7 +20,10 @@ import fyp.data_io as data_io
 from fyp.calc_collection_stats import generate_personas
 from fyp.fyp_config import fyp_cf
 from fyp.organize_datasets import COLLECTIONS_LABEL
+from fyp.logging_setup import get_logger
 from fyp.recode_variables import *
+
+logger = get_logger(__name__)
 
 collection_id_column = "collection_id"
 timestamp_column = "local_timestamp"
@@ -78,7 +81,7 @@ def get_donation_metadata_from_aio_aws(
             items.extend(page.get("Items", []))
             scanned += page.get("ScannedCount", 0)
     except Exception as e:
-        print(f"Error scanning participant metadata table via boto3: {e}")
+        logger.error(f"Error scanning participant metadata table via boto3: {e}")
         return None
 
     payload = {"Items": items, "Count": len(items), "ScannedCount": scanned}
@@ -175,7 +178,7 @@ def get_recent_data_donations_from_aio_aws(
             if id_val:
                 donation_ids.append(id_val)
 
-    print(f"Downloading {len(donation_ids)} donations to temporary storage: {dest}")
+    logger.info(f"Downloading {len(donation_ids)} donations to temporary storage: {dest}")
 
     # ------------------------------------------------------------------
     # 4) Download each donation file from S3
@@ -188,7 +191,7 @@ def get_recent_data_donations_from_aio_aws(
     # 5) Move/Upload files to ddp_raw storage
     # ------------------------------------------------------------------
     downloaded_files = os.listdir(dest)
-    print(f"Moving {len(downloaded_files)} files to {storage_location} storage...")
+    logger.info(f"Moving {len(downloaded_files)} files to {storage_location} storage...")
 
     count = 0
     for filename in downloaded_files:
@@ -204,9 +207,9 @@ def get_recent_data_donations_from_aio_aws(
                 data_io.save_json(data, storage_location, filename)
                 count += 1
             except Exception as e:
-                print(f"Failed to process/upload {filename}: {e}")
+                logger.error(f"Failed to process/upload {filename}: {e}")
 
-    print(f"Successfully processed {count} files.")
+    logger.info(f"Successfully processed {count} files.")
 
     # ------------------------------------------------------------------
     # 6) Cleanup Temp
@@ -214,7 +217,7 @@ def get_recent_data_donations_from_aio_aws(
     try:
         shutil.rmtree(dest)
     except Exception as e:
-        print(f"Warning: Failed to clean up temp directory {dest}: {e}")
+        logger.warning(f"Warning: Failed to clean up temp directory {dest}: {e}")
 
     return {"donation_ids": donation_ids, "uploaded_count": count}
 
@@ -290,10 +293,10 @@ def generate_collection_metadata(
             if old_metadata_df.index.name != collection_id_column:
                 old_metadata_df.index.name = collection_id_column
             if verbose:
-                print(f"Loaded existing metadata from storage. Shape: {old_metadata_df.shape}")
+                logger.info(f"Loaded existing metadata from storage. Shape: {old_metadata_df.shape}")
     else:
         if verbose:
-            print("No calculated metadata found in storage")
+            logger.info("No calculated metadata found in storage")
 
 
     # if no events df is provided, check if there is an update column
@@ -303,7 +306,7 @@ def generate_collection_metadata(
             if update_col.index.name != collection_id_column:
                 update_col.index.name = collection_id_column
             if set(update_col.index) != set(old_metadata_df.index):
-                print("Error: Update column index don't match the index of the existing metadata DF. Exiting.")
+                logger.error("Error: Update column index don't match the index of the existing metadata DF. Exiting.")
                 return old_metadata_df
             if update_col.name in old_metadata_df.columns:
                 print(f"Dropping existing column: {update_col.name} | ", end="", flush=True)
@@ -312,16 +315,16 @@ def generate_collection_metadata(
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
             if save_to_disk_ok:
                 data_io.save_parquet(df=new_metadata_df, storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=verbose)
-                print(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
+                logger.info(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
             return new_metadata_df
 
         else:
-            print("No new data provided or update column is not a matching pandas Series. Returning old metadata.")
+            logger.info("No new data provided or update column is not a matching pandas Series. Returning old metadata.")
             return old_metadata_df
 
 
     if collection_id_column not in collections_df.columns:
-        print("Shape of the collection stats DF: (0,0)")
+        logger.info("Shape of the collection stats DF: (0,0)")
         return pd.DataFrame()
     
     collection_ids_in_the_incoming_df = set(collections_df[collection_id_column].unique())
@@ -331,12 +334,12 @@ def generate_collection_metadata(
 
     if len(new_collections) == 0:
         if verbose:
-            print(f"No new collections to add to metadata. Returning the existing metadata. Shape: {old_metadata_df.shape}")
+            logger.info(f"No new collections to add to metadata. Returning the existing metadata. Shape: {old_metadata_df.shape}")
         return old_metadata_df
 
 
     if verbose:
-        print(f"Calculating metadata for {len(new_collections)} new collections")
+        logger.info(f"Calculating metadata for {len(new_collections)} new collections")
 
     collections_df_new = collections_df[collections_df[collection_id_column].isin(new_collections)].copy()
 
@@ -348,7 +351,7 @@ def generate_collection_metadata(
     else:
         df1 = df1.sort_values(sort_by).copy()
     if verbose:
-        print(f"Shape of the collection stats DF: {df1.shape}")
+        logger.info(f"Shape of the collection stats DF: {df1.shape}")
     df1.columns = pd.MultiIndex.from_product([['counts'], df1.columns])
 
 
@@ -369,13 +372,13 @@ def generate_collection_metadata(
 
 
     if verbose:
-        print("Checking DDP participant metadata files...")
+        logger.info("Checking DDP participant metadata files...")
     participant_metadata = {}
     for participant_data_file in data_io.listdir(storage_location="aio_participants"):
         if participant_data_file.endswith(".json"):
             participant_metadata_raw = data_io.load_json(storage_location="aio_participants", filename=participant_data_file)
             if verbose:
-                print(f"    Found {len(participant_metadata_raw['Items']):,} items in the file {participant_data_file}")
+                logger.info(f"    Found {len(participant_metadata_raw['Items']):,} items in the file {participant_data_file}")
             for item in participant_metadata_raw.get("Items", []):
                     py_item = {k: _deser(v) for k, v in item.items()}
                     participant_metadata[py_item['id']] = py_item
@@ -401,11 +404,11 @@ def generate_collection_metadata(
         
     if save_to_disk_ok:
         if verbose:
-            print(f"Saving updated metadata to disk. Shape: {combined_ddp_metadata.shape}")
+            logger.info(f"Saving updated metadata to disk. Shape: {combined_ddp_metadata.shape}")
         data_io.save_parquet(df=combined_ddp_metadata, storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet", verbose=verbose)
 
     if verbose:
-        print(f"Shape of the combined metadata DF: {combined_ddp_metadata.shape}")
+        logger.info(f"Shape of the combined metadata DF: {combined_ddp_metadata.shape}")
 
     return combined_ddp_metadata
 

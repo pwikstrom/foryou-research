@@ -12,6 +12,10 @@ Queue contents are plain lists of item-id strings; deduplication preserves
 first-seen order.
 """
 
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 LEGACY_QUEUE_FILENAME = "to_scrape.json"
 QUEUE_LOCATION = "cache"
 
@@ -108,7 +112,7 @@ def migrate_legacy_queue(platform: str) -> None:
         merged = legacy_items
     data_io.save_json(data=merged, storage_location=QUEUE_LOCATION, filename=target)
     data_io.remove(storage_location=QUEUE_LOCATION, filename=LEGACY_QUEUE_FILENAME)
-    print(f"Migrated legacy {LEGACY_QUEUE_FILENAME} -> {target} ({len(merged)} items)")
+    logger.info(f"Migrated legacy {LEGACY_QUEUE_FILENAME} -> {target} ({len(merged)} items)")
 
 
 

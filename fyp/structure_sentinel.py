@@ -39,7 +39,10 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from fyp import data_io
+from fyp.logging_setup import get_logger
 from fyp.utils import read_zip_members
+
+logger = get_logger(__name__)
 
 
 STRUCTURE_BASELINES_FILENAME = "structure_baselines.json"
@@ -849,7 +852,7 @@ class StructureSentinel:
         try:
             fingerprint = collection.fingerprint_raw(filename)
         except Exception as exc:
-            print(f"WARNING: fingerprinting failed for '{filename}': {exc}. Structure layer skipped.")
+            logger.warning(f"WARNING: fingerprinting failed for '{filename}': {exc}. Structure layer skipped.")
 
         try:
             size_bytes = data_io.getsize(storage_location=collection.raw_path, filename=filename)

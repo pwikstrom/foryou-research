@@ -27,7 +27,10 @@ import hashlib
 import json
 
 # Cycle-safe: fyp.scrape_contract imports only stdlib (never fyp_config/data_io).
+from fyp.logging_setup import get_logger
 from fyp.scrape_contract import RETIRED_TO_GENERIC
+
+logger = get_logger(__name__)
 
 FILENAME = "var_presentation.json"
 LOCATION = "users"
@@ -83,7 +86,7 @@ def load_presentation() -> dict | None:
             if isinstance(payload, dict) and isinstance(payload.get("surfaces"), dict):
                 return _migrate_retired_names(payload)
     except Exception as e:
-        print(f"WARNING: var_presentation store unreadable ({e}).")
+        logger.warning(f"WARNING: var_presentation store unreadable ({e}).")
     return None
 
 
@@ -120,7 +123,7 @@ def _migrate_retired_names(payload: dict) -> dict:
     try:
         _data_io().save_json(data=out, storage_location=LOCATION, filename=FILENAME)
     except Exception as e:
-        print(f"WARNING: could not persist var_presentation migration ({e}).")
+        logger.warning(f"WARNING: could not persist var_presentation migration ({e}).")
     return out
 
 

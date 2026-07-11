@@ -27,6 +27,9 @@ import json
 import pandas as pd
 
 from fyp import scrape_contract as sc
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 # NOTE: fyp.data_io is imported LAZILY inside functions — a module-level import
 # creates an import cycle via fyp_config (importing this module first leaves it
@@ -268,7 +271,7 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
 
         return rm.union_field_metadata(load_registry(), versions_to_include)
     except Exception as e:
-        print(f"WARNING: scrape version registry unreadable ({e}); legacy union empty.")
+        logger.warning(f"WARNING: scrape version registry unreadable ({e}); legacy union empty.")
         return {}
 
 

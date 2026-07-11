@@ -21,6 +21,10 @@ import os
 
 import pandas as pd
 
+from fyp.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 # NOTE: fyp.data_io / fyp.fyp_config are imported LAZILY inside functions.
 # A module-level import here creates an import cycle: importing this module
 # first (as the web app's import graph does) triggers fyp_config's module-level
@@ -188,7 +192,7 @@ def legacy_prompt_text() -> str:
         with open(path) as handle:
             return handle.read()
     except OSError as e:
-        print(f"WARNING: legacy prompt file unreadable ({e}).")
+        logger.warning(f"WARNING: legacy prompt file unreadable ({e}).")
         return ""
 
 
@@ -497,7 +501,7 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
     except Exception as e:
         # Loud on purpose: silently returning {} here once hid an import-cycle
         # failure that cost per-instance schema-hash drift.
-        print(f"WARNING: annotation version registry unreadable ({e}); legacy union empty.")
+        logger.warning(f"WARNING: annotation version registry unreadable ({e}); legacy union empty.")
         return {}
     if versions_to_include is None:
         in_data = versions_in_data()
@@ -701,6 +705,6 @@ if __name__ == "__main__":
         v: sorted((e.get("field_metadata") or {}).keys())
         for v, e in _reg.get("versions", {}).items()
     }
-    print("Backfilled legacy annotation metadata. Per-version field_metadata keys:")
-    print(_json.dumps(_summary, indent=2))
-    print("union_field_metadata():", sorted(union_field_metadata().keys()))
+    logger.info("Backfilled legacy annotation metadata. Per-version field_metadata keys:")
+    logger.info(_json.dumps(_summary, indent=2))
+    logger.info(f"union_field_metadata(): {sorted(union_field_metadata().keys())}")

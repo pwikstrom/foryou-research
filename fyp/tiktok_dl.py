@@ -7,7 +7,6 @@ that generate_data_row() produces so downstream code is unchanged.
 """
 
 
-import logging
 import os
 from datetime import datetime
 from glob import glob
@@ -22,6 +21,7 @@ from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp import scraper_cookies
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
 from fyp.platform_scraper import (  # noqa: F401
     _THROTTLE_CATEGORIES,
     SLIDESHOW_SECONDS_PER_IMAGE,
@@ -29,7 +29,7 @@ from fyp.platform_scraper import (  # noqa: F401
     ThrottleController,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # -------------------------------------------------------------------------
@@ -450,7 +450,7 @@ def _download_images(
         return True
     except Exception as e:
         if verbose:
-            print(f"WARNING (yt-dlp): Failed to download images for '{video_id}': {e}")
+            logger.warning(f"WARNING (yt-dlp): Failed to download images for '{video_id}': {e}")
         # Remove the partial image set: the orchestrator's slideshow assembly
         # walks consecutive NN suffixes, so a stale partial set from this
         # attempt could be concatenated into a later retry's slideshow.
@@ -846,7 +846,7 @@ def repair_overflowed_counts(
         if n_repaired:
             df[col] = series.mask(mask, series + _UINT32_RANGE)
             if verbose:
-                print(f"    Recovered {n_repaired:,} signed-32-bit-overflowed value(s) in {col}")
+                logger.info(f"    Recovered {n_repaired:,} signed-32-bit-overflowed value(s) in {col}")
     return df
 
 
