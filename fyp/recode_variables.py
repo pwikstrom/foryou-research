@@ -13,20 +13,77 @@ import numpy as np
 import pandas as pd
 
 from fyp import irrelevant_words
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
 from fyp.types import convert_dtypes_to_pyarrow
 from fyp.utils import record_dropped_columns
 
 logger = get_logger(__name__)
 
-WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
-GENERIC_MAPPER = fyp_cf["labels"]["GENERIC_MAPPER"]
 
-NOT_CODED =  fyp_cf["labels"]["NOT_CODED"]
-UNABLE_TO_DETECT = fyp_cf["labels"]["UNABLE_TO_DETECT"]
-OTHER_THINGS = fyp_cf["labels"]["OTHER_THINGS"]
-SPLITTER = fyp_cf["labels"]["SPLITTER"]
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
+
+
+
+
+def _generic_mapper() -> dict:
+    """Lazy accessor for the config-derived generic label mapper."""
+    return _cf()["labels"]["GENERIC_MAPPER"]
+
+
+
+
+def _not_coded() -> str:
+    """Lazy accessor for the config-derived NOT_CODED label."""
+    return _cf()["labels"]["NOT_CODED"]
+
+
+
+
+def _unable_to_detect() -> str:
+    """Lazy accessor for the config-derived UNABLE_TO_DETECT label."""
+    return _cf()["labels"]["UNABLE_TO_DETECT"]
+
+
+
+
+def _other_things() -> str:
+    """Lazy accessor for the config-derived OTHER_THINGS label."""
+    return _cf()["labels"]["OTHER_THINGS"]
+
+
+
+
+def _splitter() -> str:
+    """Lazy accessor for the config-derived list-value splitter."""
+    return _cf()["labels"]["SPLITTER"]
+
+
+
+
+_CONFIG_CONSTANT_ACCESSORS = {
+    "GENERIC_MAPPER": _generic_mapper,
+    "NOT_CODED": _not_coded,
+    "UNABLE_TO_DETECT": _unable_to_detect,
+    "OTHER_THINGS": _other_things,
+    "SPLITTER": _splitter,
+}
+
+
+
+
+def __getattr__(name: str):
+    """Serve the config-derived module constants lazily (PEP 562)."""
+    accessor = _CONFIG_CONSTANT_ACCESSORS.get(name)
+    if accessor is not None:
+        return accessor()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
 
 
 
@@ -249,7 +306,7 @@ def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dic
     for name in var_schema_indexed.index:
         closed = name in enum_fields
         normalization[name] = {
-            "mapper": {} if closed else GENERIC_MAPPER,
+            "mapper": {} if closed else _generic_mapper(),
             "ignore_strings": list(drop_words.get(name, [])),
         }
     return normalization
@@ -544,10 +601,10 @@ def compute_var_schema_hash() -> str:
     pandas dtype-backend variations do not affect the result.
     """
 
-    if "var_schema" not in fyp_cf or fyp_cf["var_schema"] is None or fyp_cf["var_schema"].empty:
+    if "var_schema" not in _cf() or _cf()["var_schema"] is None or _cf()["var_schema"].empty:
         return f"{VAR_SCHEMA_HASH_VERSION}:empty"
 
-    schema = fyp_cf["var_schema"].copy()
+    schema = _cf()["var_schema"].copy()
     keep = ["variable_name"] + [c for c in SEMANTIC_COLUMNS if c in schema.columns]
     schema = schema[[c for c in keep if c in schema.columns]]
     if "variable_name" in schema.columns:
@@ -561,7 +618,7 @@ def compute_var_schema_hash() -> str:
     # GENERIC_MAPPER change) must still invalidate cached study parquets.
     norm_payload = b""
     try:
-        indexed = fyp_cf["var_schema"].set_index("variable_name")
+        indexed = _cf()["var_schema"].set_index("variable_name")
         norm = build_field_normalization(indexed)
         recode_plan = build_recode_plan(indexed)
         has_scale = "scale" in indexed.columns
@@ -580,7 +637,7 @@ def compute_var_schema_hash() -> str:
             for n, v in norm.items()
         }
         gm_digest = hashlib.sha256(
-            json.dumps(GENERIC_MAPPER, sort_keys=True).encode("utf-8")
+            json.dumps(_generic_mapper(), sort_keys=True).encode("utf-8")
         ).hexdigest()[:16]
         norm_payload = json.dumps(
             {"fields": compact, "gm": gm_digest}, sort_keys=True
@@ -681,10 +738,10 @@ def compute_var_schema_hash() -> str:
 
 def get_factors_and_features_from_var_schema(some_events_df = None, verbose = False):
 
-    if "var_schema" not in fyp_cf or fyp_cf["var_schema"].empty:
+    if "var_schema" not in _cf() or _cf()["var_schema"].empty:
         return [], []
 
-    var_schema = fyp_cf["var_schema"]
+    var_schema = _cf()["var_schema"]
 
     the_factors = sorted(list(set(var_schema[var_schema["role"].isin(['factor','group_factor'])].variable_name)))
     the_features = sorted(list(set(var_schema[var_schema["role"]=='feature'].variable_name)))
@@ -703,10 +760,10 @@ def get_factors_and_features_from_var_schema(some_events_df = None, verbose = Fa
 
 def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False):
 
-    if "var_schema" not in fyp_cf or fyp_cf["var_schema"].empty:
+    if "var_schema" not in _cf() or _cf()["var_schema"].empty:
         return []
 
-    var_schema = fyp_cf["var_schema"]
+    var_schema = _cf()["var_schema"]
 
     the_grouping_factors = sorted(list(set(var_schema[var_schema["role"]=='group_factor'].variable_name)))
     if some_events_df is not None:
@@ -885,7 +942,7 @@ def recode_numeric_mean(
     if pd.isna(value):
         return pd.NA
     per_item = []
-    for item in str(value).split(SPLITTER):
+    for item in str(value).split(_splitter()):
         nums = [float(n) for n in _POSITIVE_NUMBER_RE.findall(item)]
         if nums:
             per_item.append(sum(nums) / len(nums))
@@ -949,7 +1006,7 @@ def recode_stringified_list(
         return a_string_representing_a_list.apply(lambda x: recode_stringified_list(x, recoding_policy))
 
     # Legacy / Single Item logic
-    no_data_fallback = UNABLE_TO_DETECT
+    no_data_fallback = _unable_to_detect()
 
     ignore_strings = recoding_policy.get("ignore_strings", [])
     #splitter = recoding_policy.get("splitter", None)
@@ -961,7 +1018,7 @@ def recode_stringified_list(
 
     # if the string that is representing a list is na, assume that it hasn't been coded
     if pd.isna(a_string_representing_a_list):
-        list_of_the_words += [NOT_CODED]
+        list_of_the_words += [_not_coded()]
 
     # if there is a string, but the length is zero
     elif len(str(a_string_representing_a_list)) < 1 or str(a_string_representing_a_list) in ["-"," "]:
@@ -970,7 +1027,7 @@ def recode_stringified_list(
     else:
         a_string_representing_a_list = mini_mapper.get(a_string_representing_a_list,a_string_representing_a_list)
 
-        for an_element in str(a_string_representing_a_list).lower().split(SPLITTER):
+        for an_element in str(a_string_representing_a_list).lower().split(_splitter()):
             if len(an_element)>0:
                 an_element = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
                 clean_word = "".join([j for j in an_element.lower() if j not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
@@ -1012,7 +1069,7 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
         if x.dtype == object:
 
             
-            mask_scalar = x.isin([NOT_CODED])
+            mask_scalar = x.isin([_not_coded()])
             
             # Now list check:
             # We need to ensure we can use .str.
@@ -1021,7 +1078,7 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
                 # This works if at least some strings/lists or object dtype allows it?
                 # Actually, .str accessor on object series works if it contains mixed types.
                 # But if all are ints, it fails.
-                mask_list = (x.str.len() == 1) & (x.str[0] == NOT_CODED)
+                mask_list = (x.str.len() == 1) & (x.str[0] == _not_coded())
                 mask_list = mask_list.fillna(False)
             except AttributeError:
                 # No str accessor means no lists/strings usually?
@@ -1031,7 +1088,7 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
             
         else:
             # Numeric or specific type
-            mask = mask_basic | (x == NOT_CODED)
+            mask = mask_basic | (x == _not_coded())
         
         if not mask.any():
             return x
@@ -1051,7 +1108,7 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
             
             # Implementation: Replace NA with [NOT_CODED]. leave "not coded" alone.
             mask_na = x.isna()
-            result.loc[mask_na] = pd.Series([[NOT_CODED] for _ in range(mask_na.sum())], index=result.index[mask_na])
+            result.loc[mask_na] = pd.Series([[_not_coded()] for _ in range(mask_na.sum())], index=result.index[mask_na])
             
         elif missing_data_policy == "zero":
             # Check type of first non-missing element to decide 0 vs "no"?
@@ -1074,7 +1131,7 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
         
         return result
 
-    if (isinstance(x,list) and len(x)==1 and x[0]==NOT_CODED) or (isinstance(x,str) and x==NOT_CODED) or ((not isinstance(x,list)) and pd.isna(x)):
+    if (isinstance(x,list) and len(x)==1 and x[0]==_not_coded()) or (isinstance(x,str) and x==_not_coded()) or ((not isinstance(x,list)) and pd.isna(x)):
         if missing_data_policy == "empty":
             return []
         elif missing_data_policy == "drop":
@@ -1083,7 +1140,7 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
             return the_median
         elif missing_data_policy == "keep":
             if pd.isna(x):
-                return [NOT_CODED]
+                return [_not_coded()]
             else:
                 return x
         elif missing_data_policy == "zero":
@@ -1113,16 +1170,16 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
         mask_basic = x.isna()
         
         if x.dtype == object:
-             mask_scalar = x.isin([UNABLE_TO_DETECT])
+             mask_scalar = x.isin([_unable_to_detect()])
              try:
-                 mask_list = (x.str.len() == 1) & (x.str[0] == UNABLE_TO_DETECT)
+                 mask_list = (x.str.len() == 1) & (x.str[0] == _unable_to_detect())
                  mask_list = mask_list.fillna(False)
              except AttributeError:
                  mask_list = False
              
              mask = mask_basic | mask_scalar | mask_list
         else:
-             mask = mask_basic | (x == UNABLE_TO_DETECT)
+             mask = mask_basic | (x == _unable_to_detect())
 
         if not mask.any():
             return x
@@ -1142,7 +1199,7 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
              # list cast, and a missing value there has no meaningful sentinel, so
              # leave it NA.
              if x.dtype == object and mask_na.any():
-                 result.loc[mask_na] = pd.Series([[UNABLE_TO_DETECT] for _ in range(mask_na.sum())], index=result.index[mask_na])
+                 result.loc[mask_na] = pd.Series([[_unable_to_detect()] for _ in range(mask_na.sum())], index=result.index[mask_na])
         elif unable_to_detect_policy == "zero":
              if pd.api.types.is_numeric_dtype(x):
                 val = 0
@@ -1152,7 +1209,7 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
              
         return result
 
-    if (isinstance(x,list) and len(x)==1 and x[0]==UNABLE_TO_DETECT) or (isinstance(x,str) and x==UNABLE_TO_DETECT) or ((not isinstance(x,list)) and pd.isna(x)):
+    if (isinstance(x,list) and len(x)==1 and x[0]==_unable_to_detect()) or (isinstance(x,str) and x==_unable_to_detect()) or ((not isinstance(x,list)) and pd.isna(x)):
         if unable_to_detect_policy == "empty":
             return []
         elif unable_to_detect_policy == "drop":
@@ -1161,7 +1218,7 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
             return the_median
         elif unable_to_detect_policy == "keep":
             if pd.isna(x):
-                return [UNABLE_TO_DETECT]
+                return [_unable_to_detect()]
             else:
                 return x
         elif unable_to_detect_policy == "zero":
@@ -1217,7 +1274,7 @@ def recode_events_df(
 
     cool_events = study_dataset.copy()
 
-    var_schema = fyp_cf["var_schema"].copy()
+    var_schema = _cf()["var_schema"].copy()
 
     var_schema.set_index("variable_name", inplace=True)
 
@@ -1555,8 +1612,8 @@ def recode_fuzzy_match(
         
     if not isinstance(list_b, list):
         if verbose:
-            logger.warning(f"Warning: list_b is not a list (got {type(list_b)}). Returning {fyp_cf['labels']['OTHER_THINGS']}.")
-        return [fyp_cf['labels']['OTHER_THINGS']] * len(processing_list) # Return list if input was list
+            logger.warning(f"Warning: list_b is not a list (got {type(list_b)}). Returning {_cf()['labels']['OTHER_THINGS']}.")
+        return [_cf()['labels']['OTHER_THINGS']] * len(processing_list) # Return list if input was list
 
     refined_list = []
     
@@ -1576,7 +1633,7 @@ def recode_fuzzy_match(
             sub_result = []
             for sub_item in item:
                 if pd.isna(sub_item) or not isinstance(sub_item, str):
-                    sub_result.append(fyp_cf['labels']['OTHER_THINGS'])
+                    sub_result.append(_cf()['labels']['OTHER_THINGS'])
                     continue
                 
                 # Check Exact Match First (Sub-item)
@@ -1609,7 +1666,7 @@ def recode_fuzzy_match(
                 if best_sub_match:
                     sub_result.append(best_sub_match)
                 else:
-                    sub_result.append(fyp_cf['labels']['OTHER_THINGS'])
+                    sub_result.append(_cf()['labels']['OTHER_THINGS'])
             
             refined_list.append(sub_result)
             continue
@@ -1617,7 +1674,7 @@ def recode_fuzzy_match(
         # Handle non-string scalar items
         # Check if scalar is NA safely (already know it's not a list)
         if pd.isna(item) or not isinstance(item, str):
-            refined_list.append(fyp_cf['labels']['OTHER_THINGS'])
+            refined_list.append(_cf()['labels']['OTHER_THINGS'])
             continue
             
         # Check Exact Match First (Scalar)
@@ -1659,7 +1716,7 @@ def recode_fuzzy_match(
         if best_match:
             refined_list.append(best_match)
         else:
-            refined_list.append(fyp_cf['labels']['OTHER_THINGS'])
+            refined_list.append(_cf()['labels']['OTHER_THINGS'])
             
     # Return Series if input was Series, correctly indexed
     if is_series:
