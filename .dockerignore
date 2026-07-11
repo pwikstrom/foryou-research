@@ -80,7 +80,14 @@ _archive/
 .DS_Store
 patrik_secrets/
 sandbox/
-tests/
+# tests/ (and config/) stay in the image; only scratch notebooks are excluded.
+# Note: *.parquet below still keeps tests/golden/fixtures/*.parquet out.
+tests/scratchpads/
+# One-off ad-hoc research/ops scripts — never needed at runtime.
+scripts/adhoc/
+# CI config and docs are never needed at runtime.
+.github/
+docs/
 
 
 # Logs

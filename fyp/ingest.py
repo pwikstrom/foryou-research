@@ -1798,7 +1798,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
         super().__init__(collection_id, verbose)
         self.source_platform = "tiktok"
         self.data_source = "ddp"
-        self.raw_path = "ddp_raw" #"/Users/<user>/fyp_local/activity_data/ddp/ddp_raw"
+        self.raw_path = "ddp_raw"
         self.min_required_rows_per_raw_file = 10
 
 
@@ -2062,7 +2062,7 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         # The extra_data column is used for the timezone name
 
         super().__init__(collection_id, verbose)
-        self.raw_path = "zeeschuimer_raw" #"/Users/<user>/fyp_local/activity_data/zeeschuimer/zeeschuimer_raw"
+        self.raw_path = "zeeschuimer_raw"
         self.min_required_rows_per_raw_file = 1
         self.source_platform = "tiktok"
         self.data_source = "zeeschuimer"

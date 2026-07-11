@@ -156,7 +156,11 @@ _archive/
 .DS_Store
 patrik_secrets/
 # config/config.toml
-# sandbox/
+
+# Research sandboxes / scratch notebooks / manuscript drafts — never commit
+sandbox/
+tests/scratchpads/
+NMS_manuscript_scaffold.docx
 
 # Machine-local config overlay (see config/config.local.toml.example)
 config/config.local.toml

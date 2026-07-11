@@ -31,6 +31,7 @@ extend-exclude = [
     "tests/scratchpads",
     "tests/debug",
     "tests/_archive",
+    "scripts/adhoc",
 ]
 
 [tool.ruff.lint]
