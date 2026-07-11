@@ -14,7 +14,6 @@ import pandas as pd
 import psutil as _psutil
 
 import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
 import fyp.annotation_versioning as annotation_versioning
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
@@ -97,9 +96,51 @@ def _peak_rss_mb() -> float:
         / _RU_MAXRSS_DIVISOR_TO_MB
     )
 
-SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
-MACHINE_ANNOTATIONS_LABEL = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
-COLLECTIONS_LABEL = fyp_cf["labels"]["COLLECTIONS_LABEL"]
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
+
+
+
+
+def _scrapes_label() -> str:
+    """Lazy accessor for the config-derived scrapes label."""
+    return _cf()["labels"]["SCRAPES_LABEL"]
+
+
+
+
+def _machine_annotations_label() -> str:
+    """Lazy accessor for the config-derived machine-annotations label."""
+    return _cf()["labels"]["MACHINE_ANNOTATIONS_LABEL"]
+
+
+
+
+def _collections_label() -> str:
+    """Lazy accessor for the config-derived collections label."""
+    return _cf()["labels"]["COLLECTIONS_LABEL"]
+
+
+
+
+_CONFIG_CONSTANT_ACCESSORS = {
+    "SCRAPES_LABEL": _scrapes_label,
+    "MACHINE_ANNOTATIONS_LABEL": _machine_annotations_label,
+    "COLLECTIONS_LABEL": _collections_label,
+}
+
+
+
+
+def __getattr__(name: str):
+    """Serve the config-derived module constants lazily (PEP 562)."""
+    accessor = _CONFIG_CONSTANT_ACCESSORS.get(name)
+    if accessor is not None:
+        return accessor()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Embeddings-derived niche map (see fyp.video_map). The niche columns are
 # joined into each study's recoded dataset on item_id so they surface as
@@ -122,12 +163,14 @@ _NICHE_UNMAPPED = "unmapped"
 # circuit (skip entirely). Missing/malformed sidecar -> full rebuild.
 
 
-_FINGERPRINT_INPUT_FILES = {
-    "collections_fp":  ("recoded", f"{COLLECTIONS_LABEL}_recoded.parquet"),
-    "scrapes_fp":      ("recoded", f"{SCRAPES_LABEL}_recoded.parquet"),
-    "annotations_fp":  ("recoded", f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"),
-    "video_map_fp":    (_VIDEO_MAP_LOCATION, _VIDEO_MAP_FILE),
-}
+def _fingerprint_input_files() -> dict:
+    """Return the fingerprint-input map (label-derived, so config-lazy)."""
+    return {
+        "collections_fp":  ("recoded", f"{_collections_label()}_recoded.parquet"),
+        "scrapes_fp":      ("recoded", f"{_scrapes_label()}_recoded.parquet"),
+        "annotations_fp":  ("recoded", f"{_machine_annotations_label()}_recoded.parquet"),
+        "video_map_fp":    (_VIDEO_MAP_LOCATION, _VIDEO_MAP_FILE),
+    }
 
 
 
@@ -148,9 +191,9 @@ def compute_study_config_hash(study_name: str) -> str:
     Python-dict insertion order.
     """
 
-    if "study_defs" not in fyp_cf:
+    if "study_defs" not in _cf():
         init_study_defs()
-    cfg = fyp_cf["study_defs"].get(study_name, {}) or {}
+    cfg = _cf()["study_defs"].get(study_name, {}) or {}
     # Explicit key list: adding a new key should require a deliberate bump here,
     # and we don't want transient UI-only fields (stats, last_updated) to affect the hash.
     relevant_keys = [
@@ -183,7 +226,7 @@ def compute_input_fingerprints() -> dict:
 
     return {
         key: data_io.stat(storage_location=loc, filename=fn)
-        for key, (loc, fn) in _FINGERPRINT_INPUT_FILES.items()
+        for key, (loc, fn) in _fingerprint_input_files().items()
     }
 
 
@@ -256,7 +299,7 @@ def _extract_selected_cells(recoded_df: pd.DataFrame) -> dict[str, list[str]]:
 def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
     """Assemble the sidecar payload for a freshly (re)built recoded dataset."""
 
-    cfg = fyp_cf.get("study_defs", {}).get(study_name, {}) or {}
+    cfg = _cf().get("study_defs", {}).get(study_name, {}) or {}
     sampling_active = str(cfg.get("SAMPLE_FRAME", "off")) != "off"
 
     fps = compute_input_fingerprints()
@@ -368,7 +411,7 @@ def plan_refresh(study_name: str, verbose: bool = False) -> dict:
     current_failed_fp = compute_failed_scrapes_fingerprint()
     current_var_hash = compute_var_schema_hash()
     current_cfg_hash = compute_study_config_hash(study_name)
-    cfg = fyp_cf.get("study_defs", {}).get(study_name, {}) or {}
+    cfg = _cf().get("study_defs", {}).get(study_name, {}) or {}
     sampling_active = str(cfg.get("SAMPLE_FRAME", "off")) != "off"
 
     bundle = {
@@ -477,7 +520,7 @@ def _load_cached_core_datasets(verbose: bool = False) -> dict:
     """
     tutti_data: dict = {}
 
-    for k in [SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL]:
+    for k in [_scrapes_label(), _machine_annotations_label(), _collections_label()]:
         tutti_data[k] = None
 
         # try loading from local cache
@@ -504,7 +547,7 @@ def _load_cached_core_datasets(verbose: bool = False) -> dict:
         tutti_data[k].attrs["study_name"] = 'everything'
 
         # if main storage is GCS and cache is local, persist to cache for next time
-        if fyp_cf['data_io']['use_gcs_for_data'] and not fyp_cf['data_io']['use_gcs_for_cache']:
+        if _cf()['data_io']['use_gcs_for_data'] and not _cf()['data_io']['use_gcs_for_cache']:
             if verbose:
                 logger.info(f"    [Core datasets] Saving '{k}' to local cache...")
             data_io.save_parquet(df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
@@ -535,41 +578,41 @@ def _filter_enrichment_data(
 
     # scrape data
     _t_s = _time.perf_counter()
-    if tutti_data.get(SCRAPES_LABEL) is None or tutti_data[SCRAPES_LABEL].empty:
-        if not data_io.exists(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"):
-            logger.info(f"    [Scrape] '{SCRAPES_LABEL}_recoded.parquet' not present — treating as empty")
-            tutti_data[SCRAPES_LABEL] = pd.DataFrame()
+    if tutti_data.get(_scrapes_label()) is None or tutti_data[_scrapes_label()].empty:
+        if not data_io.exists(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"):
+            logger.info(f"    [Scrape] '{_scrapes_label()}_recoded.parquet' not present — treating as empty")
+            tutti_data[_scrapes_label()] = pd.DataFrame()
         else:
             logger.info("    [Scrape] Loading scraped data from main storage...")
             scrapes_df = data_io.load_parquet(
-                storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet", verbose=verbose)
+                storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet", verbose=verbose)
             if scrapes_df is not None and not scrapes_df.empty and study_name != 'everything':
                 scrapes_df = scrapes_df[scrapes_df["item_id"].isin(unique_videos)].copy()
-            tutti_data[SCRAPES_LABEL] = scrapes_df if scrapes_df is not None else pd.DataFrame()
-            logger.info(f"    [Scrape] ...done. Kept {len(tutti_data[SCRAPES_LABEL]):,} rows in {_time.perf_counter() - _t_s:.2f}s.")
+            tutti_data[_scrapes_label()] = scrapes_df if scrapes_df is not None else pd.DataFrame()
+            logger.info(f"    [Scrape] ...done. Kept {len(tutti_data[_scrapes_label()]):,} rows in {_time.perf_counter() - _t_s:.2f}s.")
     else:
-        cached = tutti_data[SCRAPES_LABEL]
-        tutti_data[SCRAPES_LABEL] = cached[cached["item_id"].isin(unique_videos)].copy()
-        logger.info(f"    [Scrape] Cache had {len(cached):,} items; {len(tutti_data[SCRAPES_LABEL]):,} overlap with activity datasets.")
+        cached = tutti_data[_scrapes_label()]
+        tutti_data[_scrapes_label()] = cached[cached["item_id"].isin(unique_videos)].copy()
+        logger.info(f"    [Scrape] Cache had {len(cached):,} items; {len(tutti_data[_scrapes_label()]):,} overlap with activity datasets.")
 
     # machine annotations
     _t_a = _time.perf_counter()
-    if tutti_data.get(MACHINE_ANNOTATIONS_LABEL) is None or tutti_data[MACHINE_ANNOTATIONS_LABEL].empty:
-        if not data_io.exists(storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"):
-            logger.info(f"    [Machine annotations] '{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet' not present — treating as empty")
-            tutti_data[MACHINE_ANNOTATIONS_LABEL] = pd.DataFrame()
+    if tutti_data.get(_machine_annotations_label()) is None or tutti_data[_machine_annotations_label()].empty:
+        if not data_io.exists(storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet"):
+            logger.info(f"    [Machine annotations] '{_machine_annotations_label()}_recoded.parquet' not present — treating as empty")
+            tutti_data[_machine_annotations_label()] = pd.DataFrame()
         else:
             logger.info("    [Machine annotations] Loading machine annotations from main storage...")
             annotations_df = data_io.load_parquet(
-                storage_location="recoded", filename=f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet", verbose=verbose)
+                storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet", verbose=verbose)
             if annotations_df is not None and not annotations_df.empty and study_name != 'everything':
                 annotations_df = annotations_df[annotations_df["item_id"].isin(unique_videos)].copy()
-            tutti_data[MACHINE_ANNOTATIONS_LABEL] = annotations_df if annotations_df is not None else pd.DataFrame()
-            logger.info(f"    [Machine annotations] ...done. Kept {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} rows in {_time.perf_counter() - _t_a:.2f}s.")
+            tutti_data[_machine_annotations_label()] = annotations_df if annotations_df is not None else pd.DataFrame()
+            logger.info(f"    [Machine annotations] ...done. Kept {len(tutti_data[_machine_annotations_label()]):,} rows in {_time.perf_counter() - _t_a:.2f}s.")
     else:
-        cached = tutti_data[MACHINE_ANNOTATIONS_LABEL]
-        tutti_data[MACHINE_ANNOTATIONS_LABEL] = cached[cached["item_id"].isin(unique_videos)].copy()
-        logger.info(f"    [Machine annotations] Cache had {len(cached):,} items; {len(tutti_data[MACHINE_ANNOTATIONS_LABEL]):,} overlap with activity datasets.")
+        cached = tutti_data[_machine_annotations_label()]
+        tutti_data[_machine_annotations_label()] = cached[cached["item_id"].isin(unique_videos)].copy()
+        logger.info(f"    [Machine annotations] Cache had {len(cached):,} items; {len(tutti_data[_machine_annotations_label()]):,} overlap with activity datasets.")
 
 
 
@@ -609,17 +652,17 @@ def load_collection_data(
 
     logger.info("    [DDP] Loading data for study...")
 
-    if "study_defs" not in fyp_cf:
+    if "study_defs" not in _cf():
         init_study_defs()
 
-    START_DATE = fyp_cf["study_defs"][study_name].get("START_DATE","1970-01-01")
+    START_DATE = _cf()["study_defs"][study_name].get("START_DATE","1970-01-01")
     if isinstance(START_DATE, str):
         try:
             START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
         except ValueError:
             START_DATE = _dt.datetime(1970,1,1).date()
 
-    END_DATE = fyp_cf["study_defs"][study_name].get("END_DATE","2099-12-31")
+    END_DATE = _cf()["study_defs"][study_name].get("END_DATE","2099-12-31")
     if isinstance(END_DATE, str):
         try:
             END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
@@ -634,7 +677,7 @@ def load_collection_data(
 
     sel = [(timestamp_column, ">=", START_DATE),(timestamp_column, "<", END_BOUND)]
 
-    the_selected_collections = fyp_cf["study_defs"][study_name].get("SELECTED_COLLECTIONS",[])
+    the_selected_collections = _cf()["study_defs"][study_name].get("SELECTED_COLLECTIONS",[])
     if len(the_selected_collections) > 0:
         the_selected_collections = [str(x) for x in the_selected_collections]
         the_selected_collections = [re.search(r'\[(.*?)\]', s).group(1) if re.search(r'\[(.*?)\]', s) else s for s in the_selected_collections]
@@ -643,7 +686,7 @@ def load_collection_data(
     if all_data is None:
         if verbose:
             logger.info("    [DDP] Loading collection events from main storage")
-        out_df = data_io.load_parquet("recoded", f"{COLLECTIONS_LABEL}_recoded.parquet", filters=sel, verbose=verbose)
+        out_df = data_io.load_parquet("recoded", f"{_collections_label()}_recoded.parquet", filters=sel, verbose=verbose)
 
     else:
         if verbose:
@@ -720,10 +763,10 @@ def simple_sample_collection_events(
     if verbose:
         logger.info(f"    [Sampling] Grouping factors: {grouping_factors}")
 
-    if "study_defs" not in fyp_cf:
+    if "study_defs" not in _cf():
         init_study_defs()
 
-    _study_def = fyp_cf["study_defs"][study_name]
+    _study_def = _cf()["study_defs"][study_name]
     MIN_EVENTS_REQUIRED = parse_sample_threshold(_study_def.get("MIN_ACTIVITY_COUNT_PER_GROUP"), 30)
     MAX_EVENTS_SELECTED = parse_sample_threshold(_study_def.get("MAX_ACTIVITY_COUNT_PER_GROUP"), 50, uncapped=True)
     MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION = parse_sample_threshold(_study_def.get("MIN_GROUP_COUNT_PER_COLLECTION"), 20)
@@ -820,7 +863,7 @@ def simple_sample_collection_events(
 
     enrichment_summary = combined_deduped_enrichment_status.select_dtypes(include=["bool"]).fillna(False).sum().to_dict()
 
-    mapper = fyp_cf['var_schema'][['variable_name','display_name']].dropna().set_index('variable_name').to_dict()['display_name']
+    mapper = _cf()['var_schema'][['variable_name','display_name']].dropna().set_index('variable_name').to_dict()['display_name']
 
     logger.info(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
     logger.info(f"    [Sampling] - Unique items: {len(combined_deduped_enrichment_status):,}")
@@ -855,17 +898,17 @@ def load_study_datasets(
     if study_name is None:
         raise ValueError("study_name must be specified")
 
-    if "study_defs" not in fyp_cf:
+    if "study_defs" not in _cf():
         init_study_defs()
 
-    if study_name not in fyp_cf["study_defs"].keys():
+    if study_name not in _cf()["study_defs"].keys():
         raise ValueError(f"study_name '{study_name}' not found in config")
 
 
     logger.info(f"Loading core datasets for study '{study_name}'...")
 
     # load core datasets from cache or main storage
-    if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']:
+    if load_from_cache and not _cf()['data_io']['use_gcs_for_cache']:
         tutti_data = _load_cached_core_datasets(verbose=verbose)
 
     elif len(all_datasets) > 0:
@@ -896,7 +939,7 @@ def load_study_datasets(
     # --------------------------------------------------------------------
     # sample activity data
     # --------------------------------------------------------------------
-    sample_frame_setting = fyp_cf["study_defs"][study_name].get("SAMPLE_FRAME", "off")
+    sample_frame_setting = _cf()["study_defs"][study_name].get("SAMPLE_FRAME", "off")
 
     if sample_frame_setting == "off":
         logger.info("    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data.")
@@ -983,26 +1026,26 @@ def load_collection_datasets(
 
     logger.info(f"Loading core datasets for collection '{collection_id}'...")
 
-    if load_from_cache and not fyp_cf['data_io']['use_gcs_for_cache']:
+    if load_from_cache and not _cf()['data_io']['use_gcs_for_cache']:
         tutti_data = _load_cached_core_datasets(verbose=verbose)
     else:
         tutti_data = {}
         if verbose:
             logger.info("    [Core datasets] Loading core datasets from main storage.")
-        for k in [SCRAPES_LABEL, MACHINE_ANNOTATIONS_LABEL, COLLECTIONS_LABEL]:
+        for k in [_scrapes_label(), _machine_annotations_label(), _collections_label()]:
             tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
 
 
     # --------------------------------------------------------------------
     # filter activity data to the requested collection
     # --------------------------------------------------------------------
-    if COLLECTIONS_LABEL in tutti_data and isinstance(tutti_data[COLLECTIONS_LABEL], pd.DataFrame):
-        tutti_data[COLLECTIONS_LABEL] = tutti_data[COLLECTIONS_LABEL][tutti_data[COLLECTIONS_LABEL]["collection_id"] == collection_id]
-        if len(tutti_data[COLLECTIONS_LABEL]) == 0:
+    if _collections_label() in tutti_data and isinstance(tutti_data[_collections_label()], pd.DataFrame):
+        tutti_data[_collections_label()] = tutti_data[_collections_label()][tutti_data[_collections_label()]["collection_id"] == collection_id]
+        if len(tutti_data[_collections_label()]) == 0:
             logger.info(f"    [Core datasets] No collections found for id '{collection_id}'")
             return None
 
-    unique_videos = set(tutti_data[COLLECTIONS_LABEL]["item_id"].dropna().values.tolist())
+    unique_videos = set(tutti_data[_collections_label()]["item_id"].dropna().values.tolist())
     logger.info(f"    [Core datasets] Found {len(unique_videos):,} unique videos")
 
 
@@ -1072,7 +1115,7 @@ def select_videos_from_study_dataset(
     video_stats = study_dataset[confirmed_cols].groupby('item_id').agg(**agg_dict)
 
     if "duration" in video_stats.columns:
-        video_stats['duration_ok_to_annotate'] = (video_stats['duration'] <= fyp_cf["machine"]["max_duration_for_annotation"]).fillna(False)
+        video_stats['duration_ok_to_annotate'] = (video_stats['duration'] <= _cf()["machine"]["max_duration_for_annotation"]).fillna(False)
         video_stats.drop(columns=["duration"], inplace=True)
     else:
         video_stats['duration_ok_to_annotate'] = False
@@ -1117,10 +1160,10 @@ def update_enrichment_status(
     """Rebuild enrichment_status.parquet from collections, scrapes, and annotations."""
 
     activity_columns = ['item_id', collection_id_column]
-    has_platform = 'source_platform' in all_datasets[COLLECTIONS_LABEL].columns
+    has_platform = 'source_platform' in all_datasets[_collections_label()].columns
     if has_platform:
         activity_columns.append('source_platform')
-    combined_activity_data = all_datasets[COLLECTIONS_LABEL][activity_columns]
+    combined_activity_data = all_datasets[_collections_label()][activity_columns]
     if has_platform:
         combined_activity_data = combined_activity_data.copy()
         combined_activity_data['source_platform'] = _backfill_source_platform(
@@ -1161,14 +1204,14 @@ def update_enrichment_status(
             modal_len = id_len.mode().iloc[0]
         enrichment_status_df = enrichment_status_df[id_len == modal_len].copy()
 
-    scrapes_for_merge = all_datasets.get(SCRAPES_LABEL)
+    scrapes_for_merge = all_datasets.get(_scrapes_label())
     if scrapes_for_merge is not None and not scrapes_for_merge.empty and {'item_id', 'scraped_ok', 'video_downloaded'}.issubset(scrapes_for_merge.columns):
         enrichment_status_df = pd.merge(left=enrichment_status_df, right=scrapes_for_merge[['item_id','scraped_ok','video_downloaded']], on='item_id', how='left')
     else:
         enrichment_status_df["scraped_ok"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
         enrichment_status_df["video_downloaded"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
 
-    annotations_for_merge = all_datasets.get(MACHINE_ANNOTATIONS_LABEL)
+    annotations_for_merge = all_datasets.get(_machine_annotations_label())
     if annotations_for_merge is not None and not annotations_for_merge.empty and {'item_id', 'annotated_ok', 'annotated_fail'}.issubset(annotations_for_merge.columns):
         enrichment_status_df = pd.merge(left=enrichment_status_df, right=annotations_for_merge[['item_id','annotated_ok','annotated_fail']], on='item_id', how='left')
     else:
@@ -1234,12 +1277,12 @@ def consolidate_enrichment_data(
 
     had_new_data = new_annotations or new_scrape_data
 
-    collections = data_io.load_parquet(filename=f"{COLLECTIONS_LABEL}_recoded.parquet", storage_location="recoded")
+    collections = data_io.load_parquet(filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded")
 
     fine_results = {
-        COLLECTIONS_LABEL: collections,
-        MACHINE_ANNOTATIONS_LABEL: annotations,
-        SCRAPES_LABEL: scrape_data
+        _collections_label(): collections,
+        _machine_annotations_label(): annotations,
+        _scrapes_label(): scrape_data
         }
 
     logger.info("\n*** Updating (and saving) data enrichment status...")
@@ -1269,10 +1312,10 @@ def consolidate_enrichment_data(
             if pd.notna(cid)
         }
 
-        if "study_defs" not in fyp_cf:
+        if "study_defs" not in _cf():
             init_study_defs()
         affected_studies = []
-        for sname, sdef in fyp_cf.get("study_defs", {}).items():
+        for sname, sdef in _cf().get("study_defs", {}).items():
             selected = sdef.get("SELECTED_COLLECTIONS", [])
             if not selected:
                 affected_studies.append(sname)
@@ -1386,11 +1429,11 @@ def _annotations_for_study(study_name, annotations_df):
     """
     if not study_name:
         return annotations_df
-    study_def = fyp_cf.get("study_defs", {}).get(study_name, {}) or {}
+    study_def = _cf().get("study_defs", {}).get(study_name, {}) or {}
     pin = study_def.get("annotation_version")
     if not pin:
         return annotations_df
-    archive_fn = f"{MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"
+    archive_fn = f"{_machine_annotations_label()}_all_versions.parquet"
     if not data_io.exists(storage_location="recoded", filename=archive_fn):
         logger.warning(f"    [new_merge] study '{study_name}' pinned to {pin} but archive missing; using active annotations.")
         return annotations_df
@@ -1505,10 +1548,10 @@ def new_merge(
     if study_name is None and save_to_cache:
         raise ValueError("study_name must be specified")
 
-    if "study_defs" not in fyp_cf:
+    if "study_defs" not in _cf():
         init_study_defs()
 
-    if study_name not in fyp_cf["study_defs"].keys() and save_to_cache:
+    if study_name not in _cf()["study_defs"].keys() and save_to_cache:
         raise ValueError(f"study_name '{study_name}' not found in config")
 
     if all_datasets is None:
@@ -1520,8 +1563,8 @@ def new_merge(
 
 
     # merge scrape + annotations into enrichment data
-    scrapes_df = all_datasets.get(SCRAPES_LABEL)
-    annotations_df = _annotations_for_study(study_name, all_datasets.get(MACHINE_ANNOTATIONS_LABEL))
+    scrapes_df = all_datasets.get(_scrapes_label())
+    annotations_df = _annotations_for_study(study_name, all_datasets.get(_machine_annotations_label()))
     has_scrapes = scrapes_df is not None and not scrapes_df.empty
     has_annotations = annotations_df is not None and not annotations_df.empty
 
@@ -1542,8 +1585,8 @@ def new_merge(
     else:
         enriched_data = pd.DataFrame()
 
-    if all_datasets.get(COLLECTIONS_LABEL) is not None:
-        activity_data = all_datasets[COLLECTIONS_LABEL]
+    if all_datasets.get(_collections_label()) is not None:
+        activity_data = all_datasets[_collections_label()]
     else:
         activity_data = pd.DataFrame()
 
@@ -1668,8 +1711,8 @@ def apply_enrichment_only_patch(
         logger.warning("    [EnrichPatch] Cached dataset missing 'item_id' column — aborting patch")
         return None
 
-    scrape_filename = f"{SCRAPES_LABEL}_recoded.parquet"
-    annot_filename = f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"
+    scrape_filename = f"{_scrapes_label()}_recoded.parquet"
+    annot_filename = f"{_machine_annotations_label()}_recoded.parquet"
     scrape_schema_cols = set(data_io.get_parquet_columns(storage_location="recoded", filename=scrape_filename) or [])
     annot_schema_cols = set(data_io.get_parquet_columns(storage_location="recoded", filename=annot_filename) or [])
 
@@ -1691,9 +1734,9 @@ def apply_enrichment_only_patch(
     del cached_df
 
     tutti_data: dict = {
-        COLLECTIONS_LABEL: activity_df,
-        SCRAPES_LABEL: None,
-        MACHINE_ANNOTATIONS_LABEL: None,
+        _collections_label(): activity_df,
+        _scrapes_label(): None,
+        _machine_annotations_label(): None,
     }
     _t_enrich = _time.perf_counter()
     _filter_enrichment_data(tutti_data, unique_videos, study_name=study_name, verbose=verbose)
@@ -1775,7 +1818,7 @@ def create_study_recoded_dataset(
     if study_name is None:
         raise ValueError("study_name must be specified")
 
-    if study_name not in fyp_cf["study_defs"].keys():
+    if study_name not in _cf()["study_defs"].keys():
         raise ValueError(f"study_name '{study_name}' not found in config")
 
     # Sidecar-guided refresh: fingerprint inputs and pick the cheapest correct
