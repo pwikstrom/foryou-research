@@ -29,12 +29,20 @@ import pandas as pd
 import pyarrow as pa
 
 import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
 from google import genai
 from google.genai.types import EmbedContentConfig
 
 logger = get_logger(__name__)
+
+
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
 
 # Embedding model configuration. gemini-embedding-001 supports Matryoshka
 # truncation to 768 / 1536 / 3072 dims; 1536 is the quality/size sweet spot.
@@ -100,7 +108,7 @@ def _get_client() -> genai.Client:
     if _client is None:
         _client = genai.Client(
             vertexai=True,
-            project=fyp_cf["machine"]["project"],
+            project=_cf()["machine"]["project"],
             location=EMBED_LOCATION,
         )
     return _client
