@@ -33,8 +33,28 @@ import fyp.annotation_versioning as annotation_versioning
 import fyp.data_io as data_io
 import fyp.media_paths as media_paths
 from fyp.annotation_schema import build_response_schema
-from fyp.fyp_config import fyp_cf
-from fyp.machine_annotation import MACHINE_ANNOTATIONS_LABEL, initialize_machine, platform_map_for
+from fyp.machine_annotation import initialize_machine, platform_map_for
+
+
+
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
+
+
+
+
+def _machine_annotations_label() -> str:
+    """Lazy accessor for the config-derived machine-annotations label."""
+    from fyp.machine_annotation import MACHINE_ANNOTATIONS_LABEL
+
+    return MACHINE_ANNOTATIONS_LABEL
+
+
+
 
 # Prefixes (relative to the GCS data prefix) for batch input/output.
 BATCH_INPUT_PREFIX = "machine_annotations_batch_input"
@@ -50,7 +70,7 @@ _TERMINAL_FAIL = {"JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"
 
 def current_batch_gen_params() -> dict:
     """Return the output-affecting generation params from config for batch."""
-    machine = fyp_cf["machine"]
+    machine = _cf()["machine"]
     return {
         "temperature": machine.get("temperature"),
         "max_output_tokens": machine.get("max_output_tokens"),
@@ -319,7 +339,7 @@ def ingest_records_to_raw(
 
 def _gcs_bucket():
     """Return the configured GCS bucket client, or raise if unavailable."""
-    bucket = fyp_cf["data_io"].get("bucket")
+    bucket = _cf()["data_io"].get("bucket")
     if bucket is None:
         raise RuntimeError(
             "Batch annotation requires GCS, but no bucket is configured "
@@ -333,9 +353,9 @@ def _gcs_bucket():
 def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
     """Build the batch JSONL and upload it to GCS. Returns (gcs_uri, submitted_ids)."""
     initialize_machine()
-    bucket_name = fyp_cf["data_io"]["GCS_bucket_name"]
-    media_prefix = fyp_cf["data_io"]["gcs_media_prefix"]
-    data_prefix = fyp_cf["data_io"].get("gcs_data_prefix", "data")
+    bucket_name = _cf()["data_io"]["GCS_bucket_name"]
+    media_prefix = _cf()["data_io"]["gcs_media_prefix"]
+    data_prefix = _cf()["data_io"].get("gcs_data_prefix", "data")
     system_instruction = annotation_versioning.active_prompt_text()
     # Batch needs the genai PROTO schema (type:"STRING"/"OBJECT", propertyOrdering),
     # NOT the OpenAPI dict (type:"string") that get_annotation_json_schema emits:
@@ -385,11 +405,11 @@ def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
 def submit_batch_job(jsonl_uri: str, ts_label: str) -> tuple[str, str]:
     """Submit a batch prediction job. Returns (job_name, output_uri)."""
     initialize_machine()
-    bucket_name = fyp_cf["data_io"]["GCS_bucket_name"]
-    data_prefix = fyp_cf["data_io"].get("gcs_data_prefix", "data")
+    bucket_name = _cf()["data_io"]["GCS_bucket_name"]
+    data_prefix = _cf()["data_io"].get("gcs_data_prefix", "data")
     output_uri = f"gs://{bucket_name}/{data_prefix}/{BATCH_OUTPUT_PREFIX}/{ts_label}/"
-    job = fyp_cf["machine"]["client"].batches.create(
-        model=fyp_cf["machine"]["model"],
+    job = _cf()["machine"]["client"].batches.create(
+        model=_cf()["machine"]["model"],
         src=jsonl_uri,
         config=google.genai.types.CreateBatchJobConfig(dest=output_uri),
     )
@@ -401,7 +421,7 @@ def submit_batch_job(jsonl_uri: str, ts_label: str) -> tuple[str, str]:
 def poll_batch_job(job_name: str) -> str:
     """Return the current ``JobState`` name of a batch job."""
     initialize_machine()
-    job = fyp_cf["machine"]["client"].batches.get(name=job_name)
+    job = _cf()["machine"]["client"].batches.get(name=job_name)
     return str(getattr(job.state, "name", job.state))
 
 
@@ -413,7 +433,7 @@ def download_and_ingest(output_uri: str, submitted_ids: list) -> str:
     Returns the saved raw JSON filename (in ``machine_annotations_raw``).
     """
     bucket = _gcs_bucket()
-    bucket_name = fyp_cf["data_io"]["GCS_bucket_name"]
+    bucket_name = _cf()["data_io"]["GCS_bucket_name"]
     prefix = output_uri.replace(f"gs://{bucket_name}/", "").rstrip("/")
     records = []
     for blob in bucket.list_blobs(prefix=prefix):
@@ -426,12 +446,12 @@ def download_and_ingest(output_uri: str, submitted_ids: list) -> str:
 
     raw = ingest_records_to_raw(
         records, submitted_ids,
-        model=fyp_cf["machine"]["model"],
-        prompt_fn=os.path.basename(fyp_cf["machine"]["prompt"]),
+        model=_cf()["machine"]["model"],
+        prompt_fn=os.path.basename(_cf()["machine"]["prompt"]),
         annotation_version=annotation_versioning.current_annotation_version(),
         platform_by_id=platform_map_for([str(v) for v in submitted_ids]),
     )
     fine_ts = "".join(c for c in str(_dt.datetime.now()) if c in "0123456789")
-    filename = f"{MACHINE_ANNOTATIONS_LABEL}_{fine_ts}.json"
+    filename = f"{_machine_annotations_label()}_{fine_ts}.json"
     data_io.save_json(data=raw, storage_location="machine_annotations_raw", filename=filename)
     return filename
