@@ -26,7 +26,6 @@ import fyp.media_paths as media_paths
 import fyp.scrape_queues as scrape_queues
 from fyp import scrape_contract as sc
 from fyp import scrape_versioning
-from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
 from fyp.platform_scraper import (
     SLIDESHOW_SECONDS_PER_IMAGE,
@@ -39,8 +38,48 @@ from fyp.utils import chunk_list, record_dropped_columns, start_monitor
 
 logger = get_logger(__name__)
 
-SCRAPES_LABEL = fyp_cf["labels"]["SCRAPES_LABEL"]
-FAILED_SCRAPES_LABEL = fyp_cf["labels"]["FAILED_SCRAPES_LABEL"]
+
+def _cf():
+    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
+    from fyp.fyp_config import fyp_cf
+
+    return fyp_cf
+
+
+
+
+def _scrapes_label() -> str:
+    """Lazy accessor for the config-derived scrapes label."""
+    return _cf()["labels"]["SCRAPES_LABEL"]
+
+
+
+
+def _failed_scrapes_label() -> str:
+    """Lazy accessor for the config-derived failed-scrapes label."""
+    return _cf()["labels"]["FAILED_SCRAPES_LABEL"]
+
+
+
+
+_CONFIG_CONSTANT_ACCESSORS = {
+    "SCRAPES_LABEL": _scrapes_label,
+    "FAILED_SCRAPES_LABEL": _failed_scrapes_label,
+    "MEMORY_STOP_FRACTION": lambda: _memory_stop_fraction(),
+    "SLIDESHOW_MAX_DIMENSION": lambda: _slideshow_max_dimension(),
+}
+
+
+
+
+def __getattr__(name: str):
+    """Serve the config-derived module constants lazily (PEP 562)."""
+    accessor = _CONFIG_CONSTANT_ACCESSORS.get(name)
+    if accessor is not None:
+        return accessor()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 
 # Consecutive throttle-category failures (across all workers) that trip the
 # batch circuit breaker in download_video_threads.
@@ -54,10 +93,12 @@ CIRCUIT_BREAKER_THRESHOLD = 15
 # queue's max-attempts=1. (The historical spike source — moviepy slideshow
 # assembly at native photo resolution — is bounded at the root by
 # SLIDESHOW_MAX_DIMENSION in make_slideshow.)
-try:
-    MEMORY_STOP_FRACTION = float(fyp_cf["misc"].get("scraper_memory_stop_fraction", 0.60))
-except (KeyError, TypeError, ValueError):
-    MEMORY_STOP_FRACTION = 0.60
+def _memory_stop_fraction() -> float:
+    """Lazy accessor for the memory safety-valve threshold (see comment above)."""
+    try:
+        return float(_cf()["misc"].get("scraper_memory_stop_fraction", 0.60))
+    except (KeyError, TypeError, ValueError):
+        return 0.60
 
 # Longest edge of a slideshow canvas, in pixels. TikTok photo-mode source
 # images run up to 2160x3840; rendering the slideshow at that native size makes
@@ -65,10 +106,12 @@ except (KeyError, TypeError, ValueError):
 # area), which OOM-pressured the task-runner. Slideshows are display media, not
 # archival: capping the longest edge bounds the whole moviepy/ffmpeg pipeline
 # to well under 1 GiB. Overridable via ``[misc] slideshow_max_dimension``.
-try:
-    SLIDESHOW_MAX_DIMENSION = int(fyp_cf["misc"].get("slideshow_max_dimension", 1000))
-except (KeyError, TypeError, ValueError):
-    SLIDESHOW_MAX_DIMENSION = 1000
+def _slideshow_max_dimension() -> int:
+    """Lazy accessor for the slideshow canvas cap (see comment above)."""
+    try:
+        return int(_cf()["misc"].get("slideshow_max_dimension", 1000))
+    except (KeyError, TypeError, ValueError):
+        return 1000
 
 
 
@@ -117,7 +160,7 @@ def _container_memory_fraction() -> "tuple[float, float] | None":
 
 def _check_graceful_stop(process_name: str) -> bool:
     """Check if a graceful stop has been requested via sentinel file."""
-    sentinel = Path(fyp_cf['paths']['project_root']) / "tmp" / "graceful_stop" / f"{process_name}.stop"
+    sentinel = Path(_cf()['paths']['project_root']) / "tmp" / "graceful_stop" / f"{process_name}.stop"
     return sentinel.exists()
 
 
@@ -252,8 +295,8 @@ def make_slideshow(
         # (libx264 with yuv420p rejects odd frame sizes).
         w, h = size
         longest = max(w, h)
-        if longest > SLIDESHOW_MAX_DIMENSION:
-            scale = SLIDESHOW_MAX_DIMENSION / longest
+        if longest > _slideshow_max_dimension():
+            scale = _slideshow_max_dimension() / longest
             w = round(w * scale)
             h = round(h * scale)
         return (max(2, w - (w % 2)), max(2, h - (h % 2)))
@@ -345,10 +388,10 @@ def download_single_video(
     if video_id is None:
         raise ValueError("No video id specified")
 
-    use_gcs = fyp_cf['data_io']['use_gcs_for_media']
-    bucket = fyp_cf['data_io']['bucket']
-    min_size = fyp_cf["misc"]["min_media_object_size"]
-    temp_dir = fyp_cf["paths"]["temp"]
+    use_gcs = _cf()['data_io']['use_gcs_for_media']
+    bucket = _cf()['data_io']['bucket']
+    min_size = _cf()["misc"]["min_media_object_size"]
+    temp_dir = _cf()["paths"]["temp"]
 
     if use_gcs and bucket is None:
         raise ValueError("No GCS bucket specified")
@@ -358,7 +401,7 @@ def download_single_video(
 
     # Media lives under a per-platform subpath ({prefix}/{platform}/{id}.mp4);
     # legacy flat files are found by the reader-side fallback, never written.
-    media_prefix = f"{fyp_cf['data_io']['gcs_media_prefix']}/{scraper.platform}"
+    media_prefix = f"{_cf()['data_io']['gcs_media_prefix']}/{scraper.platform}"
     platform_media_dir = (
         media_paths.ensure_local_platform_dir(scraper.platform) if not use_gcs else ""
     )
@@ -612,15 +655,15 @@ def _add_storage_link(
         The same frame with a ``string[pyarrow]`` ``storage_link`` column.
     """
     overrides = overrides or {}
-    use_gcs = fyp_cf['data_io']['use_gcs_for_media']
+    use_gcs = _cf()['data_io']['use_gcs_for_media']
     if use_gcs:
-        bucket = fyp_cf['data_io'].get('bucket')
-        prefix = fyp_cf['data_io']['gcs_media_prefix']
+        bucket = _cf()['data_io'].get('bucket')
+        prefix = _cf()['data_io']['gcs_media_prefix']
         bucket_name = getattr(bucket, "name", "") if bucket is not None else ""
         def _link(vid: str) -> str:
             return f"gs://{bucket_name}/{prefix}/{media_paths.media_relpath(platform, vid)}"
     else:
-        media_dir = fyp_cf['paths']['media']
+        media_dir = _cf()['paths']['media']
         def _link(vid: str) -> str:
             return os.path.join(media_dir, media_paths.media_relpath(platform, vid))
     if "video_downloaded" in results.columns:
@@ -663,10 +706,10 @@ def _canonicalize_recode_save(
     Returns:
         The saved (recoded, canonical) frame.
     """
-    scrape_filename = f"{SCRAPES_LABEL}_{fine_ts}.parquet"
+    scrape_filename = f"{_scrapes_label()}_{fine_ts}.parquet"
 
     # save the raw results to local temp just in case everything goes to pieces
-    results.to_parquet(os.path.join(fyp_cf['paths']['temp'], "recovered_" + scrape_filename))
+    results.to_parquet(os.path.join(_cf()['paths']['temp'], "recovered_" + scrape_filename))
 
     try:
         results.drop(["do_not_modify"], axis=1, errors='ignore', inplace=True)
@@ -684,8 +727,8 @@ def _canonicalize_recode_save(
         results = rename_columns(results).copy()
 
         # only keep columns as defined by the variable schema
-        dropped = sorted(set(results.columns) - set(fyp_cf['var_schema'].variable_name))
-        relevant_cols = [c for c in fyp_cf['var_schema'].variable_name if c in results.columns]
+        dropped = sorted(set(results.columns) - set(_cf()['var_schema'].variable_name))
+        relevant_cols = [c for c in _cf()['var_schema'].variable_name if c in results.columns]
         results = results[relevant_cols].copy()
         record_dropped_columns(
             "scrape_whitelist", dropped, reason="whitelist", reporter=reporter,
@@ -782,14 +825,14 @@ def check_existing_media(
     if not video_ids:
         return {}
 
-    use_gcs = fyp_cf['data_io']['use_gcs_for_media']
-    min_size = fyp_cf['misc']['min_media_object_size']
+    use_gcs = _cf()['data_io']['use_gcs_for_media']
+    min_size = _cf()['misc']['min_media_object_size']
     relpaths = [media_paths.media_relpath(platform, "{vid}")] if platform else []
     relpaths.append("{vid}.mp4")
 
     if use_gcs:
-        bucket = fyp_cf['data_io']['bucket']
-        gcs_media_prefix = fyp_cf['data_io']['gcs_media_prefix']
+        bucket = _cf()['data_io']['bucket']
+        gcs_media_prefix = _cf()['data_io']['gcs_media_prefix']
         if bucket is None:
             return {}
         bucket_name = getattr(bucket, "name", "")
@@ -812,7 +855,7 @@ def check_existing_media(
                     present[result[0]] = result[1]
         return present
 
-    media_dir = fyp_cf['paths']['media']
+    media_dir = _cf()['paths']['media']
     present = {}
     for vid in video_ids:
         for rel_template in relpaths:
@@ -1019,7 +1062,7 @@ def download_video_threads(
                     logger.info(f"  [mem] {used_gib:.1f} GiB ({frac:.0%} of limit) "
                                 f"after {_mem_progress['done']}/{len(interesting_videos)} items")
                     last_log = now
-                if frac >= MEMORY_STOP_FRACTION and not mem_stop_event.is_set():
+                if frac >= _memory_stop_fraction() and not mem_stop_event.is_set():
                     mem_stop_event.set()
                     logger.warning(f"  [scrape] Memory safety valve: {used_gib:.1f} GiB "
                                    f"({frac:.0%} of limit) — stopping new downloads; "
@@ -1111,7 +1154,7 @@ def download_video_threads(
         )
 
     if not dry_run and len(failed_items)>0:
-        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
+        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{_failed_scrapes_label()}_{fine_ts}.json", verbose=verbose)
         logger.info(f"Saved {len(failed_items)} failed items")
 
     # Signal upward (batch loop / queue-scraper chaining) that this batch was
@@ -1214,9 +1257,9 @@ def scraper_loop_from_list(
                 reporter.emit_data({"rate_limit_abort": True})
             break
 
-        with open(os.path.join(fyp_cf['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
+        with open(os.path.join(_cf()['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
             json.dump(all_permanent_failed + all_transient_failed, f)
-        with open(os.path.join(fyp_cf['paths']['temp'], "temp_good_scrapes.json"), "w") as f:
+        with open(os.path.join(_cf()['paths']['temp'], "temp_good_scrapes.json"), "w") as f:
             json.dump(good_scrapes, f)
 
         cumulative_done += len(batch)
@@ -1650,11 +1693,11 @@ def consolidate_and_save_scrape_data(
         if verbose:
             logger.info("Dataset meta loaded")
     else:
-        dataset_meta = {SCRAPES_LABEL: {"filenames": []}}
+        dataset_meta = {_scrapes_label(): {"filenames": []}}
 
     files_to_concatenate = []
     for fn in data_io.listdir(storage_location="scrape"):
-        if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet"):
+        if fn.startswith(_scrapes_label()) and fn.endswith(".parquet"):
             files_to_concatenate.append(fn)
 
     # Donated enrichment seeds participate in change detection: a fresh ingest
@@ -1663,15 +1706,15 @@ def consolidate_and_save_scrape_data(
     seed_frames = _load_enrichment_seeds(verbose=verbose)
     seed_row_counts = {fn: len(df) for fn, df in seed_frames.items()}
 
-    latest_filename_list = dataset_meta.get(SCRAPES_LABEL, {}).get("filenames", [])
-    latest_seed_row_counts = dataset_meta.get(SCRAPES_LABEL, {}).get("seed_row_counts", {})
+    latest_filename_list = dataset_meta.get(_scrapes_label(), {}).get("filenames", [])
+    latest_seed_row_counts = dataset_meta.get(_scrapes_label(), {}).get("seed_row_counts", {})
     # A scrape-contract change (new sv_) must rebuild even with no new files:
     # the per-file self-healing migrations (retired-column coalesce, legacy
     # renames) only run inside a rebuild, so skipping would leave the
     # consolidated parquet on the previous contract's column set forever.
     from fyp import scrape_versioning
     current_sv = scrape_versioning.current_scrape_version()
-    latest_sv = dataset_meta.get(SCRAPES_LABEL, {}).get("scrape_contract_version")
+    latest_sv = dataset_meta.get(_scrapes_label(), {}).get("scrape_contract_version")
     if (not force_consolidation
             and set(files_to_concatenate) <= set(latest_filename_list)
             and seed_row_counts == latest_seed_row_counts
@@ -1679,9 +1722,9 @@ def consolidate_and_save_scrape_data(
         if top_verbose:
             logger.info("No new scrape files found. No need to consolidate.")
         if return_saved_data:
-            if data_io.exists(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"):
+            if data_io.exists(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"):
                 if verbose: logger.info("Returning existing file.")
-                return False, data_io.load_parquet(storage_location="recoded", filename=f"{SCRAPES_LABEL}_recoded.parquet"), set()
+                return False, data_io.load_parquet(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"), set()
             if verbose: logger.info("No existing consolidated file — returning empty.")
             return False, pd.DataFrame(), set()
         return False, None, set()
@@ -1805,7 +1848,7 @@ def consolidate_and_save_scrape_data(
     # item_id and would be missed, so the study/collection impact analysis would
     # never refresh the studies that item belongs to. Compare the actual row
     # values instead, so any enrichment-value backfill surfaces as a change.
-    existing_recoded_fn = f"{SCRAPES_LABEL}_recoded.parquet"
+    existing_recoded_fn = f"{_scrapes_label()}_recoded.parquet"
     existing_df = None
     if data_io.exists(storage_location="recoded", filename=existing_recoded_fn):
         existing_df = data_io.load_parquet(storage_location="recoded", filename=existing_recoded_fn)
@@ -1818,11 +1861,11 @@ def consolidate_and_save_scrape_data(
 
 
     # update the dataset meta file
-    if SCRAPES_LABEL not in dataset_meta:
-        dataset_meta[SCRAPES_LABEL] = {}
-    dataset_meta[SCRAPES_LABEL]["filenames"] = files_to_concatenate
-    dataset_meta[SCRAPES_LABEL]["seed_row_counts"] = seed_row_counts
-    dataset_meta[SCRAPES_LABEL]["scrape_contract_version"] = current_sv
+    if _scrapes_label() not in dataset_meta:
+        dataset_meta[_scrapes_label()] = {}
+    dataset_meta[_scrapes_label()]["filenames"] = files_to_concatenate
+    dataset_meta[_scrapes_label()]["seed_row_counts"] = seed_row_counts
+    dataset_meta[_scrapes_label()]["scrape_contract_version"] = current_sv
     _ = data_io.save_json(data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
 
     if top_verbose:
@@ -1850,7 +1893,7 @@ def load_failed_scrapes(
     if verbose:
         logger.info("Loading failed scrapes...")
 
-    failed_scrapes_files = [gg for gg in data_io.listdir(storage_location="scrape", verbose=verbose) if gg.startswith(FAILED_SCRAPES_LABEL)]
+    failed_scrapes_files = [gg for gg in data_io.listdir(storage_location="scrape", verbose=verbose) if gg.startswith(_failed_scrapes_label())]
 
     failed_scrapes = []
     for fn in failed_scrapes_files:
@@ -1865,9 +1908,9 @@ def load_failed_scrapes(
     if len(failed_scrapes_files) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
-            logger.info(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {FAILED_SCRAPES_LABEL}_{fine_ts}.json.")
+            logger.info(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {_failed_scrapes_label()}_{fine_ts}.json.")
 
-        result = data_io.save_json(data=failed_scrapes, storage_location="scrape", filename=f"{FAILED_SCRAPES_LABEL}_{fine_ts}.json", verbose=verbose)
+        result = data_io.save_json(data=failed_scrapes, storage_location="scrape", filename=f"{_failed_scrapes_label()}_{fine_ts}.json", verbose=verbose)
 
         if result == 0:
             for fn in failed_scrapes_files:
