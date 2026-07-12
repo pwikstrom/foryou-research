@@ -11,7 +11,7 @@
 3. Before opening a PR, run the verification gate:
 
    ```bash
-   source .fypenv314/bin/activate
+   source .venv/bin/activate
    bash scripts/verify.sh
    ```
 

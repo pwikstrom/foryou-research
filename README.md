@@ -28,13 +28,13 @@ reading even as a human.
 
 ## Quickstart (local development)
 
-Prerequisites: Python 3.14 for local dev (production runs 3.12 — keep code
-3.12-compatible, see [docs/python-versions.md](docs/python-versions.md)),
-plus `ffmpeg` and `node`/`deno` if you run scrapers.
+Prerequisites: Python 3.12 (matches the production runtime — see
+[docs/python-versions.md](docs/python-versions.md)), plus `ffmpeg` and
+`node`/`deno` if you run scrapers.
 
 ```bash
-python3.14 -m venv .fypenv314
-source .fypenv314/bin/activate
+python3.12 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements-dev.txt   # runtime pins + pytest/ruff/pre-commit
 pip install -e .                       # recommended: editable install of the fyp package
 
@@ -69,7 +69,7 @@ python web_interface/run_queue_scraper.py --platform tiktok
 Every change should pass the gate before merging:
 
 ```bash
-source .fypenv314/bin/activate
+source .venv/bin/activate
 bash scripts/verify.sh
 ```
 
@@ -93,7 +93,7 @@ Project" and [docs/architecture.md](docs/architecture.md).
 - [docs/configuration.md](docs/configuration.md) — config.toml sections, contracts, environment variables
 - [docs/pipeline.md](docs/pipeline.md) — ingestion → scrape → annotation → recode → analysis
 - [docs/web_interface.md](docs/web_interface.md) — Flask app structure, auth, workers, route inventory
-- [docs/python-versions.md](docs/python-versions.md) — why dev is 3.14 and prod is 3.12
+- [docs/python-versions.md](docs/python-versions.md) — Python 3.12 everywhere (dev and prod)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, coding style, invariants you must not break
 
 ## License

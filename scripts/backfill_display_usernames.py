@@ -10,7 +10,7 @@ have a ``display_username`` are left untouched. Display usernames are UI-only
 and not required to be unique, so derivation collisions are acceptable.
 
 Usage:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     python scripts/backfill_display_usernames.py [--dry-run]
 
     # Against the production GCS user store (run from the deployed commit):

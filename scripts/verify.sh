@@ -2,7 +2,7 @@
 # Standard verification gate for FYP changes.
 #
 # Run from the project root, inside the dev venv:
-#     source .fypenv314/bin/activate && bash scripts/verify.sh
+#     source .venv/bin/activate && bash scripts/verify.sh
 #
 # Every refactoring / cleanup PR must pass this gate. It is intentionally
 # cost-free: no Gemini calls, no GCS writes, no production data needed beyond

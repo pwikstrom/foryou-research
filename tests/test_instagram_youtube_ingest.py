@@ -12,7 +12,7 @@ storage locations registered at runtime, so nothing under the real data dirs
 is touched.
 
 Run:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     python tests/test_instagram_youtube_ingest.py
 """
 

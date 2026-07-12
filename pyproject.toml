@@ -60,8 +60,8 @@ norecursedirs = [
     "tests/_archive",
     "sandbox",
     "tmp",
-    ".fypenv",
-    ".fypenv314",
+    ".venv",
+    ".fypenv*",
 ]
 markers = [
     "requires_data: needs local/production data files (parquets, media) not present in a fresh checkout",
@@ -85,8 +85,8 @@ extend-exclude = [
     "sandbox",
     "tmp",
     "patrik_secrets",
-    ".fypenv",
-    ".fypenv314",
+    ".venv",
+    ".fypenv*",
     "fyp/mypyktok.py",
     "tests/scratchpads",
     "tests/debug",

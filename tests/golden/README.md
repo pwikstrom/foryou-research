@@ -20,7 +20,7 @@ it can re-validate the full pipeline over real data on every change.
 ## Run it
 
 ```bash
-source .fypenv314/bin/activate           # or use .fypenv314/bin/python directly
+source .venv/bin/activate           # or use .venv/bin/python directly
 python tests/golden/run_safety_net.py    # runs the whole suite, exit 0 = green
 ```
 

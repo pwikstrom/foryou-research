@@ -11,7 +11,7 @@ bootstrapped — they accumulate organically over subsequent ingest refreshes
 and stay gated by ``MIN_ACCEPTED_FOR_STAT_CHECKS`` until then.
 
 Usage:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     python scripts/bootstrap_structure_baselines.py
 """
 

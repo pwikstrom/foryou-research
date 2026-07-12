@@ -18,7 +18,7 @@ Covers:
    later pass of the outer loop.
 
 Run:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     python tests/unit/test_polars_ops_migration.py
 """
 

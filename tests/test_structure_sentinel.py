@@ -6,7 +6,7 @@ structure/stat deviation scoring, the small-sample learning gate, and the
 end-to-end load_raw quarantine interception + approve flow.
 
 Usage:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     python tests/test_structure_sentinel.py
 """
 

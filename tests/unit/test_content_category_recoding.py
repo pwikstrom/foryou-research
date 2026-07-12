@@ -18,7 +18,7 @@ asserts that:
     mismatch) also survives now that the prompt was aligned with the schema.
 
 Run with:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     python tests/test_content_category_recoding.py
 """
 

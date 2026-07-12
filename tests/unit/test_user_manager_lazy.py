@@ -23,7 +23,7 @@ These tests verify:
 6. ``get_user`` lazy-loads even in bootstrap mode (the roster is not preloaded).
 
 Run:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     PYTHONPATH=. python tests/unit/test_user_manager_lazy.py
 """
 

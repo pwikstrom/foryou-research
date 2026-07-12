@@ -62,7 +62,7 @@ Documents, by audience:
 
 ## Run
 ```bash
-source .fypenv314/bin/activate
+source .venv/bin/activate
 python experiments/embedding_entropy/run_window_entropy.py            # 3 seed collections, 60-min, 21 days
 python experiments/embedding_entropy/run_window_entropy.py --window-minutes 30 --min-emb 8
 python experiments/embedding_entropy/run_window_entropy.py --no-dedupe   # let rewatches count

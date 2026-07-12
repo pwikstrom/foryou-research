@@ -2,8 +2,7 @@
 
 # environments
 .venv/
-.fypenv314/
-.fypenv
+.fypenv*
 .env
 .venv
 env/

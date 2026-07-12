@@ -44,7 +44,7 @@ Two phases:
    read-modify-write could race the worker's own queue save).
 
 Usage:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     python tests/audit_audio_only_media.py --sweep        # full bucket audit
     python tests/audit_audio_only_media.py                # parquet-driven scan
     python tests/audit_audio_only_media.py --delete       # act on the report

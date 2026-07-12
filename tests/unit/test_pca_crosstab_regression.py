@@ -26,7 +26,7 @@ These tests pin the contract regardless of whether the inputs are
 regardless of whether the values are UUIDs or simple category labels.
 
 Run:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     PYTHONPATH=. python tests/unit/test_pca_crosstab_regression.py
 """
 

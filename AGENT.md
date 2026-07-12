@@ -8,8 +8,8 @@
 
 ## Environment
 
-- **Python**: 3.14 (the `.fypenv314` virtual environment).
-- Always activate the venv before running scripts: `source .fypenv314/bin/activate`
+- **Python**: 3.12 (the `.venv` virtual environment; matches the production runtime).
+- Always activate the venv before running scripts: `source .venv/bin/activate`
 - `pip install -e .` (editable install of the `fyp` package, from `pyproject.toml`) is the recommended dev setup — never required; the repo also runs from a plain checkout.
 - **Deployment**: Docker (Python 3.12-slim), Gunicorn (1 worker, 8 threads).
 - **Secrets** (set via environment variables):
@@ -53,7 +53,7 @@ All visual styling is managed through a **CSS custom property (token) system** i
 
 ## Tech Stack
 
-- **Backend**: Python 3.14, Flask 3.x, Gunicorn (production)
+- **Backend**: Python 3.12, Flask 3.x, Gunicorn (production)
 - **Data**: Pandas, NumPy, PyArrow, Parquet format, NDJSON
 - **Analysis**: Scikit-learn, SciPy, Statsmodels, Seaborn
 - **Storage**: Local filesystem (`/Users/<user>/fyp_local`) or Google Cloud Storage
@@ -246,7 +246,7 @@ fyp_main_v02/
 ### Development
 
 ```bash
-source .fypenv314/bin/activate
+source .venv/bin/activate
 python web_interface/fyp_data_hub.py
 # → http://localhost:5002
 ```
@@ -455,7 +455,7 @@ pytest is configured in `pyproject.toml` (`testpaths = tests/unit`) with markers
 change is:
 
 ```bash
-source .fypenv314/bin/activate
+source .venv/bin/activate
 bash scripts/verify.sh
 # = ruff (pyflakes bar) + pytest -m "not requires_data and not requires_gcs and not slow and not stale"
 #   + the import-cycle/schema-hash guard + the golden safety net + an app import smoke

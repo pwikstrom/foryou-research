@@ -1,18 +1,25 @@
-# Python versions: 3.12 in production, 3.14 for local dev
+# Python version: 3.12 everywhere
 
-Two Python versions are in play; this is deliberate but easy to trip over.
+FYP standardizes on **Python 3.12** for both local development and
+production, so what you run locally matches what ships.
 
-- **Production truth is 3.12.** The Docker image is `python:3.12-slim` and
-  `requirements312.txt` (the single pinned dependency file, used by
-  `Dockerfile.base`) is resolved for 3.12. **All code must stay
-  3.12-compatible** — `ruff` enforces `target-version = "py312"`, so don't
-  use 3.13+/3.14-only syntax or stdlib features.
-- **Local dev uses 3.14** in the `.fypenv314` venv, installed from the same
-  `requirements312.txt` (the pins happen to resolve on 3.14 too). This is a
-  convenience, not a support statement: if a behavior differs between
-  versions, 3.12 wins.
-- Dev-only tools (`pytest`, `ruff`, `pre-commit`) come from
-  `requirements-dev.txt`, which includes the runtime pins.
+- **Production** is `python:3.12-slim` (Cloud Run), with dependencies pinned
+  in `requirements312.txt` (used by `Dockerfile.base`).
+- **Local dev** uses a 3.12 virtual environment named `.venv`:
 
-If you only want to run the app locally with minimum surprise, a 3.12 venv
-built from `requirements312.txt` is the most production-faithful setup.
+  ```bash
+  python3.12 -m venv .venv
+  source .venv/bin/activate
+  pip install -r requirements-dev.txt   # runtime pins + pytest/ruff/pre-commit
+  ```
+
+- `ruff` enforces `target-version = "py312"`, and CI runs on 3.12, so the
+  local gate (`scripts/verify.sh`) and CI agree.
+
+Keep code 3.12-compatible — don't reach for 3.13+ syntax or stdlib
+features. The only environment difference from production is the OS (local
+macOS vs. Debian slim), which is not something the project pins.
+
+> The dependency lock is still named `requirements312.txt` for its Python
+> version; the name is historical and kept because `Dockerfile.base` and
+> `cloudbuild-base.yaml` reference it.

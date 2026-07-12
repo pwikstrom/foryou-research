@@ -16,7 +16,7 @@ show up here rather than as cryptic ``ArrowNotImplementedError`` from
 downstream consumers in production.
 
 Run:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     PYTHONPATH=. python tests/unit/test_types_downgrade.py
 """
 

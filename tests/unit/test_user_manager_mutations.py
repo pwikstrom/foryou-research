@@ -10,7 +10,7 @@ in-memory storage mock, so a regression in any single-user path or in an
 admin-count guard is caught without touching real user files.
 
 Run:
-    source .fypenv314/bin/activate
+    source .venv/bin/activate
     PYTHONPATH=. python tests/unit/test_user_manager_mutations.py
 """
 
