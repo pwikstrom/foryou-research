@@ -162,9 +162,7 @@ celerybeat.pid
 # Temp & research artifacts
 # CLAUDE.md: tmp/ is for temporary test/debug data — it (and stray research
 # notes / manuscript drafts at the repo root) must never ship in the prod image.
-# experiments/ holds standalone research scripts that must never ship in prod.
 tmp/
-experiments/
 # Claude Code worktrees / agent state — never ship to prod.
 .claude/
 *.docx
