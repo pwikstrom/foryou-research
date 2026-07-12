@@ -749,6 +749,20 @@
   ]
  ],
  [
+  "/api/system-health",
+  "explorer_bp.get_system_health",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/system-health/run",
+  "explorer_bp.run_system_health",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/system-info",
   "explorer_bp.system_info",
   [

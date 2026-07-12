@@ -713,3 +713,18 @@ class InstagramScraper(BaseScraper):
 
     def health_check(self) -> dict | None:
         return scraper_cookies.cookie_health("instagram", session_cookie="sessionid")
+
+
+    def media_probe_url(self, item_id: str) -> dict | None:
+        ydl_opts: dict = {
+            'quiet': True,
+            'no_warnings': True,
+            **scraper_cookies.cookie_opts("instagram"),
+            'skip_download': True,
+            'no_color': True,
+            'socket_timeout': 30,
+            'format': 'best[ext=mp4]/best',
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(self.item_url(item_id), download=False)
+            return self._probe_target(ydl, info)

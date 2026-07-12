@@ -8,35 +8,19 @@
     </div>
 </div>
 
-<script>
-    function loadSystemInfo() {
-        fetch('/api/system-info')
-            .then(r => r.json())
-            .then(info => {
-                const rows = [
-                    ['Environment', info.environment],
-                    info.revision ? ['Revision', info.revision] : null,
-                    ['OS', info.os],
-                    ['Architecture', info.architecture],
-                    ['Python', info.python_version],
-                    ['CPUs', info.cpu_count],
-                    ['Data storage', info.data_location],
-                    ['Media storage', info.media_location],
-                    ['Cache storage', info.cache_location],
-                ].filter(Boolean);
+<h2 style="margin: 24px 0 16px 0;">System Health</h2>
 
-                const html = rows.map(([label, value]) =>
-                    `<div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--color-border);">
-                        <span class="text-sm font-medium" style="color: var(--color-text-secondary);">${label}</span>
-                        <span class="text-sm" style="color: var(--color-text-primary);">${value}</span>
-                    </div>`
-                ).join('');
+<div class="setting-group" style="margin-bottom: 20px;">
+    <div id="system-health-container"
+        style="background: var(--color-bg-inset); padding: 15px; border-radius: 6px; border: 1px solid var(--color-border);">
+        <span class="italic text-sm" style="color: var(--color-text-faint);">Loading health status...</span>
+    </div>
+    <div class="text-xs" style="color: var(--color-text-muted); margin-top: 8px;">
+        Test-scrapes one recent item per platform (metadata only), probes the first bytes of its media,
+        and pings Gemini. Runs automatically at server boot; nothing is written to the datasets.
+    </div>
+    <button id="run-health-check-btn" class="btn-primary" style="margin-top: 10px;"
+        onclick="runSystemHealthCheck()">Run health check</button>
+</div>
 
-                document.getElementById('system-info-container').innerHTML = html;
-            })
-            .catch(() => {
-                document.getElementById('system-info-container').innerHTML =
-                    '<span class="text-sm" style="color: var(--color-text-muted);">Unable to load system info.</span>';
-            });
-    }
-</script>
+<script src="{{ url_for('static', filename='js/admin_system_info.js') }}"></script>

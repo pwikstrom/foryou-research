@@ -202,6 +202,21 @@ def create_app():
 app = create_app()
 
 
+# Boot-time system-health check: spawns a daemon thread (or skips while the
+# persisted result is still fresh) — never blocks startup. Triggered only in
+# processes that actually serve the web UI: the Cloud Run web service (gunicorn
+# imports this module with K_SERVICE set) and the local dev server (the
+# reloader child below). Plain imports (tests, scripts) must not spawn probes.
+if not _IS_TASK_RUNNER and os.environ.get("K_SERVICE"):
+    from .services import system_health
+    system_health.maybe_start_boot_check()
+
+
 if __name__ == '__main__':
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        # The reloader child is the process that serves requests; the parent
+        # only watches files — checking here avoids a duplicate boot probe.
+        from web_interface.services import system_health
+        system_health.maybe_start_boot_check()
     port = int(os.environ.get("PORT", 5002))
     app.run(host='0.0.0.0', port=port, debug=True)

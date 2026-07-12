@@ -476,3 +476,25 @@ class YouTubeScraper(BaseScraper):
 
     def health_check(self) -> dict | None:
         return scraper_cookies.cookie_health("youtube", session_cookie="__Secure-3PSID")
+
+
+    def media_probe_url(self, item_id: str) -> dict | None:
+        # Unlike the metadata path, format resolution here depends on the
+        # n-challenge solver (JS runtime + yt-dlp-ejs) and PO tokens — the same
+        # plumbing the media download uses, which is exactly what the probe
+        # should exercise.
+        ydl_opts: dict = {
+            'quiet': True,
+            'no_warnings': True,
+            **scraper_cookies.cookie_opts("youtube"),
+            'skip_download': True,
+            'noplaylist': True,
+            'no_color': True,
+            'socket_timeout': 30,
+            'format': _FORMAT,
+            'js_runtimes': _JS_RUNTIMES,
+            **_pot_extractor_args(),
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(self.item_url(item_id), download=False)
+            return self._probe_target(ydl, info)

@@ -229,6 +229,69 @@ class BaseScraper(ABC):
         return None
 
 
+    def media_probe_url(self, item_id: str) -> dict | None:
+        """Resolve an item's direct media URL for a lightweight reachability probe.
+
+        Used only by the system-health check: the caller issues a single ranged
+        GET against the returned URL (with the returned headers) and abandons
+        the connection after the first bytes, proving the CDN serves media
+        without downloading it. May raise on extraction failure — the caller
+        treats any error as a soft (warn-level) outcome.
+
+        Returns:
+            ``{"url": <direct media url>, "headers": <request headers dict>}``,
+            or ``None`` when the platform/item has no probeable media URL.
+        """
+        return None
+
+
+    @staticmethod
+    def _pick_probe_format(info: dict) -> dict | None:
+        """Extract a probeable media URL + headers from a yt-dlp info dict.
+
+        Prefers the selected format(s) (``requested_formats`` for merged
+        downloads, top-level ``url`` for single-format selections), falling
+        back to the last format that carries a video codec. Returns ``None``
+        for items without a direct video URL (e.g. photo posts).
+        """
+
+        def _target(fmt: dict) -> dict:
+            headers = dict(fmt.get("http_headers") or {})
+            # Some CDNs (TikTok) reject media requests without the cookies
+            # yt-dlp attached to the resolved format.
+            if fmt.get("cookies"):
+                headers.setdefault("Cookie", fmt["cookies"])
+            return {"url": fmt["url"], "headers": headers}
+
+        requested = info.get("requested_formats")
+        if requested:
+            fmt = requested[0]
+            if fmt.get("url"):
+                return _target(fmt)
+        if info.get("url"):
+            return _target(info)
+        for fmt in reversed(info.get("formats") or []):
+            if fmt.get("url") and fmt.get("vcodec", "none") != "none":
+                return _target(fmt)
+        return None
+
+
+    @classmethod
+    def _probe_target(cls, ydl, info: dict | None) -> dict | None:
+        """Build the probe target from an extraction's info dict and session.
+
+        The cookie header must come from the extracting session's cookiejar —
+        the format dict's own ``cookies`` string can be stale (TikTok's CDN
+        403s it) while the jar header is what yt-dlp's downloader would send.
+        """
+        target = cls._pick_probe_format(info or {})
+        if target:
+            cookie_header = ydl.cookiejar.get_cookie_header(target["url"])
+            if cookie_header:
+                target["headers"]["Cookie"] = cookie_header
+        return target
+
+
     def image_count(self, raw_row: pd.Series) -> int:
         """Number of carousel images in one RAW fetch row (0 = ordinary video).
 

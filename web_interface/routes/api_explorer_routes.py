@@ -24,6 +24,7 @@ from ..data_service import (
 )
 from ..permissions import permission_required
 from ..security import user_manager
+from ..services import system_health
 
 explorer_bp = Blueprint('explorer_bp', __name__)
 
@@ -818,3 +819,19 @@ def system_info():
     }
 
     return jsonify(info)
+
+
+@explorer_bp.route('/api/system-health')
+@permission_required('tab.admin.system_info')
+def get_system_health():
+    """Return the current system-health document for the Information panel."""
+    return jsonify(system_health.get_health())
+
+
+@explorer_bp.route('/api/system-health/run', methods=['POST'])
+@permission_required('tab.admin.system_info')
+def run_system_health():
+    """Kick off a manual health-check run; 409 when one is already running."""
+    if not system_health.start_health_check(trigger="manual"):
+        return jsonify({"started": False, "reason": "already_running"}), 409
+    return jsonify({"started": True})

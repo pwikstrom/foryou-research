@@ -18,9 +18,10 @@
             return;
         }
 
-        // System info is fetched lazily, on first open of its sub-page.
+        // System info + health are fetched lazily, on first open of the sub-page.
         if (pageId === 'admin-page-system-info' && typeof loadSystemInfo === 'function') {
             loadSystemInfo();
+            if (typeof loadSystemHealth === 'function') loadSystemHealth();
         }
 
         document.querySelectorAll('#admin .dm-page').forEach(page => {
