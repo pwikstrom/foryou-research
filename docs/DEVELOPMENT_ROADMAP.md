@@ -226,7 +226,7 @@ mix collections across platforms.
 > in `Dockerfile.base`, script mode via `_pot_extractor_args()`). Live validation: safeguards all
 > engage in prod, but the bot wall persists on the 2026-07-05 cookie file — next step is a fresh
 > cookie export from a closed incognito session; fallback is draining the YT queue from a
-> residential IP (that fallback is now BUILT: `FYP_FORCE_GCS` local-drain runbook in AGENT.md,
+> residential IP (that fallback is now BUILT: `FYP_FORCE_GCS` local-drain runbook in CLAUDE.md,
 > `e79ba7a`, not yet run).
 >
 > **✅ Update (2026-07-07):** three more pieces shipped and deployed (`27706f4`, `94e8f57`,

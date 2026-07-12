@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Thin helpers that use polars for expensive pandas operations at scale.
 
-The project is pandas-first (see AGENT.md), but a handful of hot paths —
+The project is pandas-first (see CLAUDE.md), but a handful of hot paths —
 vertical concats of activity-level DataFrames and the activity × item-metadata
 left join in `organize_datasets.py` — are slow and memory-hungry on pandas
 because pandas is single-threaded and copies aggressively. This module wraps

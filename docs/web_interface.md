@@ -69,7 +69,7 @@ version when you change a file.
 Styling is entirely token-driven (`static/style.css`): semantic CSS custom
 properties, a 7-step type scale, utility classes, and both dark
 (`:root`) and light (`[data-theme="light"]`) themes. Never hardcode
-colors/fonts/sizes in templates or JS — see `AGENT.md` §"Frontend Styling
+colors/fonts/sizes in templates or JS — see `CLAUDE.md` §"Frontend Styling
 Rules" for the full rules.
 
 Per-user variable preferences (which variables show on each surface) are

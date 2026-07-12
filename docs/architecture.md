@@ -2,7 +2,7 @@
 
 High-level map of the FYP platform for someone reading the code for the
 first time. The exhaustive reference (every module, every convention) is
-`AGENT.md` at the repo root; this document explains how the pieces fit.
+`CLAUDE.md` at the repo root; this document explains how the pieces fit.
 
 ## The system in one paragraph
 
@@ -115,7 +115,7 @@ token system in `static/style.css`. See
 One Docker image, two Cloud Run services (`fyp-data-hub` web,
 `fyp-task-runner` jobs). The image is layered: `Dockerfile.base` (deps —
 rebuild only when `requirements.txt` changes) and `Dockerfile` (app code,
-~1 min build). Exact commands: `AGENT.md` §"Cloud Run Deployment".
+~1 min build). Exact commands: `CLAUDE.md` §"Cloud Run Deployment".
 
 ## Package layout
 
