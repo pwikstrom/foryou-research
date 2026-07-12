@@ -428,6 +428,14 @@ async function startProcess(name, extraBody = {}) {
             ...extraBody
         };
     }
+    // Immediate optimistic feedback: flip the card to "Starting…" the moment
+    // the click is committed — before the arm-consolidate prompt, the dispatch
+    // round-trip, and the task-runner boot — so the click is never silently
+    // swallowed. setStatus keeps this state until the server reports 'running'.
+    // The arm-prompt never aborts a start, so showing "Starting…" ahead of it
+    // is safe.
+    markStarting(name);
+
     // Before starting queue_scraper / queue_annotator, offer to auto-arm
     // Consolidate & Refresh so the pipeline fires on completion. Only when
     // (a) not already armed, and (b) the queue has work to do.
@@ -438,11 +446,6 @@ async function startProcess(name, extraBody = {}) {
             console.error('Arm-prompt flow failed (continuing to start):', e);
         }
     }
-
-    // Immediate optimistic feedback: flip the card to "Starting…" the moment
-    // the click is committed, before the dispatch round-trip and task-runner
-    // boot. setStatus keeps this state until the server reports 'running'.
-    markStarting(name);
 
     // Pre-flight check: the toggle button is updated on a 1-s poll, but the
     // user can click between polls or right after navigating to the tab
@@ -943,7 +946,16 @@ function setStatus(name, data) {
     const bar = document.getElementById(`${name}-bar`);
     const text = document.getElementById(`${name}-text`);
     if (bar && text) {
-        if (status === 'queued' || status === 'failed' || status === 'error') {
+        if (status === 'stopped' || status === 'completed') {
+            // Finished/idle process. A completed Cloud Task lingers in GCS as
+            // {state:"stopped", progress:{percent:100, message:"Completed"}};
+            // rendering that verbatim would leave the bar stuck at
+            // "Completed (100%)" and flash 100% at the next start before the new
+            // run overwrites it. Force Idle/0% regardless of a leftover percent —
+            // the per-run outcome still shows in the separate last-run line below.
+            bar.style.width = '0%';
+            text.innerText = 'Idle';
+        } else if (status === 'queued' || status === 'failed' || status === 'error') {
             // A forked pipeline leaf that is waiting for a worker ('queued') or
             // could not be initiated ('failed'/'error', e.g. dropped by a 429).
             // Show the status message directly so the card does not look like a

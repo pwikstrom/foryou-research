@@ -80,6 +80,15 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     total_queue = len(video_list)
     if initial_total <= 0:
         initial_total = total_queue
+    # Frame the bar/pending against THIS run's target when the run is capped with
+    # max_batches, not the whole queue. Mirrors the local loop's total_items.
+    # An uncapped run frames against the whole queue. initial_total stays = full
+    # queue for the already_done math below, and is carried across chains
+    # unchanged, so run_target is stable per chain.
+    if max_batches is not None:
+        run_target = min(initial_total, max_batches * batch_size)
+    else:
+        run_target = initial_total
     reporter.log(
         f"Loaded {total_queue:,} items from '{platform}' queue (initial_total={initial_total:,})."
     )
@@ -112,7 +121,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # Cap at initial_total so a queue that grew mid-chain (user re-queueing)
     # doesn't report negative progress.
     already_done = max(0, initial_total - total_queue)
-    overall_total = max(initial_total, already_done + len(batch))
+    overall_total = max(run_target, already_done + len(batch))
 
     if max_batches is not None:
         total_batches = max_batches

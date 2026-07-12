@@ -7,13 +7,12 @@ Date:
 """
 
 import collections
-import concurrent.futures
 import datetime as _dt
 import json
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from copy import copy, deepcopy
 from pathlib import Path
 from random import random
@@ -542,16 +541,47 @@ def call_machine_threads(
             reporter=reporter,
         )
 
-        try:
-            for fut in as_completed(futures, timeout=batch_deadline):
-                idx, res = fut.result()
-                results_by_index[idx] = res
-        except concurrent.futures.TimeoutError:
-            stuck = [interesting_videos[i] for i, f in enumerate(futures) if not f.done()]
+        # Collect results, bounding EACH worker by its own per-item deadline
+        # (measured from when it was submitted) rather than only the wave-scaled
+        # whole-batch deadline. A single hung Gemini call — the SDK
+        # http_options_timeout is "not always honored" — would otherwise hold the
+        # entire batch open until batch_deadline; per-item bounding abandons just
+        # that straggler ~one per-call budget after it started. A normal call
+        # (<= per-call budget) is never cut short; batch_deadline stays as an
+        # absolute backstop.
+        per_item_deadline = _per_call_seconds * _safety_margin + _retry_backoff
+        wait_start = time.time()
+        outstanding = set(range(len(futures)))
+        timed_out = []
+        while outstanding:
+            now = time.time()
+            for i in list(outstanding):
+                fut = futures[i]
+                if fut.done():
+                    idx, res = fut.result()
+                    results_by_index[idx] = res
+                    outstanding.discard(i)
+                elif now - submit_times[fut] > per_item_deadline:
+                    # Blew its per-item deadline — stop waiting; the DNF block
+                    # below records it and shutdown(cancel_futures) abandons it.
+                    timed_out.append(i)
+                    outstanding.discard(i)
+            if not outstanding:
+                break
+            if time.time() - wait_start > batch_deadline:
+                logger.warning(
+                    f"[machine] Absolute batch deadline of {batch_deadline}s "
+                    f"exceeded; {len(outstanding)} worker(s) still running."
+                )
+                break
+            time.sleep(0.5)
+
+        if timed_out:
+            stuck = [interesting_videos[i] for i in timed_out]
             logger.warning(
-                f"[machine] Batch deadline of {batch_deadline}s exceeded; "
-                f"{len(stuck)} worker(s) did not return: {stuck[:5]}"
-                + (" ..." if len(stuck) > 5 else "")
+                f"[machine] {len(timed_out)} worker(s) exceeded the per-item "
+                f"deadline of {int(per_item_deadline)}s and were abandoned: "
+                f"{stuck[:5]}" + (" ..." if len(stuck) > 5 else "")
             )
 
         # Record DNF entries for any video whose worker didn't return in time
@@ -560,7 +590,7 @@ def call_machine_threads(
                 continue
             results_by_index[i] = {
                 "item_id": interesting_videos[i],
-                "error": f"worker did not complete within {batch_deadline}s",
+                "error": f"worker did not complete within its {int(per_item_deadline)}s deadline",
                 "finish_reason": "DNF - worker timeout",
                 "response": "",
                 "model": _cf()["machine"]["model"],

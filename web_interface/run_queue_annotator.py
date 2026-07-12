@@ -92,6 +92,15 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
     total_queue = len(video_list)
     if initial_total <= 0:
         initial_total = total_queue
+    # Frame the bar/pending against THIS run's target when the run is capped with
+    # max_batches, not the whole queue. Mirrors the local loop's total_items.
+    # An uncapped run frames against the whole queue. initial_total stays = full
+    # queue for the already_done math below, and is carried across chains
+    # unchanged, so run_target is stable per chain.
+    if max_batches is not None:
+        run_target = min(initial_total, max_batches * batch_size)
+    else:
+        run_target = initial_total
     reporter.log(f"Loaded {total_queue:,} videos from queue (initial_total={initial_total:,}).")
 
     # ---- Slice this batch from the head of the queue ----
@@ -103,7 +112,7 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         return None
 
     already_done = max(0, initial_total - total_queue)
-    overall_total = max(initial_total, already_done + len(batch))
+    overall_total = max(run_target, already_done + len(batch))
 
     if max_batches is not None:
         total_batches = max_batches
