@@ -186,7 +186,16 @@ def get_enrichment_stats():
             ),
             default=None,
         ) or None,
-        "annotator_last_success": process_stats.get("queue_annotator", {}).get("last_success"),
+        # Newest of the sync and async annotators, so a completed async batch run
+        # also triggers the "consolidation needed" prompt (ISO timestamps sort
+        # lexically). Without the batch key, an async run left no signal.
+        "annotator_last_success": max(
+            (
+                process_stats.get(k, {}).get("last_success") or ""
+                for k in ("queue_annotator", "queue_annotator_batch")
+            ),
+            default="",
+        ) or None,
     })
 
 

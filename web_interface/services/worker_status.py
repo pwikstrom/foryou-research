@@ -77,7 +77,7 @@ def _is_worker_running(name: str) -> bool:
 def _workers_blocking_consolidate() -> list[str]:
     """Return the names of scraper/annotator workers currently running."""
     blocking = []
-    for name in ("queue_scraper", "queue_annotator"):
+    for name in ("queue_scraper", "queue_annotator", "queue_annotator_batch"):
         if _is_worker_running(name):
             blocking.append(name)
     return blocking

@@ -436,10 +436,10 @@ async function startProcess(name, extraBody = {}) {
     // is safe.
     markStarting(name);
 
-    // Before starting queue_scraper / queue_annotator, offer to auto-arm
+    // Before starting queue_scraper / queue_annotator(_batch), offer to auto-arm
     // Consolidate & Refresh so the pipeline fires on completion. Only when
     // (a) not already armed, and (b) the queue has work to do.
-    if (name.startsWith('queue_scraper_') || name === 'queue_annotator') {
+    if (name.startsWith('queue_scraper_') || name === 'queue_annotator' || name === 'queue_annotator_batch') {
         try {
             await _maybePromptArmConsolidate(name);
         } catch (e) {
@@ -866,7 +866,9 @@ function updateAnnotateInflight(claimedLen) {
     if (!el) return;
     const n = Number(claimedLen) || 0;
     if (n > 0) {
-        el.textContent = `· ${n.toLocaleString()} in batch job`;
+        // Make clear these left the pending queue because the async job reserved
+        // them, and are still being processed (not finished).
+        el.textContent = `+ ${n.toLocaleString()} claimed by async annotator (processing)`;
         el.style.display = '';
     } else {
         el.style.display = 'none';

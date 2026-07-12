@@ -97,7 +97,8 @@
                 <span id="enrich_annotate_targets"
                     class="font-bold" style="color: var(--color-success-light); margin-left: 5px;">-</span><span>
                     pending</span>
-                <span id="enrich_annotate_inflight" class="text-sm"
+                <span id="enrich_annotate_inflight" class="text-sm meta-tooltip"
+                    data-tooltip="These videos have been reserved by the async (batch) annotator and are being processed by Gemini. They have left the pending queue but are not annotated yet — they finish when the batch job completes."
                     style="color: var(--color-text-tertiary); margin-left: 8px; display: none;"></span>
             </div>
             <button type="button" class="btn-stop text-xs" onclick="emptyQueue('annotate')"
@@ -140,7 +141,10 @@
         </div>
     </div>
 
-    <!-- Async Annotator Block (async, ~50% cheaper) -->
+    <!-- Async Annotator Block (async, ~50% cheaper). Only shown when media is
+         GCS-backed — the Gemini Batch API reads media as gs:// URIs, so this path
+         cannot run against locally-stored media. -->
+    {% if media_on_gcs %}
     <div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border);">
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
             <span class="text-body font-bold">Async Annotator</span>
@@ -181,6 +185,7 @@
             <a class="text-xs view-log-link" onclick="openLogModal('queue_annotator_batch', 'Async Annotator')">View Log</a>
         </div>
     </div>
+    {% endif %}
 
 </div>
 <div style="margin-top: 16px;">

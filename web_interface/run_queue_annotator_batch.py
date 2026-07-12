@@ -34,6 +34,8 @@ in a local/no-GCS environment):
     then re-run the offline equivalence test before scaling up.
 """
 
+import datetime as _dt
+import math
 import sys
 import time
 from pathlib import Path
@@ -66,8 +68,36 @@ _POLL_DELAY_S = 120
 
 
 def _ts_label() -> str:
-    import datetime as _dt
     return "".join(c for c in str(_dt.datetime.now()) if c in "0123456789")
+
+
+def _now_stamp() -> str:
+    """Short local-time stamp (project timezone) prefixed onto card log lines."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        from fyp.fyp_config import get_config
+        tz = get_config().get("misc", {}).get("timezone")
+        now = _dt.datetime.now(ZoneInfo(tz)) if tz else _dt.datetime.now()
+    except Exception:
+        now = _dt.datetime.now()
+    return now.strftime("%H:%M:%S")
+
+
+def _log(reporter, message: str) -> None:
+    """reporter.log with a leading local-time stamp, for the in-card feed."""
+    reporter.log(f"[{_now_stamp()}] {message}")
+
+
+def _total_batches(initial_total, batch_size, max_batches) -> int:
+    """Estimated batch count for the run (the queue can grow, so it is an estimate)."""
+    batch_size = int(batch_size or 0)
+    if batch_size <= 0:
+        return 1
+    est = max(1, math.ceil(int(initial_total or 0) / batch_size))
+    if max_batches:
+        est = min(est, int(max_batches))
+    return est
 
 
 def _claim_from_queue(data_io, ids) -> int:
@@ -145,19 +175,33 @@ def _submit_phase(reporter, task_args, batch, data_io):
         reporter.log("Queue empty at start of batch.")
         return None
 
+    total_batches = _total_batches(initial_total, batch_size, max_batches)
+    batch_no = chunk_index + 1
+    if chunk_index == 0:
+        _log(reporter, f"Starting async annotation: {initial_total:,} video(s) to process "
+                       f"in up to {total_batches} batch(es) of {batch_size:,}.")
+
     ts_label = _ts_label()
-    reporter.log(f"Submit: building + uploading JSONL for {len(slice_ids):,} videos...")
+    _log(reporter, f"Batch {batch_no} of {total_batches}: building + uploading JSONL "
+                   f"for {len(slice_ids):,} video(s)...")
     # Build + upload + submit FIRST. If any of this throws, the queue is left
     # untouched (the items will be retried), so we only claim after success.
     jsonl_uri, submitted_ids = batch.build_and_upload_jsonl(slice_ids, ts_label)
     job_name, output_uri = batch.submit_batch_job(jsonl_uri, ts_label)
-    reporter.log(f"Submitted batch job {job_name} ({len(submitted_ids):,} items).")
+    _log(reporter, f"Batch {batch_no} of {total_batches}: submitted {len(submitted_ids):,} "
+                   f"video(s) to the Gemini batch service (job {job_name}).")
 
     claimed = _claim_from_queue(data_io, submitted_ids)
-    reporter.log(f"Claimed {claimed} item(s) out of the annotation queue (reserved for this job).")
-    # Drive the "N in batch" indicator live (the stats endpoint is the reload
-    # authority; this makes it appear within ~1s of the actual claim).
-    reporter.emit_data({"annotate_claimed_len": len(submitted_ids)})
+    remaining_after_claim = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
+    _log(reporter, f"Claimed {claimed:,} video(s) out of the queue — "
+                   f"{len(remaining_after_claim):,} still pending, {len(submitted_ids):,} now in this batch.")
+    # Reflect the claim in the card immediately: the pending count drops NOW and
+    # the "N in batch job" indicator appears, without waiting for the (hours-long)
+    # job to finish. The stats endpoint is the reload authority for both.
+    reporter.emit_data({
+        "annotate_queue_len": len(remaining_after_claim),
+        "annotate_claimed_len": len(submitted_ids),
+    })
 
     # "Submitted" email only on the first chunk — otherwise a multi-chunk run
     # would email once per chunk. Per-chunk progress is the "batch_done" email.
@@ -194,17 +238,22 @@ def _poll_phase(reporter, task_args, batch, data_io):
     job_name = task_args.get("job_name")
     output_uri = task_args.get("output_uri")
     submitted_ids = task_args.get("submitted_ids", [])
+    batch_no = int(task_args.get("chunk_index", 0)) + 1
+    total_batches = _total_batches(task_args.get("initial_total", 0),
+                                   task_args.get("batch_size", DEFAULT_BATCH_SIZE),
+                                   task_args.get("max_batches"))
+    label = f"Batch {batch_no} of {total_batches}"
     if not job_name:
         reporter.log("Poll phase missing job_name; nothing to do.")
         return None
 
     if reporter.check_cancelled():
-        reporter.log("Cancellation requested; leaving the job and claimed items as-is.")
+        _log(reporter, "Cancellation requested; leaving the job and claimed items as-is.")
         _clear_job_state(data_io)
         return None
 
     state = batch.poll_batch_job(job_name)
-    reporter.log(f"Batch job {job_name} state: {state}")
+    _log(reporter, f"{label}: Gemini job state is {state}.")
 
     if state in _RUNNING_STATES:
         # Not done — re-poll later WITHOUT holding this instance asleep.
@@ -217,7 +266,7 @@ def _poll_phase(reporter, task_args, batch, data_io):
 
     if state in batch._TERMINAL_FAIL:
         restored = _restore_to_queue(data_io, submitted_ids)
-        reporter.log(f"Batch job {job_name} ended in {state}; restored {restored} claimed item(s) to the queue. Stopping.")
+        _log(reporter, f"{label}: Gemini job ended in {state}; restored {restored:,} claimed video(s) to the queue. Stopping.")
         _notify(task_args, "failed", error=f"Gemini batch job ended in {state}")
         _clear_job_state(data_io)
         return None
@@ -226,20 +275,20 @@ def _poll_phase(reporter, task_args, batch, data_io):
     # if download/ingest/refine throws, restore the claimed slice to the queue
     # (an unguarded crash here is what stranded a claimed batch in prod), notify
     # the launcher, and stop gracefully.
-    reporter.log("Batch succeeded. Ingesting output...")
+    _log(reporter, f"{label}: Gemini job succeeded — ingesting results...")
     try:
         raw_filename = batch.download_and_ingest(output_uri, submitted_ids)
         refined = refine_one_raw_annotation_batch(raw_json_filename=raw_filename, verbose=False)
     except Exception as exc:
         restored = _restore_to_queue(data_io, submitted_ids)
-        reporter.log(f"Ingest/refine crashed ({exc}); restored {restored} claimed item(s). Stopping.")
+        _log(reporter, f"{label}: ingest/refine crashed ({exc}); restored {restored:,} claimed video(s). Stopping.")
         _notify(task_args, "failed", error=str(exc))
         _clear_job_state(data_io)
         return None
 
     if refined is None or refined.empty:
         restored = _restore_to_queue(data_io, submitted_ids)
-        reporter.log(f"Refinement produced nothing; restored {restored} item(s). Stopping to avoid a loop.")
+        _log(reporter, f"{label}: refinement produced nothing; restored {restored:,} video(s). Stopping to avoid a loop.")
         _notify(task_args, "failed", error="Refinement produced no rows")
         _clear_job_state(data_io)
         return None
@@ -257,9 +306,10 @@ def _poll_phase(reporter, task_args, batch, data_io):
     remaining = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
     # This slice is now ingested — nothing is reserved until the next submit.
     reporter.emit_data({"annotate_queue_len": len(remaining), "annotate_claimed_len": 0})
-    reporter.log(
-        f"Ingested batch: {len(ok_ids)} OK, {len(fail_ids)} fail, {requeued} re-queued. "
-        f"Queue: {len(remaining):,} remaining."
+    _log(
+        reporter,
+        f"{label} done: {len(ok_ids):,} annotated, {len(fail_ids):,} failed, "
+        f"{requeued:,} re-queued. {len(remaining):,} still pending in the queue."
     )
 
     # Running totals across chunks, for the terminal "completed" email.
@@ -270,14 +320,16 @@ def _poll_phase(reporter, task_args, batch, data_io):
     max_batches = task_args.get("max_batches")
     terminal_reason = None
     if max_batches is not None and next_chunk >= int(max_batches):
-        terminal_reason = f"Reached max_batches limit ({max_batches})."
+        terminal_reason = f"Reached the max-batches limit ({max_batches})."
     elif not remaining:
-        terminal_reason = "Queue exhausted."
+        terminal_reason = "Queue is now empty."
 
     if terminal_reason is not None:
         # Whole run finished: send the terminal "completed" email (which subsumes
         # this last chunk's per-batch email) and clear the job state.
-        reporter.log(terminal_reason)
+        _log(reporter, f"All done — {terminal_reason} Processed {total_ok:,} annotated, "
+                       f"{total_fail:,} failed across {batch_no} batch(es). "
+                       f"Run a Consolidate & Refresh to fold the new annotations in.")
         _notify(task_args, "completed", total_ok=total_ok, total_fail=total_fail)
         _clear_job_state(data_io)
         return None

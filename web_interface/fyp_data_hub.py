@@ -137,13 +137,18 @@ def _register_web_ui(app):
     @app.route('/')
     @login_required
     def index():
+        from fyp.fyp_config import get_config
+
         from .permissions import get_user_permissions
         from .slack_service import get_recent_messages
         from .static_content import HOME_CONTENT
         slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
         slack_messages = get_recent_messages() if slack_configured else []
         user_perms = get_user_permissions(current_user)
-        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, content=HOME_CONTENT)
+        # The async (batch) annotator needs media as gs:// URIs, so its card is
+        # only meaningful when media is GCS-backed (same flag resolve_media uses).
+        media_on_gcs = bool(get_config().get("data_io", {}).get("use_gcs_for_media"))
+        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, content=HOME_CONTENT, media_on_gcs=media_on_gcs)
 
 
 def create_app():

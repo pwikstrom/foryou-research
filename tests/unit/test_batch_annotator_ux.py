@@ -139,6 +139,9 @@ def test_submit_claims_queue_and_emails_submitted(notices):
     assert sorted(js["submitted_ids"]) == ["a", "b", "c"]
     assert result["chain"] is True and result["next_task_args"]["phase"] == "poll"
     assert rep.data.get("annotate_claimed_len") == 3      # live in-flight indicator
+    assert rep.data.get("annotate_queue_len") == 0        # pending drops immediately on claim
+    assert any("Starting async annotation" in m for m in rep.logs)  # start summary
+    assert any("Batch 1 of 1" in m for m in rep.logs)     # batch numbering
     assert ("u@x.com", "submitted", {"n_items": 3}) in notices
 
 
@@ -160,11 +163,12 @@ def test_poll_success_single_chunk_emails_completed_only(monkeypatch, notices):
     }))
     dio = FakeDataIO({"to_annotate.json": [],
                       "annotate_batch_job.json": {"submitted_ids": ["a", "b", "c"]}})
+    rep = FakeReporter()
     ta = {"phase": "poll", "job_name": "job/1", "output_uri": "gs://b/out/",
           "submitted_ids": ["a", "b", "c"], "chunk_index": 0,
           "launched_by": "u@x.com", "total_ok": 0, "total_fail": 0}
 
-    result = worker._poll_phase(FakeReporter(), ta, FakeBatch(), dio)
+    result = worker._poll_phase(rep, ta, FakeBatch(), dio)
 
     assert result is None                                     # terminal
     assert "annotate_batch_job.json" not in dio.store         # job state cleared
@@ -172,6 +176,7 @@ def test_poll_success_single_chunk_emails_completed_only(monkeypatch, notices):
     assert "completed" in kinds and "batch_done" not in kinds  # no redundant email
     completed = next(d for _, k, d in notices if k == "completed")
     assert completed == {"total_ok": 2, "total_fail": 1}
+    assert any("All done" in m and "Consolidate & Refresh" in m for m in rep.logs)
 
 
 def test_poll_multichunk_emails_batch_done_and_chains(monkeypatch, notices):
@@ -234,3 +239,19 @@ def test_notify_is_noop_without_launcher(notices):
     worker._notify({"launched_by": None}, "submitted", n_items=1)
     worker._notify({}, "completed", total_ok=1, total_fail=0)
     assert notices == []
+
+
+def test_total_batches_estimate():
+    assert worker._total_batches(350, 2000, None) == 1     # fits one batch
+    assert worker._total_batches(5000, 2000, None) == 3    # 2000+2000+1000
+    assert worker._total_batches(5000, 2000, 1) == 1       # capped by max_batches
+    assert worker._total_batches(0, 2000, None) == 1       # floor at 1
+    assert worker._total_batches(100, 0, None) == 1        # guard div-by-zero
+
+
+def test_log_prepends_timestamp():
+    rep = FakeReporter()
+    worker._log(rep, "hello world")
+    assert len(rep.logs) == 1
+    assert rep.logs[0].endswith("hello world")
+    assert rep.logs[0][0] == "[" and "] " in rep.logs[0]   # [HH:MM:SS] prefix
