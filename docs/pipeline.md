@@ -3,7 +3,7 @@
 The path from a participant's donation zip to an analyzable study dataset.
 Module references are to `fyp/` unless noted.
 
-## 1. Ingestion (`ingest.py`)
+## 1. Ingestion (`fyp/ingest/`)
 
 `ForYouBaseCollection` is an ABC with an `__init_subclass__` auto-registry.
 Each platform subclass declares `source_platform` + `raw_path` and implements
@@ -34,9 +34,9 @@ Notable behaviors:
 - **Donor timezone**: uploads can carry an authoritative IANA zone / fixed
   offset per file, validated at upload time.
 
-## 2. Scraping (`scrape.py`, `platform_scraper.py`, `*_dl.py`)
+## 2. Scraping (`fyp/scrape/`)
 
-`scrape.py` is platform-agnostic orchestration: per-platform queues
+`fyp/scrape/scrape.py` is platform-agnostic orchestration: per-platform queues
 (`to_scrape_<platform>.json`, `scrape_queues.py`), batching, threading, a
 throttle controller, media-phase retry, a circuit breaker for
 rate-limit/bot-wall storms, and consolidation of scrape parquets.

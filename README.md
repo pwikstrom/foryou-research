@@ -52,10 +52,10 @@ Environment variables (Gemini key, GCS bucket, ...) are documented in
 The editable install is recommended but never required — the app also runs
 from a plain checkout (cwd imports and the workers' `sys.path` bootstrap keep
 working, and the Docker image installs nothing from `pyproject.toml`). Note
-that reusing `fyp` in *another* project currently still requires a project
-root containing `__proj__.py` and `config/config.toml` — most submodules
-initialize configuration at import time. Decoupling that (e.g. a
-`FYP_CONFIG_PATH` override) is planned for a later phase.
+that reusing `fyp` in *another* project requires a config file: either a
+project root containing `__proj__.py` and `config/config.toml`, or the
+`FYP_CONFIG_PATH` environment variable pointing at a config TOML directly.
+Configuration loads lazily, on first use rather than at import.
 
 Background workers run as plain subprocesses locally (started from the web
 UI's Data Management tab, or manually):

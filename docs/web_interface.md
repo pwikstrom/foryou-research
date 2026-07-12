@@ -18,13 +18,17 @@ blueprints from `web_interface/routes/`:
 | `api_correlations_routes.py` | Correlations tab |
 | `api_collections_routes.py` | collection stats + annotation API |
 | `api_semantic_space_routes.py` | Semantic Space tab (embedding map) |
-| `management_routes.py` | Data Management + admin: studies, collections, enrichment queues, contracts, schema, ingestion (the largest route module) |
+| `management/` (package; `management_routes.py` is a compatibility shim) | Data Management + admin: studies, collections, enrichment queues, contracts, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
 | `human_eval_routes.py` | human annotation input (coding, votes, invitations) |
 | `process_routes.py` | background-process control + the CSRF-exempt `internal_bp` that receives Cloud Tasks pushes at `/internal/run-task/<name>` |
 
-Shared backend helpers live next to the app: `data_service.py` (study
-cache — note the double-checked locking in `StudyCache`), `explorer_backend.py`,
-`process_manager.py`, `task_status.py`, `admin_settings.py`, `activity_log.py`.
+Shared backend helpers live next to the app: the `services/` package
+(study data + cache — note the double-checked locking in `StudyCache` —
+timelines, analysis data, per-user variables, worker status, preview
+cache; `data_service.py` remains as a re-exporting facade),
+`explorer_backend.py`, `process_manager.py`, `task_status.py`,
+`worker_runner.py` (shared CLI entrypoint for the 19 workers),
+`admin_settings.py`, `activity_log.py`.
 
 ## Auth & permissions
 
@@ -79,9 +83,14 @@ composed client-side by `static/js/variable_prefs.js` as
   `{"success": true}`, `{"ok": true}`, `{"status": "success"}`) — match the
   file you are editing; a unification is planned but is a breaking change
   for the JS.
-- `management_routes.py` (~4.6 k lines, 63 routes) is scheduled to be split
-  into domain blueprints; `templates/tabs/admin.html` still embeds a large
-  inline script destined for `static/js/`. Prefer adding new admin
-  functionality as separate modules rather than growing these.
+- The big historical files have been split: management routes live in
+  `routes/management/` (per-domain submodules; `management_routes.py` is a
+  shim), backend logic in `services/`, and the former inline template
+  scripts in `static/js/` (`admin_tab.js`, `my_stuff_tab.js`, ...). Add new
+  admin functionality in those locations rather than in the shims.
+- Still-deferred frontend work: decomposing `static/js/data_management.js`
+  (~4.8 k lines), removing inline `onclick=` handlers, and hex-color/token
+  cleanup — see the plan notes before attempting; the inline handlers pin
+  functions to `window`.
 - Both Cloud Run services share `process_stats.json` on GCS — always
   `load_process_stats()` before read/write.

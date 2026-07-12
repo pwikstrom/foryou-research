@@ -50,11 +50,12 @@ Two abstractions make this work:
 the recommended dev setup; see `pyproject.toml`), but installation is never
 required — the repo also runs from a plain checkout, and the Docker image
 copies the code without installing it. Reusing `fyp` in another project
-currently still requires a project root containing `__proj__.py` and
-`config/config.toml`: most submodules trigger `fyp_config`'s import-time
-initialization, which locates the root via the `__proj__.py` sentinel.
-Decoupling that (e.g. a `FYP_CONFIG_PATH` override) is planned for a later
-phase.
+requires a config file: either a project root containing `__proj__.py` and
+`config/config.toml` (located via the `__proj__.py` sentinel), or the
+`FYP_CONFIG_PATH` environment variable pointing at a config TOML directly.
+Configuration loads lazily — importing `fyp` submodules does not touch it
+until `get_config()` / `fyp_cf` is first accessed (the one exception is
+`fyp.ingest`, whose platform classes register storage locations at import).
 
 ## The contract system (variable schema)
 
@@ -84,7 +85,7 @@ Both ingestion and scraping use the same design — an ABC with an
 `__init_subclass__` auto-registry, so adding a platform is one subclass and
 zero orchestration edits:
 
-- **Ingestion**: `ForYouBaseCollection` (`fyp/ingest.py`). Subclasses declare
+- **Ingestion**: `ForYouBaseCollection` (`fyp/ingest/base.py`). Subclasses declare
   `source_platform`/`raw_path` and implement `load_single_raw()` +
   `process_single()`. Registration also self-registers the platform's
   raw-upload storage location.
@@ -116,11 +117,21 @@ One Docker image, two Cloud Run services (`fyp-data-hub` web,
 rebuild only when `requirements312.txt` changes) and `Dockerfile` (app code,
 ~1 min build). Exact commands: `AGENT.md` §"Cloud Run Deployment".
 
+## Package layout
+
+`fyp/` is organized into five subpackages — `core/` (config, I/O, types,
+paths, logging), `ingest/`, `scrape/`, `annotation/`, `analysis/` — mapped
+in detail in [fyp-import-graph.md](fyp-import-graph.md). The old flat paths
+(`fyp/data_io.py`, `fyp/pca.py`, ...) remain permanently importable as alias
+shims (same module objects), so both spellings work; new code should prefer
+the subpackage paths.
+
 ## Where to start reading
 
-1. `fyp/fyp_config.py` — config + var_schema synthesis (and the import-cycle
-   rule documented in `CONTRIBUTING.md`)
-2. `fyp/data_io.py` — the storage abstraction everything uses
-3. `fyp/ingest.py` — the base collection + one platform subclass
+1. `fyp/core/fyp_config.py` — config + var_schema synthesis (and the
+   import-cycle rule documented in `CONTRIBUTING.md`)
+2. `fyp/core/data_io.py` — the storage abstraction everything uses
+3. `fyp/ingest/base.py` — the base collection, plus one platform subclass
+   (e.g. `fyp/ingest/instagram.py`)
 4. `web_interface/fyp_data_hub.py` — the app factory
 5. `web_interface/process_manager.py` — how background work runs

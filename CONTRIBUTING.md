@@ -81,5 +81,5 @@ These are load-bearing conventions; each has a guard, but know them up front:
 
 The codebase is designed so a new platform is two classes and a contract
 block — no orchestration edits. See [docs/pipeline.md](docs/pipeline.md) and
-the docstrings on `ForYouBaseCollection` (`fyp/ingest.py`) and `BaseScraper`
-(`fyp/platform_scraper.py`).
+the docstrings on `ForYouBaseCollection` (`fyp/ingest/base.py`) and
+`BaseScraper` (`fyp/scrape/platform_scraper.py`).
