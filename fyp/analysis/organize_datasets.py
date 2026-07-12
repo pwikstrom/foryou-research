@@ -3,9 +3,13 @@ import datetime as _dt
 import hashlib
 import json
 import re
-import resource as _resource
 import sys as _sys
 import time as _time
+
+try:
+    import resource as _resource
+except ImportError:
+    _resource = None
 from copy import deepcopy
 from typing import Callable
 
@@ -70,7 +74,9 @@ def parse_sample_threshold(value, default: int, uncapped: bool = False) -> int:
 # Cloud Run enforces container memory via cgroups; process RSS is a good proxy
 # for what the container reports against the 32 GB limit on fyp-task-runner.
 # We use psutil for current RSS (cross-platform, bytes) and `getrusage` for
-# the watermark since process start (KB on Linux, bytes on macOS).
+# the watermark since process start (KB on Linux, bytes on macOS). Windows has
+# no `resource` module, so there the watermark comes from psutil's Windows-only
+# `peak_wset` field instead.
 # ----------------------------------------------------------------------------
 _MEM_PROCESS = _psutil.Process()
 _RU_MAXRSS_DIVISOR_TO_MB = (
@@ -91,10 +97,15 @@ def _rss_mb() -> float:
 
 def _peak_rss_mb() -> float:
     """High-water-mark RSS of this process since startup, in MB."""
-    return (
-        _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
-        / _RU_MAXRSS_DIVISOR_TO_MB
-    )
+    if _resource is not None:
+        return (
+            _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
+            / _RU_MAXRSS_DIVISOR_TO_MB
+        )
+    # Windows: `resource` is unavailable; psutil exposes the peak working set.
+    mem = _MEM_PROCESS.memory_info()
+    peak_bytes = getattr(mem, "peak_wset", None) or mem.rss
+    return peak_bytes / (1024 * 1024)
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""

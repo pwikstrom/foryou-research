@@ -93,6 +93,35 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 
+def _localize_default_path(configured: str, home_subdir: str) -> str:
+    """Make a committed POSIX default data path usable on the current OS.
+
+    The tracked ``config.toml`` ships macOS-style absolute defaults (e.g.
+    ``/Users/<user>/fyp_local``). On Windows those are drive-relative and
+    point at another user's profile, so a POSIX-absolute default is redirected
+    to a per-user location under the home directory. Anything a user set
+    deliberately — a relative path or a path carrying a Windows drive/UNC
+    prefix (typically via ``config.local.toml``) — is returned unchanged, and
+    on macOS/Linux the value is always returned unchanged.
+
+    Args:
+        configured: The path value read from config (already overlay-merged).
+        home_subdir: Fallback location under ``~`` used on Windows when
+            ``configured`` is a bare POSIX-absolute path.
+
+    Returns:
+        A path string appropriate for the current platform.
+    """
+    if os.name == "nt":
+        drive, _ = os.path.splitdrive(configured)
+        posix_absolute = not drive and configured[:1] in ("/", "\\")
+        if posix_absolute:
+            return os.path.join(os.path.expanduser("~"), home_subdir)
+    return configured
+
+
+
+
 def initialize(
     verbose: bool = False,
     abs_project_root_path: str = None
@@ -168,9 +197,18 @@ def initialize(
     # ------------------------------------------------------------------
     # initialize paths
     # ------------------------------------------------------------------
+    # Redirect the committed macOS-style POSIX defaults to a per-user home
+    # location when running on Windows (no-op on macOS/Linux/Cloud Run). Runs
+    # before the project-root join below, so a Windows drive path set in
+    # config.local.toml still wins.
+    cf["paths"]["local_data"] = _localize_default_path(cf["paths"]["local_data"], "fyp_local")
+    cf["paths"]["local_media"] = _localize_default_path(
+        cf["paths"]["local_media"], os.path.join("fyp_local", "media")
+    )
+
     # Resolve relative paths against the project root for consistent file access.
     # I'm creating the paths as if they are local - if everything is GCS, these will just be
-    # used as a template for the gcs paths 
+    # used as a template for the gcs paths
     cf["paths"]["local_data"] = os.path.abspath(os.path.join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
 
     # Resolve the local media path the same way. Accepts absolute or project-relative values.

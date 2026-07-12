@@ -36,7 +36,11 @@ def _netscape_file(rows: list[tuple[str, int]]) -> str:
 
 
 def test_path_derivation():
-    assert scraper_cookies._local_path("instagram") == "/tmp/instagram_cookies.txt"
+    # The local cookie cache lives in the OS temp dir (``/tmp`` on Cloud Run,
+    # ``%TEMP%`` on Windows) — derived via tempfile.gettempdir() for portability.
+    assert scraper_cookies._local_path("instagram") == os.path.join(
+        tempfile.gettempdir(), "instagram_cookies.txt"
+    )
     assert scraper_cookies._gcs_blob_name("youtube") == "secrets/youtube_cookies.txt"
     print("PASS: per-platform path derivation")
 

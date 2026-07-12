@@ -9,6 +9,11 @@
 [paths]
 # Root directory for all project data (parquets, cache, users, uploads).
 # Must be writable; created on first run.
+#   macOS/Linux: local_data = "/Users/you/fyp_local"
+#   Windows:     use forward slashes and a drive letter, e.g.
+#                local_data = "C:/Users/you/fyp_local"
+# On Windows you can also skip this entirely — the committed macOS default is
+# auto-redirected to %USERPROFILE%\fyp_local when no drive path is set here.
 local_data = "~CHANGE-ME~/fyp_local"
 
 # Where locally-stored media (videos) go. Only used when

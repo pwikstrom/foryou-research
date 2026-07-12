@@ -41,9 +41,10 @@ _LOCKS_GUARD = threading.Lock()
 _NETSCAPE_MAGIC_RE = re.compile(r"#( Netscape)? HTTP Cookie File")
 
 # Disposable per-yt-dlp-call copies of the cookie file live here (see
-# _private_cookie_copy). Reaped by age so they never accumulate; /tmp on Cloud
-# Run is an in-memory tmpfs, so the copies are kept tiny and short-lived.
-_COOKIE_WORK_DIR = "/tmp/fyp_cookie_work"
+# _private_cookie_copy). Reaped by age so they never accumulate; the system temp
+# dir is /tmp on Cloud Run (an in-memory tmpfs), so the copies are kept tiny and
+# short-lived. `gettempdir()` keeps this correct on Windows (%TEMP%) too.
+_COOKIE_WORK_DIR = os.path.join(tempfile.gettempdir(), "fyp_cookie_work")
 _COPY_TTL_SEC = 300
 
 
@@ -61,7 +62,7 @@ def _cf():
 
 def _local_path(platform: str) -> str:
     """Local cache path for a platform's cookie file (writable on Cloud Run)."""
-    return f"/tmp/{platform}_cookies.txt"
+    return os.path.join(tempfile.gettempdir(), f"{platform}_cookies.txt")
 
 
 

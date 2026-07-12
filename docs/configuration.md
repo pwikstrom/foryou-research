@@ -27,6 +27,30 @@ keys you override. For a new collaborator that's `[paths] local_data` (and
 possibly `[machine] project` if you have your own Vertex project). CI uses
 the same mechanism to redirect storage to a scratch directory.
 
+**Windows paths.** The committed `local_data`/`local_media` defaults are
+macOS-style POSIX paths, which don't resolve on Windows. When you run on
+Windows without overriding them, `fyp_config` redirects a bare POSIX-absolute
+default to `%USERPROFILE%\fyp_local` so the app still starts. To choose your
+own location, set a drive path in `config.local.toml` — use forward slashes,
+e.g. `local_data = "C:/Users/you/fyp_local"`.
+
+## System dependencies (local dev)
+
+Two external command-line tools are used by the enrichment pipeline (the web
+dashboard and the annotation/analysis workers don't need them — only the
+scrapers do):
+
+- **ffmpeg** — media assembly during scraping: muxing YouTube's separate DASH
+  audio/video streams and building slideshow `.mp4`s from photo/carousel posts
+  (moviepy). moviepy ships a bundled copy via the `imageio-ffmpeg` wheel, but a
+  system `ffmpeg` on PATH is recommended. On Windows, install it with
+  `winget install ffmpeg` (or `choco install ffmpeg`) and confirm it's on PATH.
+- **node** or **deno** — YouTube's n-challenge solver (`yt-dlp-ejs`). Optional;
+  an absent runtime is simply skipped.
+
+In the Docker image both are provided by the base image, so production needs no
+extra setup.
+
 ## The four contracts
 
 `annotation_contract.toml`, `scrape_contract.toml`, `activity_contract.toml`,
