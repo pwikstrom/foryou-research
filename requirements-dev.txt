@@ -1,6 +1,6 @@
 # Development / CI tools on top of the runtime pins.
 # Usage: pip install -r requirements-dev.txt
--r requirements312.txt
+-r requirements.txt
 
 pytest>=8.2
 ruff>=0.15

@@ -7,12 +7,12 @@ name = "fyp-pipeline"
 version = "0.1.0"
 description = "FYP social-media research data pipeline (ingestion, scraping, LLM annotation, analysis)"
 requires-python = ">=3.12"
-# Loose floor pins for the packages fyp/ actually imports. requirements312.txt
+# Loose floor pins for the packages fyp/ actually imports. requirements.txt
 # remains the production lock (used by Dockerfile.base) — keep it authoritative
 # for exact versions. yt-dlp plugin packages (yt-dlp-ejs,
 # bgutil-ytdlp-pot-provider) are loaded implicitly by yt-dlp, never imported,
-# and live only in requirements312.txt. scikit-bio is imported by fyp/stats.py
-# but missing from requirements312.txt (known gap — see Phase 4 notes).
+# and live only in requirements.txt. scikit-bio is imported by fyp/stats.py
+# but missing from requirements.txt (known gap — see Phase 4 notes).
 dependencies = [
     "beautifulsoup4>=4.12",
     "boto3>=1.35",

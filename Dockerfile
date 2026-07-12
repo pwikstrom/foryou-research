@@ -1,6 +1,6 @@
 # Thin app layer on top of pre-built base image.
 # Base image has Python 3.12, Rust, gcc, and all pip dependencies.
-# To rebuild the base image (only needed when requirements312.txt changes):
+# To rebuild the base image (only needed when requirements.txt changes):
 #   gcloud builds submit --config=cloudbuild-base.yaml --project=<gcp-project> --region=australia-southeast1
 FROM australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest
 

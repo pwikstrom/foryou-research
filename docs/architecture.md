@@ -114,7 +114,7 @@ token system in `static/style.css`. See
 
 One Docker image, two Cloud Run services (`fyp-data-hub` web,
 `fyp-task-runner` jobs). The image is layered: `Dockerfile.base` (deps —
-rebuild only when `requirements312.txt` changes) and `Dockerfile` (app code,
+rebuild only when `requirements.txt` changes) and `Dockerfile` (app code,
 ~1 min build). Exact commands: `AGENT.md` §"Cloud Run Deployment".
 
 ## Package layout

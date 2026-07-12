@@ -88,7 +88,7 @@ def _pot_extractor_args() -> dict:
     """yt-dlp opts wiring the bgutil PO-token provider (script mode).
 
     Returns an ``extractor_args`` fragment pointing the bgutil plugin
-    (``bgutil-ytdlp-pot-provider`` in requirements312.txt) at the provider
+    (``bgutil-ytdlp-pot-provider`` in requirements.txt) at the provider
     script, or ``{}`` when the script isn't present (e.g. local dev, where a
     residential IP passes the bot wall without PO tokens).
     """
