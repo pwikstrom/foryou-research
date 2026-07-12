@@ -42,6 +42,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+from web_interface.mail_utils import send_batch_annotation_email_async
 from web_interface.task_status import TaskStatusReporter
 
 JOB_STATE_FILE = "annotate_batch_job.json"
@@ -93,6 +94,35 @@ def _restore_to_queue(data_io, ids) -> int:
     return len(additions)
 
 
+def _clear_job_state(data_io) -> None:
+    """Delete the persisted job-state file at every terminal exit (best-effort).
+
+    The "N in batch" indicator reads ``submitted_ids`` from this file (gated by
+    "is the worker running"); deleting it on every terminal path means a stale
+    file can never resurrect a claimed count after the run ends.
+    """
+    try:
+        if data_io.exists(storage_location="cache", filename=JOB_STATE_FILE):
+            data_io.remove(storage_location="cache", filename=JOB_STATE_FILE)
+    except Exception:
+        pass
+
+
+def _notify(task_args, kind, **details) -> None:
+    """Fire-and-forget email to the run's launcher (no-op if unknown/invalid).
+
+    ``launched_by`` is the launching user's username (their email). Sending is
+    async and self-guarding, so a mail outage never blocks the pipeline.
+    """
+    to_email = (task_args or {}).get("launched_by")
+    if not to_email:
+        return
+    try:
+        send_batch_annotation_email_async(to_email, kind, **details)
+    except Exception as exc:
+        print(f"[queue_annotator_batch] email notify failed: {exc}")
+
+
 def _submit_phase(reporter, task_args, batch, data_io):
     """Slice the queue, submit a batch job, claim the slice, chain to poll."""
     batch_size = int(task_args.get("batch_size", DEFAULT_BATCH_SIZE))
@@ -125,6 +155,14 @@ def _submit_phase(reporter, task_args, batch, data_io):
 
     claimed = _claim_from_queue(data_io, submitted_ids)
     reporter.log(f"Claimed {claimed} item(s) out of the annotation queue (reserved for this job).")
+    # Drive the "N in batch" indicator live (the stats endpoint is the reload
+    # authority; this makes it appear within ~1s of the actual claim).
+    reporter.emit_data({"annotate_claimed_len": len(submitted_ids)})
+
+    # "Submitted" email only on the first chunk — otherwise a multi-chunk run
+    # would email once per chunk. Per-chunk progress is the "batch_done" email.
+    if chunk_index == 0:
+        _notify(task_args, "submitted", n_items=len(submitted_ids))
 
     job_state = {
         "phase": "poll",
@@ -136,6 +174,9 @@ def _submit_phase(reporter, task_args, batch, data_io):
         "initial_total": initial_total,
         "batch_size": batch_size,
         "max_batches": max_batches,
+        "launched_by": task_args.get("launched_by"),
+        "total_ok": int(task_args.get("total_ok", 0)),
+        "total_fail": int(task_args.get("total_fail", 0)),
     }
     data_io.save_json(data=job_state, storage_location="cache", filename=JOB_STATE_FILE)
     return {
@@ -159,6 +200,7 @@ def _poll_phase(reporter, task_args, batch, data_io):
 
     if reporter.check_cancelled():
         reporter.log("Cancellation requested; leaving the job and claimed items as-is.")
+        _clear_job_state(data_io)
         return None
 
     state = batch.poll_batch_job(job_name)
@@ -176,15 +218,30 @@ def _poll_phase(reporter, task_args, batch, data_io):
     if state in batch._TERMINAL_FAIL:
         restored = _restore_to_queue(data_io, submitted_ids)
         reporter.log(f"Batch job {job_name} ended in {state}; restored {restored} claimed item(s) to the queue. Stopping.")
+        _notify(task_args, "failed", error=f"Gemini batch job ended in {state}")
+        _clear_job_state(data_io)
         return None
 
-    # SUCCEEDED / PARTIALLY_SUCCEEDED: ingest -> refine.
+    # SUCCEEDED / PARTIALLY_SUCCEEDED: ingest -> refine. Guard the whole block:
+    # if download/ingest/refine throws, restore the claimed slice to the queue
+    # (an unguarded crash here is what stranded a claimed batch in prod), notify
+    # the launcher, and stop gracefully.
     reporter.log("Batch succeeded. Ingesting output...")
-    raw_filename = batch.download_and_ingest(output_uri, submitted_ids)
-    refined = refine_one_raw_annotation_batch(raw_json_filename=raw_filename, verbose=False)
+    try:
+        raw_filename = batch.download_and_ingest(output_uri, submitted_ids)
+        refined = refine_one_raw_annotation_batch(raw_json_filename=raw_filename, verbose=False)
+    except Exception as exc:
+        restored = _restore_to_queue(data_io, submitted_ids)
+        reporter.log(f"Ingest/refine crashed ({exc}); restored {restored} claimed item(s). Stopping.")
+        _notify(task_args, "failed", error=str(exc))
+        _clear_job_state(data_io)
+        return None
+
     if refined is None or refined.empty:
         restored = _restore_to_queue(data_io, submitted_ids)
         reporter.log(f"Refinement produced nothing; restored {restored} item(s). Stopping to avoid a loop.")
+        _notify(task_args, "failed", error="Refinement produced no rows")
+        _clear_job_state(data_io)
         return None
 
     ok_ids = refined.loc[refined["annotated_ok"].fillna(False).astype(bool), "item_id"].astype(str).tolist()
@@ -198,25 +255,44 @@ def _poll_phase(reporter, task_args, batch, data_io):
     requeued = _restore_to_queue(data_io, unprocessed)
 
     remaining = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
-    reporter.emit_data({"annotate_queue_len": len(remaining)})
+    # This slice is now ingested — nothing is reserved until the next submit.
+    reporter.emit_data({"annotate_queue_len": len(remaining), "annotate_claimed_len": 0})
     reporter.log(
         f"Ingested batch: {len(ok_ids)} OK, {len(fail_ids)} fail, {requeued} re-queued. "
         f"Queue: {len(remaining):,} remaining."
     )
 
+    # Running totals across chunks, for the terminal "completed" email.
+    total_ok = int(task_args.get("total_ok", 0)) + len(ok_ids)
+    total_fail = int(task_args.get("total_fail", 0)) + len(fail_ids)
+
     next_chunk = int(task_args.get("chunk_index", 0)) + 1
     max_batches = task_args.get("max_batches")
+    terminal_reason = None
     if max_batches is not None and next_chunk >= int(max_batches):
-        reporter.log(f"Reached max_batches limit ({max_batches}).")
+        terminal_reason = f"Reached max_batches limit ({max_batches})."
+    elif not remaining:
+        terminal_reason = "Queue exhausted."
+
+    if terminal_reason is not None:
+        # Whole run finished: send the terminal "completed" email (which subsumes
+        # this last chunk's per-batch email) and clear the job state.
+        reporter.log(terminal_reason)
+        _notify(task_args, "completed", total_ok=total_ok, total_fail=total_fail)
+        _clear_job_state(data_io)
         return None
-    if not remaining:
-        reporter.log("Queue exhausted.")
-        return None
+
+    # More chunks remain: notify this chunk's completion, then chain to the next
+    # submit (carrying launcher identity + running totals across the self-chain).
+    _notify(task_args, "batch_done", ok=len(ok_ids), fail=len(fail_ids),
+            requeued=requeued, remaining=len(remaining))
 
     return {"chain": True, "next_task_args": {
         "phase": "submit", "batch_size": int(task_args.get("batch_size", DEFAULT_BATCH_SIZE)),
         "chunk_index": next_chunk, "initial_total": int(task_args.get("initial_total", 0)),
         "max_batches": max_batches,
+        "launched_by": task_args.get("launched_by"),
+        "total_ok": total_ok, "total_fail": total_fail,
     }, "dispatch_deadline_seconds": 1800}
 
 
@@ -253,10 +329,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run batch queue annotator (submit + poll to done)")
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--max-batches", type=int, default=None)
+    parser.add_argument("--launched-by", type=str, default=None,
+                        help="Email of the launching user, for milestone notifications.")
     args = parser.parse_args()
 
     reporter = LocalStatusReporter("queue_annotator_batch")
-    next_args = {"phase": "submit", "batch_size": args.batch_size, "max_batches": args.max_batches}
+    next_args = {"phase": "submit", "batch_size": args.batch_size,
+                 "max_batches": args.max_batches, "launched_by": args.launched_by}
     try:
         while next_args is not None:
             result = run_queue_annotator_batch(reporter, next_args)

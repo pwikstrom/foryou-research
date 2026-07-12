@@ -93,6 +93,18 @@ def get_enrichment_stats():
     if data_io.exists(storage_location='cache', filename='to_annotate.json'):
         q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
         if isinstance(q, list): annotate_queue_len = len(q)
+
+    # Videos reserved out of the queue by an in-flight async batch job (claimed at
+    # submit time, so they no longer count in annotate_queue_len). Gated on the
+    # batch worker actually running: a leftover job-state file from a finished run
+    # then reads 0, and for multi-chunk runs the file holds only the current slice
+    # so pending + in-batch always sum to the outstanding total.
+    annotate_claimed_len = 0
+    if _is_worker_running("queue_annotator_batch") and \
+       data_io.exists(storage_location='cache', filename='annotate_batch_job.json'):
+        job = data_io.load_json(storage_location='cache', filename='annotate_batch_job.json')
+        if isinstance(job, dict):
+            annotate_claimed_len = len(job.get("submitted_ids") or [])
         
     # Backstop: resolve a forked fan-out (meta‖pca‖timelines) whose dropped leaf
     # left it un-finalized. The event-driven barrier may miss this if every
@@ -153,6 +165,7 @@ def get_enrichment_stats():
             for p in scrape_queues.registered_platforms()
         },
         "annotate_queue_len": annotate_queue_len,
+        "annotate_claimed_len": annotate_claimed_len,
         "consolidate_stats": {
             **consolidate_entry,
             **processes.get("consolidate_enrichment", {}).get("data", {})

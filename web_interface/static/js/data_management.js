@@ -2144,6 +2144,7 @@ function fetchEnrichmentStats() {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
                 document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';
             }
+            if (typeof updateAnnotateInflight === 'function') updateAnnotateInflight(data.annotate_claimed_len);
 
             // Consolidation status from process_stats (only when not actively polling a run)
             if (!_consolidatePollActive && data.consolidate_stats) {

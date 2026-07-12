@@ -93,10 +93,12 @@
     <div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <div style="display: flex; align-items: center; gap: 10px;">
-                <span class="text-body font-bold">Urgent Annotator:</span>
+                <span class="text-body font-bold">Annotation queue:</span>
                 <span id="enrich_annotate_targets"
                     class="font-bold" style="color: var(--color-success-light); margin-left: 5px;">-</span><span>
                     pending</span>
+                <span id="enrich_annotate_inflight" class="text-sm"
+                    style="color: var(--color-text-tertiary); margin-left: 8px; display: none;"></span>
             </div>
             <button type="button" class="btn-stop text-xs" onclick="emptyQueue('annotate')"
                 style="padding: 4px 8px;">Empty Queue</button>
@@ -171,10 +173,9 @@
             </div>
         </div>
 
-        <div class="progress-container">
-            <div class="progress-bar" id="queue_annotator_batch-bar"></div>
-            <div class="progress-text" id="queue_annotator_batch-text">Idle</div>
-        </div>
+        <!-- Async runs poll for hours with no meaningful percentage, so instead of
+             a dead progress bar this card streams the worker's own log lines. -->
+        <div id="queue_annotator_batch-feed" class="batch-log-feed text-xxs">Idle</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
             <span id="queue_annotator_batch-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
             <a class="text-xs view-log-link" onclick="openLogModal('queue_annotator_batch', 'Async Annotator')">View Log</a>

@@ -767,6 +767,7 @@ async function updateStatus() {
         scraperProcessNames().forEach(n => setStatus(n, data[n]));
         setStatus('queue_annotator', data.queue_annotator);
         setStatus('queue_annotator_batch', data.queue_annotator_batch);
+        refreshBatchFeed(data.queue_annotator_batch);
         setStatus('meta_refresh_groups', data.meta_refresh_groups);
         setStatus('timelines_refresh', data.timelines_refresh);
         setStatus('recode_refresh_studies', data.recode_refresh_studies);
@@ -853,6 +854,58 @@ async function updateStatus() {
     } catch (e) {
         console.error(e);
     }
+}
+
+
+
+// Show/hide the "· N in batch job" indicator next to the annotation-queue count.
+// The videos are claimed out of the queue by an in-flight async batch job, so
+// this makes clear they are being processed, not lost.
+function updateAnnotateInflight(claimedLen) {
+    const el = document.getElementById('enrich_annotate_inflight');
+    if (!el) return;
+    const n = Number(claimedLen) || 0;
+    if (n > 0) {
+        el.textContent = `· ${n.toLocaleString()} in batch job`;
+        el.style.display = '';
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+
+// The Async Annotator card streams the worker's log lines instead of a progress
+// bar (a batch job polls for hours with no meaningful percentage). Fetch the log
+// tail on a throttle while it runs; show "Idle" when it isn't.
+let _batchFeedTick = 0;
+let _batchFeedWasRunning = false;
+
+function renderBatchFeed(el, logsText) {
+    const lines = String(logsText || '').split('\n').filter(s => s.trim() !== '');
+    const atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 5;
+    el.textContent = lines.slice(-40).join('\n') || 'Working…';
+    if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+async function refreshBatchFeed(procData) {
+    const el = document.getElementById('queue_annotator_batch-feed');
+    if (!el) return;
+    const running = !!(procData && procData.state === 'running');
+    if (!running) {
+        if (_batchFeedWasRunning) {
+            _batchFeedWasRunning = false;
+            el.textContent = 'Idle';
+        }
+        return;
+    }
+    _batchFeedWasRunning = true;
+    // updateStatus ticks ~1/s; fetch the log tail every ~4s to keep it light.
+    if (_batchFeedTick++ % 4 !== 0) return;
+    try {
+        const res = await fetch('/api/logs/queue_annotator_batch');
+        const d = await res.json();
+        renderBatchFeed(el, d.logs);
+    } catch (e) { /* keep last content on a transient error */ }
 }
 
 
@@ -1060,6 +1113,9 @@ function setStatus(name, data) {
             const el = document.getElementById('enrich_annotate_targets');
             if (el) el.textContent = procData.annotate_queue_len.toLocaleString();
         }
+        if (name === 'queue_annotator_batch' && procData.annotate_claimed_len !== undefined) {
+            updateAnnotateInflight(procData.annotate_claimed_len);
+        }
     }
 
     // Thread count for scraper (show while running, hide when idle)
@@ -1220,6 +1276,7 @@ async function updateLogs() {
     //await fetchLogs('create_subsets');
     for (const n of scraperProcessNames()) { await fetchLogs(n); }
     await fetchLogs('queue_annotator');
+    await fetchLogs('queue_annotator_batch');
     await fetchLogs('meta_refresh_groups');
     await fetchLogs('timelines_refresh');
     await fetchLogs('recode_refresh_studies');

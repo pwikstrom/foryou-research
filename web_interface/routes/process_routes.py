@@ -2,7 +2,7 @@ import traceback
 from datetime import UTC, datetime
 
 from flask import Blueprint, jsonify, request
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
 import web_interface.auth as auth
@@ -63,6 +63,12 @@ def api_start(name):
              args.extend(["--batch-size", str(data["batch_size"])])
         if data.get("max_batches") and str(data["max_batches"]).strip():
              args.extend(["--max-batches", str(data["max_batches"])])
+
+    # Capture the launching user (their username is their email) so the async
+    # batch annotator can email them at submit / batch / done milestones. Threaded
+    # through task_args and re-emitted across the worker's self-chain.
+    if name == "queue_annotator_batch" and getattr(current_user, "username", None):
+        args.extend(["--launched-by", str(current_user.username)])
 
     # The platform is encoded in the process name (queue_scraper_<platform>) —
     # single source of truth for which queue the worker drains.
@@ -435,8 +441,12 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
             stage_name=name,
         )
 
-    # Chain continuation: resume from existing GCS state so progress is preserved
-    if task_args.get("chunk_index", 0) > 0:
+    # Chain continuation: resume from existing GCS state so progress is preserved.
+    # The batch annotator's poll phase re-dispatches itself with chunk_index still
+    # 0 for the whole first chunk (submit -> poll -> poll ...); without resuming on
+    # phase=="poll" every poll would call start() and wipe the accumulated log
+    # buffer, so a single-chunk run would show almost no history in the card feed.
+    if task_args.get("chunk_index", 0) > 0 or task_args.get("phase") == "poll":
         reporter.resume()
     else:
         reporter.start()

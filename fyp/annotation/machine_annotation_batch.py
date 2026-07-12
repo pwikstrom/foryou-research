@@ -447,7 +447,7 @@ def download_and_ingest(output_uri: str, submitted_ids: list) -> str:
     raw = ingest_records_to_raw(
         records, submitted_ids,
         model=_cf()["machine"]["model"],
-        prompt_fn=os.path.basename(_cf()["machine"]["prompt"]),
+        prompt_fn=annotation_versioning.active_prompt_label(),
         annotation_version=annotation_versioning.current_annotation_version(),
         platform_by_id=platform_map_for([str(v) for v in submitted_ids]),
     )

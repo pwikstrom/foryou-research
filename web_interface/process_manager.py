@@ -657,6 +657,9 @@ def _cli_args_to_dict(name: str, args: list, study_name: str | None) -> dict:
         elif arg == "--platform" and i + 1 < len(args):
             task_args["platform"] = args[i + 1]
             i += 2
+        elif arg == "--launched-by" and i + 1 < len(args):
+            task_args["launched_by"] = args[i + 1]
+            i += 2
         elif arg == "--collections" and i + 1 < len(args):
             task_args["collections"] = args[i + 1]
             i += 2
@@ -717,6 +720,8 @@ def _task_args_to_cli(name: str, task_args: dict) -> list[str]:
         out += ["--candidates", joined]
     if task_args.get("include_live"):
         out += ["--include-live"]
+    if task_args.get("launched_by"):
+        out += ["--launched-by", str(task_args["launched_by"])]
     # study_name is a positional in some scripts (recode/pca) — append last
     if task_args.get("study_name"):
         out += [str(task_args["study_name"])]
