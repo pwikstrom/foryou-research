@@ -19,7 +19,6 @@ class — see [docs/pipeline.md](docs/pipeline.md)).
 | `web_interface/` | Flask app (dashboard + API) and background worker scripts (`run_*.py`) |
 | `config/` | `config.toml` plus four declarative TOML contracts that own the variable schemas |
 | `tests/` | `unit/` (pytest), `golden/` (cost-free annotation regression suite), ad-hoc scripts |
-| `prompts/` | Gemini prompt templates |
 | `scripts/` | Maintenance/migration scripts + `verify.sh` (the verification gate) |
 | `docs/` | Human-oriented documentation (architecture, configuration, web layer, pipeline) |
 

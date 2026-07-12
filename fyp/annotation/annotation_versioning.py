@@ -57,8 +57,8 @@ LEGACY_VERSION = "v0_legacy"
 # system. Go-forward annotations use the generated contract prompt, so this file
 # is only the historical ("legacy") prompt — it is what the ``v0_legacy``
 # annotation version was produced with, and is shown for that version in the
-# admin viewer. Kept under ``prompts/``.
-LEGACY_PROMPT_FILENAME = "new_prompt_002.txt"
+# admin viewer. Kept under ``config/``.
+LEGACY_PROMPT_FILENAME = "legacy_annotation_prompt.txt"
 
 # Generation parameters that materially change model output and therefore
 # belong in the version identity. ``use_structured_output`` is pinned True
@@ -180,14 +180,14 @@ def legacy_prompt_text() -> str:
 
     This is the prompt used before the generated-contract system existed, i.e.
     what the ``v0_legacy`` annotation version was produced with. It is read from
-    ``prompts/{LEGACY_PROMPT_FILENAME}`` and is never used for go-forward
+    ``config/{LEGACY_PROMPT_FILENAME}`` and is never used for go-forward
     annotations. The admin annotation-versions viewer shows it for the legacy
     version, which otherwise has no stored prompt snapshot.
 
     Returns:
         The legacy prompt text, or ``""`` if the file cannot be read.
     """
-    path = os.path.join(_cf()["paths"]["project_root"], "prompts", LEGACY_PROMPT_FILENAME)
+    path = os.path.join(_cf()["paths"]["project_root"], "config", LEGACY_PROMPT_FILENAME)
     try:
         with open(path) as handle:
             return handle.read()

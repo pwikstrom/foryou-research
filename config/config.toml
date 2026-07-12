@@ -15,7 +15,7 @@ model = "gemini-3-flash-preview"
 # output (response_schema from fyp/annotation_schema.py). The generated prompt +
 # response_schema + flattener all derive from that one contract, so they cannot
 # drift. The pre-versioning "v0_legacy" prompt file is kept at
-# prompts/new_prompt_002.txt purely for the admin Annotation Versions viewer.
+# config/legacy_annotation_prompt.txt purely for the admin Annotation Versions viewer.
 
 # Vertex AI settings
 vertexai = true

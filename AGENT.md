@@ -73,6 +73,7 @@ fyp_main_v02/
 ├── GEMINI.md                    # Alias for AGENT.md
 ├── config/
 │   ├── config.toml              # Active config (paths, GCS, Gemini, labels)
+│   ├── legacy_annotation_prompt.txt # Retained pre-versioning "v0_legacy" prompt — display-only, shown by the admin Annotation Versions viewer (not used for go-forward annotation)
 │   ├── annotation_contract.toml # Declarative source for the Gemini prompt + response_schema + flattener
 │   ├── scrape_contract.toml     # Declarative source for the canonical cross-platform scrape schema (base + per-platform fields)
 │   ├── activity_contract.toml   # Declarative source for the platform-agnostic activity schema (ingest required columns + required-core hard-drop set + derived local_*/session fields)
@@ -219,7 +220,6 @@ fyp_main_v02/
 │       │   └── admin_ab_eval.js / admin_contract_editor.js / admin_annotation_versions.js / admin_human_eval.js / human_coding.js
 │       └── css/                 # (empty — styles in style.css)
 ├── tests/                       # pytest suite: unit/ + golden/ (annotation safety net) + bench/ + debug/ + conftest.py
-├── prompts/                     # Gemini prompt templates (*.txt)
 ├── tmp/                         # Temporary test/debug data
 ├── scripts/                     # verify.sh gate, gen_route_inventory.py, migrations, adhoc/ one-offs
 ├── docs/                        # Human-oriented docs (architecture, configuration, pipeline, web layer, routes)
