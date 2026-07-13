@@ -18,6 +18,7 @@
     <div class="text-xs" style="color: var(--color-text-muted); margin-top: 8px;">
         Test-scrapes one recent item per platform (metadata only), probes the first bytes of its media,
         and pings Gemini. Runs automatically at server boot; nothing is written to the datasets.
+        Results are per-server — this server's health only, not shared between local and Cloud Run.
     </div>
     <button id="run-health-check-btn" class="btn-primary" style="margin-top: 10px;"
         onclick="runSystemHealthCheck()">Run health check</button>

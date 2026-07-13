@@ -369,7 +369,41 @@ function markStarting(name) {
     setTimeout(() => { pendingStarts.delete(name); }, 20000);
 }
 
+// Latest card health for the enrichment processes ({status, summary,
+// checked_at} per scraper platform + annotation), cached on window._cardHealth
+// by data_management.js's fetchEnrichmentStats. Returns null for processes
+// without a health chip or before the stats have loaded.
+function _healthEntryForProcess(name) {
+    const h = window._cardHealth;
+    if (!h) return null;
+    if (name.startsWith('queue_scraper_')) {
+        return (h.platforms || {})[name.slice('queue_scraper_'.length)] || null;
+    }
+    if (name === 'queue_annotator' || name === 'queue_annotator_batch') {
+        return h.annotation || null;
+    }
+    return null;
+}
+
+// Ask before starting a scraper/annotator whose health chip is yellow or red.
+// Gray (unknown / check not run yet) starts silently. Returns true to proceed.
+function _confirmDegradedHealth(name) {
+    const entry = _healthEntryForProcess(name);
+    if (!entry || (entry.status !== 'warn' && entry.status !== 'fail')) return true;
+    const label = entry.status === 'fail' ? 'Failing' : 'Warning';
+    let checked = '';
+    if (entry.checked_at) {
+        const mins = Math.round((Date.now() - new Date(entry.checked_at).getTime()) / 60000);
+        if (isFinite(mins) && mins >= 0) {
+            checked = mins < 90 ? ` (checked ${mins}m ago)` : ` (checked ${Math.round(mins / 60)}h ago)`;
+        }
+    }
+    const detail = entry.summary ? `\n\n${entry.summary}` : '';
+    return confirm(`System health for this process is ${label}${checked}.${detail}\n\nStart anyway?`);
+}
+
 async function startProcess(name, extraBody = {}) {
+    if (!_confirmDegradedHealth(name)) return false;
     let body = {};
     // Determine context (tab) for study name input
     let studyNameInputId = 'global-study-name'; // default for scrape/annotate

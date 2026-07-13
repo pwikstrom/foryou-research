@@ -2148,8 +2148,13 @@ function fetchEnrichmentStats() {
             }
 
             // Per-card health pills (scrapers + annotation), combining the last
-            // system-health check with the fresh cookie status.
-            if (data.card_health) renderCardHealth(data.card_health);
+            // system-health check with the fresh cookie status. Also cached
+            // globally so main.js's startProcess can warn before starting a
+            // scraper/annotator whose health is degraded.
+            if (data.card_health) {
+                window._cardHealth = data.card_health;
+                renderCardHealth(data.card_health);
+            }
             if (data.annotate_queue_len !== undefined) {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
                 document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';

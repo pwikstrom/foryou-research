@@ -60,7 +60,9 @@ function _healthPill(status, tooltip, labelPrefix) {
     const meta = _HEALTH_STATUS_META[status] || _HEALTH_STATUS_META.never_run;
     const label = (labelPrefix ? labelPrefix + ': ' : '') + meta.label;
     const tip = tooltip ? ` data-tooltip="${_escapeAttr(tooltip)}"` : '';
-    const cls = tooltip ? 'meta-tooltip' : '';
+    // Right-anchored: the pills sit at the panel's right edge, so the bubble
+    // must extend leftward to stay on screen.
+    const cls = tooltip ? 'meta-tooltip tooltip-right-anchored' : '';
     return `<span class="cookie-pill cookie-pill--${meta.cls} ${cls}"${tip}>${label}</span>`;
 }
 
@@ -86,14 +88,17 @@ function _renderHealthCheckRow(key, check) {
     const detailParts = [];
     if (check.detail) detailParts.push(check.detail);
     if (check.item_id) detailParts.push(`Test item: ${check.item_id}`);
-    const pill = _healthPill(check.status, detailParts.join(' • '));
+    // Scraper rows: the main pill is the metadata check (test scrape +
+    // fill-profile drift) — label it like the Cookie/Media sub-pills.
+    const pillPrefix = key.startsWith('scrape_') ? 'Metadata' : 'API';
+    const pill = _healthPill(check.status, detailParts.join(' • '), pillPrefix);
 
     const subPills = [];
     if (check.cookie) {
         const c = check.cookie;
         const cls = { healthy: 'ok', expiring_soon: 'warn', stale: 'warn',
                       expired: 'bad', missing: 'bad' }[c.status] || 'unknown';
-        subPills.push(`<span class="cookie-pill cookie-pill--${cls} meta-tooltip"
+        subPills.push(`<span class="cookie-pill cookie-pill--${cls} meta-tooltip tooltip-right-anchored"
             data-tooltip="${_escapeAttr(c.message || 'No cookie detail available')}">Cookie: ${c.status || 'unknown'}</span>`);
     }
     if (check.media && check.media.status !== 'skipped') {

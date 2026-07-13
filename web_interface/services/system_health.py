@@ -7,11 +7,16 @@ media URL, and pings Gemini with a ~1-token generation call.
 
 Runs in a daemon thread on the web service — kicked off at boot (skipped while
 a persisted result is fresh) and manually from the System Information page.
-Results are persisted to ``cache/system_health.json`` after every check so the
-polling UI shows partial progress and the document survives cold starts.
+Results are persisted to a server-local temp file after every check so the
+polling UI shows partial progress and the document survives a same-machine
+restart. Health is deliberately per-server: a local dev server and Cloud Run
+each keep their own document (a fresh Cloud Run container starts empty, so the
+boot check re-runs there).
 """
 
+import json
 import logging
+import os
 import tempfile
 import threading
 import time
@@ -31,7 +36,8 @@ from .worker_status import _cached_cookie_health
 
 logger = logging.getLogger(__name__)
 
-_HEALTH_FILENAME = "system_health.json"
+# Server-local (never GCS): each server's health reflects its own environment.
+_HEALTH_PATH = os.path.join(tempfile.gettempdir(), "fyp_system_health.json")
 _DEFAULT_MAX_AGE_HOURS = 6.0
 
 # A base field must be non-null in at least this fraction of a platform's
@@ -212,18 +218,19 @@ def get_health() -> dict:
     """Return the current health document. Never raises.
 
     Order of precedence: the in-memory document of a live/finished run in this
-    process, else the persisted ``cache/system_health.json``, else a
-    ``never_run`` stub. A persisted document stuck in ``running`` (a previous
-    instance died mid-run) is downgraded to the aggregate of its completed
-    checks so the UI never polls forever.
+    process, else the server-local temp file, else a ``never_run`` stub. A
+    persisted document stuck in ``running`` (a previous instance died mid-run)
+    is downgraded to the aggregate of its completed checks so the UI never
+    polls forever.
     """
     with _state_lock:
         if _current is not None:
             return dict(_current)
 
     try:
-        if data_io.exists(storage_location="cache", filename=_HEALTH_FILENAME):
-            doc = data_io.load_json(storage_location="cache", filename=_HEALTH_FILENAME)
+        if os.path.exists(_HEALTH_PATH):
+            with open(_HEALTH_PATH, encoding="utf-8") as f:
+                doc = json.load(f)
             if isinstance(doc, dict) and doc.get("checks") is not None:
                 if doc.get("overall") == "running" and not is_running():
                     doc["overall"] = _overall(doc["checks"])
@@ -239,12 +246,13 @@ def get_health() -> dict:
 
 
 def _persist(doc: dict) -> None:
-    """Store the document in memory and best-effort persist it to the cache."""
+    """Store the document in memory and best-effort write the local temp file."""
     global _current
     with _state_lock:
         _current = dict(doc)
     try:
-        data_io.save_json(data=doc, storage_location="cache", filename=_HEALTH_FILENAME)
+        with open(_HEALTH_PATH, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
     except Exception as e:
         logger.warning(f"Could not persist system health: {e}")
 
@@ -434,9 +442,10 @@ def _check_row_format(scraper, raw_df: pd.DataFrame, expected_fields: list[str])
     historically-expected base field came back non-null.
 
     Returns:
-        ``(status, message, detail)`` — status ``"ok"`` with both None when the
-        row is consistent; ``"warn"`` listing empty expected fields on fill
-        drift; ``"fail"`` when canonicalization itself breaks.
+        ``(status, message, detail)`` — status ``"ok"`` with a filled-field
+        count message when the row is consistent; ``"warn"`` with fill counts
+        plus the empty expected fields on fill drift; ``"fail"`` when
+        canonicalization itself breaks.
     """
     try:
         canonical = scraper.canonicalize_batch(scraper.prepare_raw_batch(raw_df.copy()))
@@ -446,11 +455,13 @@ def _check_row_format(scraper, raw_df: pd.DataFrame, expected_fields: list[str])
     row = canonical.iloc[0]
     empty = [f for f in expected_fields
              if f not in canonical.columns or pd.isna(row[f])]
+    total = len(expected_fields)
     if empty:
         return ("warn",
                 "Metadata format drift: historically-filled field(s) came back empty",
+                f"{total - len(empty)} of {total} expected fields filled OK · "
                 f"empty: {', '.join(empty)}")
-    return "ok", None, None
+    return "ok", f"all {total} expected fields filled" if total else None, None
 
 
 
@@ -553,6 +564,8 @@ def _check_platform(platform: str, status_df: pd.DataFrame | None,
         result["detail"] = fmt_detail
     else:
         result["message"] = f"Fetched metadata for {item_id} in {duration}s"
+        if fmt_message:
+            result["message"] += f" · {fmt_message}"
 
     result["media"] = _probe_media(scraper, item_id)
     if result["status"] == "ok" and result["media"]["status"] == "warn":

@@ -6,6 +6,8 @@ the Gemini ping, overall aggregation, the boot staleness gate, and the
 one-run-at-a-time concurrency guard.
 """
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -14,10 +16,10 @@ from web_interface.services import system_health as sh
 
 
 @pytest.fixture(autouse=True)
-def _isolate_state(monkeypatch):
-    """Reset in-memory state and block real persistence for every test."""
+def _isolate_state(monkeypatch, tmp_path):
+    """Reset in-memory state and redirect persistence to a per-test file."""
     monkeypatch.setattr(sh, "_current", None)
-    monkeypatch.setattr(sh.data_io, "save_json", lambda **kwargs: None)
+    monkeypatch.setattr(sh, "_HEALTH_PATH", str(tmp_path / "system_health.json"))
     monkeypatch.setattr(sh.data_io, "exists", lambda **kwargs: False)
     yield
 
@@ -120,6 +122,7 @@ def test_check_platform_ok(monkeypatch):
     _patch_scraper(monkeypatch, FakeScraper(fetch_result=raw, canonical_columns=["desc"]))
     result = sh._check_platform("tiktok", _status_frame(), expected_fields=["desc"])
     assert result["status"] == "ok"
+    assert "all 1 expected fields filled" in result["message"]
     assert result["item_id"] == "333"
     assert result["duration_s"] is not None
     assert result["media"]["status"] == "skipped"
@@ -135,6 +138,7 @@ def test_check_platform_fill_drift_warns(monkeypatch):
     result = sh._check_platform("tiktok", _status_frame(),
                                 expected_fields=["desc", "play_count"])
     assert result["status"] == "warn"
+    assert "1 of 2 expected fields filled OK" in result["detail"]
     assert "play_count" in result["detail"]
 
 
@@ -371,8 +375,8 @@ def test_start_health_check_concurrency_guard(monkeypatch):
 def test_get_health_downgrades_interrupted_run(monkeypatch):
     stale_doc = {"schema_version": 1, "overall": "running", "finished_at": None,
                  "checks": {"gemini": {"status": "ok"}}}
-    monkeypatch.setattr(sh.data_io, "exists", lambda **kwargs: True)
-    monkeypatch.setattr(sh.data_io, "load_json", lambda **kwargs: dict(stale_doc))
+    with open(sh._HEALTH_PATH, "w", encoding="utf-8") as f:
+        json.dump(stale_doc, f)
     doc = sh.get_health()
     assert doc["overall"] == "ok"
     assert doc["interrupted"] is True
