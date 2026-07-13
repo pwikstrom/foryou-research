@@ -1,0 +1,173 @@
+{% extends 'public/base_public.html' %}
+
+{% block public_content %}
+
+<!-- Hero -->
+<section class="landing-hero">
+    <img src="{{ url_for('static', filename='home_banner.png') }}" alt="For You Data Hub banner" class="landing-hero-img">
+    <h1 class="hero-title">The For You Data Hub</h1>
+    <p class="hero-subtitle landing-hero-sub">
+        A research platform for exploring social-media feeds donated by study participants —
+        TikTok, Instagram and YouTube — built by
+        <a href="https://www.foryouresearch.net/" target="_blank" rel="noopener">The For You Research Project</a>
+        at QUT and the University of Sydney.
+    </p>
+    <div class="landing-hero-ctas">
+        <a href="{{ url_for('auth_bp.login') }}" class="btn-primary public-cta">Log in</a>
+        <a href="{{ url_for('public_bp.guide') }}" class="btn-discreet public-cta">How it works</a>
+        <a href="{{ url_for('public_bp.about') }}" class="btn-discreet public-cta">About the project</a>
+    </div>
+</section>
+
+<!-- What is the Data Hub -->
+<section class="landing-section">
+    <h2 class="text-h2 font-semibold landing-section-title">What is the Data Hub?</h2>
+    <p class="prose landing-section-intro">
+        The Data Hub turns donated platform data into an interactive research environment.
+        Study participants export their activity data from TikTok, Instagram or YouTube and donate it
+        to the project; the hub enriches it and makes it explorable for the research team.
+    </p>
+    <div class="feature-grid">
+        <div class="feature-card">
+            <div class="feature-card-icon">⇪</div>
+            <h3 class="text-h3 font-semibold">Donated data</h3>
+            <p class="text-sm">
+                Participants share their platform data exports — what they watched, when, for how long,
+                and what they engaged with. The hub parses these donations into a common,
+                platform-agnostic activity format.
+            </p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-card-icon">✦</div>
+            <h3 class="text-h3 font-semibold">Enrichment</h3>
+            <p class="text-sm">
+                Each video in a donated feed is enriched with public metadata — captions, creators,
+                popularity — and annotated by AI with content categories, themes, style and more,
+                turning raw logs into analysable variables.
+            </p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-card-icon">◫</div>
+            <h3 class="text-h3 font-semibold">Analysis</h3>
+            <p class="text-sm">
+                Interactive tools let researchers compare distributions, follow individual feeds over
+                time, watch and code videos, chart correlations, and navigate a semantic map of the
+                whole corpus.
+            </p>
+        </div>
+    </div>
+</section>
+
+<!-- Feature tour -->
+<section class="landing-section">
+    <h2 class="text-h2 font-semibold landing-section-title">What you can do</h2>
+
+    <div class="feature-row">
+        <div class="feature-row-text">
+            <h3 class="text-h3 font-semibold">Explore the data</h3>
+            <p class="prose">
+                Compare variable distributions across the active study, optionally split into two
+                filtered slices. Build a selection with checkboxes and range sliders, run two slices
+                side by side, and let significance stars flag the differences. Click any bar to drill
+                into the matching videos.
+            </p>
+        </div>
+        <figure class="screenshot-frame">
+            <img src="{{ url_for('static', filename='landing/explore.png') }}" alt="Explore tab: variable distributions split into two filtered slices" loading="lazy">
+            <figcaption>Explore — distribution comparison across data slices</figcaption>
+        </figure>
+    </div>
+
+    <div class="feature-row">
+        <div class="feature-row-text">
+            <h3 class="text-h3 font-semibold">Follow feeds over time</h3>
+            <p class="prose">
+                Timelines shows how a single participant's feed evolves day by day. Every variable
+                becomes a smoothed timeline with optional daily values, trend and anomaly detection,
+                and filter chips that isolate rising, falling, spiking or volatile categories.
+            </p>
+        </div>
+        <figure class="screenshot-frame">
+            <img src="{{ url_for('static', filename='landing/timelines.png') }}" alt="Timelines tab: a participant's activity evolving day by day" loading="lazy">
+            <figcaption>Timelines — one participant's feed, day by day</figcaption>
+        </figure>
+    </div>
+
+    <div class="feature-row">
+        <div class="feature-row-text">
+            <h3 class="text-h3 font-semibold">Watch and code videos</h3>
+            <p class="prose">
+                Video Analysis is the qualitative workbench: filter videos on any metadata variable,
+                watch them in place, inspect the full enrichment record, and apply your own tags and
+                notes — including shared team annotations.
+            </p>
+        </div>
+        <figure class="screenshot-frame">
+            <img src="{{ url_for('static', filename='landing/video_analysis.png') }}" alt="Video Analysis tab: watching and tagging an individual video" loading="lazy">
+            <figcaption>Video Analysis — watch, inspect and tag individual videos</figcaption>
+        </figure>
+    </div>
+
+    <div class="feature-row">
+        <div class="feature-row-text">
+            <h3 class="text-h3 font-semibold">Chart relationships</h3>
+            <p class="prose">
+                Correlations places one dot per collection-day on any two numeric axes, with group
+                ellipses, regression lines and a full correlation heatmap — plus PCA-based measures
+                computed per study.
+            </p>
+        </div>
+        <figure class="screenshot-frame">
+            <img src="{{ url_for('static', filename='landing/correlations.png') }}" alt="Correlations tab: scatter plot with group ellipses" loading="lazy">
+            <figcaption>Correlations — scatter, ellipses and correlation heatmap</figcaption>
+        </figure>
+    </div>
+
+    <div class="feature-row">
+        <div class="feature-row-text">
+            <h3 class="text-h3 font-semibold">Navigate the semantic space</h3>
+            <p class="prose">
+                Every annotated video is embedded by meaning and mapped in 2D: similar content sits
+                close together, auto-named "niches" reveal micro-genres, and colouring by category or
+                popularity shows how the corpus organises itself.
+            </p>
+        </div>
+        <figure class="screenshot-frame">
+            <img src="{{ url_for('static', filename='landing/semantic_space.png') }}" alt="Semantic Space tab: 2D embedding map of annotated videos" loading="lazy">
+            <figcaption>Semantic Space — an embedding map of the whole corpus</figcaption>
+        </figure>
+    </div>
+</section>
+
+<!-- Callouts -->
+<section class="landing-section">
+    <div class="note-callout">
+        <p>
+            This tool is currently under development, so you may occasionally encounter bugs or
+            unexpected behaviour. If you do, we'd really appreciate your help in improving it —
+            please let us know at info@foryouresearch.net.
+        </p>
+    </div>
+    <div class="note-callout">
+        <p>
+            Some of the data and insights presented here are generated using AI. While we aim for
+            accuracy, there may be instances where outputs are imperfect or unexpected. We appreciate
+            your understanding as we continue to refine both the tool and our research methods.
+        </p>
+    </div>
+</section>
+
+<!-- Participation CTA -->
+<section class="landing-section landing-cta-band">
+    <h2 class="text-h2 font-semibold">Want to help us decode TikTok?</h2>
+    <p class="prose">
+        We're looking for TikTok users and creators to take part in the study — share your platform
+        data anonymously, or join our Creator Panel and tell us how you navigate the algorithm.
+    </p>
+    <div class="landing-hero-ctas">
+        <a href="https://www.foryouresearch.net/be-a-citizen-scientist" target="_blank" rel="noopener" class="btn-primary public-cta">Participate in the study</a>
+        <a href="mailto:foryou@qut.edu.au" class="btn-discreet public-cta">Contact the team</a>
+    </div>
+</section>
+
+{% endblock %}
