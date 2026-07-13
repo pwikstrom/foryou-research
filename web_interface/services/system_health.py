@@ -457,8 +457,17 @@ def _check_row_format(scraper, raw_df: pd.DataFrame, expected_fields: list[str])
              if f not in canonical.columns or pd.isna(row[f])]
     total = len(expected_fields)
     if empty:
-        return ("warn",
-                "Metadata format drift: historically-filled field(s) came back empty",
+        # Rates and plays_per_day are all derived from play_count; when only
+        # those are missing the cause is an environment-dependent play_count
+        # fetch (e.g. Instagram's supplemental authenticated count lookup),
+        # not a schema/format problem.
+        play_count_derived = set(sc.per_k_sources(sc.load_contract())) | {"plays_per_day"}
+        if set(empty) <= play_count_derived:
+            message = ("play_count unavailable in this environment — "
+                       "play_count-derived field(s) came back empty")
+        else:
+            message = "Metadata format drift: historically-filled field(s) came back empty"
+        return ("warn", message,
                 f"{total - len(empty)} of {total} expected fields filled OK · "
                 f"empty: {', '.join(empty)}")
     return "ok", f"all {total} expected fields filled" if total else None, None
@@ -508,6 +517,24 @@ def _probe_media(scraper, item_id: str) -> dict:
         return {"status": "warn", "message": "Media probe request failed",
                 "detail": repr(e), "bytes_read": 0,
                 "duration_s": round(time.monotonic() - t0, 2)}
+
+
+
+
+
+
+def _media_probe_bot_walled(media: dict) -> bool:
+    """Return True when the media probe failed on a bot wall / rate limit.
+
+    The probe reports raw exception text, not a classified category, so this
+    matches the bot-check and rate-limit phrasings the platform classifiers
+    key on (normalizing YouTube's typographic apostrophe).
+    """
+    if media.get("status") != "warn":
+        return False
+    text = f"{media.get('message') or ''} {media.get('detail') or ''}".lower().replace("’", "'")
+    return any(kw in text for kw in ("not a bot", "not a robot", "rate-limit",
+                                     "rate limit", "too many requests", "429"))
 
 
 
@@ -571,6 +598,12 @@ def _check_platform(platform: str, status_df: pd.DataFrame | None,
     if result["status"] == "ok" and result["media"]["status"] == "warn":
         result["status"] = "warn"
         result["message"] += f" — media probe: {result['media']['message']}"
+    elif fmt_status == "warn" and _media_probe_bot_walled(result["media"]):
+        # The bot wall that broke the media probe also degrades the metadata
+        # response (e.g. YouTube's player response carries `duration`), so the
+        # missing fields are environmental, not format drift.
+        result["message"] += (" — likely environmental: media probe hit a bot "
+                              "wall / rate limit on this IP, which also degrades metadata")
     return result
 
 

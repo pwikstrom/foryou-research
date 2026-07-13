@@ -146,6 +146,44 @@ def test_check_platform_fill_drift_warns(monkeypatch):
 
 
 
+def test_fill_drift_all_play_count_derived_gets_environment_message(monkeypatch):
+    raw = pd.DataFrame([{"desc": "hello"}])
+    _patch_scraper(monkeypatch, FakeScraper(fetch_result=raw, canonical_columns=["desc"]))
+    monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
+    monkeypatch.setattr(sh.sc, "per_k_sources",
+                        lambda contract: {"faves_per_K_play": "fave_count"})
+    result = sh._check_platform("tiktok", _status_frame(),
+                                expected_fields=["desc", "faves_per_K_play", "plays_per_day"])
+    assert result["status"] == "warn"
+    assert "play_count unavailable in this environment" in result["message"]
+    assert "1 of 3 expected fields filled OK" in result["detail"]
+
+
+def test_fill_drift_with_bot_walled_media_probe_notes_environment(monkeypatch):
+    raw = pd.DataFrame([{"desc": "hello"}])
+    _patch_scraper(monkeypatch, FakeScraper(
+        fetch_result=raw, canonical_columns=["desc"],
+        probe_error=RuntimeError("Sign in to confirm you’re not a bot")))
+    result = sh._check_platform("tiktok", _status_frame(),
+                                expected_fields=["desc", "duration"])
+    assert result["status"] == "warn"
+    assert "Metadata format drift" in result["message"]
+    assert "likely environmental" in result["message"]
+
+
+def test_media_probe_bot_walled_helper():
+    assert sh._media_probe_bot_walled(
+        {"status": "warn", "message": "Media URL resolution failed",
+         "detail": "DownloadError('Sign in to confirm you’re not a bot')"})
+    assert sh._media_probe_bot_walled(
+        {"status": "warn", "message": "CDN responded HTTP 429 with 0 bytes", "detail": None})
+    assert not sh._media_probe_bot_walled(
+        {"status": "warn", "message": "Media probe request failed",
+         "detail": "OSError('connection reset')"})
+    assert not sh._media_probe_bot_walled(
+        {"status": "ok", "message": "CDN served 64KB in 1s", "detail": None})
+
+
 def test_check_platform_canonicalization_failure_fails(monkeypatch):
     raw = pd.DataFrame([{"desc": "hello"}])
     _patch_scraper(monkeypatch, FakeScraper(
