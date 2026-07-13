@@ -3436,6 +3436,25 @@ button.meta-tooltip:disabled {
     text-align: center;
 }
 
+/* When a screenshot asset is missing (not yet captured), hide the broken
+   image and show a tasteful placeholder instead of a broken-image icon. */
+.screenshot-frame--pending img {
+    display: none;
+}
+
+.screenshot-frame--pending::before {
+    content: "Screenshot coming soon";
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 16 / 10;
+    border-radius: 6px;
+    background: var(--color-bg-inset);
+    border: 1px dashed var(--color-border);
+    color: var(--color-text-faint);
+    font-size: var(--text-sm);
+}
+
 /* ----- CTA band ----- */
 
 .landing-cta-band {
