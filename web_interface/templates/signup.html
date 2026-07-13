@@ -1,10 +1,9 @@
-{% extends "base.html" %}
+{% extends 'public/base_public.html' %}
 
-{% block content %}
-<div class="container" style="display: flex; justify-content: center; align-items: center; height: 80vh;">
-    <div
-        style="background: var(--color-bg-surface); padding: 40px; border-radius: 8px; box-shadow: var(--shadow-md); width: 100%; max-width: 400px; border: 1px solid var(--color-border);">
-        <h2 style="text-align: center; margin-bottom: 24px;">Sign Up</h2>
+{% block public_content %}
+<div class="auth-page-card">
+    <div class="auth-form-container">
+        <h3 class="text-h3 auth-card-title">Sign Up</h3>
 
         {% with messages = get_flashed_messages() %}
         {% if messages %}
@@ -20,14 +19,13 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
             <div>
                 <label for="username">Email</label>
-                <input type="text" id="username" name="username" required
-                    style="width: 100%; padding: 8px 12px;">
+                <input type="text" id="username" name="username" required>
             </div>
 
             <div>
                 <label for="display_username">Username</label>
                 <input type="text" id="display_username" name="display_username" required
-                    minlength="3" maxlength="15" style="width: 100%; padding: 8px 12px;">
+                    minlength="3" maxlength="15">
                 <div class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;">
                     3&ndash;15 characters, shown instead of your email.
                 </div>
@@ -35,22 +33,20 @@
 
             <div>
                 <label for="password">Password</label>
-                <input type="password" id="password" name="password" required
-                    style="width: 100%; padding: 8px 12px;">
+                <input type="password" id="password" name="password" required>
             </div>
 
             <div>
                 <label for="confirm_password">Confirm Password</label>
-                <input type="password" id="confirm_password" name="confirm_password" required
-                    style="width: 100%; padding: 8px 12px;">
+                <input type="password" id="confirm_password" name="confirm_password" required>
             </div>
 
-            <button type="submit" class="auth-submit-btn" style="width: 100%;">
+            <button type="submit" class="auth-submit-btn">
                 Create Account
             </button>
         </form>
 
-        <div class="text-sm" style="text-align: center; margin-top: 16px; color: var(--color-text-muted);">
+        <div class="text-sm auth-card-footer" style="color: var(--color-text-muted);">
             Already have an account? <a href="{{ url_for('auth_bp.login') }}">Log in</a>
         </div>
     </div>

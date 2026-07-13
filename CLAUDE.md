@@ -151,7 +151,6 @@ fyp_main_v02/
 │   ├── semantic_trajectory.py   # Collection-trajectory overlay computation for Semantic Space
 │   ├── explorer_backend.py      # Data explorer backend logic
 │   ├── slack_service.py         # Slack integration
-│   ├── static_content.py        # Static page content
 │   ├── mail_utils.py            # Email utilities
 │   ├── run_queue_annotator.py   # Gemini annotation (self-chaining Cloud Task)
 │   ├── run_queue_scraper.py     # Per-platform scraping worker (queue_scraper_<platform>; --platform / task_args platform)
@@ -186,11 +185,14 @@ fyp_main_v02/
 │   │   │                        #     enrichment, contracts, ab_eval, schema, ingestion) on ONE shared blueprint
 │   │   ├── management_routes.py #   Compatibility shim re-exporting the management package
 │   │   ├── human_eval_routes.py #   Human annotation input (coding, votes, invitations)
+│   │   ├── public_routes.py     #   Public (unauthenticated) mini-site pages: /about, /guide, /faq
 │   │   └── process_routes.py    #   Background process endpoints
 │   ├── templates/
 │   │   ├── base.html            # Base layout
 │   │   ├── index.html           # Main SPA shell
-│   │   ├── login.html / signup.html
+│   │   ├── login.html / signup.html  # Form-only pages on the public layout
+│   │   ├── public/              # Public mini-site: base_public.html + _header/_footer partials,
+│   │   │                        #   landing.html (anonymous /), about.html, guide.html, faq.html
 │   │   └── tabs/                # Tab content templates
 │   │       ├── home.html
 │   │       ├── video_analysis.html

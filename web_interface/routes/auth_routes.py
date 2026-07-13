@@ -26,7 +26,6 @@ from ..security import user_manager
 auth_bp = Blueprint('auth_bp', __name__)
 
 from ..slack_service import get_recent_messages
-from ..static_content import HOME_CONTENT
 
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
@@ -63,7 +62,7 @@ def login():
     
     slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
     slack_messages = get_recent_messages() if slack_configured else []
-    return render_template('login.html', slack_messages=slack_messages, slack_configured=slack_configured, content=HOME_CONTENT)
+    return render_template('login.html', slack_messages=slack_messages, slack_configured=slack_configured)
 
 @auth_bp.route('/signup', methods=['GET', 'POST'])
 def signup():
