@@ -403,3 +403,80 @@ def test_run_all_checks_survives_crashing_checks(monkeypatch):
     assert "kaboom" in doc["checks"]["scrape_tiktok"]["detail"]
     assert doc["checks"]["gemini"]["status"] == "ok"
     assert doc["finished_at"] is not None
+
+
+
+
+
+
+def test_worst_chip_severity():
+    assert sh._worst_chip("ok", "warn") == "warn"
+    assert sh._worst_chip("ok", "fail", "warn") == "fail"
+    assert sh._worst_chip("unknown", "ok") == "ok"
+    assert sh._worst_chip("unknown", "unknown") == "unknown"
+    assert sh._worst_chip() == "unknown"
+
+
+
+
+
+
+def _card_doc():
+    return {"overall": "warn", "checks": {
+        "scrape_tiktok": {"status": "ok", "message": "Fetched X",
+                          "checked_at": "2026-07-13T00:00:00+00:00",
+                          "cookie": {"status": "healthy"}, "media": {"status": "ok"}},
+        "scrape_youtube": {"status": "warn", "message": "drift",
+                           "checked_at": "2026-07-13T00:00:00+00:00",
+                           "media": {"status": "warn", "message": "bot wall"}},
+        "scrape_instagram": {"status": "ok", "message": "Fetched Y",
+                             "checked_at": "2026-07-13T00:00:00+00:00"},
+        "gemini": {"status": "fail", "message": "quota",
+                   "checked_at": "2026-07-13T00:00:00+00:00"},
+    }}
+
+
+
+
+
+
+def test_derive_card_health_combines_scrape_cookie_annotation(monkeypatch):
+    monkeypatch.setattr(sh, "get_health", lambda: _card_doc())
+    monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
+    monkeypatch.setattr(sh.sc, "platforms",
+                        lambda contract: ["tiktok", "instagram", "youtube"])
+    live = {"tiktok": {"status": "healthy"},
+            "youtube": {"status": "healthy"},
+            "instagram": {"status": "expired", "message": "Session expired"}}
+
+    result = sh.derive_card_health(live_cookie=live)
+    assert result["ran"] is True
+    # ok scrape + healthy cookie -> ok
+    assert result["platforms"]["tiktok"]["status"] == "ok"
+    # ok scrape but expired cookie -> fail (worst wins)
+    assert result["platforms"]["instagram"]["status"] == "fail"
+    assert "Session expired" in result["platforms"]["instagram"]["summary"]
+    # warn scrape + healthy cookie -> warn; media detail surfaced
+    assert result["platforms"]["youtube"]["status"] == "warn"
+    assert "bot wall" in result["platforms"]["youtube"]["summary"]
+    # annotation follows the gemini check
+    assert result["annotation"]["status"] == "fail"
+    assert result["annotation"]["summary"] == "quota"
+
+
+
+
+
+
+def test_derive_card_health_never_run_falls_back_to_cookie(monkeypatch):
+    monkeypatch.setattr(sh, "get_health",
+                        lambda: {"overall": "never_run", "checks": {}})
+    monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
+    monkeypatch.setattr(sh.sc, "platforms", lambda contract: ["tiktok"])
+
+    result = sh.derive_card_health(live_cookie={"tiktok": {"status": "healthy"}})
+    assert result["ran"] is False
+    # No scrape check yet -> chip driven by the live cookie only.
+    assert result["platforms"]["tiktok"]["status"] == "ok"
+    assert "not yet checked" in result["platforms"]["tiktok"]["summary"]
+    assert result["annotation"]["status"] == "unknown"

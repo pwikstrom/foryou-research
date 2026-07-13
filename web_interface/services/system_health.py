@@ -85,6 +85,117 @@ def _overall(checks: dict) -> str:
 
 
 
+# Cookie freshness status → chip status (green/yellow/red/grey).
+_COOKIE_TO_CHIP = {
+    "healthy": "ok",
+    "expiring_soon": "warn",
+    "stale": "warn",
+    "expired": "fail",
+    "missing": "fail",
+    "unknown": "unknown",
+}
+
+# Chip status severity for the "worst wins" combination.
+_CHIP_SEVERITY = {"unknown": 0, "ok": 1, "warn": 2, "fail": 3}
+
+
+def _worst_chip(*statuses: str) -> str:
+    """Return the most severe chip status (fail > warn > ok > unknown)."""
+    worst = "unknown"
+    for status in statuses:
+        if _CHIP_SEVERITY.get(status, 0) > _CHIP_SEVERITY.get(worst, 0):
+            worst = status
+    return worst
+
+
+
+
+
+
+def _chip_from_check_status(status: str | None) -> str:
+    """Map a health-check status to a chip status (running/never_run → unknown)."""
+    return status if status in ("ok", "warn", "fail") else "unknown"
+
+
+
+
+
+
+def _platform_summary(check: dict, cookie: dict) -> str:
+    """Build a one-line tooltip summary from a platform check + cookie health."""
+    parts = []
+    if check.get("message"):
+        parts.append(f"Scrape: {check['message']}")
+    else:
+        parts.append("Scrape not yet checked")
+    media = check.get("media") or {}
+    if media.get("status") in ("warn", "fail"):
+        parts.append(f"Media: {media.get('message') or media['status']}")
+    if cookie.get("status"):
+        parts.append(f"Cookie: {cookie.get('message') or cookie['status']}")
+    return " · ".join(parts)
+
+
+
+
+
+
+def derive_card_health(live_cookie: dict | None = None) -> dict:
+    """Collapse the health doc + live cookie health into enrichment-card chips.
+
+    Produces one green/yellow/red/grey status per scraper platform (combining
+    that platform's test-scrape + media result with the freshest cookie status)
+    and one for annotation (from the Gemini ping) — the shape the enrichment
+    tab's chips consume. Never raises.
+
+    Args:
+        live_cookie: optional ``{platform: cookie_health_dict}`` from the
+            enrichment endpoint's 5-minute cache, preferred over the (possibly
+            hours-old) cookie captured inside the last health check.
+
+    Returns:
+        ``{"ran": bool, "platforms": {p: {status, summary, checked_at}},
+        "annotation": {status, summary, checked_at}}``. ``status`` is one of
+        ``ok``/``warn``/``fail``/``unknown`` (→ ``cookie-pill--{ok|warn|bad|unknown}``).
+    """
+    doc = get_health()
+    checks = doc.get("checks") or {}
+    ran = doc.get("overall") not in (None, "never_run")
+    live_cookie = live_cookie or {}
+
+    platforms: dict[str, dict] = {}
+    try:
+        platform_list = sc.platforms(sc.load_contract())
+    except Exception:
+        platform_list = list(live_cookie.keys())
+
+    for platform in platform_list:
+        check = checks.get(f"scrape_{platform}") or {}
+        cookie = live_cookie.get(platform) or check.get("cookie") or {}
+        status = _worst_chip(
+            _chip_from_check_status(check.get("status")),
+            _COOKIE_TO_CHIP.get(cookie.get("status", "unknown"), "unknown"),
+        )
+        platforms[platform] = {
+            "status": status,
+            "summary": _platform_summary(check, cookie),
+            "checked_at": check.get("checked_at"),
+        }
+
+    gemini = checks.get("gemini") or {}
+    annotation = {
+        "status": _chip_from_check_status(gemini.get("status")),
+        "summary": gemini.get("message") or "Gemini not yet checked",
+        "checked_at": gemini.get("checked_at"),
+    }
+
+    return {"ran": ran, "platforms": platforms, "annotation": annotation}
+
+
+
+
+
+
 def is_running() -> bool:
     """True while a health-check run is in flight in this process."""
     if _run_lock.acquire(blocking=False):

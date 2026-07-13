@@ -22,6 +22,7 @@ from ...process_manager import (
     start_process,
 )
 from ...permissions import permission_required
+from ...services import system_health
 from ...task_status import is_cloud_run
 
 
@@ -153,6 +154,11 @@ def get_enrichment_stats():
 
     pipeline_active = flag_in_flight or any_step_running
 
+    cookie_health = {
+        p: _cached_cookie_health(p)
+        for p in scrape_queues.registered_platforms()
+    }
+
     return jsonify({
         "total_videos": total_videos,
         "scraped_videos": scraped_videos,
@@ -160,10 +166,11 @@ def get_enrichment_stats():
         "unique_collections": unique_collections,
         "scrape_queue_len": scrape_queue_len,
         "scrape_queues": scrape_queues_by_platform,
-        "cookie_health": {
-            p: _cached_cookie_health(p)
-            for p in scrape_queues.registered_platforms()
-        },
+        "cookie_health": cookie_health,
+        # Per-card health chips: combine the last system-health check (test
+        # scrape + media) with the fresh cookie status into one green/yellow/red
+        # per platform, plus an annotation chip from the Gemini ping.
+        "card_health": system_health.derive_card_health(live_cookie=cookie_health),
         "annotate_queue_len": annotate_queue_len,
         "annotate_claimed_len": annotate_claimed_len,
         "consolidate_stats": {

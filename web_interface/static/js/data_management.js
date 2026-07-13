@@ -2077,41 +2077,50 @@ function startTargetedRefresh(processName, params) {
         });
 }
 
-// Map a cookie_health status → { label, cls } for the per-card pill. The class
-// selects a semantic-token color in style.css (no hardcoded colors here).
-const _COOKIE_STATUS_META = {
-    healthy: { label: 'OK', cls: 'ok' },
-    expiring_soon: { label: 'Expiring soon', cls: 'warn' },
-    stale: { label: 'Stale', cls: 'warn' },
-    expired: { label: 'Expired', cls: 'bad' },
-    missing: { label: 'Missing', cls: 'bad' },
+// Map a system-health chip status → { label, cls } for the per-card pill. The
+// class selects a semantic-token color in style.css (no hardcoded colors here).
+const _HEALTH_CHIP_META = {
+    ok: { label: 'OK', cls: 'ok' },
+    warn: { label: 'Warning', cls: 'warn' },
+    fail: { label: 'Failing', cls: 'bad' },
     unknown: { label: 'Unknown', cls: 'unknown' },
 };
 
-// Render each platform's cookie-status pill from the enrichment-stats payload.
-// Composes a human tooltip (message + age + expiry) onto the .meta-tooltip pill.
-function renderCookieHealth(healthByPlatform) {
-    for (const [platform, health] of Object.entries(healthByPlatform || {})) {
-        const el = document.getElementById('cookie-health-' + platform);
-        if (!el || !health) continue;
-        const status = health.status || 'unknown';
-        const meta = _COOKIE_STATUS_META[status] || _COOKIE_STATUS_META.unknown;
+// Compact relative time for a chip tooltip ("just now", "5m ago", "3h ago").
+function _healthRelativeTime(iso) {
+    if (!iso) return '';
+    const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (!isFinite(seconds) || seconds < 0) return '';
+    if (seconds < 90) return 'just now';
+    if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
+    if (seconds < 129600) return `${Math.round(seconds / 3600)}h ago`;
+    return `${Math.round(seconds / 86400)}d ago`;
+}
 
-        el.className = `cookie-pill cookie-pill--${meta.cls} meta-tooltip`;
-        el.textContent = `Cookie: ${meta.label}`;
+// Paint one health pill from a { status, summary, checked_at } entry. The
+// summary carries the combined scrape/media/cookie (or Gemini) detail; the
+// tooltip appends when the underlying check last ran.
+function _renderHealthChip(el, prefix, entry) {
+    if (!el || !entry) return;
+    const meta = _HEALTH_CHIP_META[entry.status] || _HEALTH_CHIP_META.unknown;
+    el.className = `cookie-pill cookie-pill--${meta.cls} meta-tooltip`;
+    el.textContent = `${prefix}: ${meta.label}`;
 
-        // Tooltip: the backend message plus any age / expiry detail it carries.
-        const parts = [];
-        if (health.message) parts.push(health.message);
-        if (typeof health.file_age_days === 'number') {
-            parts.push(`File age: ${health.file_age_days.toFixed(0)}d`);
-        }
-        if (typeof health.session_days_left === 'number') {
-            const d = health.session_days_left;
-            parts.push(d >= 0 ? `Expires in: ${d.toFixed(0)}d` : `Expired ${Math.abs(d).toFixed(0)}d ago`);
-        }
-        el.setAttribute('data-tooltip', parts.join(' • ') || 'No cookie detail available');
+    const parts = [];
+    if (entry.summary) parts.push(entry.summary);
+    const rel = _healthRelativeTime(entry.checked_at);
+    parts.push(rel ? `Checked ${rel}` : 'Health check has not run yet');
+    el.setAttribute('data-tooltip', parts.join(' • '));
+}
+
+// Render the per-platform scraper chips and the annotation chip from the
+// enrichment-stats payload's derived card_health (see system_health.derive_card_health).
+function renderCardHealth(cardHealth) {
+    if (!cardHealth) return;
+    for (const [platform, entry] of Object.entries(cardHealth.platforms || {})) {
+        _renderHealthChip(document.getElementById('cookie-health-' + platform), 'Scraper', entry);
     }
+    _renderHealthChip(document.getElementById('annotation-health'), 'Gemini', cardHealth.annotation);
 }
 
 function fetchEnrichmentStats() {
@@ -2138,8 +2147,9 @@ function fetchEnrichmentStats() {
                 }
             }
 
-            // Per-platform cookie-health pill (format / age / expiry at a glance)
-            if (data.cookie_health) renderCookieHealth(data.cookie_health);
+            // Per-card health pills (scrapers + annotation), combining the last
+            // system-health check with the fresh cookie status.
+            if (data.card_health) renderCardHealth(data.card_health);
             if (data.annotate_queue_len !== undefined) {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
                 document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';
